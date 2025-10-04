@@ -81,7 +81,6 @@ def build_executable():
         "--name=LoLSkinChanger",
         "--icon=icon.ico",
         "--add-data=icon.ico;.",
-        "--add-data=icon.webp;.",
         "--add-data=requirements.txt;.",
     ]
     

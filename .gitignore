@@ -9,5 +9,5 @@ injection/incoming_zips/*
 # Installer artifacts
 build/
 dist/
-*.spec
+installer/
 LoLSkinChanger_SingleInstaller.zip
