@@ -59,6 +59,7 @@ OCR tracer/
 
 - **Fully Automated**: Just run `main.py` - no manual intervention required!
 - **Multi-Language Support**: Works with any League of Legends client language (17 languages supported)
+- **⚠️ Limitation**: Languages with non-Latin alphabets (Chinese, Japanese, Korean, Arabic, etc.) are currently not supported due to OCR limitations
 - **Smart Detection**: OCR automatically detects skin names during champion select
 - **Instant Injection**: Skins are injected 2 seconds before game starts
 - **Massive Collection**: 8,000+ skins for 150+ champions included
@@ -211,7 +212,7 @@ The system supports 17 languages with automatic detection and optimized loading:
 - **Game not detected**: Ensure League of Legends is installed in default location
 - **Language issues**: Use `--language auto` for automatic detection or specify your client's language
 - **Performance issues**: Use manual language selection (`--language <lang>`) for better performance
-- **Non-Latin alphabet issues**: Use `--lang auto` for automatic OCR language detection or specify manually (e.g., `--lang kor` for Korean)
+- **Non-Latin alphabet issues**: Languages with non-Latin alphabets (Chinese, Japanese, Korean, Arabic, etc.) are currently not supported due to OCR limitations
 - **OCR language not found**: Ensure Tesseract OCR has the required language packs installed
 
 ### System Requirements
