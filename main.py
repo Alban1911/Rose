@@ -45,9 +45,9 @@ def main():
     ap.add_argument("--lockfile", type=str, default=None)
     
     # OCR performance arguments
-    ap.add_argument("--burst-hz", type=float, default=1000.0)
+    ap.add_argument("--burst-hz", type=float, default=50.0)
     ap.add_argument("--idle-hz", type=float, default=0.0, help="ré-émission périodique (0=off)")
-    ap.add_argument("--diff-threshold", type=float, default=0.012)
+    ap.add_argument("--diff-threshold", type=float, default=0.005)
     ap.add_argument("--burst-ms", type=int, default=280)
     ap.add_argument("--min-ocr-interval", type=float, default=0.11)
     ap.add_argument("--second-shot-ms", type=int, default=120)
