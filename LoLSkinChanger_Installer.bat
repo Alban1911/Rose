@@ -115,8 +115,7 @@ set "APP_ZIP=%TEMP%\LoLSkinChanger.zip"
 
 :: Download the application from GitHub
 echo Downloading application files...
-:: Note: Replace 'your-username' with your actual GitHub username
-powershell -Command "& {Invoke-WebRequest -Uri 'https://github.com/your-username/LoLSkinChanger/archive/main.zip' -OutFile '%APP_ZIP%'}"
+powershell -Command "& {Invoke-WebRequest -Uri 'https://github.com/AlbanCliquet/LoLSkinChanger/archive/main.zip' -OutFile '%APP_ZIP%'}"
 
 if not exist "%APP_ZIP%" (
     echo [ERROR] Failed to download application.
