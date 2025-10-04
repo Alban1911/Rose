@@ -15,6 +15,7 @@ from threads.phase_thread import PhaseThread
 from threads.champ_thread import ChampThread
 from threads.ocr_thread import OCRSkinThread
 from threads.websocket_thread import WSEventThread
+from threads.lcu_monitor_thread import LCUMonitorThread
 from utils.logging import setup_logging, get_logger
 from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
@@ -152,15 +153,36 @@ def main():
         log.info("Automatic skin download disabled")
     
     # Initialize components
-    # Initialize LCU first to get language info
+    # Initialize LCU first
     lcu = LCU(args.lockfile)
     
-    # Determine OCR language based on LCU language if auto mode
+    # Wait for LCU connection before determining language
     ocr_lang = args.lang
     if args.lang == "auto":
-        lcu_lang = lcu.get_client_language() if lcu else None
+        # Wait indefinitely for LCU to be available before getting language
+        lcu_lang = None
+        
+        if not lcu.ok:
+            log.info("Waiting for LCU connection...")
+        
+        while not lcu_lang:
+            if lcu.ok:
+                try:
+                    lcu_lang = lcu.get_client_language()
+                    if lcu_lang:
+                        log.info(f"LCU connected - detected language: {lcu_lang}")
+                        break
+                except Exception as e:
+                    log.debug(f"Failed to get LCU language: {e}")
+            
+            time.sleep(1)
+            lcu.refresh_if_needed()
+        
         ocr_lang = get_ocr_language(lcu_lang, args.lang)
         log.info(f"Auto-detected OCR language: {ocr_lang} (LCU: {lcu_lang})")
+        
+        # Note: WebSocket connection will be handled by LCUMonitorThread
+        # for reconnections and language changes
     
     # Validate OCR language
     if not validate_ocr_language(ocr_lang):
@@ -182,7 +204,7 @@ def main():
     db = NameDB(lang=args.dd_lang)
     state = SharedState()
     
-    # Initialize multi-language database
+    # Initialize multi-language database (after LCU connection is established)
     if args.multilang:
         auto_detect = args.language.lower() == "auto"
         manual_lang = args.language if not auto_detect else args.dd_lang
@@ -203,11 +225,35 @@ def main():
     state.skin_file = getattr(args, 'skin_file', state.skin_file) or state.skin_file
     state.inject_batch = getattr(args, 'inject_batch', state.inject_batch) or state.inject_batch
 
+    # Function to update OCR language dynamically
+    def update_ocr_language(new_lcu_lang: str):
+        """Update OCR language when LCU language changes"""
+        if args.lang == "auto":
+            new_ocr_lang = get_ocr_language(new_lcu_lang, args.lang)
+            if new_ocr_lang != ocr.lang:
+                try:
+                    # Update OCR language
+                    ocr.lang = new_ocr_lang
+                    log.info(f"OCR language updated to: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                    
+                    # Update multilang database if needed
+                    if multilang_db and multilang_db.auto_detect:
+                        multilang_db.current_language = new_lcu_lang
+                        if new_lcu_lang not in multilang_db.databases:
+                            try:
+                                multilang_db.databases[new_lcu_lang] = NameDB(lang=new_lcu_lang)
+                                log.info(f"Loaded multilang database for {new_lcu_lang}")
+                            except Exception as e:
+                                log.debug(f"Failed to load multilang database for {new_lcu_lang}: {e}")
+                except Exception as e:
+                    log.warning(f"Failed to update OCR language: {e}")
+
     # Initialize threads
     t_phase = PhaseThread(lcu, state, interval=1.0/max(0.5, args.phase_hz), log_transitions=not args.ws)
     t_champ = None if args.ws else ChampThread(lcu, db, state, interval=0.25)
     t_ocr = OCRSkinThread(state, db, ocr, args, lcu, multilang_db)
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager) if args.ws else None
+    t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws)
 
     # Start threads
     t_phase.start()
@@ -216,6 +262,7 @@ def main():
     t_ocr.start()
     if t_ws: 
         t_ws.start()
+    t_lcu_monitor.start()
 
     print("[ok] ready — combined tracer. OCR active ONLY in Champ Select.", flush=True)
 
@@ -241,6 +288,7 @@ def main():
         t_ocr.join(timeout=1.0)
         if t_ws: 
             t_ws.join(timeout=1.0)
+        t_lcu_monitor.join(timeout=1.0)
 
 
 if __name__ == "__main__":

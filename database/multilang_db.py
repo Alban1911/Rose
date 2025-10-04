@@ -93,7 +93,8 @@ class MultiLanguageDB:
         
         # Load specified language if different from English
         if self.auto_detect:
-            # In auto-detect mode, try to get language from LCU first
+            # In auto-detect mode, wait for LCU connection to get language
+            # The LCU connection should be established by the time this is called
             lcu_lang = self._get_lcu_language()
             if lcu_lang and lcu_lang != "en_US":
                 try:
@@ -104,7 +105,7 @@ class MultiLanguageDB:
                     print(f"[MULTILANG] Failed to load LCU language '{lcu_lang}': {e}")
                     print(f"[MULTILANG] Auto-detect mode: languages will be loaded on-demand")
             else:
-                print(f"[MULTILANG] Auto-detect mode: languages will be loaded on-demand")
+                print(f"[MULTILANG] Auto-detect mode: LCU language not available, will load on-demand")
         else:
             # In manual mode, load the specified language
             if self.manual_language and self.manual_language != "en_US":
