@@ -6,7 +6,6 @@ Champion monitoring thread
 
 import time
 import threading
-from typing import Optional
 from lcu.client import LCU
 from database.name_db import NameDB
 from state.shared_state import SharedState

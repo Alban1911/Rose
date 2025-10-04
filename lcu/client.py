@@ -9,7 +9,7 @@ import time
 import psutil
 import requests
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional
 from utils.logging import get_logger
 
 log = get_logger()

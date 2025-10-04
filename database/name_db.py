@@ -8,7 +8,7 @@ import os
 import json
 import requests
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from utils.normalization import normalize_text
 
 

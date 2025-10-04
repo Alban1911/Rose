@@ -5,16 +5,11 @@ CSLOL Skin Injector
 Handles the actual skin injection using CSLOL tools
 """
 
-import argparse
-import json
-import shlex
 import subprocess
-import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 import zipfile
 import shutil
-import os
 
 from utils.logging import get_logger
 
