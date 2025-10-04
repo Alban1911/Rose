@@ -8,6 +8,7 @@ import argparse
 import time
 from ocr.backend import OCR
 from database.name_db import NameDB
+from database.multilang_db import MultiLanguageDB
 from lcu.client import LCU
 from state.shared_state import SharedState
 from threads.phase_thread import PhaseThread
@@ -65,6 +66,11 @@ def main():
     ap.add_argument("--skin-threshold-ms", type=int, default=2000, help="Écrire le dernier skin à T<=seuil (ms)")
     ap.add_argument("--skin-file", type=str, default="state/last_hovered_skin.txt", help="Chemin du fichier last_hovered_skin.txt")
     ap.add_argument("--inject-batch", type=str, default="", help="Batch à exécuter juste après l'écriture du skin (laisser vide pour désactiver)")
+    
+    # Multi-language arguments
+    ap.add_argument("--multilang", action="store_true", default=True, help="Enable multi-language support")
+    ap.add_argument("--no-multilang", action="store_false", dest="multilang", help="Disable multi-language support")
+    ap.add_argument("--language", type=str, default="auto", help="Manual language selection (e.g., 'fr_FR', 'en_US', 'zh_CN', 'auto' for detection)")
 
     args = ap.parse_args()
 
@@ -80,6 +86,19 @@ def main():
     lcu = LCU(args.lockfile)
     state = SharedState()
     
+    # Initialize multi-language database
+    if args.multilang:
+        auto_detect = args.language.lower() == "auto"
+        manual_lang = args.language if not auto_detect else args.dd_lang
+        multilang_db = MultiLanguageDB(auto_detect=auto_detect, fallback_lang=manual_lang)
+        if auto_detect:
+            log.info("Multi-language auto-detection enabled")
+        else:
+            log.info(f"Multi-language mode: manual language '{manual_lang}'")
+    else:
+        multilang_db = None
+        log.info("Multi-language support disabled")
+    
     # Initialize injection manager
     injection_manager = InjectionManager()
     
@@ -91,7 +110,7 @@ def main():
     # Initialize threads
     t_phase = PhaseThread(lcu, state, interval=1.0/max(0.5, args.phase_hz), log_transitions=not args.ws)
     t_champ = None if args.ws else ChampThread(lcu, db, state, interval=0.25)
-    t_ocr = OCRSkinThread(state, db, ocr, args, lcu)
+    t_ocr = OCRSkinThread(state, db, ocr, args, lcu, multilang_db)
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager) if args.ws else None
 
     # Start threads
