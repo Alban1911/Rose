@@ -19,13 +19,12 @@ LoLSkinChanger/
 │   │   ├── cslol-diag.exe     # Diagnostics tool
 │   │   ├── cslol-dll.dll      # Core DLL
 │   │   └── [other tools]      # WAD utilities
-│   ├── incoming_zips/         # Skin collection (8,277+ skins)
-│   │   └── skins/
-│   │       ├── Aatrox/
-│   │       ├── Ahri/
-│   │       └── [171 champions]/
-│   ├── mods/                  # Extracted skin mods
-│   └── overlay/               # Temporary overlay files
+│   ├── mods/                  # Extracted skin mods (created at runtime)
+│   └── overlay/               # Temporary overlay files (created at runtime)
+├── skins/                     # Skin collection (downloaded at runtime)
+│   ├── Aatrox/
+│   ├── Ahri/
+│   └── [171 champions]/
 ├── utils/                     # Utility functions
 │   ├── __init__.py
 │   ├── normalization.py       # Text normalization utilities
@@ -228,7 +227,8 @@ The system supports 17 languages with automatic detection and optimized loading:
 
 ### Common Issues
 - **No injection**: Check that CSLOL tools are present in `injection/tools/` directory
-- **Wrong skin**: Verify skin names match the collection in `injection/incoming_zips/`
+- **Wrong skin**: Verify skin names match the collection in `skins/`
+- **Missing CSLOL tools**: Download from https://github.com/CommunityDragon/CDTB and place in `injection/tools/`
 - **No match**: Check OCR detection accuracy with `--verbose` flag
 - **Game not detected**: Ensure League of Legends is installed in default location
 - **Language issues**: Use `--language auto` for automatic detection or specify your client's language

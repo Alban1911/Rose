@@ -1,10 +1,10 @@
 *.pyc
 .venv311/*
-injection/overlay/DATA/FINAL/*
-injection/tools/hashes.game.txt
+injection/overlay/*
 injection/mods/*
-state/last_hovered_skin.txt
 injection/incoming_zips/*
+state/last_hovered_skin.txt
+skins/*
 
 # Installer artifacts
 build/

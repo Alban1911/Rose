@@ -24,8 +24,15 @@ class SkinInjector:
         injection_dir = Path(__file__).parent
         self.tools_dir = tools_dir or injection_dir / "tools"
         self.mods_dir = mods_dir or injection_dir / "mods"
-        self.zips_dir = zips_dir or injection_dir / "incoming_zips"
+        self.zips_dir = zips_dir or Path("skins")
         self.game_dir = game_dir or self._detect_game_dir()
+        
+        # Create directories if they don't exist
+        self.mods_dir.mkdir(parents=True, exist_ok=True)
+        self.zips_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Check for CSLOL tools
+        self._download_cslol_tools()
         
     def _detect_game_dir(self) -> Path:
         """Auto-detect League of Legends Game directory"""
@@ -51,6 +58,29 @@ class SkinInjector:
         gd = Path(r"C:\Riot Games\League of Legends\Game")
         log.info(f"[INJECTOR] Using default game directory: {gd}")
         return gd
+    
+    def _download_cslol_tools(self):
+        """Download CSLOL tools if not present"""
+        required_tools = [
+            "mod-tools.exe",
+            "cslol-diag.exe", 
+            "cslol-dll.dll",
+            "wad-extract.exe",
+            "wad-make.exe"
+        ]
+        
+        missing_tools = []
+        for tool in required_tools:
+            if not (self.tools_dir / tool).exists():
+                missing_tools.append(tool)
+        
+        if missing_tools:
+            log.warning(f"Missing CSLOL tools: {missing_tools}")
+            log.warning("Please download CSLOL tools manually and place them in injection/tools/")
+            log.warning("Download from: https://github.com/CommunityDragon/CDTB")
+            return False
+        
+        return True
     
     def _detect_tools(self) -> Dict[str, Path]:
         """Detect CSLOL tools"""

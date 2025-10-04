@@ -90,6 +90,12 @@ def build_executable():
         "ocr", "state", "threads", "utils"
     ]
     
+    # Create skins directory if it doesn't exist (for runtime skin downloads)
+    skins_dir = Path("skins")
+    if not skins_dir.exists():
+        skins_dir.mkdir(exist_ok=True)
+        print(f"Created skins directory: {skins_dir}")
+    
     for dir_name in directories_to_add:
         if os.path.exists(dir_name):
             # Check if the directory itself should be excluded
@@ -97,11 +103,14 @@ def build_executable():
                 # Use --add-data with exclusions for directories that might contain gitignored files
                 if dir_name in ["injection", "state"]:  # These directories have gitignored subdirectories
                     cmd.append(f"--add-data={dir_name};{dir_name}")
-                    cmd.append(f"--exclude-module={dir_name}.overlay")
-                    cmd.append(f"--exclude-module={dir_name}.mods")
-                    cmd.append(f"--exclude-module={dir_name}.incoming_zips")
-                    if dir_name == "state":
-                        cmd.append("--exclude-module=state.last_hovered_skin")
+                    if dir_name == "injection":
+                        cmd.append(f"--exclude-module={dir_name}.overlay")
+                        cmd.append(f"--exclude-module={dir_name}.mods")
+                        cmd.append(f"--exclude-module={dir_name}.incoming_zips")
+                    elif dir_name == "state":
+                        cmd.append(f"--exclude-module={dir_name}.overlay")
+                        cmd.append(f"--exclude-module={dir_name}.mods")
+                        cmd.append(f"--exclude-module={dir_name}.last_hovered_skin")
                 else:
                     cmd.append(f"--add-data={dir_name};{dir_name}")
                 print(f"Including directory: {dir_name}")

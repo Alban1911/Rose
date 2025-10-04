@@ -22,7 +22,7 @@ class RepoDownloader:
     
     def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/darkseal-org/lol-skins"):
         self.repo_url = repo_url
-        self.target_dir = target_dir or Path("injection/incoming_zips")
+        self.target_dir = target_dir or Path("skins")
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'LoLSkinChanger/1.0'
