@@ -45,7 +45,7 @@ LANGUAGE_PATTERNS = {
     "fr_FR": ["peau", "champion", "héros"],  # French
     "es_ES": ["piel", "campeón", "héroe"],  # Spanish
     "pt_BR": ["pele", "campeão", "herói"],  # Portuguese
-    "it_IT": ["pelle", "campione", "eroe"],  # Italian
+    "it_IT": ["pelle", "campione", "eroe", "campionessa", "skin"],  # Italian
     "tr_TR": ["cilt", "şampiyon", "kahraman"],  # Turkish
     "pl_PL": ["skóra", "mistrz", "bohater"],  # Polish
     "hu_HU": ["bőr", "bajnok", "hős"],  # Hungarian

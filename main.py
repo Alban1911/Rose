@@ -207,12 +207,14 @@ def main():
     # Initialize multi-language database (after LCU connection is established)
     if args.multilang:
         auto_detect = args.language.lower() == "auto"
-        manual_lang = args.language if not auto_detect else args.dd_lang
-        multilang_db = MultiLanguageDB(auto_detect=auto_detect, fallback_lang=manual_lang, lcu_client=lcu)
         if auto_detect:
+            # For auto-detect mode, use English as fallback but let LCU determine the primary language
+            multilang_db = MultiLanguageDB(auto_detect=True, fallback_lang="en_US", lcu_client=lcu)
             log.info("Multi-language auto-detection enabled")
         else:
-            log.info(f"Multi-language mode: manual language '{manual_lang}'")
+            # For manual mode, use the specified language
+            multilang_db = MultiLanguageDB(auto_detect=False, fallback_lang=args.language, lcu_client=lcu)
+            log.info(f"Multi-language mode: manual language '{args.language}'")
     else:
         multilang_db = None
         log.info("Multi-language support disabled")

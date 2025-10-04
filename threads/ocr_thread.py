@@ -180,6 +180,29 @@ class OCRSkinThread(threading.Thread):
         
         champ_id = self.state.hovered_champ_id or self.state.locked_champ_id
         
+        # Use multilang database if available, otherwise fallback to regular database
+        if self.multilang_db:
+            # Use multilang database with automatic language detection
+            entry = self.multilang_db.find_skin_by_text(txt, champ_id)
+            if entry:
+                # Get English names for the matched entry
+                english_champ, english_full = self.multilang_db.get_english_name(entry)
+                
+                if entry.key != self.last_key:
+                    if entry.kind == "champion":
+                        log.info(f"[hover:skin] {english_full} (skinId=0, champ={entry.champ_slug}, multilang_match)")
+                        self.state.last_hovered_skin_key = english_full
+                        self.state.last_hovered_skin_id = 0  # 0 = base skin
+                        self.state.last_hovered_skin_slug = entry.champ_slug
+                    else:
+                        log.info(f"[hover:skin] {english_full} (skinId={entry.skin_id}, champ={entry.champ_slug}, multilang_match)")
+                        self.state.last_hovered_skin_key = english_full
+                        self.state.last_hovered_skin_id = entry.skin_id
+                        self.state.last_hovered_skin_slug = entry.champ_slug
+                    self.last_key = entry.key
+            return
+        
+        # Fallback to regular database matching (original logic)
         # Get all skin entries for this champion (no normalization)
         pairs = self.db.normalized_entries(champ_id) or []
         if not pairs and champ_id:
