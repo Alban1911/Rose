@@ -2,3 +2,4 @@
 .venv311/*
 injection/overlay/DATA/FINAL/Champions/*
 injection/tools/hashes.game.txt
+mods/*
