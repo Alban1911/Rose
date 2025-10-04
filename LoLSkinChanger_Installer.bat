@@ -1,13 +1,12 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: LoL Skin Changer - Complete Windows Installer
-:: This installer will download and install everything automatically
-:: No user interaction required!
+:: LoL Skin Changer - Single File Installer
+:: This installer downloads and installs everything automatically
 
 echo.
 echo ================================================
-echo    LoL Skin Changer - Complete Installer
+echo    LoL Skin Changer - Installer
 echo ================================================
 echo.
 echo This installer will automatically download and install:
@@ -21,16 +20,14 @@ echo.
 
 :: Set installation directory
 set "INSTALL_DIR=%LOCALAPPDATA%\LoLSkinChanger"
-set "PYTHON_DIR=%LOCALAPPDATA%\Python311"
 set "TESSERACT_DIR=%PROGRAMFILES%\Tesseract-OCR"
 
 :: Create installation directory
-echo [1/8] Creating installation directory...
+echo [1/6] Creating installation directory...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-cd /d "%INSTALL_DIR%"
 
 :: Check if Python is already installed
-echo [2/8] Checking Python installation...
+echo [2/6] Checking Python installation...
 python --version >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     echo Python is already installed.
@@ -41,9 +38,9 @@ if %ERRORLEVEL% EQU 0 (
     
     :: Download Python 3.11 installer
     echo Downloading Python 3.11 installer...
-    powershell -Command "& {Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile 'python-installer.exe'}"
+    powershell -Command "& {Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile '%TEMP%\python-installer.exe'}"
     
-    if not exist "python-installer.exe" (
+    if not exist "%TEMP%\python-installer.exe" (
         echo [ERROR] Failed to download Python installer.
         echo Please check your internet connection and try again.
         pause
@@ -52,13 +49,13 @@ if %ERRORLEVEL% EQU 0 (
     
     :: Install Python silently
     echo Installing Python 3.11...
-    python-installer.exe /quiet InstallAllUsers=1 PrependPath=1 Include_test=0
+    "%TEMP%\python-installer.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_test=0
     
     :: Wait for installation to complete
     timeout /t 15 /nobreak >nul
     
     :: Clean up installer
-    del python-installer.exe
+    del "%TEMP%\python-installer.exe"
     
     :: Set Python commands
     set "PYTHON_CMD=python"
@@ -75,7 +72,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 :: Check if Tesseract is already installed
-echo [3/8] Checking Tesseract OCR installation...
+echo [3/6] Checking Tesseract OCR installation...
 if exist "%TESSERACT_DIR%\tesseract.exe" (
     echo Tesseract OCR is already installed.
 ) else (
@@ -83,9 +80,9 @@ if exist "%TESSERACT_DIR%\tesseract.exe" (
     
     :: Download Tesseract installer
     echo Downloading Tesseract OCR installer...
-    powershell -Command "& {Invoke-WebRequest -Uri 'https://github.com/UB-Mannheim/tesseract/releases/download/v5.3.3.20231005/tesseract-ocr-w64-setup-5.3.3.20231005.exe' -OutFile 'tesseract-installer.exe'}"
+    powershell -Command "& {Invoke-WebRequest -Uri 'https://github.com/UB-Mannheim/tesseract/releases/download/v5.3.3.20231005/tesseract-ocr-w64-setup-5.3.3.20231005.exe' -OutFile '%TEMP%\tesseract-installer.exe'}"
     
-    if not exist "tesseract-installer.exe" (
+    if not exist "%TEMP%\tesseract-installer.exe" (
         echo [ERROR] Failed to download Tesseract installer.
         echo Please check your internet connection and try again.
         pause
@@ -94,13 +91,13 @@ if exist "%TESSERACT_DIR%\tesseract.exe" (
     
     :: Install Tesseract silently
     echo Installing Tesseract OCR...
-    tesseract-installer.exe /S /D=%TESSERACT_DIR%
+    "%TEMP%\tesseract-installer.exe" /S /D=%TESSERACT_DIR%
     
     :: Wait for installation to complete
     timeout /t 15 /nobreak >nul
     
     :: Clean up installer
-    del tesseract-installer.exe
+    del "%TEMP%\tesseract-installer.exe"
 )
 
 :: Verify Tesseract installation
@@ -112,23 +109,43 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-:: Copy current project files
-echo [4/8] Installing application files...
-echo Copying LoL Skin Changer files...
+:: Download and install the application
+echo [4/6] Downloading LoL Skin Changer application...
+set "APP_ZIP=%TEMP%\LoLSkinChanger.zip"
 
-:: Copy all project files to installation directory
-xcopy "%~dp0*" "%INSTALL_DIR%\" /E /H /Y /I >nul
+:: Download the application from GitHub
+echo Downloading application files...
+:: Note: Replace 'your-username' with your actual GitHub username
+powershell -Command "& {Invoke-WebRequest -Uri 'https://github.com/your-username/LoLSkinChanger/archive/main.zip' -OutFile '%APP_ZIP%'}"
 
-:: Remove installer files from installation
-if exist "%INSTALL_DIR%\installer.bat" del "%INSTALL_DIR%\installer.bat"
-if exist "%INSTALL_DIR%\installer_simple.bat" del "%INSTALL_DIR%\installer_simple.bat"
-if exist "%INSTALL_DIR%\installer_complete.bat" del "%INSTALL_DIR%\installer_complete.bat"
-if exist "%INSTALL_DIR%\installer.ps1" del "%INSTALL_DIR%\installer.ps1"
-if exist "%INSTALL_DIR%\install.bat" del "%INSTALL_DIR%\install.bat"
-if exist "%INSTALL_DIR%\INSTALLER_README.md" del "%INSTALL_DIR%\INSTALLER_README.md"
+if not exist "%APP_ZIP%" (
+    echo [ERROR] Failed to download application.
+    echo Please check your internet connection and try again.
+    pause
+    exit /b 1
+)
+
+:: Extract the application
+echo Extracting application files...
+powershell -Command "& {Expand-Archive -Path '%APP_ZIP%' -DestinationPath '%TEMP%' -Force}"
+
+:: Copy files to installation directory
+echo Installing application files...
+xcopy "%TEMP%\LoLSkinChanger-main\*" "%INSTALL_DIR%\" /E /H /Y >nul
+
+:: Clean up
+del "%APP_ZIP%"
+rmdir /s /q "%TEMP%\LoLSkinChanger-main"
+
+:: Verify installation
+if not exist "%INSTALL_DIR%\main.py" (
+    echo [ERROR] Failed to install application files.
+    pause
+    exit /b 1
+)
 
 :: Install Python dependencies
-echo [5/8] Installing Python dependencies...
+echo [5/6] Installing Python dependencies...
 cd /d "%INSTALL_DIR%"
 
 :: Upgrade pip first
@@ -143,7 +160,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 :: Create desktop shortcut
-echo [6/8] Creating desktop shortcut...
+echo [6/6] Creating shortcuts...
 set "DESKTOP=%USERPROFILE%\Desktop"
 set "SHORTCUT_PATH=%DESKTOP%\LoL Skin Changer.lnk"
 
@@ -155,13 +172,13 @@ echo oLink.TargetPath = "%PYTHON_CMD%" >> "%TEMP%\CreateShortcut.vbs"
 echo oLink.Arguments = ""%INSTALL_DIR%\main.py"" >> "%TEMP%\CreateShortcut.vbs"
 echo oLink.WorkingDirectory = "%INSTALL_DIR%" >> "%TEMP%\CreateShortcut.vbs"
 echo oLink.Description = "LoL Skin Changer" >> "%TEMP%\CreateShortcut.vbs"
+echo oLink.IconLocation = ""%INSTALL_DIR%\icon.ico"" >> "%TEMP%\CreateShortcut.vbs"
 echo oLink.Save >> "%TEMP%\CreateShortcut.vbs"
 
 cscript "%TEMP%\CreateShortcut.vbs" >nul
 del "%TEMP%\CreateShortcut.vbs"
 
 :: Create start menu entry
-echo [7/8] Creating start menu entry...
 set "START_MENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
 if not exist "%START_MENU%\LoL Skin Changer" mkdir "%START_MENU%\LoL Skin Changer"
 
@@ -173,13 +190,13 @@ echo oLink.TargetPath = "%PYTHON_CMD%" >> "%TEMP%\CreateStartMenuShortcut.vbs"
 echo oLink.Arguments = ""%INSTALL_DIR%\main.py"" >> "%TEMP%\CreateStartMenuShortcut.vbs"
 echo oLink.WorkingDirectory = "%INSTALL_DIR%" >> "%TEMP%\CreateStartMenuShortcut.vbs"
 echo oLink.Description = "LoL Skin Changer" >> "%TEMP%\CreateStartMenuShortcut.vbs"
+echo oLink.IconLocation = ""%INSTALL_DIR%\icon.ico"" >> "%TEMP%\CreateStartMenuShortcut.vbs"
 echo oLink.Save >> "%TEMP%\CreateStartMenuShortcut.vbs"
 
 cscript "%TEMP%\CreateStartMenuShortcut.vbs" >nul
 del "%TEMP%\CreateStartMenuShortcut.vbs"
 
 :: Create uninstaller
-echo [8/8] Creating uninstaller...
 (
 echo @echo off
 echo echo Uninstalling LoL Skin Changer...
@@ -204,17 +221,7 @@ echo echo Uninstallation complete!
 echo pause
 ) > "%INSTALL_DIR%\uninstall.bat"
 
-:: Create run script
-echo Creating run script...
-(
-echo @echo off
-echo echo Starting LoL Skin Changer...
-echo cd /d "%INSTALL_DIR%"
-echo %PYTHON_CMD% main.py %*
-echo pause
-) > "%INSTALL_DIR%\run.bat"
-
-:: Set Tesseract path in environment
+:: Set environment variables
 echo Setting up environment variables...
 setx TESSERACT_CMD "%TESSERACT_DIR%\tesseract.exe" >nul 2>&1
 setx TESSDATA_PREFIX "%TESSERACT_DIR%\tessdata" >nul 2>&1
@@ -231,8 +238,7 @@ echo Installation location: %INSTALL_DIR%
 echo.
 echo You can now:
 echo 1. Double-click the desktop shortcut to start the application
-echo 2. Or run: %INSTALL_DIR%\run.bat
-echo 3. Or use the Start Menu entry
+echo 2. Or use the Start Menu entry
 echo.
 echo To uninstall, run: %INSTALL_DIR%\uninstall.bat
 echo.

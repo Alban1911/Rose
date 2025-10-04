@@ -5,3 +5,9 @@ injection/tools/hashes.game.txt
 injection/mods/*
 state/last_hovered_skin.txt
 injection/incoming_zips/*
+
+# Installer artifacts
+build/
+dist/
+*.spec
+LoLSkinChanger_SingleInstaller.zip
