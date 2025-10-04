@@ -21,6 +21,54 @@ from injection.manager import InjectionManager
 log = get_logger()
 
 
+def get_ocr_language(lcu_lang: str, manual_lang: str = None) -> str:
+    """Get OCR language based on LCU language or manual setting"""
+    if manual_lang and manual_lang != "auto":
+        return manual_lang
+    
+    # Map LCU languages to Tesseract languages
+    ocr_lang_map = {
+        "en_US": "eng",
+        "es_ES": "spa+eng", 
+        "es_MX": "spa+eng",
+        "fr_FR": "fra+eng",
+        "de_DE": "deu+eng",
+        "it_IT": "ita+eng",
+        "pt_BR": "por+eng",
+        "ru_RU": "rus+eng",
+        "pl_PL": "pol+eng",
+        "tr_TR": "tur+eng",
+        "el_GR": "ell+eng",
+        "hu_HU": "hun+eng",
+        "ro_RO": "ron+eng",
+        "zh_CN": "chi_sim+eng",
+        "zh_TW": "chi_tra+eng",
+        "ja_JP": "jpn+eng",
+        "ko_KR": "kor+eng",
+    }
+    
+    return ocr_lang_map.get(lcu_lang, "eng")  # Default to English
+
+
+def validate_ocr_language(lang: str) -> bool:
+    """Validate that OCR language is available (basic check)"""
+    if not lang or lang == "auto":
+        return True
+    
+    # Common Tesseract language codes
+    supported_langs = [
+        "eng", "fra", "spa", "deu", "ita", "por", "rus", "pol", "tur", 
+        "ell", "hun", "ron", "chi_sim", "chi_tra", "jpn", "kor"
+    ]
+    
+    # Check if all parts of combined languages are supported
+    parts = lang.split('+')
+    for part in parts:
+        if part not in supported_langs:
+            return False
+    return True
+
+
 def main():
     """Main entry point"""
     
@@ -30,7 +78,7 @@ def main():
     ap.add_argument("--tessdata", type=str, default=None, help="Chemin du dossier tessdata (ex: C:\\Program Files\\Tesseract-OCR\\tessdata)")
     ap.add_argument("--psm", type=int, default=7)
     ap.add_argument("--min-conf", type=float, default=0.5)
-    ap.add_argument("--lang", type=str, default="fra+eng", help="OCR lang (tesseract)")
+    ap.add_argument("--lang", type=str, default="auto", help="OCR lang (tesseract): 'auto', 'fra+eng', 'kor', 'chi_sim', 'ell', etc.")
     ap.add_argument("--tesseract-exe", type=str, default=None)
     
     # Capture arguments
@@ -78,12 +126,34 @@ def main():
     log.info("Starting...")
     
     # Initialize components
-    ocr = OCR(lang=args.lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
-    ocr.tessdata_dir = args.tessdata
-    log.info(f"OCR: {ocr.backend}")
+    # Initialize LCU first to get language info
+    lcu = LCU(args.lockfile)
+    
+    # Determine OCR language based on LCU language if auto mode
+    ocr_lang = args.lang
+    if args.lang == "auto":
+        lcu_lang = lcu.get_client_language() if lcu else None
+        ocr_lang = get_ocr_language(lcu_lang, args.lang)
+        log.info(f"Auto-detected OCR language: {ocr_lang} (LCU: {lcu_lang})")
+    
+    # Validate OCR language
+    if not validate_ocr_language(ocr_lang):
+        log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
+        ocr_lang = "eng"
+    
+    # Initialize OCR with determined language
+    try:
+        ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
+        ocr.tessdata_dir = args.tessdata
+        log.info(f"OCR: {ocr.backend} (lang: {ocr_lang})")
+    except Exception as e:
+        log.warning(f"Failed to initialize OCR with language '{ocr_lang}': {e}")
+        log.info("Falling back to English OCR")
+        ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
+        ocr.tessdata_dir = args.tessdata
+        log.info(f"OCR: {ocr.backend} (lang: eng)")
     
     db = NameDB(lang=args.dd_lang)
-    lcu = LCU(args.lockfile)
     state = SharedState()
     
     # Initialize multi-language database

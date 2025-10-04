@@ -95,6 +95,12 @@ OCR tracer/
    python main.py --language zh_CN    # Chinese Simplified
    python main.py --language auto     # Auto-detect (default)
    
+   # Optional: Specify OCR language for non-Latin alphabets
+   python main.py --lang kor          # Korean OCR
+   python main.py --lang chi_sim      # Chinese Simplified OCR
+   python main.py --lang ell          # Greek OCR
+   python main.py --lang auto         # Auto-detect OCR language (default)
+   
    # Optional: Disable multi-language support
    python main.py --no-multilang
    ```
@@ -137,7 +143,7 @@ The system provides real-time status updates:
 - `--multilang`: Enable multi-language support (default)
 - `--no-multilang`: Disable multi-language support
 - `--language <lang>`: Specify language or auto-detection
-  - `auto`: Auto-detect language from OCR text (default)
+  - `auto`: Auto-detect language from LCU API (default)
   - `en_US`: English (United States)
   - `es_ES`: Spanish (Spain)
   - `fr_FR`: French
@@ -156,11 +162,32 @@ The system provides real-time status updates:
   - `zh_TW`: Chinese (Traditional)
   - `es_MX`: Spanish (Mexico)
 
+### OCR Language Options
+- `--lang <ocr_lang>`: Specify OCR language for text recognition
+  - `auto`: Auto-detect OCR language based on LCU language (default)
+  - `eng`: English
+  - `fra+eng`: French + English
+  - `spa+eng`: Spanish + English
+  - `deu+eng`: German + English
+  - `kor+eng`: Korean + English
+  - `chi_sim+eng`: Chinese Simplified + English
+  - `chi_tra+eng`: Chinese Traditional + English
+  - `jpn+eng`: Japanese + English
+  - `ell+eng`: Greek + English
+  - `rus+eng`: Russian + English
+  - `pol+eng`: Polish + English
+  - `tur+eng`: Turkish + English
+  - `hun+eng`: Hungarian + English
+  - `ron+eng`: Romanian + English
+  - `por+eng`: Portuguese + English
+  - `ita+eng`: Italian + English
+
 ### Supported Languages
 The system supports 17 languages with automatic detection and optimized loading:
-- **Auto-Detection**: Automatically detects language from OCR text
+- **Auto-Detection**: Automatically detects language from LCU API and OCR text
 - **Manual Selection**: Force specific language for better performance
 - **Optimized Loading**: Only loads necessary language databases
+- **OCR Language Mapping**: Automatically selects appropriate OCR language for non-Latin alphabets
 - **English Mapping**: All results logged in English for consistency
 
 ## Dependencies
@@ -184,6 +211,8 @@ The system supports 17 languages with automatic detection and optimized loading:
 - **Game not detected**: Ensure League of Legends is installed in default location
 - **Language issues**: Use `--language auto` for automatic detection or specify your client's language
 - **Performance issues**: Use manual language selection (`--language <lang>`) for better performance
+- **Non-Latin alphabet issues**: Use `--lang auto` for automatic OCR language detection or specify manually (e.g., `--lang kor` for Korean)
+- **OCR language not found**: Ensure Tesseract OCR has the required language packs installed
 
 ### System Requirements
 - Python 3.8+
