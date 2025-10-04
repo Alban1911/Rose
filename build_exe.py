@@ -76,7 +76,7 @@ def build_executable():
     print("\n[2/4] Building executable...")
     cmd = [
         "pyinstaller",
-        "--onefile",  # Single executable file
+        "--onedir",  # Directory distribution (faster startup)
         "--console",  # Show console window for debugging
         "--name=LoLSkinChanger",
         "--icon=icon.ico",
@@ -136,7 +136,7 @@ def build_executable():
     print("\n[3/4] Build completed successfully!")
     
     # Check if executable was created
-    exe_path = Path("dist/LoLSkinChanger.exe")
+    exe_path = Path("dist/LoLSkinChanger/LoLSkinChanger.exe")
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
         print(f"\n[4/4] Executable created: {exe_path}")
@@ -146,7 +146,7 @@ def build_executable():
         launcher_content = '''@echo off
 echo Starting LoL Skin Changer with verbose logging...
 echo.
-"%~dp0LoLSkinChanger.exe" --verbose
+"%~dp0LoLSkinChanger\LoLSkinChanger.exe" --verbose
 if errorlevel 1 (
     echo.
     echo Application encountered an error.
@@ -165,7 +165,7 @@ if errorlevel 1 (
         print(f"Launcher: {launcher_path}")
         print("\nTo distribute:")
         print("1. Copy the entire 'dist' folder")
-        print("2. Users run 'start.bat' or 'LoLSkinChanger.exe'")
+        print("2. Users run 'start.bat' or 'LoLSkinChanger/LoLSkinChanger.exe'")
         print("3. Make sure League of Legends is running first")
         
         return True
