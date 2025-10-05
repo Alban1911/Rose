@@ -10,6 +10,8 @@ import time
 import logging
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 
 def setup_logging(verbose: bool):
@@ -59,9 +61,42 @@ def setup_logging(verbose: bool):
     
     h.setFormatter(_Fmt(fmt))
     
+    # Setup file logging
+    try:
+        # Create logs directory if it doesn't exist
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        
+        # Setup rotating file handler (max 10MB per file, keep 5 files)
+        log_file = logs_dir / "skincloner.log"
+        file_handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=10*1024*1024,  # 10MB
+            backupCount=5,
+            encoding='utf-8'
+        )
+        
+        # File formatter with full timestamp and more details
+        file_fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(message)s"
+        
+        class _FileFmt(logging.Formatter):
+            def format(self, record):
+                record._when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                return super().format(record)
+        
+        file_handler.setFormatter(_FileFmt(file_fmt))
+        file_handler.setLevel(logging.DEBUG)  # Log everything to file
+        
+    except Exception as e:
+        # If file logging fails, continue without it
+        file_handler = None
+        print(f"Warning: Could not setup file logging: {e}", file=sys.stderr)
+    
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(h)
+    if file_handler:
+        root.addHandler(file_handler)
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
     
     # Add a console print to ensure output is visible (only if we have stdout and it's not redirected)

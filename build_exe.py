@@ -140,7 +140,7 @@ def build_executable():
         "PIL.ImageMode", "PIL.ImageChops", "PIL.ImageCms",
         "tesserocr", "Pillow", "pystray", "pystray._base",
         "pystray._win32", "pystray._darwin", "pystray._gtk",
-        "pystray._xorg", "pystray._util"
+        "pystray._xorg", "pystray._util", "logging.handlers"
     ]
     
     for imp in hidden_imports:

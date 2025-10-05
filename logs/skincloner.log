@@ -1,0 +1,7 @@
+2025-10-05 19:20:54 | INFO    | startup         | ============================================================
+2025-10-05 19:20:54 | INFO    | startup         | SkinCloner - Starting...
+2025-10-05 19:20:54 | INFO    | startup         | ============================================================
+2025-10-05 19:20:54 | INFO    | test            | Test de logging dans fichier
+2025-10-05 19:20:54 | DEBUG   | test            | Message de debug
+2025-10-05 19:20:54 | WARNING | test            | Avertissement de test
+2025-10-05 19:20:54 | ERROR   | test            | Erreur de test
