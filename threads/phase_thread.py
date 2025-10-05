@@ -18,12 +18,13 @@ class PhaseThread(threading.Thread):
     
     INTERESTING = {"Lobby", "Matchmaking", "ReadyCheck", "ChampSelect", "GameStart", "InProgress", "EndOfGame"}
     
-    def __init__(self, lcu: LCU, state: SharedState, interval: float = 0.5, log_transitions: bool = True):
+    def __init__(self, lcu: LCU, state: SharedState, interval: float = 0.5, log_transitions: bool = True, injection_manager=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
         self.interval = interval
         self.log_transitions = log_transitions
+        self.injection_manager = injection_manager
         self.last_phase = None
 
     def run(self):
@@ -49,6 +50,7 @@ class PhaseThread(threading.Thread):
                     except Exception: 
                         self.state.processed_action_ids = set()
                     self.state.last_hover_written = False
+                    
                 else:
                     # Exit champ select → reset counter/timer
                     self.state.hovered_champ_id = None

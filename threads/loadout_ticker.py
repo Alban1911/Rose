@@ -186,6 +186,12 @@ class LoadoutTicker(threading.Thread):
                                 success = self.injection_manager.inject_skin_immediately(name, stop_callback=game_ended_callback)
                                 if success:
                                     log.info(f"[inject] successfully injected: {name}")
+                                    # Stop overlay process after successful injection
+                                    try:
+                                        self.injection_manager.stop_overlay_process()
+                                        log.info("Injection: Stopped overlay process after successful injection")
+                                    except Exception as e:
+                                        log.warning(f"Injection: Failed to stop overlay process: {e}")
                                 else:
                                     log.error(f"[inject] failed to inject: {name}")
                             except Exception as e:

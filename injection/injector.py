@@ -33,6 +33,9 @@ class SkinInjector:
         self.mods_dir.mkdir(parents=True, exist_ok=True)
         self.zips_dir.mkdir(parents=True, exist_ok=True)
         
+        # Track current overlay process
+        self.current_overlay_process = None
+        
         # Check for CSLOL tools
         self._download_cslol_tools()
         
@@ -51,14 +54,14 @@ class SkinInjector:
                 if exe.exists():
                     if c.name.lower() != "game" and (c / "Game" / "League of Legends.exe").exists():
                         gd = c / "Game"
-                        log.info(f"[INJECTOR] Auto-detected game directory: {gd}")
+                        log.info(f"Injector: Auto-detected game directory: {gd}")
                         return gd
-                    log.info(f"[INJECTOR] Auto-detected game directory: {c}")
+                    log.info(f"Injector: Auto-detected game directory: {c}")
                     return c if c.name.lower() == "game" else (c / "Game")
 
         # Last resort: return default
         gd = Path(r"C:\Riot Games\League of Legends\Game")
-        log.info(f"[INJECTOR] Using default game directory: {gd}")
+        log.info(f"Injector: Using default game directory: {gd}")
         return gd
     
     def _download_cslol_tools(self):
@@ -159,6 +162,17 @@ class SkinInjector:
                 except Exception:
                     pass
     
+    def _clean_overlay_dir(self):
+        """Clean the overlay directory to prevent file lock issues"""
+        overlay_dir = self.mods_dir.parent / "overlay"
+        if overlay_dir.exists():
+            try:
+                shutil.rmtree(overlay_dir, ignore_errors=True)
+                log.debug("Injector: Cleaned overlay directory")
+            except Exception as e:
+                log.warning(f"Injector: Failed to clean overlay directory: {e}")
+        overlay_dir.mkdir(parents=True, exist_ok=True)
+    
     def _extract_zip_to_mod(self, zp: Path) -> Path:
         """Extract ZIP to mod directory"""
         target = self.mods_dir / zp.stem
@@ -167,7 +181,7 @@ class SkinInjector:
         target.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(zp, "r") as zf:
             zf.extractall(target)
-        log.info(f"[INJECTOR] Extracted {zp.name} -> {target}")
+        log.info(f"Injector: Extracted {zp.name} -> {target}")
         return target
     
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 60, stop_callback=None) -> int:
@@ -178,9 +192,8 @@ class SkinInjector:
             log.error(f"[INJECTOR] Missing mod-tools.exe in {self.tools_dir}")
             return 127
             
+        # Use overlay directory (should already be clean from _clean_overlay_dir)
         overlay_dir = self.mods_dir.parent / "overlay"
-        if overlay_dir.exists():
-            shutil.rmtree(overlay_dir, ignore_errors=True)
         overlay_dir.mkdir(parents=True, exist_ok=True)
         
         names_str = "/".join(mod_names)
@@ -192,18 +205,18 @@ class SkinInjector:
             f"--game:{gpath}", f"--mods:{names_str}", "--noTFT"
         ]
         
-        log.info(f"[INJECTOR] Creating overlay: {' '.join(cmd)}")
+        log.info(f"Injector: Creating overlay: {' '.join(cmd)}")
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             stdout, _ = proc.communicate(timeout=timeout)
             if proc.returncode != 0:
-                log.error(f"[INJECTOR] mkoverlay failed: {stdout}")
+                log.error(f"Injector: mkoverlay failed: {stdout}")
                 return proc.returncode
         except subprocess.TimeoutExpired:
-            log.error("[INJECTOR] mkoverlay timeout")
+            log.error("Injector: mkoverlay timeout")
             return 124
         except Exception as e:
-            log.error(f"[INJECTOR] mkoverlay error: {e}")
+            log.error(f"Injector: mkoverlay error: {e}")
             return 1
 
         # Run overlay
@@ -213,9 +226,10 @@ class SkinInjector:
             f"--game:{gpath}", "--opts:configless"
         ]
         
-        log.info(f"[INJECTOR] Running overlay: {' '.join(cmd)}")
+        log.info(f"Injector: Running overlay: {' '.join(cmd)}")
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.current_overlay_process = proc
             
             # Monitor process with stop callback
             import time
@@ -223,59 +237,63 @@ class SkinInjector:
             while proc.poll() is None:
                 # Check if we should stop (game ended)
                 if stop_callback and stop_callback():
-                    log.info("[INJECTOR] Terminating overlay process")
+                    log.info("Injector: Terminating overlay process")
                     proc.terminate()
                     try:
                         proc.wait(timeout=5)
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
+                    self.current_overlay_process = None
                     return 0  # Return success since injection was applied
                 
                 # Check timeout
                 if time.time() - start_time > timeout:
-                    log.warning("[INJECTOR] Overlay timeout, but injection may have succeeded")
+                    log.warning("Injector: Overlay timeout, but injection may have succeeded")
                     proc.terminate()
                     try:
                         proc.wait(timeout=5)
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
+                    self.current_overlay_process = None
                     return 0  # Return success since injection was likely applied
                 
                 time.sleep(0.5)
             
             # Process completed normally
             stdout, _ = proc.communicate()
+            self.current_overlay_process = None
             if proc.returncode != 0:
-                log.error(f"[INJECTOR] runoverlay failed: {stdout}")
+                log.error(f"Injector: runoverlay failed: {stdout}")
                 return proc.returncode
             else:
-                log.info(f"[INJECTOR] Injection successful: {mod_names}")
+                log.info(f"Injector: Injection successful: {mod_names}")
                 return 0
         except Exception as e:
-            log.error(f"[INJECTOR] runoverlay error: {e}")
+            log.error(f"Injector: runoverlay error: {e}")
             return 1
     
     def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None) -> bool:
         """Inject a single skin"""
-        log.info(f"[INJECTOR] Starting injection for: {skin_name}")
+        log.info(f"Injector: Starting injection for: {skin_name}")
         
         # Find the skin ZIP
         zp = self._resolve_zip(skin_name)
         if not zp:
-            log.error(f"[INJECTOR] Skin '{skin_name}' not found in {self.zips_dir}")
+            log.error(f"Injector: Skin '{skin_name}' not found in {self.zips_dir}")
             avail = list(self.zips_dir.rglob('*.zip'))
             if avail:
-                log.info("[INJECTOR] Available skins (first 10):")
+                log.info("Injector: Available skins (first 10):")
                 for a in avail[:10]:
                     log.info(f"  - {a.name}")
             return False
         
-        log.info(f"[INJECTOR] Using skin file: {zp}")
+        log.info(f"Injector: Using skin file: {zp}")
         
-        # Clean mods and extract new skin
+        # Clean mods and overlay directories, then extract new skin
         self._clean_mods_dir()
+        self._clean_overlay_dir()
         mod_folder = self._extract_zip_to_mod(zp)
         
         # Create and run overlay
@@ -290,8 +308,26 @@ class SkinInjector:
             overlay_dir = self.mods_dir.parent / "overlay"
             if overlay_dir.exists():
                 shutil.rmtree(overlay_dir, ignore_errors=True)
-            log.info("[INJECTOR] System cleaned successfully")
+            log.debug("Injector: System cleaned successfully")
             return True
         except Exception as e:
-            log.error(f"[INJECTOR] Failed to clean system: {e}")
+            log.error(f"Injector: Failed to clean system: {e}")
             return False
+    
+    def stop_overlay_process(self):
+        """Stop the current overlay process"""
+        if self.current_overlay_process and self.current_overlay_process.poll() is None:
+            try:
+                log.info("Injector: Stopping current overlay process")
+                self.current_overlay_process.terminate()
+                try:
+                    self.current_overlay_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.current_overlay_process.kill()
+                    self.current_overlay_process.wait()
+                self.current_overlay_process = None
+                log.info("Injector: Overlay process stopped successfully")
+            except Exception as e:
+                log.warning(f"Injector: Failed to stop overlay process: {e}")
+        else:
+            log.debug("Injector: No active overlay process to stop")

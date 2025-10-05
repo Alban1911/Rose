@@ -11,7 +11,10 @@ import requests
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Tuple
 from utils.normalization import normalize_text
+from utils.logging import get_logger
 from .name_db import NameDB, Entry
+
+log = get_logger()
 
 # League of Legends supported languages
 SUPPORTED_LANGUAGES = [
@@ -86,9 +89,9 @@ class MultiLanguageDB:
         # Always load English database
         try:
             self.databases["en_US"] = NameDB(lang="en_US")
-            print(f"[MULTILANG] Initialized English database")
+            log.info("Multi-language database: English initialized")
         except Exception as e:
-            print(f"[MULTILANG] Failed to initialize English database: {e}")
+            log.error(f"Multi-language database: Failed to initialize English database: {e}")
             raise
         
         # Load specified language if different from English
@@ -100,20 +103,20 @@ class MultiLanguageDB:
                 try:
                     self.databases[lcu_lang] = NameDB(lang=lcu_lang)
                     self.current_language = lcu_lang
-                    print(f"[MULTILANG] Auto-detect mode: loaded LCU language '{lcu_lang}'")
+                    log.info(f"Multi-language database: Auto-detected language '{lcu_lang}'")
                 except Exception as e:
-                    print(f"[MULTILANG] Failed to load LCU language '{lcu_lang}': {e}")
-                    print(f"[MULTILANG] Auto-detect mode: languages will be loaded on-demand")
+                    log.warning(f"Multi-language database: Failed to load language '{lcu_lang}': {e}")
+                    log.info("Multi-language database: Languages will be loaded on-demand")
             else:
-                print(f"[MULTILANG] Auto-detect mode: LCU language not available, will load on-demand")
+                log.info("Multi-language database: LCU language not available, will load on-demand")
         else:
             # In manual mode, load the specified language
             if self.manual_language and self.manual_language != "en_US":
                 try:
                     self.databases[self.manual_language] = NameDB(lang=self.manual_language)
-                    print(f"[MULTILANG] Initialized database for {self.manual_language}")
+                    log.info(f"Multi-language database: Initialized database for {self.manual_language}")
                 except Exception as e:
-                    print(f"[MULTILANG] Failed to initialize {self.manual_language}: {e}")
+                    log.error(f"Multi-language database: Failed to initialize {self.manual_language}: {e}")
                     # Fallback to English only
                     self.manual_language = "en_US"
     
@@ -128,7 +131,7 @@ class MultiLanguageDB:
                 return lcu_lang
             return None
         except Exception as e:
-            print(f"[MULTILANG] Failed to get LCU language: {e}")
+            log.debug(f"Multi-language database: Failed to get LCU language: {e}")
             return None
     
     def detect_language(self, text: str) -> LanguageMatch:
@@ -206,13 +209,13 @@ class MultiLanguageDB:
                     db = self.databases[detected_lang]
                     # print(f"[MULTILANG] Loaded database for {detected_lang} on-demand")  # Disabled for cleaner logs
                 except Exception as e:
-                    print(f"[MULTILANG] Failed to load {detected_lang}: {e}")
+                    log.debug(f"Multi-language database: Failed to load {detected_lang}: {e}")
                     db = self.databases.get(self.fallback_lang)
             else:
                 db = self.databases.get(self.fallback_lang)
         
         if not db:
-            print(f"[MULTILANG] No fallback database available")
+            log.warning("Multi-language database: No fallback database available")
             return None
         
         # Find entry in detected language
@@ -309,9 +312,9 @@ class MultiLanguageDB:
             if language not in self.databases:
                 try:
                     self.databases[language] = NameDB(lang=language)
-                    print(f"[MULTILANG] Loaded database for {language}")
+                    log.info(f"Multi-language database: Loaded database for {language}")
                 except Exception as e:
-                    print(f"[MULTILANG] Failed to load {language}: {e}")
+                    log.error(f"Multi-language database: Failed to load {language}: {e}")
                     return
             
             self.current_language = language
@@ -319,7 +322,7 @@ class MultiLanguageDB:
             self.auto_detect = False
             # print(f"[MULTILANG] Language set to {language}")  # Disabled for cleaner logs
         else:
-            print(f"[MULTILANG] Language {language} not supported")
+            log.warning(f"Multi-language database: Language {language} not supported")
     
     def enable_auto_detection(self):
         """Enable automatic language detection"""

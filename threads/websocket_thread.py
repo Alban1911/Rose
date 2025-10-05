@@ -108,6 +108,7 @@ class WSEventThread(threading.Thread):
                         self.state.processed_action_ids.clear()
                     except Exception: 
                         self.state.processed_action_ids = set()
+                    
                 else:
                     # Exit → reset locks/timer
                     self.state.hovered_champ_id = None
@@ -187,11 +188,11 @@ class WSEventThread(threading.Thread):
 
     def _on_open(self, ws):
         """WebSocket connection opened"""
-        log.info("[ws] connecté")
+        log.info("WebSocket: Connected")
         try: 
             ws.send('[5,"OnJsonApiEvent"]')
         except Exception as e: 
-            log.debug(f"[ws] subscribe error: {e}")
+            log.debug(f"WebSocket: Subscribe error: {e}")
 
     def _on_message(self, ws, msg):
         """WebSocket message received"""
@@ -208,11 +209,11 @@ class WSEventThread(threading.Thread):
 
     def _on_error(self, ws, err):
         """WebSocket error"""
-        log.debug(f"[ws] error: {err}")
+        log.debug(f"WebSocket: Error: {err}")
 
     def _on_close(self, ws, status, msg):
         """WebSocket connection closed"""
-        log.debug(f"[ws] fermé: {status} {msg}")
+        log.debug(f"WebSocket: Closed: {status} {msg}")
 
     def run(self):
         """Main WebSocket loop"""

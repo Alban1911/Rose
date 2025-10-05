@@ -66,3 +66,10 @@ class InjectionManager:
     def get_last_injected_skin(self) -> Optional[str]:
         """Get the last successfully injected skin"""
         return self.last_skin_name
+    
+    def stop_overlay_process(self):
+        """Stop the current overlay process"""
+        try:
+            self.injector.stop_overlay_process()
+        except Exception as e:
+            log.warning(f"Injection: Failed to stop overlay process: {e}")

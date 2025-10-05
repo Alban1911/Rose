@@ -95,7 +95,7 @@ class LCU:
                 self.lf_mtime = os.path.getmtime(lf)
             except Exception: 
                 self.lf_mtime = time.time()
-            log.info(f"LCU prêt (port {self.port})")
+            log.info(f"LCU ready (port {self.port})")
         except Exception as e:
             self._disable(f"LCU indisponible: {e}")
 

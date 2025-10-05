@@ -5,6 +5,7 @@ Main entry point for the modularized LoL Skin Changer
 """
 
 import argparse
+import os
 import sys
 import time
 from ocr.backend import OCR
@@ -55,22 +56,29 @@ def get_ocr_language(lcu_lang: str, manual_lang: str = None) -> str:
 
 
 def validate_ocr_language(lang: str) -> bool:
-    """Validate that OCR language is available (basic check)"""
+    """Validate that OCR language is available by checking tessdata files"""
     if not lang or lang == "auto":
         return True
     
-    # Common Tesseract language codes
-    supported_langs = [
-        "eng", "fra", "spa", "deu", "ita", "por", "rus", "pol", "tur", 
-        "ell", "hun", "ron", "chi_sim", "chi_tra", "jpn", "kor"
-    ]
-    
-    # Check if all parts of combined languages are supported
-    parts = lang.split('+')
-    for part in parts:
-        if part not in supported_langs:
-            return False
-    return True
+    try:
+        from utils.tesseract_path import get_tesseract_configuration
+        config = get_tesseract_configuration()
+        tessdata_dir = config.get("tessdata_dir")
+        
+        if not tessdata_dir or not os.path.isdir(tessdata_dir):
+            # If we can't find tessdata, assume only English is available
+            return lang == "eng"
+        
+        # Check if all parts of combined languages are available
+        parts = lang.split('+')
+        for part in parts:
+            lang_file = os.path.join(tessdata_dir, f"{part}.traineddata")
+            if not os.path.isfile(lang_file):
+                return False
+        return True
+    except Exception:
+        # If validation fails, assume only English is available
+        return lang == "eng"
 
 
 def main():
@@ -246,9 +254,14 @@ def main():
             new_ocr_lang = get_ocr_language(new_lcu_lang, args.lang)
             if new_ocr_lang != ocr.lang:
                 try:
-                    # Update OCR language
-                    ocr.lang = new_ocr_lang
-                    log.info(f"OCR language updated to: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                    # Validate that the new OCR language is available before updating
+                    if validate_ocr_language(new_ocr_lang):
+                        # Update OCR language
+                        ocr.lang = new_ocr_lang
+                        log.info(f"OCR language updated to: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                    else:
+                        # Keep current OCR language (likely English fallback) but log the LCU language
+                        log.info(f"OCR language kept at: {ocr.lang} (LCU: {new_lcu_lang}, OCR language not available)")
                     
                     # Update multilang database if needed
                     if multilang_db and multilang_db.auto_detect:
@@ -263,7 +276,7 @@ def main():
                     log.warning(f"Failed to update OCR language: {e}")
 
     # Initialize threads
-    t_phase = PhaseThread(lcu, state, interval=1.0/max(0.5, args.phase_hz), log_transitions=not args.ws)
+    t_phase = PhaseThread(lcu, state, interval=1.0/max(0.5, args.phase_hz), log_transitions=not args.ws, injection_manager=injection_manager)
     t_champ = None if args.ws else ChampThread(lcu, db, state, interval=0.25)
     t_ocr = OCRSkinThread(state, db, ocr, args, lcu, multilang_db)
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager) if args.ws else None
@@ -278,7 +291,7 @@ def main():
         t_ws.start()
     t_lcu_monitor.start()
 
-    print("[ok] ready — combined tracer. OCR active ONLY in Champ Select.", flush=True)
+    log.info("System ready - OCR active only in Champion Select")
 
     last_phase = None
     try:

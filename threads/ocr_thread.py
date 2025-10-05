@@ -81,7 +81,7 @@ class OCRSkinThread(threading.Thread):
     def run(self):
         """Main OCR loop"""
         import mss  # pyright: ignore[reportMissingImports]
-        log.info("[ocr] thread prêt (actif uniquement en ChampSelect).")
+        log.info("OCR: Thread ready (active only in Champion Select)")
         
         try:
             with mss.mss() as sct:
