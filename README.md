@@ -299,31 +299,6 @@ The system supports Latin alphabet languages with automatic detection and optimi
    python check_tesseract.py
    ```
 
-### Linux Installation
-
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install tesseract-ocr tesseract-ocr-eng
-
-# For additional languages (e.g., French, Spanish, German)
-sudo apt-get install tesseract-ocr-fra tesseract-ocr-spa tesseract-ocr-deu
-
-# CentOS/RHEL/Fedora
-sudo yum install tesseract tesseract-langpack-eng
-# or for newer versions:
-sudo dnf install tesseract tesseract-langpack-eng
-```
-
-### macOS Installation
-
-```bash
-# Using Homebrew
-brew install tesseract
-
-# For additional languages
-brew install tesseract-lang
-```
 
 ### Common Language Codes
 
@@ -394,10 +369,10 @@ If you encounter Tesseract-related errors:
 - **⚠️ MANDATORY**: Tesseract OCR installed from [https://github.com/UB-Mannheim/tesseract/releases](https://github.com/UB-Mannheim/tesseract/releases)
 
 **For Source Code Version:**
+- Windows 10/11
 - Python 3.11+
 - **⚠️ MANDATORY**: Tesseract OCR installed from [https://github.com/UB-Mannheim/tesseract/releases](https://github.com/UB-Mannheim/tesseract/releases)
 - League of Legends installed
-- Windows operating system (for CSLOL tools)
 - CSLOL tools present in `injection/tools/` directory
 
 ## 🔧 Building from Source (For Developers)

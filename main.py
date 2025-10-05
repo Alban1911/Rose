@@ -9,6 +9,10 @@ import os
 import sys
 import time
 import ctypes
+import atexit
+import signal
+from pathlib import Path
+
 
 # Fix for windowed mode - allocate console to prevent blocking operations
 if sys.platform == "win32":
@@ -48,6 +52,118 @@ from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
 
 log = get_logger()
+
+# Global variable to hold the lock file
+_lock_file = None
+
+def create_lock_file():
+    """Create a lock file to prevent multiple instances"""
+    global _lock_file
+    
+    try:
+        # Create a lock file in the state directory
+        from utils.paths import get_state_dir
+        state_dir = get_state_dir()
+        state_dir.mkdir(parents=True, exist_ok=True)
+        
+        lock_file_path = state_dir / "skincloner.lock"
+        
+        # Windows-only approach using file creation
+        try:
+            # Try to create the lock file exclusively
+            _lock_file = open(lock_file_path, 'x')
+            _lock_file.write(f"{os.getpid()}\n")
+            _lock_file.write(f"{time.time()}\n")
+            _lock_file.flush()
+            
+            # Register cleanup function
+            atexit.register(cleanup_lock_file)
+            
+            return True
+        except FileExistsError:
+            # Lock file exists, check if process is still running
+            try:
+                with open(lock_file_path, 'r') as f:
+                    lines = f.readlines()
+                    if len(lines) >= 1:
+                        old_pid = int(lines[0].strip())
+                        # Check if process is still running (Windows)
+                        try:
+                            import psutil
+                            if psutil.pid_exists(old_pid):
+                                return False  # Another instance is running
+                        except ImportError:
+                            # Fallback: try to check if process exists
+                            try:
+                                ctypes.windll.kernel32.OpenProcess(0x1000, False, old_pid)
+                                return False  # Process exists
+                            except:
+                                pass  # Process doesn't exist, we can proceed
+                    
+                    # Old lock file is stale, remove it
+                    os.remove(lock_file_path)
+                    
+                    # Try again
+                    _lock_file = open(lock_file_path, 'x')
+                    _lock_file.write(f"{os.getpid()}\n")
+                    _lock_file.write(f"{time.time()}\n")
+                    _lock_file.flush()
+                    atexit.register(cleanup_lock_file)
+                    return True
+                    
+            except Exception:
+                # If we can't read the lock file, assume it's stale
+                try:
+                    os.remove(lock_file_path)
+                    _lock_file = open(lock_file_path, 'x')
+                    _lock_file.write(f"{os.getpid()}\n")
+                    _lock_file.write(f"{time.time()}\n")
+                    _lock_file.flush()
+                    atexit.register(cleanup_lock_file)
+                    return True
+                except Exception:
+                    return False
+                
+    except Exception:
+        return False
+
+def cleanup_lock_file():
+    """Clean up the lock file"""
+    global _lock_file
+    
+    try:
+        if _lock_file:
+            _lock_file.close()
+            _lock_file = None
+            
+        # Remove the lock file
+        from utils.paths import get_state_dir
+        lock_file_path = get_state_dir() / "skincloner.lock"
+        if lock_file_path.exists():
+            lock_file_path.unlink()
+    except Exception:
+        pass  # Ignore cleanup errors
+
+def check_single_instance():
+    """Check if another instance is already running"""
+    if not create_lock_file():
+        # Show error message using Windows MessageBox since console might not be visible
+        if sys.platform == "win32":
+            try:
+                ctypes.windll.user32.MessageBoxW(
+                    0, 
+                    "Another instance of SkinCloner is already running!\n\nPlease close the existing instance before starting a new one.",
+                    "SkinCloner - Instance Already Running",
+                    0x10  # MB_ICONERROR
+                )
+            except Exception:
+                # Fallback to console output if MessageBox fails
+                print("Error: Another instance of SkinCloner is already running!")
+                print("Please close the existing instance before starting a new one.")
+        else:
+            print("Error: Another instance of SkinCloner is already running!")
+            print("Please close the existing instance before starting a new one.")
+        sys.exit(1)
 
 
 def get_ocr_language(lcu_lang: str, manual_lang: str = None) -> str:
@@ -108,6 +224,9 @@ def validate_ocr_language(lang: str) -> bool:
 
 def main():
     """Main entry point"""
+    
+    # Check for single instance before doing anything else
+    check_single_instance()
     
     ap = argparse.ArgumentParser(description="Tracer combiné LCU + OCR (ChampSelect) — ROI lock + burst OCR + locks/timer fixes")
     
@@ -387,6 +506,9 @@ def main():
         if t_ws: 
             t_ws.join(timeout=1.0)
         t_lcu_monitor.join(timeout=1.0)
+        
+        # Clean up lock file on exit
+        cleanup_lock_file()
 
 
 if __name__ == "__main__":
