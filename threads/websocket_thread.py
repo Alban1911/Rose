@@ -23,6 +23,9 @@ log = get_logger()
 # Optional WebSocket import
 try:
     import websocket  # websocket-client  # pyright: ignore[reportMissingImports]
+    # Disable websocket ping logs
+    import logging
+    logging.getLogger("websocket").setLevel(logging.WARNING)
 except Exception:
     websocket = None
 

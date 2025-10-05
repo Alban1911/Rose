@@ -133,7 +133,6 @@ class OCRSkinThread(threading.Thread):
         self.roi_abs = None
         self.window_rect = None
         self.window_rect_cache_time = 0.0
-        log.debug("[ocr] OCR state reset (including ROI cache)")
 
     def _should_run_ocr(self) -> bool:
         """Check if OCR should be running based on conditions"""
@@ -155,6 +154,8 @@ class OCRSkinThread(threading.Thread):
         import mss  # pyright: ignore[reportMissingImports]
         log.info("OCR: Thread ready (optimized with hardcoded ROI)")
         
+        ocr_running = False
+        
         try:
             with mss.mss() as sct:
                 monitor = sct.monitors[self.monitor_index]
@@ -162,10 +163,18 @@ class OCRSkinThread(threading.Thread):
                     now = time.time()
                     
                     # Check if we should be running OCR
-                    if not self._should_run_ocr():
-                        # Reset OCR state when not in ChampSelect or no champion locked
-                        if self.state.phase != "ChampSelect" or not getattr(self.state, "locked_champ_id", None):
-                            self._reset_ocr_state()
+                    should_run = self._should_run_ocr()
+                    
+                    # Log state changes
+                    if should_run and not ocr_running:
+                        log.info("[ocr] OCR running - champion locked in ChampSelect")
+                        ocr_running = True
+                    elif not should_run and ocr_running:
+                        log.info("[ocr] OCR stopped - waiting for champion lock")
+                        ocr_running = False
+                        self._reset_ocr_state()
+                    
+                    if not should_run:
                         time.sleep(0.15)
                         continue
                     

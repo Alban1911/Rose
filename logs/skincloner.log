@@ -1167,3 +1167,230 @@
 2025-10-05 20:10:12 | INFO    | tracer          | Keyboard interrupt received
 2025-10-05 20:10:12 | INFO    | tracer          | System tray icon stopped
 2025-10-05 20:10:12 | INFO    | tracer          | System tray stopped
+2025-10-05 20:13:40 | INFO    | startup         | ============================================================
+2025-10-05 20:13:40 | INFO    | startup         | SkinCloner - Starting...
+2025-10-05 20:13:40 | INFO    | startup         | ============================================================
+2025-10-05 20:13:40 | INFO    | tracer          | Starting...
+2025-10-05 20:13:40 | INFO    | tracer          | System tray manager started - no console window
+2025-10-05 20:13:40 | INFO    | tracer          | System tray icon initialized - console hidden
+2025-10-05 20:13:40 | INFO    | tracer          | Starting automatic skin download in background...
+2025-10-05 20:13:40 | INFO    | tracer          | LCU ready (port 52484)
+2025-10-05 20:13:40 | INFO    | tracer          | Using repository ZIP downloader (most efficient)...
+2025-10-05 20:13:40 | INFO    | tracer          | LCU connected - detected language: fr_FR
+2025-10-05 20:13:40 | INFO    | tracer          | Auto-detected OCR language: fra (LCU: fr_FR)
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing AvifImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing BlpImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing BmpImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing BufrStubImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing CurImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing DcxImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing DdsImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing EpsImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing FitsImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing FliImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing FpxImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Image: failed to import FpxImagePlugin: No module named 'olefile'
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing FtexImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing GbrImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing GifImagePlugin
+2025-10-05 20:13:40 | WARNING | tracer          | OCR language 'fra' may not be available. Falling back to English.
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing GribStubImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing Hdf5StubImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing IcnsImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing IcoImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing ImImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing ImtImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing IptcImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing JpegImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing Jpeg2KImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing McIdasImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing MicImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Image: failed to import MicImagePlugin: No module named 'olefile'
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing MpegImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing MpoImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing MspImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing PalmImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing PcdImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing PcxImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing PdfImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing PixarImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing PngImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing PpmImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing PsdImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing QoiImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing SgiImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing SpiderImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing SunImagePlugin
+2025-10-05 20:13:40 | INFO    | tracer          | OCR: tesserocr (lang: eng)
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing TgaImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing TiffImagePlugin
+2025-10-05 20:13:40 | INFO    | tracer          | Multi-language database: English initialized
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing WebPImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing WmfImagePlugin
+2025-10-05 20:13:40 | INFO    | tracer          | Multi-language database: Auto-detected language 'fr_FR'
+2025-10-05 20:13:40 | INFO    | tracer          | Multi-language auto-detection enabled
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing XbmImagePlugin
+2025-10-05 20:13:40 | INFO    | tracer          | Injector: Auto-detected game directory: C:\Riot Games\League of Legends\Game
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing XpmImagePlugin
+2025-10-05 20:13:40 | DEBUG   | PIL.Image       | Importing XVThumbImagePlugin
+2025-10-05 20:13:40 | INFO    | tracer          | System ready - OCR active only in Champion Select
+2025-10-05 20:13:40 | DEBUG   | PIL.PngImagePlugin | STREAM b'IHDR' 8376 13
+2025-10-05 20:13:40 | DEBUG   | PIL.PngImagePlugin | STREAM b'IDAT' 8401 8480
+2025-10-05 20:13:40 | INFO    | tracer          | System tray icon started
+2025-10-05 20:13:40 | INFO    | websocket       | Websocket connected
+2025-10-05 20:13:40 | INFO    | tracer          | WebSocket: Connected
+2025-10-05 20:13:40 | INFO    | tracer          | OCR: Thread ready (optimized with hardcoded ROI)
+2025-10-05 20:13:41 | INFO    | tracer          | Found 8277 existing skins, skipping download
+2025-10-05 20:13:41 | INFO    | tracer          | No new skins to download
+2025-10-05 20:13:41 | INFO    | tracer          | Background skin download completed successfully
+2025-10-05 20:13:41 | INFO    | tracer          | WebSocket connected - detecting language...
+2025-10-05 20:13:41 | INFO    | tracer          | Language changed to: fr_FR
+2025-10-05 20:13:41 | INFO    | tracer          | OCR language kept at: eng (LCU: fr_FR, OCR language not available)
+2025-10-05 20:13:45 | INFO    | tracer          | [phase] Matchmaking
+2025-10-05 20:13:45 | INFO    | tracer          | [phase] ReadyCheck
+2025-10-05 20:13:45 | INFO    | tracer          | [players] #Players: 1
+2025-10-05 20:13:45 | INFO    | tracer          | [phase] ChampSelect
+2025-10-05 20:13:54 | INFO    | tracer          | [locks] +1 Bard — 1/1
+2025-10-05 20:13:54 | INFO    | tracer          | [lock:champ] Bard (id=432)
+2025-10-05 20:13:54 | INFO    | tracer          | [locks] ALL LOCKED (1/1)
+2025-10-05 20:13:54 | INFO    | tracer          | [ocr] OCR running - champion locked in ChampSelect
+2025-10-05 20:13:54 | DEBUG   | tracer          | [ocr] League window found: 448,228,1472,804 (size: 1024x576)
+2025-10-05 20:13:54 | DEBUG   | tracer          | [ocr] ROI calculated ONCE using FIXED proportions: (808, 592, 1111, 620)
+2025-10-05 20:13:54 | INFO    | tracer          | [loadout] start id=1 mode=lcu-probe remaining_ms=10000 (10.000s) [hz=1000]
+2025-10-05 20:13:54 | INFO    | tracer          | [loadout #1] T-9s
+2025-10-05 20:13:54 | DEBUG   | tracer          | [ocr:text] re
+2025-10-05 20:13:55 | DEBUG   | tracer          | [ocr:text] Bard
+2025-10-05 20:13:55 | INFO    | tracer          | [hover:skin] Bard (skinId=0, champ=Bard, multilang_match)
+2025-10-05 20:13:55 | INFO    | tracer          | [loadout #1] T-8s
+2025-10-05 20:13:56 | INFO    | tracer          | [loadout #1] T-7s
+2025-10-05 20:13:57 | DEBUG   | tracer          | [ocr:text] Bard sylvestre
+2025-10-05 20:13:57 | INFO    | tracer          | [hover:skin] Elderwood Bard (skinId=432001, champ=Bard, multilang_match)
+2025-10-05 20:13:57 | INFO    | tracer          | [loadout #1] T-6s
+2025-10-05 20:13:57 | DEBUG   | tracer          | [ocr:text] Bard des neiges
+2025-10-05 20:13:57 | INFO    | tracer          | [hover:skin] Snow Day Bard (skinId=432005, champ=Bard, multilang_match)
+2025-10-05 20:13:58 | INFO    | tracer          | [loadout #1] T-5s
+2025-10-05 20:13:58 | DEBUG   | tracer          | [ocr:text] Bard le barde
+2025-10-05 20:13:58 | INFO    | tracer          | [hover:skin] Bard Bard (skinId=432006, champ=Bard, multilang_match)
+2025-10-05 20:13:59 | INFO    | tracer          | [loadout #1] T-4s
+2025-10-05 20:13:59 | DEBUG   | tracer          | [ocr:text] Bard astronaute
+2025-10-05 20:13:59 | INFO    | tracer          | [hover:skin] Astronaut Bard (skinId=432008, champ=Bard, multilang_match)
+2025-10-05 20:14:00 | DEBUG   | tracer          | [ocr:text] Bard le barde
+2025-10-05 20:14:00 | INFO    | tracer          | [hover:skin] Bard Bard (skinId=432006, champ=Bard, multilang_match)
+2025-10-05 20:14:00 | INFO    | tracer          | [loadout #1] T-3s
+2025-10-05 20:14:01 | DEBUG   | tracer          | [ocr:text] Bard Café Chouchous
+2025-10-05 20:14:01 | INFO    | tracer          | [hover:skin] Cafe Cuties Bard (skinId=432017, champ=Bard, multilang_match)
+2025-10-05 20:14:01 | INFO    | tracer          | [loadout #1] T-2s
+2025-10-05 20:14:02 | INFO    | tracer          | [phase] Lobby
+2025-10-05 20:14:02 | INFO    | tracer          | [ocr] OCR stopped - waiting for champion lock
+2025-10-05 20:14:20 | DEBUG   | websocket       | Sending ping
+2025-10-05 20:14:40 | DEBUG   | websocket       | Sending ping
+2025-10-05 20:15:00 | DEBUG   | websocket       | Sending ping
+2025-10-05 20:15:10 | INFO    | tracer          | Keyboard interrupt received
+2025-10-05 20:15:10 | INFO    | tracer          | System tray icon stopped
+2025-10-05 20:15:10 | INFO    | tracer          | System tray stopped
+2025-10-05 20:15:13 | INFO    | startup         | ============================================================
+2025-10-05 20:15:13 | INFO    | startup         | SkinCloner - Starting...
+2025-10-05 20:15:13 | INFO    | startup         | ============================================================
+2025-10-05 20:15:13 | INFO    | tracer          | Starting...
+2025-10-05 20:15:13 | INFO    | tracer          | System tray manager started - no console window
+2025-10-05 20:15:13 | INFO    | tracer          | System tray icon initialized - console hidden
+2025-10-05 20:15:13 | INFO    | tracer          | Starting automatic skin download in background...
+2025-10-05 20:15:13 | INFO    | tracer          | LCU ready (port 52484)
+2025-10-05 20:15:13 | INFO    | tracer          | Using repository ZIP downloader (most efficient)...
+2025-10-05 20:15:13 | INFO    | tracer          | LCU connected - detected language: fr_FR
+2025-10-05 20:15:13 | INFO    | tracer          | Auto-detected OCR language: fra (LCU: fr_FR)
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing AvifImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing BlpImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing BmpImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing BufrStubImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing CurImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing DcxImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing DdsImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing EpsImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing FitsImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing FliImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing FpxImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Image: failed to import FpxImagePlugin: No module named 'olefile'
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing FtexImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing GbrImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing GifImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing GribStubImagePlugin
+2025-10-05 20:15:13 | WARNING | tracer          | OCR language 'fra' may not be available. Falling back to English.
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing Hdf5StubImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing IcnsImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing IcoImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing ImImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing ImtImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing IptcImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing JpegImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing Jpeg2KImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing McIdasImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing MicImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Image: failed to import MicImagePlugin: No module named 'olefile'
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing MpegImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing MpoImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing MspImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing PalmImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing PcdImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing PcxImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing PdfImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing PixarImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing PngImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing PpmImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing PsdImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing QoiImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing SgiImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing SpiderImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing SunImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing TgaImagePlugin
+2025-10-05 20:15:13 | INFO    | tracer          | OCR: tesserocr (lang: eng)
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing TiffImagePlugin
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing WebPImagePlugin
+2025-10-05 20:15:13 | INFO    | tracer          | Multi-language database: English initialized
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing WmfImagePlugin
+2025-10-05 20:15:13 | INFO    | tracer          | Multi-language database: Auto-detected language 'fr_FR'
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing XbmImagePlugin
+2025-10-05 20:15:13 | INFO    | tracer          | Multi-language auto-detection enabled
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing XpmImagePlugin
+2025-10-05 20:15:13 | INFO    | tracer          | Injector: Auto-detected game directory: C:\Riot Games\League of Legends\Game
+2025-10-05 20:15:13 | DEBUG   | PIL.Image       | Importing XVThumbImagePlugin
+2025-10-05 20:15:13 | INFO    | tracer          | System ready - OCR active only in Champion Select
+2025-10-05 20:15:13 | DEBUG   | PIL.PngImagePlugin | STREAM b'IHDR' 8376 13
+2025-10-05 20:15:13 | DEBUG   | PIL.PngImagePlugin | STREAM b'IDAT' 8401 8480
+2025-10-05 20:15:13 | INFO    | tracer          | System tray icon started
+2025-10-05 20:15:13 | INFO    | tracer          | WebSocket: Connected
+2025-10-05 20:15:13 | INFO    | tracer          | OCR: Thread ready (optimized with hardcoded ROI)
+2025-10-05 20:15:13 | INFO    | tracer          | Found 8277 existing skins, skipping download
+2025-10-05 20:15:13 | INFO    | tracer          | No new skins to download
+2025-10-05 20:15:13 | INFO    | tracer          | Background skin download completed successfully
+2025-10-05 20:15:14 | INFO    | tracer          | WebSocket connected - detecting language...
+2025-10-05 20:15:14 | INFO    | tracer          | Language changed to: fr_FR
+2025-10-05 20:15:14 | INFO    | tracer          | OCR language kept at: eng (LCU: fr_FR, OCR language not available)
+2025-10-05 20:15:17 | INFO    | tracer          | [phase] Matchmaking
+2025-10-05 20:15:17 | INFO    | tracer          | [phase] ReadyCheck
+2025-10-05 20:15:17 | INFO    | tracer          | [players] #Players: 1
+2025-10-05 20:15:17 | INFO    | tracer          | [phase] ChampSelect
+2025-10-05 20:15:19 | INFO    | tracer          | [locks] +1 Bard — 1/1
+2025-10-05 20:15:19 | INFO    | tracer          | [lock:champ] Bard (id=432)
+2025-10-05 20:15:19 | INFO    | tracer          | [locks] ALL LOCKED (1/1)
+2025-10-05 20:15:19 | INFO    | tracer          | [loadout] start id=1 mode=lcu-probe remaining_ms=10000 (10.000s) [hz=1000]
+2025-10-05 20:15:19 | INFO    | tracer          | [loadout #1] T-9s
+2025-10-05 20:15:19 | INFO    | tracer          | [ocr] OCR running - champion locked in ChampSelect
+2025-10-05 20:15:19 | DEBUG   | tracer          | [ocr] League window found: 448,228,1472,804 (size: 1024x576)
+2025-10-05 20:15:19 | DEBUG   | tracer          | [ocr] ROI calculated ONCE using FIXED proportions: (808, 592, 1111, 620)
+2025-10-05 20:15:19 | DEBUG   | tracer          | [ocr:text] re
+2025-10-05 20:15:19 | DEBUG   | tracer          | [ocr:text] Bard
+2025-10-05 20:15:19 | INFO    | tracer          | [hover:skin] Bard (skinId=0, champ=Bard, multilang_match)
+2025-10-05 20:15:20 | INFO    | tracer          | [loadout #1] T-8s
+2025-10-05 20:15:21 | INFO    | tracer          | [loadout #1] T-7s
+2025-10-05 20:15:22 | INFO    | tracer          | [loadout #1] T-6s
+2025-10-05 20:15:23 | DEBUG   | tracer          | [ocr:text] re
+2025-10-05 20:15:23 | INFO    | tracer          | [loadout #1] T-5s
+2025-10-05 20:15:24 | INFO    | tracer          | [loadout #1] T-4s
+2025-10-05 20:15:25 | INFO    | tracer          | [loadout #1] T-3s
+2025-10-05 20:15:26 | INFO    | tracer          | [loadout #1] T-2s
+2025-10-05 20:15:27 | INFO    | tracer          | [loadout #1] wrote C:\Users\alban\AppData\Roaming\SkinCloner\state\last_hovered_skin.txt: Bard
+2025-10-05 20:15:27 | INFO    | tracer          | [inject] skipping base skin injection (skinId=0)
+2025-10-05 20:15:27 | INFO    | tracer          | [loadout #1] T-1s
+2025-10-05 20:15:28 | INFO    | tracer          | [phase] Lobby
+2025-10-05 20:15:28 | INFO    | tracer          | [ocr] OCR stopped - waiting for champion lock
