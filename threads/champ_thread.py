@@ -59,9 +59,14 @@ class ChampThread(threading.Thread):
                             ch = int(act.get("championId") or 0)
                             if ch > 0: 
                                 locked = ch
-                if locked and locked != self.last_lock:
-                    nm = self.db.champ_name_by_id.get(locked) or f"champ_{locked}"
-                    log.info(f"[lock:champ] {nm} (id={locked})")
+                if locked:
+                    # Always update the locked champion state, even if it's the same champion
+                    # This ensures OCR can restart when returning to ChampSelect
+                    if locked != self.last_lock:
+                        nm = self.db.champ_name_by_id.get(locked) or f"champ_{locked}"
+                        log.info(f"[lock:champ] {nm} (id={locked})")
+                    
+                    # Always update the state, even for the same champion
                     self.state.locked_champ_id = locked
                     self.last_lock = locked
             except Exception:
