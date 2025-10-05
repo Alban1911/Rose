@@ -155,6 +155,10 @@ class OCRSkinThread(threading.Thread):
         """Check if OCR should be running based on conditions"""
         # Must be in ChampSelect
         if self.state.phase != "ChampSelect":
+            # Log when window search stops due to phase change
+            if not hasattr(self, '_window_search_stopped_logged'):
+                log.debug("[ocr] Window search stopped - not in ChampSelect")
+                self._window_search_stopped_logged = True
             return False
         
         # Must have locked a champion
@@ -217,6 +221,9 @@ class OCRSkinThread(threading.Thread):
                     if should_run and not ocr_running:
                         log.info("[ocr] OCR running - champion locked in ChampSelect")
                         ocr_running = True
+                        # Reset window search stopped flag when OCR starts
+                        if hasattr(self, '_window_search_stopped_logged'):
+                            delattr(self, '_window_search_stopped_logged')
                     elif not should_run and ocr_running:
                         log.info("[ocr] OCR stopped - waiting for champion lock")
                         ocr_running = False
