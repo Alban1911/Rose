@@ -118,7 +118,7 @@ class TrayManager:
             self.icon = pystray.Icon(
                 "SkinCloner",
                 icon_image,
-                "SkinC",
+                "SkinCloner",
                 menu
             )
             
