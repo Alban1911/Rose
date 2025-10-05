@@ -10,9 +10,11 @@ import requests
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 from utils.normalization import normalize_text
+from utils.paths import get_user_data_dir
 
 
-CACHE = os.path.join(os.path.expanduser("~"), ".cache", "lcu-all-in-one")
+# Use user data directory for cache to avoid permission issues
+CACHE = str(get_user_data_dir() / "cache")
 os.makedirs(CACHE, exist_ok=True)
 
 

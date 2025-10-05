@@ -13,6 +13,7 @@ import requests
 from pathlib import Path
 from typing import Optional
 from utils.logging import get_logger
+from utils.paths import get_skins_dir
 
 log = get_logger()
 
@@ -22,7 +23,8 @@ class RepoDownloader:
     
     def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/darkseal-org/lol-skins"):
         self.repo_url = repo_url
-        self.target_dir = target_dir or Path("skins")
+        # Use user data directory for skins to avoid permission issues
+        self.target_dir = target_dir or get_skins_dir()
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'LoLSkinChanger/1.0'
