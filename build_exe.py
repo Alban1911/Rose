@@ -72,6 +72,16 @@ def build_executable():
         spec_file.unlink()
         print(f"Removed {spec_file}")
     
+    # Clean injection directories
+    print("\n[1.5/4] Cleaning injection directories...")
+    injection_dirs_to_clean = ["injection/mods", "injection/overlay", "injection/incoming_zips"]
+    for dir_path in injection_dirs_to_clean:
+        if os.path.exists(dir_path):
+            shutil.rmtree(dir_path)
+            print(f"Removed {dir_path}/")
+        else:
+            print(f"Directory not found: {dir_path}/")
+    
     # Build PyInstaller command with smart exclusions
     print("\n[2/4] Building executable...")
     cmd = [
@@ -154,7 +164,7 @@ def build_executable():
         launcher_content = '''@echo off
 echo Starting LoL Skin Changer with verbose logging...
 echo.
-"%~dp0LoLSkinChanger\LoLSkinChanger.exe" --verbose
+"%~dp0LoLSkinChanger.exe" --verbose
 if errorlevel 1 (
     echo.
     echo Application encountered an error.
@@ -162,7 +172,7 @@ if errorlevel 1 (
     pause
 )
 '''
-        launcher_path = Path("dist/start.bat")
+        launcher_path = Path("dist/LoLSkinChanger/start.bat")
         launcher_path.write_text(launcher_content)
         print(f"Launcher created: {launcher_path}")
         
@@ -172,8 +182,8 @@ if errorlevel 1 (
         print(f"Executable: {exe_path}")
         print(f"Launcher: {launcher_path}")
         print("\nTo distribute:")
-        print("1. Copy the entire 'dist' folder")
-        print("2. Users run 'start.bat' or 'LoLSkinChanger/LoLSkinChanger.exe'")
+        print("1. Copy the entire 'dist/LoLSkinChanger' folder")
+        print("2. Users run 'start.bat' or 'LoLSkinChanger.exe' from within the folder")
         print("3. Make sure League of Legends is running first")
         print("\nTo create Windows installer:")
         print("1. Install Inno Setup from: https://jrsoftware.org/isdl.php")

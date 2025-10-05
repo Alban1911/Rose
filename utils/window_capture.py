@@ -59,8 +59,8 @@ if is_windows():
                 if R:
                     l, t, r, b = R
                     w, h = r - l, b - t
-                    # More restrictive size requirements for League client
-                    if w >= 800 and h >= 600: 
+                    # Size requirements for League client (supports lower resolutions)
+                    if w >= 640 and h >= 480: 
                         rects.append((l, t, r, b))
             return True
         
