@@ -116,7 +116,7 @@ class TrayManager:
             self.icon = pystray.Icon(
                 "SkinCloner",
                 icon_image,
-                "SkinCloner - League of Legends Skin Cloner",
+                "SkinC",
                 menu
             )
             
