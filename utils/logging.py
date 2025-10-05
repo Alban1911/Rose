@@ -9,6 +9,7 @@ import sys
 import time
 import logging
 import urllib3
+from datetime import datetime
 from urllib3.exceptions import InsecureRequestWarning
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -67,12 +68,13 @@ def setup_logging(verbose: bool):
         logs_dir = Path("logs")
         logs_dir.mkdir(exist_ok=True)
         
-        # Setup rotating file handler (max 10MB per file, keep 5 files)
-        log_file = logs_dir / "skincloner.log"
-        file_handler = RotatingFileHandler(
+        # Create a unique log file for this session with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = logs_dir / f"skincloner_{timestamp}.log"
+        
+        # Setup file handler (no rotation needed since each session has its own file)
+        file_handler = logging.FileHandler(
             log_file, 
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5,
             encoding='utf-8'
         )
         
@@ -110,7 +112,7 @@ def setup_logging(verbose: bool):
             # Use logging instead of direct print to avoid blocking
             logger = logging.getLogger("startup")
             logger.info("=" * 60)
-            logger.info("SkinCloner - Starting...")
+            logger.info(f"SkinCloner - Starting... (Log file: {log_file.name})")
             logger.info("=" * 60)
         except (AttributeError, OSError):
             pass  # stdout is broken, ignore
@@ -128,3 +130,78 @@ def setup_logging(verbose: bool):
 def get_logger(name: str = "tracer") -> logging.Logger:
     """Get a logger instance"""
     return logging.getLogger(name)
+
+
+def cleanup_logs(max_files: int = 20, max_total_size_mb: int = 100):
+    """
+    Clean up old log files based on count and total size
+    
+    Args:
+        max_files: Maximum number of log files to keep
+        max_total_size_mb: Maximum total size of all log files in MB
+    """
+    try:
+        logs_dir = Path("logs")
+        if not logs_dir.exists():
+            return
+        
+        # Get all log files matching the new pattern
+        log_files = list(logs_dir.glob("skincloner_*.log"))
+        
+        # Sort by modification time (oldest first)
+        log_files.sort(key=lambda f: f.stat().st_mtime)
+        
+        # Calculate total size
+        total_size = sum(f.stat().st_size for f in log_files)
+        max_total_size_bytes = max_total_size_mb * 1024 * 1024
+        
+        # Remove oldest files if we exceed limits
+        files_to_remove = []
+        
+        # Remove by count limit
+        if len(log_files) > max_files:
+            files_to_remove.extend(log_files[:-max_files])
+        
+        # Remove by size limit
+        if total_size > max_total_size_bytes:
+            current_size = total_size
+            for log_file in log_files:
+                if log_file not in files_to_remove:
+                    current_size -= log_file.stat().st_size
+                    files_to_remove.append(log_file)
+                    if current_size <= max_total_size_bytes:
+                        break
+        
+        # Remove the files
+        for log_file in files_to_remove:
+            try:
+                log_file.unlink()
+            except Exception:
+                pass  # Silently ignore removal errors
+                
+    except Exception as e:
+        # Don't log this error to avoid recursion
+        print(f"Warning: Failed to cleanup logs: {e}", file=sys.stderr)
+
+
+def _clear_log_file(log_file: Path):
+    """Clear the content of a log file"""
+    try:
+        if log_file.exists():
+            # Truncate the file to 0 bytes
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write("")
+            
+            # Also clean up backup files
+            for backup_file in log_file.parent.glob(f"{log_file.name}.*"):
+                if backup_file.is_file():
+                    backup_file.unlink()
+                    
+    except Exception:
+        # Silently ignore cleanup errors
+        pass
+
+
+def cleanup_logs_on_startup():
+    """Clean up old log files when the application starts"""
+    cleanup_logs(max_files=20, max_total_size_mb=100)

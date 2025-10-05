@@ -165,9 +165,17 @@ def main():
     ap.add_argument("--no-download-skins", action="store_false", dest="download_skins", help="Disable automatic skin downloading")
     ap.add_argument("--force-update-skins", action="store_true", help="Force update all skins (re-download existing ones)")
     ap.add_argument("--max-champions", type=int, default=None, help="Limit number of champions to download skins for (for testing)")
+    
+    # Log management arguments
+    ap.add_argument("--log-max-files", type=int, default=20, help="Maximum number of log files to keep (default: 20)")
+    ap.add_argument("--log-max-total-size-mb", type=int, default=100, help="Maximum total size of all log files in MB (default: 100MB)")
 
     args = ap.parse_args()
 
+    # Clean up old log files on startup
+    from utils.logging import cleanup_logs
+    cleanup_logs(max_files=args.log_max_files, max_total_size_mb=args.log_max_total_size_mb)
+    
     setup_logging(args.verbose)
     log.info("Starting...")
     
