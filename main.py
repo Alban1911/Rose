@@ -21,6 +21,7 @@ from threads.lcu_monitor_thread import LCUMonitorThread
 from utils.logging import setup_logging, get_logger
 from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
+from utils.tray_manager import TrayManager
 
 log = get_logger()
 
@@ -246,6 +247,21 @@ def main():
     state.skin_write_ms = int(getattr(args, 'skin_threshold_ms', 2000) or 2000)
     state.skin_file = getattr(args, 'skin_file', state.skin_file) or state.skin_file
     state.inject_batch = getattr(args, 'inject_batch', state.inject_batch) or state.inject_batch
+    
+    # Initialize system tray manager
+    tray_manager = None
+    try:
+        def tray_quit_callback():
+            """Callback for tray quit - set the shared state stop flag"""
+            log.info("Setting stop flag from tray quit")
+            state.stop = True
+        
+        tray_manager = TrayManager(quit_callback=tray_quit_callback)
+        tray_manager.start()
+        log.info("System tray icon initialized")
+    except Exception as e:
+        log.warning(f"Failed to initialize system tray: {e}")
+        log.info("Application will continue without system tray icon")
 
     # Function to update OCR language dynamically
     def update_ocr_language(new_lcu_lang: str):
@@ -295,7 +311,7 @@ def main():
 
     last_phase = None
     try:
-        while True:
+        while not state.stop:
             ph = state.phase
             if ph != last_phase:
                 if ph == "InProgress":
@@ -306,9 +322,20 @@ def main():
                 last_phase = ph
             time.sleep(0.2)
     except KeyboardInterrupt:
-        pass
+        log.info("Keyboard interrupt received")
+        state.stop = True
     finally:
         state.stop = True
+        
+        # Stop system tray
+        if tray_manager:
+            try:
+                tray_manager.stop()
+                log.info("System tray stopped")
+            except Exception as e:
+                log.warning(f"Error stopping system tray: {e}")
+        
+        # Stop all threads
         t_phase.join(timeout=1.0)
         if t_champ: 
             t_champ.join(timeout=1.0)
