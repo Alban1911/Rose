@@ -152,7 +152,10 @@ class LoadoutTicker(threading.Thread):
                 
                 if name:
                     try:
-                        path = getattr(self.state, 'skin_file', "state/last_hovered_skin.txt")
+                        # Use user data directory for state files to avoid permission issues
+                        from utils.paths import get_state_dir
+                        state_file = get_state_dir() / "last_hovered_skin.txt"
+                        path = getattr(self.state, 'skin_file', str(state_file))
                         # Only create directory if path has a directory component
                         dir_path = os.path.dirname(path)
                         if dir_path:  # Only create directory if it's not empty

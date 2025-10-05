@@ -64,7 +64,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 Type: filesandordirs; Name: "{app}\_internal"
 Type: filesandordirs; Name: "{app}\injection\overlay"
 Type: filesandordirs; Name: "{app}\injection\mods"
-Type: filesandordirs; Name: "{app}\state\last_hovered_skin.txt"
+; Note: State files are now stored in user data directory, not in app directory
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);

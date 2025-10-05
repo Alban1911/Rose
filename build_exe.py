@@ -100,11 +100,8 @@ def build_executable():
         "ocr", "state", "threads", "utils"
     ]
     
-    # Create skins directory if it doesn't exist (for runtime skin downloads)
-    skins_dir = Path("skins")
-    if not skins_dir.exists():
-        skins_dir.mkdir(exist_ok=True)
-        print(f"Created skins directory: {skins_dir}")
+    # Note: Skins directory will be created in user data directory at runtime
+    # to avoid permission issues when installed in Program Files
     
     for dir_name in directories_to_add:
         if os.path.exists(dir_name):
@@ -118,6 +115,7 @@ def build_executable():
                         cmd.append(f"--exclude-module={dir_name}.mods")
                         cmd.append(f"--exclude-module={dir_name}.incoming_zips")
                     elif dir_name == "state":
+                        # State files are now stored in user data directory
                         cmd.append(f"--exclude-module={dir_name}.overlay")
                         cmd.append(f"--exclude-module={dir_name}.mods")
                         cmd.append(f"--exclude-module={dir_name}.last_hovered_skin")

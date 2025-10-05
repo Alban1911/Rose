@@ -12,6 +12,7 @@ import zipfile
 import shutil
 
 from utils.logging import get_logger
+from utils.paths import get_skins_dir, get_injection_dir
 
 log = get_logger()
 
@@ -23,8 +24,9 @@ class SkinInjector:
         # Use injection folder as base if paths not provided
         injection_dir = Path(__file__).parent
         self.tools_dir = tools_dir or injection_dir / "tools"
-        self.mods_dir = mods_dir or injection_dir / "mods"
-        self.zips_dir = zips_dir or Path("skins")
+        # Use user data directory for mods and skins to avoid permission issues
+        self.mods_dir = mods_dir or get_injection_dir() / "mods"
+        self.zips_dir = zips_dir or get_skins_dir()
         self.game_dir = game_dir or self._detect_game_dir()
         
         # Create directories if they don't exist
