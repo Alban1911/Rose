@@ -174,8 +174,7 @@ The system will:
 - Monitor game phases (lobby, champion select, in-game)
 - Activate OCR when you enter champion select
 - Detect skin names as you hover over them
-- Automatically inject the skin after 2 seconds of hovering
-- Inject the skin 2 seconds before the game starts
+- Inject the last hovered skin 2 seconds before the game starts
 - Work completely automatically - no manual intervention!
 
 ### System Status
