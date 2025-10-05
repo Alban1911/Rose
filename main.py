@@ -148,7 +148,7 @@ def main():
     # Timer arguments
     ap.add_argument("--timer-hz", type=int, default=1000, help="Fréquence d'affichage du décompte loadout (Hz)")
     ap.add_argument("--fallback-loadout-ms", type=int, default=0, help="(déprécié) Ancien fallback ms si LCU ne donne pas le timer — ignoré")
-    ap.add_argument("--skin-threshold-ms", type=int, default=2000, help="Écrire le dernier skin à T<=seuil (ms)")
+    ap.add_argument("--skin-threshold-ms", type=int, default=4000, help="Écrire le dernier skin à T<=seuil (ms)")
     # Use user data directory for skin file to avoid permission issues
     from utils.paths import get_state_dir
     default_skin_file = str(get_state_dir() / "last_hovered_skin.txt")
@@ -286,7 +286,7 @@ def main():
     injection_manager = InjectionManager()
     
     # Configure skin writing
-    state.skin_write_ms = int(getattr(args, 'skin_threshold_ms', 2000) or 2000)
+    state.skin_write_ms = int(getattr(args, 'skin_threshold_ms', 4000) or 4000)
     state.skin_file = getattr(args, 'skin_file', state.skin_file) or state.skin_file
     state.inject_batch = getattr(args, 'inject_batch', state.inject_batch) or state.inject_batch
     

@@ -23,7 +23,7 @@ class InjectionManager:
         self.injector = SkinInjector(tools_dir, mods_dir, zips_dir, game_dir)
         self.last_skin_name = None
         self.last_injection_time = 0.0
-        self.injection_threshold = 2.0  # 2 seconds
+        self.injection_threshold = 4.0  # 4 seconds
         self.injection_lock = threading.Lock()
         
     def update_skin(self, skin_name: str):

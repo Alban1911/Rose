@@ -38,7 +38,7 @@ class SharedState:
     ocr_last_text: Optional[str] = None
     
     # Skin write config - use user data directory
-    skin_write_ms: int = 1500
+    skin_write_ms: int = 4000
     skin_file: str = ""  # Will be set to user data directory path
     inject_batch: Optional[str] = None
     
