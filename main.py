@@ -8,6 +8,30 @@ import argparse
 import os
 import sys
 import time
+import ctypes
+
+# Fix for windowed mode - allocate console to prevent blocking operations
+if sys.platform == "win32":
+    try:
+        # Check if we're in windowed mode (no console attached)
+        console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if not console_hwnd:
+            # Allocate a console for the process to prevent blocking operations
+            ctypes.windll.kernel32.AllocConsole()
+            # Hide the console window immediately
+            console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if console_hwnd:
+                ctypes.windll.user32.ShowWindow(console_hwnd, 0)  # SW_HIDE = 0
+    except Exception:
+        pass  # If console allocation fails, continue with original approach
+
+# Fix for windowed mode - redirect None streams to devnull to prevent blocking
+if sys.stdin is None:
+    sys.stdin = open(os.devnull, 'r')
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, 'w')
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, 'w')
 from ocr.backend import OCR
 from database.name_db import NameDB
 from database.multilang_db import MultiLanguageDB
@@ -162,21 +186,26 @@ def main():
         log.warning(f"Failed to initialize system tray: {e}")
         log.info("Application will continue without system tray icon")
     
-    # Download skins if enabled
+    # Download skins if enabled (run in background to avoid blocking startup)
     if args.download_skins:
-        log.info("Starting automatic skin download...")
-        try:
-            success = download_skins_on_startup(
-                force_update=args.force_update_skins,
-                max_champions=args.max_champions
-            )
-            if success:
-                log.info("Skin download completed successfully")
-            else:
-                log.warning("Skin download completed with some issues")
-        except Exception as e:
-            log.error(f"Failed to download skins: {e}")
-            log.info("Continuing without updated skins...")
+        log.info("Starting automatic skin download in background...")
+        def download_skins_background():
+            try:
+                success = download_skins_on_startup(
+                    force_update=args.force_update_skins,
+                    max_champions=args.max_champions
+                )
+                if success:
+                    log.info("Background skin download completed successfully")
+                else:
+                    log.warning("Background skin download completed with some issues")
+            except Exception as e:
+                log.error(f"Failed to download skins in background: {e}")
+        
+        # Start skin download in a separate thread to avoid blocking
+        import threading
+        skin_download_thread = threading.Thread(target=download_skins_background, daemon=True)
+        skin_download_thread.start()
     else:
         log.info("Automatic skin download disabled")
     
@@ -184,33 +213,31 @@ def main():
     # Initialize LCU first
     lcu = LCU(args.lockfile)
     
-    # Wait for LCU connection before determining language
+    # Initialize OCR language (will be updated when LCU connects)
     ocr_lang = args.lang
     if args.lang == "auto":
-        # Wait indefinitely for LCU to be available before getting language
+        # Try to get LCU language immediately, but don't block if not available
         lcu_lang = None
         
-        if not lcu.ok:
-            log.info("Waiting for LCU connection...")
+        if lcu.ok:
+            try:
+                lcu_lang = lcu.get_client_language()
+                if lcu_lang:
+                    log.info(f"LCU connected - detected language: {lcu_lang}")
+                    ocr_lang = get_ocr_language(lcu_lang, args.lang)
+                    log.info(f"Auto-detected OCR language: {ocr_lang} (LCU: {lcu_lang})")
+                else:
+                    log.info("LCU connected but language not yet available - using English fallback")
+                    ocr_lang = "eng"
+            except Exception as e:
+                log.debug(f"Failed to get LCU language: {e}")
+                log.info("LCU connected but language detection failed - using English fallback")
+                ocr_lang = "eng"
+        else:
+            log.info("LCU not yet connected - using English fallback, will auto-detect when connected")
+            ocr_lang = "eng"
         
-        while not lcu_lang:
-            if lcu.ok:
-                try:
-                    lcu_lang = lcu.get_client_language()
-                    if lcu_lang:
-                        log.info(f"LCU connected - detected language: {lcu_lang}")
-                        break
-                except Exception as e:
-                    log.debug(f"Failed to get LCU language: {e}")
-            
-            time.sleep(1)
-            lcu.refresh_if_needed()
-        
-        ocr_lang = get_ocr_language(lcu_lang, args.lang)
-        log.info(f"Auto-detected OCR language: {ocr_lang} (LCU: {lcu_lang})")
-        
-        # Note: WebSocket connection will be handled by LCUMonitorThread
-        # for reconnections and language changes
+        # Note: Language will be updated automatically by LCUMonitorThread when LCU connects
     
     # Validate OCR language
     if not validate_ocr_language(ocr_lang):

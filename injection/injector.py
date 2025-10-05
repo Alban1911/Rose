@@ -207,7 +207,14 @@ class SkinInjector:
         
         log.info(f"Injector: Creating overlay: {' '.join(cmd)}")
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            # Hide console window on Windows
+            import sys
+            creationflags = 0
+            if sys.platform == "win32":
+                import subprocess
+                creationflags = subprocess.CREATE_NO_WINDOW
+            
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=creationflags)
             stdout, _ = proc.communicate(timeout=timeout)
             if proc.returncode != 0:
                 log.error(f"Injector: mkoverlay failed: {stdout}")
@@ -228,7 +235,14 @@ class SkinInjector:
         
         log.info(f"Injector: Running overlay: {' '.join(cmd)}")
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            # Hide console window on Windows
+            import sys
+            creationflags = 0
+            if sys.platform == "win32":
+                import subprocess
+                creationflags = subprocess.CREATE_NO_WINDOW
+            
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=creationflags)
             self.current_overlay_process = proc
             
             # Monitor process with stop callback
