@@ -19,7 +19,7 @@ from state.shared_state import SharedState
 from lcu.client import LCU
 from utils.normalization import normalize_text, levenshtein_score
 from utils.logging import get_logger
-from utils.window_capture import find_league_window_rect
+from utils.window_utils import find_league_window_rect, get_league_window_client_size
 
 log = get_logger()
 
@@ -68,18 +68,32 @@ class OCRSkinThread(threading.Thread):
         now = time.time()
         
         if self.args.capture == "window" and os.name == "nt":
-            rect = find_league_window_rect(self.args.window_hint)
-            if not rect:
+            # Use our improved window detection
+            client_size = get_league_window_client_size(self.args.window_hint)
+            if not client_size:
                 # Always log when window is not found
                 log.debug("[ocr] League window not found")
                 return None
             
-            # Log window detection only every 1 second
-            if (now - self.last_window_log_time) >= self.window_log_interval:
-                log.debug(f"[ocr] League window found: {rect[0]},{rect[1]},{rect[2]},{rect[3]} (size: {rect[2]-rect[0]}x{rect[3]-rect[1]})")
-                self.last_window_log_time = now
+            width, height = client_size
             
-            return rect
+            # For ROI calculations, we need the full screen rectangle of the client area
+            # We'll get the window position and add the client area size
+            rect = find_league_window_rect(self.args.window_hint)
+            if rect:
+                left, top, right, bottom = rect
+                # Use the client area dimensions we detected
+                client_rect = (left, top, left + width, top + height)
+                
+                # Log window detection only every 1 second
+                if (now - self.last_window_log_time) >= self.window_log_interval:
+                    log.debug(f"[ocr] League window found: {client_rect[0]},{client_rect[1]},{client_rect[2]},{client_rect[3]} (client size: {width}x{height})")
+                    self.last_window_log_time = now
+                
+                return client_rect
+            else:
+                log.debug("[ocr] League window not found")
+                return None
         else:
             # Monitor capture mode - use monitor dimensions
             import mss

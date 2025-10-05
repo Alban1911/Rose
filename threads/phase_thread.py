@@ -51,6 +51,10 @@ class PhaseThread(threading.Thread):
                         self.state.processed_action_ids = set()
                     self.state.last_hover_written = False
                     
+                    # Force immediate check for locked champion when entering ChampSelect
+                    # This helps OCR restart immediately if champion is already locked
+                    self.state.locked_champ_id = None  # Reset first
+                    
                 else:
                     # Exit champ select → reset counter/timer
                     self.state.hovered_champ_id = None
