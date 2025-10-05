@@ -64,8 +64,14 @@ def build_executable():
     print("\n[1/4] Cleaning previous builds...")
     for dir_name in ["build", "dist", "__pycache__"]:
         if os.path.exists(dir_name):
-            shutil.rmtree(dir_name)
-            print(f"Removed {dir_name}/")
+            try:
+                shutil.rmtree(dir_name)
+                print(f"Removed {dir_name}/")
+            except PermissionError as e:
+                print(f"Warning: Could not remove {dir_name}/ - {e}")
+                print("Try closing SkinCloner.exe and running this script again.")
+                print("Or restart your computer if the issue persists.")
+                return False
     
     # Remove spec files
     for spec_file in Path(".").glob("*.spec"):
