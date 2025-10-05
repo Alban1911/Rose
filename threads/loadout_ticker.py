@@ -83,7 +83,7 @@ class LoadoutTicker(threading.Thread):
                 log.info(f"[loadout #{self.ticker_id}] T-{int(remain_ms // 1000)}s")
             
             # Write last hovered skin at T<=threshold (configurable)
-            thresh = int(getattr(self.state, 'skin_write_ms', 2000) or 2000)
+            thresh = int(getattr(self.state, 'skin_write_ms', 4000) or 4000)
             if remain_ms <= thresh and not self.state.last_hover_written:
                 raw = self.state.last_hovered_skin_key or self.state.last_hovered_skin_slug \
                     or (str(self.state.last_hovered_skin_id) if self.state.last_hovered_skin_id else None)
