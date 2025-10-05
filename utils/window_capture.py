@@ -45,23 +45,45 @@ if is_windows():
         return r.left, r.top, r.right, r.bottom
 
     def find_league_window_rect(hint: str = "League") -> Optional[Tuple[int, int, int, int]]:
-        """Find League of Legends window rectangle"""
+        """Find League of Legends window rectangle - CLIENT AREA ONLY"""
         rects = []
         
         def cb(hwnd, lparam):
             if not IsWindowVisible(hwnd) or IsIconic(hwnd): 
                 return True
             t = _win_text(hwnd).lower()
-            # More specific matching for League client
-            if (("league of legends" in t or "riot client" in t) and 
-                ("champion select" in t or "match found" in t or "ready check" in t or hint.lower() in t)):
-                R = _win_rect(hwnd)
-                if R:
-                    l, t, r, b = R
+            # Look for League client window
+            if "league of legends" in t or "riot client" in t:
+                # Get client area coordinates (not window coordinates with borders)
+                try:
+                    from ctypes import windll
+                    client_rect = wintypes.RECT()
+                    windll.user32.GetClientRect(hwnd, ctypes.byref(client_rect))
+                    
+                    # Convert client rect to screen coordinates
+                    point = wintypes.POINT()
+                    point.x = 0
+                    point.y = 0
+                    windll.user32.ClientToScreen(hwnd, ctypes.byref(point))
+                    
+                    # Client area coordinates
+                    l = point.x
+                    t = point.y
+                    r = l + client_rect.right
+                    b = t + client_rect.bottom
+                    
                     w, h = r - l, b - t
-                    # Size requirements for League client (supports lower resolutions)
+                    # Size requirements for League client
                     if w >= 640 and h >= 480: 
                         rects.append((l, t, r, b))
+                except Exception:
+                    # Fallback to window rect if client rect fails
+                    R = _win_rect(hwnd)
+                    if R:
+                        l, t, r, b = R
+                        w, h = r - l, b - t
+                        if w >= 640 and h >= 480: 
+                            rects.append((l, t, r, b))
             return True
         
         EnumWindows(EnumWindowsProc(cb), 0)

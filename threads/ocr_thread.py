@@ -59,50 +59,47 @@ class OCRSkinThread(threading.Thread):
         self.next_emit = time.time()
         self.emit_dt = (1.0 / max(1.0, args.idle_hz)) if args.idle_hz > 0 else None
         
-        # Window and ROI state (calculated once, cached)
-        self.window_rect = None
-        self.roi_abs = None  # ROI calculé une seule fois puis caché
-        self.window_rect_cache_time = 0.0
-        self.window_rect_cache_duration = 30.0  # Cache window rect for 30 seconds
+        # Window state (no cache needed - client area detection is fast)
+        self.last_window_log_time = 0.0
+        self.window_log_interval = 1.0  # Log window detection every 1 second
 
     def _get_window_rect(self) -> Optional[Tuple[int, int, int, int]]:
-        """Get League window rectangle with caching"""
+        """Get League window rectangle - CLIENT AREA ONLY"""
         now = time.time()
         
-        # Use cached window rect if available and recent
-        if (self.window_rect is None or 
-            (now - self.window_rect_cache_time) > self.window_rect_cache_duration):
+        if self.args.capture == "window" and os.name == "nt":
+            rect = find_league_window_rect(self.args.window_hint)
+            if not rect:
+                # Always log when window is not found
+                log.debug("[ocr] League window not found")
+                return None
             
-            if self.args.capture == "window" and os.name == "nt":
-                rect = find_league_window_rect(self.args.window_hint)
-                if not rect:
-                    log.debug("[ocr] League window not found")
-                    return None
-                
-                self.window_rect = rect
-                self.window_rect_cache_time = now
+            # Log window detection only every 1 second
+            if (now - self.last_window_log_time) >= self.window_log_interval:
                 log.debug(f"[ocr] League window found: {rect[0]},{rect[1]},{rect[2]},{rect[3]} (size: {rect[2]-rect[0]}x{rect[3]-rect[1]})")
-            else:
-                # Monitor capture mode - use monitor dimensions
-                import mss
-                with mss.mss() as sct:
-                    monitor = sct.monitors[self.monitor_index]
-                    self.window_rect = (monitor["left"], monitor["top"], 
-                                       monitor["left"] + monitor["width"], 
-                                       monitor["top"] + monitor["height"])
-                    self.window_rect_cache_time = now
+                self.last_window_log_time = now
+            
+            return rect
+        else:
+            # Monitor capture mode - use monitor dimensions
+            import mss
+            with mss.mss() as sct:
+                monitor = sct.monitors[self.monitor_index]
+                rect = (monitor["left"], monitor["top"], 
+                       monitor["left"] + monitor["width"], 
+                       monitor["top"] + monitor["height"])
+                
+                # Log monitor capture only every 1 second
+                if (now - self.last_window_log_time) >= self.window_log_interval:
                     log.debug(f"[ocr] Using monitor capture (mode: {self.args.capture})")
-        
-        return self.window_rect
+                    self.last_window_log_time = now
+                
+                return rect
     
 
     def _get_roi_abs(self) -> Optional[Tuple[int, int, int, int]]:
-        """Get absolute ROI coordinates using FIXED proportions - CACHED"""
-        # Si on a déjà le ROI calculé et la fenêtre n'a pas changé, on le retourne
-        if self.roi_abs is not None and self.window_rect is not None:
-            return self.roi_abs
-        
-        # Sinon on calcule une seule fois
+        """Get absolute ROI coordinates using FIXED proportions - ALWAYS FRESH"""
+        # Toujours recalculer avec les proportions fixes (pour supporter resize de fenêtre)
         window_rect = self._get_window_rect()
         if not window_rect:
             return None
@@ -111,16 +108,15 @@ class OCRSkinThread(threading.Thread):
         width = r - l
         height = b - t
         
-        # Les proportions sont FIXES ! On les multiplie juste par la résolution
-        self.roi_abs = (
+        # Les proportions sont FIXES ! On les multiplie juste par la résolution actuelle
+        roi_abs = (
             int(l + width * ROI_PROPORTIONS['x1_ratio']),
             int(t + height * ROI_PROPORTIONS['y1_ratio']),
             int(l + width * ROI_PROPORTIONS['x2_ratio']),
             int(t + height * ROI_PROPORTIONS['y2_ratio'])
         )
         
-        log.debug(f"[ocr] ROI calculated ONCE using FIXED proportions: {self.roi_abs}")
-        return self.roi_abs
+        return roi_abs
 
     def _reset_ocr_state(self):
         """Reset OCR state variables"""
@@ -129,10 +125,6 @@ class OCRSkinThread(threading.Thread):
         self.motion_until = 0.0
         self.last_ocr_t = 0.0
         self.second_shot_at = 0.0
-        # Reset ROI cache aussi (au cas où la fenêtre change)
-        self.roi_abs = None
-        self.window_rect = None
-        self.window_rect_cache_time = 0.0
 
     def _should_run_ocr(self) -> bool:
         """Check if OCR should be running based on conditions"""
