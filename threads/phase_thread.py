@@ -51,6 +51,7 @@ class PhaseThread(threading.Thread):
                     except Exception: 
                         self.state.processed_action_ids = set()
                     self.state.last_hover_written = False
+                    self.state.injection_completed = False  # Reset injection flag for new game
                     
                     # Force immediate check for locked champion when entering ChampSelect
                     # This helps OCR restart immediately if champion is already locked
@@ -63,6 +64,23 @@ class PhaseThread(threading.Thread):
                             log.info("Phase: Killed all runoverlay processes for ChampSelect")
                         except Exception as e:
                             log.warning(f"Phase: Failed to kill runoverlay processes: {e}")
+                        
+                    
+                elif ph == "InProgress":
+                    # Game starting → log last skin
+                    if self.state.last_hovered_skin_key:
+                        log.info(f"[launch:last-skin] {self.state.last_hovered_skin_key} (skinId={self.state.last_hovered_skin_id}, champ={self.state.last_hovered_skin_slug})")
+                    else:
+                        log.info("[launch:last-skin] (no hovered skin detected)")
+                
+                elif ph == "EndOfGame":
+                    # Game ended → stop overlay process
+                    if self.injection_manager:
+                        try:
+                            self.injection_manager.stop_overlay_process()
+                            log.info("Phase: Stopped overlay process for EndOfGame")
+                        except Exception as e:
+                            log.warning(f"Phase: Failed to stop overlay process: {e}")
                     
                 else:
                     # Exit champ select → reset counter/timer

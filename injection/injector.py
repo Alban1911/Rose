@@ -477,11 +477,43 @@ class SkinInjector:
             overlay_files = list(main_overlay_dir.iterdir())
             log.debug(f"Injector: Main overlay directory contents: {[f.name for f in overlay_files]}")
             
-            # For pre-built overlays, we don't need to run runoverlay
-            # The overlay files are already created and ready to use
-            # The game will automatically pick them up when it starts
-            log.info("Injector: Pre-built overlay files copied successfully - ready for game")
-            return True
+            # Run overlay using runoverlay command (same as traditional injection)
+            tools = self._detect_tools()
+            exe = tools.get("modtools")
+            if not exe or not exe.exists():
+                log.error(f"[INJECTOR] Missing mod-tools.exe in {self.tools_dir}")
+                return False
+            
+            # Create configuration file path
+            cfg = main_overlay_dir / "cslol-config.json"
+            gpath = str(self.game_dir)
+            
+            cmd = [
+                str(exe), "runoverlay", str(main_overlay_dir), str(cfg),
+                f"--game:{gpath}", "--opts:configless"
+            ]
+            
+            log.info(f"Injector: Running overlay: {' '.join(cmd)}")
+            
+            try:
+                # Hide console window on Windows
+                import sys
+                creationflags = 0
+                if sys.platform == "win32":
+                    import subprocess
+                    creationflags = subprocess.CREATE_NO_WINDOW
+                
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=creationflags)
+                self.current_overlay_process = proc
+                
+                # For pre-built overlays, we don't need to monitor the process long-term
+                # Just start it and let it run in the background
+                log.info("Injector: Pre-built overlay process started successfully")
+                return True
+                
+            except Exception as e:
+                log.error(f"Injector: Error running overlay process: {e}")
+                return False
                 
         except Exception as e:
             log.error(f"Injector: Error running pre-built overlay: {e}")

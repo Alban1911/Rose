@@ -39,6 +39,7 @@ class SharedState:
     
     # Skin write config - use user data directory
     skin_write_ms: int = 2000
+    injection_completed: bool = False  # Flag to prevent OCR restart after injection
     skin_file: str = ""  # Will be set to user data directory path
     inject_batch: Optional[str] = None
     

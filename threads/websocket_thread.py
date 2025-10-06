@@ -112,6 +112,7 @@ class WSEventThread(threading.Thread):
                     self.state.last_hovered_skin_id = None
                     self.state.last_hovered_skin_slug = None
                     self.state.last_hover_written = False
+                    self.state.injection_completed = False  # Reset injection flag for new game
                     try: 
                         self.state.processed_action_ids.clear()
                     except Exception: 
@@ -124,6 +125,24 @@ class WSEventThread(threading.Thread):
                             log.info("WS: Killed all runoverlay processes for ChampSelect")
                         except Exception as e:
                             log.warning(f"WS: Failed to kill runoverlay processes: {e}")
+                        
+                
+                elif ph == "InProgress":
+                    # Game starting → log last skin
+                    if self.state.last_hovered_skin_key:
+                        log.info(f"[launch:last-skin] {self.state.last_hovered_skin_key} (skinId={self.state.last_hovered_skin_id}, champ={self.state.last_hovered_skin_slug})")
+                    else:
+                        log.info("[launch:last-skin] (no hovered skin detected)")
+                
+                elif ph == "EndOfGame":
+                    # Game ended → stop overlay process
+                    if self.injection_manager:
+                        try:
+                            self.injection_manager.stop_overlay_process()
+                            log.info("WS: Stopped overlay process for EndOfGame")
+                        except Exception as e:
+                            log.warning(f"WS: Failed to stop overlay process: {e}")
+                    
                     
                 else:
                     # Exit → reset locks/timer

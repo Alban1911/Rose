@@ -447,7 +447,6 @@ def main():
     t_ocr = OCRSkinThread(state, db, ocr, args, lcu, multilang_db)
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager) if args.ws else None
     t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws)
-
     # Start threads
     t_phase.start()
     if t_champ: 
@@ -464,11 +463,6 @@ def main():
         while not state.stop:
             ph = state.phase
             if ph != last_phase:
-                if ph == "InProgress":
-                    if state.last_hovered_skin_key:
-                        log.info(f"[launch:last-skin] {state.last_hovered_skin_key} (skinId={state.last_hovered_skin_id}, champ={state.last_hovered_skin_slug})")
-                    else:
-                        log.info("[launch:last-skin] (no hovered skin detected)")
                 last_phase = ph
             time.sleep(MAIN_LOOP_SLEEP)
     except KeyboardInterrupt:
