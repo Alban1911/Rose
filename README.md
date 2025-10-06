@@ -102,21 +102,26 @@ The system automatically detects your League of Legends client language.
 
 ### Quick Start
 
-1. **Launch League of Legends** and start a game
-2. **Enter Champion Select** - SkinCloner automatically detects this phase
-3. **Hover over skins**  - the system detects the skin name using OCR
-4. **The system automatically injects** the last hovered skin 2 seconds before the game starts
-5. **Enjoy your custom skin** in the game!
+**SkinCloner is designed to be completely transparent - just launch it and forget about it!**
 
-### How It Works
+1. **Launch SkinCloner** (from desktop shortcut or start menu)
+2. **Let it run in the background** - you don't need to interact with it
+3. **Play League of Legends normally** - the app works silently in the background
+4. **That's it!** SkinCloner handles everything automatically
 
-SkinCloner operates through a sophisticated multi-threaded system:
+The application runs in the system tray and requires no user interaction. Simply play League of Legends as usual, and when you hover over skins in champion select, the app will automatically detect and inject them.
+
+### How It Works Behind the Scenes
+
+While you play, SkinCloner operates through a sophisticated multi-threaded system:
 
 1. **Phase Detection**: Monitors League Client for game phases (lobby, champion select, in-game)
 2. **OCR Activation**: Automatically activates OCR when entering champion select
 3. **Skin Detection**: Uses advanced computer vision to detect skin names as you hover over them
 4. **Smart Matching**: Applies fuzzy matching algorithms to accurately identify skins
 5. **Automatic Injection**: Injects the last detected skin 2 seconds before the game starts
+
+**No manual intervention required - just launch the app and play!**
 
 
 ## ✨ Features
