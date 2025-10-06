@@ -101,12 +101,17 @@ class TrayManager:
         finally:
             icon.stop()
     
+    def _on_icon_click(self, icon, item):
+        """Handle left click on tray icon - do nothing"""
+        # Left click does nothing, only right click shows menu
+        pass
+    
     def _create_menu(self) -> pystray.Menu:
         """Create the context menu for the tray icon"""
         return pystray.Menu(
             pystray.MenuItem("SkinCloner", None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit", self._on_quit, default=True)
+            pystray.MenuItem("Quit", self._on_quit)
         )
     
     def _run_tray(self):
@@ -119,7 +124,8 @@ class TrayManager:
                 "SkinCloner",
                 icon_image,
                 "SkinCloner",
-                menu
+                menu,
+                default_action=self._on_icon_click
             )
             
             log.info("System tray icon started")
