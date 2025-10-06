@@ -36,26 +36,26 @@ class TrayManager:
         
     def _create_icon_image(self) -> Image.Image:
         """Create a simple icon image for the tray"""
-        # Create a 64x64 icon with a simple design
-        width, height = 64, 64
+        # Create a 128x128 icon with a simple design (doubled from 64x64)
+        width, height = 128, 128
         image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
         
         # Draw a simple "SC" logo (SkinCloner)
-        # Background circle
-        draw.ellipse([8, 8, 56, 56], fill=(0, 100, 200, 255), outline=(0, 50, 100, 255), width=2)
+        # Background circle (scaled 2x)
+        draw.ellipse([16, 16, 112, 112], fill=(0, 100, 200, 255), outline=(0, 50, 100, 255), width=4)
         
         # "SC" text
         try:
             # Try to use a font if available
             from PIL import ImageFont
-            font = ImageFont.truetype("arial.ttf", 20)
+            font = ImageFont.truetype("arial.ttf", 40)  # Doubled from 20
         except:
             # Fallback to default font
             font = ImageFont.load_default()
         
-        # Draw "SC" text
-        draw.text((18, 22), "SC", fill=(255, 255, 255, 255), font=font)
+        # Draw "SC" text (scaled 2x)
+        draw.text((36, 44), "SC", fill=(255, 255, 255, 255), font=font)
         
         return image
     
@@ -66,9 +66,9 @@ class TrayManager:
             if os.path.exists(icon_path):
                 # Convert ICO to PNG for pystray
                 with Image.open(icon_path) as img:
-                    # Convert to RGBA and resize to 64x64
+                    # Convert to RGBA and resize to 128x128 (doubled from 64x64)
                     img = img.convert('RGBA')
-                    img = img.resize((64, 64), Image.Resampling.LANCZOS)
+                    img = img.resize((128, 128), Image.Resampling.LANCZOS)
                     return img
         except Exception as e:
             log.debug(f"Failed to load icon from file: {e}")
@@ -90,14 +90,14 @@ class TrayManager:
         image = base_image.copy()
         draw = ImageDraw.Draw(image)
         
-        # Draw orange dot in bottom-right corner (bigger size)
-        dot_size = 28
-        x = image.width - dot_size - 2
-        y = image.height - dot_size - 2
+        # Draw orange dot in bottom-left corner (bigger size)
+        dot_size = 70  # Scaled 2x for 128x128 icon (was 35 for 64x64)
+        x = 4
+        y = image.height - dot_size - 4
         
         # Draw the dot with a black border and orange fill
-        # First draw black border
-        draw.ellipse([x-1, y-1, x + dot_size + 1, y + dot_size + 1], 
+        # First draw black border (scaled 2x)
+        draw.ellipse([x-2, y-2, x + dot_size + 2, y + dot_size + 2], 
                     fill=(0, 0, 0, 255),  # Black border
                     outline=None)
         
@@ -105,6 +105,55 @@ class TrayManager:
         draw.ellipse([x, y, x + dot_size, y + dot_size], 
                     fill=(255, 140, 0, 255),  # Orange
                     outline=None)
+        
+        return image
+    
+    def _add_green_checkmark(self, base_image: Image.Image) -> Image.Image:
+        """Add a green circle with white checkmark to the icon"""
+        # Create a copy to avoid modifying the original
+        image = base_image.copy()
+        draw = ImageDraw.Draw(image)
+        
+        # Draw green circle in bottom-left corner (same size as orange dot)
+        dot_size = 70  # Scaled 2x for 128x128 icon (was 35 for 64x64)
+        x = 4
+        y = image.height - dot_size - 4
+        
+        # Draw the circle with a black border and green fill
+        # First draw black border (scaled 2x)
+        draw.ellipse([x-2, y-2, x + dot_size + 2, y + dot_size + 2], 
+                    fill=(0, 0, 0, 255),  # Black border
+                    outline=None)
+        
+        # Then draw the green circle on top
+        draw.ellipse([x, y, x + dot_size, y + dot_size], 
+                    fill=(34, 197, 94, 255),  # Green (modern green color)
+                    outline=None)
+        
+        # Draw a white checkmark inside the circle
+        # Calculate checkmark coordinates (scaled to fit inside the circle)
+        center_x = x + dot_size // 2
+        center_y = y + dot_size // 2
+        
+        # Checkmark path: short line going down-right, then longer line going up-right
+        check_scale = dot_size / 28.0  # Scale factor based on dot size
+        
+        # Start point (left side of checkmark)
+        x1 = center_x - int(5 * check_scale)
+        y1 = center_y + int(1 * check_scale)
+        
+        # Middle point (bottom of checkmark)
+        x2 = center_x - int(1 * check_scale)
+        y2 = center_y + int(5 * check_scale)
+        
+        # End point (top-right of checkmark)
+        x3 = center_x + int(6 * check_scale)
+        y3 = center_y - int(4 * check_scale)
+        
+        # Draw the checkmark with thick white lines
+        line_width = max(2, int(3 * check_scale))
+        draw.line([x1, y1, x2, y2], fill=(255, 255, 255, 255), width=line_width)
+        draw.line([x2, y2, x3, y3], fill=(255, 255, 255, 255), width=line_width)
         
         return image
     
@@ -208,7 +257,7 @@ class TrayManager:
         Update the tray icon to show downloading status
         
         Args:
-            is_downloading: True to show orange dot, False to show normal icon
+            is_downloading: True to show orange dot, False to show green checkmark icon
         """
         # Wait for tray icon to be ready (up to 5 seconds)
         max_wait = 5.0
@@ -232,8 +281,9 @@ class TrayManager:
                 self.icon.icon = new_icon
                 log.info("Orange icon on")
             else:
-                # Show normal icon
-                self.icon.icon = self._base_icon_image
-                log.info("Orange icon off")
+                # Show green checkmark icon
+                new_icon = self._add_green_checkmark(self._base_icon_image)
+                self.icon.icon = new_icon
+                log.info("Orange icon off - showing green checkmark")
         except Exception as e:
             log.error(f"Failed to update tray icon: {e}")
