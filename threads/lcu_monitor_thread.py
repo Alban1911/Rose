@@ -10,6 +10,7 @@ from typing import Optional, Callable
 from lcu.client import LCU
 from state.shared_state import SharedState
 from utils.logging import get_logger
+from constants import LCU_MONITOR_INTERVAL
 
 log = get_logger()
 
@@ -80,7 +81,7 @@ class LCUMonitorThread(threading.Thread):
             except Exception as e:
                 log.debug(f"LCU monitor error: {e}")
             
-            time.sleep(1.0)
+            time.sleep(LCU_MONITOR_INTERVAL)
     
     def _is_ws_connected(self) -> bool:
         """Check if WebSocket is connected"""

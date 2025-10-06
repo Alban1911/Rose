@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Complete build script for SkinCloner
+Builds executable and creates Windows installer in one step
+"""
+
+import os
+import sys
+import subprocess
+import time
+from pathlib import Path
+
+
+def print_header(title):
+    """Print a formatted header"""
+    print("\n" + "=" * 70)
+    print(f"  {title}")
+    print("=" * 70 + "\n")
+
+
+def print_step(step_num, total_steps, description):
+    """Print a step description"""
+    print(f"\n[Step {step_num}/{total_steps}] {description}")
+    print("-" * 70)
+
+
+def run_build_exe():
+    """Run the build_exe.py script"""
+    print_step(1, 2, "Building Executable with PyInstaller")
+    
+    # Run build_exe.py as a subprocess
+    result = subprocess.run(
+        [sys.executable, "build_exe.py"],
+        capture_output=False,  # Show output in real-time
+        text=True
+    )
+    
+    if result.returncode != 0:
+        print("\n❌ ERROR: Executable build failed!")
+        return False
+    
+    # Verify the executable was created
+    exe_path = Path("dist/SkinCloner/SkinCloner.exe")
+    if not exe_path.exists():
+        print("\n❌ ERROR: Executable not found at expected location!")
+        return False
+    
+    print("\n✓ Executable build completed successfully!")
+    return True
+
+
+def run_create_installer():
+    """Run the create_installer.py script"""
+    print_step(2, 2, "Creating Windows Installer with Inno Setup")
+    
+    # Run create_installer.py as a subprocess
+    result = subprocess.run(
+        [sys.executable, "create_installer.py"],
+        capture_output=False,  # Show output in real-time
+        text=True
+    )
+    
+    if result.returncode != 0:
+        print("\n❌ ERROR: Installer creation failed!")
+        return False
+    
+    # Verify the installer was created
+    installer_dir = Path("installer")
+    installer_files = list(installer_dir.glob("SkinCloner_Setup*.exe"))
+    if not installer_files:
+        print("\n❌ ERROR: Installer not found at expected location!")
+        return False
+    
+    print("\n✓ Installer creation completed successfully!")
+    return True
+
+
+def build_all():
+    """Complete build process: executable + installer"""
+    
+    print_header("SkinCloner - Complete Build Process")
+    
+    start_time = time.time()
+    
+    # Step 1: Build executable
+    if not run_build_exe():
+        print_header("❌ BUILD FAILED AT STEP 1/2")
+        print("The executable build failed. Please check the errors above.")
+        print("\nTroubleshooting:")
+        print("1. Make sure all dependencies are installed:")
+        print("   pip install -r build_requirements.txt")
+        print("2. Close any running instances of SkinCloner.exe")
+        print("3. Try removing build/dist directories manually")
+        return False
+    
+    # Step 2: Create installer
+    if not run_create_installer():
+        print_header("⚠️  BUILD PARTIALLY COMPLETED (1/2)")
+        print("Executable was built successfully, but installer creation failed.")
+        print("\nYou can still use the executable directly from:")
+        print("  dist/SkinCloner/SkinCloner.exe")
+        print("\nTo create the installer:")
+        print("1. Install Inno Setup from: https://jrsoftware.org/isdl.php")
+        print("2. Run: python create_installer.py")
+        return False
+    
+    # Success!
+    elapsed_time = time.time() - start_time
+    minutes = int(elapsed_time // 60)
+    seconds = int(elapsed_time % 60)
+    
+    print_header("✓ BUILD COMPLETED SUCCESSFULLY!")
+    
+    # Get file information
+    exe_path = Path("dist/SkinCloner/SkinCloner.exe")
+    installer_files = list(Path("installer").glob("SkinCloner_Setup*.exe"))
+    installer_path = installer_files[0] if installer_files else None
+    
+    exe_size_mb = exe_path.stat().st_size / (1024 * 1024)
+    
+    print("Build Summary:")
+    print(f"  Time elapsed: {minutes}m {seconds}s")
+    print()
+    print("Generated Files:")
+    print(f"  ✓ Executable:  {exe_path}")
+    print(f"    Size: {exe_size_mb:.1f} MB")
+    
+    if installer_path:
+        installer_size_mb = installer_path.stat().st_size / (1024 * 1024)
+        print(f"  ✓ Installer:   {installer_path}")
+        print(f"    Size: {installer_size_mb:.1f} MB")
+    
+    print("\nNext Steps:")
+    print("  • For development/testing:")
+    print("    Run: dist\\SkinCloner\\start.bat")
+    print()
+    print("  • For distribution:")
+    print(f"    Share: {installer_path if installer_path else 'installer/SkinCloner_Setup.exe'}")
+    print()
+    print("  • For portable version:")
+    print("    Zip: dist\\SkinCloner\\ folder")
+    
+    print("\n" + "=" * 70)
+    
+    return True
+
+
+def main():
+    """Main entry point"""
+    
+    # Check if we're in the right directory
+    if not Path("main.py").exists():
+        print("ERROR: main.py not found!")
+        print("Please run this script from the SkinCloner root directory.")
+        sys.exit(1)
+    
+    # Check if build_exe.py exists
+    if not Path("build_exe.py").exists():
+        print("ERROR: build_exe.py not found!")
+        sys.exit(1)
+    
+    # Check if create_installer.py exists
+    if not Path("create_installer.py").exists():
+        print("ERROR: create_installer.py not found!")
+        sys.exit(1)
+    
+    # Run the complete build
+    success = build_all()
+    
+    if not success:
+        sys.exit(1)
+    
+
+
+if __name__ == "__main__":
+    main()
+

@@ -12,6 +12,7 @@ from typing import Optional
 
 from .injector import SkinInjector
 from utils.logging import get_logger
+from constants import INJECTION_THRESHOLD_SECONDS
 
 log = get_logger()
 
@@ -23,7 +24,7 @@ class InjectionManager:
         self.injector = SkinInjector(tools_dir, mods_dir, zips_dir, game_dir)
         self.last_skin_name = None
         self.last_injection_time = 0.0
-        self.injection_threshold = 2.0  # 2 seconds
+        self.injection_threshold = INJECTION_THRESHOLD_SECONDS
         self.injection_lock = threading.Lock()
         
     def update_skin(self, skin_name: str):

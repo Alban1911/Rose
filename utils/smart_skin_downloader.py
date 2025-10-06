@@ -14,6 +14,12 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 from utils.logging import get_logger
+from constants import (
+    RATE_LIMIT_MIN_INTERVAL, RATE_LIMIT_REQUEST_TIMEOUT, RATE_LIMIT_STREAM_TIMEOUT,
+    RATE_LIMIT_LOW_THRESHOLD, RATE_LIMIT_WARNING_50, RATE_LIMIT_WARNING_100,
+    RATE_LIMIT_INITIAL, RATE_LIMIT_DELAY_LOW, RATE_LIMIT_DELAY_MEDIUM,
+    RATE_LIMIT_DELAY_HIGH, RATE_LIMIT_BACKOFF_MULTIPLIER, LOG_CHUNK_SIZE
+)
 
 log = get_logger()
 
@@ -33,8 +39,8 @@ class SmartSkinDownloader:
         
         # Rate limiting
         self.last_request_time = 0
-        self.min_request_interval = 1.0  # Minimum 1 second between requests
-        self.rate_limit_remaining = 5000  # Assume authenticated rate limit
+        self.min_request_interval = RATE_LIMIT_MIN_INTERVAL
+        self.rate_limit_remaining = RATE_LIMIT_INITIAL
         self.rate_limit_reset = 0
         
     def _wait_for_rate_limit(self):
@@ -57,17 +63,17 @@ class SmartSkinDownloader:
         if 'X-RateLimit-Reset' in response.headers:
             self.rate_limit_reset = int(response.headers['X-RateLimit-Reset'])
         
-        if self.rate_limit_remaining < 10:
+        if self.rate_limit_remaining < RATE_LIMIT_LOW_THRESHOLD:
             log.warning(f"Rate limit low: {self.rate_limit_remaining} requests remaining")
             # Increase delay when rate limit is low
-            self.min_request_interval = max(2.0, self.min_request_interval * 1.5)
+            self.min_request_interval = max(RATE_LIMIT_DELAY_LOW, self.min_request_interval * RATE_LIMIT_BACKOFF_MULTIPLIER)
     
     def _make_request(self, url: str, **kwargs) -> Optional[requests.Response]:
         """Make a rate-limited request"""
         self._wait_for_rate_limit()
         
         try:
-            response = self.session.get(url, timeout=30, **kwargs)
+            response = self.session.get(url, timeout=RATE_LIMIT_REQUEST_TIMEOUT, **kwargs)
             self._handle_rate_limit_response(response)
             response.raise_for_status()
             return response
@@ -135,13 +141,13 @@ class SmartSkinDownloader:
                 local_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 # Download with streaming for large files
-                response = self._make_request(url, stream=True, timeout=60)
+                response = self._make_request(url, stream=True, timeout=RATE_LIMIT_STREAM_TIMEOUT)
                 if not response:
                     results.append(False)
                     continue
                 
                 with open(local_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
+                    for chunk in response.iter_content(chunk_size=LOG_CHUNK_SIZE):
                         if chunk:
                             f.write(chunk)
                 
@@ -237,12 +243,12 @@ class SmartSkinDownloader:
                     log.info(f"No new skins for {champion}")
                 
                 # Adaptive delay based on rate limit status
-                if self.rate_limit_remaining < 50:
-                    delay = 2.0
-                elif self.rate_limit_remaining < 100:
-                    delay = 1.0
+                if self.rate_limit_remaining < RATE_LIMIT_WARNING_50:
+                    delay = RATE_LIMIT_DELAY_LOW
+                elif self.rate_limit_remaining < RATE_LIMIT_WARNING_100:
+                    delay = RATE_LIMIT_DELAY_MEDIUM
                 else:
-                    delay = 0.5
+                    delay = RATE_LIMIT_DELAY_HIGH
                 
                 time.sleep(delay)
                 

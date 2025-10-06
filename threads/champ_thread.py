@@ -10,6 +10,7 @@ from lcu.client import LCU
 from database.name_db import NameDB
 from state.shared_state import SharedState
 from utils.logging import get_logger
+from constants import CHAMP_POLL_INTERVAL
 
 log = get_logger()
 
@@ -17,7 +18,7 @@ log = get_logger()
 class ChampThread(threading.Thread):
     """Thread for monitoring champion hover and lock"""
     
-    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = 0.25):
+    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.db = db
@@ -30,7 +31,7 @@ class ChampThread(threading.Thread):
         """Main thread loop"""
         while not self.state.stop:
             if not self.lcu.ok or self.state.phase != "ChampSelect":
-                time.sleep(0.25)
+                time.sleep(CHAMP_POLL_INTERVAL)
                 continue
             
             cid = self.lcu.hovered_champion_id()

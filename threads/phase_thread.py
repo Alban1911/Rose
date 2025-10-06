@@ -9,6 +9,7 @@ import threading
 from lcu.client import LCU
 from state.shared_state import SharedState
 from utils.logging import get_logger
+from constants import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT
 
 log = get_logger()
 
@@ -16,9 +17,9 @@ log = get_logger()
 class PhaseThread(threading.Thread):
     """Thread for monitoring game phase changes"""
     
-    INTERESTING = {"Lobby", "Matchmaking", "ReadyCheck", "ChampSelect", "GameStart", "InProgress", "EndOfGame"}
+    INTERESTING = INTERESTING_PHASES
     
-    def __init__(self, lcu: LCU, state: SharedState, interval: float = 0.5, log_transitions: bool = True, injection_manager=None):
+    def __init__(self, lcu: LCU, state: SharedState, interval: float = PHASE_POLL_INTERVAL_DEFAULT, log_transitions: bool = True, injection_manager=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state

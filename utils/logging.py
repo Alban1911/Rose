@@ -13,6 +13,10 @@ from datetime import datetime
 from urllib3.exceptions import InsecureRequestWarning
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from constants import (
+    LOG_MAX_FILES_DEFAULT, LOG_MAX_TOTAL_SIZE_MB_DEFAULT,
+    LOG_FILE_PATTERN, LOG_TIMESTAMP_FORMAT
+)
 
 
 def setup_logging(verbose: bool):
@@ -71,7 +75,7 @@ def setup_logging(verbose: bool):
         
         # Create a unique log file for this session with timestamp
         # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
-        timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+        timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
         log_file = logs_dir / f"skincloner_{timestamp}.log"
         
         # Setup file handler (no rotation needed since each session has its own file)
@@ -134,7 +138,7 @@ def get_logger(name: str = "tracer") -> logging.Logger:
     return logging.getLogger(name)
 
 
-def cleanup_logs(max_files: int = 20, max_total_size_mb: int = 100):
+def cleanup_logs(max_files: int = LOG_MAX_FILES_DEFAULT, max_total_size_mb: int = LOG_MAX_TOTAL_SIZE_MB_DEFAULT):
     """
     Clean up old log files based on count and total size
     
@@ -149,7 +153,7 @@ def cleanup_logs(max_files: int = 20, max_total_size_mb: int = 100):
             return
         
         # Get all log files matching the new pattern
-        log_files = list(logs_dir.glob("skincloner_*.log"))
+        log_files = list(logs_dir.glob(LOG_FILE_PATTERN))
         
         # Sort by modification time (oldest first)
         log_files.sort(key=lambda f: f.stat().st_mtime)
@@ -207,4 +211,4 @@ def _clear_log_file(log_file: Path):
 
 def cleanup_logs_on_startup():
     """Clean up old log files when the application starts"""
-    cleanup_logs(max_files=20, max_total_size_mb=100)
+    cleanup_logs(max_files=LOG_MAX_FILES_DEFAULT, max_total_size_mb=LOG_MAX_TOTAL_SIZE_MB_DEFAULT)

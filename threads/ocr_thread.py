@@ -20,17 +20,9 @@ from lcu.client import LCU
 from utils.normalization import normalize_text, levenshtein_score
 from utils.logging import get_logger
 from utils.window_utils import find_league_window_rect, get_league_window_client_size
+from constants import *
 
 log = get_logger()
-
-# ROI proportions - these are constant for League of Legends
-# Based on exact measurements: 455px from top, 450px from left/right, 230px from bottom
-ROI_PROPORTIONS = {
-    'x1_ratio': 0.352,  # 450/1280
-    'y1_ratio': 0.632,  # 455/720  
-    'x2_ratio': 0.648,  # 830/1280
-    'y2_ratio': 0.681   # 490/720
-}
 
 
 class OCRSkinThread(threading.Thread):
@@ -61,7 +53,7 @@ class OCRSkinThread(threading.Thread):
         
         # Window state (no cache needed - client area detection is fast)
         self.last_window_log_time = 0.0
-        self.window_log_interval = 1.0  # Log window detection every 1 second
+        self.window_log_interval = OCR_WINDOW_LOG_INTERVAL
 
     def _get_window_rect(self) -> Optional[Tuple[int, int, int, int]]:
         """Get League window rectangle - CLIENT AREA ONLY"""
@@ -182,7 +174,7 @@ class OCRSkinThread(threading.Thread):
             hasattr(self.state, 'current_ticker')):
             
             # Get the injection threshold (default 2000ms = 2 seconds)
-            threshold_ms = int(getattr(self.state, 'skin_write_ms', 2000) or 2000)
+            threshold_ms = int(getattr(self.state, 'skin_write_ms', SKIN_THRESHOLD_MS_DEFAULT) or SKIN_THRESHOLD_MS_DEFAULT)
             
             # If we're in the final seconds before injection, stop OCR
             # This prevents unnecessary OCR processing when injection is imminent
@@ -230,13 +222,13 @@ class OCRSkinThread(threading.Thread):
                         self._reset_ocr_state()
                     
                     if not should_run:
-                        time.sleep(0.15)
+                        time.sleep(OCR_NO_CONDITION_SLEEP)
                         continue
                     
                     # Get ROI coordinates (uses hardcoded proportions)
                     roi_abs = self._get_roi_abs()
                     if not roi_abs:
-                        time.sleep(0.05)
+                        time.sleep(OCR_NO_WINDOW_SLEEP)
                         continue
                     
                     L, T, R, B = roi_abs
@@ -246,7 +238,7 @@ class OCRSkinThread(threading.Thread):
                         shot = sct.grab(mon)
                         band = np.array(shot, dtype=np.uint8)[:, :, :3]
                     except Exception:
-                        time.sleep(0.05)
+                        time.sleep(OCR_NO_WINDOW_SLEEP)
                         continue
                     
                     # Process image for OCR
@@ -270,7 +262,7 @@ class OCRSkinThread(threading.Thread):
                     
                     # Second shot for better accuracy
                     if self.second_shot_at and now >= self.second_shot_at:
-                        if now - self.last_ocr_t >= (self.min_ocr_interval * 0.6):
+                        if now - self.last_ocr_t >= (self.min_ocr_interval * 0.6):  # 60% of min interval
                             self._run_ocr_and_match(band_bin)
                             self.last_ocr_t = now
                         self.second_shot_at = 0.0
@@ -287,9 +279,9 @@ class OCRSkinThread(threading.Thread):
                     
                     # Sleep based on motion state
                     if now < self.motion_until:
-                        sleep_time = 1.0 / max(10.0, self.args.burst_hz)
+                        sleep_time = 1.0 / max(OCR_MOTION_SLEEP_DIVISOR, self.args.burst_hz)
                     else:
-                        sleep_time = 1.0 / max(5.0, self.args.idle_hz) if self.args.idle_hz > 0 else 0.1
+                        sleep_time = 1.0 / max(OCR_IDLE_SLEEP_MIN, self.args.idle_hz) if self.args.idle_hz > 0 else OCR_IDLE_SLEEP_DEFAULT
                     
                     time.sleep(sleep_time)
         finally:

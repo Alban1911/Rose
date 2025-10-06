@@ -98,6 +98,7 @@ def build_executable():
         "--icon=icon.ico",
         "--add-data=icon.ico;.",
         "--add-data=requirements.txt;.",
+        "--add-data=constants.py;.",  # Include constants module at root level
     ]
     
     # Add directories while respecting .gitignore
@@ -135,6 +136,7 @@ def build_executable():
     
     # Add hidden imports
     hidden_imports = [
+        "constants",  # Our constants module
         "numpy", "cv2", "psutil", "requests", "rapidfuzz",
         "websocket", "mss", "PIL", "PIL.Image", "PIL.ImageTk",
         "PIL.ImageDraw", "PIL.ImageFont", "PIL.ImageOps",

@@ -13,6 +13,10 @@ from state.shared_state import SharedState
 from database.name_db import NameDB
 from utils.logging import get_logger
 from utils.normalization import normalize_text
+from constants import (
+    TIMER_HZ_MIN, TIMER_HZ_MAX, TIMER_POLL_PERIOD_S,
+    SKIN_THRESHOLD_MS_DEFAULT, HOVER_BUFFER_FILE
+)
 
 log = get_logger()
 
@@ -26,7 +30,7 @@ class LoadoutTicker(threading.Thread):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
-        self.hz = max(10, min(2000, int(hz)))
+        self.hz = max(TIMER_HZ_MIN, min(TIMER_HZ_MAX, int(hz)))
         self.fallback_ms = max(0, int(fallback_ms))
         self.ticker_id = int(ticker_id)
         self.mode = mode
@@ -45,7 +49,7 @@ class LoadoutTicker(threading.Thread):
         # Absolute deadline in monotonic time (strict, non-increasing)
         deadline = t0 + (left0_ms / 1000.0)
         prev_remain_ms = 10**9
-        poll_period_s = 0.2
+        poll_period_s = TIMER_POLL_PERIOD_S
         last_poll = 0.0
         last_bucket = None
         
@@ -83,7 +87,7 @@ class LoadoutTicker(threading.Thread):
                 log.info(f"[loadout #{self.ticker_id}] T-{int(remain_ms // 1000)}s")
             
             # Write last hovered skin at T<=threshold (configurable)
-            thresh = int(getattr(self.state, 'skin_write_ms', 2000) or 2000)
+            thresh = int(getattr(self.state, 'skin_write_ms', SKIN_THRESHOLD_MS_DEFAULT) or SKIN_THRESHOLD_MS_DEFAULT)
             if remain_ms <= thresh and not self.state.last_hover_written:
                 raw = self.state.last_hovered_skin_key or self.state.last_hovered_skin_slug \
                     or (str(self.state.last_hovered_skin_id) if self.state.last_hovered_skin_id else None)
@@ -124,7 +128,7 @@ class LoadoutTicker(threading.Thread):
                 name = final_label if final_label else None
                 if not name:
                     try:
-                        with open("hover_buffer.txt", "r", encoding="utf-8") as f:
+                        with open(HOVER_BUFFER_FILE, "r", encoding="utf-8") as f:
                             s = f.read().strip()
                             if s:
                                 name = s

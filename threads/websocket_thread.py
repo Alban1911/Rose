@@ -17,6 +17,11 @@ from database.name_db import NameDB
 from state.shared_state import SharedState
 from threads.loadout_ticker import LoadoutTicker
 from utils.logging import get_logger
+from constants import (
+    WS_PING_INTERVAL_DEFAULT, WS_PING_TIMEOUT_DEFAULT, WS_RECONNECT_DELAY,
+    WS_PROBE_ITERATIONS, WS_PROBE_SLEEP_MS, TIMER_HZ_DEFAULT,
+    FALLBACK_LOADOUT_MS_DEFAULT, INTERESTING_PHASES
+)
 
 log = get_logger()
 
@@ -33,8 +38,8 @@ except Exception:
 class WSEventThread(threading.Thread):
     """WebSocket event thread with WAMP + lock counter + timer"""
     
-    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, ping_interval: int = 20, 
-                 ping_timeout: int = 10, timer_hz: int = 1000, fallback_ms: int = 0, 
+    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, ping_interval: int = WS_PING_INTERVAL_DEFAULT, 
+                 ping_timeout: int = WS_PING_TIMEOUT_DEFAULT, timer_hz: int = TIMER_HZ_DEFAULT, fallback_ms: int = FALLBACK_LOADOUT_MS_DEFAULT, 
                  injection_manager=None):
         super().__init__(daemon=True)
         self.lcu = lcu
@@ -65,14 +70,14 @@ class WSEventThread(threading.Thread):
         elif (total > 0 and locked_count >= total):
             if left_ms <= 0:
                 # Small 0.5s window to let LCU publish a non-zero timer
-                for _ in range(8):  # 8 * 60ms ~= 480ms
+                for _ in range(WS_PROBE_ITERATIONS):  # 8 * 60ms ~= 480ms
                     s2 = self.lcu.session() or {}
                     t2 = (s2.get("timer") or {})
                     left_ms = int(t2.get("adjustedTimeLeftInPhase") or 0)
                     if left_ms > 0:
                         probe_used = True
                         break
-                    time.sleep(0.06)
+                    time.sleep(WS_PROBE_SLEEP_MS / 1000.0)
             if left_ms > 0:
                 should_start = True
 
@@ -99,7 +104,7 @@ class WSEventThread(threading.Thread):
         if uri == "/lol-gameflow/v1/gameflow-phase":
             ph = payload.get("data")
             if isinstance(ph, str) and ph != self.state.phase:
-                if ph in ["Lobby", "Matchmaking", "ReadyCheck", "ChampSelect", "GameStart", "InProgress", "EndOfGame"]:
+                if ph in INTERESTING_PHASES:
                     log.info(f"[phase] {ph}")
                 self.state.phase = ph
                 if ph == "ChampSelect":
@@ -237,7 +242,7 @@ class WSEventThread(threading.Thread):
         while not self.state.stop:
             self.lcu.refresh_if_needed()
             if not self.lcu.ok:
-                time.sleep(1.0)
+                time.sleep(WS_RECONNECT_DELAY)
                 continue
             
             url = f"wss://127.0.0.1:{self.lcu.port}/"
@@ -267,4 +272,4 @@ class WSEventThread(threading.Thread):
                 )
             except Exception as e:
                 log.debug(f"[ws] exception: {e}")
-            time.sleep(1.0)
+            time.sleep(WS_RECONNECT_DELAY)

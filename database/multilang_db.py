@@ -13,6 +13,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from utils.normalization import normalize_text
 from utils.logging import get_logger
 from .name_db import NameDB, Entry
+from constants import OCR_FUZZY_MATCH_THRESHOLD
 
 log = get_logger()
 
@@ -246,7 +247,7 @@ class MultiLanguageDB:
             
             # Fuzzy matching
             similarity = self._calculate_similarity(norm_txt, norm_key)
-            if similarity > best_score and similarity > 0.7:  # Threshold
+            if similarity > best_score and similarity > OCR_FUZZY_MATCH_THRESHOLD:
                 best_score = similarity
                 best_entry = entry
         

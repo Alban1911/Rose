@@ -50,6 +50,7 @@ from utils.logging import setup_logging, get_logger
 from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
+from constants import *
 
 log = get_logger()
 
@@ -95,7 +96,7 @@ def create_lock_file():
                         except ImportError:
                             # Fallback: try to check if process exists
                             try:
-                                ctypes.windll.kernel32.OpenProcess(0x1000, False, old_pid)
+                                ctypes.windll.kernel32.OpenProcess(0x1000, False, old_pid)  # PROCESS_QUERY_LIMITED_INFORMATION
                                 return False  # Process exists
                             except:
                                 pass  # Process doesn't exist, we can proceed
@@ -171,29 +172,7 @@ def get_ocr_language(lcu_lang: str, manual_lang: str = None) -> str:
     if manual_lang and manual_lang != "auto":
         return manual_lang
     
-    # Map LCU languages to Tesseract languages
-    # Use only the specific language (no +eng fallback) for better accuracy
-    ocr_lang_map = {
-        "en_US": "eng",
-        "es_ES": "spa", 
-        "es_MX": "spa",
-        "fr_FR": "fra",
-        "de_DE": "deu",
-        "it_IT": "ita",
-        "pt_BR": "por",
-        "ru_RU": "rus",
-        "pl_PL": "pol",
-        "tr_TR": "tur",
-        "el_GR": "ell",
-        "hu_HU": "hun",
-        "ro_RO": "ron",
-        "zh_CN": "chi_sim",
-        "zh_TW": "chi_tra",
-        "ja_JP": "jpn",
-        "ko_KR": "kor",
-    }
-    
-    return ocr_lang_map.get(lcu_lang, "eng")  # Default to English
+    return OCR_LANG_MAP.get(lcu_lang, "eng")  # Default to English
 
 
 def validate_ocr_language(lang: str) -> bool:
@@ -232,62 +211,62 @@ def main():
     
     # OCR arguments
     ap.add_argument("--tessdata", type=str, default=None, help="Chemin du dossier tessdata (ex: C:\\Program Files\\Tesseract-OCR\\tessdata)")
-    ap.add_argument("--psm", type=int, default=7)
-    ap.add_argument("--min-conf", type=float, default=0.5)
-    ap.add_argument("--lang", type=str, default="auto", help="OCR lang (tesseract): 'auto', 'fra+eng', 'kor', 'chi_sim', 'ell', etc.")
+    ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM)
+    ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
+    ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, help="OCR lang (tesseract): 'auto', 'fra+eng', 'kor', 'chi_sim', 'ell', etc.")
     ap.add_argument("--tesseract-exe", type=str, default=None)
     
     # Capture arguments
-    ap.add_argument("--capture", choices=["window", "screen"], default="window")
-    ap.add_argument("--monitor", choices=["all", "primary"], default="all")
-    ap.add_argument("--window-hint", type=str, default="League")
+    ap.add_argument("--capture", choices=["window", "screen"], default=DEFAULT_CAPTURE_MODE)
+    ap.add_argument("--monitor", choices=["all", "primary"], default=DEFAULT_MONITOR)
+    ap.add_argument("--window-hint", type=str, default=DEFAULT_WINDOW_HINT)
     
     # Database arguments
-    ap.add_argument("--dd-lang", type=str, default="en_US", help="Langue(s) DDragon: 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
+    ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, help="Langue(s) DDragon: 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
     
     # General arguments
-    ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--verbose", action="store_true", default=DEFAULT_VERBOSE)
     ap.add_argument("--lockfile", type=str, default=None)
     
     # OCR performance arguments
-    ap.add_argument("--burst-hz", type=float, default=50.0)
-    ap.add_argument("--idle-hz", type=float, default=0.0, help="ré-émission périodique (0=off)")
-    ap.add_argument("--diff-threshold", type=float, default=0.001)
-    ap.add_argument("--burst-ms", type=int, default=280)
-    ap.add_argument("--min-ocr-interval", type=float, default=0.11)
-    ap.add_argument("--second-shot-ms", type=int, default=120)
-    ap.add_argument("--roi-lock-s", type=float, default=1.5)
+    ap.add_argument("--burst-hz", type=float, default=OCR_BURST_HZ_DEFAULT)
+    ap.add_argument("--idle-hz", type=float, default=OCR_IDLE_HZ_DEFAULT, help="ré-émission périodique (0=off)")
+    ap.add_argument("--diff-threshold", type=float, default=OCR_DIFF_THRESHOLD_DEFAULT)
+    ap.add_argument("--burst-ms", type=int, default=OCR_BURST_MS_DEFAULT)
+    ap.add_argument("--min-ocr-interval", type=float, default=OCR_MIN_INTERVAL)
+    ap.add_argument("--second-shot-ms", type=int, default=OCR_SECOND_SHOT_MS_DEFAULT)
+    ap.add_argument("--roi-lock-s", type=float, default=OCR_ROI_LOCK_DURATION)
     
     # Threading arguments
-    ap.add_argument("--phase-hz", type=float, default=2.0)
-    ap.add_argument("--ws", action="store_true", default=True)
+    ap.add_argument("--phase-hz", type=float, default=PHASE_HZ_DEFAULT)
+    ap.add_argument("--ws", action="store_true", default=DEFAULT_WEBSOCKET_ENABLED)
     ap.add_argument("--no-ws", action="store_false", dest="ws", help="Disable WebSocket mode")
-    ap.add_argument("--ws-ping", type=int, default=20)
+    ap.add_argument("--ws-ping", type=int, default=WS_PING_INTERVAL_DEFAULT)
     
     # Timer arguments
-    ap.add_argument("--timer-hz", type=int, default=1000, help="Fréquence d'affichage du décompte loadout (Hz)")
-    ap.add_argument("--fallback-loadout-ms", type=int, default=0, help="(déprécié) Ancien fallback ms si LCU ne donne pas le timer — ignoré")
-    ap.add_argument("--skin-threshold-ms", type=int, default=2000, help="Écrire le dernier skin à T<=seuil (ms)")
+    ap.add_argument("--timer-hz", type=int, default=TIMER_HZ_DEFAULT, help="Fréquence d'affichage du décompte loadout (Hz)")
+    ap.add_argument("--fallback-loadout-ms", type=int, default=FALLBACK_LOADOUT_MS_DEFAULT, help="(déprécié) Ancien fallback ms si LCU ne donne pas le timer — ignoré")
+    ap.add_argument("--skin-threshold-ms", type=int, default=SKIN_THRESHOLD_MS_DEFAULT, help="Écrire le dernier skin à T<=seuil (ms)")
     # Use user data directory for skin file to avoid permission issues
     from utils.paths import get_state_dir
-    default_skin_file = str(get_state_dir() / "last_hovered_skin.txt")
+    default_skin_file = str(get_state_dir() / DEFAULT_SKIN_FILE_NAME)
     ap.add_argument("--skin-file", type=str, default=default_skin_file, help="Chemin du fichier last_hovered_skin.txt")
     ap.add_argument("--inject-batch", type=str, default="", help="Batch à exécuter juste après l'écriture du skin (laisser vide pour désactiver)")
     
     # Multi-language arguments
-    ap.add_argument("--multilang", action="store_true", default=True, help="Enable multi-language support")
+    ap.add_argument("--multilang", action="store_true", default=DEFAULT_MULTILANG_ENABLED, help="Enable multi-language support")
     ap.add_argument("--no-multilang", action="store_false", dest="multilang", help="Disable multi-language support")
-    ap.add_argument("--language", type=str, default="auto", help="Manual language selection (e.g., 'fr_FR', 'en_US', 'zh_CN', 'auto' for detection)")
+    ap.add_argument("--language", type=str, default=DEFAULT_OCR_LANG, help="Manual language selection (e.g., 'fr_FR', 'en_US', 'zh_CN', 'auto' for detection)")
     
     # Skin download arguments
-    ap.add_argument("--download-skins", action="store_true", default=True, help="Automatically download skins at startup")
+    ap.add_argument("--download-skins", action="store_true", default=DEFAULT_DOWNLOAD_SKINS, help="Automatically download skins at startup")
     ap.add_argument("--no-download-skins", action="store_false", dest="download_skins", help="Disable automatic skin downloading")
-    ap.add_argument("--force-update-skins", action="store_true", help="Force update all skins (re-download existing ones)")
+    ap.add_argument("--force-update-skins", action="store_true", default=DEFAULT_FORCE_UPDATE_SKINS, help="Force update all skins (re-download existing ones)")
     ap.add_argument("--max-champions", type=int, default=None, help="Limit number of champions to download skins for (for testing)")
     
     # Log management arguments
-    ap.add_argument("--log-max-files", type=int, default=20, help="Maximum number of log files to keep (default: 20)")
-    ap.add_argument("--log-max-total-size-mb", type=int, default=100, help="Maximum total size of all log files in MB (default: 100MB)")
+    ap.add_argument("--log-max-files", type=int, default=LOG_MAX_FILES_DEFAULT, help="Maximum number of log files to keep (default: 20)")
+    ap.add_argument("--log-max-total-size-mb", type=int, default=LOG_MAX_TOTAL_SIZE_MB_DEFAULT, help="Maximum total size of all log files in MB (default: 100MB)")
 
     args = ap.parse_args()
 
@@ -455,10 +434,10 @@ def main():
                     log.warning(f"Failed to update OCR language: {e}")
 
     # Initialize threads
-    t_phase = PhaseThread(lcu, state, interval=1.0/max(0.5, args.phase_hz), log_transitions=not args.ws, injection_manager=injection_manager)
-    t_champ = None if args.ws else ChampThread(lcu, db, state, interval=0.25)
+    t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), log_transitions=not args.ws, injection_manager=injection_manager)
+    t_champ = None if args.ws else ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL)
     t_ocr = OCRSkinThread(state, db, ocr, args, lcu, multilang_db)
-    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager) if args.ws else None
+    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager) if args.ws else None
     t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws)
 
     # Start threads
@@ -483,7 +462,7 @@ def main():
                     else:
                         log.info("[launch:last-skin] (no hovered skin detected)")
                 last_phase = ph
-            time.sleep(0.2)
+            time.sleep(MAIN_LOOP_SLEEP)
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
         state.stop = True

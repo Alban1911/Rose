@@ -94,9 +94,13 @@ SkinCloner/
 │   └── loadout_ticker.py      # Loadout countdown timer
 ├── dependencies/              # Local dependencies
 │   └── tesserocr-2.8.0-cp311-cp311-win_amd64.whl
+├── constants.py               # Centralized constants for easy configuration
 └── [build files]              # Build system components
+    ├── build_all.py           # Complete build script (executable + installer)
     ├── build_exe.py           # PyInstaller build script
-    └── build_requirements.txt # Build dependencies
+    ├── create_installer.py    # Inno Setup installer script
+    ├── build_requirements.txt # Build dependencies
+    └── installer.iss          # Inno Setup configuration
 ```
 
 ## Features
@@ -377,51 +381,62 @@ If you encounter Tesseract-related errors:
 
 ## 🔧 Building from Source (For Developers)
 
-To create a standalone executable for distribution:
+### Complete Build (Recommended)
+
+The easiest way to build both the executable and installer in one step:
 
 1. **Install build dependencies**
    ```bash
    pip install -r build_requirements.txt
    ```
 
-2. **Build the executable**
+2. **Install Inno Setup**
+   - Download from: https://jrsoftware.org/isdl.php
+   - Install with default settings
+
+3. **Build everything**
    ```bash
-   python build_exe.py
+   python build_all.py
    ```
 
-3. **Find the executable**
-   - The executable will be created in the `dist/` folder
-   - Run `start.bat` or `SkinCloner.exe` directly
+This will automatically:
+- Build the executable with PyInstaller
+- Create the Windows installer with Inno Setup
+- Provide a complete summary with file locations
 
-The build process creates a single executable file that includes:
-- All Python dependencies
-- Application code and resources
-- No Python installation required on target systems
+### Manual Build Steps (Alternative)
+
+If you prefer to build each component separately:
+
+**Step 1: Build the executable**
+```bash
+python build_exe.py
+```
+- The executable will be created in `dist/SkinCloner/`
+- Run `start.bat` or `SkinCloner.exe` directly for testing
+
+**Step 2: Create the installer**
+```bash
+python create_installer.py
+```
+- The installer will be created in `installer/`
+- Upload to GitHub releases for distribution
+
+### What Gets Built
+
+The build process creates:
+- **Executable**: `dist/SkinCloner/SkinCloner.exe`
+  - Includes all Python dependencies
+  - Includes application code and resources
+  - No Python installation required on target systems
+  
+- **Installer**: `installer/SkinCloner_Setup.exe`
+  - Windows Apps list integration
+  - Start Menu shortcuts
+  - Desktop shortcut (optional)
+  - Proper uninstaller
+  - Registry entries for Windows recognition
 
 **Note**: Users still need to have:
 - League of Legends installed and running
 - **⚠️ MANDATORY**: Tesseract OCR installed from [https://github.com/UB-Mannheim/tesseract/releases](https://github.com/UB-Mannheim/tesseract/releases)
-
-## 📦 Creating Windows Installer (For Developers)
-
-To create a proper Windows installer that registers the app in Windows Apps list:
-
-1. **Install Inno Setup**
-   - Download from: https://jrsoftware.org/isdl.php
-   - Install with default settings
-
-2. **Create the installer**
-   ```bash
-   python create_installer.py
-   ```
-
-3. **Find the installer**
-   - The installer will be created in the `installer/` folder
-   - Upload to GitHub releases for distribution
-
-The installer provides:
-- Windows Apps list integration
-- Start Menu shortcuts
-- Desktop shortcut (optional)
-- Proper uninstaller
-- Registry entries for Windows recognition
