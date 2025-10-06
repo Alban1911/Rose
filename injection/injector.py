@@ -442,6 +442,51 @@ class SkinInjector:
             log.error(f"Injector: Test injection failed: {e}")
             return False
     
+    def _run_overlay_from_path(self, overlay_path: Path) -> bool:
+        """Run overlay from a pre-built overlay directory"""
+        try:
+            log.info(f"Injector: Running pre-built overlay from: {overlay_path}")
+            
+            # Check what's in the pre-built overlay directory
+            prebuilt_contents = list(overlay_path.iterdir())
+            log.debug(f"Injector: Pre-built overlay contents: {[f.name for f in prebuilt_contents]}")
+            
+            if not prebuilt_contents:
+                log.error(f"Injector: Pre-built overlay directory is empty: {overlay_path}")
+                return False
+            
+            # Copy pre-built overlay to the main overlay directory
+            main_overlay_dir = self.mods_dir.parent / "overlay"
+            
+            # Clean main overlay directory
+            if main_overlay_dir.exists():
+                shutil.rmtree(main_overlay_dir, ignore_errors=True)
+            main_overlay_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy pre-built overlay contents
+            log.debug(f"Injector: Copying from {overlay_path} to {main_overlay_dir}")
+            for item in overlay_path.iterdir():
+                if item.is_file():
+                    shutil.copy2(item, main_overlay_dir / item.name)
+                    log.debug(f"Injector: Copied file: {item.name}")
+                elif item.is_dir():
+                    shutil.copytree(item, main_overlay_dir / item.name)
+                    log.debug(f"Injector: Copied directory: {item.name}")
+            
+            # Log what's in the main overlay directory after copying
+            overlay_files = list(main_overlay_dir.iterdir())
+            log.debug(f"Injector: Main overlay directory contents: {[f.name for f in overlay_files]}")
+            
+            # For pre-built overlays, we don't need to run runoverlay
+            # The overlay files are already created and ready to use
+            # The game will automatically pick them up when it starts
+            log.info("Injector: Pre-built overlay files copied successfully - ready for game")
+            return True
+                
+        except Exception as e:
+            log.error(f"Injector: Error running pre-built overlay: {e}")
+            return False
+    
     def clean_system(self) -> bool:
         """Clean the injection system"""
         try:

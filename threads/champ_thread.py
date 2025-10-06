@@ -18,12 +18,13 @@ log = get_logger()
 class ChampThread(threading.Thread):
     """Thread for monitoring champion hover and lock"""
     
-    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL):
+    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL, injection_manager=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.db = db
         self.state = state
         self.interval = interval
+        self.injection_manager = injection_manager
         self.last_hover = None
         self.last_lock = None
 
@@ -66,6 +67,16 @@ class ChampThread(threading.Thread):
                     if locked != self.last_lock:
                         nm = self.db.champ_name_by_id.get(locked) or f"champ_{locked}"
                         log.info(f"[lock:champ] {nm} (id={locked})")
+                        
+                        # Trigger pre-building when a new champion is locked
+                        if self.injection_manager:
+                            try:
+                                log.info(f"[lock:champ] Triggering pre-build for {nm}")
+                                self.injection_manager.on_champion_locked(nm)
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to start pre-build for {nm}: {e}")
+                        else:
+                            log.warning(f"[lock:champ] No injection manager available for pre-build trigger")
                     
                     # Always update the state, even for the same champion
                     self.state.locked_champ_id = locked

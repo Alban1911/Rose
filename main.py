@@ -443,7 +443,7 @@ def main():
 
     # Initialize threads
     t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), log_transitions=not args.ws, injection_manager=injection_manager)
-    t_champ = None if args.ws else ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL)
+    t_champ = None if args.ws else ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL, injection_manager=injection_manager)
     t_ocr = OCRSkinThread(state, db, ocr, args, lcu, multilang_db)
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager) if args.ws else None
     t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws)
@@ -493,6 +493,14 @@ def main():
         if t_ws: 
             t_ws.join(timeout=1.0)
         t_lcu_monitor.join(timeout=1.0)
+        
+        # Clean up pre-built overlays
+        if injection_manager:
+            try:
+                injection_manager.cleanup_prebuilt_overlays()
+                log.info("Cleaned up pre-built overlays")
+            except Exception as e:
+                log.warning(f"Error cleaning up pre-built overlays: {e}")
         
         # Clean up lock file on exit
         cleanup_lock_file()

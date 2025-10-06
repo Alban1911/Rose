@@ -182,6 +182,16 @@ class WSEventThread(threading.Thread):
                 if self.state.local_cell_id is not None and cid == int(self.state.local_cell_id):
                     log.info(f"[lock:champ] {champ_label} (id={ch})")
                     self.state.locked_champ_id = int(ch)
+                    
+                    # Trigger pre-building when a new champion is locked
+                    if self.injection_manager:
+                        try:
+                            log.info(f"[lock:champ] Triggering pre-build for {champ_label}")
+                            self.injection_manager.on_champion_locked(champ_label)
+                        except Exception as e:
+                            log.error(f"[lock:champ] Failed to start pre-build for {champ_label}: {e}")
+                    else:
+                        log.warning(f"[lock:champ] No injection manager available for pre-build trigger")
             
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)

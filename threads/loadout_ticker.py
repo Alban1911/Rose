@@ -190,7 +190,37 @@ class LoadoutTicker(threading.Thread):
                                     # Only stop after we've been in InProgress and then left it
                                     return has_been_in_progress and self.state.phase != "InProgress"
                                 
-                                success = self.injection_manager.inject_skin_immediately(name, stop_callback=game_ended_callback)
+                                # Check if we have a pre-built overlay available
+                                champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+                                champion_name = self.db.champ_name_by_id.get(champ_id or -1, "") if self.db else ""
+                                
+                                if champion_name and self.injection_manager.prebuilder:
+                                    # Check if pre-built overlay exists for this skin
+                                    prebuilt_overlay_path = self.injection_manager.prebuilder.get_prebuilt_overlay_path(champion_name, name)
+                                    
+                                    if prebuilt_overlay_path and prebuilt_overlay_path.exists():
+                                        log.info(f"[inject] Using pre-built overlay for {name}")
+                                        # Use pre-built injection (no need for stop_callback since it's instant)
+                                        success = self.injection_manager.inject_prebuilt_skin(champion_name, name)
+                                    else:
+                                        # Pre-built overlay not ready yet, wait briefly for completion
+                                        log.info(f"[inject] Pre-built overlay not ready for {name}, waiting for completion...")
+                                        if self.injection_manager.prebuilder.wait_for_prebuild_completion(champion_name, timeout=2.0):
+                                            # Check again after waiting
+                                            prebuilt_overlay_path = self.injection_manager.prebuilder.get_prebuilt_overlay_path(champion_name, name)
+                                            if prebuilt_overlay_path and prebuilt_overlay_path.exists():
+                                                log.info(f"[inject] Pre-built overlay ready after wait, using for {name}")
+                                                success = self.injection_manager.inject_prebuilt_skin(champion_name, name)
+                                            else:
+                                                log.info(f"[inject] Pre-built overlay still not available for {name}, using traditional injection")
+                                                success = self.injection_manager.inject_skin_immediately(name, stop_callback=game_ended_callback)
+                                        else:
+                                            log.info(f"[inject] Pre-building timeout for {name}, using traditional injection")
+                                            success = self.injection_manager.inject_skin_immediately(name, stop_callback=game_ended_callback)
+                                else:
+                                    log.info(f"[inject] No champion name or pre-builder available, using traditional injection for {name}")
+                                    # Fallback to traditional injection
+                                    success = self.injection_manager.inject_skin_immediately(name, stop_callback=game_ended_callback)
                                 if success:
                                     log.info(f"[inject] successfully injected: {name}")
                                     # Stop overlay process after successful injection
