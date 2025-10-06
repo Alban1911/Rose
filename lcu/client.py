@@ -78,7 +78,7 @@ class LCU:
         lf = _find_lockfile(self._explicit_lockfile)
         self.lf_path = lf
         if not lf or not os.path.isfile(lf):
-            self._disable("LCU lockfile introuvable")
+            self._disable("LCU lockfile not found")
             return
         
         try:
@@ -97,12 +97,12 @@ class LCU:
                 self.lf_mtime = time.time()
             log.info(f"LCU ready (port {self.port})")
         except Exception as e:
-            self._disable(f"LCU indisponible: {e}")
+            self._disable(f"LCU unavailable: {e}")
 
     def _disable(self, reason: str):
         """Disable LCU connection"""
         if self.ok: 
-            log.debug(f"LCU désactivé: {reason}")
+            log.debug(f"LCU disabled: {reason}")
         self.ok = False
         self.base = None
         self.port = None
@@ -114,7 +114,7 @@ class LCU:
         """Refresh connection if needed"""
         lf = _find_lockfile(self._explicit_lockfile)
         if not lf or not os.path.isfile(lf):
-            self._disable("lockfile absent")
+            self._disable("lockfile not found")
             self.lf_path = None
             self.lf_mtime = 0.0
             return
@@ -130,7 +130,7 @@ class LCU:
             self._init_from_lockfile()
             new = (self.port, self.pw)
             if self.ok and old != new: 
-                log.info(f"LCU relu (port={self.port})")
+                log.info(f"LCU reloaded (port={self.port})")
 
     def get(self, path: str, timeout: float = 1.0):
         """Make GET request to LCU API"""

@@ -207,10 +207,10 @@ def main():
     # Check for single instance before doing anything else
     check_single_instance()
     
-    ap = argparse.ArgumentParser(description="Tracer combiné LCU + OCR (ChampSelect) — ROI lock + burst OCR + locks/timer fixes")
+    ap = argparse.ArgumentParser(description="Combined LCU + OCR Tracer (ChampSelect) — ROI lock + burst OCR + locks/timer fixes")
     
     # OCR arguments
-    ap.add_argument("--tessdata", type=str, default=None, help="Chemin du dossier tessdata (ex: C:\\Program Files\\Tesseract-OCR\\tessdata)")
+    ap.add_argument("--tessdata", type=str, default=None, help="Path to tessdata folder (e.g., C:\\Program Files\\Tesseract-OCR\\tessdata)")
     ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM)
     ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
     ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, help="OCR lang (tesseract): 'auto', 'fra+eng', 'kor', 'chi_sim', 'ell', etc.")
@@ -222,7 +222,7 @@ def main():
     ap.add_argument("--window-hint", type=str, default=DEFAULT_WINDOW_HINT)
     
     # Database arguments
-    ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, help="Langue(s) DDragon: 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
+    ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, help="DDragon language(s): 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
     
     # General arguments
     ap.add_argument("--verbose", action="store_true", default=DEFAULT_VERBOSE)
@@ -230,7 +230,7 @@ def main():
     
     # OCR performance arguments
     ap.add_argument("--burst-hz", type=float, default=OCR_BURST_HZ_DEFAULT)
-    ap.add_argument("--idle-hz", type=float, default=OCR_IDLE_HZ_DEFAULT, help="ré-émission périodique (0=off)")
+    ap.add_argument("--idle-hz", type=float, default=OCR_IDLE_HZ_DEFAULT, help="periodic re-emission (0=off)")
     ap.add_argument("--diff-threshold", type=float, default=OCR_DIFF_THRESHOLD_DEFAULT)
     ap.add_argument("--burst-ms", type=int, default=OCR_BURST_MS_DEFAULT)
     ap.add_argument("--min-ocr-interval", type=float, default=OCR_MIN_INTERVAL)
@@ -244,14 +244,14 @@ def main():
     ap.add_argument("--ws-ping", type=int, default=WS_PING_INTERVAL_DEFAULT)
     
     # Timer arguments
-    ap.add_argument("--timer-hz", type=int, default=TIMER_HZ_DEFAULT, help="Fréquence d'affichage du décompte loadout (Hz)")
-    ap.add_argument("--fallback-loadout-ms", type=int, default=FALLBACK_LOADOUT_MS_DEFAULT, help="(déprécié) Ancien fallback ms si LCU ne donne pas le timer — ignoré")
-    ap.add_argument("--skin-threshold-ms", type=int, default=SKIN_THRESHOLD_MS_DEFAULT, help="Écrire le dernier skin à T<=seuil (ms)")
+    ap.add_argument("--timer-hz", type=int, default=TIMER_HZ_DEFAULT, help="Loadout countdown display frequency (Hz)")
+    ap.add_argument("--fallback-loadout-ms", type=int, default=FALLBACK_LOADOUT_MS_DEFAULT, help="(deprecated) Old fallback ms if LCU doesn't provide timer — ignored")
+    ap.add_argument("--skin-threshold-ms", type=int, default=SKIN_THRESHOLD_MS_DEFAULT, help="Write last skin at T<=threshold (ms)")
     # Use user data directory for skin file to avoid permission issues
     from utils.paths import get_state_dir
     default_skin_file = str(get_state_dir() / DEFAULT_SKIN_FILE_NAME)
-    ap.add_argument("--skin-file", type=str, default=default_skin_file, help="Chemin du fichier last_hovered_skin.txt")
-    ap.add_argument("--inject-batch", type=str, default="", help="Batch à exécuter juste après l'écriture du skin (laisser vide pour désactiver)")
+    ap.add_argument("--skin-file", type=str, default=default_skin_file, help="Path to last_hovered_skin.txt file")
+    ap.add_argument("--inject-batch", type=str, default="", help="Batch to execute right after skin write (leave empty to disable)")
     
     # Multi-language arguments
     ap.add_argument("--multilang", action="store_true", default=DEFAULT_MULTILANG_ENABLED, help="Enable multi-language support")

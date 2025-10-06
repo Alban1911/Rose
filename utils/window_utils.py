@@ -164,17 +164,17 @@ def get_window_size() -> Optional[Tuple[int, int]]:
     Alias for get_league_window_client_size for backward compatibility
     
     Returns:
-        Tuple[int, int]: (largeur, hauteur) ou None si la fenêtre n'est pas trouvée
+        Tuple[int, int]: (width, height) or None if window is not found
     """
     return get_league_window_client_size()
 
 
 def monitor_league_window():
     """
-    Surveille la taille de la fenêtre League of Legends toutes les secondes
+    Monitor League of Legends window size every second
     """
-    print("Démarrage de la surveillance de la fenêtre League of Legends...")
-    print("Appuyez sur Ctrl+C pour arrêter")
+    print("Starting League of Legends window monitoring...")
+    print("Press Ctrl+C to stop")
     print("-" * 80)
     
     try:
@@ -182,23 +182,23 @@ def monitor_league_window():
             rect = find_league_window_rect()
             
             if rect:
-                # Afficher la taille pour les calculs de ROI
+                # Display size for ROI calculations
                 if hasattr(find_league_window_rect, 'window_info') and find_league_window_rect.window_info:
                     for info in find_league_window_rect.window_info:
-                        # Utiliser la taille de la zone client (parfaite pour les calculs de ROI)
+                        # Use client area size (perfect for ROI calculations)
                         client_w, client_h = info['client_size']
-                        print(f"Taille de la fenêtre League of Legends: {client_w}x{client_h} pixels")
+                        print(f"League of Legends window size: {client_w}x{client_h} pixels")
                         break
                 
                 print("-" * 40)
             else:
-                print("Fenêtre League of Legends non trouvée")
+                print("League of Legends window not found")
             
-            # Attendre 1 seconde avant la prochaine vérification
+            # Wait 1 second before next check
             time.sleep(1)
             
     except KeyboardInterrupt:
-        print("\nSurveillance arrêtée.")
+        print("\nMonitoring stopped.")
 
 
 def calculate_roi_from_proportions(window_rect: Tuple[int, int, int, int], 
@@ -231,12 +231,12 @@ def calculate_roi_from_proportions(window_rect: Tuple[int, int, int, int],
 
 
 def main():
-    """Point d'entrée principal pour le script de surveillance"""
+    """Main entry point for monitoring script"""
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help']:
         print("Window utilities for League of Legends")
         print("Usage: python utils/window_utils.py")
-        print("Le script affiche la taille de la fenêtre toutes les secondes")
-        print("Appuyez sur Ctrl+C pour arrêter")
+        print("The script displays window size every second")
+        print("Press Ctrl+C to stop")
         return
     
     monitor_league_window()

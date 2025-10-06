@@ -116,7 +116,7 @@ class OCRSkinThread(threading.Thread):
         if not self._should_run_ocr():
             return None
             
-        # Toujours recalculer avec les proportions fixes (pour supporter resize de fenêtre)
+        # Always recalculate with fixed proportions (to support window resizing)
         window_rect = self._get_window_rect()
         if not window_rect:
             return None
@@ -125,7 +125,7 @@ class OCRSkinThread(threading.Thread):
         width = r - l
         height = b - t
         
-        # Les proportions sont FIXES ! On les multiplie juste par la résolution actuelle
+        # Proportions are FIXED! Just multiply by current resolution
         roi_abs = (
             int(l + width * ROI_PROPORTIONS['x1_ratio']),
             int(t + height * ROI_PROPORTIONS['y1_ratio']),
