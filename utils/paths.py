@@ -16,15 +16,15 @@ def get_user_data_dir() -> Path:
     This ensures proper permissions regardless of where the app is installed.
     """
     if os.name == "nt":  # Windows
-        # Use %APPDATA% for user-specific data
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            return Path(appdata) / "SkinCloner"
+        # Use %LOCALAPPDATA% for user-specific data (logs, cache, etc.)
+        localappdata = os.environ.get("LOCALAPPDATA")
+        if localappdata:
+            return Path(localappdata) / "SkinCloner"
         else:
             # Fallback to user profile
             userprofile = os.environ.get("USERPROFILE")
             if userprofile:
-                return Path(userprofile) / "AppData" / "Roaming" / "SkinCloner"
+                return Path(userprofile) / "AppData" / "Local" / "SkinCloner"
             else:
                 # Last resort: current directory
                 return Path.cwd() / "skins"

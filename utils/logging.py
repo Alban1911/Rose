@@ -64,9 +64,10 @@ def setup_logging(verbose: bool):
     
     # Setup file logging
     try:
-        # Create logs directory if it doesn't exist
-        logs_dir = Path("logs")
-        logs_dir.mkdir(exist_ok=True)
+        # Create logs directory in user data directory
+        from .paths import get_user_data_dir
+        logs_dir = get_user_data_dir() / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
         
         # Create a unique log file for this session with timestamp
         # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
@@ -142,7 +143,8 @@ def cleanup_logs(max_files: int = 20, max_total_size_mb: int = 100):
         max_total_size_mb: Maximum total size of all log files in MB
     """
     try:
-        logs_dir = Path("logs")
+        from .paths import get_user_data_dir
+        logs_dir = get_user_data_dir() / "logs"
         if not logs_dir.exists():
             return
         
