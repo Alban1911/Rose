@@ -122,7 +122,7 @@ TIMER_POLL_PERIOD_S = 0.2            # Seconds between LCU resync checks
 FALLBACK_LOADOUT_MS_DEFAULT = 0      # Deprecated: fallback countdown duration
 
 # Skin injection timing
-SKIN_THRESHOLD_MS_DEFAULT = 2000     # Time before loadout ends to write skin (ms)
+SKIN_THRESHOLD_MS_DEFAULT = 3000     # Time before loadout ends to write skin (ms)
 INJECTION_THRESHOLD_SECONDS = 2.0    # Seconds between injection attempts
 
 

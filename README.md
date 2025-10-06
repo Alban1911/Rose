@@ -2,7 +2,7 @@
 
 **League of Legends Skin Changer with Advanced OCR Detection**
 
-SkinCloner is a fully automated system that detects skin selections in League of Legends champion select using advanced OCR technology and automatically injects custom skins 2 seconds before the game starts. Built with a modular architecture and multi-language support, it provides a seamless experience for League of Legends players.
+SkinCloner is a fully automated system that detects skin selections in League of Legends champion select using advanced OCR technology and automatically injects custom skins 3 seconds before the game starts. Built with a modular architecture and multi-language support, it provides a seamless experience for League of Legends players.
 
 ## 🔧 Prerequisites
 
@@ -119,7 +119,7 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 2. **OCR Activation**: Automatically activates OCR when entering champion select
 3. **Skin Detection**: Uses advanced computer vision to detect skin names as you hover over them
 4. **Smart Matching**: Applies fuzzy matching algorithms to accurately identify skins
-5. **Automatic Injection**: Injects the last detected skin 2 seconds before the game starts
+5. **Automatic Injection**: Injects the last detected skin 3 seconds before the game starts
 
 **No manual intervention required - just launch the app and play!**
 
@@ -130,7 +130,7 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 
 - **🎯 Fully Automated**: Works completely automatically - no manual intervention required
 - **🔍 Advanced OCR Detection**: Uses Tesseract OCR with optimized image processing for accurate skin name recognition
-- **⚡ Instant Injection**: Automatically injects skins 2 seconds before game starts
+- **⚡ Instant Injection**: Automatically injects skins 3 seconds before game starts
 - **🌍 Multi-Language Support**: Supports many languages with automatic detection
 - **📊 Massive Skin Collection**: 8,277+ skins for 171 champions included
 - **🧠 Smart Matching**: Advanced fuzzy matching algorithms for accurate skin detection
