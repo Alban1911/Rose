@@ -117,9 +117,13 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 
 1. **Phase Detection**: Monitors League Client for game phases (lobby, champion select, in-game)
 2. **OCR Activation**: Automatically activates OCR when entering champion select
-3. **Skin Detection**: Uses advanced computer vision to detect skin names as you hover over them
-4. **Smart Matching**: Applies fuzzy matching algorithms to accurately identify skins
-5. **Automatic Injection**: Injects the last detected skin 3 seconds before the game starts
+3. **Champion Lock Detection**: Detects when you lock a champion and immediately starts pre-building
+4. **Intelligent Pre-Building**: Pre-builds overlay files for all skins of your locked champion in parallel (takes ~10-15 seconds)
+5. **Real-Time Skin Detection**: Uses advanced OCR to detect skin names as you hover over them during champion select
+6. **Smart Matching**: Applies fuzzy matching algorithms to accurately identify skins even with partial text
+7. **Instant Injection**: Injects the last hovered skin 200 milliseconds before game starts using pre-built overlays (<100 milliseconds injection time)
+
+**Performance**: Pre-building allows near-instant skin injection instead of the traditional 2 second wait. The system intelligently manages resources and cancels incomplete pre-builds when entering a new champion select.
 
 **No manual intervention required - just launch the app and play!**
 
@@ -130,7 +134,8 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 
 - **🎯 Fully Automated**: Works completely automatically - no manual intervention required
 - **🔍 Advanced OCR Detection**: Uses Tesseract OCR with optimized image processing for accurate skin name recognition
-- **⚡ Instant Injection**: Automatically injects skins 3 seconds before game starts
+- **⚡ Instant Injection**: Pre-builds overlays on champion lock for near-instant injection (<100 milliseconds) 200 milliseconds before game starts
+- **🚀 Intelligent Pre-Building**: Parallel overlay generation for all champion skins when you lock your champion
 - **🌍 Multi-Language Support**: Supports many languages with automatic detection
 - **📊 Massive Skin Collection**: 8,277+ skins for 171 champions included
 - **🧠 Smart Matching**: Advanced fuzzy matching algorithms for accurate skin detection
@@ -175,6 +180,7 @@ SkinCloner/
 ├── injection/                    # Skin injection system
 │   ├── injector.py               # CSLOL injection logic
 │   ├── manager.py                # Injection management and coordination
+│   ├── prebuilder.py             # Intelligent pre-building system for instant injection
 │   ├── mods_map.json             # Mod configuration mapping
 │   └── tools/                    # CSLOL modification tools
 │       ├── mod-tools.exe         # Main modification tool
