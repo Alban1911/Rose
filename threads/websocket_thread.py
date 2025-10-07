@@ -126,6 +126,16 @@ class WSEventThread(threading.Thread):
                         except Exception as e:
                             log.warning(f"WS: Failed to kill runoverlay processes: {e}")
                         
+                        # Cancel any ongoing prebuild when entering ChampSelect
+                        try:
+                            if self.injection_manager._initialized and self.injection_manager.prebuilder and self.injection_manager.current_champion:
+                                log.info(f"WS: Cancelling prebuild for {self.injection_manager.current_champion} (entering ChampSelect)")
+                                self.injection_manager.prebuilder.cancel_current_build()
+                                # Reset injection manager's champion tracking
+                                self.injection_manager.current_champion = None
+                        except Exception as e:
+                            log.warning(f"WS: Failed to cancel prebuild: {e}")
+                        
                 
                 elif ph == "InProgress":
                     # Game starting → log last skin

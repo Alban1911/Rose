@@ -9,9 +9,10 @@ import threading
 import shutil
 import zipfile
 import subprocess
+import concurrent.futures
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, CancelledError
 
 from .injector import SkinInjector
 from utils.paths import get_skins_dir, get_injection_dir
@@ -38,6 +39,7 @@ class ChampionPreBuilder:
         self.building_lock = threading.Lock()
         self.current_champion = None
         self.building_futures = []
+        self.cancel_requested = threading.Event()
         
         # Initialize base injector for mkoverlay operations
         self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
@@ -138,8 +140,8 @@ class ChampionPreBuilder:
             'error': None
         }
         
-        # Create thread-specific directories
-        thread_base_dir = self.prebuilt_dir / f"thread_{thread_id}"
+        # Create champion-specific thread directories to avoid collisions between builds
+        thread_base_dir = self.prebuilt_dir / f"{champion_name}_thread_{thread_id}"
         thread_mods_dir = thread_base_dir / "mods"
         thread_overlay_dir = thread_base_dir / "overlay"
         
@@ -193,9 +195,21 @@ class ChampionPreBuilder:
     
     def prebuild_champion_skins(self, champion_name: str) -> bool:
         """Pre-build all mkoverlay files for a champion"""
+        # Clear any previous cancellation flag
+        self.cancel_requested.clear()
+        
+        # Setup phase - hold lock briefly
         with self.building_lock:
-            # Clean up any previous builds for this champion
-            self._cleanup_champion_overlays(champion_name)
+            # Clean up any previous builds for this champion in background (non-blocking)
+            # This prevents blocking when old builds are still cleaning up
+            def cleanup_background():
+                try:
+                    self._cleanup_champion_overlays(champion_name)
+                except Exception as e:
+                    log.debug(f"[PREBUILD] Background cleanup error for {champion_name}: {e}")
+            
+            cleanup_thread = threading.Thread(target=cleanup_background, daemon=True)
+            cleanup_thread.start()
             
             # Find all skins for this champion
             champion_skins = self.find_champion_skins(champion_name)
@@ -209,60 +223,124 @@ class ChampionPreBuilder:
             
             # Store current champion
             self.current_champion = champion_name
+        
+        # Pre-build all skins in parallel (without holding lock)
+        start_time = time.time()
+        successful_builds = 0
+        was_cancelled = False
+        
+        executor = None
+        try:
+            executor = ThreadPoolExecutor(max_workers=max_workers)
             
-            # Pre-build all skins in parallel
-            start_time = time.time()
-            successful_builds = 0
+            # Submit all build tasks
+            future_to_skin = {
+                executor.submit(self.build_single_skin_overlay, champion_name, skin_name, skin_path, i): (skin_name, skin_path)
+                for i, (skin_name, skin_path) in enumerate(champion_skins)
+            }
             
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all build tasks
-                future_to_skin = {
-                    executor.submit(self.build_single_skin_overlay, champion_name, skin_name, skin_path, i): (skin_name, skin_path)
-                    for i, (skin_name, skin_path) in enumerate(champion_skins)
-                }
-                
-                # Store futures for potential cancellation
+            # Store futures for potential cancellation
+            with self.building_lock:
                 self.building_futures = list(future_to_skin.keys())
+            
+            # Collect results with frequent cancellation checks
+            completed_count = 0
+            total_count = len(future_to_skin)
+            
+            while completed_count < total_count:
+                # Check for cancellation FIRST before waiting
+                if self.cancel_requested.is_set():
+                    log.info(f"[PREBUILD] Cancellation requested for {champion_name}, stopping immediately")
+                    was_cancelled = True
+                    # Cancel all remaining futures
+                    for f in future_to_skin.keys():
+                        if not f.done():
+                            f.cancel()
+                    break
                 
-                # Collect results
-                for future in as_completed(future_to_skin):
-                    skin_name, skin_path = future_to_skin[future]
-                    try:
-                        result = future.result()
-                        if result['success']:
-                            successful_builds += 1
-                            log.debug(f"[PREBUILD] OK {skin_name}")
-                        else:
-                            log.warning(f"[PREBUILD] FAIL {skin_name}: {result['error']}")
-                    except Exception as e:
-                        log.error(f"[PREBUILD] ERROR {skin_name}: Exception: {e}")
+                # Wait for next completed future with timeout to allow cancellation checks
+                try:
+                    done, _ = concurrent.futures.wait(
+                        future_to_skin.keys(),
+                        timeout=0.1,  # Short timeout to check cancellation frequently
+                        return_when=concurrent.futures.FIRST_COMPLETED
+                    )
+                    
+                    for future in done:
+                        if future not in future_to_skin:
+                            continue  # Already processed
+                        
+                        completed_count += 1
+                        skin_name, skin_path = future_to_skin[future]
+                        
+                        try:
+                            result = future.result(timeout=0)
+                            if result['success']:
+                                successful_builds += 1
+                                log.debug(f"[PREBUILD] OK {skin_name}")
+                            else:
+                                log.warning(f"[PREBUILD] FAIL {skin_name}: {result['error']}")
+                        except CancelledError:
+                            log.debug(f"[PREBUILD] CANCELLED {skin_name}")
+                        except Exception as e:
+                            if not self.cancel_requested.is_set():
+                                log.error(f"[PREBUILD] ERROR {skin_name}: Exception: {e}")
+                        
+                        # Remove processed future
+                        del future_to_skin[future]
+                
+                except concurrent.futures.TimeoutError:
+                    # Timeout is normal, just loop again to check cancellation
+                    pass
+        
+        finally:
+            # Shutdown executor
+            if executor is not None:
+                if was_cancelled:
+                    # Shutdown immediately without waiting for running tasks
+                    executor.shutdown(wait=False, cancel_futures=True)
+                else:
+                    # Normal shutdown, wait for completion
+                    executor.shutdown(wait=True)
             
-            # Clear futures
-            self.building_futures = []
-            
-            total_time = time.time() - start_time
+            # Clear futures and state
+            with self.building_lock:
+                self.building_futures = []
+                if self.current_champion == champion_name:
+                    self.current_champion = None
+        
+        total_time = time.time() - start_time
+        if was_cancelled:
+            log.info(f"[PREBUILD] Cancelled {champion_name}: {successful_builds}/{len(champion_skins)} skins built before cancellation in {total_time:.2f}s")
+        else:
             log.info(f"[PREBUILD] Completed {champion_name}: {successful_builds}/{len(champion_skins)} skins built in {total_time:.2f}s")
-            
-            return successful_builds > 0
+        
+        return successful_builds > 0
     
     def _cleanup_champion_overlays(self, champion_name: str):
-        """Clean up all pre-built overlays for a champion"""
+        """Clean up all pre-built overlays and thread directories for a champion"""
         pattern = f"{champion_name}_*"
         for overlay_dir in self.prebuilt_dir.glob(pattern):
             if overlay_dir.is_dir():
                 shutil.rmtree(overlay_dir, ignore_errors=True)
-                log.debug(f"[PREBUILD] Cleaned up overlay: {overlay_dir.name}")
+                log.debug(f"[PREBUILD] Cleaned up: {overlay_dir.name}")
     
     def cancel_current_build(self):
         """Cancel any ongoing pre-build operation"""
+        # Set cancellation flag first
+        self.cancel_requested.set()
+        
         with self.building_lock:
+            # Cancel all futures
             for future in self.building_futures:
-                future.cancel()
-            self.building_futures = []
+                if not future.done():
+                    future.cancel()
             
             if self.current_champion:
-                log.info(f"[PREBUILD] Cancelled pre-build for {self.current_champion}")
-                self.current_champion = None
+                log.info(f"[PREBUILD] Cancelling pre-build for {self.current_champion}")
+            
+            # Note: Don't clear current_champion or futures here
+            # Let the prebuild thread clean up in its finally block
     
     def get_prebuilt_overlay_path(self, champion_name: str, skin_name: str) -> Optional[Path]:
         """Get path to pre-built overlay for a skin"""
