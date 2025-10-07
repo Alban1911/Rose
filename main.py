@@ -295,36 +295,6 @@ def main():
         log.warning(f"Failed to initialize system tray: {e}")
         log.info("Application will continue without system tray icon")
     
-    # Initialize injection manager early (lazy initialization)
-    injection_manager = InjectionManager()
-    
-    # Download skins if enabled (run in background to avoid blocking startup)
-    if args.download_skins:
-        log.info("Starting automatic skin download in background...")
-        def download_skins_background():
-            try:
-                success = download_skins_on_startup(
-                    force_update=args.force_update_skins,
-                    max_champions=args.max_champions,
-                    tray_manager=tray_manager,
-                    injection_manager=injection_manager
-                )
-                if success:
-                    log.info("Background skin download completed successfully")
-                else:
-                    log.warning("Background skin download completed with some issues")
-            except Exception as e:
-                log.error(f"Failed to download skins in background: {e}")
-        
-        # Start skin download in a separate thread to avoid blocking
-        import threading
-        skin_download_thread = threading.Thread(target=download_skins_background, daemon=True)
-        skin_download_thread.start()
-    else:
-        log.info("Automatic skin download disabled")
-        # Initialize injection system immediately when download is disabled
-        injection_manager.initialize_when_ready()
-    
     # Initialize components
     # Initialize LCU first
     lcu = LCU(args.lockfile)
@@ -381,6 +351,36 @@ def main():
             sys.exit(1)
     
     db = NameDB(lang=args.dd_lang)
+    
+    # Initialize injection manager with database (lazy initialization)
+    injection_manager = InjectionManager(name_db=db)
+    
+    # Download skins if enabled (run in background to avoid blocking startup)
+    if args.download_skins:
+        log.info("Starting automatic skin download in background...")
+        def download_skins_background():
+            try:
+                success = download_skins_on_startup(
+                    force_update=args.force_update_skins,
+                    max_champions=args.max_champions,
+                    tray_manager=tray_manager,
+                    injection_manager=injection_manager
+                )
+                if success:
+                    log.info("Background skin download completed successfully")
+                else:
+                    log.warning("Background skin download completed with some issues")
+            except Exception as e:
+                log.error(f"Failed to download skins in background: {e}")
+        
+        # Start skin download in a separate thread to avoid blocking
+        import threading
+        skin_download_thread = threading.Thread(target=download_skins_background, daemon=True)
+        skin_download_thread.start()
+    else:
+        log.info("Automatic skin download disabled")
+        # Initialize injection system immediately when download is disabled
+        injection_manager.initialize_when_ready()
     state = SharedState()
     
     # Initialize multi-language database (after LCU connection is established)

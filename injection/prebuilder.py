@@ -26,11 +26,12 @@ log = get_logger()
 class ChampionPreBuilder:
     """Pre-builds all mkoverlay files for a champion when locked"""
     
-    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
+    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None, name_db=None):
         self.tools_dir = tools_dir
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
         self.zips_dir = zips_dir or get_skins_dir()
         self.game_dir = game_dir
+        self.name_db = name_db
         
         # Pre-built overlays storage
         self.prebuilt_dir = get_injection_dir() / "prebuilt"
@@ -82,40 +83,110 @@ class ChampionPreBuilder:
                         champion_skins.append((skin_zip.stem, skin_zip))
         
         # Filter out owned skins if champion_id and owned_skin_ids are provided
-        if champion_id and owned_skin_ids:
+        if champion_id and owned_skin_ids and self.name_db:
             filtered_skins = []
             skipped_count = 0
             
+            # Base skin ID (always skip base skins - they're always owned)
+            base_skin_id = champion_id * 1000
+            
+            # Ensure champion skin data is loaded in the database
+            slug = self.name_db.slug_by_id.get(champion_id)
+            if slug:
+                self.name_db._ensure_champ(slug, champion_id)
+            
+            # Build a reverse mapping from skin names to skin IDs for this champion
+            skin_id_by_name = {}
+            if slug and slug in self.name_db.entries_by_champ:
+                for entry in self.name_db.entries_by_champ[slug]:
+                    if entry.kind == "skin" and entry.skin_id:
+                        # Store mapping for both full name and short name
+                        skin_id_by_name[entry.key.lower()] = entry.skin_id
+            
+            # Also check the skin_name_by_id mapping (reverse lookup)
+            skin_id_by_short_name = {}
+            for skin_id, db_skin_name in self.name_db.skin_name_by_id.items():
+                # Only consider skins for this champion
+                if skin_id // 1000 == champion_id:
+                    skin_id_by_short_name[db_skin_name.lower()] = skin_id
+            
             for skin_name, skin_path in champion_skins:
-                # Try to extract skin number from filename (e.g., "Blood Lord Vladimir" -> parse to get skin ID)
-                # Skin IDs follow the pattern: championId * 1000 + skinNumber
-                # We'll use a heuristic: look for numbers in the path or check against database
-                
-                # Simple heuristic: check if any owned skin ID matches this champion
-                # We'll skip base skins (championId * 1000) since users always "own" them
-                base_skin_id = champion_id * 1000
-                
-                # For now, we'll use a simple approach: extract numeric suffix if present
-                # This is not perfect but will work for many cases
                 is_owned = False
+                matched_method = None
                 
-                # Try to parse skin number from filename patterns like "Champion_17" or "Champion 17"
-                # Look for patterns like "_\d+" or " \d+" at the end of the skin name
-                match = re.search(r'[_\s](\d+)(?:\.|$)', skin_name)
-                if match:
-                    skin_num = int(match.group(1))
-                    potential_skin_id = base_skin_id + skin_num
-                    if potential_skin_id in owned_skin_ids:
+                # Try to match skin name using database
+                skin_name_lower = skin_name.lower()
+                champion_name_lower = champion_name.lower()
+                
+                # ALWAYS skip base skin files (filename is just the champion name)
+                if skin_name_lower == champion_name_lower:
+                    is_owned = True
+                    matched_method = "base_skin_filename"
+                    log.debug(f"[PREBUILD] Skipping base skin: {skin_name} (filename matches champion name)")
+                    skipped_count += 1
+                    continue
+                
+                # Check exact match in database entries
+                if skin_name_lower in skin_id_by_name:
+                    skin_id = skin_id_by_name[skin_name_lower]
+                    if skin_id in owned_skin_ids or skin_id == base_skin_id:
                         is_owned = True
-                        log.debug(f"[PREBUILD] Skipping owned skin: {skin_name} (skinId={potential_skin_id})")
+                        matched_method = "exact_match"
+                        log.debug(f"[PREBUILD] Skipping owned skin: {skin_name} (skinId={skin_id}, method=exact_match)")
+                
+                # Check match by short name (strict matching only)
+                if not is_owned:
+                    for db_skin_name, skin_id in skin_id_by_short_name.items():
+                        # Only match if it's an exact match or the filename is "Champion {SkinName}"
+                        # This prevents "God-King Darius" from matching "Divine God-King Darius"
+                        
+                        # Check for exact match
+                        if skin_name_lower == db_skin_name:
+                            if skin_id in owned_skin_ids or skin_id == base_skin_id:
+                                is_owned = True
+                                matched_method = "short_name_exact"
+                                log.debug(f"[PREBUILD] Skipping owned skin: {skin_name} (skinId={skin_id}, method=short_name_exact)")
+                                break
+                        
+                        # Check if it's "Champion Name {SkinName}" format (champion name as prefix only)
+                        # Get champion name for this skin
+                        champion_name_lower = champion_name.lower()
+                        expected_format = f"{champion_name_lower} {db_skin_name}"
+                        
+                        if skin_name_lower == expected_format:
+                            if skin_id in owned_skin_ids or skin_id == base_skin_id:
+                                is_owned = True
+                                matched_method = "champion_prefix_match"
+                                log.debug(f"[PREBUILD] Skipping owned skin: {skin_name} (skinId={skin_id}, method=champion_prefix_match)")
+                                break
+                
+                # Fallback: Try to extract skin number from filename patterns like "Champion_17" or "Champion 17"
+                if not is_owned:
+                    match = re.search(r'[_\s](\d+)(?:\.|$)', skin_name)
+                    if match:
+                        skin_num = int(match.group(1))
+                        potential_skin_id = base_skin_id + skin_num
+                        if potential_skin_id in owned_skin_ids or potential_skin_id == base_skin_id:
+                            is_owned = True
+                            matched_method = "regex_match"
+                            log.debug(f"[PREBUILD] Skipping owned skin: {skin_name} (skinId={potential_skin_id}, method=regex_match)")
+                
+                # Log skins that will be built
+                if not is_owned:
+                    log.debug(f"[PREBUILD] Will build: {skin_name}")
                 
                 if not is_owned:
                     filtered_skins.append((skin_name, skin_path))
                 else:
                     skipped_count += 1
             
+            total_found = len(champion_skins)
+            total_unowned = len(filtered_skins)
+            
             if skipped_count > 0:
-                log.info(f"[PREBUILD] Filtered out {skipped_count} owned skins for {champion_name}")
+                log.info(f"[PREBUILD] Found {total_found} total skins for {champion_name}: {skipped_count} owned (skipped), {total_unowned} unowned (will prebuild)")
+            else:
+                log.info(f"[PREBUILD] Found {total_found} skins for {champion_name} (no owned skins to filter)")
             
             return filtered_skins
         
@@ -253,12 +324,12 @@ class ChampionPreBuilder:
             # Find all unowned skins for this champion
             champion_skins = self.find_champion_skins(champion_name, champion_id, owned_skin_ids)
             if not champion_skins:
-                log.warning(f"[PREBUILD] No unowned skins found for {champion_name}")
+                log.warning(f"[PREBUILD] No unowned skins found for {champion_name} - nothing to prebuild")
                 return False
             
             # Get recommended thread count
             max_workers = self.get_recommended_threads(champion_name)
-            log.info(f"[PREBUILD] Starting pre-build for {champion_name} with {len(champion_skins)} unowned skins using {max_workers} threads")
+            log.info(f"[PREBUILD] Starting prebuild: {len(champion_skins)} skins using {max_workers} threads")
             
             # Store current champion
             self.current_champion = champion_name
@@ -358,9 +429,9 @@ class ChampionPreBuilder:
         
         total_time = time.time() - start_time
         if was_cancelled:
-            log.info(f"[PREBUILD] Cancelled {champion_name}: {successful_builds}/{len(champion_skins)} skins built before cancellation in {total_time:.2f}s")
+            log.info(f"[PREBUILD] Cancelled: {successful_builds}/{len(champion_skins)} skins built in {total_time:.2f}s before cancellation")
         else:
-            log.info(f"[PREBUILD] Completed {champion_name}: {successful_builds}/{len(champion_skins)} skins built in {total_time:.2f}s")
+            log.info(f"[PREBUILD] Completed: {successful_builds}/{len(champion_skins)} unowned skins built successfully in {total_time:.2f}s")
         
         return successful_builds > 0
     

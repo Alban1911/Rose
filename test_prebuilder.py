@@ -6,6 +6,7 @@ Test script for the pre-builder system
 import time
 from pathlib import Path
 from injection.prebuilder import ChampionPreBuilder
+from database.name_db import NameDB
 from utils.logging import setup_logging, get_logger
 
 # Setup logging
@@ -18,8 +19,13 @@ def test_prebuilder():
     print("TESTING PRE-BUILDER SYSTEM")
     print("=" * 60)
     
-    # Initialize pre-builder
-    prebuilder = ChampionPreBuilder()
+    # Initialize NameDB for proper skin filtering
+    print("\nInitializing NameDB...")
+    db = NameDB(lang="en_US")
+    print("NameDB initialized successfully")
+    
+    # Initialize pre-builder with NameDB
+    prebuilder = ChampionPreBuilder(name_db=db)
     
     # Test champion (use a champion with few skins for faster testing)
     test_champion = "Akshan"  # Should have 3 skins
@@ -30,15 +36,45 @@ def test_prebuilder():
     recommended_threads = prebuilder.get_recommended_threads(test_champion)
     print(f"Recommended threads for {test_champion}: {recommended_threads}")
     
-    # Test finding skins
+    # Get champion ID for filtering test
+    champion_id = None
+    for cid, name in db.champ_name_by_id.items():
+        if name.lower() == test_champion.lower():
+            champion_id = cid
+            break
+    
+    if champion_id:
+        print(f"Champion ID: {champion_id}")
+    
+    # Test finding skins without filtering
+    print(f"\nFinding all skins (no filtering)...")
     skins = prebuilder.find_champion_skins(test_champion)
     print(f"Found {len(skins)} skins for {test_champion}:")
     for skin_name, skin_path in skins:
         print(f"  - {skin_name}: {skin_path.name}")
     
+    # Test finding skins with filtering (simulate some owned skins)
+    if champion_id and skins:
+        print(f"\nTesting skin filtering with simulated owned skins...")
+        # Simulate owning the first skin
+        first_skin_id = champion_id * 1000 + 1  # Base skin ID + 1
+        owned_skin_ids = {first_skin_id}
+        filtered_skins = prebuilder.find_champion_skins(test_champion, champion_id, owned_skin_ids)
+        print(f"Found {len(filtered_skins)} unowned skins (filtered from {len(skins)} total):")
+        for skin_name, skin_path in filtered_skins:
+            print(f"  - {skin_name}: {skin_path.name}")
+        
+        # Use filtered skins for the rest of the test
+        skins = filtered_skins
+    
     if not skins:
         print("No skins found, trying with different champion...")
         test_champion = "Anivia"  # Fallback
+        champion_id = None
+        for cid, name in db.champ_name_by_id.items():
+            if name.lower() == test_champion.lower():
+                champion_id = cid
+                break
         skins = prebuilder.find_champion_skins(test_champion)
         print(f"Found {len(skins)} skins for {test_champion}:")
         for skin_name, skin_path in skins:
@@ -48,7 +84,13 @@ def test_prebuilder():
         print(f"\nStarting pre-build for {test_champion}...")
         start_time = time.time()
         
-        success = prebuilder.prebuild_champion_skins(test_champion)
+        # Test with filtering (simulate owned skins)
+        owned_skin_ids = None
+        if champion_id:
+            # Simulate owning skin ID 1 for this champion
+            owned_skin_ids = {champion_id * 1000 + 1}
+        
+        success = prebuilder.prebuild_champion_skins(test_champion, champion_id, owned_skin_ids)
         
         total_time = time.time() - start_time
         print(f"Pre-build completed in {total_time:.2f}s")

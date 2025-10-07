@@ -21,11 +21,12 @@ log = get_logger()
 class InjectionManager:
     """Manages skin injection with automatic triggering"""
     
-    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
+    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None, name_db=None):
         self.tools_dir = tools_dir
         self.mods_dir = mods_dir
         self.zips_dir = zips_dir
         self.game_dir = game_dir
+        self.name_db = name_db
         self.injector = None  # Will be initialized lazily
         self.prebuilder = None  # Will be initialized lazily
         self.last_skin_name = None
@@ -43,7 +44,7 @@ class InjectionManager:
                 if not self._initialized:  # Double-check inside lock
                     log.info("[INJECT] Initializing injection system...")
                     self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
-                    self.prebuilder = ChampionPreBuilder(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
+                    self.prebuilder = ChampionPreBuilder(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir, self.name_db)
                     
                     # Clean up any leftover pre-built overlays from previous sessions
                     try:
