@@ -44,6 +44,14 @@ class InjectionManager:
                     log.info("[INJECT] Initializing injection system...")
                     self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
                     self.prebuilder = ChampionPreBuilder(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
+                    
+                    # Clean up any leftover pre-built overlays from previous sessions
+                    try:
+                        self.prebuilder.cleanup_all_overlays()
+                        log.info("[INJECT] Cleaned up pre-built overlays from previous sessions")
+                    except Exception as e:
+                        log.warning(f"[INJECT] Failed to clean up old pre-built overlays: {e}")
+                    
                     self._initialized = True
                     log.info("[INJECT] Injection system initialized successfully")
     

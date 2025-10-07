@@ -179,6 +179,7 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 - **📊 Rate Limiting**: Intelligent GitHub API rate limiting for skin downloads
 - **🎭 Smart Filtering**: Pre-builds only unowned skins by filtering against LCU inventory
 - **🔧 Robust Fallbacks**: Multiple LCU endpoints for reliable base skin forcing
+- **🧹 Automatic Cleanup**: Cleans up pre-built overlays and processes when entering lobby to manage disk space
 
 ---
 

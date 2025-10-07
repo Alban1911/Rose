@@ -42,7 +42,31 @@ class PhaseThread(threading.Thread):
                     log.info(f"[phase] {ph}")
                 self.state.phase = ph
                 
-                if ph == "ChampSelect":
+                if ph == "Lobby":
+                    # Cleanup operations when entering Lobby
+                    if self.injection_manager:
+                        # Kill any existing runoverlay processes from previous game
+                        try:
+                            self.injection_manager.kill_all_runoverlay_processes()
+                            log.info("Phase: Killed all runoverlay processes for Lobby")
+                        except Exception as e:
+                            log.warning(f"Phase: Failed to kill runoverlay processes: {e}")
+                        
+                        # Cancel any ongoing prebuild from previous session
+                        try:
+                            if self.injection_manager._initialized and self.injection_manager.prebuilder:
+                                if self.injection_manager.current_champion:
+                                    log.info(f"Phase: Cancelling prebuild for {self.injection_manager.current_champion} (entering Lobby)")
+                                    self.injection_manager.prebuilder.cancel_current_build()
+                                    self.injection_manager.current_champion = None
+                                
+                                # Clean up all pre-built overlays
+                                self.injection_manager.cleanup_prebuilt_overlays()
+                                log.info("Phase: Cleaned up all pre-built overlays for Lobby")
+                        except Exception as e:
+                            log.warning(f"Phase: Failed to cleanup pre-builds: {e}")
+                
+                elif ph == "ChampSelect":
                     self.state.last_hovered_skin_key = None
                     self.state.last_hovered_skin_id = None
                     self.state.last_hovered_skin_slug = None
@@ -58,24 +82,6 @@ class PhaseThread(threading.Thread):
                     # Force immediate check for locked champion when entering ChampSelect
                     # This helps OCR restart immediately if champion is already locked
                     self.state.locked_champ_id = None  # Reset first
-                    
-                    # Kill any existing runoverlay processes when entering ChampSelect
-                    if self.injection_manager:
-                        try:
-                            self.injection_manager.kill_all_runoverlay_processes()
-                            log.info("Phase: Killed all runoverlay processes for ChampSelect")
-                        except Exception as e:
-                            log.warning(f"Phase: Failed to kill runoverlay processes: {e}")
-                        
-                        # Cancel any ongoing prebuild when entering ChampSelect
-                        try:
-                            if self.injection_manager._initialized and self.injection_manager.prebuilder and self.injection_manager.current_champion:
-                                log.info(f"Phase: Cancelling prebuild for {self.injection_manager.current_champion} (entering ChampSelect)")
-                                self.injection_manager.prebuilder.cancel_current_build()
-                                # Reset injection manager's champion tracking
-                                self.injection_manager.current_champion = None
-                        except Exception as e:
-                            log.warning(f"Phase: Failed to cancel prebuild: {e}")
                         
                     
                 elif ph == "InProgress":

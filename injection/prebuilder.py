@@ -347,6 +347,14 @@ class ChampionPreBuilder:
                 self.building_futures = []
                 if self.current_champion == champion_name:
                     self.current_champion = None
+            
+            # Clean up partial builds if cancelled
+            if was_cancelled:
+                try:
+                    self._cleanup_champion_overlays(champion_name)
+                    log.debug(f"[PREBUILD] Cleaned up partial overlays for cancelled build: {champion_name}")
+                except Exception as e:
+                    log.debug(f"[PREBUILD] Error cleaning up partial overlays: {e}")
         
         total_time = time.time() - start_time
         if was_cancelled:
@@ -365,7 +373,7 @@ class ChampionPreBuilder:
                 log.debug(f"[PREBUILD] Cleaned up: {overlay_dir.name}")
     
     def cancel_current_build(self):
-        """Cancel any ongoing pre-build operation"""
+        """Cancel any ongoing pre-build operation and clean up partial builds"""
         # Set cancellation flag first
         self.cancel_requested.set()
         
@@ -377,6 +385,18 @@ class ChampionPreBuilder:
             
             if self.current_champion:
                 log.info(f"[PREBUILD] Cancelling pre-build for {self.current_champion}")
+                
+                # Clean up partial/incomplete builds for this champion in background
+                champion_to_cleanup = self.current_champion
+                def cleanup_background():
+                    try:
+                        self._cleanup_champion_overlays(champion_to_cleanup)
+                        log.info(f"[PREBUILD] Cleaned up partial pre-built overlays for {champion_to_cleanup}")
+                    except Exception as e:
+                        log.debug(f"[PREBUILD] Error cleaning up partial overlays for {champion_to_cleanup}: {e}")
+                
+                cleanup_thread = threading.Thread(target=cleanup_background, daemon=True)
+                cleanup_thread.start()
             
             # Note: Don't clear current_champion or futures here
             # Let the prebuild thread clean up in its finally block
