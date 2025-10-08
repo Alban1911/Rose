@@ -99,6 +99,10 @@ class RepoDownloader:
                         if not relative_path.endswith('.zip'):
                             continue
                         
+                        # Remove the 'skins/' prefix since target_dir is already the skins directory
+                        if relative_path.startswith('skins/'):
+                            relative_path = relative_path.replace('skins/', '', 1)
+                        
                         # Extract to target directory
                         extract_path = self.target_dir / relative_path
                         extract_path.parent.mkdir(parents=True, exist_ok=True)

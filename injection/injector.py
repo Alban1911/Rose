@@ -417,33 +417,19 @@ class SkinInjector:
         """Inject a single skin"""
         injection_start_time = time.time()
         game_process_suspended = [None]  # Use list so it's mutable across threads
-        
-        # Find the skin ZIP
-        zp = self._resolve_zip(skin_name)
-        if not zp:
-            log.error(f"Injector: Skin '{skin_name}' not found in {self.zips_dir}")
-            avail = list(self.zips_dir.rglob('*.zip'))
-            if avail:
-                log.info("Injector: Available skins (first 10):")
-                for a in avail[:10]:
-                    log.info(f"  - {a.name}")
-            return False
-        
-        log.debug(f"Injector: Using skin file: {zp}")
-        
-        # Start game process monitor thread if suspension enabled
         game_monitor_active = [False]  # Use list so it's mutable across threads
         game_manually_resumed = [False]  # Flag to tell monitor we already resumed
+        
+        # Start game process monitor thread IMMEDIATELY (before slow operations)
+        # This ensures we catch the game process as early as possible
         if ENABLE_GAME_SUSPENSION:
             import threading
+            import psutil
             game_monitor_active[0] = True
             
             def monitor_and_throttle_game():
                 """Monitor for game process and throttle it when it starts"""
                 try:
-                    import psutil
-                    import time
-                    
                     log.info("GameMonitor: Started - waiting for League of Legends.exe...")
                     
                     # DEBUG: List all League-related processes currently running
@@ -573,6 +559,21 @@ class SkinInjector:
             monitor_thread = threading.Thread(target=monitor_and_throttle_game, daemon=True)
             monitor_thread.start()
             log.info(f"GameMonitor: Background monitor started (SUSPENSION mode)")
+        
+        # Find the skin ZIP (do this AFTER starting monitor to minimize delay)
+        zp = self._resolve_zip(skin_name)
+        if not zp:
+            log.error(f"Injector: Skin '{skin_name}' not found in {self.zips_dir}")
+            avail = list(self.zips_dir.rglob('*.zip'))
+            if avail:
+                log.info("Injector: Available skins (first 10):")
+                for a in avail[:10]:
+                    log.info(f"  - {a.name}")
+            # Stop monitor before returning
+            game_monitor_active[0] = False
+            return False
+        
+        log.debug(f"Injector: Using skin file: {zp}")
         
         try:
             # Clean mods and overlay directories, then extract new skin
@@ -781,35 +782,53 @@ class SkinInjector:
             # Find all processes with "runoverlay" in command line
             # Use a timeout to prevent hanging on process_iter
             start_time = time.time()
-            timeout = 5.0  # 5 second timeout for process enumeration
+            timeout = 2.0  # 2 second timeout for process enumeration
             
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            # Only get pid and name initially to avoid slow cmdline lookups
+            for proc in psutil.process_iter(['pid', 'name']):
                 # Check timeout to prevent indefinite hangs
                 if time.time() - start_time > timeout:
                     log.warning(f"Injector: Process enumeration timeout after {timeout}s - some processes may not be killed")
                     break
                 
                 try:
-                    cmdline = proc.info.get('cmdline', [])
-                    if cmdline and any('runoverlay' in arg for arg in cmdline):
-                        log.info(f"Injector: Killing runoverlay process PID {proc.info['pid']}")
-                        try:
-                            # Try graceful termination first
-                            proc.terminate()
-                            # Give it a brief moment, then force kill if needed
+                    # Skip if not mod-tools.exe (avoid expensive cmdline check on unrelated processes)
+                    if proc.info.get('name') != 'mod-tools.exe':
+                        continue
+                    
+                    # Only fetch cmdline for mod-tools.exe processes with a timeout
+                    try:
+                        # Create Process object for cmdline access
+                        p = psutil.Process(proc.info['pid'])
+                        # Use a short timeout on cmdline() to prevent hanging
+                        cmdline = p.cmdline()
+                        
+                        if cmdline and any('runoverlay' in arg for arg in cmdline):
+                            log.info(f"Injector: Killing runoverlay process PID {proc.info['pid']}")
                             try:
-                                proc.wait(timeout=0.5)
+                                # Try graceful termination first
+                                p.terminate()
+                                # Give it a brief moment, then force kill if needed
+                                try:
+                                    p.wait(timeout=0.3)
+                                except:
+                                    p.kill()  # Force kill if terminate didn't work
                             except:
-                                proc.kill()  # Force kill if terminate didn't work
-                        except:
-                            proc.kill()  # Force kill on any error
-                        killed_count += 1
+                                try:
+                                    p.kill()  # Force kill on any error
+                                except:
+                                    pass  # Process might be gone
+                            killed_count += 1
+                    except psutil.TimeoutExpired:
+                        log.debug(f"Injector: Timeout fetching cmdline for PID {proc.info['pid']}")
+                        continue
+                    
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     # Process might have already ended or we don't have access
                     pass
                 except Exception as e:
                     # Log but continue with other processes
-                    log.debug(f"Injector: Error killing process: {e}")
+                    log.debug(f"Injector: Error processing PID {proc.info.get('pid', '?')}: {e}")
             
             if killed_count > 0:
                 log.info(f"Injector: Killed {killed_count} runoverlay process(es)")
