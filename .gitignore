@@ -1,13 +1,70 @@
-*.pyc
-.venv311/*
-injection/overlay/*
-injection/mods/*
-injection/incoming_zips/*
-state/last_hovered_skin.txt
-skins/*
-logs/*
-
-# Installer artifacts
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Nuitka (Python to C Compiler)
+*.build/
+*.dist/
+*.onefile-build/
+main.exe
+main.bin
+nuitka-crash-report.xml
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Application specific
+injection/mods/
+injection/overlay/
+injection/incoming_zips/
+state/*.json
+state/*.lock
+*.log
+logs/
+
+# Installer
 installer/
+Output/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.bak
+*.backup

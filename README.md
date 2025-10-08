@@ -293,8 +293,8 @@ SkinCloner/
 │   └── tesserocr-*.whl          # Pre-compiled Tesseract OCR wheel
 │
 └── [build system]/               # Build and distribution
-    ├── build_all.py              # Complete build script
-    ├── build_exe.py              # PyInstaller executable builder
+    ├── build_all.py              # Complete build script (Nuitka + Installer)
+    ├── build_nuitka.py           # Nuitka compiler (Python to C)
     ├── create_installer.py       # Inno Setup installer creator
     ├── build_requirements.txt    # Build-time dependencies
     └── installer.iss             # Inno Setup configuration

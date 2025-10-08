@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Complete build script for SkinCloner
-Builds executable and creates Windows installer in one step
+Builds executable with Nuitka and creates Windows installer in one step
 """
 
 import os
@@ -26,12 +26,12 @@ def print_step(step_num, total_steps, description):
 
 
 def run_build_exe():
-    """Run the build_exe.py script"""
-    print_step(1, 2, "Building Executable with PyInstaller")
+    """Run the build_nuitka.py script"""
+    print_step(1, 2, "Building Executable with Nuitka (Python to C Compiler)")
     
-    # Run build_exe.py as a subprocess
+    # Run build_nuitka.py as a subprocess
     result = subprocess.run(
-        [sys.executable, "build_exe.py"],
+        [sys.executable, "build_nuitka.py"],
         capture_output=False,  # Show output in real-time
         text=True
     )
@@ -155,9 +155,9 @@ def main():
         print("Please run this script from the SkinCloner root directory.")
         sys.exit(1)
     
-    # Check if build_exe.py exists
-    if not Path("build_exe.py").exists():
-        print("ERROR: build_exe.py not found!")
+    # Check if build_nuitka.py exists
+    if not Path("build_nuitka.py").exists():
+        print("ERROR: build_nuitka.py not found!")
         sys.exit(1)
     
     # Check if create_installer.py exists

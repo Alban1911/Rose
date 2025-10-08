@@ -1,2 +1,7 @@
 # Additional requirements for building the executable
-pyinstaller>=5.0.0
+# Nuitka: Python to C compiler (better than PyInstaller)
+# - Compiles Python to native C code
+# - Better protection against reverse engineering
+# - Better performance than interpreted Python
+# - No Python interpreter needed in final executable
+nuitka>=2.0.0
