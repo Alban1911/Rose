@@ -54,6 +54,17 @@ class LCUMonitorThread(threading.Thread):
                     log.info("WebSocket connected - detecting language...")
                     self.ws_connected = True
                     
+                    # Load owned skins once at startup/reconnection
+                    try:
+                        owned_skins = self.lcu.owned_skins()
+                        if owned_skins and isinstance(owned_skins, list):
+                            self.state.owned_skin_ids = set(owned_skins)
+                            log.info(f"[LCU] Loaded {len(self.state.owned_skin_ids)} owned skins from inventory")
+                        else:
+                            log.warning("[LCU] Failed to fetch owned skins from LCU")
+                    except Exception as e:
+                        log.warning(f"[LCU] Error fetching owned skins: {e}")
+                    
                     # Try to get new language
                     try:
                         new_language = self.lcu.get_client_language()
