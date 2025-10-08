@@ -83,20 +83,36 @@ def build_with_nuitka():
         "--include-package=state",
         "--include-package=threads",
         "--include-package=utils",
+        "--include-package=easyocr",  # EasyOCR for GPU-accelerated OCR
+        "--include-package=torch",  # PyTorch deep learning framework
+        "--include-package=torchvision",  # Computer vision for PyTorch
         "--follow-imports",  # Follow all imports
         "--assume-yes-for-downloads",  # Auto-download dependencies
         "--nofollow-import-to=tkinter",  # Don't follow tkinter (we don't use it)
         "--nofollow-import-to=test",  # Don't follow test modules
+        "--nofollow-import-to=torch.test",  # Don't include torch tests
+        "--nofollow-import-to=torch.testing",  # Don't include torch testing
+        "--nofollow-import-to=torchvision.datasets",  # Don't include large datasets
+        "--nofollow-import-to=matplotlib",  # Don't include matplotlib (optional dependency)
+        "--nofollow-import-to=torch.utils.tensorboard",  # Don't include tensorboard utils
+        "--nofollow-import-to=IPython",  # Don't include IPython (optional)
+        "--nofollow-import-to=pytest",  # Don't include pytest
+        "--nofollow-import-to=scipy.io",  # Don't include scipy.io (optional)
+        "--nofollow-import-to=pandas",  # Don't include pandas (optional)
         "--show-progress",  # Show compilation progress
         "--low-memory",  # Reduce memory usage during compilation
         "main.py"
     ]
     
     print(f"Running: {' '.join(cmd)}\n")
-    print("Note: First build may take 5-15 minutes (compiles all C files)")
+    print("Note: First build may take 10-20 minutes (compiles all C files + PyTorch)")
     print("Subsequent builds: 1-3 minutes (ccache only recompiles changed files!)")
     print("Nuitka compiles Python to C code for maximum protection!")
-    print("Building STANDALONE mode: All files in one folder (includes injection/tools)\n")
+    print("Building STANDALONE mode: All files in one folder (includes injection/tools)")
+    print("\n⚠️  NEW PACKAGES: EasyOCR + PyTorch + torchvision")
+    print("   - Executable size will be significantly larger (500-800 MB)")
+    print("   - First run requires internet to download EasyOCR models")
+    print("   - GPU acceleration supported if CUDA drivers installed\n")
     
     try:
         result = subprocess.run(cmd, check=True)
