@@ -4,6 +4,16 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.pyc
+.venv311/*
+injection/overlay/*
+injection/mods/*
+injection/incoming_zips/*
+state/last_hovered_skin.txt
+skins/*
+logs/*
+
+# Installer artifacts
 build/
 develop-eggs/
 dist/
@@ -19,6 +29,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.csv
 MANIFEST
 
 # Nuitka (Python to C Compiler)
