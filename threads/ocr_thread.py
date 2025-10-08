@@ -14,7 +14,6 @@ import cv2
 from ocr.backend import OCR
 from ocr.image_processing import choose_band, preprocess_band_for_ocr
 from database.name_db import NameDB
-from database.multilang_db import MultiLanguageDB
 from state.shared_state import SharedState
 from lcu.client import LCU
 from utils.normalization import normalize_text, levenshtein_score
@@ -28,11 +27,11 @@ log = get_logger()
 class OCRSkinThread(threading.Thread):
     """OCR thread: Optimized with hardcoded ROI proportions"""
     
-    def __init__(self, state: SharedState, db: NameDB, ocr: OCR, args, lcu: Optional[LCU] = None, multilang_db: Optional[MultiLanguageDB] = None):
+    def __init__(self, state: SharedState, db: NameDB, ocr: OCR, args, lcu: Optional[LCU] = None, skin_scraper=None):
         super().__init__(daemon=True)
         self.state = state
         self.db = db
-        self.multilang_db = multilang_db
+        self.skin_scraper = skin_scraper
         self.ocr = ocr
         self.args = args
         self.lcu = lcu
@@ -318,8 +317,29 @@ class OCRSkinThread(threading.Thread):
     def _run_ocr_and_match(self, band_bin: np.ndarray):
         """Run OCR and match against database using raw Levenshtein distance"""
         from rapidfuzz.distance import Levenshtein
+        from datetime import datetime
         
         txt = self.ocr.recognize(band_bin)
+        
+        # DEBUG: Save OCR image to debug folder (if enabled)
+        if self.args.debug_ocr and txt:  # Only save when debug enabled and OCR detects text
+            try:
+                debug_folder = "ocr_debug"
+                if not os.path.exists(debug_folder):
+                    os.makedirs(debug_folder)
+                
+                # Create filename with timestamp and counter
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                counter = getattr(self, '_debug_counter', 0) + 1
+                self._debug_counter = counter
+                filename = f"ocr_{timestamp}_{counter:04d}.png"
+                filepath = os.path.join(debug_folder, filename)
+                
+                # Save the image that was sent to OCR
+                cv2.imwrite(filepath, band_bin)
+                log.debug(f"[ocr:debug] Saved image to {filepath} - OCR result: '{txt}'")
+            except Exception as e:
+                log.debug(f"[ocr:debug] Failed to save debug image: {e}")
         
         # Save raw OCR text for writing
         prev_txt = getattr(self.state, 'ocr_last_text', None)
@@ -333,26 +353,86 @@ class OCRSkinThread(threading.Thread):
         
         champ_id = self.state.hovered_champ_id or self.state.locked_champ_id
         
-        # Use multilang database if available, otherwise fallback to regular database
-        if self.multilang_db:
-            # Use multilang database with automatic language detection
-            entry = self.multilang_db.find_skin_by_text(txt, champ_id)
-            if entry:
-                # Get English names for the matched entry
-                english_champ, english_full = self.multilang_db.get_english_name(entry)
+        # OPTIMIZED PIPELINE: Direct matching for English-only, LCU pipeline for mixed languages
+        # Check if OCR is configured for English only (not mixed with other languages)
+        is_english_only = (
+            self.ocr.lang == "eng" or 
+            (hasattr(self.ocr, 'lang_mapping') and self.ocr.lang_mapping.get(self.ocr.lang) == ["en"])
+        )
+        
+        if is_english_only and champ_id:
+            # ENGLISH OPTIMIZATION: Direct OCR → ZIP matching (bypass LCU)
+            champ_slug = self.db.slug_by_id.get(champ_id)
+            if champ_slug:
+                # Load champion skins if not already loaded
+                if champ_slug not in self.db.champion_skins:
+                    self.db.load_champion_skins_by_id(champ_id)
                 
-                if entry.key != self.last_key:
-                    if entry.kind == "champion":
-                        log.info(f"[hover:skin] {english_full} (skinId=0, champ={entry.champ_slug}, multilang_match)")
-                        self.state.last_hovered_skin_key = english_full
-                        self.state.last_hovered_skin_id = 0  # 0 = base skin
-                        self.state.last_hovered_skin_slug = entry.champ_slug
-                    else:
-                        log.info(f"[hover:skin] {english_full} (skinId={entry.skin_id}, champ={entry.champ_slug}, multilang_match)")
-                        self.state.last_hovered_skin_key = english_full
-                        self.state.last_hovered_skin_id = entry.skin_id
-                        self.state.last_hovered_skin_slug = entry.champ_slug
-                    self.last_key = entry.key
+                # Direct matching against English skin names
+                best_match = None
+                best_similarity = 0.0
+                
+                for skin_id, skin_name in self.db.champion_skins.get(champ_slug, {}).items():
+                    similarity = levenshtein_score(txt, skin_name)
+                    if similarity > best_similarity and similarity >= OCR_FUZZY_MATCH_THRESHOLD:
+                        best_match = (skin_id, skin_name, similarity)
+                        best_similarity = similarity
+                
+                if best_match:
+                    skin_id, skin_name, similarity = best_match
+                    skin_key = f"{champ_slug}_{skin_id}"
+                    
+                    if skin_key != self.last_key:
+                        is_base = (skin_id % 1000 == 0)
+                        
+                        if is_base:
+                            log.info(f"[hover:skin] {skin_name} (skinId=0, champ={champ_slug}, similarity={similarity:.1%}, direct_match)")
+                            self.state.last_hovered_skin_id = 0
+                        else:
+                            log.info(f"[hover:skin] {skin_name} (skinId={skin_id}, champ={champ_slug}, similarity={similarity:.1%}, direct_match)")
+                            self.state.last_hovered_skin_id = skin_id
+                        
+                        self.last_key = skin_key
+                        self.state.last_hovered_skin_name = skin_name
+                        self.state.last_hovered_champ_id = champ_id
+                        self.state.last_hovered_champ_slug = champ_slug
+                        self.state.last_hovered_skin_id = skin_id
+                        self.state.hovered_skin_timestamp = time.time()
+                    return
+        
+        # STANDARD PIPELINE: Use LCU scraper + English DB matching (for non-English)
+        elif self.skin_scraper and champ_id:
+            # STEP 1: Match OCR text with LCU scraped skins (in client language)
+            match_result = self.skin_scraper.find_skin_by_text(txt)
+            
+            if match_result:
+                skin_id, skin_name_client_lang, similarity = match_result
+                
+                # STEP 2: Get English name from database using skinId
+                english_skin_name = self.db.skin_name_by_id.get(skin_id)
+                champ_slug = self.db.slug_by_id.get(champ_id)
+                
+                if english_skin_name and champ_slug:
+                    # Create unique key for tracking
+                    skin_key = f"{champ_slug}_{skin_id}"
+                    
+                    if skin_key != self.last_key:
+                        # Determine if this is base skin
+                        is_base = (skin_id % 1000 == 0)  # Base skins have skinId ending in 000
+                        
+                        if is_base:
+                            log.info(f"[hover:skin] {english_skin_name} (skinId=0, champ={champ_slug}, similarity={similarity:.1%}, lcu_match)")
+                            self.state.last_hovered_skin_id = 0
+                        else:
+                            log.info(f"[hover:skin] {english_skin_name} (skinId={skin_id}, champ={champ_slug}, similarity={similarity:.1%}, lcu_match)")
+                            self.state.last_hovered_skin_id = skin_id
+                        
+                        self.state.last_hovered_skin_key = english_skin_name
+                        self.state.last_hovered_skin_slug = champ_slug
+                        self.last_key = skin_key
+                else:
+                    log.debug(f"[ocr] Matched skin {skin_name_client_lang} (ID: {skin_id}) but not found in English DB")
+            
             return
         
         # Fallback to regular database matching (original logic)

@@ -12,6 +12,7 @@ injection/incoming_zips/*
 state/last_hovered_skin.txt
 skins/*
 logs/*
+ocr_debug/*
 
 # Installer artifacts
 build/

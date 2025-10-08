@@ -38,8 +38,8 @@ if sys.stderr is None:
     sys.stderr = open(os.devnull, 'w')
 from ocr.backend import OCR
 from database.name_db import NameDB
-from database.multilang_db import MultiLanguageDB
 from lcu.client import LCU
+from lcu.skin_scraper import LCUSkinScraper
 from state.shared_state import SharedState
 from threads.phase_thread import PhaseThread
 from threads.champ_thread import ChampThread
@@ -176,29 +176,28 @@ def get_ocr_language(lcu_lang: str, manual_lang: str = None) -> str:
 
 
 def validate_ocr_language(lang: str) -> bool:
-    """Validate that OCR language is available by checking tessdata files"""
+    """Validate that OCR language is available for EasyOCR
+    
+    Note: EasyOCR will automatically download models for supported languages,
+    so we just check if the language code is valid.
+    """
     if not lang or lang == "auto":
         return True
     
-    try:
-        from utils.tesseract_path import get_tesseract_configuration
-        config = get_tesseract_configuration()
-        tessdata_dir = config.get("tessdata_dir")
-        
-        if not tessdata_dir or not os.path.isdir(tessdata_dir):
-            # If we can't find tessdata, assume only English is available
-            return lang == "eng"
-        
-        # Check if all parts of combined languages are available
-        parts = lang.split('+')
-        for part in parts:
-            lang_file = os.path.join(tessdata_dir, f"{part}.traineddata")
-            if not os.path.isfile(lang_file):
-                return False
-        return True
-    except Exception:
-        # If validation fails, assume only English is available
-        return lang == "eng"
+    # EasyOCR supported languages (through our mapping in backend.py)
+    supported_langs = [
+        "eng", "rus", "kor", "chi_sim", "chi_tra", "jpn", "ara",
+        "fra", "deu", "spa", "por", "ita", "pol", "ron", "hun",
+        "tur", "tha", "vie", "ell"
+    ]
+    
+    # Check if all parts of combined languages are supported
+    parts = lang.split('+')
+    for part in parts:
+        if part not in supported_langs:
+            return False
+    
+    return True
 
 
 def main():
@@ -210,11 +209,14 @@ def main():
     ap = argparse.ArgumentParser(description="Combined LCU + OCR Tracer (ChampSelect) — ROI lock + burst OCR + locks/timer fixes")
     
     # OCR arguments
-    ap.add_argument("--tessdata", type=str, default=None, help="Path to tessdata folder (e.g., C:\\Program Files\\Tesseract-OCR\\tessdata)")
-    ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM)
+    ap.add_argument("--tessdata", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
+    ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM, help="[DEPRECATED] Not used with EasyOCR (kept for compatibility)")
     ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
-    ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, help="OCR lang (tesseract): 'auto', 'fra+eng', 'kor', 'chi_sim', 'ell', etc.")
-    ap.add_argument("--tesseract-exe", type=str, default=None)
+    ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
+    ap.add_argument("--tesseract-exe", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
+    ap.add_argument("--no-gpu", action="store_true", help="Disable GPU acceleration for OCR (use CPU only)")
+    ap.add_argument("--debug-ocr", action="store_true", default=DEFAULT_DEBUG_OCR, help="Save OCR images to debug folder")
+    ap.add_argument("--no-debug-ocr", action="store_false", dest="debug_ocr", help="Disable OCR debug image saving")
     
     # Capture arguments
     ap.add_argument("--capture", choices=["window", "screen"], default=DEFAULT_CAPTURE_MODE)
@@ -249,10 +251,10 @@ def main():
     ap.add_argument("--skin-threshold-ms", type=int, default=SKIN_THRESHOLD_MS_DEFAULT, help="Write last skin at T<=threshold (ms)")
     ap.add_argument("--inject-batch", type=str, default="", help="Batch to execute right after skin write (leave empty to disable)")
     
-    # Multi-language arguments
-    ap.add_argument("--multilang", action="store_true", default=DEFAULT_MULTILANG_ENABLED, help="Enable multi-language support")
-    ap.add_argument("--no-multilang", action="store_false", dest="multilang", help="Disable multi-language support")
-    ap.add_argument("--language", type=str, default=DEFAULT_OCR_LANG, help="Manual language selection (e.g., 'fr_FR', 'en_US', 'zh_CN', 'auto' for detection)")
+    # Multi-language arguments (DEPRECATED - now using LCU scraper)
+    ap.add_argument("--multilang", action="store_true", default=False, help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
+    ap.add_argument("--no-multilang", action="store_false", dest="multilang", help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
+    ap.add_argument("--language", type=str, default=DEFAULT_OCR_LANG, help="[DEPRECATED] Language is now auto-detected from LCU")
     
     # Skin download arguments
     ap.add_argument("--download-skins", action="store_true", default=DEFAULT_DOWNLOAD_SKINS, help="Automatically download skins at startup")
@@ -269,6 +271,17 @@ def main():
     # Clean up old log files on startup
     from utils.logging import cleanup_logs
     cleanup_logs(max_files=args.log_max_files, max_total_size_mb=args.log_max_total_size_mb)
+    
+    # Clean up OCR debug folder on startup (only if debug mode is enabled)
+    if args.debug_ocr:
+        import shutil
+        ocr_debug_dir = Path("ocr_debug")
+        if ocr_debug_dir.exists():
+            try:
+                shutil.rmtree(ocr_debug_dir)
+                print("🧹 Cleared OCR debug folder")
+            except Exception as e:
+                print(f"⚠️ Failed to clear OCR debug folder: {e}")
     
     setup_logging(args.verbose)
     log.info("Starting...")
@@ -294,6 +307,13 @@ def main():
     # Initialize components
     # Initialize LCU first
     lcu = LCU(args.lockfile)
+    
+    # Initialize LCU skin scraper for champion-specific skin lookup
+    skin_scraper = LCUSkinScraper(lcu)
+    
+    # Load owned skins if LCU is already connected
+    state = SharedState()
+    # Owned skins will be loaded when WebSocket connects (no need to load at startup)
     
     # Initialize OCR language (will be updated when LCU connects)
     ocr_lang = args.lang
@@ -327,23 +347,23 @@ def main():
         ocr_lang = "eng"
     
     # Initialize OCR with determined language
+    use_gpu = not args.no_gpu if hasattr(args, 'no_gpu') else True
+    
     try:
-        ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
-        ocr.tessdata_dir = args.tessdata
-        log.info(f"OCR: {ocr.backend} (lang: {ocr_lang})")
+        ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe, use_gpu=use_gpu)
+        log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, GPU: {use_gpu})")
     except Exception as e:
         log.warning(f"Failed to initialize OCR with language '{ocr_lang}': {e}")
         log.info("Attempting fallback to English OCR...")
         
         try:
-            ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
-            ocr.tessdata_dir = args.tessdata
-            log.info(f"OCR: {ocr.backend} (lang: eng)")
+            ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe, use_gpu=use_gpu)
+            log.info(f"OCR: {ocr.backend} (lang: eng, GPU: {use_gpu})")
         except Exception as fallback_e:
             log.error(f"OCR initialization failed: {fallback_e}")
-            log.error("Tesseract OCR is not properly installed or configured.")
-            log.error("Run 'python utils/check_tesseract.py' for detailed diagnostic information.")
-            log.error("Install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki")
+            log.error("EasyOCR is not properly installed or configured.")
+            log.error("Install with: pip install easyocr torch torchvision")
+            log.error("For GPU support, install CUDA-enabled PyTorch from: https://pytorch.org")
             sys.exit(1)
     
     db = NameDB(lang=args.dd_lang)
@@ -377,22 +397,9 @@ def main():
         log.info("Automatic skin download disabled")
         # Initialize injection system immediately when download is disabled
         injection_manager.initialize_when_ready()
-    state = SharedState()
     
-    # Initialize multi-language database (after LCU connection is established)
-    if args.multilang:
-        auto_detect = args.language.lower() == "auto"
-        if auto_detect:
-            # For auto-detect mode, use English as fallback but let LCU determine the primary language
-            multilang_db = MultiLanguageDB(auto_detect=True, fallback_lang="en_US", lcu_client=lcu)
-            log.info("Multi-language auto-detection enabled")
-        else:
-            # For manual mode, use the specified language
-            multilang_db = MultiLanguageDB(auto_detect=False, fallback_lang=args.language, lcu_client=lcu)
-            log.info(f"Multi-language mode: manual language '{args.language}'")
-    else:
-        multilang_db = None
-        log.info("Multi-language support disabled")
+    # Multi-language support is no longer needed - we use LCU scraper + English DB
+    # Skin names are matched using: OCR (client lang) → LCU scraper → skinId → English DB
     
     
     # Configure skin writing
@@ -417,30 +424,32 @@ def main():
                 try:
                     # Validate that the new OCR language is available before updating
                     if validate_ocr_language(new_ocr_lang):
-                        # Update OCR language
-                        ocr.lang = new_ocr_lang
-                        log.info(f"OCR language updated to: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                        # Recreate OCR with new language (force reload)
+                        log.info(f"Reloading OCR with new language: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                        
+                        # Create new OCR instance with new language
+                        new_ocr = OCR(
+                            lang=new_ocr_lang,
+                            psm=args.psm,
+                            tesseract_exe=args.tesseract_exe,
+                            use_gpu=not args.no_gpu
+                        )
+                        
+                        # Update the global OCR reference
+                        ocr.__dict__.update(new_ocr.__dict__)
+                        
+                        log.info(f"✅ OCR successfully reloaded with language: {new_ocr_lang}")
                     else:
                         # Keep current OCR language (likely English fallback) but log the LCU language
                         log.info(f"OCR language kept at: {ocr.lang} (LCU: {new_lcu_lang}, OCR language not available)")
-                    
-                    # Update multilang database if needed
-                    if multilang_db and multilang_db.auto_detect:
-                        multilang_db.current_language = new_lcu_lang
-                        if new_lcu_lang not in multilang_db.databases:
-                            try:
-                                multilang_db.databases[new_lcu_lang] = NameDB(lang=new_lcu_lang)
-                                log.info(f"Loaded multilang database for {new_lcu_lang}")
-                            except Exception as e:
-                                log.debug(f"Failed to load multilang database for {new_lcu_lang}: {e}")
                 except Exception as e:
                     log.warning(f"Failed to update OCR language: {e}")
 
     # Initialize threads
     t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), log_transitions=not args.ws, injection_manager=injection_manager)
-    t_champ = None if args.ws else ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL, injection_manager=injection_manager)
-    t_ocr = OCRSkinThread(state, db, ocr, args, lcu, multilang_db)
-    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager) if args.ws else None
+    t_champ = None if args.ws else ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL, injection_manager=injection_manager, skin_scraper=skin_scraper)
+    t_ocr = OCRSkinThread(state, db, ocr, args, lcu, skin_scraper=skin_scraper)
+    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, skin_scraper=skin_scraper) if args.ws else None
     t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws)
     # Start threads
     t_phase.start()
@@ -452,6 +461,10 @@ def main():
     t_lcu_monitor.start()
 
     log.info("System ready - OCR active only in Champion Select")
+    if args.debug_ocr:
+        log.info("OCR Debug Mode: ON - Images will be saved to 'ocr_debug/' folder")
+    else:
+        log.info("OCR Debug Mode: OFF - Use --debug-ocr to enable")
 
     last_phase = None
     try:

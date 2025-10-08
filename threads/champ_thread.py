@@ -18,13 +18,14 @@ log = get_logger()
 class ChampThread(threading.Thread):
     """Thread for monitoring champion hover and lock"""
     
-    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL, injection_manager=None):
+    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL, injection_manager=None, skin_scraper=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.db = db
         self.state = state
         self.interval = interval
         self.injection_manager = injection_manager
+        self.skin_scraper = skin_scraper
         self.last_hover = None
         self.last_lock = None
 
@@ -68,16 +69,18 @@ class ChampThread(threading.Thread):
                         nm = self.db.champ_name_by_id.get(locked) or f"champ_{locked}"
                         log.info(f"[lock:champ] {nm} (id={locked})")
                         
-                        # Fetch owned skins from LCU inventory for accurate ownership checking
+                        # Scrape skins for this champion from LCU
+                        if self.skin_scraper:
+                            try:
+                                self.skin_scraper.scrape_champion_skins(locked)
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
+                        
+                        # Load English skin names for this champion from Data Dragon
                         try:
-                            owned_skins = self.lcu.owned_skins()
-                            if owned_skins and isinstance(owned_skins, list):
-                                self.state.owned_skin_ids = set(owned_skins)
-                                log.info(f"[lock:champ] Loaded {len(self.state.owned_skin_ids)} owned skins from LCU inventory")
-                            else:
-                                log.warning(f"[lock:champ] Failed to fetch owned skins from LCU")
+                            self.db.load_champion_skins_by_id(locked)
                         except Exception as e:
-                            log.warning(f"[lock:champ] Error fetching owned skins: {e}")
+                            log.error(f"[lock:champ] Failed to load English skin names: {e}")
                         
                         # Notify injection manager of champion lock
                         if self.injection_manager:

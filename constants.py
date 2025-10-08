@@ -10,16 +10,16 @@ All arbitrary values are centralized here for easy tracking and modification
 # =============================================================================
 
 # OCR frequency settings (Hz)
-OCR_BURST_HZ_DEFAULT = 50.0  # OCR frequency during motion/hover
+OCR_BURST_HZ_DEFAULT = 40.0  # OCR frequency during motion/hover
 OCR_IDLE_HZ_DEFAULT = 0.0    # OCR frequency when idle (0 = disabled)
 
 # OCR timing intervals (seconds)
-OCR_MIN_INTERVAL = 0.11      # Minimum time between OCR operations
+OCR_MIN_INTERVAL = 0.15      # Minimum time between OCR operations
 OCR_ROI_LOCK_DURATION = 1.5  # Duration to lock ROI after detection
 
 # OCR motion detection (milliseconds)
-OCR_BURST_MS_DEFAULT = 280   # Duration to continue burst OCR after motion
-OCR_SECOND_SHOT_MS_DEFAULT = 120  # Delay for second OCR attempt for accuracy
+OCR_BURST_MS_DEFAULT = 150   # Duration to continue burst OCR after motion
+OCR_SECOND_SHOT_MS_DEFAULT = 100  # Delay for second OCR attempt for accuracy
 
 # OCR thresholds
 OCR_DIFF_THRESHOLD_DEFAULT = 0.001  # Image change threshold to trigger OCR
@@ -28,6 +28,9 @@ OCR_FUZZY_MATCH_THRESHOLD = 0.7     # Threshold for fuzzy text matching
 
 # OCR window detection
 OCR_WINDOW_LOG_INTERVAL = 1.0  # Seconds between window detection logs
+
+# OCR debugging
+DEFAULT_DEBUG_OCR = False  # Save OCR images to debug folder (disabled by default)
 
 
 # =============================================================================
@@ -284,6 +287,9 @@ OCR_LANG_MAP = {
     "ro_RO": "ron",
     "zh_CN": "chi_sim",
     "zh_TW": "chi_tra",
+    "ar_AE": "ara",
+    "ar_SA": "ara",
+    "ar_EG": "ara",
     "ja_JP": "jpn",
     "ko_KR": "kor",
 }
@@ -306,7 +312,7 @@ DEFAULT_WINDOW_HINT = "League"         # Window title hint
 # Boolean flags
 DEFAULT_VERBOSE = False
 DEFAULT_WEBSOCKET_ENABLED = True
-DEFAULT_MULTILANG_ENABLED = True
+DEFAULT_MULTILANG_ENABLED = False  # DEPRECATED - Using LCU scraper instead
 DEFAULT_DOWNLOAD_SKINS = True
 DEFAULT_FORCE_UPDATE_SKINS = False
 

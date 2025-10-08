@@ -11,7 +11,10 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict
 from utils.normalization import normalize_text
 from utils.paths import get_user_data_dir
+from utils.logging import get_logger
 from constants import DATA_DRAGON_API_TIMEOUT_S
+
+log = get_logger()
 
 
 # Use user data directory for cache to avoid permission issues
@@ -31,7 +34,7 @@ class Entry:
 class NameDB:
     """Data Dragon name database"""
     
-    def __init__(self, lang: str = "fr_FR"):
+    def __init__(self, lang: str = "fr_FR", load_all_skins: bool = False):
         self.ver: Optional[str] = None
         self.langs: List[str] = self._resolve_langs_spec(lang)
         self.canonical_lang: Optional[str] = "en_US" if "en_US" in self.langs else (self.langs[0] if self.langs else "en_US")
@@ -45,6 +48,9 @@ class NameDB:
         self._load_versions()
         self._load_index()
         self.champ_name_by_id = self.champ_name_by_id_by_lang.get(self.canonical_lang, {})
+        
+        # Note: Skins are now loaded on-demand per champion (lazy loading)
+        # Preloading all skins is disabled by default as it's too slow (171 HTTP requests)
 
     def _cache_json(self, name: str, url: str):
         """Cache JSON data locally"""
@@ -104,6 +110,66 @@ class NameDB:
                 except Exception:
                     pass
 
+    def load_champion_skins_by_id(self, champion_id: int) -> bool:
+        """Load skin names for a specific champion by ID (English only, for skinId mapping)
+        
+        Args:
+            champion_id: Champion ID to load skins for
+            
+        Returns:
+            True if skins were loaded successfully
+        """
+        slug = self.slug_by_id.get(champion_id)
+        if not slug:
+            log.debug(f"[NameDB] Champion ID {champion_id} not found in slug mapping")
+            return False
+        
+        # Check if already loaded
+        if slug in self._skins_loaded:
+            return True
+        
+        try:
+            # Fetch champion data (English only for skinId mapping)
+            lang = "en_US"
+            data = self._cache_json(
+                f"champion_{self.ver}_{lang}_{slug}.json",
+                f"https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/{lang}/champion/{slug}.json"
+            )
+            
+            champ_data = (data.get("data") or {}).get(slug)
+            if not champ_data:
+                return False
+            
+            skins = champ_data.get("skins") or []
+            loaded_count = 0
+            champ_name = champ_data.get("name", slug)
+            
+            # Load all skins for this champion
+            for s in skins:
+                try:
+                    sid = int(s.get("id", 0))
+                    num = int(s.get("num", -1))
+                    sname = s.get("name") or "default"
+                    
+                    # For base skin (num=0), use champion name
+                    if num == 0 or sname == "default":
+                        sname = champ_name
+                    
+                    # Store skin name by ID (English only)
+                    if sid > 0:
+                        self.skin_name_by_id[sid] = sname
+                        loaded_count += 1
+                except Exception:
+                    pass
+            
+            self._skins_loaded.add(slug)
+            log.debug(f"[NameDB] Loaded {loaded_count} skins for {slug}")
+            return True
+            
+        except Exception as e:
+            log.debug(f"[NameDB] Failed to load skins for {slug}: {e}")
+            return False
+    
     def _ensure_champ(self, slug: str, champ_id: int) -> None:
         """Ensure champion data is loaded"""
         if slug in self._skins_loaded:
