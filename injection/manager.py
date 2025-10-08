@@ -34,6 +34,8 @@ class InjectionManager:
         self._initialized = False
         self.current_champion = None
         self._injection_in_progress = False  # Track if injection is running
+        self._cleanup_in_progress = False  # Track if cleanup is running
+        self._cleanup_lock = threading.Lock()  # Lock for cleanup operations
     
     def _ensure_initialized(self):
         """Initialize the injector lazily when first needed"""
@@ -168,6 +170,20 @@ class InjectionManager:
         if not self._initialized:
             return  # Nothing to kill if not initialized
         
+        # Prevent duplicate cleanup calls from running simultaneously
+        if self._cleanup_in_progress:
+            log.debug("[INJECT] Cleanup already in progress - skipping duplicate call")
+            return
+        
+        # Try to acquire cleanup lock without blocking
+        if not self._cleanup_lock.acquire(blocking=False):
+            log.debug("[INJECT] Could not acquire cleanup lock - another cleanup in progress")
+            return
+        
+        # Set flag and release lock immediately so we don't block the caller
+        self._cleanup_in_progress = True
+        self._cleanup_lock.release()
+        
         # Run cleanup in a separate thread to avoid blocking phase transitions
         def cleanup_thread():
             try:
@@ -176,6 +192,10 @@ class InjectionManager:
                 log.debug("[INJECT] Cleanup thread completed")
             except Exception as e:
                 log.warning(f"Injection: Cleanup thread failed: {e}")
+            finally:
+                # Clear flag when done
+                with self._cleanup_lock:
+                    self._cleanup_in_progress = False
         
         cleanup = threading.Thread(target=cleanup_thread, daemon=True, name="CleanupThread")
         cleanup.start()
