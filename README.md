@@ -48,13 +48,6 @@ SkinCloner is a fully automated system that detects skin selections in League of
 3. **Follow the setup wizard** - the installer will create shortcuts and configure the application
 4. **Launch the app** from your desktop or start menu
 
-**System Requirements:**
-
-- Windows 10/11 (64-bit)
-- 4 GB RAM minimum (8 GB recommended)
-- League of Legends installed
-- Internet connection (for first-time setup)
-
 ### Option 2: Source Code Version (For Developers)
 
 **For developers and advanced users who want to modify the code:**
@@ -85,8 +78,6 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
 - Windows 10/11 (64-bit)
 - Python 3.11
-- 4 GB RAM minimum (8 GB recommended)
-- League of Legends installed
 - CSLOL tools present in `injection/tools/` directory
 - Optional: CUDA-enabled GPU for faster OCR
 
@@ -105,8 +96,8 @@ SkinCloner is a fully automated system that detects skin selections in League of
 **Non-Latin Alphabets:**
 
 - **Korean** (kor) - **Chinese Simplified** (chi_sim) - **Chinese Traditional** (chi_tra)
-- **Japanese** (jpn) - **Russian** (rus) - **Arabic** (ara) - **Greek** (ell)
-- **Thai** (tha) - **Vietnamese** (vie) - And more
+- **Japanese** (jpn) - **Russian** (rus) - **Arabic** (ara) - **Vietnamese** (vie)
+- **Thai** (tha) - And more
 
 **The system automatically detects your League of Legends client language.**
 
