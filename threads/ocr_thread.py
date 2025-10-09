@@ -8,6 +8,7 @@ import os
 import re
 import time
 import threading
+from pathlib import Path
 from typing import Optional, Tuple
 import numpy as np
 import cv2
@@ -371,24 +372,33 @@ class OCRSkinThread(threading.Thread):
         txt = self.ocr.recognize(band_bin)
         
         # DEBUG: Save OCR image to debug folder (if enabled)
-        if self.args.debug_ocr and txt:  # Only save when debug enabled and OCR detects text
+        if self.args.debug_ocr:
             try:
-                debug_folder = "ocr_debug"
-                if not os.path.exists(debug_folder):
-                    os.makedirs(debug_folder)
+                # Use project directory for debug folder (where main.py is)
+                project_root = Path(__file__).resolve().parent.parent
+                debug_folder = project_root / "ocr_debug"
+                if not debug_folder.exists():
+                    debug_folder.mkdir(parents=True, exist_ok=True)
+                    log.info(f"[ocr:debug] Created debug folder: {debug_folder}")
                 
                 # Create filename with timestamp and counter
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 counter = getattr(self, '_debug_counter', 0) + 1
                 self._debug_counter = counter
                 filename = f"ocr_{timestamp}_{counter:04d}.png"
-                filepath = os.path.join(debug_folder, filename)
+                filepath = str(debug_folder / filename)
                 
                 # Save the image that was sent to OCR
-                cv2.imwrite(filepath, band_bin)
-                log.debug(f"[ocr:debug] Saved image to {filepath} - OCR result: '{txt}'")
+                success = cv2.imwrite(filepath, band_bin)
+                if success:
+                    if txt:
+                        log.info(f"[ocr:debug] Saved #{counter}: '{txt}'")
+                    else:
+                        log.info(f"[ocr:debug] Saved #{counter}: (no text detected)")
+                else:
+                    log.warning(f"[ocr:debug] Failed to write image #{counter}")
             except Exception as e:
-                log.debug(f"[ocr:debug] Failed to save debug image: {e}")
+                log.warning(f"[ocr:debug] Failed to save debug image: {e}")
         
         # Save raw OCR text for writing
         prev_txt = getattr(self.state, 'ocr_last_text', None)

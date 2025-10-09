@@ -10,6 +10,9 @@ import ctypes
 import os
 import subprocess
 from pathlib import Path
+from utils.logging import get_logger
+
+log = get_logger()
 
 
 def is_admin():
@@ -69,7 +72,7 @@ def request_admin_elevation():
         # Exit the current non-elevated process
         sys.exit(0)
     except Exception as e:
-        print(f"Failed to request elevation: {e}")
+        log.error(f"Failed to request elevation: {e}")
         return False
     
     return True
@@ -207,7 +210,7 @@ def show_message_box_threaded(message: str, title: str, flags: int = 0x40):
                 final_flags
             )
         except Exception as e:
-            print(f"Error showing message box '{title}': {e}")
+            log.error(f"Error showing message box '{title}': {e}")
     
     # Run the dialog in a separate daemon thread to avoid blocking
     dialog_thread = threading.Thread(target=show_dialog, daemon=True)

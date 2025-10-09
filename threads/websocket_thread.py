@@ -109,17 +109,8 @@ class WSEventThread(threading.Thread):
                 if ph in INTERESTING_PHASES:
                     log.info(f"[phase] {ph}")
                 self.state.phase = ph
-                if ph == "Lobby":
-                    # Cleanup operations when entering Lobby
-                    if self.injection_manager:
-                        # Kill any existing runoverlay processes from previous game
-                        try:
-                            self.injection_manager.kill_all_runoverlay_processes()
-                            log.info("WS: Killed all runoverlay processes for Lobby")
-                        except Exception as e:
-                            log.warning(f"WS: Failed to kill runoverlay processes: {e}")
                 
-                elif ph == "ChampSelect":
+                if ph == "ChampSelect":
                     log.info("[WS] Entering ChampSelect - resetting state for new game")
                     self.state.last_hovered_skin_key = None
                     self.state.last_hovered_skin_id = None
@@ -146,16 +137,6 @@ class WSEventThread(threading.Thread):
                     else:
                         log.info("[launch:last-skin] (no hovered skin detected)")
                 
-                elif ph == "EndOfGame":
-                    # Game ended → stop overlay process
-                    if self.injection_manager:
-                        try:
-                            self.injection_manager.stop_overlay_process()
-                            log.info("WS: Stopped overlay process for EndOfGame")
-                        except Exception as e:
-                            log.warning(f"WS: Failed to stop overlay process: {e}")
-                    
-                    
                 else:
                     # Exit → reset locks/timer
                     self.state.hovered_champ_id = None
