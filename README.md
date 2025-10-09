@@ -18,20 +18,29 @@ SkinCloner is a fully automated system that detects skin selections in League of
 **Recommended for Optimal Performance:**
 
 - 8+ GB RAM
-- NVIDIA GPU with CUDA support (for GPU-accelerated OCR)
+- **NVIDIA GPU** with CUDA support (for GPU-accelerated OCR)
 - SSD storage
 
 ### 🎮 GPU Acceleration (Optional but Recommended)
 
 **SkinCloner uses EasyOCR with GPU acceleration for faster and more accurate skin detection.**
 
-- **With GPU**: OCR runs 3-5x faster with CUDA-enabled NVIDIA graphics card
+- **With NVIDIA GPU**: OCR runs 3-5x faster with CUDA support
 - **Without GPU**: Still works perfectly on CPU, just slightly slower
 
-**To enable GPU acceleration:**
+**GPU Support:**
 
-1. Install CUDA drivers from: [https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads)
-2. SkinCloner automatically detects and uses GPU if available
+- ✅ **NVIDIA GPUs** (GTX, RTX series) - Fully supported via CUDA
+- ❌ **AMD GPUs** (Radeon) - Not supported (requires ROCm, which is Linux-only for PyTorch)
+- ❌ **Intel GPUs** (UHD, Iris) - Not supported (experimental PyTorch support only)
+
+**To enable GPU acceleration (NVIDIA only):**
+
+1. **Installer/Executable Users**: GPU support is **already included** in the executable! Just install CUDA drivers if you haven't already
+2. The app **automatically detects** your GPU and provides instructions if drivers are missing
+3. Install CUDA drivers from [https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads)
+
+**For Source Code Users**: See step 4 in installation below
 
 **No additional installation required** - EasyOCR models download automatically on first run!
 
@@ -73,6 +82,23 @@ SkinCloner is a fully automated system that detects skin selections in League of
    - All other required packages
 
    **Note**: First run will download EasyOCR models (~50-100 MB) - requires internet connection.
+
+4. **Enable GPU Acceleration (Optional but Recommended for Source Users):**
+
+   If you have an NVIDIA GPU, install CUDA-enabled PyTorch for 3-5x faster OCR:
+
+   ```bash
+   pip uninstall torch torchvision
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+   ```
+
+   **The app will automatically detect your GPU and guide you if it's not being used.**
+
+5. **Building from Source:**
+
+   See [BUILD.md](BUILD.md) for instructions on building with GPU support bundled.
+
+   **TL;DR:** Run `python build_all.py` - it automatically ensures CUDA PyTorch is included!
 
 **System Requirements:**
 
