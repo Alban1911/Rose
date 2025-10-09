@@ -6,40 +6,34 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
 ## 🔧 Prerequisites
 
-### ⚠️ MANDATORY: Tesseract OCR Installation
+### System Requirements
 
-**SkinCloner requires Tesseract OCR to function properly. This is a mandatory dependency that must be installed before using the application.**
+**Minimum Requirements:**
 
-#### Download and Installation
+- Windows 10/11 (64-bit)
+- 4 GB RAM
+- League of Legends installed
+- Internet connection (for first-time EasyOCR model download)
 
-1. **Download Tesseract OCR for Windows:**
+**Recommended for Optimal Performance:**
 
-   - Visit: **[https://github.com/UB-Mannheim/tesseract/releases](https://github.com/UB-Mannheim/tesseract/releases)**
-   - Download the latest Windows installer (e.g., `tesseract-ocr-w64-setup-5.x.x.exe`)
+- 8+ GB RAM
+- NVIDIA GPU with CUDA support (for GPU-accelerated OCR)
+- SSD storage
 
-2. **Install Tesseract OCR:**
+### 🎮 GPU Acceleration (Optional but Recommended)
 
-   - Run the installer **as Administrator**
-   - **IMPORTANT**: During installation, select "Additional language data" to install language packs
-   - Use the default installation path: `C:\Program Files\Tesseract-OCR\`
+**SkinCloner uses EasyOCR with GPU acceleration for faster and more accurate skin detection.**
 
-3. **Optional - Add to System PATH** (Recommended):
+- **With GPU**: OCR runs 3-5x faster with CUDA-enabled NVIDIA graphics card
+- **Without GPU**: Still works perfectly on CPU, just slightly slower
 
-   ```powershell
-   # Add Tesseract to PATH (run as Administrator)
-   $env:PATH += ";C:\Program Files\Tesseract-OCR"
-   [Environment]::SetEnvironmentVariable("PATH", $env:PATH, [EnvironmentVariableTarget]::Machine)
-   ```
+**To enable GPU acceleration:**
 
-4. **Verify Installation:**
+1. Install CUDA drivers from: [https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads)
+2. SkinCloner automatically detects and uses GPU if available
 
-   ```bash
-   # Check if Tesseract is accessible
-   tesseract --version
-
-   # Check available languages
-   tesseract --list-langs
-   ```
+**No additional installation required** - EasyOCR models download automatically on first run!
 
 ---
 
@@ -56,9 +50,10 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
 **System Requirements:**
 
-- Windows 10/11
+- Windows 10/11 (64-bit)
+- 4 GB RAM minimum (8 GB recommended)
 - League of Legends installed
-- Tesseract OCR installed (see Prerequisites)
+- Internet connection (for first-time setup)
 
 ### Option 2: Source Code Version (For Developers)
 
@@ -78,32 +73,42 @@ SkinCloner is a fully automated system that detects skin selections in League of
    pip install -r requirements.txt
    ```
 
-   This automatically installs the local tesserocr wheel from the `dependencies/` folder.
+   This automatically installs:
 
-4. **Verify installation** (optional but recommended):
-   ```bash
-   python utils/check_tesseract.py
-   ```
+   - EasyOCR with PyTorch (GPU/CPU support)
+   - OpenCV, NumPy, SciPy (image processing)
+   - All other required packages
+
+   **Note**: First run will download EasyOCR models (~50-100 MB) - requires internet connection.
 
 **System Requirements:**
 
-- Windows 10/11
+- Windows 10/11 (64-bit)
 - Python 3.11
-- Tesseract OCR installed (see Prerequisites)
+- 4 GB RAM minimum (8 GB recommended)
 - League of Legends installed
 - CSLOL tools present in `injection/tools/` directory
+- Optional: CUDA-enabled GPU for faster OCR
 
 ---
 
 ## 🌍 Supported Languages
 
-SkinCloner supports all languages that use the Latin alphabet, including:
+**SkinCloner uses EasyOCR with support for 80+ languages**, including Latin and non-Latin alphabets:
+
+**Latin Alphabet:**
 
 - **English** (eng) - **Spanish** (spa) - **French** (fra) - **German** (deu)
 - **Italian** (ita) - **Portuguese** (por) - **Polish** (pol) - **Turkish** (tur)
-- **Hungarian** (hun) - **Romanian** (ron) - And other Latin-based languages
+- **Hungarian** (hun) - **Romanian** (ron) - And more
 
-The system automatically detects your League of Legends client language.
+**Non-Latin Alphabets:**
+
+- **Korean** (kor) - **Chinese Simplified** (chi_sim) - **Chinese Traditional** (chi_tra)
+- **Japanese** (jpn) - **Russian** (rus) - **Arabic** (ara) - **Greek** (ell)
+- **Thai** (tha) - **Vietnamese** (vie) - And more
+
+**The system automatically detects your League of Legends client language.**
 
 ---
 
@@ -147,12 +152,12 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 ### Core Capabilities
 
 - **🎯 Fully Automated**: Works completely automatically - no manual intervention required
-- **🔍 Advanced OCR Detection**: Uses Tesseract OCR with optimized image processing for accurate skin name recognition
+- **🔍 Advanced OCR Detection**: Uses EasyOCR with GPU acceleration and optimized image processing for accurate skin name recognition
 - **⚡ Optimized Injection**: Uses high-priority processes and game suspension for reliable injection 500ms before game starts
 - **✅ Ownership Detection**: Automatically detects owned skins via LCU inventory and skips injection to avoid conflicts
 - **🔄 Base Skin Forcing**: Intelligently forces base skin selection before injection with multiple fallback endpoints
 - **🎮 Unified Game Monitor**: Single, efficient monitor handles game process suspension and resume
-- **🌍 Multi-Language Support**: Supports many languages with automatic detection
+- **🌍 Multi-Language Support**: Supports 80+ languages including Latin and non-Latin alphabets (Korean, Chinese, Russian, etc.)
 - **📊 Massive Skin Collection**: 8,277+ skins for 171 champions included
 - **🧠 Smart Matching**: Advanced fuzzy matching algorithms for accurate skin detection
 
@@ -172,7 +177,7 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 - **📥 Smart Downloads**: Efficient repository ZIP download with automatic updates
 - **🎛️ Configurable OCR**: Adjustable confidence thresholds and processing modes
 - **📊 Real-time Monitoring**: WebSocket-based event handling for optimal performance
-- **🔧 Diagnostic Tools**: Built-in Tesseract validation and troubleshooting utilities
+- **🔧 Diagnostic Tools**: Built-in EasyOCR validation with automatic GPU detection
 - **📱 System Tray Integration**: Clean background operation with system tray management
 - **📝 Comprehensive Logging**: Detailed logging system with configurable retention
 
@@ -226,7 +231,7 @@ SkinCloner uses 6 specialized threads for optimal performance:
 
 1. **Phase Thread**: Monitors LCU for game phase changes (lobby → champ select → in-game)
 2. **Champion Thread**: Detects champion hover/lock and fetches owned skins from LCU
-3. **OCR Thread**: High-frequency skin name detection using Tesseract OCR
+3. **OCR Thread**: High-frequency skin name detection using EasyOCR with GPU acceleration
 4. **WebSocket Thread**: Real-time event handling via LCU WebSocket connection
 5. **LCU Monitor Thread**: Maintains connection to League Client
 6. **Loadout Ticker Thread**: Countdown timer for injection timing
@@ -255,7 +260,7 @@ SkinCloner/
 │       └── [WAD utilities]       # WAD extraction/creation tools
 │
 ├── ocr/                          # OCR functionality
-│   ├── backend.py                # Tesseract OCR backend implementation
+│   ├── backend.py                # EasyOCR backend with GPU/CPU support
 │   └── image_processing.py       # Advanced image processing for OCR
 │
 ├── database/                     # Champion and skin databases
@@ -281,15 +286,13 @@ SkinCloner/
 │   ├── smart_skin_downloader.py  # Smart downloader with rate limiting
 │   ├── repo_downloader.py        # Repository ZIP downloader
 │   ├── window_utils.py           # Windows window capture utilities
-│   ├── tesseract_path.py         # Tesseract path detection
-│   ├── check_tesseract.py        # Tesseract diagnostic tool
 │   └── tray_manager.py           # System tray management
 │
 ├── state/                        # Shared state management
 │   └── shared_state.py           # Thread-safe in-memory shared state (no file I/O)
 │
 ├── dependencies/                 # Local dependencies
-│   └── tesserocr-*.whl          # Pre-compiled Tesseract OCR wheel
+│   └── tesserocr-*.whl          # Legacy dependency (deprecated - kept for compatibility)
 │
 └── [build system]/               # Build and distribution
     ├── build_all.py              # Complete build script (Nuitka + Installer)
