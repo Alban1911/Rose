@@ -16,7 +16,9 @@ from utils.logging import get_logger
 from constants import (
     TRAY_READY_MAX_WAIT_S, TRAY_READY_CHECK_INTERVAL_S,
     TRAY_THREAD_JOIN_TIMEOUT_S, TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT,
-    TRAY_ICON_ELLIPSE_COORDS, TRAY_ICON_BORDER_WIDTH
+    TRAY_ICON_ELLIPSE_COORDS, TRAY_ICON_BORDER_WIDTH,
+    TRAY_ICON_FONT_SIZE, TRAY_ICON_TEXT_X, TRAY_ICON_TEXT_Y,
+    TRAY_ICON_DOT_SIZE, TRAY_ICON_CHECK_SCALE_DIVISOR
 )
 
 log = get_logger()
@@ -54,13 +56,13 @@ class TrayManager:
         try:
             # Try to use a font if available
             from PIL import ImageFont
-            font = ImageFont.truetype("arial.ttf", 40)  # Doubled from 20
+            font = ImageFont.truetype("arial.ttf", TRAY_ICON_FONT_SIZE)
         except:
             # Fallback to default font
             font = ImageFont.load_default()
         
         # Draw "SC" text (scaled 2x)
-        draw.text((36, 44), "SC", fill=(255, 255, 255, 255), font=font)
+        draw.text((TRAY_ICON_TEXT_X, TRAY_ICON_TEXT_Y), "SC", fill=(255, 255, 255, 255), font=font)
         
         return image
     
@@ -96,7 +98,7 @@ class TrayManager:
         draw = ImageDraw.Draw(image)
         
         # Draw orange dot in bottom-left corner (bigger size)
-        dot_size = 70  # Scaled 2x for 128x128 icon (was 35 for 64x64)
+        dot_size = TRAY_ICON_DOT_SIZE
         x = 4
         y = image.height - dot_size - 4
         
@@ -120,7 +122,7 @@ class TrayManager:
         draw = ImageDraw.Draw(image)
         
         # Draw green circle in bottom-left corner (same size as orange dot)
-        dot_size = 70  # Scaled 2x for 128x128 icon (was 35 for 64x64)
+        dot_size = TRAY_ICON_DOT_SIZE
         x = 4
         y = image.height - dot_size - 4
         
@@ -141,7 +143,7 @@ class TrayManager:
         center_y = y + dot_size // 2
         
         # Checkmark path: short line going down-right, then longer line going up-right
-        check_scale = dot_size / 28.0  # Scale factor based on dot size
+        check_scale = dot_size / TRAY_ICON_CHECK_SCALE_DIVISOR  # Scale factor based on dot size
         
         # Start point (left side of checkmark)
         x1 = center_x - int(5 * check_scale)

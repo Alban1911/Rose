@@ -74,6 +74,7 @@ def build_with_nuitka():
         "--include-data-dir=injection/tools=injection/tools",  # Include CSLOL tools
         "--include-data-file=injection/mods_map.json=injection/mods_map.json",
         "--include-data-file=icon.ico=icon.ico",
+        "--include-data-file=qt.conf=qt.conf",  # Qt configuration to suppress DPI warnings
         "--include-package=database",  # Include packages
         "--include-package=injection",
         "--include-package=lcu",

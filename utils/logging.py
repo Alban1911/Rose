@@ -212,3 +212,91 @@ def _clear_log_file(log_file: Path):
 def cleanup_logs_on_startup():
     """Clean up old log files when the application starts"""
     cleanup_logs(max_files=LOG_MAX_FILES_DEFAULT, max_total_size_mb=LOG_MAX_TOTAL_SIZE_MB_DEFAULT)
+
+
+# ==================== Pretty Logging Helpers ====================
+
+def log_section(logger: logging.Logger, title: str, icon: str = "📌", details: dict = None):
+    """
+    Log a beautiful section with title and optional details
+    
+    Args:
+        logger: Logger instance
+        title: Main title text (will be uppercased)
+        icon: Emoji icon to use
+        details: Optional dict of key-value pairs to display
+    
+    Example:
+        log_section(log, "LCU Connected", "🔗", {"Port": 2999, "Status": "Ready"})
+    """
+    logger.info("=" * 80)
+    logger.info(f"{icon} {title.upper()}")
+    if details:
+        for key, value in details.items():
+            logger.info(f"   📋 {key}: {value}")
+    logger.info("=" * 80)
+
+
+def log_event(logger: logging.Logger, event: str, icon: str = "✓", details: dict = None):
+    """
+    Log a single event with optional details
+    
+    Args:
+        logger: Logger instance
+        event: Event description
+        icon: Icon/emoji to use
+        details: Optional dict of key-value pairs
+    
+    Example:
+        log_event(log, "Game process found", "🎮", {"PID": 12345, "Status": "Suspended"})
+    """
+    logger.info(f"{icon} {event}")
+    if details:
+        for key, value in details.items():
+            logger.info(f"   • {key}: {value}")
+
+
+def log_action(logger: logging.Logger, action: str, icon: str = "⚡"):
+    """
+    Log an action being performed
+    
+    Args:
+        logger: Logger instance
+        action: Action description
+        icon: Icon/emoji to use
+    
+    Example:
+        log_action(log, "Injecting skin...", "💉")
+    """
+    logger.info(f"{icon} {action}")
+
+
+def log_success(logger: logging.Logger, message: str, icon: str = "✅"):
+    """
+    Log a success message
+    
+    Args:
+        logger: Logger instance
+        message: Success message
+        icon: Icon/emoji to use
+    
+    Example:
+        log_success(log, "Skin injected successfully!")
+    """
+    logger.info(f"{icon} {message}")
+
+
+def log_status(logger: logging.Logger, status: str, value: any, icon: str = "ℹ️"):
+    """
+    Log a status update
+    
+    Args:
+        logger: Logger instance
+        status: Status name
+        value: Status value
+        icon: Icon/emoji to use
+    
+    Example:
+        log_status(log, "Champion", "Ahri", "🎯")
+    """
+    logger.info(f"{icon} {status}: {value}")

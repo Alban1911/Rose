@@ -12,7 +12,7 @@ from typing import List, Dict, Optional
 import zipfile
 import shutil
 
-from utils.logging import get_logger
+from utils.logging import get_logger, log_action, log_success, log_event
 from utils.paths import get_skins_dir, get_injection_dir
 from constants import (
     PROCESS_TERMINATE_TIMEOUT_S, 
@@ -66,14 +66,14 @@ class SkinInjector:
                 if exe.exists():
                     if c.name.lower() != "game" and (c / "Game" / "League of Legends.exe").exists():
                         gd = c / "Game"
-                        log.info(f"[inject] Auto-detected game directory: {gd}")
+                        log_success(log, f"Auto-detected game directory: {gd}", "📂")
                         return gd
-                    log.info(f"[inject] Auto-detected game directory: {c}")
+                    log_success(log, f"Auto-detected game directory: {c}", "📂")
                     return c if c.name.lower() == "game" else (c / "Game")
 
         # Last resort: return default
         gd = Path(r"C:\Riot Games\League of Legends\Game")
-        log.info(f"[inject] Using default game directory: {gd}")
+        log_event(log, f"Using default game directory: {gd}", "📂")
         return gd
     
     def _download_cslol_tools(self):
@@ -133,14 +133,14 @@ class SkinInjector:
             # Search for chroma in subdirectories
             chroma_files = list(self.zips_dir.rglob(f"chromas/*/{chroma_pattern}"))
             if chroma_files:
-                log.info(f"[inject] Found chroma by ID: {chroma_files[0]}")
+                log_success(log, f"Found chroma by ID: {chroma_files[0].name}", "🎨")
                 return chroma_files[0]
             
             # Also try without space
             chroma_pattern_nospace = f"{skin_name}{chroma_id}.zip"
             chroma_files = list(self.zips_dir.rglob(f"chromas/*/{chroma_pattern_nospace}"))
             if chroma_files:
-                log.info(f"[inject] Found chroma by ID (no space): {chroma_files[0]}")
+                log_success(log, f"Found chroma by ID (no space): {chroma_files[0].name}", "🎨")
                 return chroma_files[0]
             
             # Try with normalized skin name
@@ -156,7 +156,7 @@ class SkinInjector:
                 if str(chroma_id) in zp.stem:
                     # Verify it's for the right skin by checking directory or filename
                     if skin_norm in _norm(zp.parent.name) or skin_norm in _norm(zp.stem):
-                        log.info(f"[inject] Found chroma by ID search: {zp}")
+                        log_success(log, f"Found chroma by ID search: {zp.name}", "🎨")
                         return zp
             
             log.warning(f"[inject] Chroma file not found for '{skin_name}' with ID {chroma_id}")
@@ -237,7 +237,7 @@ class SkinInjector:
         target.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(zp, "r") as zf:
             zf.extractall(target)
-        log.info(f"[inject] Extracted {zp.name} -> {target}")
+        log_success(log, f"Extracted {zp.name}", "📦")
         return target
     
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 60, stop_callback=None, injection_manager=None) -> int:
@@ -293,7 +293,7 @@ class SkinInjector:
                 log.error(f"[inject] mkoverlay failed with return code: {proc.returncode}")
                 return proc.returncode
             else:
-                log.info(f"[inject] mkoverlay completed in {mkoverlay_duration:.2f}s")
+                log_success(log, f"mkoverlay completed in {mkoverlay_duration:.2f}s", "⚡")
                 # Store timing data for external access
                 self.last_injection_timing = {
                     'mkoverlay_duration': mkoverlay_duration,
@@ -301,7 +301,7 @@ class SkinInjector:
                 }
                 
                 # DON'T resume game yet - keep it frozen until runoverlay starts
-                log.info(f"[inject] mkoverlay done - keeping game frozen until runoverlay starts")
+                log_event(log, "mkoverlay done - keeping game frozen until runoverlay starts", "❄️")
                 
         except subprocess.TimeoutExpired:
             log.error("[inject] mkoverlay timeout - monitor will auto-resume if needed")
@@ -317,7 +317,7 @@ class SkinInjector:
             f"--game:{gpath}", "--opts:configless"
         ]
         
-        log.info(f"[inject] Running overlay: {' '.join(cmd)}")
+        log_action(log, f"Running overlay: {' '.join(cmd)}", "🚀")
         
         try:
             # Hide console window on Windows

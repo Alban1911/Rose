@@ -16,7 +16,7 @@ from lcu.utils import compute_locked
 from database.name_db import NameDB
 from state.shared_state import SharedState
 from threads.loadout_ticker import LoadoutTicker
-from utils.logging import get_logger
+from utils.logging import get_logger, log_section, log_status, log_event
 from utils.chroma_selector import get_chroma_selector
 from constants import (
     WS_PING_INTERVAL_DEFAULT, WS_PING_TIMEOUT_DEFAULT, WS_RECONNECT_DELAY,
@@ -92,7 +92,12 @@ class WSEventThread(threading.Thread):
                     self.state.current_ticker = self.state.ticker_seq
                     self.state.loadout_countdown_active = True
                     mode = ("finalization" if (phase_timer == "FINALIZATION" and left_ms > 0) else "lcu-probe")
-                    log.info(f"[loadout] start id={self.state.current_ticker} mode={mode} remaining_ms={left_ms} ({left_ms/1000:.3f}s) [hz={self.timer_hz}]")
+                    log_event(log, f"Loadout ticker started", "⏰", {
+                        "ID": self.state.current_ticker,
+                        "Mode": mode,
+                        "Remaining": f"{left_ms}ms ({left_ms/1000:.3f}s)",
+                        "Hz": self.timer_hz
+                    })
                     if self.ticker is None or not self.ticker.is_alive():
                         self.ticker = LoadoutTicker(self.lcu, self.state, self.timer_hz, self.fallback_ms, ticker_id=self.state.current_ticker, mode=mode, db=self.db, injection_manager=self.injection_manager)
                         self.ticker.start()
@@ -107,11 +112,11 @@ class WSEventThread(threading.Thread):
             ph = payload.get("data")
             if isinstance(ph, str) and ph != self.state.phase:
                 if ph in INTERESTING_PHASES:
-                    log.info(f"[phase] {ph}")
+                    log_status(log, "Phase", ph, "🎯")
                 self.state.phase = ph
                 
                 if ph == "ChampSelect":
-                    log.info("[WS] Entering ChampSelect - resetting state for new game")
+                    log_event(log, "Entering ChampSelect - resetting state for new game", "🎮")
                     self.state.last_hovered_skin_key = None
                     self.state.last_hovered_skin_id = None
                     self.state.last_hovered_skin_slug = None
@@ -120,6 +125,7 @@ class WSEventThread(threading.Thread):
                     self.state.last_hover_written = False
                     self.state.injection_completed = False  # Reset injection flag for new game
                     self.state.loadout_countdown_active = False  # Reset countdown state
+                    self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                     try: 
                         self.state.processed_action_ids.clear()
                     except Exception: 
@@ -130,12 +136,12 @@ class WSEventThread(threading.Thread):
                 elif ph == "InProgress":
                     # Game starting → log last skin
                     if self.state.last_hovered_skin_key:
-                        log.info("=" * 80)
-                        log.info(f"🎮 GAME STARTING - LAST DETECTED SKIN: {self.state.last_hovered_skin_key.upper()}")
-                        log.info(f"   📋 Champion: {self.state.last_hovered_skin_slug} | SkinID: {self.state.last_hovered_skin_id}")
-                        log.info("=" * 80)
+                        log_section(log, f"Game Starting - Last Detected Skin: {self.state.last_hovered_skin_key.upper()}", "🎮", {
+                            "Champion": self.state.last_hovered_skin_slug,
+                            "SkinID": self.state.last_hovered_skin_id
+                        })
                     else:
-                        log.info("[launch:last-skin] (no hovered skin detected)")
+                        log_event(log, "No hovered skin detected", "ℹ️")
                 
                 else:
                     # Exit → reset locks/timer
@@ -153,7 +159,7 @@ class WSEventThread(threading.Thread):
                 cid = None
             if cid and cid != self.state.hovered_champ_id:
                 nm = self.db.champ_name_by_id.get(cid) or f"champ_{cid}"
-                log.info(f"[hover:champ] {nm} (id={cid})")
+                log_status(log, "Champion hovered", f"{nm} (ID: {cid})", "👆")
                 self.state.hovered_champ_id = cid
         
         elif uri == "/lol-champ-select/v1/session":
@@ -187,7 +193,7 @@ class WSEventThread(threading.Thread):
             count_visible = len(seen)
             if count_visible != self.state.players_visible and count_visible > 0:
                 self.state.players_visible = count_visible
-                log.info(f"[players] #Players: {count_visible}")
+                log_status(log, "Players", count_visible, "👥")
             
             # Lock counter: diff cellId → championId
             new_locks = compute_locked(sess)
@@ -200,10 +206,11 @@ class WSEventThread(threading.Thread):
                 ch = new_locks[cid]
                 # Readable label if available
                 champ_label = self.db.champ_name_by_id.get(int(ch), f"#{ch}")
-                log.info(f"[locks] +1 {champ_label} — {len(curr_cells)}/{self.state.players_visible}")
+                log_event(log, f"Champion locked: {champ_label}", "🔒", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
                 if self.state.local_cell_id is not None and cid == int(self.state.local_cell_id):
-                    log.info(f"[lock:champ] {champ_label} (id={ch})")
+                    log_status(log, "Your champion locked", f"{champ_label} (ID: {ch})", "✅")
                     self.state.locked_champ_id = int(ch)
+                    self.state.locked_champ_timestamp = time.time()  # Record lock time for OCR delay
                     
                     # Scrape skins for this champion from LCU
                     if self.skin_scraper:
@@ -248,7 +255,7 @@ class WSEventThread(threading.Thread):
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)
                 champ_label = self.db.champ_name_by_id.get(int(ch), f"#{ch}")
-                log.info(f"[locks] -1 {champ_label} — {len(curr_cells)}/{self.state.players_visible}")
+                log_event(log, f"Champion unlocked: {champ_label}", "🔓", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
             
             self.state.locks_by_cell = new_locks
             

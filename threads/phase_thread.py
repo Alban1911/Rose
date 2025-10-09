@@ -8,7 +8,7 @@ import time
 import threading
 from lcu.client import LCU
 from state.shared_state import SharedState
-from utils.logging import get_logger
+from utils.logging import get_logger, log_status, log_event, log_action
 from utils.chroma_selector import get_chroma_selector
 from constants import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT
 
@@ -40,7 +40,7 @@ class PhaseThread(threading.Thread):
             ph = self.lcu.phase() if self.lcu.ok else None
             if ph is not None and ph != self.last_phase:
                 if self.log_transitions and ph in self.INTERESTING:
-                    log.info(f"[phase] {ph}")
+                    log_status(log, "Phase", ph, "🎯")
                 self.state.phase = ph
                 
                 if ph == "Lobby":
@@ -49,7 +49,7 @@ class PhaseThread(threading.Thread):
                         # Kill any existing runoverlay processes from previous game
                         try:
                             self.injection_manager.kill_all_runoverlay_processes()
-                            log.info("[phase] Killed all runoverlay processes for Lobby")
+                            log_action(log, "Killed all runoverlay processes for Lobby", "🧹")
                         except Exception as e:
                             log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
                     
@@ -63,24 +63,11 @@ class PhaseThread(threading.Thread):
                             log.debug(f"[phase] Error destroying chroma wheel: {e}")
                 
                 elif ph == "ChampSelect":
-                    log.info("[phase] Entering ChampSelect - resetting state for new game")
-                    self.state.last_hovered_skin_key = None
-                    self.state.last_hovered_skin_id = None
-                    self.state.last_hovered_skin_slug = None
-                    self.state.selected_skin_id = None  # Reset LCU selected skin
-                    self.state.owned_skin_ids.clear()  # Clear owned skins (will be refreshed on champion lock)
-                    try: 
-                        self.state.processed_action_ids.clear()
-                    except Exception: 
-                        self.state.processed_action_ids = set()
-                    self.state.last_hover_written = False
-                    self.state.injection_completed = False  # Reset injection flag for new game
-                    self.state.loadout_countdown_active = False  # Reset countdown state
-                    log.debug("[phase] State reset complete - ready for new champion select")
-                    
+                    # State reset happens in WebSocket thread for faster response
                     # Force immediate check for locked champion when entering ChampSelect
                     # This helps OCR restart immediately if champion is already locked
                     self.state.locked_champ_id = None  # Reset first
+                    self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                         
                     
                 elif ph == "InProgress":
@@ -98,7 +85,7 @@ class PhaseThread(threading.Thread):
                     if self.injection_manager:
                         try:
                             self.injection_manager.stop_overlay_process()
-                            log.info("[phase] Stopped overlay process for EndOfGame")
+                            log_action(log, "Stopped overlay process for EndOfGame", "🛑")
                         except Exception as e:
                             log.warning(f"[phase] Failed to stop overlay process: {e}")
                     
@@ -106,6 +93,7 @@ class PhaseThread(threading.Thread):
                     # Exit champ select → reset counter/timer
                     self.state.hovered_champ_id = None
                     self.state.locked_champ_id = None  # Reset locked champion
+                    self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                     self.state.players_visible = 0
                     self.state.locks_by_cell.clear()
                     self.state.all_locked_announced = False

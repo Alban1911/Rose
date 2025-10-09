@@ -16,7 +16,8 @@ from utils.normalization import normalize_text
 from constants import (
     TIMER_HZ_MIN, TIMER_HZ_MAX, TIMER_POLL_PERIOD_S,
     SKIN_THRESHOLD_MS_DEFAULT,
-    BASE_SKIN_VERIFICATION_WAIT_S
+    BASE_SKIN_VERIFICATION_WAIT_S,
+    LOG_SEPARATOR_WIDTH
 )
 
 log = get_logger()
@@ -160,10 +161,10 @@ class LoadoutTicker(threading.Thread):
                 if name:
                     # Mark that we've processed the last hovered skin for injection
                     self.state.last_hover_written = True
-                    log.info("=" * 80)
+                    log.info("=" * LOG_SEPARATOR_WIDTH)
                     log.info(f"💉 PREPARING INJECTION >>> {name.upper()} <<<")
                     log.info(f"   ⏱️  Loadout Timer: #{self.ticker_id}")
-                    log.info("=" * 80)
+                    log.info("=" * LOG_SEPARATOR_WIDTH)
                     
                     try:
                         # Smart injection logic: only inject if user doesn't own the hovered skin
@@ -287,14 +288,14 @@ class LoadoutTicker(threading.Thread):
                                         self.state.injection_completed = True
                                         
                                         if success:
-                                            log.info("=" * 80)
+                                            log.info("=" * LOG_SEPARATOR_WIDTH)
                                             log.info(f"✅ INJECTION COMPLETED >>> {name.upper()} <<<")
                                             log.info(f"   ⚠️  Verify in-game - timing determines if skin appears")
-                                            log.info("=" * 80)
+                                            log.info("=" * LOG_SEPARATOR_WIDTH)
                                         else:
-                                            log.error("=" * 80)
+                                            log.error("=" * LOG_SEPARATOR_WIDTH)
                                             log.error(f"❌ INJECTION FAILED >>> {name.upper()} <<<")
-                                            log.error("=" * 80)
+                                            log.error("=" * LOG_SEPARATOR_WIDTH)
                                             log.error(f"[inject] Skin will likely NOT appear in-game")
                                     except Exception as e:
                                         log.error(f"[inject] injection thread error: {e}")

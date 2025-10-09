@@ -10,7 +10,7 @@ import psutil
 import requests
 from dataclasses import dataclass
 from typing import Optional
-from utils.logging import get_logger
+from utils.logging import get_logger, log_section, log_success
 from constants import LCU_API_TIMEOUT_S
 
 log = get_logger()
@@ -96,7 +96,7 @@ class LCU:
                 self.lf_mtime = os.path.getmtime(lf)
             except Exception: 
                 self.lf_mtime = time.time()
-            log.info(f"LCU ready (port {self.port})")
+            log_section(log, "LCU Connected", "🔗", {"Port": self.port, "Status": "Ready"})
         except Exception as e:
             self._disable(f"LCU unavailable: {e}")
 
@@ -131,7 +131,7 @@ class LCU:
             self._init_from_lockfile()
             new = (self.port, self.pw)
             if self.ok and old != new: 
-                log.info(f"LCU reloaded (port={self.port})")
+                log_success(log, f"LCU reloaded (port={self.port})", "🔄")
 
     def get(self, path: str, timeout: float = 1.0):
         """Make GET request to LCU API"""

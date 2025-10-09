@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from .injector import SkinInjector
-from utils.logging import get_logger
+from utils.logging import get_logger, log_section, log_event, log_success, log_action
 from constants import (
     INJECTION_THRESHOLD_SECONDS, 
     PERSISTENT_MONITOR_START_SECONDS,
@@ -55,10 +55,10 @@ class InjectionManager:
         if not self._initialized:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock
-                    log.info("[INJECT] Initializing injection system...")
+                    log_action(log, "Initializing injection system...", "💉")
                     self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
                     self._initialized = True
-                    log.info("[INJECT] Injection system initialized successfully")
+                    log_success(log, "Injection system initialized successfully", "✅")
     
     def _start_monitor(self):
         """Start game monitor - watches for game and suspends it"""
@@ -74,7 +74,7 @@ class InjectionManager:
                 import psutil
                 import time
                 
-                log.info("[monitor] Started - watching for game process...")
+                log_section(log, "Game Process Monitor Started", "👁️")
                 suspension_start_time = None
                 
                 while self._monitor_active:
@@ -105,15 +105,17 @@ class InjectionManager:
                         if proc.info['name'] == 'League of Legends.exe':
                             try:
                                 game_proc = psutil.Process(proc.info['pid'])
-                                log.info(f"[monitor] Found game (PID={proc.info['pid']})")
+                                log_event(log, "Game process found", "🎮", {"PID": proc.info['pid']})
                                 
                                 # Try to suspend immediately
                                 try:
                                     game_proc.suspend()
                                     self._suspended_game_process = game_proc
                                     suspension_start_time = time.time()  # Start safety timer
-                                    log.info(f"[monitor] Game suspended (PID={proc.info['pid']})")
-                                    log.info(f"[monitor] Will auto-resume after {PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s if not manually resumed")
+                                    log_event(log, "Game suspended", "⏸️", {
+                                        "PID": proc.info['pid'],
+                                        "Auto-resume": f"{PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s"
+                                    })
                                     break
                                 except psutil.AccessDenied:
                                     log.error("[monitor] ACCESS DENIED - Cannot suspend game")
@@ -153,7 +155,7 @@ class InjectionManager:
                     import psutil
                     if self._suspended_game_process.status() == psutil.STATUS_STOPPED:
                         self._suspended_game_process.resume()
-                        log.info("[monitor] Resumed suspended game on cleanup")
+                        log_success(log, "Resumed suspended game on cleanup", "▶️")
                 except:
                     pass
                 
@@ -187,10 +189,10 @@ class InjectionManager:
                         status_after = game_proc.status()
                         if status_after != psutil.STATUS_STOPPED:
                             if attempt == 1:
-                                log.info(f"[monitor] Game resumed (PID={game_proc.pid}, status={status_after})")
+                                log_success(log, f"Game resumed (PID={game_proc.pid}, status={status_after})", "▶️")
                             else:
-                                log.info(f"[monitor] Game resumed after {attempt} attempts (PID={game_proc.pid})")
-                            log.info(f"[monitor] Game loading while overlay hooks in...")
+                                log_success(log, f"Game resumed after {attempt} attempts (PID={game_proc.pid})", "▶️")
+                            log_event(log, "Game loading while overlay hooks in...", "⚙️")
                             break
                         else:
                             if attempt < GAME_RESUME_MAX_ATTEMPTS:
