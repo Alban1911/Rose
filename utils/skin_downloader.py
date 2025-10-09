@@ -205,9 +205,8 @@ def download_skins_on_startup(target_dir: Path = None, force_update: bool = Fals
                             max_champions: Optional[int] = None, tray_manager=None, injection_manager=None) -> bool:
     """Convenience function to download skins at startup - tries multiple methods"""
     try:
-        # Set downloading status on tray icon
-        if tray_manager:
-            tray_manager.set_downloading(True)
+        # Note: Downloading status is set by caller (main.py) before thread starts
+        # This ensures the orange dot appears immediately when app launches
         
         # Method 1: Try repository ZIP download (most efficient)
         try:

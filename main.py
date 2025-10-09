@@ -306,6 +306,12 @@ def main():
         
         # Give tray icon a moment to fully initialize
         time.sleep(TRAY_INIT_SLEEP_S)
+        
+        # Set downloading status immediately if downloads are enabled
+        # This makes the orange dot appear right away, before OCR initialization
+        if args.download_skins:
+            tray_manager.set_downloading(True)
+            log.info("Download mode active - orange indicator shown")
     except Exception as e:
         log.warning(f"Failed to initialize system tray: {e}")
         log.info("Application will continue without system tray icon")
@@ -380,6 +386,7 @@ def main():
     # Download skins if enabled (run in background to avoid blocking startup)
     if args.download_skins:
         log.info("Starting automatic skin download in background...")
+        
         def download_skins_background():
             try:
                 success = download_skins_on_startup(
