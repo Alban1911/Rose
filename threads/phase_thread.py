@@ -9,6 +9,7 @@ import threading
 from lcu.client import LCU
 from state.shared_state import SharedState
 from utils.logging import get_logger
+from utils.chroma_selector import get_chroma_selector
 from constants import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT
 
 log = get_logger()
@@ -51,6 +52,15 @@ class PhaseThread(threading.Thread):
                             log.info("Phase: Killed all runoverlay processes for Lobby")
                         except Exception as e:
                             log.warning(f"Phase: Failed to kill runoverlay processes: {e}")
+                    
+                    # Destroy chroma wheel and button
+                    chroma_selector = get_chroma_selector()
+                    if chroma_selector:
+                        try:
+                            chroma_selector.wheel.request_destroy()
+                            log.debug("[phase] Chroma wheel destroy requested for Lobby")
+                        except Exception as e:
+                            log.debug(f"[phase] Error destroying chroma wheel: {e}")
                 
                 elif ph == "ChampSelect":
                     log.info("[phase] Entering ChampSelect - resetting state for new game")
@@ -74,8 +84,14 @@ class PhaseThread(threading.Thread):
                         
                     
                 elif ph == "InProgress":
-                    # Game starting (last skin logged by WebSocket thread if enabled)
-                    pass
+                    # Game starting - destroy chroma wheel and button
+                    chroma_selector = get_chroma_selector()
+                    if chroma_selector:
+                        try:
+                            chroma_selector.wheel.request_destroy()
+                            log.debug("[phase] Chroma wheel destroy requested for InProgress")
+                        except Exception as e:
+                            log.debug(f"[phase] Error destroying chroma wheel: {e}")
                 
                 elif ph == "EndOfGame":
                     # Game ended → stop overlay process

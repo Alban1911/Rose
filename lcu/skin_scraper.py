@@ -4,6 +4,7 @@
 LCU Skin Scraper - Scrape skins for a specific champion from LCU
 """
 
+import requests
 from typing import Optional, Dict, List, Tuple
 from utils.logging import get_logger
 
@@ -20,6 +21,7 @@ class ChampionSkinCache:
         self.skin_id_map = {}  # skinId -> skin data
         self.skin_name_map = {}  # skinName -> skin data
         self.chroma_id_map = {}  # chromaId -> chroma data (for quick lookup)
+        self.chroma_variant_names = {}  # chromaId -> variant name from CDragon
     
     def clear(self):
         """Clear the cache"""
@@ -29,6 +31,7 @@ class ChampionSkinCache:
         self.skin_id_map = {}
         self.skin_name_map = {}
         self.chroma_id_map = {}
+        self.chroma_variant_names = {}
     
     def is_loaded_for_champion(self, champion_id: int) -> bool:
         """Check if cache is loaded for a specific champion"""
@@ -58,6 +61,57 @@ class LCUSkinScraper:
         """
         self.lcu = lcu_client
         self.cache = ChampionSkinCache()
+    
+    def fetch_all_chroma_names_from_cdragon(self, champion_id: int) -> Dict[int, str]:
+        """Fetch ALL chroma names for a champion in one API call
+        
+        Args:
+            champion_id: Champion ID
+            
+        Returns:
+            Dict mapping chroma_id -> variant_name (e.g. {86015: "Amethyst"})
+        """
+        try:
+            # CommunityDragon champion endpoint - gets ALL skins and chromas at once
+            url = f"https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champions/{champion_id}.json"
+            response = requests.get(url, timeout=3.0)
+            
+            if response.status_code != 200:
+                return {}
+            
+            data = response.json()
+            chroma_name_map = {}
+            
+            # Parse all skins and their chromas
+            for skin in data.get('skins', []):
+                skin_name = skin.get('name', 'Unknown')
+                for chroma in skin.get('chromas', []):
+                    chroma_id = chroma.get('id')
+                    full_name = chroma.get('name')
+                    
+                    if chroma_id and full_name:
+                        # Extract last word as variant name
+                        variant_name = full_name.split()[-1]
+                        chroma_name_map[chroma_id] = variant_name
+                        
+                        # Debug: Log if variant name is same as champion name (likely missing variant)
+                        if variant_name == data.get('name', ''):
+                            log.debug(f"[CDragon] {chroma_id} ({skin_name}): full='{full_name}' -> variant='{variant_name}' (SAME AS CHAMP)")
+            
+            if chroma_name_map:
+                log.info(f"[CDragon] Fetched {len(chroma_name_map)} chroma names for champion {champion_id}")
+                # Log a few samples
+                sample_ids = list(chroma_name_map.keys())[:3]
+                for cid in sample_ids:
+                    log.debug(f"[CDragon] Sample: {cid} -> '{chroma_name_map[cid]}'")
+            else:
+                log.warning(f"[CDragon] No chroma names found for champion {champion_id}")
+            
+            return chroma_name_map
+            
+        except Exception as e:
+            log.debug(f"[CDragon] Failed to fetch chroma names for champion {champion_id}: {e}")
+            return {}
     
     def scrape_champion_skins(self, champion_id: int, force_refresh: bool = False) -> bool:
         """Scrape all skins for a specific champion from LCU
@@ -249,4 +303,15 @@ class LCUSkinScraper:
             Chroma dict or None if not found
         """
         return self.cache.chroma_id_map.get(chroma_id)
+    
+    def get_chroma_variant_name(self, chroma_id: int) -> Optional[str]:
+        """Get chroma variant name from cached CommunityDragon data
+        
+        Args:
+            chroma_id: Chroma ID to look up
+            
+        Returns:
+            Variant name (e.g. "Amethyst", "Ruby") or None
+        """
+        return self.cache.chroma_variant_names.get(chroma_id)
 

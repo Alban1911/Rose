@@ -8,11 +8,15 @@ League of Legends style chroma selection
 import math
 import sys
 import threading
+import re
+import requests
+from pathlib import Path
 from typing import Optional, Callable, List, Dict
 from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QEasingCurve, pyqtProperty
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, QPainterPath
+from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QEasingCurve, pyqtProperty, QByteArray
+from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, QPainterPath, QPixmap
 from utils.logging import get_logger
+from utils.paths import get_skins_dir
 
 log = get_logger()
 
@@ -20,7 +24,7 @@ log = get_logger()
 class ChromaCircle:
     """Represents a single chroma circle in the wheel"""
     
-    def __init__(self, chroma_id: int, name: str, color: str, x: int, y: int, radius: int):
+    def __init__(self, chroma_id: int, name: str, color: str, x: int, y: int, radius: int, preview_image: Optional[QPixmap] = None):
         self.chroma_id = chroma_id
         self.name = name
         self.color = color
@@ -30,6 +34,7 @@ class ChromaCircle:
         self.is_hovered = False
         self.is_selected = False
         self.scale = 1.0  # For animation
+        self.preview_image = preview_image  # QPixmap for chroma preview
 
 
 class ChromaWheelWidget(QWidget):
@@ -44,12 +49,16 @@ class ChromaWheelWidget(QWidget):
         self.selected_index = 0  # Default to base (center)
         self.hovered_index = None
         
-        # Dimensions
-        self.wheel_radius = 180
-        self.circle_radius = 35
-        self.center_radius = 45
-        self.window_width = 500
-        self.window_height = 500
+        # Dimensions - League style with horizontal layout
+        self.preview_width = 400
+        self.preview_height = 450
+        self.circle_radius = 20
+        self.window_width = 460
+        self.window_height = 600
+        self.circle_spacing = 45
+        
+        # Preview image (will be downloaded/loaded)
+        self.current_preview_image = None  # QPixmap for current chroma
         
         # Animation
         self._opacity = 0.0
@@ -71,11 +80,11 @@ class ChromaWheelWidget(QWidget):
         # Set window size
         self.setFixedSize(self.window_width, self.window_height)
         
-        # Center on screen
+        # Position on right side of screen
         screen = QApplication.primaryScreen().geometry()
         self.move(
-            (screen.width() - self.window_width) // 2,
-            (screen.height() - self.window_height) // 2
+            screen.width() - self.window_width - 20,  # 20px from right edge
+            (screen.height() - self.window_height) // 2  # Vertically centered
         )
         
         # Enable mouse tracking for hover effects
@@ -87,33 +96,26 @@ class ChromaWheelWidget(QWidget):
         # Start with window hidden
         self.hide()
     
-    def set_chromas(self, skin_name: str, chromas: List[Dict]):
-        """Set the chromas to display"""
+    def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None):
+        """Set the chromas to display - League horizontal style"""
         self.skin_name = skin_name
         self.circles = []
         
-        # Always add base skin in center
-        center_x = self.window_width // 2
-        center_y = self.window_height // 2
-        
+        # Base skin gets no preview (will show red X)
         base_circle = ChromaCircle(
             chroma_id=0,
             name="Base",
             color="#1e2328",
-            x=center_x,
-            y=center_y,
-            radius=self.center_radius
+            x=0,  # Will be positioned later
+            y=0,
+            radius=self.circle_radius,
+            preview_image=None  # No preview for base
         )
         base_circle.is_selected = True
         self.circles.append(base_circle)
         
-        # Add surrounding chromas
-        num_chromas = len(chromas)
+        # Add chroma circles
         for i, chroma in enumerate(chromas):
-            angle = (i * (2 * math.pi / num_chromas)) - (math.pi / 2)
-            x = center_x + int(self.wheel_radius * math.cos(angle))
-            y = center_y + int(self.wheel_radius * math.sin(angle))
-            
             # Get color from chroma data
             colors = chroma.get('colors', [])
             color = colors[0] if colors else self._get_default_color(i)
@@ -122,19 +124,40 @@ class ChromaWheelWidget(QWidget):
             
             # Extract short name (remove skin name prefix)
             full_name = chroma.get('name', f'Chroma {i+1}')
-            short_name = full_name.split(' ')[-1] if ' ' in full_name else full_name
+            
+            # Extract just the chroma variant name (last word)
+            words = full_name.split()
+            short_name = words[-1] if words else full_name
+            
+            # Load chroma preview image with direct path
+            chroma_id = chroma.get('id', 0)
+            preview_image = self._load_chroma_preview_image(skin_name, chroma_id, champion_name)
             
             circle = ChromaCircle(
-                chroma_id=chroma.get('id', 0),
+                chroma_id=chroma_id,
                 name=short_name,
                 color=color,
-                x=x,
-                y=y,
-                radius=self.circle_radius
+                x=0,  # Will be positioned later
+                y=0,
+                radius=self.circle_radius,
+                preview_image=preview_image
             )
             self.circles.append(circle)
         
+        # Position circles in horizontal row at bottom
+        total_chromas = len(self.circles)
+        row_y = self.window_height - 60
+        
+        # Calculate total width needed
+        total_width = total_chromas * self.circle_spacing
+        start_x = (self.window_width - total_width) // 2 + self.circle_spacing // 2
+        
+        for i, circle in enumerate(self.circles):
+            circle.x = start_x + (i * self.circle_spacing)
+            circle.y = row_y
+        
         self.selected_index = 0  # Default to base
+        self.hovered_index = 0  # Start with base hovered
         self.update()
     
     def _get_default_color(self, index: int) -> str:
@@ -144,6 +167,67 @@ class ChromaWheelWidget(QWidget):
             "#b4a7d6", "#ffd3b6", "#dcedc1", "#f8b195", "#95e1d3"
         ]
         return colors[index % len(colors)]
+    
+    def _load_chroma_preview_image(self, skin_name: str, chroma_id: Optional[int], champion_name: str = None) -> Optional[QPixmap]:
+        """Load chroma preview image from README.md - direct path approach"""
+        try:
+            if chroma_id is None:
+                # Base skin - return None (will show red X)
+                return None
+            
+            skins_dir = get_skins_dir()
+            
+            # Direct path: skins/{Champion}/chromas/{SkinName}/README.md
+            # We need to find the champion folder first
+            if champion_name:
+                # Try direct path with champion name
+                readme_path = skins_dir / champion_name / "chromas" / skin_name / "README.md"
+                
+                if readme_path.exists():
+                    log.debug(f"[CHROMA] Found README at: {readme_path}")
+                    return self._extract_image_from_readme(readme_path, chroma_id)
+            
+            # Fallback: search for the skin name in chromas directories
+            # But only search within immediate subdirectories, not all
+            for champion_dir in skins_dir.iterdir():
+                if not champion_dir.is_dir():
+                    continue
+                
+                chromas_dir = champion_dir / "chromas" / skin_name
+                readme_path = chromas_dir / "README.md"
+                
+                if readme_path.exists():
+                    log.debug(f"[CHROMA] Found README at: {readme_path}")
+                    return self._extract_image_from_readme(readme_path, chroma_id)
+            
+            log.debug(f"[CHROMA] No README found for '{skin_name}'")
+            return None
+            
+        except Exception as e:
+            log.error(f"[CHROMA] Error loading chroma preview: {e}")
+            return None
+    
+    def _extract_image_from_readme(self, readme_path: Path, chroma_id: int) -> Optional[QPixmap]:
+        """Load image for specific chroma ID from cache"""
+        try:
+            # Load from central previewcache folder
+            from utils.chroma_preview_manager import get_preview_manager
+            preview_manager = get_preview_manager()
+            
+            image_path = preview_manager.get_preview_path(chroma_id)
+            
+            if image_path:
+                log.debug(f"[CHROMA] Loading preview: {image_path.name}")
+                return QPixmap(str(image_path))
+            
+            # Image not in cache
+            log.debug(f"[CHROMA] Preview not in cache: {chroma_id}")
+            return None
+            
+        except Exception as e:
+            log.warning(f"[CHROMA] Error loading image: {e}")
+            return None
+    
     
     def show_wheel(self):
         """Show the wheel"""
@@ -171,93 +255,114 @@ class ChromaWheelWidget(QWidget):
         self.update()
     
     def paintEvent(self, event):
-        """Paint the chroma wheel"""
+        """Paint the chroma wheel - League style"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setOpacity(self._opacity)
         
-        # Draw semi-transparent background
-        painter.fillRect(self.rect(), QColor(10, 14, 39, 200))
+        # Draw dark background with golden border (League style)
+        painter.fillRect(self.rect(), QColor(10, 14, 39, 240))
+        painter.setPen(QPen(QColor(200, 170, 110), 2))
+        painter.drawRect(2, 2, self.window_width - 4, self.window_height - 4)
         
-        # Draw title
+        # Draw preview area (large image at top)
+        preview_x = 30
+        preview_y = 30
+        preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
+        
+        # Draw preview background
+        painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(20, 20, 30))
+        painter.setPen(QPen(QColor(100, 100, 120), 1))
+        painter.drawRect(preview_x, preview_y, self.preview_width, self.preview_height)
+        
+        # Draw hovered chroma preview image
+        hovered_name = "Base"
+        preview_image = None
+        
+        if self.hovered_index is not None and self.hovered_index < len(self.circles):
+            hovered_circle = self.circles[self.hovered_index]
+            hovered_name = hovered_circle.name
+            preview_image = hovered_circle.preview_image
+        
+        # Check if this is base skin (chroma_id == 0)
+        is_base = self.hovered_index == 0
+        
+        if is_base:
+            # Draw red crossmark (X) for base skin
+            center_x = preview_x + self.preview_width // 2
+            center_y = preview_y + (self.preview_height - 100) // 2
+            
+            # Draw large red X
+            painter.setPen(QPen(QColor(220, 60, 60), 8))
+            x_size = 120
+            painter.drawLine(center_x - x_size, center_y - x_size, center_x + x_size, center_y + x_size)
+            painter.drawLine(center_x + x_size, center_y - x_size, center_x - x_size, center_y + x_size)
+            
+            # Draw circle around X
+            painter.setPen(QPen(QColor(220, 60, 60), 6))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPoint(center_x, center_y), x_size + 20, x_size + 20)
+            
+        elif preview_image and not preview_image.isNull():
+            # Scale image to fit preview area while maintaining aspect ratio
+            scaled_pixmap = preview_image.scaled(
+                self.preview_width, 
+                self.preview_height - 100,  # Leave room for text at bottom
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            
+            # Center the image in preview area
+            img_x = preview_x + (self.preview_width - scaled_pixmap.width()) // 2
+            img_y = preview_y + (self.preview_height - 100 - scaled_pixmap.height()) // 2
+            
+            painter.drawPixmap(img_x, img_y, scaled_pixmap)
+        else:
+            # No preview image - show placeholder
+            painter.setPen(QColor(100, 100, 120))
+            placeholder_font = QFont("Segoe UI", 12)
+            painter.setFont(placeholder_font)
+            painter.drawText(preview_x, preview_y, self.preview_width, self.preview_height - 100,
+                           Qt.AlignmentFlag.AlignCenter, "Preview\nNot Available")
+        
+        # Draw skin name at bottom of preview
         painter.setPen(QColor(240, 230, 210))
-        title_font = QFont("Segoe UI", 18, QFont.Weight.Bold)
-        painter.setFont(title_font)
-        painter.drawText(0, 30, self.window_width, 40, Qt.AlignmentFlag.AlignCenter, "Select Chroma")
-        
-        # Draw skin name
-        painter.setPen(QColor(200, 170, 110))
-        name_font = QFont("Segoe UI", 12)
+        name_font = QFont("Segoe UI", 16, QFont.Weight.Bold)
         painter.setFont(name_font)
-        painter.drawText(0, 70, self.window_width, 30, Qt.AlignmentFlag.AlignCenter, self.skin_name)
+        painter.drawText(preview_x, preview_y + self.preview_height - 60, 
+                        self.preview_width, 40, Qt.AlignmentFlag.AlignCenter, self.skin_name)
         
-        # Draw all chroma circles
+        # Draw all chroma circles (horizontal row at bottom)
         for i, circle in enumerate(self.circles):
             self._draw_chroma_circle(painter, circle, i == self.selected_index)
-        
-        # Draw hint text
-        painter.setPen(QColor(180, 180, 180))
-        hint_font = QFont("Segoe UI", 10)
-        painter.setFont(hint_font)
-        painter.drawText(0, self.window_height - 30, self.window_width, 30, 
-                        Qt.AlignmentFlag.AlignCenter, "Click to select • ESC to cancel")
     
     def _draw_chroma_circle(self, painter: QPainter, circle: ChromaCircle, is_selected: bool):
-        """Draw a single chroma circle with effects"""
-        # Scale for hover/selection
-        scale = 1.15 if circle.is_hovered else (1.1 if is_selected else 1.0)
-        radius = int(circle.radius * scale)
+        """Draw a single chroma circle - League horizontal style"""
+        # Small circles, no scaling
+        radius = self.circle_radius
         
-        # Outer glow for selected/hovered
-        if is_selected or circle.is_hovered:
-            glow_color = QColor(240, 230, 210, 80) if is_selected else QColor(200, 170, 110, 60)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(glow_color))
-            painter.drawEllipse(QPoint(circle.x, circle.y), radius + 8, radius + 8)
-        
-        # Main circle with gradient
+        # Main circle fill
         color = QColor(circle.color)
-        gradient = QRadialGradient(circle.x, circle.y, radius)
-        gradient.setColorAt(0.0, color.lighter(120))
-        gradient.setColorAt(1.0, color)
-        
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(gradient))
+        painter.setBrush(QBrush(color))
         painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
         
-        # Border
-        border_color = QColor(240, 230, 210) if is_selected else QColor(91, 90, 86)
-        border_width = 4 if is_selected else 2
-        if circle.is_hovered and not is_selected:
-            border_color = QColor(200, 170, 110)
-            border_width = 3
+        # Border - golden ring for selected/hovered
+        if is_selected:
+            # Thick golden border for selected
+            painter.setPen(QPen(QColor(200, 170, 110), 3))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius + 4, radius + 4)
+        elif circle.is_hovered:
+            # Thin golden border for hovered
+            painter.setPen(QPen(QColor(200, 170, 110), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius + 2, radius + 2)
         
-        painter.setPen(QPen(border_color, border_width))
+        # White outline around circle
+        painter.setPen(QPen(QColor(255, 255, 255), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
-        
-        # Text label
-        painter.setPen(QColor(255, 255, 255))
-        label_font = QFont("Segoe UI", 9 if circle.radius < 40 else 11, QFont.Weight.Bold)
-        painter.setFont(label_font)
-        
-        # Truncate long names
-        name = circle.name[:8] if len(circle.name) > 8 else circle.name
-        
-        text_rect = painter.boundingRect(
-            circle.x - radius, circle.y - 10,
-            radius * 2, 20,
-            Qt.AlignmentFlag.AlignCenter,
-            name
-        )
-        
-        # Text shadow
-        painter.setPen(QColor(0, 0, 0, 150))
-        painter.drawText(text_rect.adjusted(1, 1, 1, 1), Qt.AlignmentFlag.AlignCenter, name)
-        
-        # Main text
-        painter.setPen(QColor(255, 255, 255))
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, name)
     
     def mouseMoveEvent(self, event):
         """Handle mouse movement for hover effects"""
@@ -348,6 +453,7 @@ class ReopenButton(QWidget):
         super().__init__()
         self.on_click = on_click
         self.is_hovered = False
+        self.is_hiding = False  # Flag to prevent painting during hide
         
         # Setup window
         self.setWindowFlags(
@@ -372,6 +478,10 @@ class ReopenButton(QWidget):
     
     def paintEvent(self, event):
         """Paint the circular button"""
+        # Don't paint if we're hiding
+        if self.is_hiding:
+            return
+            
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
@@ -414,11 +524,13 @@ class ReopenButton(QWidget):
     def mousePressEvent(self, event):
         """Handle button click"""
         if event.button() == Qt.MouseButton.LeftButton:
+            # Set hiding flag to prevent any repaints
+            self.is_hiding = True
+            # Force immediate repaint to clear the button visually
+            self.update()
+            # Call the callback immediately (manager will handle actual hiding)
             if self.on_click:
-                def call_cb():
-                    self.on_click()
-                QTimer.singleShot(10, call_cb)
-            self.hide()
+                self.on_click()
         event.accept()
     
     def mouseMoveEvent(self, event):
@@ -440,6 +552,11 @@ class ReopenButton(QWidget):
         if self.is_hovered:
             self.is_hovered = False
             self.update()
+    
+    def showEvent(self, event):
+        """Reset hiding flag when button is shown"""
+        self.is_hiding = False
+        super().showEvent(event)
 
 
 class ChromaWheelManager:
@@ -454,70 +571,123 @@ class ChromaWheelManager:
         self.pending_hide = False
         self.pending_show_button = False
         self.pending_hide_button = False
-        self.last_skin_name = None
-        self.last_chromas = None
+        self.pending_create = False  # Request to create widgets
+        self.pending_destroy = False  # Request to destroy widgets
+        self.current_skin_id = None  # Track current skin for button
+        self.current_skin_name = None
+        self.current_chromas = None
+        self.current_champion_name = None  # Track champion for direct path
         self.lock = threading.Lock()
     
-    def initialize(self):
-        """Initialize the widget (must be called from main thread)"""
+    def request_create(self):
+        """Request to create the wheel (thread-safe, will be created in main thread)"""
+        with self.lock:
+            if not self.is_initialized:
+                self.pending_create = True
+                log.debug("[CHROMA] Create wheel requested")
+    
+    def request_destroy(self):
+        """Request to destroy the wheel (thread-safe, will be destroyed in main thread)"""
+        with self.lock:
+            self.pending_destroy = True
+            log.debug("[CHROMA] Destroy wheel requested")
+    
+    def _create_widgets(self):
+        """Create widgets (must be called from main thread)"""
         if not self.is_initialized:
-            # Widget must be created in main thread
             self.widget = ChromaWheelWidget(on_chroma_selected=self._on_chroma_selected_wrapper)
             self.reopen_button = ReopenButton(on_click=self._on_reopen_clicked)
             self.is_initialized = True
-            log.debug("[CHROMA] PyQt6 chroma wheel initialized")
+            log.info("[CHROMA] Wheel widgets created")
+    
+    def _destroy_widgets(self):
+        """Destroy widgets (must be called from main thread)"""
+        if self.is_initialized:
+            if self.widget:
+                self.widget.close()
+                self.widget = None
+            if self.reopen_button:
+                self.reopen_button.close()
+                self.reopen_button = None
+            self.is_initialized = False
+            self.last_skin_name = None
+            self.last_chromas = None
+            log.info("[CHROMA] Wheel widgets destroyed")
     
     def _on_chroma_selected_wrapper(self, chroma_id: int, chroma_name: str):
-        """Wrapper for chroma selection - shows reopen button after selection"""
+        """Wrapper for chroma selection - shows button again after selection"""
         # Call the original callback
         if self.on_chroma_selected:
             self.on_chroma_selected(chroma_id, chroma_name)
         
-        # Show reopen button
+        # Show button again (for current skin)
         with self.lock:
             self.pending_show_button = True
     
     def _on_reopen_clicked(self):
-        """Handle reopen button click - show the wheel again"""
+        """Handle button click - show the wheel for current skin"""
         with self.lock:
-            if self.last_skin_name and self.last_chromas:
-                log.info(f"[CHROMA] Reopening wheel for {self.last_skin_name}")
-                self.pending_show = (self.last_skin_name, self.last_chromas)
+            if self.current_skin_name and self.current_chromas:
+                log.info(f"[CHROMA] Opening wheel for {self.current_skin_name}")
+                self.pending_show = (self.current_skin_name, self.current_chromas)
                 self.pending_hide_button = True
+                self.pending_show_button = False  # Cancel any pending show to prevent blink
     
-    def show(self, skin_name: str, chromas: List[Dict]):
-        """Request to show the chroma wheel (thread-safe, will be shown in main thread)"""
+    def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None):
+        """Show button for a skin (not the wheel itself)"""
         if not chromas or len(chromas) == 0:
-            log.debug(f"[CHROMA] No chromas for {skin_name}, skipping wheel")
+            log.debug(f"[CHROMA] No chromas for {skin_name}, hiding button")
+            self.hide_reopen_button()
             return
         
         with self.lock:
-            if not self.is_initialized or not self.widget:
-                log.warning("[CHROMA] Wheel not initialized - cannot show")
+            if not self.is_initialized:
+                log.warning("[CHROMA] Wheel not initialized - cannot show button")
                 return
             
-            log.info(f"[CHROMA] Request to show wheel for {skin_name} ({len(chromas)} chromas)")
+            # If switching to a different skin, hide the wheel
+            if self.current_skin_id is not None and self.current_skin_id != skin_id:
+                log.debug(f"[CHROMA] Switching skins - hiding wheel")
+                self.pending_hide = True
             
-            # Store for reopening
-            self.last_skin_name = skin_name
-            self.last_chromas = chromas
+            # Update current skin data for button (store champion name for later)
+            self.current_skin_id = skin_id
+            self.current_skin_name = skin_name
+            self.current_chromas = chromas
+            self.current_champion_name = champion_name  # Store for image loading
             
-            # Store request to be processed by main thread
-            self.pending_show = (skin_name, chromas)
-            
-            # Hide reopen button when showing wheel
-            self.pending_hide_button = True
+            log.debug(f"[CHROMA] Showing button for {skin_name} ({len(chromas)} chromas)")
+            self.pending_show_button = True
+    
+    def show_wheel_directly(self):
+        """Request to show the chroma wheel for current skin (called by button click)"""
+        with self.lock:
+            if self.current_skin_name and self.current_chromas:
+                log.info(f"[CHROMA] Request to show wheel for {self.current_skin_name}")
+                self.pending_show = (self.current_skin_name, self.current_chromas)
+                self.pending_hide_button = True
     
     def process_pending(self):
         """Process pending show/hide requests (must be called from main thread)"""
         with self.lock:
+            # Process create request
+            if self.pending_create:
+                self.pending_create = False
+                self._create_widgets()
+            
+            # Process destroy request
+            if self.pending_destroy:
+                self.pending_destroy = False
+                self._destroy_widgets()
+                return  # Don't process other requests after destroying
+            
             # Process show request
             if self.pending_show:
                 skin_name, chromas = self.pending_show
                 self.pending_show = None
                 
                 if self.widget:
-                    self.widget.set_chromas(skin_name, chromas)
+                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name)
                     self.widget.show_wheel()
                     self.widget.setVisible(True)
                     self.widget.raise_()
@@ -529,19 +699,19 @@ class ChromaWheelManager:
                 if self.widget:
                     self.widget.hide()
             
-            # Process reopen button show request
-            if self.pending_show_button:
+            # Process reopen button hide request BEFORE show request to prevent blinking
+            if self.pending_hide_button:
+                self.pending_hide_button = False
+                self.pending_show_button = False  # Cancel any pending show to prevent blink
+                if self.reopen_button:
+                    self.reopen_button.hide()
+            # Process reopen button show request (only if not hiding)
+            elif self.pending_show_button:
                 self.pending_show_button = False
                 if self.reopen_button:
                     self.reopen_button.show()
                     self.reopen_button.raise_()
                     log.debug("[CHROMA] Reopen button shown")
-            
-            # Process reopen button hide request
-            if self.pending_hide_button:
-                self.pending_hide_button = False
-                if self.reopen_button:
-                    self.reopen_button.hide()
     
     def hide(self):
         """Request to hide the chroma wheel (thread-safe)"""
@@ -554,14 +724,8 @@ class ChromaWheelManager:
             self.pending_hide_button = True
     
     def cleanup(self):
-        """Clean up resources"""
-        with self.lock:
-            if self.widget:
-                self.widget.close()
-                self.widget = None
-            if self.reopen_button:
-                self.reopen_button.close()
-                self.reopen_button = None
+        """Clean up resources (called on app exit)"""
+        self.request_destroy()
 
 
 # Global instance
