@@ -15,8 +15,16 @@ from typing import Optional, Callable, List, Dict
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QEasingCurve, pyqtProperty, QByteArray
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, QConicalGradient, QPainterPath, QPixmap
-from utils.logging import get_logger
+from utils.logging import get_logger, log_event, log_success, log_action
 from utils.paths import get_skins_dir
+from constants import (
+    CHROMA_WHEEL_PREVIEW_WIDTH, CHROMA_WHEEL_PREVIEW_HEIGHT, CHROMA_WHEEL_CIRCLE_RADIUS,
+    CHROMA_WHEEL_WINDOW_WIDTH, CHROMA_WHEEL_WINDOW_HEIGHT, CHROMA_WHEEL_CIRCLE_SPACING,
+    CHROMA_WHEEL_BUTTON_SIZE, CHROMA_WHEEL_SCREEN_EDGE_MARGIN, CHROMA_WHEEL_PREVIEW_X,
+    CHROMA_WHEEL_PREVIEW_Y, CHROMA_WHEEL_ROW_Y_OFFSET, CHROMA_WHEEL_BORDER_SCALE,
+    CHROMA_WHEEL_GRADIENT_SCALE, CHROMA_WHEEL_GLOW_ALPHA, CHROMA_WHEEL_CONICAL_START_ANGLE,
+    CHROMA_WHEEL_INNER_DARK_BORDER_WIDTH, UI_QTIMER_CALLBACK_DELAY_MS
+)
 
 log = get_logger()
 
@@ -50,12 +58,12 @@ class ChromaWheelWidget(QWidget):
         self.hovered_index = None
         
         # Dimensions - League style with horizontal layout
-        self.preview_width = 400
-        self.preview_height = 450
-        self.circle_radius = 20
-        self.window_width = 460
-        self.window_height = 600
-        self.circle_spacing = 45
+        self.preview_width = CHROMA_WHEEL_PREVIEW_WIDTH
+        self.preview_height = CHROMA_WHEEL_PREVIEW_HEIGHT
+        self.circle_radius = CHROMA_WHEEL_CIRCLE_RADIUS
+        self.window_width = CHROMA_WHEEL_WINDOW_WIDTH
+        self.window_height = CHROMA_WHEEL_WINDOW_HEIGHT
+        self.circle_spacing = CHROMA_WHEEL_CIRCLE_SPACING
         
         # Preview image (will be downloaded/loaded)
         self.current_preview_image = None  # QPixmap for current chroma
@@ -84,7 +92,7 @@ class ChromaWheelWidget(QWidget):
         # Position on right side of screen
         screen = QApplication.primaryScreen().geometry()
         self.move(
-            screen.width() - self.window_width - 20,  # 20px from right edge
+            screen.width() - self.window_width - CHROMA_WHEEL_SCREEN_EDGE_MARGIN,
             (screen.height() - self.window_height) // 2  # Vertically centered
         )
         
@@ -97,7 +105,7 @@ class ChromaWheelWidget(QWidget):
         # Start with window hidden
         self.hide()
     
-    def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None):
+    def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None):
         """Set the chromas to display - League horizontal style"""
         self.skin_name = skin_name
         self.circles = []
@@ -147,7 +155,7 @@ class ChromaWheelWidget(QWidget):
         
         # Position circles in horizontal row at bottom
         total_chromas = len(self.circles)
-        row_y = self.window_height - 60
+        row_y = self.window_height - CHROMA_WHEEL_ROW_Y_OFFSET
         
         # Calculate total width needed
         total_width = total_chromas * self.circle_spacing
@@ -157,8 +165,18 @@ class ChromaWheelWidget(QWidget):
             circle.x = start_x + (i * self.circle_spacing)
             circle.y = row_y
         
+        # Find the index of the currently selected chroma (if provided)
         self.selected_index = 0  # Default to base
-        self.hovered_index = 0  # Start with base hovered
+        if selected_chroma_id is not None:
+            for i, circle in enumerate(self.circles):
+                if circle.chroma_id == selected_chroma_id:
+                    self.selected_index = i
+                    circle.is_selected = True
+                    base_circle.is_selected = False  # Unselect base
+                    log_event(log, f"Opening wheel at chroma: {circle.name} (Index: {i}, ID: {selected_chroma_id})", "🌈")
+                    break
+        
+        self.hovered_index = None  # Start showing the selected chroma (not hovered)
         self.update()
     
     def _get_default_color(self, index: int) -> str:
@@ -267,8 +285,8 @@ class ChromaWheelWidget(QWidget):
         painter.drawRect(2, 2, self.window_width - 4, self.window_height - 4)
         
         # Draw preview area (large image at top)
-        preview_x = 30
-        preview_y = 30
+        preview_x = CHROMA_WHEEL_PREVIEW_X
+        preview_y = CHROMA_WHEEL_PREVIEW_Y
         preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
         
         # Draw preview background
@@ -277,16 +295,20 @@ class ChromaWheelWidget(QWidget):
         painter.drawRect(preview_x, preview_y, self.preview_width, self.preview_height)
         
         # Draw hovered chroma preview image
+        # If no button is hovered, show the currently selected/applied chroma
         hovered_name = "Base"
         preview_image = None
         
-        if self.hovered_index is not None and self.hovered_index < len(self.circles):
-            hovered_circle = self.circles[self.hovered_index]
-            hovered_name = hovered_circle.name
-            preview_image = hovered_circle.preview_image
+        # Use hovered index if hovering, otherwise use selected index (current applied chroma)
+        display_index = self.hovered_index if self.hovered_index is not None else self.selected_index
+        
+        if display_index is not None and display_index < len(self.circles):
+            display_circle = self.circles[display_index]
+            hovered_name = display_circle.name
+            preview_image = display_circle.preview_image
         
         # Check if this is base skin (chroma_id == 0)
-        is_base = self.hovered_index == 0
+        is_base = display_index == 0 or display_index is None
         
         if is_base:
             # Draw red crossmark (X) for base skin
@@ -414,7 +436,7 @@ class ChromaWheelWidget(QWidget):
                     if callback:
                         def call_cb():
                             callback(selected_id, selected_name)
-                        QTimer.singleShot(50, call_cb)
+                        QTimer.singleShot(UI_QTIMER_CALLBACK_DELAY_MS, call_cb)
                     return
         
         event.accept()
@@ -465,7 +487,7 @@ class ReopenButton(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
         # Position in center of screen
-        self.button_size = 60
+        self.button_size = CHROMA_WHEEL_BUTTON_SIZE
         self.setFixedSize(self.button_size, self.button_size)
         
         screen = QApplication.primaryScreen().geometry()
@@ -488,14 +510,17 @@ class ReopenButton(QWidget):
         
         center = self.button_size // 2
         outer_radius = (self.button_size // 2) - 3  # Leave small margin
-        border_width = 6  # Thick metallic gold border
-        gradient_radius = outer_radius - border_width  # Rainbow gradient ring
-        inner_radius = gradient_radius // 2  # Dark center void
+        gold_border_width = int(6 * CHROMA_WHEEL_BORDER_SCALE)  # Gold border
+        dark_border_width = CHROMA_WHEEL_INNER_DARK_BORDER_WIDTH  # Dark border between gold and gradient
+        inner_dark_radius = outer_radius - gold_border_width  # Inside the gold border
+        gradient_radius = int((inner_dark_radius - dark_border_width) * CHROMA_WHEEL_GRADIENT_SCALE)  # Rainbow gradient ring
+        dark_ring_radius = gradient_radius - (gold_border_width // 2)  # Dark ring (half of border width)
+        inner_radius = dark_ring_radius - (gold_border_width // 2)  # Dark center void
         
         # Glow effect on hover (subtle outer glow)
         if self.is_hovered:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(255, 215, 0, 60)))  # Gold glow
+            painter.setBrush(QBrush(QColor(255, 215, 0, CHROMA_WHEEL_GLOW_ALPHA)))  # Gold glow
             painter.drawEllipse(QPoint(center, center), outer_radius + 3, outer_radius + 3)
         
         # 1. Outer metallic gold border
@@ -508,12 +533,17 @@ class ReopenButton(QWidget):
         painter.setBrush(QBrush(gold_gradient))
         painter.drawEllipse(QPoint(center, center), outer_radius, outer_radius)
         
-        # 2. Rainbow gradient ring
-        rainbow_gradient = QConicalGradient(center, center, 0)  # Conical for rainbow effect
+        # 2. Inner dark border (between gold and gradient)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(20, 20, 20)))  # Dark border
+        painter.drawEllipse(QPoint(center, center), inner_dark_radius, inner_dark_radius)
+        
+        # 3. Rainbow gradient ring (yellow starts at top)
+        rainbow_gradient = QConicalGradient(center, center, CHROMA_WHEEL_CONICAL_START_ANGLE)  # Start angle to position colors
         rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
         rainbow_gradient.setColorAt(0.16, QColor(255, 0, 0))     # Red
         rainbow_gradient.setColorAt(0.33, QColor(255, 165, 0))   # Orange
-        rainbow_gradient.setColorAt(0.5, QColor(255, 255, 0))    # Yellow
+        rainbow_gradient.setColorAt(0.5, QColor(255, 255, 0))    # Yellow (now at top)
         rainbow_gradient.setColorAt(0.66, QColor(0, 255, 0))     # Green
         rainbow_gradient.setColorAt(0.83, QColor(0, 0, 255))     # Blue
         rainbow_gradient.setColorAt(1.0, QColor(128, 0, 128))    # Purple
@@ -521,7 +551,12 @@ class ReopenButton(QWidget):
         painter.setBrush(QBrush(rainbow_gradient))
         painter.drawEllipse(QPoint(center, center), gradient_radius, gradient_radius)
         
-        # 3. Dark central void
+        # 4. Dark ring inside gradient
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(20, 20, 20)))  # Same dark color as center
+        painter.drawEllipse(QPoint(center, center), dark_ring_radius, dark_ring_radius)
+        
+        # 5. Dark central void
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(20, 20, 20)))  # Very dark center
         painter.drawEllipse(QPoint(center, center), inner_radius, inner_radius)
@@ -582,6 +617,7 @@ class ChromaWheelManager:
         self.current_skin_name = None
         self.current_chromas = None
         self.current_champion_name = None  # Track champion for direct path
+        self.current_selected_chroma_id = None  # Track currently applied chroma
         self.lock = threading.Lock()
     
     def request_create(self):
@@ -635,15 +671,17 @@ class ChromaWheelManager:
         if self.on_chroma_selected:
             self.on_chroma_selected(chroma_id, chroma_name)
         
-        # Show button again (for current skin)
+        # Track the selected chroma ID
         with self.lock:
+            self.current_selected_chroma_id = chroma_id if chroma_id != 0 else None
+            log_event(log, f"Chroma selected: {chroma_name}" if chroma_id != 0 else "Base skin selected", "✨")
             self.pending_show_button = True
     
     def _on_reopen_clicked(self):
         """Handle button click - show the wheel for current skin"""
         with self.lock:
             if self.current_skin_name and self.current_chromas:
-                log.info(f"[CHROMA] Opening wheel for {self.current_skin_name}")
+                log_action(log, f"Opening wheel for {self.current_skin_name}", "🎨")
                 self.pending_show = (self.current_skin_name, self.current_chromas)
                 self.pending_hide_button = True
                 self.pending_show_button = False  # Cancel any pending show to prevent blink
@@ -660,10 +698,11 @@ class ChromaWheelManager:
                 log.warning("[CHROMA] Wheel not initialized - cannot show button")
                 return
             
-            # If switching to a different skin, hide the wheel
+            # If switching to a different skin, hide the wheel and reset selection
             if self.current_skin_id is not None and self.current_skin_id != skin_id:
-                log.debug(f"[CHROMA] Switching skins - hiding wheel")
+                log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
                 self.pending_hide = True
+                self.current_selected_chroma_id = None  # Reset selection for new skin
             
             # Update current skin data for button (store champion name for later)
             self.current_skin_id = skin_id
@@ -710,11 +749,12 @@ class ChromaWheelManager:
                 self.pending_show = None
                 
                 if self.widget:
-                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name)
+                    # Pass the currently selected chroma ID so wheel opens at that index
+                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id)
                     self.widget.show_wheel()
                     self.widget.setVisible(True)
                     self.widget.raise_()
-                    log.info(f"[CHROMA] ✓ Wheel displayed for {skin_name}")
+                    log_success(log, f"Chroma wheel displayed for {skin_name}", "🎨")
             
             # Process hide request
             if self.pending_hide:

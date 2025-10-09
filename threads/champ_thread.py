@@ -112,6 +112,7 @@ class ChampThread(threading.Thread):
                     
                     # Always update the state, even for the same champion
                     self.state.locked_champ_id = locked
+                    self.state.locked_champ_timestamp = time.time()  # Record lock time for OCR delay
                     self.last_lock = locked
             except Exception:
                 pass

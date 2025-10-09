@@ -17,6 +17,18 @@ from pathlib import Path
 # Fix for windowed mode - allocate console to prevent blocking operations
 if sys.platform == "win32":
     try:
+        # Set DPI awareness to SYSTEM_AWARE before any GUI operations
+        # This prevents Qt from trying to change it later (which causes "Access denied")
+        # -2 = DPI_AWARENESS_CONTEXT_SYSTEM_AWARE
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)  # 1 = PROCESS_SYSTEM_DPI_AWARE
+        except Exception:
+            try:
+                # Fallback for older Windows versions
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass  # If both fail, continue anyway
+        
         # Check if we're in windowed mode (no console attached)
         console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
         if not console_hwnd:
@@ -46,17 +58,29 @@ from threads.champ_thread import ChampThread
 from threads.ocr_thread import OCRSkinThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
-from utils.logging import setup_logging, get_logger
+from utils.logging import setup_logging, get_logger, log_section, log_event, log_action, log_success, log_status
 from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
 from utils.chroma_selector import init_chroma_selector
 from constants import *
 
+# Set Qt environment variables BEFORE anything else
+os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
+os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
+# Tell Qt to not print DPI warnings
+os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false'
+
 # Import PyQt6 for chroma wheel
 try:
-    from PyQt6.QtWidgets import QApplication
-    from PyQt6.QtCore import QTimer
+    import io
+    import contextlib
+    
+    # Suppress Qt DPI warnings during import
+    with contextlib.redirect_stderr(io.StringIO()):
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import QTimer, Qt
+    
     PYQT6_AVAILABLE = True
 except ImportError:
     PYQT6_AVAILABLE = False
@@ -290,7 +314,16 @@ def main():
     
     # Setup logging first
     setup_logging(args.verbose)
-    log.info("Starting...")
+    
+    # Suppress PIL/Pillow debug messages for optional image plugins
+    import logging
+    logging.getLogger("PIL").setLevel(logging.INFO)
+    
+    log_section(log, "SkinCloner Starting", "🚀", {
+        "Verbose Mode": "Enabled" if args.verbose else "Disabled",
+        "Download Skins": "Enabled" if args.download_skins else "Disabled",
+        "OCR Debug": "Enabled" if args.debug_ocr else "Disabled"
+    })
     
     # Clean up OCR debug folder on startup (only if debug mode is enabled)
     if args.debug_ocr:
@@ -300,7 +333,7 @@ def main():
         if ocr_debug_dir.exists():
             try:
                 shutil.rmtree(ocr_debug_dir)
-                log.info(f"Cleared OCR debug folder: {ocr_debug_dir}")
+                log_success(log, f"Cleared OCR debug folder: {ocr_debug_dir}", "🧹")
             except Exception as e:
                 log.warning(f"Failed to clear OCR debug folder: {e}")
     
@@ -314,7 +347,7 @@ def main():
         
         tray_manager = TrayManager(quit_callback=tray_quit_callback)
         tray_manager.start()
-        log.info("System tray icon initialized - console hidden")
+        log_success(log, "System tray icon initialized - console hidden", "📍")
         
         # Give tray icon a moment to fully initialize
         time.sleep(TRAY_INIT_SLEEP_S)
@@ -323,7 +356,7 @@ def main():
         # This makes the orange dot appear right away, before OCR initialization
         if args.download_skins:
             tray_manager.set_downloading(True)
-            log.info("Download mode active - orange indicator shown")
+            log_status(log, "Download mode", "Active (orange indicator shown)", "📥")
     except Exception as e:
         log.warning(f"Failed to initialize system tray: {e}")
         log.info("Application will continue without system tray icon")
@@ -344,26 +377,21 @@ def main():
     
     if PYQT6_AVAILABLE:
         try:
-            # Suppress DPI warning by setting high DPI scaling before Qt initializes
-            import os
-            os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
-            os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
-            
             # Try to get existing QApplication or create new one
             existing_app = QApplication.instance()
             if existing_app is None:
                 # Create new QApplication with minimal arguments
                 import sys
                 qt_app = QApplication([sys.argv[0]])
-                log.info("PyQt6 QApplication created for chroma wheel")
+                log_success(log, "PyQt6 QApplication created for chroma wheel", "🎨")
             else:
                 qt_app = existing_app
-                log.info("Using existing QApplication instance for chroma wheel")
+                log_success(log, "Using existing QApplication instance for chroma wheel", "🎨")
             
             # Initialize chroma selector (widgets will be created on champion lock)
             try:
                 chroma_selector = init_chroma_selector(skin_scraper, state)
-                log.info("Chroma selector initialized (widgets will be created on champion lock)")
+                log_success(log, "Chroma selector initialized (widgets will be created on champion lock)", "🌈")
             except Exception as e:
                 log.warning(f"Failed to initialize chroma wheel: {e}")
                 log.warning("Chroma selection will be disabled, but app will continue")
@@ -562,16 +590,18 @@ def main():
             
             time.sleep(MAIN_LOOP_SLEEP)
     except KeyboardInterrupt:
-        log.info("Keyboard interrupt received")
+        log_section(log, "Shutting Down (Keyboard Interrupt)", "⚠️")
         state.stop = True
     finally:
         state.stop = True
+        
+        log_section(log, "Cleanup", "🧹")
         
         # Stop system tray
         if tray_manager:
             try:
                 tray_manager.stop()
-                log.info("System tray stopped")
+                log_success(log, "System tray stopped", "✓")
             except Exception as e:
                 log.warning(f"Error stopping system tray: {e}")
         

@@ -225,6 +225,15 @@ class OCRSkinThread(threading.Thread):
             if hasattr(self, '_debug_no_lock'):
                 delattr(self, '_debug_no_lock')
         
+        # Wait after champion lock before starting OCR
+        # This gives the UI time to stabilize after the lock
+        locked_timestamp = getattr(self.state, "locked_champ_timestamp", 0.0)
+        if locked_timestamp > 0:
+            time_since_lock = time.time() - locked_timestamp
+            if time_since_lock < OCR_CHAMPION_LOCK_DELAY_S:
+                # Still within the delay period, don't start OCR yet
+                return False
+        
         # NEW: Check if League window is active/focused
         if not is_league_window_active():
             # Log once when OCR stops due to window not being focused
@@ -320,11 +329,11 @@ class OCRSkinThread(threading.Thread):
                     
                     # Process image for OCR
                     band_bin = preprocess_band_for_ocr(band)
-                    small = cv2.resize(band_bin, (96, 20), interpolation=cv2.INTER_AREA)
+                    small = cv2.resize(band_bin, (OCR_SMALL_IMAGE_WIDTH, OCR_SMALL_IMAGE_HEIGHT), interpolation=cv2.INTER_AREA)
                     changed = True
                     
                     if self.last_small is not None:
-                        diff = np.mean(np.abs(small.astype(np.int16) - self.last_small.astype(np.int16))) / 255.0
+                        diff = np.mean(np.abs(small.astype(np.int16) - self.last_small.astype(np.int16))) / OCR_IMAGE_DIFF_NORMALIZATION
                         changed = diff > self.diff_threshold
                     
                     self.last_small = small
@@ -335,14 +344,8 @@ class OCRSkinThread(threading.Thread):
                         if now - self.last_ocr_t >= self.min_ocr_interval:
                             self._run_ocr_and_match(band_bin)
                             self.last_ocr_t = now
-                            self.second_shot_at = now + (self.second_shot_ms / 1000.0)
-                    
-                    # Second shot for better accuracy
-                    if self.second_shot_at and now >= self.second_shot_at:
-                        if now - self.last_ocr_t >= (self.min_ocr_interval * 0.6):  # 60% of min interval
-                            self._run_ocr_and_match(band_bin)
-                            self.last_ocr_t = now
-                        self.second_shot_at = 0.0
+                            # Disable second shot to avoid duplicate processing
+                            # self.second_shot_at = now + (self.second_shot_ms / 1000.0)
                     
                     # Continue OCR during motion burst
                     if now < self.motion_until and (now - self.last_ocr_t >= self.min_ocr_interval):
@@ -437,7 +440,6 @@ class OCRSkinThread(threading.Thread):
                 
                 for skin_id, skin_name in available_skins.items():
                     similarity = levenshtein_score(txt, skin_name)
-                    log.debug(f"[DEBUG] Comparing '{txt}' vs '{skin_name}' = {similarity:.3f}")
                     if similarity > best_similarity and similarity >= OCR_FUZZY_MATCH_THRESHOLD:
                         best_match = (skin_id, skin_name, similarity)
                         best_similarity = similarity
@@ -451,7 +453,7 @@ class OCRSkinThread(threading.Thread):
                         is_base = (skin_id % 1000 == 0)
                         
                         # ✨ ULTRA VISIBLE SKIN DETECTION ✨
-                        log.info("=" * 80)
+                        log.info("=" * LOG_SEPARATOR_WIDTH)
                         if is_base:
                             log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
                             log.info(f"   📋 Champion: {champ_slug} | SkinID: 0 (Base) | Match: {similarity:.1%}")
@@ -462,7 +464,7 @@ class OCRSkinThread(threading.Thread):
                             log.info(f"   📋 Champion: {champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
                             log.info(f"   🔍 Source: English DB (direct match)")
                             self.state.last_hovered_skin_id = skin_id
-                        log.info("=" * 80)
+                        log.info("=" * LOG_SEPARATOR_WIDTH)
                         
                         self.last_key = skin_key
                         self.state.last_hovered_skin_name = skin_name
@@ -497,7 +499,7 @@ class OCRSkinThread(threading.Thread):
                         is_base = (skin_id % 1000 == 0)  # Base skins have skinId ending in 000
                         
                         # ✨ ULTRA VISIBLE SKIN DETECTION ✨
-                        log.info("=" * 80)
+                        log.info("=" * LOG_SEPARATOR_WIDTH)
                         if is_base:
                             log.info(f"🎨 SKIN DETECTED >>> {english_skin_name.upper()} <<<")
                             log.info(f"   📋 Champion: {champ_slug} | SkinID: 0 (Base) | Match: {similarity:.1%}")
@@ -508,7 +510,7 @@ class OCRSkinThread(threading.Thread):
                             log.info(f"   📋 Champion: {champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
                             log.info(f"   🔍 Source: LCU API + English DB")
                             self.state.last_hovered_skin_id = skin_id
-                        log.info("=" * 80)
+                        log.info("=" * LOG_SEPARATOR_WIDTH)
                         
                         self.state.last_hovered_skin_key = english_skin_name
                         self.state.last_hovered_skin_slug = champ_slug
@@ -567,7 +569,7 @@ class OCRSkinThread(threading.Thread):
         
         if best_entry.key != self.last_key:
             # ✨ ULTRA VISIBLE SKIN DETECTION ✨
-            log.info("=" * 80)
+            log.info("=" * LOG_SEPARATOR_WIDTH)
             if best_entry.kind == "champion":
                 log.info(f"🎨 SKIN DETECTED >>> {best_skin_name.upper()} <<<")
                 log.info(f"   📋 Champion: {best_entry.champ_slug} | SkinID: 0 (Base) | Score: {score:.1%}")
@@ -585,5 +587,5 @@ class OCRSkinThread(threading.Thread):
                 
                 # Show chroma wheel if skin has chromas
                 self._trigger_chroma_wheel(best_entry.skin_id, best_skin_name)
-            log.info("=" * 80)
+            log.info("=" * LOG_SEPARATOR_WIDTH)
             self.last_key = best_entry.key

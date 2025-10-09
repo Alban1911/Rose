@@ -16,6 +16,7 @@ OCR_IDLE_HZ_DEFAULT = 0.0    # OCR frequency when idle (0 = disabled)
 # OCR timing intervals (seconds)
 OCR_MIN_INTERVAL = 0.15      # Minimum time between OCR operations
 OCR_ROI_LOCK_DURATION = 1.5  # Duration to lock ROI after detection
+OCR_CHAMPION_LOCK_DELAY_S = 0.025  # Delay after champion lock before OCR starts (25ms)
 
 # OCR motion detection (milliseconds)
 OCR_BURST_MS_DEFAULT = 150   # Duration to continue burst OCR after motion
@@ -31,6 +32,11 @@ OCR_WINDOW_LOG_INTERVAL = 1.0  # Seconds between window detection logs
 
 # OCR debugging
 DEFAULT_DEBUG_OCR = False  # Save OCR images to debug folder (disabled by default)
+
+# OCR image processing
+OCR_SMALL_IMAGE_WIDTH = 96   # Width for small image used in change detection
+OCR_SMALL_IMAGE_HEIGHT = 20  # Height for small image used in change detection
+OCR_IMAGE_DIFF_NORMALIZATION = 255.0  # Normalization value for image difference calculation
 
 
 # =============================================================================
@@ -155,6 +161,7 @@ RATE_LIMIT_BACKOFF_MULTIPLIER = 1.5  # Multiply interval by this when low
 LOG_MAX_FILES_DEFAULT = 10               # Maximum number of log files to keep
 LOG_MAX_TOTAL_SIZE_MB_DEFAULT = 10       # Maximum total log size in MB
 LOG_CHUNK_SIZE = 8192                    # Chunk size for file downloads
+LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g., "=" * 80)
 
 
 # =============================================================================
@@ -189,6 +196,9 @@ PROCESS_MONITOR_SLEEP_S = 0.5           # Sleep during process monitoring loop
 WINDOW_CHECK_SLEEP_S = 1                # Sleep between window existence checks
 API_POLITENESS_DELAY_S = 0.5            # Delay between API calls to be polite
 
+# UI animation delays (milliseconds)
+UI_QTIMER_CALLBACK_DELAY_MS = 50        # Delay before executing QTimer callbacks
+
 
 # =============================================================================
 # SYSTEM TRAY CONSTANTS
@@ -204,6 +214,40 @@ TRAY_ICON_WIDTH = 128                   # Tray icon width in pixels
 TRAY_ICON_HEIGHT = 128                  # Tray icon height in pixels
 TRAY_ICON_ELLIPSE_COORDS = [16, 16, 112, 112]  # Ellipse coordinates for icon
 TRAY_ICON_BORDER_WIDTH = 4              # Border width for icon ellipse
+
+# Tray icon text and indicators
+TRAY_ICON_FONT_SIZE = 40                # Font size for "SC" text on icon
+TRAY_ICON_TEXT_X = 36                   # X position for text
+TRAY_ICON_TEXT_Y = 44                   # Y position for text
+TRAY_ICON_DOT_SIZE = 70                 # Size of status indicator dot
+TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
+
+
+# =============================================================================
+# CHROMA WHEEL UI CONSTANTS
+# =============================================================================
+
+# Chroma wheel window dimensions
+CHROMA_WHEEL_PREVIEW_WIDTH = 400        # Width of skin preview area
+CHROMA_WHEEL_PREVIEW_HEIGHT = 450       # Height of skin preview area
+CHROMA_WHEEL_CIRCLE_RADIUS = 20         # Radius of chroma selection circles
+CHROMA_WHEEL_WINDOW_WIDTH = 460         # Total window width
+CHROMA_WHEEL_WINDOW_HEIGHT = 600        # Total window height
+CHROMA_WHEEL_CIRCLE_SPACING = 45        # Spacing between chroma circles
+CHROMA_WHEEL_BUTTON_SIZE = 60           # Size of reopen button
+
+# Chroma wheel positioning
+CHROMA_WHEEL_SCREEN_EDGE_MARGIN = 20    # Distance from screen edge
+CHROMA_WHEEL_PREVIEW_X = 30             # X position of preview area
+CHROMA_WHEEL_PREVIEW_Y = 30             # Y position of preview area
+CHROMA_WHEEL_ROW_Y_OFFSET = 60          # Offset from bottom for chroma row
+
+# Chroma wheel visual effects
+CHROMA_WHEEL_BORDER_SCALE = 0.9         # Scale factor for border (90%)
+CHROMA_WHEEL_GRADIENT_SCALE = 0.8       # Scale factor for gradient ring (80%)
+CHROMA_WHEEL_GLOW_ALPHA = 60            # Alpha value for gold glow effect
+CHROMA_WHEEL_CONICAL_START_ANGLE = 30   # Start angle for conical gradient
+CHROMA_WHEEL_INNER_DARK_BORDER_WIDTH = 2  # Dark border width between gold and gradient
 
 
 # =============================================================================
