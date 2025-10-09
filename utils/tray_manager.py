@@ -168,20 +168,24 @@ class TrayManager:
         """Handle quit menu item click"""
         log.info("Quit requested from system tray")
         try:
+            # Set stop event immediately to signal shutdown
+            self._stop_event.set()
+            
+            # Call the quit callback (sets state.stop = True)
             if self.quit_callback:
                 self.quit_callback()
-            else:
-                # Default behavior - set stop event
-                self._stop_event.set()
         except SystemExit:
             # Handle sys.exit() calls gracefully
             log.info("System exit requested from quit callback")
-            self._stop_event.set()
         except Exception as e:
             log.error(f"Error in quit callback: {e}")
-            self._stop_event.set()
         finally:
-            icon.stop()
+            # Stop the tray icon (this will hide it from system tray)
+            try:
+                icon.stop()
+                log.debug("Tray icon stopped from quit handler")
+            except Exception as e:
+                log.debug(f"Error stopping tray icon: {e}")
     
     def _on_icon_click(self, icon, item):
         """Handle left click on tray icon - do nothing"""
