@@ -139,7 +139,10 @@ class WSEventThread(threading.Thread):
                 elif ph == "InProgress":
                     # Game starting → log last skin
                     if self.state.last_hovered_skin_key:
-                        log.info(f"[launch:last-skin] {self.state.last_hovered_skin_key} (skinId={self.state.last_hovered_skin_id}, champ={self.state.last_hovered_skin_slug})")
+                        log.info("=" * 80)
+                        log.info(f"🎮 GAME STARTING - LAST DETECTED SKIN: {self.state.last_hovered_skin_key.upper()}")
+                        log.info(f"   📋 Champion: {self.state.last_hovered_skin_slug} | SkinID: {self.state.last_hovered_skin_id}")
+                        log.info("=" * 80)
                     else:
                         log.info("[launch:last-skin] (no hovered skin detected)")
                 
