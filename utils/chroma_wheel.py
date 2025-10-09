@@ -510,35 +510,56 @@ class ReopenButton(QWidget):
         
         center = self.button_size // 2
         outer_radius = (self.button_size // 2) - 3  # Leave small margin
-        gold_border_width = int(6 * CHROMA_WHEEL_BORDER_SCALE)  # Gold border
-        dark_border_width = CHROMA_WHEEL_INNER_DARK_BORDER_WIDTH  # Dark border between gold and gradient
-        inner_dark_radius = outer_radius - gold_border_width  # Inside the gold border
-        gradient_radius = int((inner_dark_radius - dark_border_width) * CHROMA_WHEEL_GRADIENT_SCALE)  # Rainbow gradient ring
-        dark_ring_radius = gradient_radius - (gold_border_width // 2)  # Dark ring (half of border width)
-        inner_radius = dark_ring_radius - (gold_border_width // 2)  # Dark center void
+        
+        # Calculate radii based on official design ratios (as percentages of button size)
+        # Official ratios: Golden border 7%, Dark border 2.5%, Gradient ring 20%, Central disk 44%
+        button_diameter = self.button_size - 6  # Account for margin
+        gold_border_width = int(button_diameter * 0.07)  # 7% of button size
+        dark_border_width = int(button_diameter * 0.025)  # 2.5% of button size  
+        gradient_ring_width = int(button_diameter * 0.20)  # 20% of button size
+        central_disk_radius = int(button_diameter * 0.44 / 2)  # 44% diameter = 22% radius
+        
+        # Calculate actual radii from outside in
+        outer_gold_radius = outer_radius
+        inner_gold_radius = outer_radius - gold_border_width
+        inner_dark_radius = inner_gold_radius - dark_border_width
+        gradient_outer_radius = inner_dark_radius
+        gradient_inner_radius = gradient_outer_radius - gradient_ring_width
+        inner_radius = central_disk_radius  # Central dark disk
         
         # Glow effect on hover (subtle outer glow)
         if self.is_hovered:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(QColor(255, 215, 0, CHROMA_WHEEL_GLOW_ALPHA)))  # Gold glow
-            painter.drawEllipse(QPoint(center, center), outer_radius + 3, outer_radius + 3)
+            painter.drawEllipse(QPoint(center, center), outer_gold_radius + 3, outer_gold_radius + 3)
         
-        # 1. Outer metallic gold border
-        gold_gradient = QRadialGradient(center, center, outer_radius)
+        # 1. Outer metallic gold border (7% of button size)
+        gold_gradient = QRadialGradient(center, center, outer_gold_radius)
         gold_gradient.setColorAt(0.0, QColor(255, 215, 0))  # Bright gold
         gold_gradient.setColorAt(0.7, QColor(255, 165, 0))  # Orange gold
         gold_gradient.setColorAt(1.0, QColor(184, 134, 11))  # Dark gold
         
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(gold_gradient))
-        painter.drawEllipse(QPoint(center, center), outer_radius, outer_radius)
+        painter.drawEllipse(QPoint(center, center), outer_gold_radius, outer_gold_radius)
         
-        # 2. Inner dark border (between gold and gradient)
+        # 2. Dark border ring (1% of button size) - between gold and gradient
+        # Create a thin dark ring using QPainterPath
+        dark_border_path = QPainterPath()
+        # Add outer circle (inner_dark_radius)
+        dark_border_path.addEllipse(center - inner_dark_radius, center - inner_dark_radius, 
+                                   inner_dark_radius * 2, inner_dark_radius * 2)
+        # Add inner circle (gradient_outer_radius) to be subtracted
+        dark_border_path.addEllipse(center - gradient_outer_radius, center - gradient_outer_radius, 
+                                   gradient_outer_radius * 2, gradient_outer_radius * 2)
+        dark_border_path.setFillRule(Qt.FillRule.OddEvenFill)  # Subtract inner from outer
+        
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(20, 20, 20)))  # Dark border
-        painter.drawEllipse(QPoint(center, center), inner_dark_radius, inner_dark_radius)
+        painter.drawPath(dark_border_path)
         
-        # 3. Rainbow gradient ring (yellow starts at top)
+        # 3. Rainbow gradient ring (16% of button size) - yellow starts at top
+        # Draw gradient as outer circle, then cut out the inner part with dark color
         rainbow_gradient = QConicalGradient(center, center, CHROMA_WHEEL_CONICAL_START_ANGLE)  # Start angle to position colors
         rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
         rainbow_gradient.setColorAt(0.16, QColor(255, 0, 0))     # Red
@@ -548,15 +569,15 @@ class ReopenButton(QWidget):
         rainbow_gradient.setColorAt(0.83, QColor(0, 0, 255))     # Blue
         rainbow_gradient.setColorAt(1.0, QColor(128, 0, 128))    # Purple
         
-        painter.setBrush(QBrush(rainbow_gradient))
-        painter.drawEllipse(QPoint(center, center), gradient_radius, gradient_radius)
-        
-        # 4. Dark ring inside gradient
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(20, 20, 20)))  # Same dark color as center
-        painter.drawEllipse(QPoint(center, center), dark_ring_radius, dark_ring_radius)
+        painter.setBrush(QBrush(rainbow_gradient))
+        painter.drawEllipse(QPoint(center, center), gradient_outer_radius, gradient_outer_radius)
         
-        # 5. Dark central void
+        # Cut out the inner part of the gradient ring to create the ring shape
+        painter.setBrush(QBrush(QColor(20, 20, 20)))  # Same dark color as center
+        painter.drawEllipse(QPoint(center, center), gradient_inner_radius, gradient_inner_radius)
+        
+        # 4. Dark central disk (52% diameter = 26% radius)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(20, 20, 20)))  # Very dark center
         painter.drawEllipse(QPoint(center, center), inner_radius, inner_radius)

@@ -244,11 +244,11 @@ CHROMA_WHEEL_PREVIEW_Y = 30             # Y position of preview area
 CHROMA_WHEEL_ROW_Y_OFFSET = 60          # Offset from bottom for chroma row
 
 # Chroma wheel visual effects
-CHROMA_WHEEL_BORDER_SCALE = 0.75        # Scale factor for border
-CHROMA_WHEEL_GRADIENT_SCALE = 1         # Scale factor for gradient ring
+CHROMA_WHEEL_BORDER_SCALE = 0.7         # Scale factor for border (7% of button size)
+CHROMA_WHEEL_GRADIENT_SCALE = 1.0       # Scale factor for gradient ring (16% of button size)
 CHROMA_WHEEL_GLOW_ALPHA = 60            # Alpha value for gold glow effect
-CHROMA_WHEEL_CONICAL_START_ANGLE = 20   # Start angle for conical gradient
-CHROMA_WHEEL_INNER_DARK_BORDER_WIDTH = 1  # Dark border width between gold and gradient
+CHROMA_WHEEL_CONICAL_START_ANGLE = -65  # Start angle for conical gradient
+CHROMA_WHEEL_INNER_DARK_BORDER_WIDTH = 1.2  # Dark border width between gold and gradient (2% of button size)
 
 
 # =============================================================================

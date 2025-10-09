@@ -66,6 +66,37 @@ from utils.chroma_selector import init_chroma_selector
 from constants import *
 from constants import THREAD_FORCE_EXIT_TIMEOUT_S  # Explicit import for new constant
 
+# Global variable to track if we're shutting down
+_shutting_down = False
+
+def signal_handler(signum, frame):
+    """Handle system signals for graceful shutdown"""
+    global _shutting_down
+    if _shutting_down:
+        return  # Prevent multiple shutdown attempts
+    _shutting_down = True
+    
+    print(f"\nReceived signal {signum}, initiating graceful shutdown...")
+    # Force exit if we're stuck
+    import os
+    os._exit(0)
+
+def force_quit_handler():
+    """Force quit handler that can be called from anywhere"""
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
+    
+    print("\nForce quit initiated...")
+    import os
+    os._exit(0)
+
+# Set up signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+
 # Set Qt environment variables BEFORE anything else
 os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
@@ -499,7 +530,32 @@ def main():
         def updated_tray_quit_callback():
             """Callback for tray quit - set the shared state stop flag"""
             log.info("Setting stop flag from tray quit")
+            log.debug(f"[DEBUG] State before setting stop: {state.stop}")
             state.stop = True
+            log.debug(f"[DEBUG] State after setting stop: {state.stop}")
+            log.info("Stop flag set - main loop should exit")
+            
+            # Immediately try to trigger any pending console operations that might be blocking
+            if sys.platform == "win32":
+                try:
+                    # Force a console input check to unblock any stuck operations
+                    import msvcrt
+                    if msvcrt.kbhit():
+                        msvcrt.getch()  # Consume any pending input
+                except Exception:
+                    pass
+            
+            # Add a timeout to force quit if main loop doesn't exit
+            def force_quit_timeout():
+                import time
+                time.sleep(2.0)  # Reduced to 2 seconds
+                if not _shutting_down:
+                    log.warning("Main loop did not exit within 2 seconds - forcing quit")
+                    force_quit_handler()
+            
+            import threading
+            timeout_thread = threading.Thread(target=force_quit_timeout, daemon=True)
+            timeout_thread.start()
         
         tray_manager.quit_callback = updated_tray_quit_callback
 
@@ -565,6 +621,11 @@ def main():
                 log.warning(f"Main loop stall detected: {time_since_last_loop:.1f}s since last iteration")
             last_loop_time = loop_start
             
+            # Check if we should stop (extra check with logging)
+            if state.stop:
+                log.debug("[DEBUG] Main loop detected stop flag - exiting")
+                break
+            
             ph = state.phase
             if ph != last_phase:
                 last_phase = ph
@@ -592,8 +653,10 @@ def main():
             time.sleep(MAIN_LOOP_SLEEP)
     except KeyboardInterrupt:
         log_section(log, "Shutting Down (Keyboard Interrupt)", "⚠️")
+        log.debug(f"[DEBUG] Keyboard interrupt - setting state.stop = True")
         state.stop = True
     finally:
+        log.debug(f"[DEBUG] Finally block - setting state.stop = True")
         state.stop = True
         
         log_section(log, "Cleanup", "🧹")
@@ -657,6 +720,16 @@ def main():
         
         # Clean up lock file on exit
         cleanup_lock_file()
+        
+        # Clean up console if we allocated one
+        if sys.platform == "win32":
+            try:
+                console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+                if console_hwnd:
+                    # Free the console
+                    ctypes.windll.kernel32.FreeConsole()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
