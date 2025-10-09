@@ -160,7 +160,10 @@ class LoadoutTicker(threading.Thread):
                 if name:
                     # Mark that we've processed the last hovered skin for injection
                     self.state.last_hover_written = True
-                    log.info(f"[loadout #{self.ticker_id}] skin for injection: {name}")
+                    log.info("=" * 80)
+                    log.info(f"💉 PREPARING INJECTION >>> {name.upper()} <<<")
+                    log.info(f"   ⏱️  Loadout Timer: #{self.ticker_id}")
+                    log.info("=" * 80)
                     
                     try:
                         # Smart injection logic: only inject if user doesn't own the hovered skin
@@ -272,10 +275,14 @@ class LoadoutTicker(threading.Thread):
                                         self.state.injection_completed = True
                                         
                                         if success:
-                                            log.info(f"[inject] Injection process completed for: {name}")
-                                            log.info(f"[inject] ⚠ Verify in-game - timing determines if skin appears")
+                                            log.info("=" * 80)
+                                            log.info(f"✅ INJECTION COMPLETED >>> {name.upper()} <<<")
+                                            log.info(f"   ⚠️  Verify in-game - timing determines if skin appears")
+                                            log.info("=" * 80)
                                         else:
-                                            log.error(f"[inject] ✗ Injection process encountered errors: {name}")
+                                            log.error("=" * 80)
+                                            log.error(f"❌ INJECTION FAILED >>> {name.upper()} <<<")
+                                            log.error("=" * 80)
                                             log.error(f"[inject] Skin will likely NOT appear in-game")
                                     except Exception as e:
                                         log.error(f"[inject] injection thread error: {e}")

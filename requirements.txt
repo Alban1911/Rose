@@ -8,14 +8,10 @@ websocket-client>=1.0.0
 mss>=6.1.0
 Pillow>=8.0.0
 pystray>=0.19.0
-# EasyOCR for GPU-accelerated OCR (requires scipy for ndimage)
+# EasyOCR for OCR (CPU mode)
 easyocr>=1.7.0
 
-# PyTorch with CUDA support (GPU acceleration)
-# For NVIDIA GPU users: Install with CUDA support using:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-# For CPU-only (no GPU): Install with:
-#   pip install torch torchvision
-# Note: The app will auto-detect your GPU and provide installation instructions if needed
+# PyTorch (CPU version for EasyOCR)
+# This application uses CPU-only mode for better compatibility
 torch>=2.0.0
 torchvision>=0.15.0

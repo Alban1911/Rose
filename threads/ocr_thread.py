@@ -391,12 +391,19 @@ class OCRSkinThread(threading.Thread):
                     if skin_key != self.last_key:
                         is_base = (skin_id % 1000 == 0)
                         
+                        # ✨ ULTRA VISIBLE SKIN DETECTION ✨
+                        log.info("=" * 80)
                         if is_base:
-                            log.info(f"[hover:skin] {skin_name} (skinId=0, champ={champ_slug}, similarity={similarity:.1%}, english_db_match)")
+                            log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
+                            log.info(f"   📋 Champion: {champ_slug} | SkinID: 0 (Base) | Match: {similarity:.1%}")
+                            log.info(f"   🔍 Source: English DB (direct match)")
                             self.state.last_hovered_skin_id = 0
                         else:
-                            log.info(f"[hover:skin] {skin_name} (skinId={skin_id}, champ={champ_slug}, similarity={similarity:.1%}, english_db_match)")
+                            log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
+                            log.info(f"   📋 Champion: {champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
+                            log.info(f"   🔍 Source: English DB (direct match)")
                             self.state.last_hovered_skin_id = skin_id
+                        log.info("=" * 80)
                         
                         self.last_key = skin_key
                         self.state.last_hovered_skin_name = skin_name
@@ -426,12 +433,19 @@ class OCRSkinThread(threading.Thread):
                         # Determine if this is base skin
                         is_base = (skin_id % 1000 == 0)  # Base skins have skinId ending in 000
                         
+                        # ✨ ULTRA VISIBLE SKIN DETECTION ✨
+                        log.info("=" * 80)
                         if is_base:
-                            log.info(f"[hover:skin] {english_skin_name} (skinId=0, champ={champ_slug}, similarity={similarity:.1%}, lcu_match)")
+                            log.info(f"🎨 SKIN DETECTED >>> {english_skin_name.upper()} <<<")
+                            log.info(f"   📋 Champion: {champ_slug} | SkinID: 0 (Base) | Match: {similarity:.1%}")
+                            log.info(f"   🔍 Source: LCU API + English DB")
                             self.state.last_hovered_skin_id = 0
                         else:
-                            log.info(f"[hover:skin] {english_skin_name} (skinId={skin_id}, champ={champ_slug}, similarity={similarity:.1%}, lcu_match)")
+                            log.info(f"🎨 SKIN DETECTED >>> {english_skin_name.upper()} <<<")
+                            log.info(f"   📋 Champion: {champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
+                            log.info(f"   🔍 Source: LCU API + English DB")
                             self.state.last_hovered_skin_id = skin_id
+                        log.info("=" * 80)
                         
                         self.state.last_hovered_skin_key = english_skin_name
                         self.state.last_hovered_skin_slug = champ_slug
@@ -485,15 +499,21 @@ class OCRSkinThread(threading.Thread):
             return
         
         if best_entry.key != self.last_key:
-            # Log with raw distance and score
+            # ✨ ULTRA VISIBLE SKIN DETECTION ✨
+            log.info("=" * 80)
             if best_entry.kind == "champion":
-                log.info(f"[hover:skin] {best_skin_name} (skinId=0, champ={best_entry.champ_slug}, distance={best_distance}, score={score:.3f})")
+                log.info(f"🎨 SKIN DETECTED >>> {best_skin_name.upper()} <<<")
+                log.info(f"   📋 Champion: {best_entry.champ_slug} | SkinID: 0 (Base) | Score: {score:.1%}")
+                log.info(f"   🔍 Source: Fallback DB (Levenshtein distance: {best_distance})")
                 self.state.last_hovered_skin_key = best_skin_name
                 self.state.last_hovered_skin_id = 0  # 0 = base skin
                 self.state.last_hovered_skin_slug = best_entry.champ_slug
             else:
-                log.info(f"[hover:skin] {best_skin_name} (skinId={best_entry.skin_id}, champ={best_entry.champ_slug}, distance={best_distance}, score={score:.3f})")
+                log.info(f"🎨 SKIN DETECTED >>> {best_skin_name.upper()} <<<")
+                log.info(f"   📋 Champion: {best_entry.champ_slug} | SkinID: {best_entry.skin_id} | Score: {score:.1%}")
+                log.info(f"   🔍 Source: Fallback DB (Levenshtein distance: {best_distance})")
                 self.state.last_hovered_skin_key = best_skin_name
                 self.state.last_hovered_skin_id = best_entry.skin_id
                 self.state.last_hovered_skin_slug = best_entry.champ_slug
+            log.info("=" * 80)
             self.last_key = best_entry.key

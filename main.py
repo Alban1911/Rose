@@ -220,7 +220,6 @@ def main():
     ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
     ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
     ap.add_argument("--tesseract-exe", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
-    ap.add_argument("--no-gpu", action="store_true", help="Disable GPU acceleration for OCR (use CPU only)")
     ap.add_argument("--debug-ocr", action="store_true", default=DEFAULT_DEBUG_OCR, help="Save OCR images to debug folder")
     ap.add_argument("--no-debug-ocr", action="store_false", dest="debug_ocr", help="Disable OCR debug image saving")
     
@@ -358,24 +357,21 @@ def main():
         log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
         ocr_lang = "eng"
     
-    # Initialize OCR with determined language
-    use_gpu = not args.no_gpu if hasattr(args, 'no_gpu') else True
-    
+    # Initialize OCR with determined language (CPU mode only)
     try:
-        ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe, use_gpu=use_gpu)
-        log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, GPU: {ocr.use_gpu})")
+        ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
+        log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, mode: CPU)")
     except Exception as e:
         log.warning(f"Failed to initialize OCR with language '{ocr_lang}': {e}")
         log.info("Attempting fallback to English OCR...")
         
         try:
-            ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe, use_gpu=use_gpu)
-            log.info(f"OCR: {ocr.backend} (lang: eng, GPU: {ocr.use_gpu})")
+            ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
+            log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
         except Exception as fallback_e:
             log.error(f"OCR initialization failed: {fallback_e}")
             log.error("EasyOCR is not properly installed or configured.")
             log.error("Install with: pip install easyocr torch torchvision")
-            log.error("For GPU support, install CUDA-enabled PyTorch from: https://pytorch.org")
             sys.exit(1)
     
     db = NameDB(lang=args.dd_lang)
@@ -444,8 +440,7 @@ def main():
                         new_ocr = OCR(
                             lang=new_ocr_lang,
                             psm=args.psm,
-                            tesseract_exe=args.tesseract_exe,
-                            use_gpu=not args.no_gpu
+                            tesseract_exe=args.tesseract_exe
                         )
                         
                         # Update the global OCR reference

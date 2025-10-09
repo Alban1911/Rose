@@ -18,29 +18,15 @@ SkinCloner is a fully automated system that detects skin selections in League of
 **Recommended for Optimal Performance:**
 
 - 8+ GB RAM
-- **NVIDIA GPU** with CUDA support (for GPU-accelerated OCR)
 - SSD storage
 
-### 🎮 GPU Acceleration (Optional but Recommended)
+### 🔍 OCR Technology
 
-**SkinCloner uses EasyOCR with GPU acceleration for faster and more accurate skin detection.**
+**SkinCloner uses EasyOCR (CPU mode) for accurate skin detection across all languages.**
 
-- **With NVIDIA GPU**: OCR runs 3-5x faster with CUDA support
-- **Without GPU**: Still works perfectly on CPU, just slightly slower
-
-**GPU Support:**
-
-- ✅ **NVIDIA GPUs** (GTX, RTX series) - Fully supported via CUDA
-- ❌ **AMD GPUs** (Radeon) - Not supported (requires ROCm, which is Linux-only for PyTorch)
-- ❌ **Intel GPUs** (UHD, Iris) - Not supported (experimental PyTorch support only)
-
-**To enable GPU acceleration (NVIDIA only):**
-
-1. **Installer/Executable Users**: GPU support is **already included** in the executable! Just install CUDA drivers if you haven't already
-2. The app **automatically detects** your GPU and provides instructions if drivers are missing
-3. Install CUDA drivers from [https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads)
-
-**For Source Code Users**: See step 4 in installation below
+- **Optimized for CPU**: Works efficiently on any modern processor
+- **Universal compatibility**: No GPU required - works on all systems
+- **Advanced preprocessing**: Research-based image processing for optimal accuracy
 
 **No additional installation required** - EasyOCR models download automatically on first run!
 
@@ -77,35 +63,23 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
    This automatically installs:
 
-   - EasyOCR with PyTorch (GPU/CPU support)
+   - EasyOCR with PyTorch (CPU mode)
    - OpenCV, NumPy, SciPy (image processing)
    - All other required packages
 
    **Note**: First run will download EasyOCR models (~50-100 MB) - requires internet connection.
 
-4. **Enable GPU Acceleration (Optional but Recommended for Source Users):**
+4. **Building from Source:**
 
-   If you have an NVIDIA GPU, install CUDA-enabled PyTorch for 3-5x faster OCR:
+   See [BUILD.md](BUILD.md) for instructions on building the application.
 
-   ```bash
-   pip uninstall torch torchvision
-   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-   ```
-
-   **The app will automatically detect your GPU and guide you if it's not being used.**
-
-5. **Building from Source:**
-
-   See [BUILD.md](BUILD.md) for instructions on building with GPU support bundled.
-
-   **TL;DR:** Run `python build_all.py` - it automatically ensures CUDA PyTorch is included!
+   **TL;DR:** Run `python build_all.py` - it handles everything automatically!
 
 **System Requirements:**
 
 - Windows 10/11 (64-bit)
 - Python 3.11
 - CSLOL tools present in `injection/tools/` directory
-- Optional: CUDA-enabled GPU for faster OCR
 
 ---
 
@@ -205,7 +179,7 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 ### Core Capabilities
 
 - **🎯 Fully Automated**: Works completely automatically - no manual intervention required
-- **🔍 Advanced OCR Detection**: Uses EasyOCR with GPU acceleration and optimized image processing for accurate skin name recognition
+- **🔍 Advanced OCR Detection**: Uses EasyOCR with research-based preprocessing and optimized image processing for accurate skin name recognition
 - **⚡ Optimized Injection**: Uses high-priority processes and game suspension for reliable injection 500ms before game starts
 - **✅ Ownership Detection**: Automatically detects owned skins via LCU inventory and skips injection to avoid conflicts
 - **🔄 Base Skin Forcing**: Intelligently forces base skin selection before injection with multiple fallback endpoints
@@ -230,7 +204,7 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 - **📥 Smart Downloads**: Efficient repository ZIP download with automatic updates
 - **🎛️ Configurable OCR**: Adjustable confidence thresholds and processing modes
 - **📊 Real-time Monitoring**: WebSocket-based event handling for optimal performance
-- **🔧 Diagnostic Tools**: Built-in EasyOCR validation with automatic GPU detection
+- **🔧 Diagnostic Tools**: Built-in EasyOCR validation and diagnostic utilities
 - **📱 System Tray Integration**: Clean background operation with system tray management
 - **🔐 Auto-Start with Admin Rights**: Task Scheduler integration for seamless auto-start (no UAC prompts)
 - **📝 Comprehensive Logging**: Detailed logging system with configurable retention
@@ -285,7 +259,7 @@ SkinCloner uses 6 specialized threads for optimal performance:
 
 1. **Phase Thread**: Monitors LCU for game phase changes (lobby → champ select → in-game)
 2. **Champion Thread**: Detects champion hover/lock and fetches owned skins from LCU
-3. **OCR Thread**: High-frequency skin name detection using EasyOCR with GPU acceleration
+3. **OCR Thread**: High-frequency skin name detection using EasyOCR with optimized preprocessing
 4. **WebSocket Thread**: Real-time event handling via LCU WebSocket connection
 5. **LCU Monitor Thread**: Maintains connection to League Client
 6. **Loadout Ticker Thread**: Countdown timer for injection timing
@@ -314,8 +288,8 @@ SkinCloner/
 │       └── [WAD utilities]       # WAD extraction/creation tools
 │
 ├── ocr/                          # OCR functionality
-│   ├── backend.py                # EasyOCR backend with GPU/CPU support
-│   └── image_processing.py       # Advanced image processing for OCR
+│   ├── backend.py                # EasyOCR backend (CPU mode)
+│   └── image_processing.py       # Research-based image preprocessing for OCR
 │
 ├── database/                     # Champion and skin databases
 │   ├── name_db.py                # Champion and skin name database
