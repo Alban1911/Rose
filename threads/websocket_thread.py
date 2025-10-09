@@ -341,4 +341,25 @@ class WSEventThread(threading.Thread):
                 )
             except Exception as e:
                 log.debug(f"[ws] exception: {e}")
+            
+            # Check if we should stop before reconnecting
+            if self.state.stop:
+                break
             time.sleep(WS_RECONNECT_DELAY)
+        
+        # Ensure WebSocket is closed on thread exit
+        if self.ws:
+            try:
+                self.ws.close()
+                log.debug("[ws] WebSocket closed on thread exit")
+            except Exception:
+                pass
+    
+    def stop(self):
+        """Stop the WebSocket thread gracefully"""
+        if self.ws:
+            try:
+                self.ws.close()
+                log.debug("[ws] WebSocket close requested")
+            except Exception:
+                pass

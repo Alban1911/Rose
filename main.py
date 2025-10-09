@@ -64,6 +64,7 @@ from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
 from utils.chroma_selector import init_chroma_selector
 from constants import *
+from constants import THREAD_FORCE_EXIT_TIMEOUT_S  # Explicit import for new constant
 
 # Set Qt environment variables BEFORE anything else
 os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
@@ -597,23 +598,62 @@ def main():
         
         log_section(log, "Cleanup", "🧹")
         
+        cleanup_start = time.time()
+        
+        # Stop WebSocket connection first (needs explicit close)
+        if t_ws and t_ws.is_alive():
+            try:
+                log.info("Closing WebSocket connection...")
+                t_ws.stop()
+            except Exception as e:
+                log.warning(f"Error closing WebSocket: {e}")
+        
         # Stop system tray
         if tray_manager:
             try:
+                log.info("Stopping system tray...")
                 tray_manager.stop()
                 log_success(log, "System tray stopped", "✓")
             except Exception as e:
                 log.warning(f"Error stopping system tray: {e}")
         
-        # Stop all threads
-        t_phase.join(timeout=THREAD_JOIN_TIMEOUT_S)
-        if t_champ: 
-            t_champ.join(timeout=THREAD_JOIN_TIMEOUT_S)
-        t_ocr.join(timeout=THREAD_JOIN_TIMEOUT_S)
-        if t_ws: 
-            t_ws.join(timeout=THREAD_JOIN_TIMEOUT_S)
-        t_lcu_monitor.join(timeout=THREAD_JOIN_TIMEOUT_S)
+        # Stop all threads with better tracking
+        threads_to_stop = [
+            ("Phase", t_phase),
+            ("Champion", t_champ) if t_champ else None,
+            ("OCR", t_ocr),
+            ("WebSocket", t_ws) if t_ws else None,
+            ("LCU Monitor", t_lcu_monitor)
+        ]
+        threads_to_stop = [t for t in threads_to_stop if t is not None]
         
+        still_alive = []
+        for name, thread in threads_to_stop:
+            if thread.is_alive():
+                log.info(f"Waiting for {name} thread to stop...")
+                thread.join(timeout=THREAD_JOIN_TIMEOUT_S)
+                if thread.is_alive():
+                    log.warning(f"{name} thread did not stop within {THREAD_JOIN_TIMEOUT_S}s timeout")
+                    still_alive.append(name)
+                else:
+                    log_success(log, f"{name} thread stopped", "✓")
+        
+        # Check if any threads are still alive
+        elapsed = time.time() - cleanup_start
+        if still_alive:
+            log.warning(f"Some threads did not stop: {', '.join(still_alive)}")
+            log.warning(f"Cleanup took {elapsed:.1f}s - forcing exit")
+            
+            # Clean up lock file before forced exit
+            cleanup_lock_file()
+            
+            # Force exit after timeout
+            if elapsed > THREAD_FORCE_EXIT_TIMEOUT_S:
+                log.error(f"Forced exit after {elapsed:.1f}s - threads still running")
+                import os
+                os._exit(0)  # Force immediate exit without waiting for threads
+        else:
+            log_success(log, f"All threads stopped cleanly in {elapsed:.1f}s", "✓")
         
         # Clean up lock file on exit
         cleanup_lock_file()
