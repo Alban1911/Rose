@@ -74,7 +74,7 @@ class InjectionManager:
                 import psutil
                 import time
                 
-                log.info("Monitor: Started - watching for game process...")
+                log.info("[monitor] Started - watching for game process...")
                 suspension_start_time = None
                 
                 while self._monitor_active:
@@ -84,15 +84,15 @@ class InjectionManager:
                         if suspension_start_time is not None:
                             elapsed = time.time() - suspension_start_time
                             if elapsed >= PERSISTENT_MONITOR_AUTO_RESUME_S:
-                                log.warning(f"Monitor: ⚠ AUTO-RESUME after {PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s (safety timeout)")
-                                log.warning(f"Monitor: Injection took too long - releasing game to prevent freeze")
+                                log.warning(f"[monitor] AUTO-RESUME after {PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s (safety timeout)")
+                                log.warning(f"[monitor] Injection took too long - releasing game to prevent freeze")
                                 try:
                                     self._suspended_game_process.resume()
                                     self._suspended_game_process = None
                                     suspension_start_time = None
                                 except Exception as e:
-                                    log.error(f"Monitor: Auto-resume error: {e}")
-                                break
+                                    log.error(f"[monitor] Auto-resume error: {e}")
+                            break
                         
                         time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
                         continue
@@ -105,46 +105,46 @@ class InjectionManager:
                         if proc.info['name'] == 'League of Legends.exe':
                             try:
                                 game_proc = psutil.Process(proc.info['pid'])
-                                log.info(f"Monitor: ✓ Found game (PID={proc.info['pid']})")
+                                log.info(f"[monitor] Found game (PID={proc.info['pid']})")
                                 
                                 # Try to suspend immediately
                                 try:
                                     game_proc.suspend()
                                     self._suspended_game_process = game_proc
                                     suspension_start_time = time.time()  # Start safety timer
-                                    log.info(f"Monitor: ✓ Game suspended (PID={proc.info['pid']})")
-                                    log.info(f"Monitor: Will auto-resume after {PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s if not manually resumed")
+                                    log.info(f"[monitor] Game suspended (PID={proc.info['pid']})")
+                                    log.info(f"[monitor] Will auto-resume after {PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s if not manually resumed")
                                     break
                                 except psutil.AccessDenied:
-                                    log.error("Monitor: ✗ ACCESS DENIED - Cannot suspend game")
-                                    log.error("Monitor: Try running SkinCloner as Administrator")
+                                    log.error("[monitor] ACCESS DENIED - Cannot suspend game")
+                                    log.error("[monitor] Try running SkinCloner as Administrator")
                                     self._monitor_active = False
                                     break
                                 except Exception as e:
-                                    log.error(f"Monitor: ✗ Failed to suspend: {e}")
+                                    log.error(f"[monitor] Failed to suspend: {e}")
                                     break
                                     
                             except psutil.NoSuchProcess:
                                 continue
                             except Exception as e:
-                                log.error(f"Monitor: Error: {e}")
+                                log.error(f"[monitor] Error: {e}")
                                 break
                     
                     time.sleep(PERSISTENT_MONITOR_CHECK_INTERVAL_S)
                 
-                log.debug("Monitor: Stopped")
+                log.debug("[monitor] Stopped")
                 
             except Exception as e:
-                log.error(f"Monitor: Fatal error: {e}")
+                log.error(f"[monitor] Fatal error: {e}")
         
         self._monitor_thread = threading.Thread(target=game_monitor, daemon=True, name="GameMonitor")
         self._monitor_thread.start()
-        log.debug("Monitor: Background thread started")
+        log.debug("[monitor] Background thread started")
     
     def _stop_monitor(self):
         """Stop the game monitor"""
         if self._monitor_active:
-            log.debug("Monitor: Stopping...")
+            log.debug("[monitor] Stopping...")
             self._monitor_active = False
             
             # Resume game if still suspended
@@ -153,7 +153,7 @@ class InjectionManager:
                     import psutil
                     if self._suspended_game_process.status() == psutil.STATUS_STOPPED:
                         self._suspended_game_process.resume()
-                        log.info("Monitor: Resumed suspended game on cleanup")
+                        log.info("[monitor] Resumed suspended game on cleanup")
                 except:
                     pass
                 
@@ -178,7 +178,7 @@ class InjectionManager:
                     try:
                         status_before = game_proc.status()
                         if status_before != psutil.STATUS_STOPPED:
-                            log.debug(f"Monitor: Game already running (status={status_before})")
+                            log.debug(f"[monitor] Game already running (status={status_before})")
                             break
                         
                         game_proc.resume()
@@ -187,31 +187,31 @@ class InjectionManager:
                         status_after = game_proc.status()
                         if status_after != psutil.STATUS_STOPPED:
                             if attempt == 1:
-                                log.info(f"Monitor: ✓ Game resumed (PID={game_proc.pid}, status={status_after})")
+                                log.info(f"[monitor] Game resumed (PID={game_proc.pid}, status={status_after})")
                             else:
-                                log.info(f"Monitor: ✓ Game resumed after {attempt} attempts (PID={game_proc.pid})")
-                            log.info(f"Monitor: Game loading while overlay hooks in...")
+                                log.info(f"[monitor] Game resumed after {attempt} attempts (PID={game_proc.pid})")
+                            log.info(f"[monitor] Game loading while overlay hooks in...")
                             break
                         else:
                             if attempt < GAME_RESUME_MAX_ATTEMPTS:
-                                log.debug(f"Monitor: Still suspended after attempt {attempt}, retrying...")
+                                log.debug(f"[monitor] Still suspended after attempt {attempt}, retrying...")
                             else:
-                                log.error(f"Monitor: ✗ Failed to resume after {GAME_RESUME_MAX_ATTEMPTS} attempts")
+                                log.error(f"[monitor] Failed to resume after {GAME_RESUME_MAX_ATTEMPTS} attempts")
                     except psutil.NoSuchProcess:
-                        log.debug("Monitor: Game process ended")
+                        log.debug("[monitor] Game process ended")
                         break
                     except Exception as e:
-                        log.warning(f"Monitor: Resume attempt {attempt} error: {e}")
+                        log.warning(f"[monitor] Resume attempt {attempt} error: {e}")
                         if attempt >= GAME_RESUME_MAX_ATTEMPTS:
                             break
                 
                 # Clear the suspended process reference and stop monitoring
                 self._suspended_game_process = None
                 self._monitor_active = False
-                log.debug("Monitor: Game resumed - stopping monitor")
+                log.debug("[monitor] Game resumed - stopping monitor")
                 
             except Exception as e:
-                log.error(f"Monitor: Error resuming game: {e}")
+                log.error(f"[monitor] Error resuming game: {e}")
     
     def resume_if_suspended(self):
         """Resume game if monitor suspended it (for when injection is skipped)"""
@@ -375,7 +375,7 @@ class InjectionManager:
         try:
             self.injector.stop_overlay_process()
         except Exception as e:
-            log.warning(f"Injection: Failed to stop overlay process: {e}")
+            log.warning(f"[inject] Failed to stop overlay process: {e}")
     
     def kill_all_runoverlay_processes(self):
         """Kill all runoverlay processes (for ChampSelect cleanup)"""
@@ -406,7 +406,7 @@ class InjectionManager:
                 self.injector.kill_all_runoverlay_processes()
                 log.debug("[INJECT] Cleanup thread completed")
             except Exception as e:
-                log.warning(f"Injection: Cleanup thread failed: {e}")
+                log.warning(f"[inject] Cleanup thread failed: {e}")
             finally:
                 # Clear flag when done
                 with self._cleanup_lock:

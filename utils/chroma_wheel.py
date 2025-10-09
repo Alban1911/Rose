@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional, Callable, List, Dict
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QEasingCurve, pyqtProperty, QByteArray
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, QPainterPath, QPixmap
+from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, QConicalGradient, QPainterPath, QPixmap
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 
@@ -75,7 +75,8 @@ class ChromaWheelWidget(QWidget):
             Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        # Remove WA_DeleteOnClose - we'll manage deletion manually with deleteLater()
+        # self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         
         # Set window size
         self.setFixedSize(self.window_width, self.window_height)
@@ -477,7 +478,7 @@ class ReopenButton(QWidget):
         self.hide()
     
     def paintEvent(self, event):
-        """Paint the circular button"""
+        """Paint the circular button with new design"""
         # Don't paint if we're hiding
         if self.is_hiding:
             return
@@ -485,41 +486,45 @@ class ReopenButton(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Draw circle
         center = self.button_size // 2
-        radius = (self.button_size // 2) - 5
+        outer_radius = (self.button_size // 2) - 3  # Leave small margin
+        border_width = 6  # Thick metallic gold border
+        gradient_radius = outer_radius - border_width  # Rainbow gradient ring
+        inner_radius = gradient_radius // 2  # Dark center void
         
-        # Glow effect on hover
+        # Glow effect on hover (subtle outer glow)
         if self.is_hovered:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(200, 170, 110, 100)))
-            painter.drawEllipse(QPoint(center, center), radius + 4, radius + 4)
+            painter.setBrush(QBrush(QColor(255, 215, 0, 60)))  # Gold glow
+            painter.drawEllipse(QPoint(center, center), outer_radius + 3, outer_radius + 3)
         
-        # Main circle
-        gradient = QRadialGradient(center, center, radius)
-        gradient.setColorAt(0.0, QColor(200, 170, 110))
-        gradient.setColorAt(1.0, QColor(150, 120, 70))
+        # 1. Outer metallic gold border
+        gold_gradient = QRadialGradient(center, center, outer_radius)
+        gold_gradient.setColorAt(0.0, QColor(255, 215, 0))  # Bright gold
+        gold_gradient.setColorAt(0.7, QColor(255, 165, 0))  # Orange gold
+        gold_gradient.setColorAt(1.0, QColor(184, 134, 11))  # Dark gold
         
-        painter.setPen(QPen(QColor(240, 230, 210), 2))
-        painter.setBrush(QBrush(gradient))
-        painter.drawEllipse(QPoint(center, center), radius, radius)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(gold_gradient))
+        painter.drawEllipse(QPoint(center, center), outer_radius, outer_radius)
         
-        # Draw palette icon (3 small colored circles)
-        icon_radius = 6
-        icon_y = center
-        painter.setPen(QPen(QColor(255, 255, 255), 1))
+        # 2. Rainbow gradient ring
+        rainbow_gradient = QConicalGradient(center, center, 0)  # Conical for rainbow effect
+        rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
+        rainbow_gradient.setColorAt(0.16, QColor(255, 0, 0))     # Red
+        rainbow_gradient.setColorAt(0.33, QColor(255, 165, 0))   # Orange
+        rainbow_gradient.setColorAt(0.5, QColor(255, 255, 0))    # Yellow
+        rainbow_gradient.setColorAt(0.66, QColor(0, 255, 0))     # Green
+        rainbow_gradient.setColorAt(0.83, QColor(0, 0, 255))     # Blue
+        rainbow_gradient.setColorAt(1.0, QColor(128, 0, 128))    # Purple
         
-        # Left circle (red)
-        painter.setBrush(QBrush(QColor(255, 100, 100)))
-        painter.drawEllipse(QPoint(center - 12, icon_y), icon_radius, icon_radius)
+        painter.setBrush(QBrush(rainbow_gradient))
+        painter.drawEllipse(QPoint(center, center), gradient_radius, gradient_radius)
         
-        # Center circle (green)
-        painter.setBrush(QBrush(QColor(100, 255, 100)))
-        painter.drawEllipse(QPoint(center, icon_y), icon_radius, icon_radius)
-        
-        # Right circle (blue)
-        painter.setBrush(QBrush(QColor(100, 100, 255)))
-        painter.drawEllipse(QPoint(center + 12, icon_y), icon_radius, icon_radius)
+        # 3. Dark central void
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(20, 20, 20)))  # Very dark center
+        painter.drawEllipse(QPoint(center, center), inner_radius, inner_radius)
     
     def mousePressEvent(self, event):
         """Handle button click"""
@@ -604,11 +609,21 @@ class ChromaWheelManager:
         """Destroy widgets (must be called from main thread)"""
         if self.is_initialized:
             if self.widget:
-                self.widget.close()
-                self.widget = None
+                try:
+                    # Use hide() + deleteLater() instead of close() to avoid blocking
+                    self.widget.hide()
+                    self.widget.deleteLater()
+                    self.widget = None
+                except Exception as e:
+                    log.warning(f"[CHROMA] Error destroying wheel widget: {e}")
             if self.reopen_button:
-                self.reopen_button.close()
-                self.reopen_button = None
+                try:
+                    # Use hide() + deleteLater() instead of close() to avoid blocking
+                    self.reopen_button.hide()
+                    self.reopen_button.deleteLater()
+                    self.reopen_button = None
+                except Exception as e:
+                    log.warning(f"[CHROMA] Error destroying reopen button: {e}")
             self.is_initialized = False
             self.last_skin_name = None
             self.last_chromas = None
@@ -673,12 +688,20 @@ class ChromaWheelManager:
             # Process create request
             if self.pending_create:
                 self.pending_create = False
-                self._create_widgets()
+                try:
+                    self._create_widgets()
+                except Exception as e:
+                    log.error(f"[CHROMA] Error creating widgets: {e}")
             
             # Process destroy request
             if self.pending_destroy:
                 self.pending_destroy = False
-                self._destroy_widgets()
+                try:
+                    log.debug("[CHROMA] Starting widget destruction...")
+                    self._destroy_widgets()
+                    log.debug("[CHROMA] Widget destruction completed")
+                except Exception as e:
+                    log.error(f"[CHROMA] Error destroying widgets: {e}")
                 return  # Don't process other requests after destroying
             
             # Process show request

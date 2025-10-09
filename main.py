@@ -171,12 +171,12 @@ def check_single_instance():
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
             except Exception:
-                # Fallback to console output if MessageBox fails
-                print("Error: Another instance of SkinCloner is already running!")
-                print("Please close the existing instance before starting a new one.")
+                # Fallback to logging if MessageBox fails
+                log.error("Another instance of SkinCloner is already running!")
+                log.error("Please close the existing instance before starting a new one.")
         else:
-            print("Error: Another instance of SkinCloner is already running!")
-            print("Please close the existing instance before starting a new one.")
+            log.error("Another instance of SkinCloner is already running!")
+            log.error("Please close the existing instance before starting a new one.")
         sys.exit(1)
 
 
@@ -288,19 +288,21 @@ def main():
     from utils.logging import cleanup_logs
     cleanup_logs(max_files=args.log_max_files, max_total_size_mb=args.log_max_total_size_mb)
     
+    # Setup logging first
+    setup_logging(args.verbose)
+    log.info("Starting...")
+    
     # Clean up OCR debug folder on startup (only if debug mode is enabled)
     if args.debug_ocr:
         import shutil
-        ocr_debug_dir = Path("ocr_debug")
+        # Use project directory (where main.py is)
+        ocr_debug_dir = Path(__file__).resolve().parent / "ocr_debug"
         if ocr_debug_dir.exists():
             try:
                 shutil.rmtree(ocr_debug_dir)
-                print("🧹 Cleared OCR debug folder")
+                log.info(f"Cleared OCR debug folder: {ocr_debug_dir}")
             except Exception as e:
-                print(f"⚠️ Failed to clear OCR debug folder: {e}")
-    
-    setup_logging(args.verbose)
-    log.info("Starting...")
+                log.warning(f"Failed to clear OCR debug folder: {e}")
     
     # Initialize system tray manager immediately to hide console
     tray_manager = None
@@ -523,8 +525,17 @@ def main():
         log.info("OCR Debug Mode: OFF - Use --debug-ocr to enable")
 
     last_phase = None
+    last_loop_time = time.time()
     try:
         while not state.stop:
+            loop_start = time.time()
+            
+            # Watchdog: detect if previous loop took too long
+            time_since_last_loop = loop_start - last_loop_time
+            if time_since_last_loop > 5.0:  # More than 5 seconds is suspicious
+                log.warning(f"Main loop stall detected: {time_since_last_loop:.1f}s since last iteration")
+            last_loop_time = loop_start
+            
             ph = state.phase
             if ph != last_phase:
                 last_phase = ph
@@ -534,10 +545,18 @@ def main():
                 try:
                     # Process pending chroma wheel requests first
                     if chroma_selector and chroma_selector.wheel:
+                        chroma_start = time.time()
                         chroma_selector.wheel.process_pending()
+                        chroma_elapsed = time.time() - chroma_start
+                        if chroma_elapsed > 1.0:
+                            log.warning(f"[WATCHDOG] Chroma wheel processing took {chroma_elapsed:.2f}s")
                     
                     # Process all Qt events
+                    qt_start = time.time()
                     qt_app.processEvents()
+                    qt_elapsed = time.time() - qt_start
+                    if qt_elapsed > 1.0:
+                        log.warning(f"[WATCHDOG] Qt event processing took {qt_elapsed:.2f}s")
                 except Exception as e:
                     log.debug(f"Qt event processing error: {e}")
             

@@ -9,12 +9,15 @@ import warnings
 from typing import Optional
 import numpy as np
 import cv2
+from utils.logging import get_logger
 
 # Suppress ALL numpy/EasyOCR warnings (must be done before imports)
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 np.seterr(all='ignore')  # Suppress numpy errors/warnings
+
+log = get_logger()
 
 
 class OCR:
@@ -67,8 +70,8 @@ class OCR:
             import easyocr
             
             langs_str = "+".join(easyocr_langs)
-            print(f"🚀 Initializing EasyOCR: {langs_str} (tesseract lang: {lang})")
-            print(f"   💻 Mode: CPU only")
+            log.info(f"Initializing EasyOCR: {langs_str} (tesseract lang: {lang})")
+            log.info(f"Mode: CPU only")
             
             # Initialize EasyOCR reader in CPU mode
             self.reader = easyocr.Reader(
@@ -81,7 +84,7 @@ class OCR:
                 download_enabled=True       # Allow downloading models if needed
             )
             
-            print(f"✅ EasyOCR initialized successfully (CPU mode)")
+            log.info(f"EasyOCR initialized successfully (CPU mode)")
             
         except ImportError:
             raise ImportError(
@@ -91,13 +94,13 @@ class OCR:
         except Exception as e:
             # Handle unsupported language
             if "is not supported" in str(e):
-                print(f"⚠️ EasyOCR doesn't support '{lang}' language")
-                print(f"🔄 Falling back to English (en) for OCR")
+                log.warning(f"EasyOCR doesn't support '{lang}' language")
+                log.info(f"Falling back to English (en) for OCR")
                 
                 # Fallback to English (CPU mode)
                 import easyocr
                 self.reader = easyocr.Reader(["en"], gpu=False, verbose=False, quantize=True)
-                print(f"✅ EasyOCR initialized with English fallback (CPU mode)")
+                log.info(f"EasyOCR initialized with English fallback (CPU mode)")
             else:
                 raise RuntimeError(f"Failed to initialize EasyOCR: {e}")
 
@@ -183,9 +186,8 @@ class OCR:
             
         except Exception as e:
             # Log error but don't crash - return empty string to continue OCR loop
-            import sys
             if not hasattr(self, '_error_logged'):
-                print(f"⚠️ EasyOCR error (will continue): {e}", file=sys.stderr)
+                log.warning(f"EasyOCR error (will continue): {e}")
                 self._error_logged = True
             return ""
     

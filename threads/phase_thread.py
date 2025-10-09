@@ -49,9 +49,9 @@ class PhaseThread(threading.Thread):
                         # Kill any existing runoverlay processes from previous game
                         try:
                             self.injection_manager.kill_all_runoverlay_processes()
-                            log.info("Phase: Killed all runoverlay processes for Lobby")
+                            log.info("[phase] Killed all runoverlay processes for Lobby")
                         except Exception as e:
-                            log.warning(f"Phase: Failed to kill runoverlay processes: {e}")
+                            log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
                     
                     # Destroy chroma wheel and button
                     chroma_selector = get_chroma_selector()
@@ -98,9 +98,9 @@ class PhaseThread(threading.Thread):
                     if self.injection_manager:
                         try:
                             self.injection_manager.stop_overlay_process()
-                            log.info("Phase: Stopped overlay process for EndOfGame")
+                            log.info("[phase] Stopped overlay process for EndOfGame")
                         except Exception as e:
-                            log.warning(f"Phase: Failed to stop overlay process: {e}")
+                            log.warning(f"[phase] Failed to stop overlay process: {e}")
                     
                 else:
                     # Exit champ select → reset counter/timer
