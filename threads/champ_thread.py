@@ -10,6 +10,7 @@ from lcu.client import LCU
 from database.name_db import NameDB
 from state.shared_state import SharedState
 from utils.logging import get_logger
+from utils.chroma_selector import get_chroma_selector
 from constants import CHAMP_POLL_INTERVAL
 
 log = get_logger()
@@ -88,6 +89,26 @@ class ChampThread(threading.Thread):
                                 self.injection_manager.on_champion_locked(nm, locked, self.state.owned_skin_ids)
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to notify injection manager: {e}")
+                        
+                        # Create chroma wheel widgets on champion lock
+                        chroma_selector = get_chroma_selector()
+                        if chroma_selector:
+                            try:
+                                chroma_selector.wheel.request_create()
+                                log.debug(f"[lock:champ] Requested chroma wheel creation for {nm}")
+                                
+                                # Download chroma previews for this champion if not already done
+                                from utils.chroma_preview_manager import get_preview_manager
+                                preview_manager = get_preview_manager()
+                                
+                                def download_previews():
+                                    preview_manager.download_champion_previews(nm)
+                                
+                                import threading
+                                threading.Thread(target=download_previews, daemon=True, name="ChromaPreviewDownload").start()
+                                
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to request chroma wheel creation: {e}")
                     
                     # Always update the state, even for the same champion
                     self.state.locked_champ_id = locked

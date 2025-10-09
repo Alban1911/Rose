@@ -359,13 +359,10 @@ def main():
                 qt_app = existing_app
                 log.info("Using existing QApplication instance for chroma wheel")
             
-            # Initialize chroma selector
+            # Initialize chroma selector (widgets will be created on champion lock)
             try:
                 chroma_selector = init_chroma_selector(skin_scraper, state)
-                # Initialize the wheel in main thread
-                if chroma_selector and chroma_selector.wheel:
-                    chroma_selector.wheel.initialize()
-                    log.info("Chroma wheel initialized successfully")
+                log.info("Chroma selector initialized (widgets will be created on champion lock)")
             except Exception as e:
                 log.warning(f"Failed to initialize chroma wheel: {e}")
                 log.warning("Chroma selection will be disabled, but app will continue")
