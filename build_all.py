@@ -37,16 +37,16 @@ def run_build_exe():
     )
     
     if result.returncode != 0:
-        print("\n❌ ERROR: Executable build failed!")
+        print("\n[ERROR] Executable build failed!")
         return False
     
     # Verify the executable was created
     exe_path = Path("dist/SkinCloner/SkinCloner.exe")
     if not exe_path.exists():
-        print("\n❌ ERROR: Executable not found at expected location!")
+        print("\n[ERROR] Executable not found at expected location!")
         return False
     
-    print("\n✓ Executable build completed successfully!")
+    print("\n[OK] Executable build completed successfully!")
     return True
 
 
@@ -62,17 +62,17 @@ def run_create_installer():
     )
     
     if result.returncode != 0:
-        print("\n❌ ERROR: Installer creation failed!")
+        print("\n[ERROR] Installer creation failed!")
         return False
     
     # Verify the installer was created
     installer_dir = Path("installer")
     installer_files = list(installer_dir.glob("SkinCloner_Setup*.exe"))
     if not installer_files:
-        print("\n❌ ERROR: Installer not found at expected location!")
+        print("\n[ERROR] Installer not found at expected location!")
         return False
     
-    print("\n✓ Installer creation completed successfully!")
+    print("\n[OK] Installer creation completed successfully!")
     return True
 
 
@@ -85,7 +85,7 @@ def build_all():
     
     # Step 1: Build executable
     if not run_build_exe():
-        print_header("❌ BUILD FAILED AT STEP 1/2")
+        print_header("[FAILED] BUILD FAILED AT STEP 1/2")
         print("The executable build failed. Please check the errors above.")
         print("\nTroubleshooting:")
         print("1. Make sure all dependencies are installed:")
@@ -96,7 +96,7 @@ def build_all():
     
     # Step 2: Create installer
     if not run_create_installer():
-        print_header("⚠️  BUILD PARTIALLY COMPLETED (1/2)")
+        print_header("[WARNING] BUILD PARTIALLY COMPLETED (1/2)")
         print("Executable was built successfully, but installer creation failed.")
         print("\nYou can still use the executable directly from:")
         print("  dist/SkinCloner/SkinCloner.exe")
@@ -110,7 +110,7 @@ def build_all():
     minutes = int(elapsed_time // 60)
     seconds = int(elapsed_time % 60)
     
-    print_header("✓ BUILD COMPLETED SUCCESSFULLY!")
+    print_header("[SUCCESS] BUILD COMPLETED SUCCESSFULLY!")
     
     # Get file information
     exe_path = Path("dist/SkinCloner/SkinCloner.exe")
@@ -123,12 +123,12 @@ def build_all():
     print(f"  Time elapsed: {minutes}m {seconds}s")
     print()
     print("Generated Files:")
-    print(f"  ✓ Executable:  {exe_path}")
+    print(f"  [OK] Executable:  {exe_path}")
     print(f"    Size: {exe_size_mb:.1f} MB")
     
     if installer_path:
         installer_size_mb = installer_path.stat().st_size / (1024 * 1024)
-        print(f"  ✓ Installer:   {installer_path}")
+        print(f"  [OK] Installer:   {installer_path}")
         print(f"    Size: {installer_size_mb:.1f} MB")
     
     print("\nNext Steps:")

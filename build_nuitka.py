@@ -75,7 +75,6 @@ def build_with_nuitka():
         "--include-data-dir=injection/tools=injection/tools",  # Include CSLOL tools
         "--include-data-file=injection/mods_map.json=injection/mods_map.json",
         "--include-data-file=icon.ico=icon.ico",
-        "--include-data-file=requirements.txt=requirements.txt",
         "--include-package=database",  # Include packages
         "--include-package=injection",
         "--include-package=lcu",
@@ -97,8 +96,21 @@ def build_with_nuitka():
         "--nofollow-import-to=torch.utils.tensorboard",  # Don't include tensorboard utils
         "--nofollow-import-to=IPython",  # Don't include IPython (optional)
         "--nofollow-import-to=pytest",  # Don't include pytest
-        "--nofollow-import-to=scipy.io",  # Don't include scipy.io (optional)
+        "--nofollow-import-to=scipy",  # Don't include scipy (using numpy only)
         "--nofollow-import-to=pandas",  # Don't include pandas (optional)
+        "--nofollow-import-to=dask",  # Don't include dask (heavy data processing library)
+        "--nofollow-import-to=numba",  # Don't include numba (JIT compiler, optional)
+        "--nofollow-import-to=sympy",  # Don't include sympy (symbolic math)
+        "--nofollow-import-to=networkx",  # Don't include networkx (graph algorithms)
+        "--nofollow-import-to=h5py",  # Don't include h5py (HDF5 files)
+        "--nofollow-import-to=setuptools",  # Don't include setuptools (build tools)
+        "--nofollow-import-to=wheel",  # Don't include wheel (build tools)
+        "--nofollow-import-to=pip",  # Don't include pip (package manager)
+        "--nofollow-import-to=docutils",  # Don't include docutils (documentation)
+        "--nofollow-import-to=jinja2",  # Don't include jinja2 (templating)
+        "--nofollow-import-to=torch.distributed",  # Don't include distributed training
+        "--nofollow-import-to=torchvision.models",  # Don't include large pre-trained models
+        "--nofollow-import-to=torchvision.transforms",  # Don't include transforms (using cv2)
         "--show-progress",  # Show compilation progress
         "--low-memory",  # Reduce memory usage during compilation
         "main.py"
@@ -109,7 +121,7 @@ def build_with_nuitka():
     print("Subsequent builds: 1-3 minutes (ccache only recompiles changed files!)")
     print("Nuitka compiles Python to C code for maximum protection!")
     print("Building STANDALONE mode: All files in one folder (includes injection/tools)")
-    print("\n⚠️  NEW PACKAGES: EasyOCR + PyTorch + torchvision")
+    print("\n[WARNING] NEW PACKAGES: EasyOCR + PyTorch + torchvision")
     print("   - Executable size will be significantly larger (500-800 MB)")
     print("   - First run requires internet to download EasyOCR models")
     print("   - GPU acceleration supported if CUDA drivers installed\n")
