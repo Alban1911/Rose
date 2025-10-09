@@ -71,7 +71,6 @@ def build_with_nuitka():
         "--enable-plugin=tk-inter",  # Tkinter support (for PIL)
         "--enable-plugin=anti-bloat",  # Reduce size
         # f"--windows-icon-from-ico=icon.ico",  # Application icon (disabled - antivirus blocks it)
-        "--include-data-dir=dependencies=dependencies",  # Include dependencies
         "--include-data-dir=injection/tools=injection/tools",  # Include CSLOL tools
         "--include-data-file=injection/mods_map.json=injection/mods_map.json",
         "--include-data-file=icon.ico=icon.ico",
