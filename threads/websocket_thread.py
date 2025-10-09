@@ -17,6 +17,7 @@ from database.name_db import NameDB
 from state.shared_state import SharedState
 from threads.loadout_ticker import LoadoutTicker
 from utils.logging import get_logger
+from utils.chroma_selector import get_chroma_selector
 from constants import (
     WS_PING_INTERVAL_DEFAULT, WS_PING_TIMEOUT_DEFAULT, WS_RECONNECT_DELAY,
     WS_PROBE_ITERATIONS, WS_PROBE_SLEEP_MS, TIMER_HZ_DEFAULT,
@@ -239,6 +240,26 @@ class WSEventThread(threading.Thread):
                             self.injection_manager.on_champion_locked(champ_label, ch, self.state.owned_skin_ids)
                         except Exception as e:
                             log.error(f"[lock:champ] Failed to notify injection manager: {e}")
+                    
+                    # Create chroma wheel widgets on champion lock
+                    chroma_selector = get_chroma_selector()
+                    if chroma_selector:
+                        try:
+                            chroma_selector.wheel.request_create()
+                            log.debug(f"[lock:champ] Requested chroma wheel creation for {champ_label}")
+                            
+                            # Download chroma previews for this champion if not already done
+                            from utils.chroma_preview_manager import get_preview_manager
+                            preview_manager = get_preview_manager()
+                            
+                            def download_previews():
+                                preview_manager.download_champion_previews(champ_label)
+                            
+                            import threading
+                            threading.Thread(target=download_previews, daemon=True, name="ChromaPreviewDownload").start()
+                            
+                        except Exception as e:
+                            log.error(f"[lock:champ] Failed to request chroma wheel creation: {e}")
             
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)

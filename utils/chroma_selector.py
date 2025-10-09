@@ -85,39 +85,33 @@ class ChromaSelector:
             log.debug(f"[CHROMA] Error checking chromas for skin {skin_id}: {e}")
             return False
     
-    def show_for_skin(self, skin_id: int, skin_name: str):
+    def show_button_for_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
         """
-        Show chroma wheel for a skin (called immediately when OCR detects it)
+        Show button for a skin (called when OCR detects unowned skin with chromas)
         
         Args:
-            skin_id: Skin ID to show chromas for
+            skin_id: Skin ID to show button for
             skin_name: Display name of the skin
+            champion_name: Champion name for direct path to chromas folder
         """
         with self.lock:
-            # Don't show if already showing for this skin
-            if self.current_skin_id == skin_id and self.state.pending_chroma_selection:
-                return
-            
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
             
             if not chromas or len(chromas) == 0:
                 log.debug(f"[CHROMA] No chromas found for skin {skin_id}")
+                self.hide()
                 return
             
-            log.info(f"[CHROMA] Showing wheel for {skin_name} ({len(chromas)} chromas)")
+            # Update button for this skin
+            log.debug(f"[CHROMA] Updating button for {skin_name} ({len(chromas)} chromas)")
             
             self.current_skin_id = skin_id
-            self.state.pending_chroma_selection = True
             
-            # Reset to base by default
-            self.state.selected_chroma_id = None
-            
-            # Show the wheel
+            # Show the button (not the wheel)
             try:
-                self.wheel.show(skin_name, chromas)
+                self.wheel.show_button_for_skin(skin_id, skin_name, chromas, champion_name)
             except Exception as e:
-                log.error(f"[CHROMA] Failed to show wheel: {e}")
-                self.state.pending_chroma_selection = False
+                log.error(f"[CHROMA] Failed to show button: {e}")
     
     def hide(self):
         """Hide the chroma wheel and reopen button"""

@@ -7,11 +7,13 @@ Much more efficient than individual API calls
 """
 
 import os
+import re
 import zipfile
 import tempfile
 import requests
 from pathlib import Path
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 
@@ -84,8 +86,10 @@ class RepoDownloader:
                 
                 log.info(f"Found {len(skins_files)} skin files in repository")
                 
-                # Extract only the skins files
+                # Extract only the skins files AND chroma READMEs
                 extracted_count = 0
+                readme_count = 0
+                
                 for file_info in skins_files:
                     try:
                         # Skip directories
@@ -95,8 +99,12 @@ class RepoDownloader:
                         # Remove the 'lol-skins-main/' prefix from the path
                         relative_path = file_info.filename.replace('lol-skins-main/', '')
                         
-                        # Skip if it's not a zip file
-                        if not relative_path.endswith('.zip'):
+                        # Check if it's a zip file or a README in chromas directory
+                        is_zip = relative_path.endswith('.zip')
+                        is_chroma_readme = 'chromas/' in relative_path and relative_path.endswith('README.md')
+                        
+                        # Skip if it's neither a zip nor a chroma README
+                        if not is_zip and not is_chroma_readme:
                             continue
                         
                         # Remove the 'skins/' prefix since target_dir is already the skins directory
@@ -116,13 +124,19 @@ class RepoDownloader:
                             with open(extract_path, 'wb') as target:
                                 target.write(source.read())
                         
-                        extracted_count += 1
+                        if is_chroma_readme:
+                            readme_count += 1
+                        else:
+                            extracted_count += 1
                         
                     except Exception as e:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
                 
-                log.info(f"Extracted {extracted_count} skin files")
-                return extracted_count > 0
+                log.info(f"Extracted {extracted_count} skin files and {readme_count} chroma READMEs")
+                
+                # Don't download previews here - will be done on-demand when champion is locked
+                
+                return extracted_count > 0 or readme_count > 0
                 
         except zipfile.BadZipFile:
             log.error("Invalid ZIP file")
@@ -171,6 +185,7 @@ class RepoDownloader:
             log.error(f"Failed to download and extract skins: {e}")
             return False
     
+    
     def get_skin_stats(self) -> dict:
         """Get statistics about downloaded skins"""
         if not self.target_dir.exists():
@@ -198,7 +213,7 @@ def download_skins_from_repo(target_dir: Path = None, force_update: bool = False
         if total_current > 0:
             log.info(f"Found {total_current} existing skins across {len(current_stats)} champions")
         
-        # Download and extract skins
+        # Download and extract skins (includes chroma preview download)
         success = downloader.download_and_extract_skins(force_update)
         
         if success:
@@ -211,6 +226,9 @@ def download_skins_from_repo(target_dir: Path = None, force_update: bool = False
                 log.info(f"Downloaded {new_skins} new skins from repository")
             else:
                 log.info("No new skins to download")
+            
+            # Log completion
+            log.info("✓ Repository download and chroma preview caching complete")
         
         return success
         

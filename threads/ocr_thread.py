@@ -61,20 +61,45 @@ class OCRSkinThread(threading.Thread):
     def _trigger_chroma_wheel(self, skin_id: int, skin_name: str):
         """Trigger chroma wheel display if skin has chromas and skin is not owned"""
         try:
-            # Don't re-show for same skin
-            if skin_id == self.last_chroma_wheel_skin_id:
-                return
-            
-            # Don't show if user owns the skin
-            if skin_id in self.state.owned_skin_ids:
-                log.debug(f"[CHROMA] Skipping wheel - skin is owned (ID: {skin_id})")
-                return
-            
             chroma_selector = get_chroma_selector()
-            if chroma_selector and chroma_selector.should_show_chroma_wheel(skin_id):
-                log.debug(f"[CHROMA] Triggering wheel for {skin_name} (ID: {skin_id})")
+            if not chroma_selector:
+                return
+            
+            # Load owned skins on-demand if not already loaded
+            if len(self.state.owned_skin_ids) == 0 and self.lcu and self.lcu.ok:
+                try:
+                    owned_skins = self.lcu.owned_skins()
+                    if owned_skins and isinstance(owned_skins, list):
+                        self.state.owned_skin_ids = set(owned_skins)
+                        log.debug(f"[CHROMA] Loaded {len(self.state.owned_skin_ids)} owned skins on-demand")
+                except Exception as e:
+                    log.debug(f"[CHROMA] Failed to load owned skins: {e}")
+            
+            # Check if user owns the skin
+            is_owned = skin_id in self.state.owned_skin_ids
+            log.info(f"[CHROMA] Ownership: skin_id={skin_id}, owned={is_owned}, total_owned={len(self.state.owned_skin_ids)}")
+            
+            if is_owned:
+                log.info(f"[CHROMA] Hiding wheel/button - skin IS owned")
+                chroma_selector.hide()  # This hides both wheel and button
+                self.last_chroma_wheel_skin_id = None  # Reset to allow re-checking
+                return
+            
+            # Always update button when switching skins (don't skip re-showing)
+            # This ensures button always shows the correct skin's chromas
+            if chroma_selector.should_show_chroma_wheel(skin_id):
+                log.info(f"[CHROMA] Showing button - skin is NOT owned")
                 self.last_chroma_wheel_skin_id = skin_id
-                chroma_selector.show_for_skin(skin_id, skin_name)
+                
+                # Get champion name for direct path to chromas
+                champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+                champion_name = self.db.champ_name_by_id.get(champ_id) if champ_id and self.db else None
+                
+                chroma_selector.show_button_for_skin(skin_id, skin_name, champion_name)
+            else:
+                # No chromas, hide button
+                log.debug(f"[CHROMA] Skin has no chromas, hiding button")
+                chroma_selector.hide()
         except Exception as e:
             log.debug(f"[CHROMA] Error triggering wheel: {e}")
 
