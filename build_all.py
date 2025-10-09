@@ -27,7 +27,7 @@ def print_step(step_num, total_steps, description):
 
 def run_build_exe():
     """Run the build_nuitka.py script"""
-    print_step(1, 2, "Building Executable with Nuitka (Python to C Compiler)")
+    print_step(1, 3, "Building Executable with Nuitka (Python to C Compiler)")
     
     # Run build_nuitka.py as a subprocess
     result = subprocess.run(
@@ -52,7 +52,7 @@ def run_build_exe():
 
 def run_create_installer():
     """Run the create_installer.py script"""
-    print_step(2, 2, "Creating Windows Installer with Inno Setup")
+    print_step(2, 3, "Creating Windows Installer with Inno Setup")
     
     # Run create_installer.py as a subprocess
     result = subprocess.run(
@@ -76,6 +76,28 @@ def run_create_installer():
     return True
 
 
+def ensure_cuda_pytorch():
+    """Ensure CUDA-enabled PyTorch is installed"""
+    print_step(0, 3, "Verifying CUDA-enabled PyTorch Installation")
+    
+    # Run ensure_cuda_pytorch.py as a subprocess
+    result = subprocess.run(
+        [sys.executable, "ensure_cuda_pytorch.py"],
+        capture_output=False,  # Show output in real-time
+        text=True
+    )
+    
+    if result.returncode != 0:
+        print("\n[ERROR] Failed to ensure CUDA PyTorch is installed!")
+        print("\nThe build requires CUDA-enabled PyTorch to support GPU acceleration.")
+        print("Please install it manually:")
+        print("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
+        return False
+    
+    print("\n[OK] CUDA PyTorch verification completed!")
+    return True
+
+
 def build_all():
     """Complete build process: executable + installer"""
     
@@ -83,9 +105,20 @@ def build_all():
     
     start_time = time.time()
     
+    # Step 0: Ensure CUDA PyTorch is installed
+    if not ensure_cuda_pytorch():
+        print_header("[FAILED] BUILD FAILED AT STEP 0/3")
+        print("CUDA-enabled PyTorch is required for the build.")
+        print("\nTroubleshooting:")
+        print("1. Install CUDA PyTorch manually:")
+        print("   pip uninstall torch torchvision")
+        print("   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
+        print("2. Run the build again")
+        return False
+    
     # Step 1: Build executable
     if not run_build_exe():
-        print_header("[FAILED] BUILD FAILED AT STEP 1/2")
+        print_header("[FAILED] BUILD FAILED AT STEP 1/3")
         print("The executable build failed. Please check the errors above.")
         print("\nTroubleshooting:")
         print("1. Make sure all dependencies are installed:")
@@ -96,7 +129,7 @@ def build_all():
     
     # Step 2: Create installer
     if not run_create_installer():
-        print_header("[WARNING] BUILD PARTIALLY COMPLETED (1/2)")
+        print_header("[WARNING] BUILD PARTIALLY COMPLETED (2/3)")
         print("Executable was built successfully, but installer creation failed.")
         print("\nYou can still use the executable directly from:")
         print("  dist/SkinCloner/SkinCloner.exe")

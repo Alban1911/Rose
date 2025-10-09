@@ -51,30 +51,12 @@ ROI_PROPORTIONS = {
 # IMAGE PROCESSING CONSTANTS
 # =============================================================================
 
-# Band detection for text location
-BAND_CENTER_PCT = (62.0, 6.5)    # Center position and height percentage
-BAND_SPAN_PCT = (52.0, 70.0)     # Vertical scan range percentage
-BAND_CANDIDATES_STEPS = 9        # Number of scan positions to try
-BAND_MIN_HEIGHT = 24             # Minimum band height in pixels
-
-# Text detection regions (percentages of width)
-TEXT_DETECTION_LEFT_PCT = 28.0   # Left boundary for text search
-TEXT_DETECTION_RIGHT_PCT = 72.0  # Right boundary for text search
-
-# HSV color ranges for white text detection
+# HSV color ranges for white text detection (used in hardcoded ROI processing)
 WHITE_TEXT_HSV_LOWER = [0, 0, 200]     # Lower HSV bound for white text
 WHITE_TEXT_HSV_UPPER = [179, 70, 255]  # Upper HSV bound for white text
 
-# Edge detection (Canny algorithm)
-CANNY_THRESHOLD_LOW = 40
-CANNY_THRESHOLD_HIGH = 120
-
-# Scoring weights for text detection
-SCORE_WEIGHT_MASK = 0.6      # Weight for HSV mask in text scoring
-SCORE_WEIGHT_EDGES = 0.4     # Weight for edge detection in text scoring
-
-# Upscaling threshold
-IMAGE_UPSCALE_THRESHOLD = 120  # Upscale if band height < this value
+# Upscaling threshold for small ROI images
+IMAGE_UPSCALE_THRESHOLD = 120  # Upscale if ROI height < this value
 
 
 # =============================================================================

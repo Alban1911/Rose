@@ -12,7 +12,7 @@ from typing import Optional, Tuple
 import numpy as np
 import cv2
 from ocr.backend import OCR
-from ocr.image_processing import choose_band, preprocess_band_for_ocr
+from ocr.image_processing import preprocess_band_for_ocr
 from database.name_db import NameDB
 from state.shared_state import SharedState
 from lcu.client import LCU

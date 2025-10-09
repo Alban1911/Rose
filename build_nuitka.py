@@ -223,9 +223,49 @@ if errorlevel 1 (
     
     return True
 
+def check_pytorch_cuda():
+    """Check if CUDA-enabled PyTorch is installed"""
+    try:
+        import torch
+        version = torch.__version__
+        is_cpu_only = '+cpu' in version or not hasattr(torch.version, 'cuda') or torch.version.cuda is None
+        
+        if is_cpu_only:
+            print("\n" + "!" * 70)
+            print("  WARNING: CPU-only PyTorch detected!")
+            print("!" * 70)
+            print(f"\nCurrent PyTorch version: {version}")
+            print("\nThe executable will NOT support GPU acceleration!")
+            print("All users will be forced to use CPU-only mode.")
+            print("\nTo build with GPU support, install CUDA-enabled PyTorch:")
+            print("  pip uninstall torch torchvision")
+            print("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
+            print("\nAlternatively, run: python ensure_cuda_pytorch.py")
+            print("\n" + "!" * 70)
+            
+            response = input("\nContinue with CPU-only build? (y/N): ").strip().lower()
+            if response != 'y':
+                print("\n[CANCELLED] Build cancelled.")
+                print("Please install CUDA PyTorch and try again.")
+                sys.exit(1)
+        else:
+            print(f"\n[OK] CUDA-enabled PyTorch: {version}")
+            if hasattr(torch.version, 'cuda') and torch.version.cuda:
+                print(f"[OK] Built for CUDA: {torch.version.cuda}")
+            print("[OK] Executable will support GPU acceleration!\n")
+    except ImportError:
+        print("\n[ERROR] PyTorch not installed!")
+        print("\nPlease install PyTorch first:")
+        print("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
+        sys.exit(1)
+
+
 def main():
     """Main build process"""
     print_header("SkinCloner - Nuitka Build (Python to C Compilation)")
+    
+    # Check PyTorch CUDA support
+    check_pytorch_cuda()
     
     # Check if Nuitka is installed
     try:
