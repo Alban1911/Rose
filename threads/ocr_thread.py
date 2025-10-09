@@ -19,6 +19,7 @@ from lcu.client import LCU
 from utils.normalization import normalize_text, levenshtein_score
 from utils.logging import get_logger
 from utils.window_utils import find_league_window_rect, get_league_window_client_size, is_league_window_active
+from utils.chroma_selector import get_chroma_selector
 from constants import *
 
 log = get_logger()
@@ -53,6 +54,29 @@ class OCRSkinThread(threading.Thread):
         # Window state (no cache needed - client area detection is fast)
         self.last_window_log_time = 0.0
         self.window_log_interval = OCR_WINDOW_LOG_INTERVAL
+        
+        # Last skin shown for chroma wheel (to avoid re-showing)
+        self.last_chroma_wheel_skin_id = None
+    
+    def _trigger_chroma_wheel(self, skin_id: int, skin_name: str):
+        """Trigger chroma wheel display if skin has chromas and skin is not owned"""
+        try:
+            # Don't re-show for same skin
+            if skin_id == self.last_chroma_wheel_skin_id:
+                return
+            
+            # Don't show if user owns the skin
+            if skin_id in self.state.owned_skin_ids:
+                log.debug(f"[CHROMA] Skipping wheel - skin is owned (ID: {skin_id})")
+                return
+            
+            chroma_selector = get_chroma_selector()
+            if chroma_selector and chroma_selector.should_show_chroma_wheel(skin_id):
+                log.debug(f"[CHROMA] Triggering wheel for {skin_name} (ID: {skin_id})")
+                self.last_chroma_wheel_skin_id = skin_id
+                chroma_selector.show_for_skin(skin_id, skin_name)
+        except Exception as e:
+            log.debug(f"[CHROMA] Error triggering wheel: {e}")
 
     def _get_window_rect(self) -> Optional[Tuple[int, int, int, int]]:
         """Get League window rectangle - CLIENT AREA ONLY"""
@@ -404,6 +428,10 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_champ_slug = champ_slug
                         self.state.last_hovered_skin_id = skin_id
                         self.state.hovered_skin_timestamp = time.time()
+                        
+                        # Show chroma wheel if skin has chromas
+                        if not is_base:
+                            self._trigger_chroma_wheel(skin_id, skin_name)
                     return
         
         # STANDARD PIPELINE: Use LCU scraper + English DB matching (for non-English)
@@ -436,6 +464,10 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_key = english_skin_name
                         self.state.last_hovered_skin_slug = champ_slug
                         self.last_key = skin_key
+                        
+                        # Show chroma wheel if skin has chromas
+                        if not is_base:
+                            self._trigger_chroma_wheel(skin_id, english_skin_name)
                 else:
                     log.debug(f"[ocr] Matched skin {skin_name_client_lang} (ID: {skin_id}) but not found in English DB")
             
@@ -496,4 +528,7 @@ class OCRSkinThread(threading.Thread):
                 self.state.last_hovered_skin_key = best_skin_name
                 self.state.last_hovered_skin_id = best_entry.skin_id
                 self.state.last_hovered_skin_slug = best_entry.champ_slug
+                
+                # Show chroma wheel if skin has chromas
+                self._trigger_chroma_wheel(best_entry.skin_id, best_skin_name)
             self.last_key = best_entry.key

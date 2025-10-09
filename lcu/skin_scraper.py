@@ -16,9 +16,10 @@ class ChampionSkinCache:
     def __init__(self):
         self.champion_id = None
         self.champion_name = None
-        self.skins = []  # List of {skinId, skinName, isBase, chromas}
+        self.skins = []  # List of {skinId, skinName, isBase, chromas, chromaDetails}
         self.skin_id_map = {}  # skinId -> skin data
         self.skin_name_map = {}  # skinName -> skin data
+        self.chroma_id_map = {}  # chromaId -> chroma data (for quick lookup)
     
     def clear(self):
         """Clear the cache"""
@@ -27,6 +28,7 @@ class ChampionSkinCache:
         self.skins = []
         self.skin_id_map = {}
         self.skin_name_map = {}
+        self.chroma_id_map = {}
     
     def is_loaded_for_champion(self, champion_id: int) -> bool:
         """Check if cache is loaded for a specific champion"""
@@ -113,12 +115,39 @@ class LCUSkinScraper:
             if skin_id is None or not skin_name:
                 continue
             
+            # Extract detailed chroma information
+            raw_chromas = skin.get('chromas', [])
+            chroma_details = []
+            
+            for chroma in raw_chromas:
+                chroma_id = chroma.get('id')
+                chroma_name = chroma.get('name', '')
+                
+                if chroma_id is None:
+                    continue
+                
+                # Extract color palette from chroma
+                colors = chroma.get('colors', [])
+                chroma_path = chroma.get('chromaPath', '')
+                
+                chroma_info = {
+                    'id': chroma_id,
+                    'name': chroma_name,
+                    'colors': colors,
+                    'chromaPath': chroma_path,
+                    'skinId': skin_id
+                }
+                
+                chroma_details.append(chroma_info)
+                self.cache.chroma_id_map[chroma_id] = chroma_info
+            
             skin_data = {
                 'skinId': skin_id,
                 'championId': champion_id,
                 'skinName': skin_name,
                 'isBase': skin.get('isBase', False),
-                'chromas': len(skin.get('chromas', [])),
+                'chromas': len(raw_chromas),
+                'chromaDetails': chroma_details,  # Full chroma data
                 'num': skin.get('num', 0)  # Skin number (0 = base)
             }
             
@@ -195,4 +224,29 @@ class LCUSkinScraper:
     def get_cached_champion_id(self) -> Optional[int]:
         """Get the ID of the currently cached champion"""
         return self.cache.champion_id
+    
+    def get_chromas_for_skin(self, skin_id: int) -> Optional[list]:
+        """Get chroma details for a specific skin
+        
+        Args:
+            skin_id: Skin ID to get chromas for
+            
+        Returns:
+            List of chroma dicts with 'id', 'name', 'colors', 'chromaPath', or None if not found
+        """
+        skin_data = self.cache.get_skin_by_id(skin_id)
+        if skin_data:
+            return skin_data.get('chromaDetails', [])
+        return None
+    
+    def get_chroma_by_id(self, chroma_id: int) -> Optional[dict]:
+        """Get chroma data by chroma ID
+        
+        Args:
+            chroma_id: Chroma ID to look up
+            
+        Returns:
+            Chroma dict or None if not found
+        """
+        return self.cache.chroma_id_map.get(chroma_id)
 

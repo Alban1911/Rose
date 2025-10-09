@@ -110,13 +110,57 @@ class SkinInjector:
                 log.error(f"[INJECTOR] Missing tool: {exe}")
         return tools
     
-    def _resolve_zip(self, zip_arg: str) -> Path | None:
-        """Resolve a ZIP by name or path with fuzzy matching"""
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None) -> Path | None:
+        """Resolve a ZIP by name or path with fuzzy matching, supporting chroma subdirectories
+        
+        Args:
+            zip_arg: Skin name or path to search for
+            chroma_id: Optional chroma ID to look for in chromas subdirectory
+            skin_name: Optional base skin name for chroma lookup
+        """
         cand = Path(zip_arg)
         if cand.exists():
             return cand
 
         self.zips_dir.mkdir(parents=True, exist_ok=True)
+
+        # If chroma_id is provided, look in chromas subdirectory structure
+        # Structure: skins/{Champion}/chromas/{SkinName}/{SkinName} {ChromaId}.zip
+        if chroma_id is not None and skin_name:
+            # Try to find chroma file by ID in subdirectory structure
+            chroma_pattern = f"{skin_name} {chroma_id}.zip"
+            
+            # Search for chroma in subdirectories
+            chroma_files = list(self.zips_dir.rglob(f"chromas/*/{chroma_pattern}"))
+            if chroma_files:
+                log.info(f"Injector: Found chroma by ID: {chroma_files[0]}")
+                return chroma_files[0]
+            
+            # Also try without space
+            chroma_pattern_nospace = f"{skin_name}{chroma_id}.zip"
+            chroma_files = list(self.zips_dir.rglob(f"chromas/*/{chroma_pattern_nospace}"))
+            if chroma_files:
+                log.info(f"Injector: Found chroma by ID (no space): {chroma_files[0]}")
+                return chroma_files[0]
+            
+            # Try with normalized skin name
+            def _norm(s: str) -> str:
+                return "".join(ch.lower() for ch in s if ch.isalnum())
+            
+            skin_norm = _norm(skin_name)
+            
+            # Search all chroma directories for files containing the chroma ID
+            all_chroma_zips = list(self.zips_dir.rglob("chromas/*/*.zip"))
+            for zp in all_chroma_zips:
+                # Check if filename contains chroma ID
+                if str(chroma_id) in zp.stem:
+                    # Verify it's for the right skin by checking directory or filename
+                    if skin_norm in _norm(zp.parent.name) or skin_norm in _norm(zp.stem):
+                        log.info(f"Injector: Found chroma by ID search: {zp}")
+                        return zp
+            
+            log.warning(f"Injector: Chroma file not found for '{skin_name}' with ID {chroma_id}")
+            log.debug(f"Injector: Expected path like: skins/.../chromas/{skin_name}/{skin_name} {chroma_id}.zip")
 
         def _norm(s: str) -> str:
             return "".join(ch.lower() for ch in s if ch.isalnum())
@@ -400,22 +444,23 @@ class SkinInjector:
             log.error(f"Injector: Failed to create mkoverlay command: {e}")
             return -1
     
-    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None) -> bool:
-        """Inject a single skin
+    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None, chroma_id: int = None) -> bool:
+        """Inject a single skin (with optional chroma)
         
         Args:
             skin_name: Name of skin to inject
             timeout: Timeout for injection process
             stop_callback: Callback to check if injection should stop
             injection_manager: InjectionManager instance to call resume_game()
+            chroma_id: Optional chroma ID to inject specific chroma variant
         """
         injection_start_time = time.time()
         
         # Game suspension is now handled entirely by the monitor in InjectionManager
         # No need for a separate GameMonitor thread
         
-        # Find the skin ZIP
-        zp = self._resolve_zip(skin_name)
+        # Find the skin ZIP (with chroma support)
+        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=skin_name)
         if not zp:
             log.error(f"Injector: Skin '{skin_name}' not found in {self.zips_dir}")
             avail = list(self.zips_dir.rglob('*.zip'))

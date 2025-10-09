@@ -50,7 +50,18 @@ from utils.logging import setup_logging, get_logger
 from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
+from utils.chroma_selector import init_chroma_selector
 from constants import *
+
+# Import PyQt6 for chroma wheel
+try:
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QTimer
+    PYQT6_AVAILABLE = True
+except ImportError:
+    PYQT6_AVAILABLE = False
+    log = get_logger()
+    log.warning("PyQt6 not available - chroma wheel will be disabled")
 
 log = get_logger()
 
@@ -325,6 +336,46 @@ def main():
     
     # Load owned skins if LCU is already connected
     state = SharedState()
+    
+    # Initialize PyQt6 QApplication for chroma wheel (must be done early)
+    qt_app = None
+    chroma_selector = None
+    
+    if PYQT6_AVAILABLE:
+        try:
+            # Suppress DPI warning by setting high DPI scaling before Qt initializes
+            import os
+            os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
+            os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
+            
+            # Try to get existing QApplication or create new one
+            existing_app = QApplication.instance()
+            if existing_app is None:
+                # Create new QApplication with minimal arguments
+                import sys
+                qt_app = QApplication([sys.argv[0]])
+                log.info("PyQt6 QApplication created for chroma wheel")
+            else:
+                qt_app = existing_app
+                log.info("Using existing QApplication instance for chroma wheel")
+            
+            # Initialize chroma selector
+            try:
+                chroma_selector = init_chroma_selector(skin_scraper, state)
+                # Initialize the wheel in main thread
+                if chroma_selector and chroma_selector.wheel:
+                    chroma_selector.wheel.initialize()
+                    log.info("Chroma wheel initialized successfully")
+            except Exception as e:
+                log.warning(f"Failed to initialize chroma wheel: {e}")
+                log.warning("Chroma selection will be disabled, but app will continue")
+                chroma_selector = None
+                
+        except Exception as e:
+            log.warning(f"Failed to initialize PyQt6: {e}")
+            log.warning("Chroma wheel will be disabled, but app will continue normally")
+            qt_app = None
+            chroma_selector = None
     # Owned skins will be loaded when WebSocket connects (no need to load at startup)
     
     # Initialize OCR language (will be updated when LCU connects)
@@ -485,6 +536,19 @@ def main():
             ph = state.phase
             if ph != last_phase:
                 last_phase = ph
+            
+            # Process Qt events if available (process ALL pending events)
+            if qt_app:
+                try:
+                    # Process pending chroma wheel requests first
+                    if chroma_selector and chroma_selector.wheel:
+                        chroma_selector.wheel.process_pending()
+                    
+                    # Process all Qt events
+                    qt_app.processEvents()
+                except Exception as e:
+                    log.debug(f"Qt event processing error: {e}")
+            
             time.sleep(MAIN_LOOP_SLEEP)
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

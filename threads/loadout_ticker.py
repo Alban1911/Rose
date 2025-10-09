@@ -189,6 +189,14 @@ class LoadoutTicker(threading.Thread):
                         # Inject if user doesn't own the hovered skin
                         elif self.injection_manager:
                             try:
+                                # Get selected chroma ID from state (already selected via wheel shown by OCR)
+                                selected_chroma_id = self.state.selected_chroma_id
+                                
+                                if selected_chroma_id:
+                                    log.info(f"[inject] Using selected chroma ID: {selected_chroma_id}")
+                                else:
+                                    log.debug(f"[inject] No chroma selected, using base skin")
+                                
                                 # Force base skin selection via LCU before injecting
                                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                                 if champ_id and lcu_skin_id is not None and lcu_skin_id != (champ_id * 1000):
@@ -266,7 +274,11 @@ class LoadoutTicker(threading.Thread):
                                 
                                 def run_injection():
                                     try:
-                                        success = self.injection_manager.inject_skin_immediately(name, stop_callback=game_ended_callback)
+                                        success = self.injection_manager.inject_skin_immediately(
+                                            name, 
+                                            stop_callback=game_ended_callback,
+                                            chroma_id=selected_chroma_id
+                                        )
                                         
                                         # Set flag to prevent OCR from restarting (even if processes errored)
                                         self.state.injection_completed = True

@@ -44,3 +44,7 @@ class SharedState:
     skin_write_ms: int = 2000
     injection_completed: bool = False  # Flag to prevent OCR restart after injection
     inject_batch: Optional[str] = None
+    
+    # Chroma selection
+    selected_chroma_id: Optional[int] = None  # Selected chroma ID (None = base skin)
+    pending_chroma_selection: bool = False  # Flag to indicate chroma wheel is open
