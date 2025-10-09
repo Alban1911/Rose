@@ -511,21 +511,34 @@ class ReopenButton(QWidget):
         center = self.button_size // 2
         outer_radius = (self.button_size // 2) - 3  # Leave small margin
         
-        # Calculate radii based on official design ratios (as percentages of button size)
-        # Official ratios: Golden border 7%, Dark border 2.5%, Gradient ring 20%, Central disk 44%
-        button_diameter = self.button_size - 6  # Account for margin
-        gold_border_width = int(button_diameter * 0.07)  # 7% of button size
-        dark_border_width = int(button_diameter * 0.025)  # 2.5% of button size  
-        gradient_ring_width = int(button_diameter * 0.20)  # 20% of button size
-        central_disk_radius = int(button_diameter * 0.44 / 2)  # 44% diameter = 22% radius
+        # Calculate ratios from official button measurements and scale to current button
+        # Official measurements: 2px gold, 1px trans, 2px dark, 1px trans, 4px gradient, 1px trans, 5px inner
+        # Total official radius = 2+1+2+1+4+1+2.5 = 13.5px (assuming ~15px total radius for official button)
         
-        # Calculate actual radii from outside in
+        # Calculate scale factor based on current button size
+        # Current button: 60px total, 6px margin = 54px usable = 27px radius
+        # Scale factor = current_radius / official_radius = 27 / 15 = 1.8
+        scale_factor = outer_radius / 15.0  # Scale from official button size
+        
+        # Apply ratios scaled to current button size
+        gold_border_width = int(2 * scale_factor)
+        transition1_width = int(1 * scale_factor)
+        dark_border_width = int(2 * scale_factor)
+        transition2_width = int(1 * scale_factor)
+        gradient_ring_width = int(4 * scale_factor)
+        transition3_width = int(1 * scale_factor)
+        inner_disk_radius = 2.5 * scale_factor  # 5px diameter / 2, scaled
+        
+        # Calculate actual radii from outside in (starting from outer_radius)
         outer_gold_radius = outer_radius
         inner_gold_radius = outer_radius - gold_border_width
-        inner_dark_radius = inner_gold_radius - dark_border_width
-        gradient_outer_radius = inner_dark_radius
+        after_transition1_radius = inner_gold_radius - transition1_width
+        inner_dark_radius = after_transition1_radius - dark_border_width
+        after_transition2_radius = inner_dark_radius - transition2_width
+        gradient_outer_radius = after_transition2_radius
         gradient_inner_radius = gradient_outer_radius - gradient_ring_width
-        inner_radius = central_disk_radius  # Central dark disk
+        after_transition3_radius = gradient_inner_radius - transition3_width
+        inner_radius = inner_disk_radius  # Central dark disk
         
         # Glow effect on hover (subtle outer glow)
         if self.is_hovered:
@@ -543,22 +556,22 @@ class ReopenButton(QWidget):
         painter.setBrush(QBrush(gold_gradient))
         painter.drawEllipse(QPoint(center, center), outer_gold_radius, outer_gold_radius)
         
-        # 2. Dark border ring (1% of button size) - between gold and gradient
+        # 2. Dark border ring (2px width) - between gold and gradient
         # Create a thin dark ring using QPainterPath
         dark_border_path = QPainterPath()
-        # Add outer circle (inner_dark_radius)
-        dark_border_path.addEllipse(center - inner_dark_radius, center - inner_dark_radius, 
-                                   inner_dark_radius * 2, inner_dark_radius * 2)
-        # Add inner circle (gradient_outer_radius) to be subtracted
-        dark_border_path.addEllipse(center - gradient_outer_radius, center - gradient_outer_radius, 
-                                   gradient_outer_radius * 2, gradient_outer_radius * 2)
+        # Add outer circle (after_transition1_radius)
+        dark_border_path.addEllipse(center - after_transition1_radius, center - after_transition1_radius, 
+                                   after_transition1_radius * 2, after_transition1_radius * 2)
+        # Add inner circle (after_transition2_radius) to be subtracted
+        dark_border_path.addEllipse(center - after_transition2_radius, center - after_transition2_radius, 
+                                   after_transition2_radius * 2, after_transition2_radius * 2)
         dark_border_path.setFillRule(Qt.FillRule.OddEvenFill)  # Subtract inner from outer
         
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(20, 20, 20)))  # Dark border
         painter.drawPath(dark_border_path)
         
-        # 3. Rainbow gradient ring (16% of button size) - yellow starts at top
+        # 3. Rainbow gradient ring (4px width) - yellow starts at top
         # Draw gradient as outer circle, then cut out the inner part with dark color
         rainbow_gradient = QConicalGradient(center, center, CHROMA_WHEEL_CONICAL_START_ANGLE)  # Start angle to position colors
         rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
@@ -575,12 +588,14 @@ class ReopenButton(QWidget):
         
         # Cut out the inner part of the gradient ring to create the ring shape
         painter.setBrush(QBrush(QColor(20, 20, 20)))  # Same dark color as center
-        painter.drawEllipse(QPoint(center, center), gradient_inner_radius, gradient_inner_radius)
+        painter.drawEllipse(center - int(gradient_inner_radius), center - int(gradient_inner_radius), 
+                           int(gradient_inner_radius) * 2, int(gradient_inner_radius) * 2)
         
-        # 4. Dark central disk (52% diameter = 26% radius)
+        # 4. Dark central disk (5px diameter = 2.5px radius)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(20, 20, 20)))  # Very dark center
-        painter.drawEllipse(QPoint(center, center), inner_radius, inner_radius)
+        painter.drawEllipse(center - int(inner_radius), center - int(inner_radius), 
+                           int(inner_radius) * 2, int(inner_radius) * 2)
     
     def mousePressEvent(self, event):
         """Handle button click"""
