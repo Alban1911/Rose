@@ -51,6 +51,93 @@ if is_windows():
             return None
         return r.left, r.top, r.right, r.bottom
 
+    # Cache for League window handle (for fast position updates)
+    _league_window_handle_cache = None
+    _league_window_cache_time = 0.0
+    _LEAGUE_WINDOW_CACHE_DURATION = 0.1  # Cache for 100ms
+    
+    def get_league_window_handle() -> Optional[int]:
+        """
+        Get cached League window handle (fast for repeated calls)
+        
+        Returns:
+            Window handle (HWND) or None if not found
+        """
+        global _league_window_handle_cache, _league_window_cache_time
+        
+        current_time = time.time()
+        
+        # Return cached handle if still valid
+        if (_league_window_handle_cache is not None and 
+            current_time - _league_window_cache_time < _LEAGUE_WINDOW_CACHE_DURATION):
+            # Verify handle is still valid
+            if IsWindowVisible(_league_window_handle_cache) and not IsIconic(_league_window_handle_cache):
+                return _league_window_handle_cache
+        
+        # Cache expired or invalid, find window
+        found_handle = [None]
+        
+        def cb(hwnd, lparam):
+            if not IsWindowVisible(hwnd) or IsIconic(hwnd):
+                return True
+            t = _win_text(hwnd).lower()
+            if t == "league of legends" and "splash" not in t:
+                w, h = 0, 0
+                try:
+                    client_rect = wintypes.RECT()
+                    ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(client_rect))
+                    w = client_rect.right
+                    h = client_rect.bottom
+                except Exception:
+                    pass
+                if w >= 640 and h >= 480:
+                    found_handle[0] = hwnd
+                    return False  # Stop enumeration
+            return True
+        
+        try:
+            EnumWindows(EnumWindowsProc(cb), 0)
+        except Exception:
+            pass
+        
+        # Update cache
+        if found_handle[0]:
+            _league_window_handle_cache = found_handle[0]
+            _league_window_cache_time = current_time
+        
+        return found_handle[0]
+    
+    def get_league_window_rect_fast(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Get League window client area rectangle from cached handle (FAST)
+        
+        Args:
+            hwnd: Window handle
+            
+        Returns:
+            Tuple of (left, top, right, bottom) or None if failed
+        """
+        try:
+            # Get client area coordinates
+            client_rect = wintypes.RECT()
+            ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(client_rect))
+            
+            # Convert client rect to screen coordinates
+            point = wintypes.POINT()
+            point.x = 0
+            point.y = 0
+            ctypes.windll.user32.ClientToScreen(hwnd, ctypes.byref(point))
+            
+            # Client area coordinates
+            left = point.x
+            top = point.y
+            right = left + client_rect.right
+            bottom = top + client_rect.bottom
+            
+            return (left, top, right, bottom)
+        except Exception:
+            return None
+    
     def find_league_window_rect(hint: str = "League") -> Optional[Tuple[int, int, int, int]]:
         """
         Find League of Legends window rectangle - CLIENT AREA ONLY
@@ -61,6 +148,14 @@ if is_windows():
         Returns:
             Tuple of (left, top, right, bottom) coordinates or None if not found
         """
+        # Try fast cached path first
+        hwnd = get_league_window_handle()
+        if hwnd:
+            rect = get_league_window_rect_fast(hwnd)
+            if rect:
+                return rect
+        
+        # Fallback to full search
         rects = []
         window_info = []
         
@@ -137,12 +232,12 @@ if is_windows():
         return None
 
 
-    def is_league_window_active() -> bool:
+    def is_league_window_focused() -> bool:
         """
-        Check if League of Legends window is currently active (focused)
+        Check if League window currently has focus (is the foreground window)
         
         Returns:
-            True if League window is active, False otherwise
+            True if League window is the foreground window
         """
         try:
             from ctypes import windll
@@ -166,14 +261,22 @@ if is_windows():
         except Exception:
             # If we can't determine focus, assume it's not focused for safety
             return False
+    
+    def is_league_window_active() -> bool:
+        """Alias for is_league_window_focused (backward compatibility)"""
+        return is_league_window_focused()
 
 else:
     def find_league_window_rect(hint: str = "League") -> Optional[Tuple[int, int, int, int]]:
         """Find League of Legends window rectangle (non-Windows)"""
         return None
 
+    def is_league_window_focused() -> bool:
+        """Check if League window is focused (non-Windows - always False)"""
+        return False
+    
     def is_league_window_active() -> bool:
-        """Check if League of Legends window is active (non-Windows - always False)"""
+        """Alias for is_league_window_focused (non-Windows)"""
         return False
 
 

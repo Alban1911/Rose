@@ -592,24 +592,24 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optio
             log_success(log, "PyQt6 QApplication created for chroma wheel", "🎨")
         else:
             qt_app = existing_app
-            log_success(log, "Using existing QApplication instance for chroma wheel", "🎨")
+            log_success(log, "Using existing QApplication instance for chroma panel", "🎨")
         
         # Initialize chroma selector (widgets will be created on champion lock)
         try:
             chroma_selector = init_chroma_selector(skin_scraper, state)
-            log_success(log, "Chroma selector initialized (widgets will be created on champion lock)", "🌈")
+            log_success(log, "Chroma selector initialized (panel widgets will be created on champion lock)", "🌈")
             
             # Update app status
             if app_status:
                 app_status.mark_chroma_initialized()
         except Exception as e:
-            log.warning(f"Failed to initialize chroma wheel: {e}")
+            log.warning(f"Failed to initialize chroma panel: {e}")
             log.warning("Chroma selection will be disabled, but app will continue")
             chroma_selector = None
             
     except Exception as e:
         log.warning(f"Failed to initialize PyQt6: {e}")
-        log.warning("Chroma wheel will be disabled, but app will continue normally")
+        log.warning("Chroma panel will be disabled, but app will continue normally")
         qt_app = None
         chroma_selector = None
     
@@ -933,13 +933,15 @@ def main():
             # Process Qt events if available (process ALL pending events)
             if qt_app:
                 try:
-                    # Process pending chroma wheel requests first
-                    if chroma_selector and chroma_selector.wheel:
+                    # Process pending chroma panel requests first
+                    if chroma_selector and chroma_selector.panel:
                         chroma_start = time.time()
-                        chroma_selector.wheel.process_pending()
+                        chroma_selector.panel.process_pending()
+                        # Update positions to follow League window
+                        chroma_selector.panel.update_positions()
                         chroma_elapsed = time.time() - chroma_start
-                        if chroma_elapsed > CHROMA_WHEEL_PROCESSING_THRESHOLD_S:
-                            log.warning(f"[WATCHDOG] Chroma wheel processing took {chroma_elapsed:.2f}s")
+                        if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
+                            log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
                     
                     # Process all Qt events
                     qt_start = time.time()

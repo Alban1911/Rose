@@ -55,11 +55,11 @@ class OCRSkinThread(threading.Thread):
         self.last_window_log_time = 0.0
         self.window_log_interval = OCR_WINDOW_LOG_INTERVAL
         
-        # Last skin shown for chroma wheel (to avoid re-showing)
-        self.last_chroma_wheel_skin_id = None
+        # Last skin shown for chroma panel (to avoid re-showing)
+        self.last_chroma_panel_skin_id = None
     
-    def _trigger_chroma_wheel(self, skin_id: int, skin_name: str):
-        """Trigger chroma wheel display if skin has unowned chromas"""
+    def _trigger_chroma_panel(self, skin_id: int, skin_name: str):
+        """Trigger chroma panel display if skin has unowned chromas"""
         try:
             chroma_selector = get_chroma_selector()
             if not chroma_selector:
@@ -82,9 +82,9 @@ class OCRSkinThread(threading.Thread):
             # Always update button when switching skins (don't skip re-showing)
             # This ensures button always shows the correct skin's chromas
             # Button shows if there are unowned chromas, regardless of base skin ownership
-            if chroma_selector.should_show_chroma_wheel(skin_id):
+            if chroma_selector.should_show_chroma_panel(skin_id):
                 log.info(f"[CHROMA] Showing button - skin has unowned chromas")
-                self.last_chroma_wheel_skin_id = skin_id
+                self.last_chroma_panel_skin_id = skin_id
                 
                 # Get champion name for direct path to chromas
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
@@ -95,9 +95,9 @@ class OCRSkinThread(threading.Thread):
                 # No unowned chromas, hide button
                 log.debug(f"[CHROMA] Skin has no unowned chromas, hiding button")
                 chroma_selector.hide()
-                self.last_chroma_wheel_skin_id = None  # Reset to allow re-checking
+                self.last_chroma_panel_skin_id = None  # Reset to allow re-checking
         except Exception as e:
-            log.debug(f"[CHROMA] Error triggering wheel: {e}")
+            log.debug(f"[CHROMA] Error triggering panel: {e}")
 
     def _get_window_rect(self) -> Optional[Tuple[int, int, int, int]]:
         """Get League window rectangle - CLIENT AREA ONLY"""
@@ -468,8 +468,8 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_id = skin_id
                         self.state.hovered_skin_timestamp = time.time()
                         
-                        # Show chroma wheel if skin has chromas (including base skins)
-                        self._trigger_chroma_wheel(skin_id, skin_name)
+                        # Show chroma panel if skin has chromas (including base skins)
+                        self._trigger_chroma_panel(skin_id, skin_name)
                     return
         
         # STANDARD PIPELINE: Use LCU scraper + English DB matching (for non-English)
@@ -510,8 +510,8 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_slug = champ_slug
                         self.last_key = skin_key
                         
-                        # Show chroma wheel if skin has chromas (including base skins)
-                        self._trigger_chroma_wheel(skin_id, english_skin_name)
+                        # Show chroma panel if skin has chromas (including base skins)
+                        self._trigger_chroma_panel(skin_id, english_skin_name)
                 else:
                     log.debug(f"[ocr] Matched skin {skin_name_client_lang} (ID: {skin_id}) but not found in English DB")
             
@@ -585,7 +585,7 @@ class OCRSkinThread(threading.Thread):
                 self.state.last_hovered_skin_id = best_entry.skin_id
                 self.state.last_hovered_skin_slug = best_entry.champ_slug
                 
-                # Show chroma wheel if skin has chromas
-                self._trigger_chroma_wheel(best_entry.skin_id, best_skin_name)
+                # Show chroma panel if skin has chromas
+                self._trigger_chroma_panel(best_entry.skin_id, best_skin_name)
             log.info("=" * LOG_SEPARATOR_WIDTH)
             self.last_key = best_entry.key

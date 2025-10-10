@@ -7,7 +7,7 @@ Shows chroma wheel immediately when skin is detected (not during injection)
 
 import threading
 from typing import Optional
-from utils.chroma_wheel import get_chroma_wheel
+from utils.chroma_panel import get_chroma_panel
 from utils.logging import get_logger
 from utils.validation import validate_skin_id, validate_skin_name
 
@@ -36,9 +36,9 @@ class ChromaSelector:
         self.lock = threading.Lock()
         self.current_skin_id = None  # Track which skin we're showing chromas for
         
-        # Get global wheel manager
-        self.wheel = get_chroma_wheel()
-        self.wheel.on_chroma_selected = self._on_chroma_selected
+        # Get global panel manager
+        self.panel = get_chroma_panel()
+        self.panel.on_chroma_selected = self._on_chroma_selected
     
     def _on_chroma_selected(self, chroma_id: int, chroma_name: str):
         """Callback when user clicks a chroma - update state immediately"""
@@ -66,15 +66,15 @@ class ChromaSelector:
             import traceback
             log.error(traceback.format_exc())
     
-    def should_show_chroma_wheel(self, skin_id: int) -> bool:
+    def should_show_chroma_panel(self, skin_id: int) -> bool:
         """
-        Check if chroma wheel should be shown for this skin
+        Check if chroma panel should be shown for this skin
         
         Args:
             skin_id: Skin ID to check
             
         Returns:
-            True if skin has unowned chromas and wheel should be shown
+            True if skin has unowned chromas and panel should be shown
             
         Raises:
             TypeError: If skin_id is not an integer
@@ -95,7 +95,7 @@ class ChromaSelector:
                 if chroma.get('id') not in owned_skin_ids
             ]
             
-            # Only show wheel if there are unowned chromas
+            # Only show panel if there are unowned chromas
             return len(unowned_chromas) > 0
         except Exception as e:
             log.debug(f"[CHROMA] Error checking chromas for skin {skin_id}: {e}")
@@ -144,28 +144,28 @@ class ChromaSelector:
             
             self.current_skin_id = skin_id
             
-            # Show the button (not the wheel) with only unowned chromas
+            # Show the button (not the panel) with only unowned chromas
             try:
-                self.wheel.show_button_for_skin(skin_id, skin_name, unowned_chromas, champion_name)
+                self.panel.show_button_for_skin(skin_id, skin_name, unowned_chromas, champion_name)
             except Exception as e:
                 log.error(f"[CHROMA] Failed to show button: {e}")
     
     def hide(self):
-        """Hide the chroma wheel and reopen button"""
+        """Hide the chroma panel and reopen button"""
         with self.lock:
-            self.wheel.hide()
-            self.wheel.hide_reopen_button()
+            self.panel.hide()
+            self.panel.hide_reopen_button()
             self.state.pending_chroma_selection = False
             self.current_skin_id = None
     
     def cleanup(self):
         """Clean up resources"""
         with self.lock:
-            if self.wheel:
+            if self.panel:
                 try:
-                    self.wheel.cleanup()
+                    self.panel.cleanup()
                 except Exception as e:
-                    log.debug(f"[CHROMA] Error cleaning up wheel: {e}")
+                    log.debug(f"[CHROMA] Error cleaning up panel: {e}")
 
 
 # Global chroma selector instance (will be initialized in main.py)
