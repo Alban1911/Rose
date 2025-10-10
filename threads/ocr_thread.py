@@ -468,9 +468,8 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_id = skin_id
                         self.state.hovered_skin_timestamp = time.time()
                         
-                        # Show chroma wheel if skin has chromas
-                        if not is_base:
-                            self._trigger_chroma_wheel(skin_id, skin_name)
+                        # Show chroma wheel if skin has chromas (including base skins)
+                        self._trigger_chroma_wheel(skin_id, skin_name)
                     return
         
         # STANDARD PIPELINE: Use LCU scraper + English DB matching (for non-English)
@@ -511,9 +510,8 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_slug = champ_slug
                         self.last_key = skin_key
                         
-                        # Show chroma wheel if skin has chromas
-                        if not is_base:
-                            self._trigger_chroma_wheel(skin_id, english_skin_name)
+                        # Show chroma wheel if skin has chromas (including base skins)
+                        self._trigger_chroma_wheel(skin_id, english_skin_name)
                 else:
                     log.debug(f"[ocr] Matched skin {skin_name_client_lang} (ID: {skin_id}) but not found in English DB")
             
