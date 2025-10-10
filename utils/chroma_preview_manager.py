@@ -70,7 +70,10 @@ class ChromaPreviewManager:
             log.info(f"[CHROMA] Downloading previews for {champion_name}...")
             
             # Find all README files for this champion
+            # Check both "chromas" and "Chromas" directories (case sensitivity issue)
             chromas_base = self.skins_dir / champion_name / "chromas"
+            if not chromas_base.exists():
+                chromas_base = self.skins_dir / champion_name / "Chromas"
             
             if not chromas_base.exists():
                 log.debug(f"[CHROMA] No chromas folder for {champion_name}")
