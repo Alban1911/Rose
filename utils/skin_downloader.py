@@ -256,16 +256,14 @@ def download_skins_on_startup(target_dir: Path = None, force_update: bool = Fals
                             max_champions: Optional[int] = None, tray_manager=None, injection_manager=None) -> bool:
     """Convenience function to download skins at startup - tries multiple methods"""
     try:
-        # Note: Downloading status is set by caller (main.py) before thread starts
-        # This ensures the orange dot appears immediately when app launches
+        # Note: Tray status is now managed by AppStatus class in main.py
+        # This function just downloads and returns success/failure
         
         # Method 1: Try repository ZIP download (most efficient)
         try:
             from utils.repo_downloader import download_skins_from_repo
             log.info("Using repository ZIP downloader (most efficient)...")
             result = download_skins_from_repo(target_dir, force_update, tray_manager)
-            if tray_manager:
-                tray_manager.set_downloading(False)
             if injection_manager:
                 injection_manager.initialize_when_ready()
             return result
@@ -277,8 +275,6 @@ def download_skins_on_startup(target_dir: Path = None, force_update: bool = Fals
             from utils.smart_skin_downloader import download_skins_smart
             log.info("Using smart skin downloader with rate limiting...")
             result = download_skins_smart(target_dir, force_update, max_champions, tray_manager)
-            if tray_manager:
-                tray_manager.set_downloading(False)
             if injection_manager:
                 injection_manager.initialize_when_ready()
             return result
@@ -312,16 +308,12 @@ def download_skins_on_startup(target_dir: Path = None, force_update: bool = Fals
         else:
             log.info("No new skins to download")
         
-        if tray_manager:
-            tray_manager.set_downloading(False)
         if injection_manager:
             injection_manager.initialize_when_ready()
         return True
         
     except Exception as e:
         log.error(f"Failed to download skins: {e}")
-        if tray_manager:
-            tray_manager.set_downloading(False)
         if injection_manager:
             injection_manager.initialize_when_ready()
         return False

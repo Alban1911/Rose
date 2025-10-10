@@ -100,6 +100,7 @@ from database.name_db import NameDB
 from lcu.client import LCU
 from lcu.skin_scraper import LCUSkinScraper
 from state.shared_state import SharedState
+from state.app_status import AppStatus
 from threads.phase_thread import PhaseThread
 from threads.champ_thread import ChampThread
 from threads.ocr_thread import OCRSkinThread
@@ -507,10 +508,7 @@ def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
         # Give tray icon a moment to fully initialize
         time.sleep(TRAY_INIT_SLEEP_S)
         
-        # Set downloading status immediately if downloads are enabled
-        if args.download_skins:
-            tray_manager.set_downloading(True)
-            log_status(log, "Download mode", "Active (orange indicator shown)", "📥")
+        # Note: Status will be managed by AppStatus class
         
         return tray_manager
     except Exception as e:
@@ -519,7 +517,7 @@ def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
         return None
 
 
-def initialize_qt_and_chroma(skin_scraper, state: SharedState):
+def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optional[AppStatus] = None):
     """Initialize PyQt6 and chroma selector"""
     qt_app = None
     chroma_selector = None
@@ -541,6 +539,10 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState):
         try:
             chroma_selector = init_chroma_selector(skin_scraper, state)
             log_success(log, "Chroma selector initialized (widgets will be created on champion lock)", "🌈")
+            
+            # Update app status
+            if app_status:
+                app_status.mark_chroma_initialized()
         except Exception as e:
             log.warning(f"Failed to initialize chroma wheel: {e}")
             log.warning("Chroma selection will be disabled, but app will continue")
@@ -555,7 +557,7 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState):
     return qt_app, chroma_selector
 
 
-def initialize_ocr(args: argparse.Namespace, lcu: LCU):
+def initialize_ocr(args: argparse.Namespace, lcu: LCU, app_status: Optional[AppStatus] = None):
     """Initialize OCR with language detection"""
     ocr_lang = args.lang
     
@@ -588,6 +590,11 @@ def initialize_ocr(args: argparse.Namespace, lcu: LCU):
     try:
         ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
         log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, mode: CPU)")
+        
+        # Update app status
+        if app_status:
+            app_status.mark_ocr_initialized(ocr)
+        
         return ocr
     except Exception as e:
         log.warning(f"Failed to initialize OCR with language '{ocr_lang}': {e}")
@@ -596,6 +603,11 @@ def initialize_ocr(args: argparse.Namespace, lcu: LCU):
         try:
             ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
             log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
+            
+            # Update app status
+            if app_status:
+                app_status.mark_ocr_initialized(ocr)
+            
             return ocr
         except Exception as fallback_e:
             log.error(f"OCR initialization failed: {fallback_e}")
@@ -622,16 +634,23 @@ def main():
     # Initialize system tray manager immediately to hide console
     tray_manager = initialize_tray_manager(args)
     
+    # Initialize app status manager
+    app_status = AppStatus(tray_manager)
+    log_success(log, "App status manager initialized", "📊")
+    
+    # Check initial status (will show orange until all components are ready)
+    app_status.update_status()
+    
     # Initialize core components
     lcu = LCU(args.lockfile)
     skin_scraper = LCUSkinScraper(lcu)
     state = SharedState()
     
     # Initialize PyQt6 and chroma selector
-    qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state)
+    qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, app_status)
     
     # Initialize OCR with language detection
-    ocr = initialize_ocr(args, lcu)
+    ocr = initialize_ocr(args, lcu, app_status)
     
     # Initialize database
     db = NameDB(lang=args.dd_lang)
@@ -653,10 +672,16 @@ def main():
                 )
                 if success:
                     log.info("Background skin download completed successfully")
+                    # Mark skins as downloaded in app status
+                    app_status.mark_skins_downloaded()
                 else:
                     log.warning("Background skin download completed with some issues")
+                    # Still mark as downloaded even with issues (files may still exist)
+                    app_status.mark_skins_downloaded()
             except Exception as e:
                 log.error(f"Failed to download skins in background: {e}")
+                # Check if skins exist anyway
+                app_status.mark_skins_downloaded()
         
         # Start skin download in a separate thread to avoid blocking
         skin_download_thread = create_daemon_thread(target=download_skins_background, 
@@ -664,6 +689,8 @@ def main():
         skin_download_thread.start()
     else:
         log.info("Automatic skin download disabled")
+        # Check if skins already exist
+        app_status.mark_skins_downloaded()
         # Initialize injection system immediately when download is disabled
         injection_manager.initialize_when_ready()
     
