@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Application Status Manager
+Manages the app state and tray icon status based on initialization checks
+"""
+
+from typing import Optional
+from pathlib import Path
+from utils.logging import get_logger
+from utils.paths import get_skins_dir
+
+log = get_logger()
+
+
+class AppStatus:
+    """
+    Manages application status based on initialization state of core components.
+    
+    Checks:
+    - Chroma selector initialization
+    - Skins downloaded from repository
+    - OCR initialization
+    
+    Status:
+    - Orange: One or more components not ready
+    - Green: All components ready
+    """
+    
+    def __init__(self, tray_manager=None):
+        """
+        Initialize the AppStatus manager
+        
+        Args:
+            tray_manager: TrayManager instance to update status icon
+        """
+        self.tray_manager = tray_manager
+        self._chroma_initialized = False
+        self._skins_downloaded = False
+        self._ocr_initialized = False
+        
+    def check_chroma_initialized(self) -> bool:
+        """
+        Check if Chroma selector is initialized
+        
+        Returns:
+            True if chroma selector is initialized, False otherwise
+        """
+        try:
+            from utils.chroma_selector import get_chroma_selector
+            chroma_selector = get_chroma_selector()
+            return chroma_selector is not None
+        except Exception as e:
+            log.debug(f"Failed to check chroma initialization: {e}")
+            return False
+    
+    def check_skins_downloaded(self) -> bool:
+        """
+        Check if skins are downloaded from the repository
+        
+        Returns:
+            True if skins directory exists and has content, False otherwise
+        """
+        try:
+            skins_dir = get_skins_dir()
+            
+            # Check if directory exists
+            if not skins_dir.exists():
+                return False
+            
+            # Check if directory has any champion folders with skin files
+            champion_dirs = [d for d in skins_dir.iterdir() if d.is_dir()]
+            if not champion_dirs:
+                return False
+            
+            # Check if at least one champion has skin files
+            for champion_dir in champion_dirs:
+                # Check for base skins
+                if list(champion_dir.glob("*.zip")):
+                    return True
+                
+                # Check for chromas
+                chromas_dir = champion_dir / "chromas"
+                if chromas_dir.exists() and chromas_dir.is_dir():
+                    for skin_chroma_dir in chromas_dir.iterdir():
+                        if skin_chroma_dir.is_dir() and list(skin_chroma_dir.glob("*.zip")):
+                            return True
+            
+            return False
+        except Exception as e:
+            log.debug(f"Failed to check skins directory: {e}")
+            return False
+    
+    def check_ocr_initialized(self, ocr=None) -> bool:
+        """
+        Check if OCR is initialized
+        
+        Args:
+            ocr: OCR instance to check (if None, returns current cached state)
+        
+        Returns:
+            True if OCR is initialized, False otherwise
+        """
+        if ocr is None:
+            return self._ocr_initialized
+        
+        try:
+            # Check if OCR has the required attributes
+            return (hasattr(ocr, 'reader') and 
+                   ocr.reader is not None and 
+                   hasattr(ocr, 'backend') and 
+                   ocr.backend is not None)
+        except Exception as e:
+            log.debug(f"Failed to check OCR initialization: {e}")
+            return False
+    
+    def update_status(self, ocr=None):
+        """
+        Update the application status by checking all components
+        
+        Args:
+            ocr: OCR instance to check (optional)
+        """
+        # Check each component
+        self._chroma_initialized = self.check_chroma_initialized()
+        self._skins_downloaded = self.check_skins_downloaded()
+        self._ocr_initialized = self.check_ocr_initialized(ocr)
+        
+        # Determine overall status
+        all_ready = (self._chroma_initialized and 
+                    self._skins_downloaded and 
+                    self._ocr_initialized)
+        
+        # Log status for debugging
+        log.debug(f"[APP STATUS] Chroma: {self._chroma_initialized}, "
+                 f"Skins: {self._skins_downloaded}, "
+                 f"OCR: {self._ocr_initialized}")
+        
+        # Update tray icon
+        if self.tray_manager:
+            if all_ready:
+                self.tray_manager.set_downloading(False)  # Green checkmark
+                log.info("[APP STATUS] All components ready - showing green status")
+            else:
+                self.tray_manager.set_downloading(True)  # Orange indicator
+                log.info("[APP STATUS] Components not ready - showing orange status")
+    
+    def mark_chroma_initialized(self):
+        """Mark chroma selector as initialized and update status"""
+        self._chroma_initialized = True
+        log.info("[APP STATUS] Chroma selector initialized")
+        self.update_status()
+    
+    def mark_skins_downloaded(self):
+        """Mark skins as downloaded and update status"""
+        self._skins_downloaded = True
+        log.info("[APP STATUS] Skins downloaded")
+        self.update_status()
+    
+    def mark_ocr_initialized(self, ocr=None):
+        """Mark OCR as initialized and update status"""
+        if ocr is not None:
+            self._ocr_initialized = self.check_ocr_initialized(ocr)
+        else:
+            self._ocr_initialized = True
+        log.info("[APP STATUS] OCR initialized")
+        self.update_status()
+    
+    def get_status_summary(self) -> dict:
+        """
+        Get a summary of the current status
+        
+        Returns:
+            Dictionary with status of each component
+        """
+        return {
+            'chroma_initialized': self._chroma_initialized,
+            'skins_downloaded': self._skins_downloaded,
+            'ocr_initialized': self._ocr_initialized,
+            'all_ready': (self._chroma_initialized and 
+                         self._skins_downloaded and 
+                         self._ocr_initialized)
+        }
+    
+    @property
+    def is_ready(self) -> bool:
+        """Check if all components are ready"""
+        return (self._chroma_initialized and 
+               self._skins_downloaded and 
+               self._ocr_initialized)
+
