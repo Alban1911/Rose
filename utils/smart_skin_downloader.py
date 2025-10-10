@@ -18,7 +18,8 @@ from constants import (
     RATE_LIMIT_MIN_INTERVAL, RATE_LIMIT_REQUEST_TIMEOUT, RATE_LIMIT_STREAM_TIMEOUT,
     RATE_LIMIT_LOW_THRESHOLD, RATE_LIMIT_WARNING_50, RATE_LIMIT_WARNING_100,
     RATE_LIMIT_INITIAL, RATE_LIMIT_DELAY_LOW, RATE_LIMIT_DELAY_MEDIUM,
-    RATE_LIMIT_DELAY_HIGH, RATE_LIMIT_BACKOFF_MULTIPLIER, LOG_CHUNK_SIZE
+    RATE_LIMIT_DELAY_HIGH, RATE_LIMIT_BACKOFF_MULTIPLIER, LOG_CHUNK_SIZE,
+    APP_USER_AGENT
 )
 
 log = get_logger()
@@ -33,7 +34,7 @@ class SmartSkinDownloader:
         self.target_dir = target_dir or Path("skins")
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'SkinCloner/1.1.0',
+            'User-Agent': APP_USER_AGENT,
             'Accept': 'application/vnd.github.v3+json'
         })
         

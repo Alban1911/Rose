@@ -21,9 +21,10 @@ from constants import (
     CHROMA_WHEEL_PREVIEW_WIDTH, CHROMA_WHEEL_PREVIEW_HEIGHT, CHROMA_WHEEL_CIRCLE_RADIUS,
     CHROMA_WHEEL_WINDOW_WIDTH, CHROMA_WHEEL_WINDOW_HEIGHT, CHROMA_WHEEL_CIRCLE_SPACING,
     CHROMA_WHEEL_BUTTON_SIZE, CHROMA_WHEEL_SCREEN_EDGE_MARGIN, CHROMA_WHEEL_PREVIEW_X,
-    CHROMA_WHEEL_PREVIEW_Y, CHROMA_WHEEL_ROW_Y_OFFSET, CHROMA_WHEEL_BORDER_SCALE,
-    CHROMA_WHEEL_GRADIENT_SCALE, CHROMA_WHEEL_GLOW_ALPHA, CHROMA_WHEEL_CONICAL_START_ANGLE,
-    CHROMA_WHEEL_INNER_DARK_BORDER_WIDTH, UI_QTIMER_CALLBACK_DELAY_MS
+    CHROMA_WHEEL_PREVIEW_Y, CHROMA_WHEEL_ROW_Y_OFFSET, CHROMA_WHEEL_GLOW_ALPHA,
+    CHROMA_WHEEL_CONICAL_START_ANGLE, UI_QTIMER_CALLBACK_DELAY_MS,
+    CHROMA_WHEEL_GOLD_BORDER_PX, CHROMA_WHEEL_DARK_BORDER_PX,
+    CHROMA_WHEEL_GRADIENT_RING_PX, CHROMA_WHEEL_INNER_DISK_RADIUS_PX
 )
 
 log = get_logger()
@@ -521,13 +522,13 @@ class ReopenButton(QWidget):
         scale_factor = outer_radius / 15.0  # Scale from official button size
         
         # Apply ratios scaled to current button size
-        gold_border_width = int(2 * scale_factor)
+        gold_border_width = int(CHROMA_WHEEL_GOLD_BORDER_PX * scale_factor)
         transition1_width = int(1 * scale_factor)
-        dark_border_width = int(2 * scale_factor)
+        dark_border_width = int(CHROMA_WHEEL_DARK_BORDER_PX * scale_factor)
         transition2_width = int(1 * scale_factor)
-        gradient_ring_width = int(4 * scale_factor)
+        gradient_ring_width = int(CHROMA_WHEEL_GRADIENT_RING_PX * scale_factor)
         transition3_width = int(1 * scale_factor)
-        inner_disk_radius = 2.5 * scale_factor  # 5px diameter / 2, scaled
+        inner_disk_radius = CHROMA_WHEEL_INNER_DISK_RADIUS_PX * scale_factor
         
         # Calculate actual radii from outside in (starting from outer_radius)
         outer_gold_radius = outer_radius

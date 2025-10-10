@@ -19,9 +19,9 @@ if sys.platform == "win32":
     try:
         # Set DPI awareness to SYSTEM_AWARE before any GUI operations
         # This prevents Qt from trying to change it later (which causes "Access denied")
-        # -2 = DPI_AWARENESS_CONTEXT_SYSTEM_AWARE
+        # PROCESS_SYSTEM_DPI_AWARE
         try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)  # 1 = PROCESS_SYSTEM_DPI_AWARE
+            ctypes.windll.shcore.SetProcessDpiAwareness(WINDOWS_DPI_AWARENESS_SYSTEM)
         except Exception:
             try:
                 # Fallback for older Windows versions

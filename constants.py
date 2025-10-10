@@ -6,6 +6,14 @@ All arbitrary values are centralized here for easy tracking and modification
 """
 
 # =============================================================================
+# APPLICATION METADATA
+# =============================================================================
+
+APP_VERSION = "1.1.0"                    # Application version
+APP_USER_AGENT = f"SkinCloner/{APP_VERSION}"  # User-Agent header for HTTP requests
+
+
+# =============================================================================
 # OCR TIMING CONSTANTS
 # =============================================================================
 
@@ -26,6 +34,7 @@ OCR_SECOND_SHOT_MS_DEFAULT = 100  # Delay for second OCR attempt for accuracy
 OCR_DIFF_THRESHOLD_DEFAULT = 0.001  # Image change threshold to trigger OCR
 OCR_MIN_CONFIDENCE_DEFAULT = 0.5    # Minimum confidence score for matches
 OCR_FUZZY_MATCH_THRESHOLD = 0.7     # Threshold for fuzzy text matching
+SKIN_NAME_MIN_SIMILARITY = 0.15     # Minimum similarity for fuzzy skin name matching (15%)
 
 # OCR window detection
 OCR_WINDOW_LOG_INTERVAL = 1.0  # Seconds between window detection logs
@@ -170,9 +179,12 @@ LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g
 
 # Process termination timeouts (seconds)
 PROCESS_TERMINATE_TIMEOUT_S = 5         # Timeout for process.wait() after terminate/kill
+PROCESS_TERMINATE_WAIT_S = 0.3          # Short timeout for process wait after terminate() before kill()
+PROCESS_ENUM_TIMEOUT_S = 2.0            # Timeout for process enumeration when finding runoverlay
 MKOVERLAY_PROCESS_TIMEOUT_S = 60        # Timeout for mkoverlay process execution
 THREAD_JOIN_TIMEOUT_S = 2               # Timeout for thread.join() on shutdown (increased from 1.0s)
 THREAD_FORCE_EXIT_TIMEOUT_S = 4         # Total timeout before forcing app exit
+INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
 
 # Process priority settings
 # Note: Lower priority for injection processes can help prevent slowing down game launch
@@ -180,8 +192,12 @@ THREAD_FORCE_EXIT_TIMEOUT_S = 4         # Total timeout before forcing app exit
 
 # API request timeouts (seconds)
 LCU_API_TIMEOUT_S = 2.0                 # Timeout for LCU API requests
+LCU_SKIN_SCRAPER_TIMEOUT_S = 3.0        # Timeout for LCU skin scraper requests
 DATA_DRAGON_API_TIMEOUT_S = 8           # Timeout for Data Dragon API requests
 GITHUB_API_TIMEOUT_S = 30               # Already defined as RATE_LIMIT_REQUEST_TIMEOUT
+CHROMA_DOWNLOAD_TIMEOUT_S = 10          # Timeout for chroma preview downloads
+DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S = 30    # Timeout for skin downloads
+SKIN_DOWNLOAD_STREAM_TIMEOUT_S = 60     # Timeout for streaming skin downloads
 
 # Polling timeouts (seconds)
 FUTURE_RESULT_TIMEOUT_S = 0             # Timeout for future.result() (immediate)
@@ -243,12 +259,15 @@ CHROMA_WHEEL_PREVIEW_X = 30             # X position of preview area
 CHROMA_WHEEL_PREVIEW_Y = 30             # Y position of preview area
 CHROMA_WHEEL_ROW_Y_OFFSET = 60          # Offset from bottom for chroma row
 
-# Chroma wheel visual effects
-CHROMA_WHEEL_BORDER_SCALE = 0.7         # Scale factor for border (7% of button size)
-CHROMA_WHEEL_GRADIENT_SCALE = 1.0       # Scale factor for gradient ring (16% of button size)
-CHROMA_WHEEL_GLOW_ALPHA = 60            # Alpha value for gold glow effect
-CHROMA_WHEEL_CONICAL_START_ANGLE = -65  # Start angle for conical gradient
-CHROMA_WHEEL_INNER_DARK_BORDER_WIDTH = 1.2  # Dark border width between gold and gradient (2% of button size)
+# Chroma wheel button visual effects
+CHROMA_WHEEL_GLOW_ALPHA = 60            # Alpha value for gold glow effect on hover
+CHROMA_WHEEL_CONICAL_START_ANGLE = -65  # Start angle for rainbow gradient (degrees)
+
+# Chroma wheel button dimensions (in pixels at reference size, scaled automatically)
+CHROMA_WHEEL_GOLD_BORDER_PX = 2         # Width of outer gold border
+CHROMA_WHEEL_DARK_BORDER_PX = 3         # Width of dark circle between gold and gradient
+CHROMA_WHEEL_GRADIENT_RING_PX = 4       # Width of rainbow gradient ring
+CHROMA_WHEEL_INNER_DISK_RADIUS_PX = 2.5 # Radius of central dark disk
 
 
 # =============================================================================
@@ -263,6 +282,9 @@ WINDOWS_SW_HIDE = 0                      # Hide window command
 
 # MessageBox flags
 WINDOWS_MB_ICONERROR = 0x10              # Error icon for message box
+
+# DPI Awareness
+WINDOWS_DPI_AWARENESS_SYSTEM = 1         # PROCESS_SYSTEM_DPI_AWARE
 
 
 # =============================================================================

@@ -7,6 +7,7 @@ LCU Skin Scraper - Scrape skins for a specific champion from LCU
 import requests
 from typing import Optional, Dict, List, Tuple
 from utils.logging import get_logger
+from constants import LCU_SKIN_SCRAPER_TIMEOUT_S, SKIN_NAME_MIN_SIMILARITY
 
 log = get_logger()
 
@@ -74,7 +75,7 @@ class LCUSkinScraper:
         try:
             # CommunityDragon champion endpoint - gets ALL skins and chromas at once
             url = f"https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champions/{champion_id}.json"
-            response = requests.get(url, timeout=3.0)
+            response = requests.get(url, timeout=LCU_SKIN_SCRAPER_TIMEOUT_S)
             
             if response.status_code != 200:
                 return {}
@@ -142,7 +143,7 @@ class LCUSkinScraper:
         champ_data = None
         for endpoint in endpoints:
             try:
-                data = self.lcu.get(endpoint, timeout=3.0)
+                data = self.lcu.get(endpoint, timeout=LCU_SKIN_SCRAPER_TIMEOUT_S)
                 if data and isinstance(data, dict) and 'skins' in data:
                     champ_data = data
                     log.debug(f"[LCU-SCRAPER] Successfully fetched data from {endpoint}")
@@ -266,7 +267,7 @@ class LCUSkinScraper:
                 best_match = skin
         
         # Only return if similarity is above threshold
-        if best_match and best_similarity >= 0.15:  # 15% minimum similarity
+        if best_match and best_similarity >= SKIN_NAME_MIN_SIMILARITY:
             return (best_match['skinId'], best_match['skinName'], best_similarity)
         
         return None

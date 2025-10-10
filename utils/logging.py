@@ -117,9 +117,9 @@ def setup_logging(verbose: bool):
         try:
             # Use logging instead of direct print to avoid blocking
             logger = logging.getLogger("startup")
-            logger.info("=" * 60)
+            logger.info("=" * LOG_SEPARATOR_WIDTH)
             logger.info(f"SkinCloner - Starting... (Log file: {log_file.name})")
-            logger.info("=" * 60)
+            logger.info("=" * LOG_SEPARATOR_WIDTH)
         except (AttributeError, OSError):
             pass  # stdout is broken, ignore
     
@@ -229,12 +229,12 @@ def log_section(logger: logging.Logger, title: str, icon: str = "📌", details:
     Example:
         log_section(log, "LCU Connected", "🔗", {"Port": 2999, "Status": "Ready"})
     """
-    logger.info("=" * 80)
+    logger.info("=" * LOG_SEPARATOR_WIDTH)
     logger.info(f"{icon} {title.upper()}")
     if details:
         for key, value in details.items():
             logger.info(f"   📋 {key}: {value}")
-    logger.info("=" * 80)
+    logger.info("=" * LOG_SEPARATOR_WIDTH)
 
 
 def log_event(logger: logging.Logger, event: str, icon: str = "✓", details: dict = None):

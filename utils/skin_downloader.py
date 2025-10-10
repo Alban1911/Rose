@@ -15,7 +15,10 @@ from typing import List, Dict, Optional
 from urllib.parse import urljoin, urlparse
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
-from constants import API_POLITENESS_DELAY_S
+from constants import (
+    API_POLITENESS_DELAY_S, APP_USER_AGENT,
+    DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
+)
 
 log = get_logger()
 
@@ -30,7 +33,7 @@ class SkinDownloader:
         self.target_dir = target_dir or get_skins_dir()
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'SkinCloner/1.1.0',
+            'User-Agent': APP_USER_AGENT,
             'Accept': 'application/vnd.github.v3+json'
         })
         
@@ -39,7 +42,7 @@ class SkinDownloader:
         url = f"{self.api_base}/contents/{path}"
         
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S)
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
@@ -76,7 +79,7 @@ class SkinDownloader:
     def download_file(self, download_url: str, local_path: Path) -> bool:
         """Download a file from GitHub"""
         try:
-            response = self.session.get(download_url, timeout=60, stream=True)
+            response = self.session.get(download_url, timeout=SKIN_DOWNLOAD_STREAM_TIMEOUT_S, stream=True)
             response.raise_for_status()
             
             # Create directory if it doesn't exist

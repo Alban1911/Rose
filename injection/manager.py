@@ -19,7 +19,8 @@ from constants import (
     PERSISTENT_MONITOR_IDLE_INTERVAL_S,
     PERSISTENT_MONITOR_WAIT_TIMEOUT_S,
     PERSISTENT_MONITOR_WAIT_INTERVAL_S,
-    PERSISTENT_MONITOR_AUTO_RESUME_S
+    PERSISTENT_MONITOR_AUTO_RESUME_S,
+    INJECTION_LOCK_TIMEOUT_S
 )
 
 log = get_logger()
@@ -279,7 +280,7 @@ class InjectionManager:
             return False
         
         # Try to acquire lock with timeout to prevent indefinite blocking
-        lock_acquired = self.injection_lock.acquire(timeout=2.0)
+        lock_acquired = self.injection_lock.acquire(timeout=INJECTION_LOCK_TIMEOUT_S)
         if not lock_acquired:
             log.warning(f"[INJECT] Could not acquire injection lock - another injection in progress")
             return False

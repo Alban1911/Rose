@@ -16,6 +16,8 @@ from utils.logging import get_logger, log_action, log_success, log_event
 from utils.paths import get_skins_dir, get_injection_dir
 from constants import (
     PROCESS_TERMINATE_TIMEOUT_S, 
+    PROCESS_TERMINATE_WAIT_S,
+    PROCESS_ENUM_TIMEOUT_S,
     PROCESS_MONITOR_SLEEP_S, 
     ENABLE_PRIORITY_BOOST, 
     ENABLE_GAME_SUSPENSION,
@@ -666,7 +668,7 @@ class SkinInjector:
             # Find all processes with "runoverlay" in command line
             # Use a timeout to prevent hanging on process_iter
             start_time = time.time()
-            timeout = 2.0  # 2 second timeout for process enumeration
+            timeout = PROCESS_ENUM_TIMEOUT_S
             
             # Only get pid and name initially to avoid slow cmdline lookups
             for proc in psutil.process_iter(['pid', 'name']):
@@ -694,7 +696,7 @@ class SkinInjector:
                                 p.terminate()
                                 # Give it a brief moment, then force kill if needed
                                 try:
-                                    p.wait(timeout=0.3)
+                                    p.wait(timeout=PROCESS_TERMINATE_WAIT_S)
                                 except:
                                     p.kill()  # Force kill if terminate didn't work
                             except:

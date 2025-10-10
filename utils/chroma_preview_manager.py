@@ -12,6 +12,7 @@ from typing import Optional, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
+from constants import CHROMA_DOWNLOAD_TIMEOUT_S
 
 log = get_logger()
 
@@ -139,7 +140,7 @@ class ChromaPreviewManager:
                         continue
                     
                     # Download image
-                    response = requests.get(url, timeout=10)
+                    response = requests.get(url, timeout=CHROMA_DOWNLOAD_TIMEOUT_S)
                     response.raise_for_status()
                     image_file.write_bytes(response.content)
                     downloaded += 1

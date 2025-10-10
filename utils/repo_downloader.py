@@ -16,6 +16,7 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
+from constants import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
 
 log = get_logger()
 
@@ -29,7 +30,7 @@ class RepoDownloader:
         self.target_dir = target_dir or get_skins_dir()
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'SkinCloner/1.1.0'
+            'User-Agent': APP_USER_AGENT
         })
         
     def download_repo_zip(self) -> Optional[Path]:
@@ -46,7 +47,7 @@ class RepoDownloader:
             temp_zip.close()
             
             # Download ZIP file
-            response = self.session.get(zip_url, stream=True, timeout=60)
+            response = self.session.get(zip_url, stream=True, timeout=SKIN_DOWNLOAD_STREAM_TIMEOUT_S)
             response.raise_for_status()
             
             # Save ZIP file
