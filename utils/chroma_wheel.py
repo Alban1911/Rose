@@ -247,8 +247,10 @@ class ChromaWheelWidget(QWidget):
             
             # Direct path: skins/{Champion}/chromas/{SkinName}/README.md
             if champion_name:
-                # Try direct path with champion name
+                # Try direct path with champion name (check both "chromas" and "Chromas")
                 readme_path = skins_dir / champion_name / "chromas" / skin_name / "README.md"
+                if not readme_path.exists():
+                    readme_path = skins_dir / champion_name / "Chromas" / skin_name / "README.md"
                 
                 if readme_path.exists():
                     log.debug(f"[CHROMA] Found README at: {readme_path}")

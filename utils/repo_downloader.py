@@ -120,7 +120,7 @@ class RepoDownloader:
                         
                         # Check if it's a zip file or a README in chromas directory
                         is_zip = relative_path.endswith('.zip')
-                        is_chroma_readme = 'chromas/' in relative_path and relative_path.endswith('README.md')
+                        is_chroma_readme = 'chromas/' in relative_path.lower() and relative_path.endswith('README.md')
                         is_blade_variant = '/Blades/' in relative_path
                         
                         # Skip if it's neither a zip nor a chroma README
