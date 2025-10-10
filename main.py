@@ -557,63 +557,6 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optio
     return qt_app, chroma_selector
 
 
-def initialize_ocr(args: argparse.Namespace, lcu: LCU, app_status: Optional[AppStatus] = None):
-    """Initialize OCR with language detection"""
-    ocr_lang = args.lang
-    
-    if args.lang == "auto":
-        # Try to get LCU language immediately, but don't block if not available
-        if lcu.ok:
-            try:
-                lcu_lang = lcu.client_language
-                if lcu_lang:
-                    log.info(f"LCU connected - detected language: {lcu_lang}")
-                    ocr_lang = get_ocr_language(lcu_lang, args.lang)
-                    log.info(f"Auto-detected OCR language: {ocr_lang} (LCU: {lcu_lang})")
-                else:
-                    log.info("LCU connected but language not yet available - using English fallback")
-                    ocr_lang = "eng"
-            except Exception as e:
-                log.debug(f"Failed to get LCU language: {e}")
-                log.info("LCU connected but language detection failed - using English fallback")
-                ocr_lang = "eng"
-        else:
-            log.info("LCU not yet connected - using English fallback, will auto-detect when connected")
-            ocr_lang = "eng"
-    
-    # Validate OCR language
-    if not validate_ocr_language(ocr_lang):
-        log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
-        ocr_lang = "eng"
-    
-    # Initialize OCR with determined language (CPU mode only)
-    try:
-        ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
-        log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, mode: CPU)")
-        
-        # Update app status
-        if app_status:
-            app_status.mark_ocr_initialized(ocr)
-        
-        return ocr
-    except Exception as e:
-        log.warning(f"Failed to initialize OCR with language '{ocr_lang}': {e}")
-        log.info("Attempting fallback to English OCR...")
-        
-        try:
-            ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
-            log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
-            
-            # Update app status
-            if app_status:
-                app_status.mark_ocr_initialized(ocr)
-            
-            return ocr
-        except Exception as fallback_e:
-            log.error(f"OCR initialization failed: {fallback_e}")
-            log.error("EasyOCR is not properly installed or configured.")
-            log.error("Install with: pip install easyocr torch torchvision")
-            sys.exit(1)
 
 
 def main():
@@ -649,8 +592,8 @@ def main():
     # Initialize PyQt6 and chroma selector
     qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, app_status)
     
-    # Initialize OCR with language detection
-    ocr = initialize_ocr(args, lcu, app_status)
+    # OCR will be initialized when WebSocket connects (for proper language detection)
+    ocr = None
     
     # Initialize database
     db = NameDB(lang=args.dd_lang)
@@ -735,32 +678,100 @@ def main():
         
         tray_manager.quit_callback = updated_tray_quit_callback
 
-    # Function to update OCR language dynamically
+    # Function to initialize OCR when WebSocket connects
+    def initialize_ocr_on_websocket_connect(lcu_lang: str):
+        """Initialize OCR when WebSocket connects with proper language detection"""
+        nonlocal ocr
+        
+        if ocr is not None:
+            log.info(f"WebSocket connected - OCR already initialized with language {ocr.lang}, skipping")
+            return
+        
+        try:
+            # Determine OCR language
+            if args.lang == "auto":
+                ocr_lang = get_ocr_language(lcu_lang, args.lang)
+                log.info(f"WebSocket connected - initializing OCR with language: {lcu_lang} → {ocr_lang}")
+            else:
+                ocr_lang = args.lang
+                log.info(f"WebSocket connected - initializing OCR with manual language: {ocr_lang}")
+            
+            # Validate OCR language
+            if not validate_ocr_language(ocr_lang):
+                log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
+                ocr_lang = "eng"
+            
+            # Initialize OCR with determined language (CPU mode only)
+            ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
+            log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, mode: CPU)")
+            
+            # Update app status
+            if app_status:
+                app_status.mark_ocr_initialized(ocr)
+                
+            # Update OCR thread with the new OCR instance
+            if t_ocr:
+                t_ocr.ocr = ocr
+                log.info("OCR thread updated with new OCR instance")
+                
+        except Exception as e:
+            log.error(f"Failed to initialize OCR: {e}")
+            # Try fallback to English
+            try:
+                log.info("Attempting fallback to English OCR...")
+                ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
+                log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
+                
+                if app_status:
+                    app_status.mark_ocr_initialized(ocr)
+                    
+                if t_ocr:
+                    t_ocr.ocr = ocr
+                    log.info("OCR thread updated with fallback OCR instance")
+                    
+            except Exception as fallback_e:
+                log.error(f"OCR initialization failed completely: {fallback_e}")
+                log.error("EasyOCR is not properly installed or configured.")
+                log.error("Install with: pip install easyocr torch torchvision")
+                # Don't exit, let the app continue without OCR
+    
+    # Function to update OCR language dynamically (for reconnections/language changes)
     def update_ocr_language(new_lcu_lang: str):
         """Update OCR language when LCU language changes or reconnects"""
+        nonlocal ocr
+        
+        # If OCR is not yet initialized, initialize it now (for non-WebSocket mode)
+        if ocr is None:
+            log.info(f"OCR not yet initialized - initializing with language: {new_lcu_lang}")
+            initialize_ocr_on_websocket_connect(new_lcu_lang)
+            return
+            
         if args.lang == "auto":
             new_ocr_lang = get_ocr_language(new_lcu_lang, args.lang)
             try:
                 # Validate that the new OCR language is available before updating
                 if validate_ocr_language(new_ocr_lang):
-                    # Always recreate OCR on language callback to ensure fresh state after reconnection
-                    # This is important even if language hasn't changed, as EasyOCR may need reinitialization
+                    # Only recreate OCR if language actually changed
                     if new_ocr_lang != ocr.lang:
                         log.info(f"Reloading OCR with new language: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                        
+                        # Create new OCR instance with new language
+                        new_ocr = OCR(
+                            lang=new_ocr_lang,
+                            psm=args.psm,
+                            tesseract_exe=args.tesseract_exe
+                        )
+                        
+                        # Update the global OCR reference
+                        ocr.__dict__.update(new_ocr.__dict__)
+                        
+                        # Update OCR thread
+                        if t_ocr:
+                            t_ocr.ocr = ocr
+                        
+                        log.info(f"✅ OCR successfully reloaded with language: {new_ocr_lang}")
                     else:
-                        log.info(f"Reinitializing OCR after reconnection: {new_ocr_lang} (LCU: {new_lcu_lang})")
-                    
-                    # Create new OCR instance with new language
-                    new_ocr = OCR(
-                        lang=new_ocr_lang,
-                        psm=args.psm,
-                        tesseract_exe=args.tesseract_exe
-                    )
-                    
-                    # Update the global OCR reference
-                    ocr.__dict__.update(new_ocr.__dict__)
-                    
-                    log.info(f"✅ OCR successfully reloaded with language: {new_ocr_lang}")
+                        log.debug(f"OCR language unchanged: {new_ocr_lang}")
                 else:
                     # Keep current OCR language (likely English fallback) but log the LCU language
                     log.info(f"OCR language kept at: {ocr.lang} (LCU: {new_lcu_lang}, OCR language not available)")
@@ -789,7 +800,7 @@ def main():
         t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
                             ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
                             fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                            skin_scraper=skin_scraper)
+                            skin_scraper=skin_scraper, ocr_init_callback=initialize_ocr_on_websocket_connect)
         thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws, 
