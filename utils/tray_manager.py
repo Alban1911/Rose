@@ -68,7 +68,7 @@ class TrayManager:
         """Try to load icon from icons folder
         
         Args:
-            icon_name: Name of the icon file (e.g., "locked.png", "golden unlocked.png")
+            icon_name: Name of the icon file (e.g., "locked_tray.png", "golden_unlocked_tray.png")
         """
         try:
             # Try to load the specified icon from icons folder
@@ -86,13 +86,13 @@ class TrayManager:
     def _load_icons(self):
         """Load locked, golden locked, and unlocked icons"""
         # Load locked icon
-        self._locked_icon_image = self._load_icon_from_file("locked.png")
+        self._locked_icon_image = self._load_icon_from_file("locked_tray.png")
         
         # Load golden locked icon
-        self._golden_locked_icon_image = self._load_icon_from_file("golden locked.png")
+        self._golden_locked_icon_image = self._load_icon_from_file("golden_locked_tray.png")
         
         # Load golden unlocked icon
-        self._unlocked_icon_image = self._load_icon_from_file("golden unlocked.png")
+        self._unlocked_icon_image = self._load_icon_from_file("golden_unlocked_tray.png")
         
         # Fallback to icon.ico if none exist
         if not self._locked_icon_image and not self._golden_locked_icon_image and not self._unlocked_icon_image:
