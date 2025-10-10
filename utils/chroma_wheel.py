@@ -68,6 +68,10 @@ class ChromaWheelWidget(QWidget):
         # Preview image (will be downloaded/loaded)
         self.current_preview_image = None  # QPixmap for current chroma
         
+        # Background image
+        self.background_image = None  # QPixmap for champ-select-flyout-background.jpg
+        self._load_background_image()
+        
         # Animation
         self._opacity = 0.0
         self.opacity_animation = None
@@ -76,6 +80,21 @@ class ChromaWheelWidget(QWidget):
         QApplication.instance().installEventFilter(self)
         
         self.setup_ui()
+    
+    def _load_background_image(self):
+        """Load the champ-select-flyout-background.jpg image"""
+        try:
+            # Try to load the background image from the project root
+            background_path = Path(__file__).parent.parent / "champ-select-flyout-background.jpg"
+            if background_path.exists():
+                self.background_image = QPixmap(str(background_path))
+                log.debug(f"Loaded background image: {background_path}")
+            else:
+                log.debug(f"Background image not found: {background_path}")
+                self.background_image = None
+        except Exception as e:
+            log.debug(f"Failed to load background image: {e}")
+            self.background_image = None
         
     def setup_ui(self):
         """Setup the window and styling"""
@@ -92,12 +111,24 @@ class ChromaWheelWidget(QWidget):
         # Set window size
         self.setFixedSize(self.window_width, self.window_height)
         
-        # Position on right side of screen
+        # Position to appear above champ-select-flyout-background.jpg
+        # The background image is typically positioned in the center-right area of champion select
         screen = QApplication.primaryScreen().geometry()
-        self.move(
-            screen.width() - self.window_width - CHROMA_WHEEL_SCREEN_EDGE_MARGIN,
-            (screen.height() - self.window_height) // 2  # Vertically centered
-        )
+        
+        # Calculate position to overlay the background image
+        # Assuming the background appears in the right-center area of the screen
+        bg_x_offset = int(screen.width() * 0.35)  # 35% from left edge
+        bg_y_offset = int(screen.height() * 0.25)  # 25% from top edge
+        
+        # Position the chroma wheel above the background image
+        wheel_x = bg_x_offset + 50  # Slightly offset from background center
+        wheel_y = bg_y_offset - 20  # Above the background
+        
+        # Ensure wheel stays on screen
+        wheel_x = min(wheel_x, screen.width() - self.window_width - 10)
+        wheel_y = max(wheel_y, 10)
+        
+        self.move(wheel_x, wheel_y)
         
         # Enable mouse tracking for hover effects
         self.setMouseTracking(True)
@@ -326,6 +357,7 @@ class ChromaWheelWidget(QWidget):
         
         # Draw dark background with golden border (League style)
         painter.fillRect(self.rect(), QColor(10, 14, 39, 240))
+        
         painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden border color
         painter.drawRect(1, 1, self.window_width - 2, self.window_height - 2)
         
@@ -334,8 +366,27 @@ class ChromaWheelWidget(QWidget):
         preview_y = CHROMA_WHEEL_PREVIEW_Y
         preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
         
-        # Draw preview background (no border)
-        painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(20, 20, 30))
+        # Draw background image in preview area if available
+        if self.background_image and not self.background_image.isNull():
+            # Scale background to fit the preview area
+            scaled_bg = self.background_image.scaled(
+                self.preview_width, self.preview_height,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            # Center the background in preview area, ensuring it doesn't overflow
+            bg_x = preview_x + max(0, (self.preview_width - scaled_bg.width()) // 2)
+            bg_y = preview_y + max(0, (self.preview_height - scaled_bg.height()) // 2)
+            # Clip the background to the preview area bounds
+            painter.setClipRect(preview_x, preview_y, self.preview_width, self.preview_height)
+            painter.drawPixmap(bg_x, bg_y, scaled_bg)
+            painter.setClipping(False)
+            
+            # Draw semi-transparent overlay for better contrast
+            painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(0, 0, 0, 80))
+        else:
+            # Fallback: Draw dark preview background
+            painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(20, 20, 30))
         
         # Draw golden separator line between preview and buttons (spans full inner width)
         painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden separator color
@@ -595,15 +646,25 @@ class OpeningButton(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        # Position in center of screen
+        # Position button near the champ-select-flyout-background.jpg area
         self.button_size = CHROMA_WHEEL_BUTTON_SIZE
         self.setFixedSize(self.button_size, self.button_size)
         
         screen = QApplication.primaryScreen().geometry()
-        self.move(
-            (screen.width() - self.button_size) // 2,
-            (screen.height() - self.button_size) // 2
-        )
+        
+        # Position button in the same area as the background image
+        bg_x_offset = int(screen.width() * 0.35)  # 35% from left edge
+        bg_y_offset = int(screen.height() * 0.25)  # 25% from top edge
+        
+        # Position button slightly to the right of background center
+        button_x = bg_x_offset + 200
+        button_y = bg_y_offset + 100
+        
+        # Ensure button stays on screen
+        button_x = min(button_x, screen.width() - self.button_size - 10)
+        button_y = max(button_y, 10)
+        
+        self.move(button_x, button_y)
         
         self.setMouseTracking(True)
         
