@@ -8,8 +8,6 @@ League of Legends style chroma selection
 import math
 import sys
 import threading
-import re
-import requests
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
 from PyQt6.QtWidgets import QApplication, QWidget
