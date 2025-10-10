@@ -624,11 +624,10 @@ class ReopenButton(QWidget):
     def mousePressEvent(self, event):
         """Handle button click"""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Set hiding flag to prevent any repaints
-            self.is_hiding = True
-            # Force immediate repaint to clear the button visually
-            self.update()
-            # Call the callback immediately (manager will handle actual hiding)
+            # Don't set hiding flag - button should stay visible
+            # self.is_hiding = True  # REMOVED - button stays visible
+            # self.update()  # REMOVED - no need to force repaint
+            # Call the callback immediately (button stays visible)
             if self.on_click:
                 self.on_click()
         event.accept()
@@ -726,7 +725,7 @@ class ChromaWheelManager:
             log.info("[CHROMA] Wheel widgets destroyed")
     
     def _on_chroma_selected_wrapper(self, chroma_id: int, chroma_name: str):
-        """Wrapper for chroma selection - shows button again after selection"""
+        """Wrapper for chroma selection - button stays visible (no need to show again)"""
         # Call the original callback
         if self.on_chroma_selected:
             self.on_chroma_selected(chroma_id, chroma_name)
@@ -735,7 +734,8 @@ class ChromaWheelManager:
         with self.lock:
             self.current_selected_chroma_id = chroma_id if chroma_id != 0 else None
             log_event(log, f"Chroma selected: {chroma_name}" if chroma_id != 0 else "Base skin selected", "✨")
-            self.pending_show_button = True
+            # Button is already visible - no need to show it again
+            # self.pending_show_button = True  # REMOVED - button already visible
     
     def _on_reopen_clicked(self):
         """Handle button click - show the wheel for current skin"""
@@ -743,8 +743,9 @@ class ChromaWheelManager:
             if self.current_skin_name and self.current_chromas:
                 log_action(log, f"Opening wheel for {self.current_skin_name}", "🎨")
                 self.pending_show = (self.current_skin_name, self.current_chromas)
-                self.pending_hide_button = True
-                self.pending_show_button = False  # Cancel any pending show to prevent blink
+                # Don't hide button - it should stay visible while skin has chromas
+                # self.pending_hide_button = True  # REMOVED - button stays visible
+                # self.pending_show_button = False  # REMOVED - no need to cancel show
     
     def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None):
         """Show button for a skin (not the wheel itself)
@@ -827,19 +828,19 @@ class ChromaWheelManager:
                 if self.widget:
                     self.widget.hide()
             
-            # Process reopen button hide request BEFORE show request to prevent blinking
-            if self.pending_hide_button:
-                self.pending_hide_button = False
-                self.pending_show_button = False  # Cancel any pending show to prevent blink
-                if self.reopen_button:
-                    self.reopen_button.hide()
-            # Process reopen button show request (only if not hiding)
-            elif self.pending_show_button:
+            # Process reopen button show request
+            if self.pending_show_button:
                 self.pending_show_button = False
                 if self.reopen_button:
                     self.reopen_button.show()
                     self.reopen_button.raise_()
                     log.debug("[CHROMA] Reopen button shown")
+            
+            # Process reopen button hide request
+            if self.pending_hide_button:
+                self.pending_hide_button = False
+                if self.reopen_button:
+                    self.reopen_button.hide()
     
     def hide(self):
         """Request to hide the chroma wheel (thread-safe)"""

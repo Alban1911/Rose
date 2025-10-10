@@ -89,7 +89,7 @@ CHAMP_POLL_INTERVAL = 0.25  # Seconds between champion state checks
 LCU_MONITOR_INTERVAL = 1.0  # Seconds between LCU connection checks
 
 # Main loop sleep intervals
-MAIN_LOOP_SLEEP = 0.2       # Main loop iteration sleep time
+MAIN_LOOP_SLEEP = 0.01      # Main loop iteration sleep time (10ms for responsive chroma UI)
 OCR_NO_WINDOW_SLEEP = 0.05  # Sleep when no window is found
 OCR_NO_CONDITION_SLEEP = 0.15  # Sleep when OCR conditions not met
 OCR_MOTION_SLEEP_DIVISOR = 10.0  # Divisor for burst mode sleep calculation
