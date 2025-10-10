@@ -20,7 +20,7 @@ from utils.normalization import levenshtein_score
 from utils.logging import get_logger
 from utils.window_utils import find_league_window_rect, get_league_window_client_size, is_league_window_active
 from utils.chroma_selector import get_chroma_selector
-from constants import *
+from config import *
 
 log = get_logger()
 

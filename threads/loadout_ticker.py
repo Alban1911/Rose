@@ -12,7 +12,7 @@ from state.shared_state import SharedState
 from database.name_db import NameDB
 from utils.logging import get_logger
 from utils.normalization import normalize_text
-from constants import (
+from config import (
     TIMER_HZ_MIN, TIMER_HZ_MAX, TIMER_POLL_PERIOD_S,
     SKIN_THRESHOLD_MS_DEFAULT,
     BASE_SKIN_VERIFICATION_WAIT_S,

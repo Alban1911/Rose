@@ -8,7 +8,7 @@ Based on academic research and best practices for text recognition
 
 import numpy as np
 import cv2
-from constants import IMAGE_UPSCALE_THRESHOLD
+from config import IMAGE_UPSCALE_THRESHOLD
 
 
 def prep_for_ocr(input_img: np.ndarray) -> np.ndarray:
@@ -98,7 +98,7 @@ def prep_for_ocr_legacy(bgr: np.ndarray) -> np.ndarray:
     This uses the old simple HSV-based approach
     Use prep_for_ocr() instead for better results
     """
-    from constants import WHITE_TEXT_HSV_LOWER, WHITE_TEXT_HSV_UPPER
+    from config import WHITE_TEXT_HSV_LOWER, WHITE_TEXT_HSV_UPPER
     
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, np.array(WHITE_TEXT_HSV_LOWER, np.uint8), np.array(WHITE_TEXT_HSV_UPPER, np.uint8))

@@ -15,7 +15,7 @@ from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, QConicalGradient, QPainterPath, QPixmap
 from utils.logging import get_logger, log_event, log_success, log_action
 from utils.paths import get_skins_dir
-from constants import (
+from config import (
     CHROMA_WHEEL_PREVIEW_WIDTH, CHROMA_WHEEL_PREVIEW_HEIGHT, CHROMA_WHEEL_CIRCLE_RADIUS,
     CHROMA_WHEEL_WINDOW_WIDTH, CHROMA_WHEEL_WINDOW_HEIGHT, CHROMA_WHEEL_CIRCLE_SPACING,
     CHROMA_WHEEL_BUTTON_SIZE, CHROMA_WHEEL_SCREEN_EDGE_MARGIN, CHROMA_WHEEL_PREVIEW_X,
@@ -55,6 +55,7 @@ class ChromaWheelWidget(QWidget):
         self.skin_name = ""
         self.selected_index = 0  # Default to base (center)
         self.hovered_index = None
+        self.reopen_button_ref = None  # Reference to button widget for click detection
         
         # Dimensions - League style with horizontal layout
         self.preview_width = CHROMA_WHEEL_PREVIEW_WIDTH
@@ -103,6 +104,10 @@ class ChromaWheelWidget(QWidget):
         
         # Set initial opacity
         self._opacity = 1.0
+        
+        # Track if we should ignore next deactivate (when clicking button to close)
+        self.ignore_next_deactivate = False
+        self.deactivate_timer = None
         
         # Start with window hidden
         self.hide()
@@ -264,6 +269,10 @@ class ChromaWheelWidget(QWidget):
             return None
     
     
+    def set_button_reference(self, button_widget):
+        """Set reference to the reopen button for click detection"""
+        self.reopen_button_ref = button_widget
+    
     def show_wheel(self, button_pos=None):
         """Show the wheel, optionally positioned relative to button"""
         # Set opacity to 1.0 for visibility
@@ -272,7 +281,7 @@ class ChromaWheelWidget(QWidget):
         # Position above button if button position provided
         if button_pos:
             # Calculate position: 1/6 of button size above button top (1/3 smaller than 1/4)
-            from constants import CHROMA_WHEEL_BUTTON_SIZE
+            from config import CHROMA_WHEEL_BUTTON_SIZE
             offset_above = int(CHROMA_WHEEL_BUTTON_SIZE / 6)  # 7-8px for 45px button
             
             # Position wheel so its bottom is offset_above pixels above button top
@@ -287,6 +296,14 @@ class ChromaWheelWidget(QWidget):
         
         # Force a repaint
         self.update()
+    
+    def hide(self):
+        """Override hide to cancel deactivate timer"""
+        # Cancel any pending deactivate timer
+        if self.deactivate_timer:
+            self.deactivate_timer.stop()
+            self.deactivate_timer = None
+        super().hide()
     
     def hide_wheel(self):
         """Hide the wheel immediately"""
@@ -493,6 +510,40 @@ class ChromaWheelWidget(QWidget):
         
         event.accept()
     
+    def changeEvent(self, event):
+        """Handle window state changes"""
+        # Close the wheel when it loses focus (e.g., clicking on League client)
+        if event.type() == event.Type.WindowDeactivate:
+            if not self.ignore_next_deactivate:
+                # Use a small delay to let button clicks process first
+                # If button was clicked, it will close the wheel before this timer fires
+                if self.deactivate_timer:
+                    self.deactivate_timer.stop()
+                
+                self.deactivate_timer = QTimer()
+                self.deactivate_timer.setSingleShot(True)
+                self.deactivate_timer.timeout.connect(self._on_deactivate_timeout)
+                self.deactivate_timer.start(50)  # 50ms delay
+            else:
+                self.ignore_next_deactivate = False
+        
+        super().changeEvent(event)
+    
+    def _on_deactivate_timeout(self):
+        """Called after deactivate delay - close wheel if still visible"""
+        if self.isVisible():
+            # Check if button is now active (was clicked)
+            button_was_clicked = False
+            if self.reopen_button_ref is not None:
+                try:
+                    button_was_clicked = self.reopen_button_ref.isActiveWindow()
+                except (RuntimeError, AttributeError):
+                    pass
+            
+            if not button_was_clicked:
+                log.debug("[CHROMA] Wheel lost focus (delayed check), closing")
+                self.hide()
+    
     def eventFilter(self, obj, event):
         """Filter application events to detect clicks outside the widget"""
         # Only process mouse button press events when the widget is visible
@@ -505,7 +556,21 @@ class ChromaWheelWidget(QWidget):
             if self.rect().contains(local_pos):
                 return False  # Click is inside the wheel, don't close
             
-            # Click was outside the wheel (anywhere: button, League, etc.) - close it
+            # Check if the click is on the reopen button - if so, let button handle it
+            if self.reopen_button_ref is not None:
+                try:
+                    button_local_pos = self.reopen_button_ref.mapFromGlobal(global_pos)
+                    if self.reopen_button_ref.rect().contains(button_local_pos):
+                        # Click is on the button - let button's handler deal with it
+                        # The button will toggle the wheel (close it since it's open)
+                        # Ignore next deactivate event since button will handle the close
+                        self.ignore_next_deactivate = True
+                        return False  # Don't close here, let button handle it
+                except (RuntimeError, AttributeError):
+                    # Button may have been deleted
+                    pass
+            
+            # Click was outside the wheel and button (within Qt app) - close it
             self.hide()
             return False  # Continue event propagation
         
@@ -731,6 +796,8 @@ class ChromaWheelManager:
         if not self.is_initialized:
             self.widget = ChromaWheelWidget(on_chroma_selected=self._on_chroma_selected_wrapper)
             self.reopen_button = OpeningButton(on_click=self._on_reopen_clicked)
+            # Set button reference on wheel so it can detect button clicks
+            self.widget.set_button_reference(self.reopen_button)
             self.is_initialized = True
             log.info("[CHROMA] Wheel widgets created")
     
@@ -739,6 +806,8 @@ class ChromaWheelManager:
         if self.is_initialized:
             if self.widget:
                 try:
+                    # Clear button reference before destroying
+                    self.widget.set_button_reference(None)
                     # Use hide() + deleteLater() instead of close() to avoid blocking
                     self.widget.hide()
                     self.widget.deleteLater()

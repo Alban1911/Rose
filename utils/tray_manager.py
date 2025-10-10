@@ -10,12 +10,11 @@ from typing import Optional, Callable
 import pystray
 from PIL import Image, ImageDraw
 from utils.logging import get_logger
-from constants import (
+from config import (
     TRAY_READY_MAX_WAIT_S, TRAY_READY_CHECK_INTERVAL_S,
     TRAY_THREAD_JOIN_TIMEOUT_S, TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT,
     TRAY_ICON_ELLIPSE_COORDS, TRAY_ICON_BORDER_WIDTH,
-    TRAY_ICON_FONT_SIZE, TRAY_ICON_TEXT_X, TRAY_ICON_TEXT_Y,
-    TRAY_ICON_DOT_SIZE, TRAY_ICON_CHECK_SCALE_DIVISOR
+    TRAY_ICON_FONT_SIZE, TRAY_ICON_TEXT_X, TRAY_ICON_TEXT_Y
 )
 
 log = get_logger()
@@ -35,8 +34,9 @@ class TrayManager:
         self.icon = None
         self.tray_thread = None
         self._stop_event = threading.Event()
-        self._is_downloading = False
-        self._base_icon_image = None
+        self._locked_icon_image = None
+        self._unlocked_icon_image = None
+        self._base_icon_image = None  # Current base icon (locked or unlocked)
         
     def _create_icon_image(self) -> Image.Image:
         """Create a simple icon image for the tray"""
@@ -63,103 +63,57 @@ class TrayManager:
         
         return image
     
-    def _load_icon_from_file(self) -> Optional[Image.Image]:
-        """Try to load icon from icon.ico file"""
+    def _load_icon_from_file(self, icon_name: str) -> Optional[Image.Image]:
+        """Try to load icon from icons folder
+        
+        Args:
+            icon_name: Name of the icon file (e.g., "locked.png", "golden unlocked.png")
+        """
         try:
-            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icon.ico")
+            # Try to load the specified icon from icons folder
+            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", icon_name)
             if os.path.exists(icon_path):
-                # Convert ICO to PNG for pystray
                 with Image.open(icon_path) as img:
                     # Convert to RGBA and resize to 128x128 (doubled from 64x64)
                     img = img.convert('RGBA')
                     img = img.resize((128, 128), Image.Resampling.LANCZOS)
-                    return img
+                    return img.copy()  # Return a copy to avoid issues with closed files
         except Exception as e:
-            log.debug(f"Failed to load icon from file: {e}")
+            log.debug(f"Failed to load icon '{icon_name}': {e}")
         return None
+    
+    def _load_icons(self):
+        """Load both locked and unlocked icons"""
+        # Load locked icon
+        self._locked_icon_image = self._load_icon_from_file("locked.png")
+        
+        # Load golden unlocked icon
+        self._unlocked_icon_image = self._load_icon_from_file("golden unlocked.png")
+        
+        # Fallback to icon.ico if neither exists
+        if not self._locked_icon_image and not self._unlocked_icon_image:
+            try:
+                icon_path_ico = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icon.ico")
+                if os.path.exists(icon_path_ico):
+                    with Image.open(icon_path_ico) as img:
+                        img = img.convert('RGBA')
+                        img = img.resize((128, 128), Image.Resampling.LANCZOS)
+                        self._locked_icon_image = img.copy()
+                        self._unlocked_icon_image = img.copy()
+            except Exception as e:
+                log.debug(f"Failed to load fallback icon: {e}")
     
     def _get_icon_image(self) -> Image.Image:
         """Get the icon image, trying file first, then creating a default one"""
-        # Try to load from icon.ico file first
-        icon_image = self._load_icon_from_file()
-        if icon_image:
-            return icon_image
+        # Try to load icons from files
+        self._load_icons()
         
-        # Fallback to created icon
+        # Use locked icon as the initial base icon
+        if self._locked_icon_image:
+            return self._locked_icon_image
+        
+        # Fallback to created icon if no files found
         return self._create_icon_image()
-    
-    def _add_orange_dot(self, base_image: Image.Image) -> Image.Image:
-        """Add an orange dot to the icon to indicate downloading"""
-        # Create a copy to avoid modifying the original
-        image = base_image.copy()
-        draw = ImageDraw.Draw(image)
-        
-        # Draw orange dot in bottom-left corner (bigger size)
-        dot_size = TRAY_ICON_DOT_SIZE
-        x = 4
-        y = image.height - dot_size - 4
-        
-        # Draw the dot with a black border and orange fill
-        # First draw black border (scaled 2x)
-        draw.ellipse([x-2, y-2, x + dot_size + 2, y + dot_size + 2], 
-                    fill=(0, 0, 0, 255),  # Black border
-                    outline=None)
-        
-        # Then draw the orange dot on top
-        draw.ellipse([x, y, x + dot_size, y + dot_size], 
-                    fill=(255, 140, 0, 255),  # Orange
-                    outline=None)
-        
-        return image
-    
-    def _add_green_checkmark(self, base_image: Image.Image) -> Image.Image:
-        """Add a green circle with white checkmark to the icon"""
-        # Create a copy to avoid modifying the original
-        image = base_image.copy()
-        draw = ImageDraw.Draw(image)
-        
-        # Draw green circle in bottom-left corner (same size as orange dot)
-        dot_size = TRAY_ICON_DOT_SIZE
-        x = 4
-        y = image.height - dot_size - 4
-        
-        # Draw the circle with a black border and green fill
-        # First draw black border (scaled 2x)
-        draw.ellipse([x-2, y-2, x + dot_size + 2, y + dot_size + 2], 
-                    fill=(0, 0, 0, 255),  # Black border
-                    outline=None)
-        
-        # Then draw the green circle on top
-        draw.ellipse([x, y, x + dot_size, y + dot_size], 
-                    fill=(34, 197, 94, 255),  # Green (modern green color)
-                    outline=None)
-        
-        # Draw a white checkmark inside the circle
-        # Calculate checkmark coordinates (scaled to fit inside the circle)
-        center_x = x + dot_size // 2
-        center_y = y + dot_size // 2
-        
-        # Checkmark path: short line going down-right, then longer line going up-right
-        check_scale = dot_size / TRAY_ICON_CHECK_SCALE_DIVISOR  # Scale factor based on dot size
-        
-        # Start point (left side of checkmark)
-        x1 = center_x - int(5 * check_scale)
-        y1 = center_y + int(1 * check_scale)
-        
-        # Middle point (bottom of checkmark)
-        x2 = center_x - int(1 * check_scale)
-        y2 = center_y + int(5 * check_scale)
-        
-        # End point (top-right of checkmark)
-        x3 = center_x + int(6 * check_scale)
-        y3 = center_y - int(4 * check_scale)
-        
-        # Draw the checkmark with thick white lines
-        line_width = max(2, int(3 * check_scale))
-        draw.line([x1, y1, x2, y2], fill=(255, 255, 255, 255), width=line_width)
-        draw.line([x2, y2, x3, y3], fill=(255, 255, 255, 255), width=line_width)
-        
-        return image
     
     def _on_quit(self, icon, item):
         """Handle quit menu item click"""
@@ -366,7 +320,7 @@ class TrayManager:
         Update the tray icon to show downloading status
         
         Args:
-            is_downloading: True to show orange dot, False to show green checkmark icon
+            is_downloading: True to show locked icon, False to show golden unlocked icon
         """
         # Wait for tray icon to be ready (up to 5 seconds)
         max_wait = TRAY_READY_MAX_WAIT_S
@@ -378,21 +332,16 @@ class TrayManager:
             elapsed += wait_interval
         
         if not self.icon or not self._base_icon_image:
-            log.warning(f"Tray icon not ready, cannot set downloading status to {is_downloading}")
             return
         
         try:
-            self._is_downloading = is_downloading
-            
             if is_downloading:
-                # Show icon with orange dot
-                new_icon = self._add_orange_dot(self._base_icon_image)
-                self.icon.icon = new_icon
-                log.info("Orange icon on")
+                # Show locked icon
+                if self._locked_icon_image:
+                    self.icon.icon = self._locked_icon_image
             else:
-                # Show green checkmark icon
-                new_icon = self._add_green_checkmark(self._base_icon_image)
-                self.icon.icon = new_icon
-                log.info("Orange icon off - showing green checkmark")
+                # Show golden unlocked icon
+                if self._unlocked_icon_image:
+                    self.icon.icon = self._unlocked_icon_image
         except Exception as e:
             log.error(f"Failed to update tray icon: {e}")
