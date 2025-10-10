@@ -6,7 +6,7 @@ Shows chroma wheel immediately when skin is detected (not during injection)
 """
 
 import threading
-from typing import Optional, List, Dict
+from typing import Optional
 from utils.chroma_wheel import get_chroma_wheel
 from utils.logging import get_logger
 from utils.validation import validate_skin_id, validate_skin_name

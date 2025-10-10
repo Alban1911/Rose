@@ -5,10 +5,7 @@ System tray manager for SkinCloner
 """
 
 import os
-import sys
 import threading
-import ctypes
-from ctypes import wintypes
 from typing import Optional, Callable
 import pystray
 from PIL import Image, ImageDraw

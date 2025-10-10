@@ -7,7 +7,7 @@ League Client API client
 import os
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 
 import psutil
 import requests

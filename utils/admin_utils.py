@@ -9,7 +9,6 @@ import sys
 import ctypes
 import os
 import subprocess
-from pathlib import Path
 from utils.logging import get_logger
 
 log = get_logger()

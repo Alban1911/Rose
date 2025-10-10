@@ -190,6 +190,10 @@ class SkinDownloader:
         """
         Get detailed statistics categorizing base skins and chromas
         
+        Structure:
+        - Base skin: Champion/Skin Name.zip
+        - Chroma: Champion/chromas/Skin Name/Skin Name CHROMAID.zip
+        
         Returns:
             Dict with keys: 'total_skins', 'total_chromas', 'total_ids'
         """
@@ -203,15 +207,19 @@ class SkinDownloader:
             if not champion_dir.is_dir():
                 continue
             
-            # Count base skins (zip files in champion root, not in chromas/)
+            # Count base skins (zip files in champion root)
             base_skins = list(champion_dir.glob("*.zip"))
             total_skins += len(base_skins)
             
-            # Count chromas (zip files in chromas/ subdirectory)
+            # Count chromas (zip files in chromas/*/  subdirectories)
+            # Structure: Champion/chromas/SkinName/SkinName CHROMAID.zip
             chromas_dir = champion_dir / "chromas"
-            if chromas_dir.exists():
-                chroma_files = list(chromas_dir.glob("*.zip"))
-                total_chromas += len(chroma_files)
+            if chromas_dir.exists() and chromas_dir.is_dir():
+                # Chromas are in subdirectories under chromas/
+                for skin_chroma_dir in chromas_dir.iterdir():
+                    if skin_chroma_dir.is_dir():
+                        chroma_files = list(skin_chroma_dir.glob("*.zip"))
+                        total_chromas += len(chroma_files)
         
         return {
             'total_skins': total_skins,
