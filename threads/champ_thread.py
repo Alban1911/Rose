@@ -11,7 +11,7 @@ from database.name_db import NameDB
 from state.shared_state import SharedState
 from utils.logging import get_logger
 from utils.chroma_selector import get_chroma_selector
-from constants import CHAMP_POLL_INTERVAL
+from config import CHAMP_POLL_INTERVAL
 
 log = get_logger()
 

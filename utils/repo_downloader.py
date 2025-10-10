@@ -16,7 +16,7 @@ from typing import Optional, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
-from constants import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
+from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
 
 log = get_logger()
 

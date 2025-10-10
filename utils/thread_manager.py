@@ -10,7 +10,7 @@ import time
 from typing import List, Tuple, Optional, Callable
 from dataclasses import dataclass
 from utils.logging import get_logger, log_success, log_action
-from constants import THREAD_JOIN_TIMEOUT_S, THREAD_FORCE_EXIT_TIMEOUT_S
+from config import THREAD_JOIN_TIMEOUT_S, THREAD_FORCE_EXIT_TIMEOUT_S
 
 log = get_logger()
 
