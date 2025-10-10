@@ -23,8 +23,8 @@ class AppStatus:
     - OCR initialization
     
     Status:
-    - Orange: One or more components not ready
-    - Green: All components ready
+    - Locked: One or more components not ready
+    - Unlocked: All components ready
     """
     
     def __init__(self, tray_manager=None):
@@ -139,11 +139,11 @@ class AppStatus:
         # Update tray icon
         if self.tray_manager:
             if all_ready:
-                self.tray_manager.set_downloading(False)  # Green checkmark
-                log.info("[APP STATUS] All components ready - showing green status")
+                self.tray_manager.set_downloading(False)  # Unlocked
+                log.info("[APP STATUS] All components ready")
             else:
-                self.tray_manager.set_downloading(True)  # Orange indicator
-                log.info("[APP STATUS] Components not ready - showing orange status")
+                self.tray_manager.set_downloading(True)  # Locked
+                log.info("[APP STATUS] Components not ready")
     
     def mark_chroma_initialized(self):
         """Mark chroma selector as initialized and update status"""

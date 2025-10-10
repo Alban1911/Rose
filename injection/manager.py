@@ -12,7 +12,7 @@ from typing import Optional
 
 from .injector import SkinInjector
 from utils.logging import get_logger, log_section, log_event, log_success, log_action
-from constants import (
+from config import (
     INJECTION_THRESHOLD_SECONDS,
     PERSISTENT_MONITOR_CHECK_INTERVAL_S,
     PERSISTENT_MONITOR_IDLE_INTERVAL_S,
@@ -170,7 +170,7 @@ class InjectionManager:
         if self._suspended_game_process is not None:
             try:
                 import psutil
-                from constants import GAME_RESUME_MAX_ATTEMPTS, GAME_RESUME_VERIFICATION_WAIT_S
+                from config import GAME_RESUME_MAX_ATTEMPTS, GAME_RESUME_VERIFICATION_WAIT_S
                 import time
                 
                 game_proc = self._suspended_game_process

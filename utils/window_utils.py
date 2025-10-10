@@ -11,7 +11,7 @@ import sys
 import ctypes
 from ctypes import wintypes
 from typing import Optional, Tuple
-from constants import WINDOW_CHECK_SLEEP_S
+from config import WINDOW_CHECK_SLEEP_S
 
 
 def is_windows() -> bool:

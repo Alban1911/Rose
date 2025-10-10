@@ -12,7 +12,7 @@ from typing import Optional, List, Dict
 from utils.normalization import normalize_text
 from utils.paths import get_user_data_dir
 from utils.logging import get_logger
-from constants import DATA_DRAGON_API_TIMEOUT_S
+from config import DATA_DRAGON_API_TIMEOUT_S
 
 log = get_logger()
 

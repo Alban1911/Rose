@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 # Import constants early - needed for Windows setup
-from constants import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S
+from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S
 
 
 # Fix for windowed mode - allocate console to prevent blocking operations
@@ -112,7 +112,7 @@ from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
 from utils.chroma_selector import init_chroma_selector
 from utils.thread_manager import ThreadManager, create_daemon_thread
-from constants import *  # Import all other constants
+from config import *  # Import all other constants
 
 class AppState:
     """Application state to replace global variables"""
@@ -581,7 +581,7 @@ def main():
     app_status = AppStatus(tray_manager)
     log_success(log, "App status manager initialized", "📊")
     
-    # Check initial status (will show orange until all components are ready)
+    # Check initial status (will show locked until all components are ready)
     app_status.update_status()
     
     # Initialize core components

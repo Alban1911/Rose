@@ -14,7 +14,7 @@ import requests
 
 from dataclasses import dataclass
 from utils.logging import get_logger, log_section, log_success
-from constants import LCU_API_TIMEOUT_S
+from config import LCU_API_TIMEOUT_S
 
 log = get_logger()
 

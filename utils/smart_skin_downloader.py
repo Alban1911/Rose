@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 from utils.logging import get_logger
-from constants import (
+from config import (
     RATE_LIMIT_MIN_INTERVAL, RATE_LIMIT_REQUEST_TIMEOUT, RATE_LIMIT_STREAM_TIMEOUT,
     RATE_LIMIT_LOW_THRESHOLD, RATE_LIMIT_WARNING_50, RATE_LIMIT_WARNING_100,
     RATE_LIMIT_INITIAL, RATE_LIMIT_DELAY_LOW, RATE_LIMIT_DELAY_MEDIUM,
