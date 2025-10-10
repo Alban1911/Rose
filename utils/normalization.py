@@ -34,11 +34,15 @@ def levenshtein_score(ocr_text: str, skin_text: str) -> float:
     if not ocr_text or not skin_text:
         return 0.0
     
+    # Remove spaces from both texts before comparison
+    ocr_text_no_spaces = ocr_text.replace(" ", "")
+    skin_text_no_spaces = skin_text.replace(" ", "")
+    
     # Levenshtein distance
-    distance = Levenshtein.distance(ocr_text, skin_text)
+    distance = Levenshtein.distance(ocr_text_no_spaces, skin_text_no_spaces)
     
     # Normalization: score = 1 - (distance / max(len(ocr), len(skin)))
-    max_len = max(len(ocr_text), len(skin_text))
+    max_len = max(len(ocr_text_no_spaces), len(skin_text_no_spaces))
     if max_len == 0:
         return 1.0
     

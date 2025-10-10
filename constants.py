@@ -33,7 +33,7 @@ OCR_SECOND_SHOT_MS_DEFAULT = 100  # Delay for second OCR attempt for accuracy
 # OCR thresholds
 OCR_DIFF_THRESHOLD_DEFAULT = 0.001  # Image change threshold to trigger OCR
 OCR_MIN_CONFIDENCE_DEFAULT = 0.5    # Minimum confidence score for matches
-OCR_FUZZY_MATCH_THRESHOLD = 0.7     # Threshold for fuzzy text matching
+OCR_FUZZY_MATCH_THRESHOLD = 0.5     # Threshold for fuzzy text matching
 SKIN_NAME_MIN_SIMILARITY = 0.15     # Minimum similarity for fuzzy skin name matching (15%)
 
 # OCR window detection

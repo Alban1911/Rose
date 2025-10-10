@@ -546,8 +546,12 @@ class OCRSkinThread(threading.Thread):
             else:  # champion (base skin)
                 skin_name = self.db.champ_name_by_id.get(entry.champ_id) or entry.key
             
+            # Remove spaces from both texts before comparison
+            txt_no_spaces = txt.replace(" ", "")
+            skin_name_no_spaces = skin_name.replace(" ", "")
+            
             # Calculate raw Levenshtein distance
-            distance = Levenshtein.distance(txt, skin_name)
+            distance = Levenshtein.distance(txt_no_spaces, skin_name_no_spaces)
             
             if distance < best_distance:
                 best_distance = distance
@@ -556,7 +560,10 @@ class OCRSkinThread(threading.Thread):
         
         # Check if the best match meets confidence threshold
         # Convert distance to a score: 1.0 - (distance / max_length)
-        max_len = max(len(txt), len(best_skin_name)) if best_skin_name else 1
+        # Use no-spaces versions for consistency with distance calculation
+        txt_no_spaces = txt.replace(" ", "")
+        best_skin_name_no_spaces = best_skin_name.replace(" ", "") if best_skin_name else ""
+        max_len = max(len(txt_no_spaces), len(best_skin_name_no_spaces)) if best_skin_name else 1
         score = 1.0 - (best_distance / max_len) if max_len > 0 else 0.0
         
         if best_entry is None or score < self.args.min_conf:

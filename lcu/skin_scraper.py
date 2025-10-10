@@ -256,9 +256,13 @@ class LCUSkinScraper:
         for skin in self.cache.skins:
             skin_name = skin['skinName']
             
+            # Remove spaces from both texts before comparison
+            text_no_spaces = text.replace(" ", "")
+            skin_name_no_spaces = skin_name.replace(" ", "")
+            
             # Calculate Levenshtein distance
-            distance = Levenshtein.distance(text, skin_name)
-            max_len = max(len(text), len(skin_name))
+            distance = Levenshtein.distance(text_no_spaces, skin_name_no_spaces)
+            max_len = max(len(text_no_spaces), len(skin_name_no_spaces))
             similarity = 1.0 - (distance / max_len) if max_len > 0 else 0.0
             
             # Update best match

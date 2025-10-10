@@ -71,6 +71,9 @@ class ChromaWheelWidget(QWidget):
         self._opacity = 0.0
         self.opacity_animation = None
         
+        # Install event filter to detect clicks outside the widget
+        QApplication.instance().installEventFilter(self)
+        
         self.setup_ui()
         
     def setup_ui(self):
@@ -489,6 +492,25 @@ class ChromaWheelWidget(QWidget):
                     QTimer.singleShot(50, call_cb)
         
         event.accept()
+    
+    def eventFilter(self, obj, event):
+        """Filter application events to detect clicks outside the widget"""
+        # Only process mouse button press events when the widget is visible
+        if event.type() == event.Type.MouseButtonPress and self.isVisible():
+            # Get the global position of the click
+            global_pos = event.globalPosition().toPoint()
+            
+            # Check if the click is on this wheel widget itself - if so, don't close
+            local_pos = self.mapFromGlobal(global_pos)
+            if self.rect().contains(local_pos):
+                return False  # Click is inside the wheel, don't close
+            
+            # Click was outside the wheel (anywhere: button, League, etc.) - close it
+            self.hide()
+            return False  # Continue event propagation
+        
+        # Continue normal event processing
+        return super().eventFilter(obj, event)
 
 
 class OpeningButton(QWidget):
