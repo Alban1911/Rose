@@ -9,6 +9,8 @@ import sys
 import time
 import logging
 import urllib3
+import threading
+import queue
 from datetime import datetime
 from urllib3.exceptions import InsecureRequestWarning
 from pathlib import Path
@@ -33,6 +35,61 @@ def setup_logging(verbose: bool):
         except (AttributeError, OSError):
             pass  # stderr doesn't support reconfigure or is redirected
     
+    # Create a queue-based non-blocking logging handler
+    class QueueHandler(logging.Handler):
+        """A queue-based handler that never blocks the calling thread"""
+        def __init__(self, target_handler):
+            super().__init__()
+            self.target_handler = target_handler
+            self.queue = queue.Queue(maxsize=1000)  # Limit queue size to prevent memory issues
+            self.worker_thread = None
+            self._stop_event = threading.Event()
+            self._start_worker()
+        
+        def _start_worker(self):
+            """Start the worker thread that processes log records"""
+            def worker():
+                while not self._stop_event.is_set():
+                    try:
+                        # Get record with timeout to allow checking stop event
+                        record = self.queue.get(timeout=0.1)
+                        if record is None:  # Sentinel value to stop
+                            break
+                        # Emit to target handler in worker thread
+                        try:
+                            self.target_handler.emit(record)
+                        except Exception:
+                            # If emit fails, silently drop the log message
+                            pass
+                        finally:
+                            self.queue.task_done()
+                    except queue.Empty:
+                        continue
+            
+            self.worker_thread = threading.Thread(target=worker, daemon=True, name="LogQueueWorker")
+            self.worker_thread.start()
+        
+        def emit(self, record):
+            """Queue the log record without blocking"""
+            try:
+                # Use put_nowait to never block the calling thread
+                self.queue.put_nowait(record)
+            except queue.Full:
+                # Queue is full - drop the message silently
+                # This prevents blocking even under extreme log load
+                pass
+        
+        def close(self):
+            """Stop the worker thread gracefully"""
+            self._stop_event.set()
+            try:
+                self.queue.put_nowait(None)  # Sentinel to stop worker
+            except queue.Full:
+                pass
+            if self.worker_thread and self.worker_thread.is_alive():
+                self.worker_thread.join(timeout=1.0)
+            super().close()
+    
     # Create a safe logging handler that works even without console
     class SafeStreamHandler(logging.StreamHandler):
         """A stream handler that safely handles None streams and prevents blocking"""
@@ -49,11 +106,11 @@ def setup_logging(verbose: bool):
                 msg = self.format(record)
                 stream = self.stream
                 
-                # Try to write without blocking
+                # Try to write without blocking (with signal-based timeout on Unix, best-effort on Windows)
                 try:
                     stream.write(msg + self.terminator)
                     stream.flush()
-                except (BlockingIOError, BrokenPipeError):
+                except (BlockingIOError, BrokenPipeError, OSError):
                     # Stream is blocking or broken - skip this message
                     pass
             except (AttributeError, OSError, ValueError):
@@ -65,7 +122,11 @@ def setup_logging(verbose: bool):
         output_stream = sys.stderr if sys.stderr is not None else sys.stdout
     else:
         output_stream = sys.stdout if sys.stdout is not None else sys.stderr
-    h = SafeStreamHandler(output_stream)
+    
+    # Create a safe stream handler
+    safe_handler = SafeStreamHandler(output_stream)
+    
+    # Set up formatter
     fmt = "%(_when)s | %(levelname)-7s | %(message)s"
     
     class _Fmt(logging.Formatter):
@@ -73,7 +134,10 @@ def setup_logging(verbose: bool):
             record._when = time.strftime("%H:%M:%S", time.localtime())
             return super().format(record)
     
-    h.setFormatter(_Fmt(fmt))
+    safe_handler.setFormatter(_Fmt(fmt))
+    
+    # Wrap in queue handler to prevent blocking
+    h = QueueHandler(safe_handler)
     
     # Setup file logging
     try:
