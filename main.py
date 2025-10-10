@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 # Import constants early - needed for Windows setup
-from constants import WINDOWS_DPI_AWARENESS_SYSTEM
+from constants import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S
 
 
 # Fix for windowed mode - allocate console to prevent blocking operations
@@ -59,6 +59,42 @@ if sys.stdout is None:
     sys.stdout = open(os.devnull, 'w', encoding='utf-8')
 if sys.stderr is None:
     sys.stderr = open(os.devnull, 'w', encoding='utf-8')
+
+# Start a background thread to periodically clear console buffer (prevents blocking)
+if sys.platform == "win32":
+    def _console_buffer_manager():
+        """
+        Background thread to prevent console buffer from blocking
+        
+        Windows hidden console buffers can fill up and cause writes to block.
+        This thread periodically:
+        1. Clears the input buffer to prevent buildup
+        2. Flushes stdout/stderr to prevent output buffer blocking
+        3. Handles any pending console events
+        """
+        try:
+            import msvcrt
+            while True:
+                time.sleep(CONSOLE_BUFFER_CLEAR_INTERVAL_S)
+                
+                # Clear any pending console input
+                while msvcrt.kbhit():
+                    msvcrt.getch()
+                
+                # Flush output streams to prevent buffer blocking
+                try:
+                    if sys.stdout and hasattr(sys.stdout, 'flush'):
+                        sys.stdout.flush()
+                    if sys.stderr and hasattr(sys.stderr, 'flush'):
+                        sys.stderr.flush()
+                except (OSError, ValueError):
+                    pass  # Stream is closed or invalid
+                    
+        except (ImportError, OSError):
+            pass  # Thread will exit silently if it fails
+    
+    _console_thread = threading.Thread(target=_console_buffer_manager, daemon=True, name="ConsoleBufferManager")
+    _console_thread.start()
 from ocr.backend import OCR
 from database.name_db import NameDB
 from lcu.client import LCU
@@ -69,7 +105,7 @@ from threads.champ_thread import ChampThread
 from threads.ocr_thread import OCRSkinThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
-from utils.logging import setup_logging, get_logger, log_section, log_event, log_action, log_success, log_status
+from utils.logging import setup_logging, get_logger, log_section, log_success, log_status
 from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager

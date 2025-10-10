@@ -257,13 +257,18 @@ class SmartSkinDownloader:
                 log.error(f"Error processing {champion}: {e}")
                 results[champion] = 0
         
-        log.info(f"Smart download complete! Total skins downloaded: {total_downloaded}")
-        log.info(f"Rate limit remaining: {self.rate_limit_remaining}")
+        # Get detailed statistics
+        detailed_stats = self.get_detailed_stats()
+        log.info(f"Smart download complete!")
+        log.info(f"  Total base skins: {detailed_stats['total_skins']}")
+        log.info(f"  Total chromas: {detailed_stats['total_chromas']}")
+        log.info(f"  Total skin IDs: {detailed_stats['total_ids']}")
+        log.info(f"  Rate limit remaining: {self.rate_limit_remaining}")
         
         return results
     
     def get_download_stats(self) -> Dict[str, int]:
-        """Get statistics about downloaded skins"""
+        """Get statistics about downloaded skins (total IDs per champion)"""
         if not self.target_dir.exists():
             return {}
         
@@ -274,6 +279,39 @@ class SmartSkinDownloader:
                 stats[champion_dir.name] = len(zip_files)
         
         return stats
+    
+    def get_detailed_stats(self) -> Dict[str, int]:
+        """
+        Get detailed statistics categorizing base skins and chromas
+        
+        Returns:
+            Dict with keys: 'total_skins', 'total_chromas', 'total_ids'
+        """
+        if not self.target_dir.exists():
+            return {'total_skins': 0, 'total_chromas': 0, 'total_ids': 0}
+        
+        total_skins = 0  # Base skins only
+        total_chromas = 0  # Chromas only
+        
+        for champion_dir in self.target_dir.iterdir():
+            if not champion_dir.is_dir():
+                continue
+            
+            # Count base skins (zip files in champion root, not in chromas/)
+            base_skins = list(champion_dir.glob("*.zip"))
+            total_skins += len(base_skins)
+            
+            # Count chromas (zip files in chromas/ subdirectory)
+            chromas_dir = champion_dir / "chromas"
+            if chromas_dir.exists():
+                chroma_files = list(chromas_dir.glob("*.zip"))
+                total_chromas += len(chroma_files)
+        
+        return {
+            'total_skins': total_skins,
+            'total_chromas': total_chromas,
+            'total_ids': total_skins + total_chromas
+        }
 
 
 def download_skins_smart(target_dir: Path = None, force_update: bool = False, 
@@ -283,22 +321,26 @@ def download_skins_smart(target_dir: Path = None, force_update: bool = False,
         # Note: tray_manager status is already set by caller (download_skins_on_startup)
         downloader = SmartSkinDownloader(target_dir)
         
-        # Get current stats
-        current_stats = downloader.get_download_stats()
-        total_current = sum(current_stats.values())
+        # Get current detailed stats
+        current_detailed = downloader.get_detailed_stats()
         
-        if total_current > 0:
-            log.info(f"Found {total_current} existing skins across {len(current_stats)} champions")
+        if current_detailed['total_ids'] > 0:
+            log.info(f"Found {current_detailed['total_skins']} base skins + "
+                    f"{current_detailed['total_chromas']} chromas = "
+                    f"{current_detailed['total_ids']} total skin IDs")
         
         # Download skins with smart batching
         results = downloader.download_all_skins_smart(force_update, max_champions)
         
-        # Report results
-        total_downloaded = sum(results.values())
-        champions_with_new = sum(1 for count in results.values() if count > 0)
+        # Report final results with detailed stats
+        final_detailed = downloader.get_detailed_stats()
+        new_ids = final_detailed['total_ids'] - current_detailed['total_ids']
         
-        if total_downloaded > 0:
-            log.info(f"Smart download: {total_downloaded} new skins for {champions_with_new} champions")
+        if new_ids > 0:
+            log.info(f"Downloaded {new_ids} new skin IDs")
+            log.info(f"Final totals: {final_detailed['total_skins']} base skins + "
+                    f"{final_detailed['total_chromas']} chromas = "
+                    f"{final_detailed['total_ids']} total skin IDs")
         else:
             log.info("No new skins to download")
         

@@ -5,7 +5,6 @@ Test script for admin utils functionality
 Run this to verify admin rights and auto-start features
 """
 
-import sys
 from utils.admin_utils import (
     is_admin,
     is_registered_for_autostart,

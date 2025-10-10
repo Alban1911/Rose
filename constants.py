@@ -218,6 +218,7 @@ TRAY_INIT_SLEEP_S = 0.2                 # Sleep after tray icon initialization
 PROCESS_MONITOR_SLEEP_S = 0.5           # Sleep during process monitoring loop
 WINDOW_CHECK_SLEEP_S = 1                # Sleep between window existence checks
 API_POLITENESS_DELAY_S = 0.5            # Delay between API calls to be polite
+CONSOLE_BUFFER_CLEAR_INTERVAL_S = 0.5   # Interval to clear console buffer on Windows
 
 # UI animation delays (milliseconds)
 UI_QTIMER_CALLBACK_DELAY_MS = 50        # Delay before executing QTimer callbacks

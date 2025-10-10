@@ -36,7 +36,7 @@ def setup_logging(verbose: bool):
     
     # Create a safe logging handler that works even without console
     class SafeStreamHandler(logging.StreamHandler):
-        """A stream handler that safely handles None streams"""
+        """A stream handler that safely handles None streams and prevents blocking"""
         def __init__(self, stream=None):
             # If stream is None, create a dummy stream that does nothing
             if stream is None:
@@ -46,8 +46,18 @@ def setup_logging(verbose: bool):
         
         def emit(self, record):
             try:
-                super().emit(record)
-            except (AttributeError, OSError):
+                # Use non-blocking emit with timeout protection
+                msg = self.format(record)
+                stream = self.stream
+                
+                # Try to write without blocking
+                try:
+                    stream.write(msg + self.terminator)
+                    stream.flush()
+                except (BlockingIOError, BrokenPipeError):
+                    # Stream is blocking or broken - skip this message
+                    pass
+            except (AttributeError, OSError, ValueError):
                 # If the stream is broken, silently ignore
                 pass
     

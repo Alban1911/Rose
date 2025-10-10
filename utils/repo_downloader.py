@@ -12,7 +12,7 @@ import zipfile
 import tempfile
 import requests
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
@@ -188,7 +188,7 @@ class RepoDownloader:
     
     
     def get_skin_stats(self) -> dict:
-        """Get statistics about downloaded skins"""
+        """Get statistics about downloaded skins (total IDs per champion)"""
         if not self.target_dir.exists():
             return {}
         
@@ -199,6 +199,39 @@ class RepoDownloader:
                 stats[champion_dir.name] = len(zip_files)
         
         return stats
+    
+    def get_detailed_stats(self) -> Dict[str, int]:
+        """
+        Get detailed statistics categorizing base skins and chromas
+        
+        Returns:
+            Dict with keys: 'total_skins', 'total_chromas', 'total_ids'
+        """
+        if not self.target_dir.exists():
+            return {'total_skins': 0, 'total_chromas': 0, 'total_ids': 0}
+        
+        total_skins = 0  # Base skins only
+        total_chromas = 0  # Chromas only
+        
+        for champion_dir in self.target_dir.iterdir():
+            if not champion_dir.is_dir():
+                continue
+            
+            # Count base skins (zip files in champion root, not in chromas/)
+            base_skins = list(champion_dir.glob("*.zip"))
+            total_skins += len(base_skins)
+            
+            # Count chromas (zip files in chromas/ subdirectory)
+            chromas_dir = champion_dir / "chromas"
+            if chromas_dir.exists():
+                chroma_files = list(chromas_dir.glob("*.zip"))
+                total_chromas += len(chroma_files)
+        
+        return {
+            'total_skins': total_skins,
+            'total_chromas': total_chromas,
+            'total_ids': total_skins + total_chromas
+        }
 
 
 def download_skins_from_repo(target_dir: Path = None, force_update: bool = False, tray_manager=None) -> bool:
@@ -207,24 +240,27 @@ def download_skins_from_repo(target_dir: Path = None, force_update: bool = False
         # Note: tray_manager status is already set by caller (download_skins_on_startup)
         downloader = RepoDownloader(target_dir)
         
-        # Get current stats
-        current_stats = downloader.get_skin_stats()
-        total_current = sum(current_stats.values())
+        # Get current detailed stats
+        current_detailed = downloader.get_detailed_stats()
         
-        if total_current > 0:
-            log.info(f"Found {total_current} existing skins across {len(current_stats)} champions")
+        if current_detailed['total_ids'] > 0:
+            log.info(f"Found {current_detailed['total_skins']} base skins + "
+                    f"{current_detailed['total_chromas']} chromas = "
+                    f"{current_detailed['total_ids']} total skin IDs")
         
         # Download and extract skins (includes chroma preview download)
         success = downloader.download_and_extract_skins(force_update)
         
         if success:
-            # Get updated stats
-            updated_stats = downloader.get_skin_stats()
-            total_updated = sum(updated_stats.values())
+            # Get updated detailed stats
+            final_detailed = downloader.get_detailed_stats()
+            new_ids = final_detailed['total_ids'] - current_detailed['total_ids']
             
-            if total_updated > total_current:
-                new_skins = total_updated - total_current
-                log.info(f"Downloaded {new_skins} new skins from repository")
+            if new_ids > 0:
+                log.info(f"Downloaded {new_ids} new skin IDs")
+                log.info(f"Final totals: {final_detailed['total_skins']} base skins + "
+                        f"{final_detailed['total_chromas']} chromas = "
+                        f"{final_detailed['total_ids']} total skin IDs")
             else:
                 log.info("No new skins to download")
             
