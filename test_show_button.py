@@ -51,8 +51,9 @@ class TestManager:
             # Wheel is closed, open it
             print("✓ Button clicked! Opening wheel...")
             self.wheel_opened = True
-            if self.wheel:
-                self.wheel.show_wheel()
+            if self.wheel and self.button:
+                # Position wheel above button
+                self.wheel.show_wheel(button_pos=self.button.pos())
                 self.wheel.setVisible(True)
                 self.wheel.raise_()
         

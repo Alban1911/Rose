@@ -259,10 +259,22 @@ class ChromaWheelWidget(QWidget):
             return None
     
     
-    def show_wheel(self):
-        """Show the wheel"""
+    def show_wheel(self, button_pos=None):
+        """Show the wheel, optionally positioned relative to button"""
         # Set opacity to 1.0 for visibility
         self._opacity = 1.0
+        
+        # Position above button if button position provided
+        if button_pos:
+            # Calculate position: 1/6 of button size above button top (1/3 smaller than 1/4)
+            from constants import CHROMA_WHEEL_BUTTON_SIZE
+            offset_above = int(CHROMA_WHEEL_BUTTON_SIZE / 6)  # 7-8px for 45px button
+            
+            # Position wheel so its bottom is offset_above pixels above button top
+            wheel_x = button_pos.x() + (CHROMA_WHEEL_BUTTON_SIZE - self.window_width) // 2
+            wheel_y = button_pos.y() - offset_above - self.window_height
+            
+            self.move(wheel_x, wheel_y)
         
         # Show window
         self.show()
@@ -292,18 +304,21 @@ class ChromaWheelWidget(QWidget):
         
         # Draw dark background with golden border (League style)
         painter.fillRect(self.rect(), QColor(10, 14, 39, 240))
-        painter.setPen(QPen(QColor(200, 170, 110), 2))
-        painter.drawRect(2, 2, self.window_width - 4, self.window_height - 4)
+        painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden border color
+        painter.drawRect(1, 1, self.window_width - 2, self.window_height - 2)
         
         # Draw preview area (large image at top)
         preview_x = CHROMA_WHEEL_PREVIEW_X
         preview_y = CHROMA_WHEEL_PREVIEW_Y
         preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
         
-        # Draw preview background with border on all sides
+        # Draw preview background (no border)
         painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(20, 20, 30))
-        painter.setPen(QPen(QColor(100, 100, 120), 1))
-        painter.drawRect(preview_x, preview_y, self.preview_width, self.preview_height)
+        
+        # Draw golden separator line between preview and buttons (spans full inner width)
+        painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden separator color
+        separator_y = preview_y + self.preview_height
+        painter.drawLine(1, separator_y, self.window_width - 1, separator_y)
         
         # Draw hovered chroma preview image
         # If no button is hovered, show the currently selected/applied chroma
@@ -326,8 +341,8 @@ class ChromaWheelWidget(QWidget):
             center_x = preview_x + self.preview_width // 2
             center_y = preview_y + self.preview_height // 2
             
-            # Draw red X (reduced by 25%: 120 * 0.75 = 90)
-            painter.setPen(QPen(QColor(220, 60, 60), 6))
+            # Draw red X with matching color #bf1f37
+            painter.setPen(QPen(QColor("#bf1f37"), 6))  # Red color matching base button
             x_size = 90
             painter.drawLine(center_x - x_size, center_y - x_size, center_x + x_size, center_y + x_size)
             painter.drawLine(center_x + x_size, center_y - x_size, center_x - x_size, center_y + x_size)
@@ -360,28 +375,37 @@ class ChromaWheelWidget(QWidget):
         # Small circles, no scaling
         radius = self.circle_radius
         
-        # Main circle fill
-        color = QColor(circle.color)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(color))
-        painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
+        # Special styling for base skin (chroma_id == 0)
+        is_base = (circle.chroma_id == 0)
         
-        # Border - golden ring for selected/hovered
+        if is_base:
+            # Base skin: cream background with red diagonal line
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor("#f1e6d3")))  # Cream/beige
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
+            
+            # Draw diagonal red line across the circle (top-right to bottom-left)
+            painter.setPen(QPen(QColor("#bf1f37"), 2))  # Red diagonal
+            offset = int(radius * 0.7)  # Diagonal line from corner to corner
+            painter.drawLine(circle.x + offset, circle.y - offset, circle.x - offset, circle.y + offset)
+        else:
+            # Regular chroma: use chroma color
+            color = QColor(circle.color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
+        
+        # Border - golden ring for selected/hovered (no white outline)
         if is_selected:
             # Thick golden border for selected
-            painter.setPen(QPen(QColor(200, 170, 110), 3))
+            painter.setPen(QPen(QColor("#b78c34"), 2))  # Golden selection color
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPoint(circle.x, circle.y), radius + 4, radius + 4)
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius + 3, radius + 3)
         elif circle.is_hovered:
             # Thin golden border for hovered
-            painter.setPen(QPen(QColor(200, 170, 110), 2))
+            painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden hover color
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPoint(circle.x, circle.y), radius + 2, radius + 2)
-        
-        # White outline around circle
-        painter.setPen(QPen(QColor(255, 255, 255), 1))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius + 1, radius + 1)
     
     def mouseMoveEvent(self, event):
         """Handle mouse movement for hover effects"""
@@ -536,17 +560,19 @@ class ReopenButton(QWidget):
         after_transition3_radius = gradient_inner_radius - transition3_width
         inner_radius = inner_disk_radius  # Central dark disk
         
-        # Glow effect on hover (subtle outer glow)
-        if self.is_hovered:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(255, 215, 0, CHROMA_WHEEL_GLOW_ALPHA)))  # Gold glow
-            painter.drawEllipse(QPoint(center, center), outer_gold_radius + 3, outer_gold_radius + 3)
-        
-        # 1. Outer metallic gold border (7% of button size)
+        # 1. Outer metallic gold border - matches wheel border color (7% of button size)
+        # Darker when hovered instead of glow
         gold_gradient = QRadialGradient(center, center, outer_gold_radius)
-        gold_gradient.setColorAt(0.0, QColor(255, 215, 0))  # Bright gold
-        gold_gradient.setColorAt(0.7, QColor(255, 165, 0))  # Orange gold
-        gold_gradient.setColorAt(1.0, QColor(184, 134, 11))  # Dark gold
+        if self.is_hovered:
+            # Darker gold gradient when hovered
+            gold_gradient.setColorAt(0.0, QColor("#a57828"))  # Dark gold
+            gold_gradient.setColorAt(0.7, QColor("#8f6620"))  # Darker main gold
+            gold_gradient.setColorAt(1.0, QColor("#75551a"))  # Very dark gold
+        else:
+            # Normal gold gradient
+            gold_gradient.setColorAt(0.0, QColor("#d4a747"))  # Light gold
+            gold_gradient.setColorAt(0.7, QColor("#b78c34"))  # Main gold (matches wheel border)
+            gold_gradient.setColorAt(1.0, QColor("#9a7328"))  # Dark gold
         
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(gold_gradient))
@@ -783,7 +809,9 @@ class ChromaWheelManager:
                 if self.widget:
                     # Pass the currently selected chroma ID so wheel opens at that index
                     self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id)
-                    self.widget.show_wheel()
+                    # Position wheel above button
+                    button_pos = self.reopen_button.pos() if self.reopen_button else None
+                    self.widget.show_wheel(button_pos=button_pos)
                     self.widget.setVisible(True)
                     self.widget.raise_()
                     log_success(log, f"Chroma wheel displayed for {skin_name}", "🎨")

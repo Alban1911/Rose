@@ -244,19 +244,19 @@ TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
 # CHROMA WHEEL UI CONSTANTS
 # =============================================================================
 
-# Chroma wheel window dimensions (sized to actual preview image size: 270x303)
+# Chroma wheel window dimensions (tight fit around preview with golden border)
 CHROMA_WHEEL_PREVIEW_WIDTH = 270        # Width of skin preview area (actual image size)
 CHROMA_WHEEL_PREVIEW_HEIGHT = 303       # Height of skin preview area (actual image size)
-CHROMA_WHEEL_CIRCLE_RADIUS = 9          # Radius of chroma selection circles (13 * 0.67 = 8.71, rounded to 9)
-CHROMA_WHEEL_WINDOW_WIDTH = 270         # Total window width (no side margins, fits preview exactly)
-CHROMA_WHEEL_WINDOW_HEIGHT = 355        # Total window height (303 preview + 52 for buttons)
-CHROMA_WHEEL_CIRCLE_SPACING = 21        # Spacing between chroma circles (31 * 0.67 = 20.77, rounded to 21)
-CHROMA_WHEEL_BUTTON_SIZE = 60           # Size of reopen button
+CHROMA_WHEEL_CIRCLE_RADIUS = 9          # Radius of chroma selection circles
+CHROMA_WHEEL_WINDOW_WIDTH = 275         # Total window width (1px left + 1px space + 270 preview + 1px space + 1px right + 1px extra)
+CHROMA_WHEEL_WINDOW_HEIGHT = 358        # Total window height (1px top + 1px space + 303 preview + 52 buttons + 1px bottom)
+CHROMA_WHEEL_CIRCLE_SPACING = 21        # Spacing between chroma circles
+CHROMA_WHEEL_BUTTON_SIZE = 45           # Size of reopen button (reduced 25%: was 60, now 45)
 
 # Chroma wheel positioning
 CHROMA_WHEEL_SCREEN_EDGE_MARGIN = 20    # Distance from screen edge
-CHROMA_WHEEL_PREVIEW_X = 0              # X position of preview area (no left margin)
-CHROMA_WHEEL_PREVIEW_Y = 0              # Y position of preview area (no top margin)
+CHROMA_WHEEL_PREVIEW_X = 2              # X position of preview area (after 1px border + 1px space)
+CHROMA_WHEEL_PREVIEW_Y = 2              # Y position of preview area (after 1px border + 1px space)
 CHROMA_WHEEL_ROW_Y_OFFSET = 26          # Offset from bottom for chroma row (centered in gap: 52px / 2 = 26)
 
 # Chroma wheel button visual effects
