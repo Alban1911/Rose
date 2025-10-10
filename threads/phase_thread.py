@@ -34,10 +34,10 @@ class PhaseThread(threading.Thread):
         while not self.state.stop:
             try: 
                 self.lcu.refresh_if_needed()
-            except Exception: 
-                pass
+            except (OSError, ConnectionError) as e:
+                log.debug(f"LCU refresh failed in phase thread: {e}")
             
-            ph = self.lcu.phase() if self.lcu.ok else None
+            ph = self.lcu.phase if self.lcu.ok else None
             if ph is not None and ph != self.last_phase:
                 if self.log_transitions and ph in self.INTERESTING:
                     log_status(log, "Phase", ph, "🎯")

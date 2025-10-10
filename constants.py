@@ -186,6 +186,12 @@ THREAD_JOIN_TIMEOUT_S = 2               # Timeout for thread.join() on shutdown 
 THREAD_FORCE_EXIT_TIMEOUT_S = 4         # Total timeout before forcing app exit
 INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
 
+# Main loop watchdog timeouts (seconds)
+MAIN_LOOP_STALL_THRESHOLD_S = 5.0       # Threshold for detecting main loop stalls
+MAIN_LOOP_FORCE_QUIT_TIMEOUT_S = 2.0    # Timeout before forcing quit when stop flag is set
+QT_EVENT_PROCESSING_THRESHOLD_S = 1.0   # Warning threshold for Qt event processing
+CHROMA_WHEEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma wheel processing
+
 # Process priority settings
 # Note: Lower priority for injection processes can help prevent slowing down game launch
 # But the CPU contention also provides a buffer window for late injections to complete

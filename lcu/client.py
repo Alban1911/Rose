@@ -6,10 +6,13 @@ League Client API client
 
 import os
 import time
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+
 import psutil
 import requests
+
 from dataclasses import dataclass
-from typing import Optional
 from utils.logging import get_logger, log_section, log_success
 from constants import LCU_API_TIMEOUT_S
 
@@ -26,37 +29,53 @@ class Lockfile:
 
 
 def _find_lockfile(explicit: Optional[str]) -> Optional[str]:
-    """Find League Client lockfile"""
-    if explicit and os.path.isfile(explicit): 
-        return explicit
+    """Find League Client lockfile using pathlib"""
+    # Check explicit path
+    if explicit:
+        explicit_path = Path(explicit)
+        if explicit_path.is_file():
+            return str(explicit_path)
     
+    # Check environment variable
     env = os.environ.get("LCU_LOCKFILE")
-    if env and os.path.isfile(env): 
-        return env
+    if env:
+        env_path = Path(env)
+        if env_path.is_file():
+            return str(env_path)
     
+    # Check common installation paths
     if os.name == "nt":
-        for p in (r"C:\\Riot Games\\League of Legends\\lockfile",
-                  r"C:\\Program Files\\Riot Games\\League of Legends\\lockfile",
-                  r"C:\\Program Files (x86)\\Riot Games\\League of Legends\\lockfile"):
-            if os.path.isfile(p): 
-                return p
+        common_paths = [
+            Path("C:/Riot Games/League of Legends/lockfile"),
+            Path("C:/Program Files/Riot Games/League of Legends/lockfile"),
+            Path("C:/Program Files (x86)/Riot Games/League of Legends/lockfile"),
+        ]
     else:
-        for p in ("/Applications/League of Legends.app/Contents/LoL/lockfile",
-                  os.path.expanduser("~/.local/share/League of Legends/lockfile")):
-            if os.path.isfile(p): 
-                return p
+        common_paths = [
+            Path("/Applications/League of Legends.app/Contents/LoL/lockfile"),
+            Path.home() / ".local/share/League of Legends/lockfile",
+        ]
     
+    for p in common_paths:
+        if p.is_file():
+            return str(p)
+    
+    # Try to find via process scanning
     try:
         for proc in psutil.process_iter(attrs=["name", "exe"]):
             nm = (proc.info.get("name") or "").lower()
             if "leagueclient" in nm:
                 exe = proc.info.get("exe") or ""
-                for d in (os.path.dirname(exe), os.path.dirname(os.path.dirname(exe))):
-                    p = os.path.join(d, "lockfile")
-                    if os.path.isfile(p): 
-                        return p
-    except Exception:
-        pass
+                if exe:
+                    exe_path = Path(exe)
+                    # Check in same directory and parent directory
+                    for directory in [exe_path.parent, exe_path.parent.parent]:
+                        lockfile = directory / "lockfile"
+                        if lockfile.is_file():
+                            return str(lockfile)
+    except (psutil.Error, OSError, AttributeError) as e:
+        log.debug(f"Failed to find lockfile via process iteration: {e}")
+    
     return None
 
 
@@ -78,12 +97,21 @@ class LCU:
         """Initialize from lockfile"""
         lf = _find_lockfile(self._explicit_lockfile)
         self.lf_path = lf
-        if not lf or not os.path.isfile(lf):
+        
+        if not lf:
+            self._disable("LCU lockfile not found")
+            return
+        
+        lockfile_path = Path(lf)
+        if not lockfile_path.is_file():
             self._disable("LCU lockfile not found")
             return
         
         try:
-            name, pid, port, pw, proto = open(lf, "r", encoding="utf-8").read().split(":")[:5]
+            # Use context manager for file handling
+            with open(lockfile_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            name, pid, port, pw, proto = content.split(":")[:5]
             self.port = int(port)
             self.pw = pw
             self.base = f"https://127.0.0.1:{self.port}"
@@ -93,8 +121,9 @@ class LCU:
             self.s.headers.update({"Content-Type": "application/json"})
             self.ok = True
             try: 
-                self.lf_mtime = os.path.getmtime(lf)
-            except Exception: 
+                self.lf_mtime = lockfile_path.stat().st_mtime
+            except (OSError, IOError) as e:
+                log.debug(f"Failed to get lockfile mtime: {e}")
                 self.lf_mtime = time.time()
             log_section(log, "LCU Connected", "🔗", {"Port": self.port, "Status": "Ready"})
         except Exception as e:
@@ -114,15 +143,24 @@ class LCU:
     def refresh_if_needed(self, force: bool = False):
         """Refresh connection if needed"""
         lf = _find_lockfile(self._explicit_lockfile)
-        if not lf or not os.path.isfile(lf):
+        
+        if not lf:
+            self._disable("lockfile not found")
+            self.lf_path = None
+            self.lf_mtime = 0.0
+            return
+        
+        lockfile_path = Path(lf)
+        if not lockfile_path.is_file():
             self._disable("lockfile not found")
             self.lf_path = None
             self.lf_mtime = 0.0
             return
         
         try: 
-            mt = os.path.getmtime(lf)
-        except Exception: 
+            mt = lockfile_path.stat().st_mtime
+        except (OSError, IOError) as e:
+            log.debug(f"Failed to get lockfile mtime during refresh: {e}")
             mt = 0.0
         
         if force or lf != self.lf_path or (mt and mt != self.lf_mtime) or not self.ok:
@@ -147,7 +185,8 @@ class LCU:
             r.raise_for_status()
             try: 
                 return r.json()
-            except Exception: 
+            except (ValueError, requests.exceptions.JSONDecodeError) as e:
+                log.debug(f"Failed to decode JSON response: {e}")
                 return None
         except requests.exceptions.RequestException:
             self.refresh_if_needed(force=True)
@@ -165,33 +204,44 @@ class LCU:
             except requests.exceptions.RequestException:
                 return None
 
+    @property
     def phase(self) -> Optional[str]:
         """Get current gameflow phase"""
         ph = self.get("/lol-gameflow/v1/gameflow-phase")
         return ph if isinstance(ph, str) else None
 
+    @property
     def session(self) -> Optional[dict]:
         """Get current session"""
         return self.get("/lol-champ-select/v1/session")
 
+    @property
     def hovered_champion_id(self) -> Optional[int]:
         """Get hovered champion ID"""
         v = self.get("/lol-champ-select/v1/hovered-champion-id")
         try: 
             return int(v) if v is not None else None
-        except Exception: 
+        except (ValueError, TypeError) as e:
+            log.debug(f"Failed to parse hovered champion ID: {e}")
             return None
 
+    @property
     def my_selection(self) -> Optional[dict]:
         """Get my selection"""
         return self.get("/lol-champ-select/v1/session/my-selection") or self.get("/lol-champ-select/v1/selection")
 
+    @property
     def unlocked_skins(self) -> Optional[dict]:
         """Get unlocked skins"""
         return self.get("/lol-champions/v1/owned-champions-minimal")
 
-    def owned_skins(self) -> Optional[list]:
-        """Get owned skins (returns list of skin IDs)"""
+    def owned_skins(self) -> Optional[List[int]]:
+        """
+        Get owned skins (returns list of skin IDs)
+        
+        Note: This is a method (not property) because it's expensive and
+        should be called explicitly when needed, not accessed frequently.
+        """
         # This endpoint returns all skins the player owns
         data = self.get("/lol-inventory/v2/inventory/CHAMPION_SKIN")
         if isinstance(data, list):
@@ -208,17 +258,20 @@ class LCU:
             return skin_ids
         return None
     
-    def get_current_summoner(self) -> Optional[dict]:
+    @property
+    def current_summoner(self) -> Optional[dict]:
         """Get current summoner info"""
         return self.get("/lol-summoner/v1/current-summoner")
 
-    def get_region_locale(self) -> Optional[dict]:
+    @property
+    def region_locale(self) -> Optional[dict]:
         """Get client region and locale information"""
         return self.get("/riotclient/region-locale")
 
-    def get_client_language(self) -> Optional[str]:
+    @property
+    def client_language(self) -> Optional[str]:
         """Get client language from LCU API"""
-        locale_info = self.get_region_locale()
+        locale_info = self.region_locale
         if locale_info and isinstance(locale_info, dict):
             return locale_info.get("locale")
         return None

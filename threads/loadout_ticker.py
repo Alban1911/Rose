@@ -60,7 +60,7 @@ class LoadoutTicker(threading.Thread):
             # Periodic LCU resync
             if (now - last_poll) >= poll_period_s:
                 last_poll = now
-                sess = self.lcu.session() or {}
+                sess = self.lcu.session or {}
                 t = (sess.get("timer") or {})
                 phase = str((t.get("phase") or "")).upper()
                 left_ms = int(t.get("adjustedTimeLeftInPhase") or 0)
@@ -210,7 +210,7 @@ class LoadoutTicker(threading.Thread):
                                     
                                     # Find the user's action ID to update
                                     try:
-                                        sess = self.lcu.session() or {}
+                                        sess = self.lcu.session or {}
                                         actions = sess.get("actions") or []
                                         my_cell = self.state.local_cell_id
                                         

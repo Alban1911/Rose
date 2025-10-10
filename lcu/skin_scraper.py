@@ -46,7 +46,8 @@ class ChampionSkinCache:
         """Get skin data by skin name (exact match)"""
         return self.skin_name_map.get(skin_name)
     
-    def get_all_skins(self) -> List[Dict]:
+    @property
+    def all_skins(self) -> List[Dict]:
         """Get all skins for the cached champion"""
         return self.skins.copy()
 
@@ -272,11 +273,13 @@ class LCUSkinScraper:
         
         return None
     
-    def get_cached_champion_name(self) -> Optional[str]:
+    @property
+    def cached_champion_name(self) -> Optional[str]:
         """Get the name of the currently cached champion"""
         return self.cache.champion_name
     
-    def get_cached_champion_id(self) -> Optional[int]:
+    @property
+    def cached_champion_id(self) -> Optional[int]:
         """Get the ID of the currently cached champion"""
         return self.cache.champion_id
     
