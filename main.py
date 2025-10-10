@@ -423,8 +423,6 @@ def setup_arguments() -> argparse.Namespace:
     
     # Threading arguments
     ap.add_argument("--phase-hz", type=float, default=PHASE_HZ_DEFAULT)
-    ap.add_argument("--ws", action="store_true", default=DEFAULT_WEBSOCKET_ENABLED)
-    ap.add_argument("--no-ws", action="store_false", dest="ws", help="Disable WebSocket mode")
     ap.add_argument("--ws-ping", type=int, default=WS_PING_INTERVAL_DEFAULT)
     
     # Timer arguments
@@ -557,63 +555,6 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optio
     return qt_app, chroma_selector
 
 
-def initialize_ocr(args: argparse.Namespace, lcu: LCU, app_status: Optional[AppStatus] = None):
-    """Initialize OCR with language detection"""
-    ocr_lang = args.lang
-    
-    if args.lang == "auto":
-        # Try to get LCU language immediately, but don't block if not available
-        if lcu.ok:
-            try:
-                lcu_lang = lcu.client_language
-                if lcu_lang:
-                    log.info(f"LCU connected - detected language: {lcu_lang}")
-                    ocr_lang = get_ocr_language(lcu_lang, args.lang)
-                    log.info(f"Auto-detected OCR language: {ocr_lang} (LCU: {lcu_lang})")
-                else:
-                    log.info("LCU connected but language not yet available - using English fallback")
-                    ocr_lang = "eng"
-            except Exception as e:
-                log.debug(f"Failed to get LCU language: {e}")
-                log.info("LCU connected but language detection failed - using English fallback")
-                ocr_lang = "eng"
-        else:
-            log.info("LCU not yet connected - using English fallback, will auto-detect when connected")
-            ocr_lang = "eng"
-    
-    # Validate OCR language
-    if not validate_ocr_language(ocr_lang):
-        log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
-        ocr_lang = "eng"
-    
-    # Initialize OCR with determined language (CPU mode only)
-    try:
-        ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
-        log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, mode: CPU)")
-        
-        # Update app status
-        if app_status:
-            app_status.mark_ocr_initialized(ocr)
-        
-        return ocr
-    except Exception as e:
-        log.warning(f"Failed to initialize OCR with language '{ocr_lang}': {e}")
-        log.info("Attempting fallback to English OCR...")
-        
-        try:
-            ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
-            log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
-            
-            # Update app status
-            if app_status:
-                app_status.mark_ocr_initialized(ocr)
-            
-            return ocr
-        except Exception as fallback_e:
-            log.error(f"OCR initialization failed: {fallback_e}")
-            log.error("EasyOCR is not properly installed or configured.")
-            log.error("Install with: pip install easyocr torch torchvision")
-            sys.exit(1)
 
 
 def main():
@@ -649,8 +590,8 @@ def main():
     # Initialize PyQt6 and chroma selector
     qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, app_status)
     
-    # Initialize OCR with language detection
-    ocr = initialize_ocr(args, lcu, app_status)
+    # OCR will be initialized when WebSocket connects (for proper language detection)
+    ocr = None
     
     # Initialize database
     db = NameDB(lang=args.dd_lang)
@@ -660,7 +601,11 @@ def main():
     
     # Download skins if enabled (run in background to avoid blocking startup)
     if args.download_skins:
-        log.info("Starting automatic skin download in background...")
+        separator = "=" * 80
+        log.info(separator)
+        log.info("📥 STARTING SKIN DOWNLOAD")
+        log.info("   📋 Mode: Background (non-blocking)")
+        log.info(separator)
         
         def download_skins_background():
             try:
@@ -670,16 +615,27 @@ def main():
                     tray_manager=tray_manager,
                     injection_manager=injection_manager
                 )
+                separator = "=" * 80
                 if success:
-                    log.info("Background skin download completed successfully")
+                    log.info(separator)
+                    log.info("✅ SKIN DOWNLOAD COMPLETED")
+                    log.info("   📋 Status: Success")
+                    log.info(separator)
                     # Mark skins as downloaded in app status
                     app_status.mark_skins_downloaded()
                 else:
-                    log.warning("Background skin download completed with some issues")
+                    log.info(separator)
+                    log.info("⚠️ SKIN DOWNLOAD COMPLETED WITH ISSUES")
+                    log.info("   📋 Status: Partial Success")
+                    log.info(separator)
                     # Still mark as downloaded even with issues (files may still exist)
                     app_status.mark_skins_downloaded()
             except Exception as e:
-                log.error(f"Failed to download skins in background: {e}")
+                separator = "=" * 80
+                log.info(separator)
+                log.error(f"❌ SKIN DOWNLOAD FAILED")
+                log.error(f"   📋 Error: {e}")
+                log.info(separator)
                 # Check if skins exist anyway
                 app_status.mark_skins_downloaded()
         
@@ -735,32 +691,126 @@ def main():
         
         tray_manager.quit_callback = updated_tray_quit_callback
 
-    # Function to update OCR language dynamically
+    # Function to initialize OCR when WebSocket connects
+    def initialize_ocr_on_connect(lcu_lang: str):
+        """Initialize OCR when WebSocket connects with proper language detection"""
+        nonlocal ocr
+        
+        if ocr is not None:
+            log.info(f"OCR already initialized with language {ocr.lang}, skipping")
+            return
+        
+        try:
+            # Determine OCR language
+            if args.lang == "auto":
+                ocr_lang = get_ocr_language(lcu_lang, args.lang)
+                log.info(f"Initializing OCR with language: {lcu_lang} → {ocr_lang}")
+            else:
+                ocr_lang = args.lang
+                log.info(f"Initializing OCR with manual language: {ocr_lang}")
+            
+            # Validate OCR language
+            if not validate_ocr_language(ocr_lang):
+                log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
+                ocr_lang = "eng"
+            
+            # Initialize OCR with determined language (CPU mode only)
+            ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
+            separator = "=" * 80
+            log.info(separator)
+            log.info(f"🤖 OCR INITIALIZED")
+            log.info(f"   📋 Backend: {ocr.backend}")
+            log.info(f"   📋 Language: {ocr_lang}")
+            log.info(f"   📋 Mode: CPU")
+            log.info(separator)
+            
+            # Update app status
+            if app_status:
+                app_status.mark_ocr_initialized(ocr)
+                
+            # Update OCR thread with the new OCR instance
+            if t_ocr:
+                t_ocr.ocr = ocr
+                log.info("OCR thread updated with new OCR instance")
+                
+        except Exception as e:
+            log.error(f"Failed to initialize OCR: {e}")
+            # Try fallback to English
+            try:
+                log.info("Attempting fallback to English OCR...")
+                ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
+                log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
+                
+                if app_status:
+                    app_status.mark_ocr_initialized(ocr)
+                    
+                if t_ocr:
+                    t_ocr.ocr = ocr
+                    log.info("OCR thread updated with fallback OCR instance")
+                    
+            except Exception as fallback_e:
+                log.error(f"OCR initialization failed completely: {fallback_e}")
+                log.error("EasyOCR is not properly installed or configured.")
+                log.error("Install with: pip install easyocr torch torchvision")
+                # Don't exit, let the app continue without OCR
+    
+    # Function to handle LCU disconnection
+    def on_lcu_disconnected():
+        """Handle LCU disconnection - reset OCR status"""
+        nonlocal ocr
+        
+        # Mark OCR as uninitialized since we lost connection
+        ocr = None
+        
+        # Update app status to golden locked (chroma and skins still ready)
+        if app_status:
+            app_status._ocr_initialized = False
+            app_status.update_status()
+    
+    # Function to update OCR language dynamically (for reconnections/language changes)
     def update_ocr_language(new_lcu_lang: str):
         """Update OCR language when LCU language changes or reconnects"""
+        nonlocal ocr
+        
+        # Only update if OCR is already initialized (language change)
+        if ocr is None:
+            log.debug("OCR initialization handled by WebSocket, skipping LCU monitor initialization")
+            return
+            
         if args.lang == "auto":
             new_ocr_lang = get_ocr_language(new_lcu_lang, args.lang)
             try:
                 # Validate that the new OCR language is available before updating
                 if validate_ocr_language(new_ocr_lang):
-                    # Always recreate OCR on language callback to ensure fresh state after reconnection
-                    # This is important even if language hasn't changed, as EasyOCR may need reinitialization
+                    # Only recreate OCR if language actually changed
                     if new_ocr_lang != ocr.lang:
-                        log.info(f"Reloading OCR with new language: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                        separator = "=" * 80
+                        log.info(separator)
+                        log.info(f"🔄 OCR LANGUAGE CHANGE DETECTED")
+                        log.info(f"   📋 Previous Language: {ocr.lang}")
+                        log.info(f"   📋 New Language: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                        log.info(separator)
+                        
+                        # Create new OCR instance with new language
+                        new_ocr = OCR(
+                            lang=new_ocr_lang,
+                            psm=args.psm,
+                            tesseract_exe=args.tesseract_exe
+                        )
+                        
+                        # Update the global OCR reference
+                        ocr.__dict__.update(new_ocr.__dict__)
+                        
+                        # Update OCR thread
+                        if t_ocr:
+                            t_ocr.ocr = ocr
+                        
+                        log.info(separator)
+                        log.info(f"✅ OCR RELOADED SUCCESSFULLY")
+                        log.info(f"   📋 Language: {new_ocr_lang}")
+                        log.info(separator)
                     else:
-                        log.info(f"Reinitializing OCR after reconnection: {new_ocr_lang} (LCU: {new_lcu_lang})")
-                    
-                    # Create new OCR instance with new language
-                    new_ocr = OCR(
-                        lang=new_ocr_lang,
-                        psm=args.psm,
-                        tesseract_exe=args.tesseract_exe
-                    )
-                    
-                    # Update the global OCR reference
-                    ocr.__dict__.update(new_ocr.__dict__)
-                    
-                    log.info(f"✅ OCR successfully reloaded with language: {new_ocr_lang}")
+                        log.debug(f"OCR language unchanged: {new_ocr_lang}")
                 else:
                     # Keep current OCR language (likely English fallback) but log the LCU language
                     log.info(f"OCR language kept at: {ocr.lang} (LCU: {new_lcu_lang}, OCR language not available)")
@@ -772,28 +822,21 @@ def main():
     
     # Create and register threads
     t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), 
-                         log_transitions=not args.ws, injection_manager=injection_manager)
+                         log_transitions=False, injection_manager=injection_manager)
     thread_manager.register("Phase", t_phase)
-    
-    t_champ = None
-    if not args.ws:
-        t_champ = ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL, 
-                             injection_manager=injection_manager, skin_scraper=skin_scraper)
-        thread_manager.register("Champion", t_champ)
     
     t_ocr = OCRSkinThread(state, db, ocr, args, lcu, skin_scraper=skin_scraper)
     thread_manager.register("OCR", t_ocr)
     
-    t_ws = None
-    if args.ws:
-        t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
-                            ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
-                            fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                            skin_scraper=skin_scraper)
-        thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
+    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
+                        ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
+                        fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
+                        skin_scraper=skin_scraper, ocr_init_callback=initialize_ocr_on_connect)
+    thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws, 
-                                      db=db, skin_scraper=skin_scraper, injection_manager=injection_manager)
+                                      db=db, skin_scraper=skin_scraper, injection_manager=injection_manager,
+                                      disconnect_callback=on_lcu_disconnected)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
     
     # Start all threads

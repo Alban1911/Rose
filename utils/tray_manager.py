@@ -35,6 +35,7 @@ class TrayManager:
         self.tray_thread = None
         self._stop_event = threading.Event()
         self._locked_icon_image = None
+        self._golden_locked_icon_image = None
         self._unlocked_icon_image = None
         self._base_icon_image = None  # Current base icon (locked or unlocked)
         
@@ -83,15 +84,18 @@ class TrayManager:
         return None
     
     def _load_icons(self):
-        """Load both locked and unlocked icons"""
+        """Load locked, golden locked, and unlocked icons"""
         # Load locked icon
         self._locked_icon_image = self._load_icon_from_file("locked.png")
+        
+        # Load golden locked icon
+        self._golden_locked_icon_image = self._load_icon_from_file("golden locked.png")
         
         # Load golden unlocked icon
         self._unlocked_icon_image = self._load_icon_from_file("golden unlocked.png")
         
-        # Fallback to icon.ico if neither exists
-        if not self._locked_icon_image and not self._unlocked_icon_image:
+        # Fallback to icon.ico if none exist
+        if not self._locked_icon_image and not self._golden_locked_icon_image and not self._unlocked_icon_image:
             try:
                 icon_path_ico = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icon.ico")
                 if os.path.exists(icon_path_ico):
@@ -99,6 +103,7 @@ class TrayManager:
                         img = img.convert('RGBA')
                         img = img.resize((128, 128), Image.Resampling.LANCZOS)
                         self._locked_icon_image = img.copy()
+                        self._golden_locked_icon_image = img.copy()
                         self._unlocked_icon_image = img.copy()
             except Exception as e:
                 log.debug(f"Failed to load fallback icon: {e}")
@@ -315,12 +320,12 @@ class TrayManager:
         """
         return self._stop_event.wait(timeout)
     
-    def set_downloading(self, is_downloading: bool):
+    def set_status(self, status: str):
         """
-        Update the tray icon to show downloading status
+        Update the tray icon to show the specified status
         
         Args:
-            is_downloading: True to show locked icon, False to show golden unlocked icon
+            status: "locked", "golden_locked", or "unlocked"
         """
         # Wait for tray icon to be ready (up to 5 seconds)
         max_wait = TRAY_READY_MAX_WAIT_S
@@ -335,13 +340,34 @@ class TrayManager:
             return
         
         try:
-            if is_downloading:
+            if status == "locked":
                 # Show locked icon
                 if self._locked_icon_image:
                     self.icon.icon = self._locked_icon_image
-            else:
+                    log.info("Locked icon shown")
+            elif status == "golden_locked":
+                # Show golden locked icon
+                if self._golden_locked_icon_image:
+                    self.icon.icon = self._golden_locked_icon_image
+                    log.info("Golden locked icon shown")
+            elif status == "unlocked":
                 # Show golden unlocked icon
                 if self._unlocked_icon_image:
                     self.icon.icon = self._unlocked_icon_image
+                    log.info("Golden unlocked icon shown")
+            else:
+                log.warning(f"Unknown status: {status}")
         except Exception as e:
             log.error(f"Failed to update tray icon: {e}")
+    
+    def set_downloading(self, is_downloading: bool):
+        """
+        Update the tray icon to show downloading status (legacy method for compatibility)
+        
+        Args:
+            is_downloading: True to show locked icon, False to show golden unlocked icon
+        """
+        if is_downloading:
+            self.set_status("locked")
+        else:
+            self.set_status("unlocked")
