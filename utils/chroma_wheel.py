@@ -189,16 +189,27 @@ class ChromaWheelWidget(QWidget):
         return colors[index % len(colors)]
     
     def _load_chroma_preview_image(self, skin_name: str, chroma_id: Optional[int], champion_name: str = None) -> Optional[QPixmap]:
-        """Load chroma preview image from README.md - direct path approach"""
+        """Load chroma preview image - checks cache first, then README if needed"""
         try:
             if chroma_id is None:
                 # Base skin - return None (will show red X)
                 return None
             
+            # FIRST: Try loading directly from cache (fast path)
+            # This works even if skins aren't downloaded, only previews
+            from utils.chroma_preview_manager import get_preview_manager
+            preview_manager = get_preview_manager()
+            
+            image_path = preview_manager.get_preview_path(chroma_id)
+            if image_path:
+                log.debug(f"[CHROMA] Loading preview from cache: {image_path.name}")
+                return QPixmap(str(image_path))
+            
+            # SECOND: If not in cache, try to trigger download from README
+            # (This path is used when skins are downloaded but previews aren't cached yet)
             skins_dir = get_skins_dir()
             
             # Direct path: skins/{Champion}/chromas/{SkinName}/README.md
-            # We need to find the champion folder first
             if champion_name:
                 # Try direct path with champion name
                 readme_path = skins_dir / champion_name / "chromas" / skin_name / "README.md"
@@ -208,7 +219,6 @@ class ChromaWheelWidget(QWidget):
                     return self._extract_image_from_readme(readme_path, chroma_id)
             
             # Fallback: search for the skin name in chromas directories
-            # But only search within immediate subdirectories, not all
             for champion_dir in skins_dir.iterdir():
                 if not champion_dir.is_dir():
                     continue
@@ -220,7 +230,7 @@ class ChromaWheelWidget(QWidget):
                     log.debug(f"[CHROMA] Found README at: {readme_path}")
                     return self._extract_image_from_readme(readme_path, chroma_id)
             
-            log.debug(f"[CHROMA] No README found for '{skin_name}'")
+            log.debug(f"[CHROMA] No preview found for chroma {chroma_id} ('{skin_name}')")
             return None
             
         except Exception as e:
@@ -228,7 +238,7 @@ class ChromaWheelWidget(QWidget):
             return None
     
     def _extract_image_from_readme(self, readme_path: Path, chroma_id: int) -> Optional[QPixmap]:
-        """Load image for specific chroma ID from cache"""
+        """Load image for specific chroma ID from cache (called when README exists)"""
         try:
             # Load from central previewcache folder
             from utils.chroma_preview_manager import get_preview_manager
@@ -237,15 +247,15 @@ class ChromaWheelWidget(QWidget):
             image_path = preview_manager.get_preview_path(chroma_id)
             
             if image_path:
-                log.debug(f"[CHROMA] Loading preview: {image_path.name}")
+                log.debug(f"[CHROMA] Loading preview from cache: {image_path.name}")
                 return QPixmap(str(image_path))
             
-            # Image not in cache
+            # Image not in cache - could trigger download here if needed
             log.debug(f"[CHROMA] Preview not in cache: {chroma_id}")
             return None
             
         except Exception as e:
-            log.warning(f"[CHROMA] Error loading image: {e}")
+            log.warning(f"[CHROMA] Error loading preview image: {e}")
             return None
     
     
@@ -290,7 +300,7 @@ class ChromaWheelWidget(QWidget):
         preview_y = CHROMA_WHEEL_PREVIEW_Y
         preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
         
-        # Draw preview background
+        # Draw preview background with border on all sides
         painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(20, 20, 30))
         painter.setPen(QPen(QColor(100, 100, 120), 1))
         painter.drawRect(preview_x, preview_y, self.preview_width, self.preview_height)
@@ -314,47 +324,32 @@ class ChromaWheelWidget(QWidget):
         if is_base:
             # Draw red crossmark (X) for base skin
             center_x = preview_x + self.preview_width // 2
-            center_y = preview_y + (self.preview_height - 100) // 2
+            center_y = preview_y + self.preview_height // 2
             
-            # Draw large red X
-            painter.setPen(QPen(QColor(220, 60, 60), 8))
-            x_size = 120
+            # Draw red X (reduced by 25%: 120 * 0.75 = 90)
+            painter.setPen(QPen(QColor(220, 60, 60), 6))
+            x_size = 90
             painter.drawLine(center_x - x_size, center_y - x_size, center_x + x_size, center_y + x_size)
             painter.drawLine(center_x + x_size, center_y - x_size, center_x - x_size, center_y + x_size)
             
-            # Draw circle around X
-            painter.setPen(QPen(QColor(220, 60, 60), 6))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPoint(center_x, center_y), x_size + 20, x_size + 20)
-            
         elif preview_image and not preview_image.isNull():
-            # Scale image to fit preview area while maintaining aspect ratio
-            scaled_pixmap = preview_image.scaled(
-                self.preview_width, 
-                self.preview_height - 100,  # Leave room for text at bottom
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            
+            # Draw image at native size without scaling for maximum quality
             # Center the image in preview area
-            img_x = preview_x + (self.preview_width - scaled_pixmap.width()) // 2
-            img_y = preview_y + (self.preview_height - 100 - scaled_pixmap.height()) // 2
+            img_x = preview_x + (self.preview_width - preview_image.width()) // 2
+            img_y = preview_y + (self.preview_height - preview_image.height()) // 2
             
-            painter.drawPixmap(img_x, img_y, scaled_pixmap)
+            # Use high-quality rendering
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            painter.drawPixmap(img_x, img_y, preview_image)
         else:
             # No preview image - show placeholder
             painter.setPen(QColor(100, 100, 120))
             placeholder_font = QFont("Segoe UI", 12)
             painter.setFont(placeholder_font)
-            painter.drawText(preview_x, preview_y, self.preview_width, self.preview_height - 100,
+            painter.drawText(preview_x, preview_y, self.preview_width, self.preview_height,
                            Qt.AlignmentFlag.AlignCenter, "Preview\nNot Available")
         
-        # Draw skin name at bottom of preview
-        painter.setPen(QColor(240, 230, 210))
-        name_font = QFont("Segoe UI", 16, QFont.Weight.Bold)
-        painter.setFont(name_font)
-        painter.drawText(preview_x, preview_y + self.preview_height - 60, 
-                        self.preview_width, 40, Qt.AlignmentFlag.AlignCenter, self.skin_name)
+        # Skin name removed - preview images use full height
         
         # Draw all chroma circles (horizontal row at bottom)
         for i, circle in enumerate(self.circles):

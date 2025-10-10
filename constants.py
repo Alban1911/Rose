@@ -244,20 +244,20 @@ TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
 # CHROMA WHEEL UI CONSTANTS
 # =============================================================================
 
-# Chroma wheel window dimensions
-CHROMA_WHEEL_PREVIEW_WIDTH = 400        # Width of skin preview area
-CHROMA_WHEEL_PREVIEW_HEIGHT = 450       # Height of skin preview area
-CHROMA_WHEEL_CIRCLE_RADIUS = 20         # Radius of chroma selection circles
-CHROMA_WHEEL_WINDOW_WIDTH = 460         # Total window width
-CHROMA_WHEEL_WINDOW_HEIGHT = 600        # Total window height
-CHROMA_WHEEL_CIRCLE_SPACING = 45        # Spacing between chroma circles
+# Chroma wheel window dimensions (sized to actual preview image size: 270x303)
+CHROMA_WHEEL_PREVIEW_WIDTH = 270        # Width of skin preview area (actual image size)
+CHROMA_WHEEL_PREVIEW_HEIGHT = 303       # Height of skin preview area (actual image size)
+CHROMA_WHEEL_CIRCLE_RADIUS = 9          # Radius of chroma selection circles (13 * 0.67 = 8.71, rounded to 9)
+CHROMA_WHEEL_WINDOW_WIDTH = 270         # Total window width (no side margins, fits preview exactly)
+CHROMA_WHEEL_WINDOW_HEIGHT = 355        # Total window height (303 preview + 52 for buttons)
+CHROMA_WHEEL_CIRCLE_SPACING = 21        # Spacing between chroma circles (31 * 0.67 = 20.77, rounded to 21)
 CHROMA_WHEEL_BUTTON_SIZE = 60           # Size of reopen button
 
 # Chroma wheel positioning
 CHROMA_WHEEL_SCREEN_EDGE_MARGIN = 20    # Distance from screen edge
-CHROMA_WHEEL_PREVIEW_X = 30             # X position of preview area
-CHROMA_WHEEL_PREVIEW_Y = 30             # Y position of preview area
-CHROMA_WHEEL_ROW_Y_OFFSET = 60          # Offset from bottom for chroma row
+CHROMA_WHEEL_PREVIEW_X = 0              # X position of preview area (no left margin)
+CHROMA_WHEEL_PREVIEW_Y = 0              # Y position of preview area (no top margin)
+CHROMA_WHEEL_ROW_Y_OFFSET = 26          # Offset from bottom for chroma row (centered in gap: 52px / 2 = 26)
 
 # Chroma wheel button visual effects
 CHROMA_WHEEL_GLOW_ALPHA = 60            # Alpha value for gold glow effect on hover
