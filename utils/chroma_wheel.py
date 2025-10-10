@@ -359,15 +359,8 @@ class ChromaWheelWidget(QWidget):
         is_base = display_index == 0 or display_index is None
         
         if is_base:
-            # Draw red crossmark (X) for base skin
-            center_x = preview_x + self.preview_width // 2
-            center_y = preview_y + self.preview_height // 2
-            
-            # Draw red X with matching color #bf1f37
-            painter.setPen(QPen(QColor("#bf1f37"), 6))  # Red color matching base button
-            x_size = 90
-            painter.drawLine(center_x - x_size, center_y - x_size, center_x + x_size, center_y + x_size)
-            painter.drawLine(center_x + x_size, center_y - x_size, center_x - x_size, center_y + x_size)
+            # Base skin - show nothing in preview (empty dark background)
+            pass
             
         elif preview_image and not preview_image.isNull():
             # Draw image at native size without scaling for maximum quality
@@ -450,6 +443,12 @@ class ChromaWheelWidget(QWidget):
             for i, circle in enumerate(self.circles):
                 circle.is_hovered = (i == hovered)
             self.update()
+        
+        # Update cursor based on hover state
+        if hovered is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
     
     def mousePressEvent(self, event):
         """Handle mouse click - instant selection"""
@@ -607,6 +606,10 @@ class OpeningButton(QWidget):
         )
         
         self.setMouseTracking(True)
+        
+        # Set cursor to hand pointer for the button
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        
         self.hide()
     
     def paintEvent(self, event):
@@ -650,14 +653,22 @@ class OpeningButton(QWidget):
         after_transition3_radius = gradient_inner_radius - transition3_width
         inner_radius = inner_disk_radius  # Central dark disk
         
+        # Determine if button should be darkened (hovered but wheel not open)
+        should_darken = self.is_hovered and not self.wheel_is_open
+        
         # 1. Outer metallic gold border - matches wheel border color (7% of button size)
-        # Darker when hovered or when wheel is open
+        # Darker when wheel is open
         gold_gradient = QRadialGradient(center, center, outer_gold_radius)
-        if self.is_hovered or self.wheel_is_open:
-            # Darker gold gradient when hovered
+        if self.wheel_is_open:
+            # Darker gold gradient when wheel is open
             gold_gradient.setColorAt(0.0, QColor("#a57828"))  # Dark gold
             gold_gradient.setColorAt(0.7, QColor("#8f6620"))  # Darker main gold
             gold_gradient.setColorAt(1.0, QColor("#75551a"))  # Very dark gold
+        elif should_darken:
+            # Even darker when hovered (entire button dark)
+            gold_gradient.setColorAt(0.0, QColor("#8a6420"))  # Darker gold
+            gold_gradient.setColorAt(0.7, QColor("#705218"))  # Much darker gold
+            gold_gradient.setColorAt(1.0, QColor("#5a4212"))  # Very dark gold
         else:
             # Normal gold gradient
             gold_gradient.setColorAt(0.0, QColor("#d4a747"))  # Light gold
@@ -680,44 +691,71 @@ class OpeningButton(QWidget):
         dark_border_path.setFillRule(Qt.FillRule.OddEvenFill)  # Subtract inner from outer
         
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(20, 20, 20)))  # Dark border
+        # Darker border when button is darkened
+        border_color = QColor(10, 10, 10) if should_darken else QColor(20, 20, 20)
+        painter.setBrush(QBrush(border_color))
         painter.drawPath(dark_border_path)
         
         # 3. Rainbow gradient ring (4px width) - yellow starts at top
         # Draw gradient as outer circle, then cut out the inner part with dark color
-        rainbow_gradient = QConicalGradient(center, center, CHROMA_WHEEL_CONICAL_START_ANGLE)  # Start angle to position colors
-        rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
-        rainbow_gradient.setColorAt(0.16, QColor(255, 0, 0))     # Red
-        rainbow_gradient.setColorAt(0.33, QColor(255, 165, 0))   # Orange
-        rainbow_gradient.setColorAt(0.5, QColor(255, 255, 0))    # Yellow (now at top)
-        rainbow_gradient.setColorAt(0.66, QColor(0, 255, 0))     # Green
-        rainbow_gradient.setColorAt(0.83, QColor(0, 0, 255))     # Blue
-        rainbow_gradient.setColorAt(1.0, QColor(128, 0, 128))    # Purple
+        rainbow_gradient = QConicalGradient(center, center, CHROMA_WHEEL_CONICAL_START_ANGLE)
+        
+        if should_darken:
+            # Darker rainbow when hovered (50% darker)
+            rainbow_gradient.setColorAt(0.0, QColor(128, 0, 128))    # Darker Magenta
+            rainbow_gradient.setColorAt(0.16, QColor(128, 0, 0))     # Darker Red
+            rainbow_gradient.setColorAt(0.33, QColor(128, 82, 0))    # Darker Orange
+            rainbow_gradient.setColorAt(0.5, QColor(128, 128, 0))    # Darker Yellow
+            rainbow_gradient.setColorAt(0.66, QColor(0, 128, 0))     # Darker Green
+            rainbow_gradient.setColorAt(0.83, QColor(0, 0, 128))     # Darker Blue
+            rainbow_gradient.setColorAt(1.0, QColor(64, 0, 64))      # Darker Purple
+        else:
+            # Normal rainbow gradient
+            rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
+            rainbow_gradient.setColorAt(0.16, QColor(255, 0, 0))     # Red
+            rainbow_gradient.setColorAt(0.33, QColor(255, 165, 0))   # Orange
+            rainbow_gradient.setColorAt(0.5, QColor(255, 255, 0))    # Yellow (now at top)
+            rainbow_gradient.setColorAt(0.66, QColor(0, 255, 0))     # Green
+            rainbow_gradient.setColorAt(0.83, QColor(0, 0, 255))     # Blue
+            rainbow_gradient.setColorAt(1.0, QColor(128, 0, 128))    # Purple
         
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(rainbow_gradient))
         painter.drawEllipse(QPoint(center, center), gradient_outer_radius, gradient_outer_radius)
         
         # Cut out the inner part of the gradient ring to create the ring shape
-        painter.setBrush(QBrush(QColor(20, 20, 20)))  # Same dark color as center
+        center_color = QColor(10, 10, 10) if should_darken else QColor(20, 20, 20)
+        painter.setBrush(QBrush(center_color))
         painter.drawEllipse(center - int(gradient_inner_radius), center - int(gradient_inner_radius), 
                            int(gradient_inner_radius) * 2, int(gradient_inner_radius) * 2)
         
         # 4. Dark central disk (5px diameter = 2.5px radius)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(20, 20, 20)))  # Very dark center
+        painter.setBrush(QBrush(center_color))
         painter.drawEllipse(center - int(inner_radius), center - int(inner_radius), 
                            int(inner_radius) * 2, int(inner_radius) * 2)
     
     def mousePressEvent(self, event):
-        """Handle button click"""
+        """Handle button press - track that button was pressed"""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Don't set hiding flag - button should stay visible
-            # self.is_hiding = True  # REMOVED - button stays visible
-            # self.update()  # REMOVED - no need to force repaint
-            # Call the callback immediately (button stays visible)
-            if self.on_click:
-                self.on_click()
+            # Just accept the press event, action happens on release
+            pass
+        event.accept()
+    
+    def mouseReleaseEvent(self, event):
+        """Handle button release - trigger action on click+release"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Check if mouse is still over the button
+            center = self.button_size // 2
+            radius = (self.button_size // 2) - 5
+            dx = event.pos().x() - center
+            dy = event.pos().y() - center
+            dist = math.sqrt(dx * dx + dy * dy)
+            
+            # Only trigger if released while still over the button
+            if dist <= radius:
+                if self.on_click:
+                    self.on_click()
         event.accept()
     
     def mouseMoveEvent(self, event):
@@ -733,12 +771,16 @@ class OpeningButton(QWidget):
         
         if was_hovered != self.is_hovered:
             self.update()
+        
+        # Cursor is always hand pointer since entire button widget is clickable
+        # (already set in __init__)
     
     def leaveEvent(self, event):
         """Handle mouse leave"""
         if self.is_hovered:
             self.is_hovered = False
             self.update()
+        # Cursor remains as hand pointer since widget has it set
     
     def set_wheel_open(self, is_open: bool):
         """Update button appearance based on wheel state"""
