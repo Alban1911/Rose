@@ -6,10 +6,11 @@ LCU connection monitoring thread for language detection
 
 import time
 import threading
-from typing import Callable
+from typing import Callable, Optional
 from lcu.client import LCU
+from lcu.utils import compute_locked
 from state.shared_state import SharedState
-from utils.logging import get_logger
+from utils.logging import get_logger, log_status
 from constants import LCU_MONITOR_INTERVAL
 
 log = get_logger()
@@ -18,12 +19,16 @@ log = get_logger()
 class LCUMonitorThread(threading.Thread):
     """Thread for monitoring LCU connection and language changes"""
     
-    def __init__(self, lcu: LCU, state: SharedState, language_callback: Callable[[str], None], ws_thread=None):
+    def __init__(self, lcu: LCU, state: SharedState, language_callback: Callable[[str], None], ws_thread=None, 
+                 db=None, skin_scraper=None, injection_manager=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
         self.language_callback = language_callback
         self.ws_thread = ws_thread
+        self.db = db  # Optional: for champion name lookup
+        self.skin_scraper = skin_scraper  # Optional: for skin scraping on lock
+        self.injection_manager = injection_manager  # Optional: for injection notification
         self.last_lcu_ok = False
         self.last_language = None
         self.waiting_for_connection = False
@@ -70,6 +75,9 @@ class LCUMonitorThread(threading.Thread):
                     
                     # Try to detect language (will retry if this fails)
                     self._try_detect_language()
+                    
+                    # Check initial champion select state (for issue #29: app starting after lock)
+                    self._check_initial_champion_state()
                 
                 # Language not yet initialized - retry detection
                 elif current_lcu_ok and current_ws_connected and self.ws_connected and not self.language_initialized:
@@ -134,6 +142,70 @@ class LCUMonitorThread(threading.Thread):
                 self.language_callback(current_language)
         except Exception as e:
             log.debug(f"Error checking language change: {e}")
+    
+    def _check_initial_champion_state(self):
+        """Check if we're already in ChampSelect with a locked champion (Issue #29)
+        
+        This handles the case where the app is launched after the user has already
+        locked in a champion. Without this check, OCR would never start.
+        """
+        try:
+            # Only check if we're in ChampSelect
+            phase = self.lcu.phase if self.lcu.ok else None
+            if phase != "ChampSelect":
+                return
+            
+            # Get current session
+            sess = self.lcu.session or {}
+            if not sess:
+                return
+            
+            # Get local player's cell ID
+            my_cell = sess.get("localPlayerCellId")
+            if my_cell is None:
+                return
+            
+            # Check if there are any locked champions
+            locked_champions = compute_locked(sess)
+            
+            # Check if the local player has locked a champion
+            if my_cell in locked_champions:
+                locked_champ_id = locked_champions[my_cell]
+                
+                # Only update if not already set (avoid duplicate processing)
+                if self.state.locked_champ_id != locked_champ_id:
+                    champ_name = self.db.champ_name_by_id.get(locked_champ_id) if self.db else f"champ_{locked_champ_id}"
+                    
+                    log_status(log, "Initial state: Champion already locked", f"{champ_name} (ID: {locked_champ_id})", "✅")
+                    
+                    # Set the locked champion state
+                    self.state.locked_champ_id = locked_champ_id
+                    self.state.locked_champ_timestamp = time.time()
+                    
+                    # Scrape skins for this champion from LCU
+                    if self.skin_scraper:
+                        try:
+                            self.skin_scraper.scrape_champion_skins(locked_champ_id)
+                        except Exception as e:
+                            log.debug(f"[init-state] Failed to scrape champion skins: {e}")
+                    
+                    # Load English skin names for this champion from Data Dragon
+                    if self.db:
+                        try:
+                            self.db.load_champion_skins_by_id(locked_champ_id)
+                        except Exception as e:
+                            log.debug(f"[init-state] Failed to load English skin names: {e}")
+                    
+                    # Notify injection manager of champion lock
+                    if self.injection_manager:
+                        try:
+                            self.injection_manager.on_champion_locked(champ_name, locked_champ_id, self.state.owned_skin_ids)
+                        except Exception as e:
+                            log.debug(f"[init-state] Failed to notify injection manager: {e}")
+                    
+                    log.info(f"[init-state] OCR will start after app initialization (champion: {champ_name})")
+        except Exception as e:
+            log.debug(f"Error checking initial champion state: {e}")
     
     def _is_ws_connected(self) -> bool:
         """Check if WebSocket is connected"""

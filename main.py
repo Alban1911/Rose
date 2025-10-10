@@ -765,7 +765,8 @@ def main():
                             skin_scraper=skin_scraper)
         thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
-    t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws)
+    t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws, 
+                                      db=db, skin_scraper=skin_scraper, injection_manager=injection_manager)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
     
     # Start all threads
