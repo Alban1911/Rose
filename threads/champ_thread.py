@@ -37,9 +37,9 @@ class ChampThread(threading.Thread):
                 time.sleep(CHAMP_POLL_INTERVAL)
                 continue
             
-            cid = self.lcu.hovered_champion_id()
+            cid = self.lcu.hovered_champion_id
             if cid is None:
-                sel = self.lcu.my_selection() or {}
+                sel = self.lcu.my_selection or {}
                 try: 
                     cid = int(sel.get("selectedChampionId") or 0) or None
                 except Exception: 
@@ -52,7 +52,7 @@ class ChampThread(threading.Thread):
                 self.last_hover = cid
             
             # Personal lock (useful log even without WS)
-            sess = self.lcu.session() or {}
+            sess = self.lcu.session or {}
             try:
                 my_cell = sess.get("localPlayerCellId")
                 actions = sess.get("actions") or []

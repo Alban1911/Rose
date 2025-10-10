@@ -6,9 +6,10 @@ Shows chroma wheel immediately when skin is detected (not during injection)
 """
 
 import threading
-from typing import Optional
+from typing import Optional, List, Dict
 from utils.chroma_wheel import get_chroma_wheel
 from utils.logging import get_logger
+from utils.validation import validate_skin_id, validate_skin_name
 
 log = get_logger()
 
@@ -74,9 +75,13 @@ class ChromaSelector:
             
         Returns:
             True if skin has unowned chromas and wheel should be shown
+            
+        Raises:
+            TypeError: If skin_id is not an integer
+            ValueError: If skin_id is negative
         """
-        if skin_id is None:
-            return False  # Invalid skin ID
+        # Validate input
+        validate_skin_id(skin_id)
         
         try:
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
@@ -104,7 +109,15 @@ class ChromaSelector:
             skin_id: Skin ID to show button for
             skin_name: Display name of the skin
             champion_name: Champion name for direct path to chromas folder
+            
+        Raises:
+            TypeError: If skin_id is not an integer or skin_name is not a string
+            ValueError: If skin_id is negative or skin_name is empty
         """
+        # Validate inputs
+        validate_skin_id(skin_id)
+        validate_skin_name(skin_name)
+        
         with self.lock:
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
             

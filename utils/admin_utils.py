@@ -19,7 +19,8 @@ def is_admin():
     """Check if the current process has administrator privileges"""
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
+    except (OSError, AttributeError) as e:
+        log.debug(f"Failed to check admin status: {e}")
         return False
 
 
@@ -93,7 +94,8 @@ def is_registered_for_autostart():
             creationflags=subprocess.CREATE_NO_WINDOW
         )
         return result.returncode == 0
-    except Exception:
+    except (subprocess.SubprocessError, OSError) as e:
+        log.debug(f"Failed to check autostart registration: {e}")
         return False
 
 

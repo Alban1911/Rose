@@ -5,13 +5,22 @@ Main entry point for the modularized SkinCloner
 """
 
 import argparse
-import os
-import sys
-import time
-import ctypes
 import atexit
+import contextlib
+import ctypes
+import io
+import logging
+import os
+import shutil
 import signal
+import sys
+import threading
+import time
 from pathlib import Path
+from typing import Optional
+
+# Import constants early - needed for Windows setup
+from constants import WINDOWS_DPI_AWARENESS_SYSTEM
 
 
 # Fix for windowed mode - allocate console to prevent blocking operations
@@ -22,12 +31,13 @@ if sys.platform == "win32":
         # PROCESS_SYSTEM_DPI_AWARE
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(WINDOWS_DPI_AWARENESS_SYSTEM)
-        except Exception:
+        except (OSError, AttributeError) as e:
             try:
                 # Fallback for older Windows versions
                 ctypes.windll.user32.SetProcessDPIAware()
-            except Exception:
-                pass  # If both fail, continue anyway
+            except (OSError, AttributeError) as e2:
+                # If both fail, continue anyway - not critical
+                pass
         
         # Check if we're in windowed mode (no console attached)
         console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
@@ -38,16 +48,17 @@ if sys.platform == "win32":
             console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
             if console_hwnd:
                 ctypes.windll.user32.ShowWindow(console_hwnd, 0)  # SW_HIDE = 0
-    except Exception:
-        pass  # If console allocation fails, continue with original approach
+    except (OSError, AttributeError):
+        # If console allocation fails, continue with original approach
+        pass
 
 # Fix for windowed mode - redirect None streams to devnull to prevent blocking
 if sys.stdin is None:
-    sys.stdin = open(os.devnull, 'r')
+    sys.stdin = open(os.devnull, 'r', encoding='utf-8')
 if sys.stdout is None:
-    sys.stdout = open(os.devnull, 'w')
+    sys.stdout = open(os.devnull, 'w', encoding='utf-8')
 if sys.stderr is None:
-    sys.stderr = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, 'w', encoding='utf-8')
 from ocr.backend import OCR
 from database.name_db import NameDB
 from lcu.client import LCU
@@ -63,18 +74,24 @@ from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
 from utils.chroma_selector import init_chroma_selector
-from constants import *
-from constants import THREAD_FORCE_EXIT_TIMEOUT_S  # Explicit import for new constant
+from utils.thread_manager import ThreadManager, create_daemon_thread
+from constants import *  # Import all other constants
 
-# Global variable to track if we're shutting down
-_shutting_down = False
+class AppState:
+    """Application state to replace global variables"""
+    def __init__(self):
+        self.shutting_down = False
+        self.lock_file = None
+        self.lock_file_path = None
+
+# Create app state instance
+_app_state = AppState()
 
 def signal_handler(signum, frame):
     """Handle system signals for graceful shutdown"""
-    global _shutting_down
-    if _shutting_down:
+    if _app_state.shutting_down:
         return  # Prevent multiple shutdown attempts
-    _shutting_down = True
+    _app_state.shutting_down = True
     
     print(f"\nReceived signal {signum}, initiating graceful shutdown...")
     # Force exit if we're stuck
@@ -83,13 +100,11 @@ def signal_handler(signum, frame):
 
 def force_quit_handler():
     """Force quit handler that can be called from anywhere"""
-    global _shutting_down
-    if _shutting_down:
+    if _app_state.shutting_down:
         return
-    _shutting_down = True
+    _app_state.shutting_down = True
     
     print("\nForce quit initiated...")
-    import os
     os._exit(0)
 
 # Set up signal handlers
@@ -105,9 +120,6 @@ os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false'
 
 # Import PyQt6 for chroma wheel
 try:
-    import io
-    import contextlib
-    
     # Suppress Qt DPI warnings during import
     with contextlib.redirect_stderr(io.StringIO()):
         from PyQt6.QtWidgets import QApplication
@@ -121,13 +133,72 @@ except ImportError:
 
 log = get_logger()
 
-# Global variable to hold the lock file
-_lock_file = None
+
+class LockFile:
+    """Context manager for application lock file"""
+    
+    def __init__(self, lock_path: Path):
+        self.path = lock_path
+        self.file_handle = None
+        self._acquired = False
+        
+    def __enter__(self):
+        """Acquire lock file"""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # Try to create lock file exclusively
+            self.file_handle = open(self.path, 'x')
+            self.file_handle.write(f"{os.getpid()}\n")
+            self.file_handle.write(f"{time.time()}\n")
+            self.file_handle.flush()
+            self._acquired = True
+            _app_state.lock_file = self.file_handle
+            _app_state.lock_file_path = self.path
+            return self
+        except FileExistsError:
+            # Check if stale lock
+            if self._is_stale_lock():
+                self.path.unlink()
+                return self.__enter__()  # Retry
+            raise RuntimeError("Another instance is already running")
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Release lock file"""
+        try:
+            if self.file_handle:
+                self.file_handle.close()
+            if self.path.exists():
+                self.path.unlink()
+        except (IOError, OSError, PermissionError) as e:
+            log.debug(f"Lock file cleanup error (non-critical): {e}")
+        return False
+    
+    def _is_stale_lock(self) -> bool:
+        """Check if lock file is from a dead process"""
+        try:
+            with open(self.path, 'r') as f:
+                lines = f.readlines()
+                if len(lines) >= 1:
+                    old_pid = int(lines[0].strip())
+                    # Check if process is still running
+                    try:
+                        import psutil
+                        return not psutil.pid_exists(old_pid)
+                    except ImportError:
+                        # Fallback for Windows
+                        try:
+                            ctypes.windll.kernel32.OpenProcess(0x1000, False, old_pid)
+                            return False  # Process exists
+                        except OSError:
+                            return True  # Process doesn't exist
+        except (IOError, ValueError):
+            return True  # Assume stale if can't read
+        return False
+
 
 def create_lock_file():
     """Create a lock file to prevent multiple instances"""
-    global _lock_file
-    
     try:
         # Create a lock file in the state directory
         from utils.paths import get_state_dir
@@ -135,14 +206,15 @@ def create_lock_file():
         state_dir.mkdir(parents=True, exist_ok=True)
         
         lock_file_path = state_dir / "skincloner.lock"
+        _app_state.lock_file_path = lock_file_path
         
         # Windows-only approach using file creation
         try:
             # Try to create the lock file exclusively
-            _lock_file = open(lock_file_path, 'x')
-            _lock_file.write(f"{os.getpid()}\n")
-            _lock_file.write(f"{time.time()}\n")
-            _lock_file.flush()
+            _app_state.lock_file = open(lock_file_path, 'x')
+            _app_state.lock_file.write(f"{os.getpid()}\n")
+            _app_state.lock_file.write(f"{time.time()}\n")
+            _app_state.lock_file.flush()
             
             # Register cleanup function
             atexit.register(cleanup_lock_file)
@@ -165,52 +237,52 @@ def create_lock_file():
                             try:
                                 ctypes.windll.kernel32.OpenProcess(0x1000, False, old_pid)  # PROCESS_QUERY_LIMITED_INFORMATION
                                 return False  # Process exists
-                            except:
-                                pass  # Process doesn't exist, we can proceed
+                            except OSError:
+                                # Process doesn't exist, we can proceed
+                                log.debug(f"Old process {old_pid} no longer exists")
                     
                     # Old lock file is stale, remove it
                     os.remove(lock_file_path)
                     
                     # Try again
-                    _lock_file = open(lock_file_path, 'x')
-                    _lock_file.write(f"{os.getpid()}\n")
-                    _lock_file.write(f"{time.time()}\n")
-                    _lock_file.flush()
+                    _app_state.lock_file = open(lock_file_path, 'x')
+                    _app_state.lock_file.write(f"{os.getpid()}\n")
+                    _app_state.lock_file.write(f"{time.time()}\n")
+                    _app_state.lock_file.flush()
                     atexit.register(cleanup_lock_file)
                     return True
                     
-            except Exception:
+            except (IOError, ValueError) as e:
                 # If we can't read the lock file, assume it's stale
+                log.debug(f"Lock file read error: {e}, assuming stale")
                 try:
                     os.remove(lock_file_path)
-                    _lock_file = open(lock_file_path, 'x')
-                    _lock_file.write(f"{os.getpid()}\n")
-                    _lock_file.write(f"{time.time()}\n")
-                    _lock_file.flush()
+                    _app_state.lock_file = open(lock_file_path, 'x')
+                    _app_state.lock_file.write(f"{os.getpid()}\n")
+                    _app_state.lock_file.write(f"{time.time()}\n")
+                    _app_state.lock_file.flush()
                     atexit.register(cleanup_lock_file)
                     return True
-                except Exception:
+                except (IOError, OSError) as cleanup_error:
+                    log.error(f"Failed to create lock file after cleanup: {cleanup_error}")
                     return False
                 
-    except Exception:
+    except (IOError, OSError, PermissionError) as e:
+        log.error(f"Failed to create lock file: {e}")
         return False
 
 def cleanup_lock_file():
     """Clean up the lock file"""
-    global _lock_file
-    
     try:
-        if _lock_file:
-            _lock_file.close()
-            _lock_file = None
+        if _app_state.lock_file:
+            _app_state.lock_file.close()
+            _app_state.lock_file = None
             
         # Remove the lock file
-        from utils.paths import get_state_dir
-        lock_file_path = get_state_dir() / "skincloner.lock"
-        if lock_file_path.exists():
-            lock_file_path.unlink()
-    except Exception:
-        pass  # Ignore cleanup errors
+        if _app_state.lock_file_path and _app_state.lock_file_path.exists():
+            _app_state.lock_file_path.unlink()
+    except (IOError, OSError, PermissionError) as e:
+        log.debug(f"Lock file cleanup error (non-critical): {e}")
 
 def check_single_instance():
     """Check if another instance is already running"""
@@ -226,8 +298,9 @@ def check_single_instance():
                     "SkinCloner - Instance Already Running",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
-            except Exception:
+            except (OSError, AttributeError) as e:
                 # Fallback to logging if MessageBox fails
+                log.error(f"Failed to show message box: {e}")
                 log.error("Another instance of SkinCloner is already running!")
                 log.error("Please close the existing instance before starting a new one.")
         else:
@@ -269,26 +342,24 @@ def validate_ocr_language(lang: str) -> bool:
     return True
 
 
-def main():
-    """Main entry point"""
-    
-    # Check for admin rights FIRST (required for injection to work)
-    from utils.admin_utils import ensure_admin_rights
-    ensure_admin_rights()
-    
-    # Check for single instance before doing anything else
-    check_single_instance()
-    
-    ap = argparse.ArgumentParser(description="Combined LCU + OCR Tracer (ChampSelect) — ROI lock + burst OCR + locks/timer fixes")
+def setup_arguments() -> argparse.Namespace:
+    """Parse and return command line arguments"""
+    ap = argparse.ArgumentParser(
+        description="Combined LCU + OCR Tracer (ChampSelect) — ROI lock + burst OCR + locks/timer fixes"
+    )
     
     # OCR arguments
     ap.add_argument("--tessdata", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
-    ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM, help="[DEPRECATED] Not used with EasyOCR (kept for compatibility)")
+    ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM, 
+                   help="[DEPRECATED] Not used with EasyOCR (kept for compatibility)")
     ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
-    ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
+    ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, 
+                   help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
     ap.add_argument("--tesseract-exe", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
-    ap.add_argument("--debug-ocr", action="store_true", default=DEFAULT_DEBUG_OCR, help="Save OCR images to debug folder")
-    ap.add_argument("--no-debug-ocr", action="store_false", dest="debug_ocr", help="Disable OCR debug image saving")
+    ap.add_argument("--debug-ocr", action="store_true", default=DEFAULT_DEBUG_OCR, 
+                   help="Save OCR images to debug folder")
+    ap.add_argument("--no-debug-ocr", action="store_false", dest="debug_ocr", 
+                   help="Disable OCR debug image saving")
     
     # Capture arguments
     ap.add_argument("--capture", choices=["window", "screen"], default=DEFAULT_CAPTURE_MODE)
@@ -296,7 +367,8 @@ def main():
     ap.add_argument("--window-hint", type=str, default=DEFAULT_WINDOW_HINT)
     
     # Database arguments
-    ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, help="DDragon language(s): 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
+    ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, 
+                   help="DDragon language(s): 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
     
     # General arguments
     ap.add_argument("--verbose", action="store_true", default=DEFAULT_VERBOSE)
@@ -304,7 +376,8 @@ def main():
     
     # OCR performance arguments
     ap.add_argument("--burst-hz", type=float, default=OCR_BURST_HZ_DEFAULT)
-    ap.add_argument("--idle-hz", type=float, default=OCR_IDLE_HZ_DEFAULT, help="periodic re-emission (0=off)")
+    ap.add_argument("--idle-hz", type=float, default=OCR_IDLE_HZ_DEFAULT, 
+                   help="periodic re-emission (0=off)")
     ap.add_argument("--diff-threshold", type=float, default=OCR_DIFF_THRESHOLD_DEFAULT)
     ap.add_argument("--burst-ms", type=int, default=OCR_BURST_MS_DEFAULT)
     ap.add_argument("--min-ocr-interval", type=float, default=OCR_MIN_INTERVAL)
@@ -318,28 +391,44 @@ def main():
     ap.add_argument("--ws-ping", type=int, default=WS_PING_INTERVAL_DEFAULT)
     
     # Timer arguments
-    ap.add_argument("--timer-hz", type=int, default=TIMER_HZ_DEFAULT, help="Loadout countdown display frequency (Hz)")
-    ap.add_argument("--fallback-loadout-ms", type=int, default=FALLBACK_LOADOUT_MS_DEFAULT, help="(deprecated) Old fallback ms if LCU doesn't provide timer — ignored")
-    ap.add_argument("--skin-threshold-ms", type=int, default=SKIN_THRESHOLD_MS_DEFAULT, help="Write last skin at T<=threshold (ms)")
-    ap.add_argument("--inject-batch", type=str, default="", help="Batch to execute right after skin write (leave empty to disable)")
+    ap.add_argument("--timer-hz", type=int, default=TIMER_HZ_DEFAULT, 
+                   help="Loadout countdown display frequency (Hz)")
+    ap.add_argument("--fallback-loadout-ms", type=int, default=FALLBACK_LOADOUT_MS_DEFAULT, 
+                   help="(deprecated) Old fallback ms if LCU doesn't provide timer — ignored")
+    ap.add_argument("--skin-threshold-ms", type=int, default=SKIN_THRESHOLD_MS_DEFAULT, 
+                   help="Write last skin at T<=threshold (ms)")
+    ap.add_argument("--inject-batch", type=str, default="", 
+                   help="Batch to execute right after skin write (leave empty to disable)")
     
     # Multi-language arguments (DEPRECATED - now using LCU scraper)
-    ap.add_argument("--multilang", action="store_true", default=False, help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
-    ap.add_argument("--no-multilang", action="store_false", dest="multilang", help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
-    ap.add_argument("--language", type=str, default=DEFAULT_OCR_LANG, help="[DEPRECATED] Language is now auto-detected from LCU")
+    ap.add_argument("--multilang", action="store_true", default=False, 
+                   help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
+    ap.add_argument("--no-multilang", action="store_false", dest="multilang", 
+                   help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
+    ap.add_argument("--language", type=str, default=DEFAULT_OCR_LANG, 
+                   help="[DEPRECATED] Language is now auto-detected from LCU")
     
     # Skin download arguments
-    ap.add_argument("--download-skins", action="store_true", default=DEFAULT_DOWNLOAD_SKINS, help="Automatically download skins at startup")
-    ap.add_argument("--no-download-skins", action="store_false", dest="download_skins", help="Disable automatic skin downloading")
-    ap.add_argument("--force-update-skins", action="store_true", default=DEFAULT_FORCE_UPDATE_SKINS, help="Force update all skins (re-download existing ones)")
-    ap.add_argument("--max-champions", type=int, default=None, help="Limit number of champions to download skins for (for testing)")
+    ap.add_argument("--download-skins", action="store_true", default=DEFAULT_DOWNLOAD_SKINS, 
+                   help="Automatically download skins at startup")
+    ap.add_argument("--no-download-skins", action="store_false", dest="download_skins", 
+                   help="Disable automatic skin downloading")
+    ap.add_argument("--force-update-skins", action="store_true", default=DEFAULT_FORCE_UPDATE_SKINS, 
+                   help="Force update all skins (re-download existing ones)")
+    ap.add_argument("--max-champions", type=int, default=None, 
+                   help="Limit number of champions to download skins for (for testing)")
     
     # Log management arguments
-    ap.add_argument("--log-max-files", type=int, default=LOG_MAX_FILES_DEFAULT, help="Maximum number of log files to keep (default: 20)")
-    ap.add_argument("--log-max-total-size-mb", type=int, default=LOG_MAX_TOTAL_SIZE_MB_DEFAULT, help="Maximum total size of all log files in MB (default: 100MB)")
+    ap.add_argument("--log-max-files", type=int, default=LOG_MAX_FILES_DEFAULT, 
+                   help=f"Maximum number of log files to keep (default: {LOG_MAX_FILES_DEFAULT})")
+    ap.add_argument("--log-max-total-size-mb", type=int, default=LOG_MAX_TOTAL_SIZE_MB_DEFAULT, 
+                   help=f"Maximum total size of all log files in MB (default: {LOG_MAX_TOTAL_SIZE_MB_DEFAULT}MB)")
 
-    args = ap.parse_args()
+    return ap.parse_args()
 
+
+def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
+    """Setup logging and clean up old logs and debug folders"""
     # Clean up old log files on startup
     from utils.logging import cleanup_logs
     cleanup_logs(max_files=args.log_max_files, max_total_size_mb=args.log_max_total_size_mb)
@@ -348,7 +437,6 @@ def main():
     setup_logging(args.verbose)
     
     # Suppress PIL/Pillow debug messages for optional image plugins
-    import logging
     logging.getLogger("PIL").setLevel(logging.INFO)
     
     log_section(log, "SkinCloner Starting", "🚀", {
@@ -359,23 +447,22 @@ def main():
     
     # Clean up OCR debug folder on startup (only if debug mode is enabled)
     if args.debug_ocr:
-        import shutil
-        # Use project directory (where main.py is)
         ocr_debug_dir = Path(__file__).resolve().parent / "ocr_debug"
         if ocr_debug_dir.exists():
             try:
                 shutil.rmtree(ocr_debug_dir)
                 log_success(log, f"Cleared OCR debug folder: {ocr_debug_dir}", "🧹")
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 log.warning(f"Failed to clear OCR debug folder: {e}")
-    
-    # Initialize system tray manager immediately to hide console
-    tray_manager = None
+
+
+def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
+    """Initialize the system tray manager"""
     try:
         def tray_quit_callback():
-            """Callback for tray quit - set the shared state stop flag"""
+            """Callback for tray quit - will be updated with state reference later"""
             log.info("Setting stop flag from tray quit")
-            # We'll set the stop flag later when state is initialized
+            # Callback will be updated later when state is initialized
         
         tray_manager = TrayManager(quit_callback=tray_quit_callback)
         tray_manager.start()
@@ -385,66 +472,62 @@ def main():
         time.sleep(TRAY_INIT_SLEEP_S)
         
         # Set downloading status immediately if downloads are enabled
-        # This makes the orange dot appear right away, before OCR initialization
         if args.download_skins:
             tray_manager.set_downloading(True)
             log_status(log, "Download mode", "Active (orange indicator shown)", "📥")
+        
+        return tray_manager
     except Exception as e:
         log.warning(f"Failed to initialize system tray: {e}")
         log.info("Application will continue without system tray icon")
-    
-    # Initialize components
-    # Initialize LCU first
-    lcu = LCU(args.lockfile)
-    
-    # Initialize LCU skin scraper for champion-specific skin lookup
-    skin_scraper = LCUSkinScraper(lcu)
-    
-    # Load owned skins if LCU is already connected
-    state = SharedState()
-    
-    # Initialize PyQt6 QApplication for chroma wheel (must be done early)
+        return None
+
+
+def initialize_qt_and_chroma(skin_scraper, state: SharedState):
+    """Initialize PyQt6 and chroma selector"""
     qt_app = None
     chroma_selector = None
     
-    if PYQT6_AVAILABLE:
-        try:
-            # Try to get existing QApplication or create new one
-            existing_app = QApplication.instance()
-            if existing_app is None:
-                # Create new QApplication with minimal arguments
-                import sys
-                qt_app = QApplication([sys.argv[0]])
-                log_success(log, "PyQt6 QApplication created for chroma wheel", "🎨")
-            else:
-                qt_app = existing_app
-                log_success(log, "Using existing QApplication instance for chroma wheel", "🎨")
-            
-            # Initialize chroma selector (widgets will be created on champion lock)
-            try:
-                chroma_selector = init_chroma_selector(skin_scraper, state)
-                log_success(log, "Chroma selector initialized (widgets will be created on champion lock)", "🌈")
-            except Exception as e:
-                log.warning(f"Failed to initialize chroma wheel: {e}")
-                log.warning("Chroma selection will be disabled, but app will continue")
-                chroma_selector = None
-                
-        except Exception as e:
-            log.warning(f"Failed to initialize PyQt6: {e}")
-            log.warning("Chroma wheel will be disabled, but app will continue normally")
-            qt_app = None
-            chroma_selector = None
-    # Owned skins will be loaded when WebSocket connects (no need to load at startup)
+    if not PYQT6_AVAILABLE:
+        return qt_app, chroma_selector
     
-    # Initialize OCR language (will be updated when LCU connects)
+    try:
+        # Try to get existing QApplication or create new one
+        existing_app = QApplication.instance()
+        if existing_app is None:
+            qt_app = QApplication([sys.argv[0]])
+            log_success(log, "PyQt6 QApplication created for chroma wheel", "🎨")
+        else:
+            qt_app = existing_app
+            log_success(log, "Using existing QApplication instance for chroma wheel", "🎨")
+        
+        # Initialize chroma selector (widgets will be created on champion lock)
+        try:
+            chroma_selector = init_chroma_selector(skin_scraper, state)
+            log_success(log, "Chroma selector initialized (widgets will be created on champion lock)", "🌈")
+        except Exception as e:
+            log.warning(f"Failed to initialize chroma wheel: {e}")
+            log.warning("Chroma selection will be disabled, but app will continue")
+            chroma_selector = None
+            
+    except Exception as e:
+        log.warning(f"Failed to initialize PyQt6: {e}")
+        log.warning("Chroma wheel will be disabled, but app will continue normally")
+        qt_app = None
+        chroma_selector = None
+    
+    return qt_app, chroma_selector
+
+
+def initialize_ocr(args: argparse.Namespace, lcu: LCU):
+    """Initialize OCR with language detection"""
     ocr_lang = args.lang
+    
     if args.lang == "auto":
         # Try to get LCU language immediately, but don't block if not available
-        lcu_lang = None
-        
         if lcu.ok:
             try:
-                lcu_lang = lcu.get_client_language()
+                lcu_lang = lcu.client_language
                 if lcu_lang:
                     log.info(f"LCU connected - detected language: {lcu_lang}")
                     ocr_lang = get_ocr_language(lcu_lang, args.lang)
@@ -459,8 +542,6 @@ def main():
         else:
             log.info("LCU not yet connected - using English fallback, will auto-detect when connected")
             ocr_lang = "eng"
-        
-        # Note: Language will be updated automatically by LCUMonitorThread when LCU connects
     
     # Validate OCR language
     if not validate_ocr_language(ocr_lang):
@@ -471,6 +552,7 @@ def main():
     try:
         ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
         log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, mode: CPU)")
+        return ocr
     except Exception as e:
         log.warning(f"Failed to initialize OCR with language '{ocr_lang}': {e}")
         log.info("Attempting fallback to English OCR...")
@@ -478,12 +560,44 @@ def main():
         try:
             ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
             log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
+            return ocr
         except Exception as fallback_e:
             log.error(f"OCR initialization failed: {fallback_e}")
             log.error("EasyOCR is not properly installed or configured.")
             log.error("Install with: pip install easyocr torch torchvision")
             sys.exit(1)
+
+
+def main():
+    """Main entry point - orchestrates application startup and main loop"""
+    # Check for admin rights FIRST (required for injection to work)
+    from utils.admin_utils import ensure_admin_rights
+    ensure_admin_rights()
     
+    # Check for single instance before doing anything else
+    check_single_instance()
+    
+    # Parse arguments
+    args = setup_arguments()
+    
+    # Setup logging and cleanup
+    setup_logging_and_cleanup(args)
+    
+    # Initialize system tray manager immediately to hide console
+    tray_manager = initialize_tray_manager(args)
+    
+    # Initialize core components
+    lcu = LCU(args.lockfile)
+    skin_scraper = LCUSkinScraper(lcu)
+    state = SharedState()
+    
+    # Initialize PyQt6 and chroma selector
+    qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state)
+    
+    # Initialize OCR with language detection
+    ocr = initialize_ocr(args, lcu)
+    
+    # Initialize database
     db = NameDB(lang=args.dd_lang)
     
     # Initialize injection manager with database (lazy initialization)
@@ -509,8 +623,8 @@ def main():
                 log.error(f"Failed to download skins in background: {e}")
         
         # Start skin download in a separate thread to avoid blocking
-        import threading
-        skin_download_thread = threading.Thread(target=download_skins_background, daemon=True)
+        skin_download_thread = create_daemon_thread(target=download_skins_background, 
+                                                    name="SkinDownload")
         skin_download_thread.start()
     else:
         log.info("Automatic skin download disabled")
@@ -539,22 +653,21 @@ def main():
             if sys.platform == "win32":
                 try:
                     # Force a console input check to unblock any stuck operations
-                    import msvcrt
+                    import msvcrt  # Windows-only module
                     if msvcrt.kbhit():
                         msvcrt.getch()  # Consume any pending input
-                except Exception:
-                    pass
+                except (ImportError, OSError) as e:
+                    log.debug(f"Console input check failed: {e}")
             
             # Add a timeout to force quit if main loop doesn't exit
             def force_quit_timeout():
-                import time
-                time.sleep(2.0)  # Reduced to 2 seconds
-                if not _shutting_down:
-                    log.warning("Main loop did not exit within 2 seconds - forcing quit")
+                time.sleep(MAIN_LOOP_FORCE_QUIT_TIMEOUT_S)
+                if not _app_state.shutting_down:
+                    log.warning(f"Main loop did not exit within {MAIN_LOOP_FORCE_QUIT_TIMEOUT_S}s - forcing quit")
                     force_quit_handler()
             
-            import threading
-            timeout_thread = threading.Thread(target=force_quit_timeout, daemon=True)
+            timeout_thread = create_daemon_thread(target=force_quit_timeout, 
+                                                 name="ForceQuitTimeout")
             timeout_thread.start()
         
         tray_manager.quit_callback = updated_tray_quit_callback
@@ -588,20 +701,36 @@ def main():
                 except Exception as e:
                     log.warning(f"Failed to update OCR language: {e}")
 
-    # Initialize threads
-    t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), log_transitions=not args.ws, injection_manager=injection_manager)
-    t_champ = None if args.ws else ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL, injection_manager=injection_manager, skin_scraper=skin_scraper)
+    # Initialize thread manager for organized thread lifecycle
+    thread_manager = ThreadManager()
+    
+    # Create and register threads
+    t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), 
+                         log_transitions=not args.ws, injection_manager=injection_manager)
+    thread_manager.register("Phase", t_phase)
+    
+    t_champ = None
+    if not args.ws:
+        t_champ = ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL, 
+                             injection_manager=injection_manager, skin_scraper=skin_scraper)
+        thread_manager.register("Champion", t_champ)
+    
     t_ocr = OCRSkinThread(state, db, ocr, args, lcu, skin_scraper=skin_scraper)
-    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, skin_scraper=skin_scraper) if args.ws else None
+    thread_manager.register("OCR", t_ocr)
+    
+    t_ws = None
+    if args.ws:
+        t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
+                            ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
+                            fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
+                            skin_scraper=skin_scraper)
+        thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
+    
     t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws)
-    # Start threads
-    t_phase.start()
-    if t_champ: 
-        t_champ.start()
-    t_ocr.start()
-    if t_ws: 
-        t_ws.start()
-    t_lcu_monitor.start()
+    thread_manager.register("LCU Monitor", t_lcu_monitor)
+    
+    # Start all threads
+    thread_manager.start_all()
 
     log.info("System ready - OCR active only in Champion Select")
     if args.debug_ocr:
@@ -617,7 +746,7 @@ def main():
             
             # Watchdog: detect if previous loop took too long
             time_since_last_loop = loop_start - last_loop_time
-            if time_since_last_loop > 5.0:  # More than 5 seconds is suspicious
+            if time_since_last_loop > MAIN_LOOP_STALL_THRESHOLD_S:
                 log.warning(f"Main loop stall detected: {time_since_last_loop:.1f}s since last iteration")
             last_loop_time = loop_start
             
@@ -638,14 +767,14 @@ def main():
                         chroma_start = time.time()
                         chroma_selector.wheel.process_pending()
                         chroma_elapsed = time.time() - chroma_start
-                        if chroma_elapsed > 1.0:
+                        if chroma_elapsed > CHROMA_WHEEL_PROCESSING_THRESHOLD_S:
                             log.warning(f"[WATCHDOG] Chroma wheel processing took {chroma_elapsed:.2f}s")
                     
                     # Process all Qt events
                     qt_start = time.time()
                     qt_app.processEvents()
                     qt_elapsed = time.time() - qt_start
-                    if qt_elapsed > 1.0:
+                    if qt_elapsed > QT_EVENT_PROCESSING_THRESHOLD_S:
                         log.warning(f"[WATCHDOG] Qt event processing took {qt_elapsed:.2f}s")
                 except Exception as e:
                     log.debug(f"Qt event processing error: {e}")
@@ -661,16 +790,6 @@ def main():
         
         log_section(log, "Cleanup", "🧹")
         
-        cleanup_start = time.time()
-        
-        # Stop WebSocket connection first (needs explicit close)
-        if t_ws and t_ws.is_alive():
-            try:
-                log.info("Closing WebSocket connection...")
-                t_ws.stop()
-            except Exception as e:
-                log.warning(f"Error closing WebSocket: {e}")
-        
         # Stop system tray
         if tray_manager:
             try:
@@ -680,29 +799,10 @@ def main():
             except Exception as e:
                 log.warning(f"Error stopping system tray: {e}")
         
-        # Stop all threads with better tracking
-        threads_to_stop = [
-            ("Phase", t_phase),
-            ("Champion", t_champ) if t_champ else None,
-            ("OCR", t_ocr),
-            ("WebSocket", t_ws) if t_ws else None,
-            ("LCU Monitor", t_lcu_monitor)
-        ]
-        threads_to_stop = [t for t in threads_to_stop if t is not None]
-        
-        still_alive = []
-        for name, thread in threads_to_stop:
-            if thread.is_alive():
-                log.info(f"Waiting for {name} thread to stop...")
-                thread.join(timeout=THREAD_JOIN_TIMEOUT_S)
-                if thread.is_alive():
-                    log.warning(f"{name} thread did not stop within {THREAD_JOIN_TIMEOUT_S}s timeout")
-                    still_alive.append(name)
-                else:
-                    log_success(log, f"{name} thread stopped", "✓")
+        # Stop all managed threads using ThreadManager
+        still_alive, elapsed = thread_manager.stop_all(timeout=THREAD_JOIN_TIMEOUT_S)
         
         # Check if any threads are still alive
-        elapsed = time.time() - cleanup_start
         if still_alive:
             log.warning(f"Some threads did not stop: {', '.join(still_alive)}")
             log.warning(f"Cleanup took {elapsed:.1f}s - forcing exit")
@@ -713,7 +813,6 @@ def main():
             # Force exit after timeout
             if elapsed > THREAD_FORCE_EXIT_TIMEOUT_S:
                 log.error(f"Forced exit after {elapsed:.1f}s - threads still running")
-                import os
                 os._exit(0)  # Force immediate exit without waiting for threads
         else:
             log_success(log, f"All threads stopped cleanly in {elapsed:.1f}s", "✓")
@@ -728,8 +827,8 @@ def main():
                 if console_hwnd:
                     # Free the console
                     ctypes.windll.kernel32.FreeConsole()
-            except Exception:
-                pass
+            except (OSError, AttributeError) as e:
+                log.debug(f"Console cleanup error (non-critical): {e}")
 
 
 if __name__ == "__main__":

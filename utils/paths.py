@@ -6,6 +6,7 @@ Handles user data directories and permissions
 """
 
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -34,8 +35,8 @@ def get_user_data_dir() -> Path:
         if xdg_data_home:
             return Path(xdg_data_home) / "SkinCloner"
         else:
-            home = os.path.expanduser("~")
-            return Path(home) / ".local" / "share" / "SkinCloner"
+            # Use pathlib for home directory
+            return Path.home() / ".local" / "share" / "SkinCloner"
 
 
 def get_skins_dir() -> Path:
@@ -94,7 +95,3 @@ def ensure_write_permissions(path: Path) -> bool:
         return True
     except (OSError, PermissionError):
         return False
-
-
-# Import sys for get_app_dir function
-import sys

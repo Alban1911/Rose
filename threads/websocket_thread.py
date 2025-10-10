@@ -73,7 +73,7 @@ class WSEventThread(threading.Thread):
             if left_ms <= 0:
                 # Small 0.5s window to let LCU publish a non-zero timer
                 for _ in range(WS_PROBE_ITERATIONS):  # 8 * 60ms ~= 480ms
-                    s2 = self.lcu.session() or {}
+                    s2 = self.lcu.session or {}
                     t2 = (s2.get("timer") or {})
                     left_ms = int(t2.get("adjustedTimeLeftInPhase") or 0)
                     if left_ms > 0:

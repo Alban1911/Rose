@@ -67,7 +67,7 @@ class LCUMonitorThread(threading.Thread):
                     
                     # Try to get new language
                     try:
-                        new_language = self.lcu.get_client_language()
+                        new_language = self.lcu.client_language
                         if new_language and new_language != self.last_language:
                             log.info(f"Language changed to: {new_language}")
                             self.last_language = new_language

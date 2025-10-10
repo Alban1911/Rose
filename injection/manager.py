@@ -366,7 +366,8 @@ class InjectionManager:
             
             threading.Thread(target=init_thread, daemon=True).start()
     
-    def get_last_injected_skin(self) -> Optional[str]:
+    @property
+    def last_injected_skin(self) -> Optional[str]:
         """Get the last successfully injected skin"""
         return self.last_skin_name
     

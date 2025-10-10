@@ -166,7 +166,8 @@ class SkinDownloader:
         log.info(f"Download complete! Total skins downloaded: {total_downloaded}")
         return results
     
-    def get_download_stats(self) -> Dict[str, int]:
+    @property
+    def download_stats(self) -> Dict[str, int]:
         """Get statistics about downloaded skins"""
         if not self.target_dir.exists():
             return {}
