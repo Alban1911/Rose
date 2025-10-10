@@ -23,8 +23,9 @@ class AppStatus:
     - OCR initialization
     
     Status:
-    - Locked: One or more components not ready
-    - Unlocked: All components ready
+    - locked.png: Chroma not initialized OR Skins not downloaded OR OCR not initialized
+    - golden locked.png: Chroma initialized AND Skins downloaded BUT OCR not initialized
+    - golden unlocked.png: All components ready (Chroma AND Skins AND OCR initialized)
     """
     
     def __init__(self, tray_manager=None):
@@ -126,24 +127,29 @@ class AppStatus:
         self._skins_downloaded = self.check_skins_downloaded()
         self._ocr_initialized = self.check_ocr_initialized(ocr)
         
-        # Determine overall status
-        all_ready = (self._chroma_initialized and 
-                    self._skins_downloaded and 
-                    self._ocr_initialized)
+        # Determine status level
+        chroma_and_skins_ready = (self._chroma_initialized and self._skins_downloaded)
+        all_ready = (chroma_and_skins_ready and self._ocr_initialized)
         
         # Log status for debugging
         log.debug(f"[APP STATUS] Chroma: {self._chroma_initialized}, "
                  f"Skins: {self._skins_downloaded}, "
                  f"OCR: {self._ocr_initialized}")
         
-        # Update tray icon
+        # Update tray icon based on status level
         if self.tray_manager:
             if all_ready:
-                self.tray_manager.set_downloading(False)  # Unlocked
-                log.info("[APP STATUS] All components ready")
+                # All components ready - golden unlocked
+                self.tray_manager.set_status("unlocked")
+                log.info("[APP STATUS] All components ready - showing golden unlocked icon")
+            elif chroma_and_skins_ready:
+                # Chroma and skins ready, but OCR not ready - golden locked
+                self.tray_manager.set_status("golden_locked")
+                log.info("[APP STATUS] Chroma and skins ready, OCR pending - showing golden locked icon")
             else:
-                self.tray_manager.set_downloading(True)  # Locked
-                log.info("[APP STATUS] Components not ready")
+                # Some components not ready - locked
+                self.tray_manager.set_status("locked")
+                log.info("[APP STATUS] Components not ready - showing locked icon")
     
     def mark_chroma_initialized(self):
         """Mark chroma selector as initialized and update status"""

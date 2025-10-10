@@ -423,8 +423,6 @@ def setup_arguments() -> argparse.Namespace:
     
     # Threading arguments
     ap.add_argument("--phase-hz", type=float, default=PHASE_HZ_DEFAULT)
-    ap.add_argument("--ws", action="store_true", default=DEFAULT_WEBSOCKET_ENABLED)
-    ap.add_argument("--no-ws", action="store_false", dest="ws", help="Disable WebSocket mode")
     ap.add_argument("--ws-ping", type=int, default=WS_PING_INTERVAL_DEFAULT)
     
     # Timer arguments
@@ -679,22 +677,22 @@ def main():
         tray_manager.quit_callback = updated_tray_quit_callback
 
     # Function to initialize OCR when WebSocket connects
-    def initialize_ocr_on_websocket_connect(lcu_lang: str):
+    def initialize_ocr_on_connect(lcu_lang: str):
         """Initialize OCR when WebSocket connects with proper language detection"""
         nonlocal ocr
         
         if ocr is not None:
-            log.info(f"WebSocket connected - OCR already initialized with language {ocr.lang}, skipping")
+            log.info(f"OCR already initialized with language {ocr.lang}, skipping")
             return
         
         try:
             # Determine OCR language
             if args.lang == "auto":
                 ocr_lang = get_ocr_language(lcu_lang, args.lang)
-                log.info(f"WebSocket connected - initializing OCR with language: {lcu_lang} → {ocr_lang}")
+                log.info(f"Initializing OCR with language: {lcu_lang} → {ocr_lang}")
             else:
                 ocr_lang = args.lang
-                log.info(f"WebSocket connected - initializing OCR with manual language: {ocr_lang}")
+                log.info(f"Initializing OCR with manual language: {ocr_lang}")
             
             # Validate OCR language
             if not validate_ocr_language(ocr_lang):
@@ -735,15 +733,27 @@ def main():
                 log.error("Install with: pip install easyocr torch torchvision")
                 # Don't exit, let the app continue without OCR
     
+    # Function to handle LCU disconnection
+    def on_lcu_disconnected():
+        """Handle LCU disconnection - reset OCR status"""
+        nonlocal ocr
+        
+        # Mark OCR as uninitialized since we lost connection
+        ocr = None
+        
+        # Update app status to golden locked (chroma and skins still ready)
+        if app_status:
+            app_status._ocr_initialized = False
+            app_status.update_status()
+    
     # Function to update OCR language dynamically (for reconnections/language changes)
     def update_ocr_language(new_lcu_lang: str):
         """Update OCR language when LCU language changes or reconnects"""
         nonlocal ocr
         
-        # If OCR is not yet initialized, initialize it now (for non-WebSocket mode)
+        # Only update if OCR is already initialized (language change)
         if ocr is None:
-            log.info(f"OCR not yet initialized - initializing with language: {new_lcu_lang}")
-            initialize_ocr_on_websocket_connect(new_lcu_lang)
+            log.debug("OCR initialization handled by WebSocket, skipping LCU monitor initialization")
             return
             
         if args.lang == "auto":
@@ -783,28 +793,21 @@ def main():
     
     # Create and register threads
     t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), 
-                         log_transitions=not args.ws, injection_manager=injection_manager)
+                         log_transitions=False, injection_manager=injection_manager)
     thread_manager.register("Phase", t_phase)
-    
-    t_champ = None
-    if not args.ws:
-        t_champ = ChampThread(lcu, db, state, interval=CHAMP_POLL_INTERVAL, 
-                             injection_manager=injection_manager, skin_scraper=skin_scraper)
-        thread_manager.register("Champion", t_champ)
     
     t_ocr = OCRSkinThread(state, db, ocr, args, lcu, skin_scraper=skin_scraper)
     thread_manager.register("OCR", t_ocr)
     
-    t_ws = None
-    if args.ws:
-        t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
-                            ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
-                            fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                            skin_scraper=skin_scraper, ocr_init_callback=initialize_ocr_on_websocket_connect)
-        thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
+    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
+                        ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
+                        fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
+                        skin_scraper=skin_scraper, ocr_init_callback=initialize_ocr_on_connect)
+    thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws, 
-                                      db=db, skin_scraper=skin_scraper, injection_manager=injection_manager)
+                                      db=db, skin_scraper=skin_scraper, injection_manager=injection_manager,
+                                      disconnect_callback=on_lcu_disconnected)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
     
     # Start all threads

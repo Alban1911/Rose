@@ -20,11 +20,12 @@ class LCUMonitorThread(threading.Thread):
     """Thread for monitoring LCU connection and language changes"""
     
     def __init__(self, lcu: LCU, state: SharedState, language_callback: Callable[[str], None], ws_thread=None, 
-                 db=None, skin_scraper=None, injection_manager=None):
+                 db=None, skin_scraper=None, injection_manager=None, disconnect_callback: Optional[Callable[[], None]] = None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
         self.language_callback = language_callback
+        self.disconnect_callback = disconnect_callback
         self.ws_thread = ws_thread
         self.db = db  # Optional: for champion name lookup
         self.skin_scraper = skin_scraper  # Optional: for skin scraping on lock
@@ -50,6 +51,10 @@ class LCUMonitorThread(threading.Thread):
                     self.last_language = None
                     self.ws_connected = False
                     self.language_initialized = False
+                    
+                    # Notify about disconnection to reset app status
+                    if self.disconnect_callback:
+                        self.disconnect_callback()
                 
                 # Connection restored
                 elif not self.last_lcu_ok and current_lcu_ok:
