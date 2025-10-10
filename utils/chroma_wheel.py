@@ -105,7 +105,11 @@ class ChromaWheelWidget(QWidget):
         self.hide()
     
     def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None):
-        """Set the chromas to display - League horizontal style"""
+        """Set the chromas to display - League horizontal style
+        
+        Note: The chromas list should already be filtered to only include unowned chromas
+        by the ChromaSelector before being passed to this method.
+        """
         self.skin_name = skin_name
         self.circles = []
         
@@ -743,7 +747,10 @@ class ChromaWheelManager:
                 self.pending_show_button = False  # Cancel any pending show to prevent blink
     
     def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None):
-        """Show button for a skin (not the wheel itself)"""
+        """Show button for a skin (not the wheel itself)
+        
+        Note: chromas should only contain unowned chromas (filtered by ChromaSelector)
+        """
         if not chromas or len(chromas) == 0:
             log.debug(f"[CHROMA] No chromas for {skin_name}, hiding button")
             self.hide_reopen_button()
