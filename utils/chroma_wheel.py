@@ -111,22 +111,17 @@ class ChromaWheelWidget(QWidget):
         # Set window size
         self.setFixedSize(self.window_width, self.window_height)
         
-        # Position to appear above champ-select-flyout-background.jpg
-        # The background image is typically positioned in the center-right area of champion select
+        # Position centered horizontally with the opening button (which is at screen center)
         screen = QApplication.primaryScreen().geometry()
         
-        # Calculate position to overlay the background image
-        # Assuming the background appears in the right-center area of the screen
-        bg_x_offset = int(screen.width() * 0.35)  # 35% from left edge
-        bg_y_offset = int(screen.height() * 0.25)  # 25% from top edge
-        
-        # Position the chroma wheel above the background image
-        wheel_x = bg_x_offset + 50  # Slightly offset from background center
-        wheel_y = bg_y_offset - 20  # Above the background
+        # Center horizontally on screen
+        wheel_x = (screen.width() - self.window_width) // 2
+        # Position above center vertically (half a button height higher than before)
+        wheel_y = (screen.height() - self.window_height) // 2 - 100 - (CHROMA_WHEEL_BUTTON_SIZE // 2)
         
         # Ensure wheel stays on screen
-        wheel_x = min(wheel_x, screen.width() - self.window_width - 10)
-        wheel_y = max(wheel_y, 10)
+        wheel_x = max(10, min(wheel_x, screen.width() - self.window_width - 10))
+        wheel_y = max(10, wheel_y)
         
         self.move(wheel_x, wheel_y)
         
@@ -352,14 +347,42 @@ class ChromaWheelWidget(QWidget):
     def paintEvent(self, event):
         """Paint the chroma wheel - League style"""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setOpacity(self._opacity)
         
-        # Draw dark background with golden border (League style)
-        painter.fillRect(self.rect(), QColor(10, 14, 39, 240))
+        # Define notch parameters
+        notch_width = 30  # Width of the triangle base
+        notch_height = 15  # Height of the triangle (pointing outward)
+        notch_center_x = self.window_width // 2
+        notch_start_x = notch_center_x - notch_width // 2
+        notch_end_x = notch_center_x + notch_width // 2
+        notch_base_y = self.window_height - 1  # Base of the notch (inside widget)
+        notch_tip_y = self.window_height + notch_height  # Tip pointing outward
         
-        painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden border color
-        painter.drawRect(1, 1, self.window_width - 2, self.window_height - 2)
+        # Create widget path with triangular notch pointing outward
+        widget_path = QPainterPath()
+        widget_path.moveTo(1, 1)  # Top-left (inside border)
+        widget_path.lineTo(self.window_width - 1, 1)  # Top-right (inside border)
+        widget_path.lineTo(self.window_width - 1, self.window_height - 1)  # Bottom-right (inside border)
+        widget_path.lineTo(notch_end_x, notch_base_y)  # Right side of notch base
+        widget_path.lineTo(notch_center_x, notch_tip_y)  # Tip pointing outward
+        widget_path.lineTo(notch_start_x, notch_base_y)  # Left side of notch base
+        widget_path.lineTo(1, self.window_height - 1)  # Bottom-left (inside border)
+        widget_path.closeSubpath()
+        
+        # Fill the widget with notch cut out
+        painter.fillPath(widget_path, QBrush(QColor(10, 14, 39, 240)))
+        
+        # Draw golden border with sharp edges
+        painter.setPen(QPen(QColor("#b78c34"), 1))
+        painter.drawPath(widget_path)
+        
+        # Draw additional golden border on the lower parts of the notch (the two angled edges)
+        painter.setPen(QPen(QColor("#b78c34"), 1))
+        painter.drawLine(notch_start_x, notch_base_y, notch_center_x, notch_tip_y)  # Left edge
+        painter.drawLine(notch_center_x, notch_tip_y, notch_end_x, notch_base_y)  # Right edge
+        
+        # Enable antialiasing for circles and images
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # Draw preview area (large image at top)
         preview_x = CHROMA_WHEEL_PREVIEW_X
@@ -646,23 +669,15 @@ class OpeningButton(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        # Position button near the champ-select-flyout-background.jpg area
+        # Position button at screen center
         self.button_size = CHROMA_WHEEL_BUTTON_SIZE
         self.setFixedSize(self.button_size, self.button_size)
         
         screen = QApplication.primaryScreen().geometry()
         
-        # Position button in the same area as the background image
-        bg_x_offset = int(screen.width() * 0.35)  # 35% from left edge
-        bg_y_offset = int(screen.height() * 0.25)  # 25% from top edge
-        
-        # Position button slightly to the right of background center
-        button_x = bg_x_offset + 200
-        button_y = bg_y_offset + 100
-        
-        # Ensure button stays on screen
-        button_x = min(button_x, screen.width() - self.button_size - 10)
-        button_y = max(button_y, 10)
+        # Center button on screen
+        button_x = (screen.width() - self.button_size) // 2
+        button_y = (screen.height() - self.button_size) // 2
         
         self.move(button_x, button_y)
         

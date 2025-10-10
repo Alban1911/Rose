@@ -252,7 +252,7 @@ TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
 # =============================================================================
 
 # Chroma wheel window dimensions (tight fit around preview with golden border)
-CHROMA_WHEEL_PREVIEW_WIDTH = 270        # Width of skin preview area (actual image size)
+CHROMA_WHEEL_PREVIEW_WIDTH = 272        # Width of skin preview area (fills space between borders: 275 - 1 left - 1 right - 1 padding = 272)
 CHROMA_WHEEL_PREVIEW_HEIGHT = 303       # Height of skin preview area (actual image size)
 CHROMA_WHEEL_CIRCLE_RADIUS = 9          # Radius of chroma selection circles
 CHROMA_WHEEL_WINDOW_WIDTH = 275         # Total window width (1px left + 1px space + 270 preview + 1px space + 1px right + 1px extra)
