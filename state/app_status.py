@@ -138,18 +138,37 @@ class AppStatus:
         
         # Update tray icon based on status level
         if self.tray_manager:
+            separator = "=" * 80
             if all_ready:
                 # All components ready - golden unlocked
                 self.tray_manager.set_status("unlocked")
-                log.info("[APP STATUS] All components ready - showing golden unlocked icon")
+                log.info(separator)
+                log.info("🔓✨ APP STATUS: ALL COMPONENTS READY")
+                log.info("   📋 Chroma Selector: Initialized")
+                log.info("   📋 Skins: Downloaded")
+                log.info("   📋 OCR: Initialized")
+                log.info("   🎯 Status: Golden Unlocked")
+                log.info(separator)
             elif chroma_and_skins_ready:
                 # Chroma and skins ready, but OCR not ready - golden locked
                 self.tray_manager.set_status("golden_locked")
-                log.info("[APP STATUS] Chroma and skins ready, OCR pending - showing golden locked icon")
+                log.info(separator)
+                log.info("🔓 APP STATUS: READY (OCR PENDING)")
+                log.info("   📋 Chroma Selector: Initialized")
+                log.info("   📋 Skins: Downloaded")
+                log.info("   ⏳ OCR: Pending")
+                log.info("   🎯 Status: Golden Locked")
+                log.info(separator)
             else:
                 # Some components not ready - locked
                 self.tray_manager.set_status("locked")
-                log.info("[APP STATUS] Components not ready - showing locked icon")
+                log.info(separator)
+                log.info("🔒 APP STATUS: INITIALIZING")
+                log.info(f"   {'✅' if self._chroma_initialized else '⏳'} Chroma Selector: {'Initialized' if self._chroma_initialized else 'Pending'}")
+                log.info(f"   {'✅' if self._skins_downloaded else '⏳'} Skins: {'Downloaded' if self._skins_downloaded else 'Pending'}")
+                log.info(f"   {'✅' if self._ocr_initialized else '⏳'} OCR: {'Initialized' if self._ocr_initialized else 'Pending'}")
+                log.info("   🎯 Status: Locked")
+                log.info(separator)
     
     def mark_chroma_initialized(self):
         """Mark chroma selector as initialized and update status"""

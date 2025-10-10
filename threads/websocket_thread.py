@@ -209,7 +209,13 @@ class WSEventThread(threading.Thread):
                 champ_label = self.db.champ_name_by_id.get(int(ch), f"#{ch}")
                 log_event(log, f"Champion locked: {champ_label}", "🔒", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
                 if self.state.local_cell_id is not None and cid == int(self.state.local_cell_id):
-                    log_status(log, "Your champion locked", f"{champ_label} (ID: {ch})", "✅")
+                    separator = "=" * 80
+                    log.info(separator)
+                    log.info(f"🎮 YOUR CHAMPION LOCKED")
+                    log.info(f"   📋 Champion: {champ_label}")
+                    log.info(f"   📋 ID: {ch}")
+                    log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
+                    log.info(separator)
                     self.state.locked_champ_id = int(ch)
                     self.state.locked_champ_timestamp = time.time()  # Record lock time for OCR delay
                     
@@ -274,7 +280,11 @@ class WSEventThread(threading.Thread):
 
     def _on_open(self, ws):
         """WebSocket connection opened"""
-        log.info("WebSocket: Connected")
+        separator = "=" * 80
+        log.info(separator)
+        log.info("🔌 WEBSOCKET CONNECTED")
+        log.info("   📋 Status: Active")
+        log.info(separator)
         try: 
             ws.send('[5,"OnJsonApiEvent"]')
         except Exception as e: 
@@ -310,7 +320,12 @@ class WSEventThread(threading.Thread):
 
     def _on_close(self, ws, status, msg):
         """WebSocket connection closed"""
-        log.debug(f"WebSocket: Closed: {status} {msg}")
+        separator = "=" * 80
+        log.info(separator)
+        log.info("🔌 WEBSOCKET DISCONNECTED")
+        log.info(f"   📋 Status Code: {status}")
+        log.info(f"   📋 Message: {msg}")
+        log.info(separator)
 
     def run(self):
         """Main WebSocket loop"""

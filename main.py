@@ -601,7 +601,11 @@ def main():
     
     # Download skins if enabled (run in background to avoid blocking startup)
     if args.download_skins:
-        log.info("Starting automatic skin download in background...")
+        separator = "=" * 80
+        log.info(separator)
+        log.info("📥 STARTING SKIN DOWNLOAD")
+        log.info("   📋 Mode: Background (non-blocking)")
+        log.info(separator)
         
         def download_skins_background():
             try:
@@ -611,16 +615,27 @@ def main():
                     tray_manager=tray_manager,
                     injection_manager=injection_manager
                 )
+                separator = "=" * 80
                 if success:
-                    log.info("Background skin download completed successfully")
+                    log.info(separator)
+                    log.info("✅ SKIN DOWNLOAD COMPLETED")
+                    log.info("   📋 Status: Success")
+                    log.info(separator)
                     # Mark skins as downloaded in app status
                     app_status.mark_skins_downloaded()
                 else:
-                    log.warning("Background skin download completed with some issues")
+                    log.info(separator)
+                    log.info("⚠️ SKIN DOWNLOAD COMPLETED WITH ISSUES")
+                    log.info("   📋 Status: Partial Success")
+                    log.info(separator)
                     # Still mark as downloaded even with issues (files may still exist)
                     app_status.mark_skins_downloaded()
             except Exception as e:
-                log.error(f"Failed to download skins in background: {e}")
+                separator = "=" * 80
+                log.info(separator)
+                log.error(f"❌ SKIN DOWNLOAD FAILED")
+                log.error(f"   📋 Error: {e}")
+                log.info(separator)
                 # Check if skins exist anyway
                 app_status.mark_skins_downloaded()
         
@@ -701,7 +716,13 @@ def main():
             
             # Initialize OCR with determined language (CPU mode only)
             ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
-            log.info(f"OCR: {ocr.backend} (lang: {ocr_lang}, mode: CPU)")
+            separator = "=" * 80
+            log.info(separator)
+            log.info(f"🤖 OCR INITIALIZED")
+            log.info(f"   📋 Backend: {ocr.backend}")
+            log.info(f"   📋 Language: {ocr_lang}")
+            log.info(f"   📋 Mode: CPU")
+            log.info(separator)
             
             # Update app status
             if app_status:
@@ -763,7 +784,12 @@ def main():
                 if validate_ocr_language(new_ocr_lang):
                     # Only recreate OCR if language actually changed
                     if new_ocr_lang != ocr.lang:
-                        log.info(f"Reloading OCR with new language: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                        separator = "=" * 80
+                        log.info(separator)
+                        log.info(f"🔄 OCR LANGUAGE CHANGE DETECTED")
+                        log.info(f"   📋 Previous Language: {ocr.lang}")
+                        log.info(f"   📋 New Language: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                        log.info(separator)
                         
                         # Create new OCR instance with new language
                         new_ocr = OCR(
@@ -779,7 +805,10 @@ def main():
                         if t_ocr:
                             t_ocr.ocr = ocr
                         
-                        log.info(f"✅ OCR successfully reloaded with language: {new_ocr_lang}")
+                        log.info(separator)
+                        log.info(f"✅ OCR RELOADED SUCCESSFULLY")
+                        log.info(f"   📋 Language: {new_ocr_lang}")
+                        log.info(separator)
                     else:
                         log.debug(f"OCR language unchanged: {new_ocr_lang}")
                 else:

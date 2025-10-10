@@ -855,7 +855,12 @@ class ChromaWheelManager:
                     self.pending_update_button_state = False  # Button should unhover
                 else:
                     # Wheel is closed, open it
-                    log_action(log, f"Opening wheel for {self.current_skin_name}", "🎨")
+                    separator = "=" * 80
+                    log.info(separator)
+                    log.info(f"🎨 OPENING CHROMA WHEEL")
+                    log.info(f"   📋 Skin: {self.current_skin_name}")
+                    log.info(f"   📋 Chromas: {len(self.current_chromas)}")
+                    log.info(separator)
                     self.pending_show = (self.current_skin_name, self.current_chromas)
                     self.pending_update_button_state = True  # Button should hover
                 # Don't hide button - it should stay visible while skin has chromas
