@@ -10,7 +10,7 @@ from typing import Optional, Callable
 import pystray
 from PIL import Image, ImageDraw
 from utils.logging import get_logger
-from constants import (
+from config import (
     TRAY_READY_MAX_WAIT_S, TRAY_READY_CHECK_INTERVAL_S,
     TRAY_THREAD_JOIN_TIMEOUT_S, TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT,
     TRAY_ICON_ELLIPSE_COORDS, TRAY_ICON_BORDER_WIDTH,

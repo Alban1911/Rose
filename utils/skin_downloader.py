@@ -15,7 +15,7 @@ from typing import List, Dict, Optional
 from urllib.parse import urljoin, urlparse
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
-from constants import (
+from config import (
     API_POLITENESS_DELAY_S, APP_USER_AGENT,
     DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
 )

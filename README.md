@@ -274,7 +274,7 @@ All threads coordinate through the shared state system for seamless operation.
 SkinCloner/
 ├── main.py                       # Main application entry point
 ├── requirements.txt              # Python dependencies
-├── constants.py                  # Centralized configuration constants
+├── config.py                     # Centralized configuration constants
 ├── README.md                     # This documentation file
 │
 ├── injection/                    # Skin injection system

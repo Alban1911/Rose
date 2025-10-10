@@ -12,7 +12,7 @@ from typing import Optional, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
-from constants import CHROMA_DOWNLOAD_TIMEOUT_S
+from config import CHROMA_DOWNLOAD_TIMEOUT_S
 
 log = get_logger()
 

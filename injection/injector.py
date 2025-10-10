@@ -14,7 +14,7 @@ import shutil
 
 from utils.logging import get_logger, log_action, log_success, log_event
 from utils.paths import get_skins_dir, get_injection_dir
-from constants import (
+from config import (
     PROCESS_TERMINATE_TIMEOUT_S, 
     PROCESS_TERMINATE_WAIT_S,
     PROCESS_ENUM_TIMEOUT_S,
