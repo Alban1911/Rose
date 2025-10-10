@@ -5,7 +5,6 @@ Complete build script for SkinCloner
 Builds executable with Nuitka and creates Windows installer in one step
 """
 
-import os
 import sys
 import subprocess
 import time

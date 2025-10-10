@@ -6,7 +6,7 @@ LCU connection monitoring thread for language detection
 
 import time
 import threading
-from typing import Optional, Callable
+from typing import Callable
 from lcu.client import LCU
 from state.shared_state import SharedState
 from utils.logging import get_logger

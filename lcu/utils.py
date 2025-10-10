@@ -4,7 +4,7 @@
 LCU utility functions
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 
 def map_cells(sess: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:

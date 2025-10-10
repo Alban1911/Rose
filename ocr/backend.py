@@ -4,7 +4,6 @@
 OCR backend implementation with EasyOCR (CPU mode)
 """
 
-import os
 import warnings
 from typing import Optional
 import numpy as np

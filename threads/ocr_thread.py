@@ -5,7 +5,6 @@ OCR skin detection thread - Optimized version with hardcoded ROI
 """
 
 import os
-import re
 import time
 import threading
 from pathlib import Path
@@ -17,7 +16,7 @@ from ocr.image_processing import preprocess_band_for_ocr
 from database.name_db import NameDB
 from state.shared_state import SharedState
 from lcu.client import LCU
-from utils.normalization import normalize_text, levenshtein_score
+from utils.normalization import levenshtein_score
 from utils.logging import get_logger
 from utils.window_utils import find_league_window_rect, get_league_window_client_size, is_league_window_active
 from utils.chroma_selector import get_chroma_selector

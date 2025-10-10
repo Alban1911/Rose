@@ -4,7 +4,6 @@
 Loadout countdown ticker thread
 """
 
-import os
 import time
 import threading
 from typing import Optional

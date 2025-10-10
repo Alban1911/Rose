@@ -8,7 +8,7 @@ import time
 import threading
 from lcu.client import LCU
 from state.shared_state import SharedState
-from utils.logging import get_logger, log_status, log_event, log_action
+from utils.logging import get_logger, log_status, log_action
 from utils.chroma_selector import get_chroma_selector
 from constants import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT
 

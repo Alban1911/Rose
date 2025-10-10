@@ -13,7 +13,7 @@ import requests
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
 from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QEasingCurve, pyqtProperty, QByteArray
+from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, QConicalGradient, QPainterPath, QPixmap
 from utils.logging import get_logger, log_event, log_success, log_action
 from utils.paths import get_skins_dir
