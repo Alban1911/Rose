@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
 # Import the chroma wheel components
-from utils.chroma_wheel import ChromaWheelWidget, ReopenButton
+from utils.chroma_wheel import ChromaWheelWidget, OpeningButton
 
 
 class TestManager:
@@ -112,7 +112,7 @@ class TestManager:
         self.wheel.hide()  # Keep it hidden until button is clicked
         
         # Create and show the button
-        self.button = ReopenButton(on_click=self.on_button_clicked)
+        self.button = OpeningButton(on_click=self.on_button_clicked)
         # Force the button to stay visible by overriding its hiding behavior
         self.button.is_hiding = False  # Prevent hide flag from being set
         self.button.setVisible(True)

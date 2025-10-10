@@ -59,7 +59,7 @@ class OCRSkinThread(threading.Thread):
         self.last_chroma_wheel_skin_id = None
     
     def _trigger_chroma_wheel(self, skin_id: int, skin_name: str):
-        """Trigger chroma wheel display if skin has chromas and skin is not owned"""
+        """Trigger chroma wheel display if skin has unowned chromas"""
         try:
             chroma_selector = get_chroma_selector()
             if not chroma_selector:
@@ -75,20 +75,15 @@ class OCRSkinThread(threading.Thread):
                 except Exception as e:
                     log.debug(f"[CHROMA] Failed to load owned skins: {e}")
             
-            # Check if user owns the skin
+            # Check if user owns the skin (for logging only)
             is_owned = skin_id in self.state.owned_skin_ids
-            log.info(f"[CHROMA] Ownership: skin_id={skin_id}, owned={is_owned}, total_owned={len(self.state.owned_skin_ids)}")
-            
-            if is_owned:
-                log.info(f"[CHROMA] Hiding wheel/button - skin IS owned")
-                chroma_selector.hide()  # This hides both wheel and button
-                self.last_chroma_wheel_skin_id = None  # Reset to allow re-checking
-                return
+            log.info(f"[CHROMA] Checking skin_id={skin_id}, base_owned={is_owned}, total_owned={len(self.state.owned_skin_ids)}")
             
             # Always update button when switching skins (don't skip re-showing)
             # This ensures button always shows the correct skin's chromas
+            # Button shows if there are unowned chromas, regardless of base skin ownership
             if chroma_selector.should_show_chroma_wheel(skin_id):
-                log.info(f"[CHROMA] Showing button - skin is NOT owned")
+                log.info(f"[CHROMA] Showing button - skin has unowned chromas")
                 self.last_chroma_wheel_skin_id = skin_id
                 
                 # Get champion name for direct path to chromas
@@ -97,9 +92,10 @@ class OCRSkinThread(threading.Thread):
                 
                 chroma_selector.show_button_for_skin(skin_id, skin_name, champion_name)
             else:
-                # No chromas, hide button
-                log.debug(f"[CHROMA] Skin has no chromas, hiding button")
+                # No unowned chromas, hide button
+                log.debug(f"[CHROMA] Skin has no unowned chromas, hiding button")
                 chroma_selector.hide()
+                self.last_chroma_wheel_skin_id = None  # Reset to allow re-checking
         except Exception as e:
             log.debug(f"[CHROMA] Error triggering wheel: {e}")
 

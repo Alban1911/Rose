@@ -75,13 +75,13 @@ class ChromaSelector:
         Returns:
             True if skin has unowned chromas and wheel should be shown
         """
-        if skin_id is None or skin_id == 0:
-            return False  # Base skins don't have chromas
+        if skin_id is None:
+            return False  # Invalid skin ID
         
         try:
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
             if not chromas or len(chromas) == 0:
-                return False
+                return False  # No chromas available for this skin
             
             # Filter out owned chromas
             owned_skin_ids = self.state.owned_skin_ids
@@ -98,7 +98,7 @@ class ChromaSelector:
     
     def show_button_for_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
         """
-        Show button for a skin (called when OCR detects unowned skin with chromas)
+        Show button for a skin (called when OCR detects skin with unowned chromas)
         
         Args:
             skin_id: Skin ID to show button for
