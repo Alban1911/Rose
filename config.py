@@ -256,9 +256,9 @@ CHROMA_WHEEL_PREVIEW_WIDTH = 272        # Width of skin preview area (fills spac
 CHROMA_WHEEL_PREVIEW_HEIGHT = 303       # Height of skin preview area (actual image size)
 CHROMA_WHEEL_CIRCLE_RADIUS = 9          # Radius of chroma selection circles
 CHROMA_WHEEL_WINDOW_WIDTH = 275         # Total window width (1px left + 1px space + 270 preview + 1px space + 1px right + 1px extra)
-CHROMA_WHEEL_WINDOW_HEIGHT = 358        # Total window height (1px top + 1px space + 303 preview + 52 buttons + 1px bottom)
+CHROMA_WHEEL_WINDOW_HEIGHT = 346        # Total window height (button zone reduced by 4px)
 CHROMA_WHEEL_CIRCLE_SPACING = 21        # Spacing between chroma circles
-CHROMA_WHEEL_BUTTON_SIZE = 45           # Size of reopen button (reduced 25%: was 60, now 45)
+CHROMA_WHEEL_BUTTON_SIZE = 33           # Size of reopen button (odd number for true center pixel: 33px has center at pixel 16)
 
 # Chroma wheel positioning
 CHROMA_WHEEL_SCREEN_EDGE_MARGIN = 20    # Distance from screen edge

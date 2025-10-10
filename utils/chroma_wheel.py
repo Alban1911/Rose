@@ -108,8 +108,9 @@ class ChromaWheelWidget(QWidget):
         # Remove WA_DeleteOnClose - we'll manage deletion manually with deleteLater()
         # self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         
-        # Set window size
-        self.setFixedSize(self.window_width, self.window_height)
+        # Set window size - add extra height for notch extending outside (15px for 45° angles)
+        self.notch_height = 15
+        self.setFixedSize(self.window_width, self.window_height + self.notch_height)
         
         # Position centered horizontally with the opening button (which is at screen center)
         screen = QApplication.primaryScreen().geometry()
@@ -190,9 +191,12 @@ class ChromaWheelWidget(QWidget):
             )
             self.circles.append(circle)
         
-        # Position circles in horizontal row at bottom
+        # Position circles in horizontal row, centered vertically in button zone
         total_chromas = len(self.circles)
-        row_y = self.window_height - CHROMA_WHEEL_ROW_Y_OFFSET
+        # Button zone is between separator line and bottom border
+        separator_y = CHROMA_WHEEL_PREVIEW_Y + self.preview_height
+        bottom_border_y = self.window_height - 1
+        row_y = (separator_y + bottom_border_y) // 2
         
         # Calculate total width needed
         total_width = total_chromas * self.circle_spacing
@@ -308,13 +312,22 @@ class ChromaWheelWidget(QWidget):
         
         # Position above button if button position provided
         if button_pos:
-            # Calculate position: 1/6 of button size above button top (1/3 smaller than 1/4)
             from config import CHROMA_WHEEL_BUTTON_SIZE
-            offset_above = int(CHROMA_WHEEL_BUTTON_SIZE / 6)  # 7-8px for 45px button
             
-            # Position wheel so its bottom is offset_above pixels above button top
-            wheel_x = button_pos.x() + (CHROMA_WHEEL_BUTTON_SIZE - self.window_width) // 2
-            wheel_y = button_pos.y() - offset_above - self.window_height
+            # Center wheel horizontally with button
+            # All dimensions are odd for true center pixels:
+            # - Button: 33px (center at offset 16)
+            # - Wheel: 275px (center at offset 137)
+            # - Notch: 31px (centered at wheel center)
+            button_center_x = button_pos.x() + (CHROMA_WHEEL_BUTTON_SIZE // 2)
+            wheel_x = button_center_x - (self.window_width // 2)
+            # Apply 1px manual adjustment for visual alignment
+            wheel_x -= 1
+            
+            # Position wheel above button
+            offset_above = int(CHROMA_WHEEL_BUTTON_SIZE / 6)  # Small gap above button
+            # Position wheel so the main body's bottom (where notch starts) is offset_above pixels above button top
+            wheel_y = button_pos.y() - offset_above - self.window_height - 10  # 20px higher
             
             self.move(wheel_x, wheel_y)
         
@@ -352,13 +365,14 @@ class ChromaWheelWidget(QWidget):
         painter.setOpacity(self._opacity)
         
         # Define notch parameters
-        notch_width = 30  # Width of the triangle base
-        notch_height = 15  # Height of the triangle (pointing outward)
-        notch_center_x = self.window_width // 2
-        notch_start_x = notch_center_x - notch_width // 2
-        notch_end_x = notch_center_x + notch_width // 2
-        notch_base_y = self.window_height - 1  # Base of the notch (inside widget)
-        notch_tip_y = self.window_height + notch_height  # Tip pointing outward
+        notch_width = 31  # Width of the triangle base (odd number for true center)
+        notch_height = self.notch_height  # Height of the triangle (pointing outward)
+        notch_center_x = self.window_width // 2  # 275 // 2 = 137 (center pixel)
+        # For odd notch_width (31): left side gets 15 pixels, right side gets 15 pixels, center is at 137
+        notch_start_x = notch_center_x - (notch_width // 2)  # 137 - 15 = 122
+        notch_end_x = notch_center_x + (notch_width // 2) + 1  # 137 + 15 + 1 = 153 (to get full 31 pixels)
+        notch_base_y = self.window_height - 1  # Base of the notch (at original window bottom)
+        notch_tip_y = self.window_height + notch_height - 1  # Tip pointing outward
         
         # Create widget path with triangular notch pointing outward
         widget_path = QPainterPath()
@@ -371,14 +385,24 @@ class ChromaWheelWidget(QWidget):
         widget_path.lineTo(1, self.window_height - 1)  # Bottom-left (inside border)
         widget_path.closeSubpath()
         
-        # Fill the widget with notch cut out
+        # Fill the widget with notch
         painter.fillPath(widget_path, QBrush(QColor(10, 14, 39, 240)))
         
-        # Draw golden border with sharp edges
+        # Draw golden border around the main rectangle (excluding notch base)
         painter.setPen(QPen(QColor("#b78c34"), 1))
-        painter.drawPath(widget_path)
+        # Top edge
+        painter.drawLine(1, 1, self.window_width - 1, 1)
+        # Right edge
+        painter.drawLine(self.window_width - 1, 1, self.window_width - 1, self.window_height - 1)
+        # Bottom right to notch
+        painter.drawLine(self.window_width - 1, self.window_height - 1, notch_end_x, notch_base_y)
+        # Left edge
+        painter.drawLine(1, 1, 1, self.window_height - 1)
+        # Bottom left to notch
+        painter.drawLine(1, self.window_height - 1, notch_start_x, notch_base_y)
         
-        # Draw additional golden border on the lower parts of the notch (the two angled edges)
+        # Draw golden border on the notch edges (the two angled edges extending outward)
+        # Use thicker pen for diagonal lines so they render properly
         painter.setPen(QPen(QColor("#b78c34"), 1))
         painter.drawLine(notch_start_x, notch_base_y, notch_center_x, notch_tip_y)  # Left edge
         painter.drawLine(notch_center_x, notch_tip_y, notch_end_x, notch_base_y)  # Right edge
@@ -469,11 +493,16 @@ class ChromaWheelWidget(QWidget):
         # Special styling for base skin (chroma_id == 0)
         is_base = (circle.chroma_id == 0)
         
+        # Dark border around all circles (drawn first as outline)
+        painter.setPen(QPen(QColor(20, 20, 20), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
+        
         if is_base:
             # Base skin: cream background with red diagonal line
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(QColor("#f1e6d3")))  # Cream/beige
-            painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
             
             # Draw diagonal red line across the circle (top-right to bottom-left)
             painter.setPen(QPen(QColor("#bf1f37"), 2))  # Red diagonal
@@ -484,7 +513,7 @@ class ChromaWheelWidget(QWidget):
             color = QColor(circle.color)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(color))
-            painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
         
         # Border - golden ring for selected/hovered (no white outline)
         if is_selected:
