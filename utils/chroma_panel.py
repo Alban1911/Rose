@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Chroma Panel Manager - Coordinates chroma panel and button widgets
+"""
+
+import threading
+from typing import Optional, Callable, List, Dict
+from utils.logging import get_logger, log_event, log_success, log_action
+from utils.chroma_button import OpeningButton
+from utils.chroma_panel_widget import ChromaPanelWidget
+
+log = get_logger()
+
+
+class ChromaPanelManager:
+    """Manages PyQt6 chroma panel - uses polling instead of QTimer"""
+    
+    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None):
+        self.on_chroma_selected = on_chroma_selected
+        self.widget = None
+        self.reopen_button = None
+        self.is_initialized = False
+        self.pending_show = None  # (skin_name, chromas) to show from other threads
+        self.pending_hide = False
+        self.pending_show_button = False
+        self.pending_hide_button = False
+        self.pending_create = False  # Request to create widgets
+        self.pending_destroy = False  # Request to destroy widgets
+        self.pending_update_button_state = None  # True/False to update button panel_is_open state
+        self.current_skin_id = None  # Track current skin for button
+        self.current_skin_name = None
+        self.current_chromas = None
+        self.current_champion_name = None  # Track champion for direct path
+        self.current_selected_chroma_id = None  # Track currently applied chroma
+        self.lock = threading.Lock()
+    
+    def request_create(self):
+        """Request to create the panel (thread-safe, will be created in main thread)"""
+        with self.lock:
+            if not self.is_initialized:
+                self.pending_create = True
+                log.debug("[CHROMA] Create panel requested")
+    
+    def request_destroy(self):
+        """Request to destroy the panel (thread-safe, will be destroyed in main thread)"""
+        with self.lock:
+            self.pending_destroy = True
+            log.debug("[CHROMA] Destroy panel requested")
+    
+    def update_positions(self):
+        """Update widget positions based on current League window position"""
+        try:
+            with self.lock:
+                if self.widget and self.widget.isVisible():
+                    self.widget.update_position_if_needed()
+                    
+                    # Check if League window gained focus - if so, close panel
+                    try:
+                        from utils.window_utils import is_league_window_focused
+                        if is_league_window_focused():
+                            log.debug("[CHROMA] League window focused, closing panel")
+                            self.pending_hide = True
+                    except Exception:
+                        pass  # Window check failed, ignore
+                        
+                if self.reopen_button and self.reopen_button.isVisible():
+                    self.reopen_button.update_position_if_needed()
+        except RuntimeError:
+            # Widget may have been deleted
+            pass
+    
+    def _create_widgets(self):
+        """Create widgets (must be called from main thread)"""
+        if not self.is_initialized:
+            self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper)
+            self.reopen_button = OpeningButton(on_click=self._on_reopen_clicked)
+            # Set button reference on wheel so it can detect button clicks
+            self.widget.set_button_reference(self.reopen_button)
+            self.is_initialized = True
+            log.info("[CHROMA] Panel widgets created")
+    
+    def _destroy_widgets(self):
+        """Destroy widgets (must be called from main thread)"""
+        if self.is_initialized:
+            if self.widget:
+                try:
+                    # Clear button reference before destroying
+                    self.widget.set_button_reference(None)
+                    # Use hide() + deleteLater() instead of close() to avoid blocking
+                    self.widget.hide()
+                    self.widget.deleteLater()
+                    self.widget = None
+                except Exception as e:
+                    log.warning(f"[CHROMA] Error destroying panel widget: {e}")
+            if self.reopen_button:
+                try:
+                    # Use hide() + deleteLater() instead of close() to avoid blocking
+                    self.reopen_button.hide()
+                    self.reopen_button.deleteLater()
+                    self.reopen_button = None
+                except Exception as e:
+                    log.warning(f"[CHROMA] Error destroying reopen button: {e}")
+            self.is_initialized = False
+            self.last_skin_name = None
+            self.last_chromas = None
+            log.info("[CHROMA] Panel widgets destroyed")
+    
+    def _on_chroma_selected_wrapper(self, chroma_id: int, chroma_name: str):
+        """Wrapper for chroma selection - button stays visible (no need to show again)"""
+        # Call the original callback
+        if self.on_chroma_selected:
+            self.on_chroma_selected(chroma_id, chroma_name)
+        
+        # Track the selected chroma ID and request button state update
+        with self.lock:
+            self.current_selected_chroma_id = chroma_id if chroma_id != 0 else None
+            self.pending_update_button_state = False  # Wheel will be hidden, so button should be unhovered
+            log_event(log, f"Chroma selected: {chroma_name}" if chroma_id != 0 else "Base skin selected", "✨")
+            # Button is already visible - no need to show it again
+            # self.pending_show_button = True  # REMOVED - button already visible
+    
+    def _on_reopen_clicked(self):
+        """Handle button click - toggle the panel for current skin"""
+        with self.lock:
+            if self.current_skin_name and self.current_chromas:
+                # Check if wheel is currently visible
+                is_wheel_visible = self.widget and self.widget.isVisible()
+                
+                if is_wheel_visible:
+                    # Wheel is open, close it
+                    log_action(log, f"Closing panel for {self.current_skin_name}", "🎨")
+                    self.pending_hide = True
+                    self.pending_update_button_state = False  # Button should unhover
+                else:
+                    # Wheel is closed, open it
+                    separator = "=" * 80
+                    log.info(separator)
+                    log.info(f"🎨 OPENING CHROMA WHEEL")
+                    log.info(f"   📋 Skin: {self.current_skin_name}")
+                    log.info(f"   📋 Chromas: {len(self.current_chromas)}")
+                    log.info(separator)
+                    self.pending_show = (self.current_skin_name, self.current_chromas)
+                    self.pending_update_button_state = True  # Button should hover
+                # Don't hide button - it should stay visible while skin has chromas
+                # self.pending_hide_button = True  # REMOVED - button stays visible
+                # self.pending_show_button = False  # REMOVED - no need to cancel show
+    
+    def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None):
+        """Show button for a skin (not the wheel itself)
+        
+        Note: chromas should only contain unowned chromas (filtered by ChromaSelector)
+        """
+        if not chromas or len(chromas) == 0:
+            log.debug(f"[CHROMA] No chromas for {skin_name}, hiding button")
+            self.hide_reopen_button()
+            return
+        
+        with self.lock:
+            if not self.is_initialized:
+                log.warning("[CHROMA] Wheel not initialized - cannot show button")
+                return
+            
+            # If switching to a different skin, hide the wheel and reset selection
+            if self.current_skin_id is not None and self.current_skin_id != skin_id:
+                log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
+                self.pending_hide = True
+                self.current_selected_chroma_id = None  # Reset selection for new skin
+                self.pending_update_button_state = False  # Reset button state when switching skins
+            
+            # Update current skin data for button (store champion name for later)
+            self.current_skin_id = skin_id
+            self.current_skin_name = skin_name
+            self.current_chromas = chromas
+            self.current_champion_name = champion_name  # Store for image loading
+            
+            log.debug(f"[CHROMA] Showing button for {skin_name} ({len(chromas)} chromas)")
+            self.pending_show_button = True
+            # Reset button state to unhovered when showing for new skin (wheel will be closed)
+            if self.pending_update_button_state is None:
+                self.pending_update_button_state = False
+    
+    def show_wheel_directly(self):
+        """Request to show the chroma panel for current skin (called by button click)"""
+        with self.lock:
+            if self.current_skin_name and self.current_chromas:
+                log.info(f"[CHROMA] Request to show panel for {self.current_skin_name}")
+                self.pending_show = (self.current_skin_name, self.current_chromas)
+                self.pending_hide_button = True
+    
+    def process_pending(self):
+        """Process pending show/hide requests (must be called from main thread)"""
+        with self.lock:
+            # Process create request
+            if self.pending_create:
+                self.pending_create = False
+                try:
+                    self._create_widgets()
+                except Exception as e:
+                    log.error(f"[CHROMA] Error creating widgets: {e}")
+            
+            # Process destroy request
+            if self.pending_destroy:
+                self.pending_destroy = False
+                try:
+                    log.debug("[CHROMA] Starting widget destruction...")
+                    self._destroy_widgets()
+                    log.debug("[CHROMA] Widget destruction completed")
+                except Exception as e:
+                    log.error(f"[CHROMA] Error destroying widgets: {e}")
+                return  # Don't process other requests after destroying
+            
+            # Process show request
+            if self.pending_show:
+                skin_name, chromas = self.pending_show
+                self.pending_show = None
+                
+                if self.widget:
+                    # Pass the currently selected chroma ID so wheel opens at that index
+                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id)
+                    # Position wheel above button
+                    button_pos = self.reopen_button.pos() if self.reopen_button else None
+                    self.widget.show_wheel(button_pos=button_pos)
+                    self.widget.setVisible(True)
+                    self.widget.raise_()
+                    log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
+            
+            # Process hide request
+            if self.pending_hide:
+                self.pending_hide = False
+                if self.widget:
+                    self.widget.hide()
+            
+            # Process button state update (after show/hide to ensure correct final state)
+            if self.pending_update_button_state is not None:
+                new_state = self.pending_update_button_state
+                self.pending_update_button_state = None
+                if self.reopen_button and self.is_initialized:
+                    try:
+                        # Check if widget is still valid before updating
+                        if not self.reopen_button.isHidden() or new_state is False:
+                            self.reopen_button.set_wheel_open(new_state)
+                    except (RuntimeError, AttributeError) as e:
+                        log.debug(f"[CHROMA] Button no longer valid for state update: {e}")
+            
+            # Process reopen button show request
+            if self.pending_show_button:
+                self.pending_show_button = False
+                if self.reopen_button:
+                    self.reopen_button.show()
+                    self.reopen_button.raise_()
+                    log.debug("[CHROMA] Reopen button shown")
+            
+            # Process reopen button hide request
+            if self.pending_hide_button:
+                self.pending_hide_button = False
+                if self.reopen_button:
+                    self.reopen_button.hide()
+    
+    def hide(self):
+        """Request to hide the chroma panel (thread-safe)"""
+        with self.lock:
+            self.pending_hide = True
+    
+    def hide_reopen_button(self):
+        """Request to hide the reopen button (thread-safe)"""
+        with self.lock:
+            self.pending_hide_button = True
+            self.pending_update_button_state = False  # Reset button state when hiding
+    
+    def cleanup(self):
+        """Clean up resources (called on app exit)"""
+        self.request_destroy()
+
+
+# Global panel manager instance
+_chroma_panel_manager = None
+
+
+def get_chroma_panel() -> ChromaPanelManager:
+    """Get or create global chroma panel manager"""
+    global _chroma_panel_manager
+    if _chroma_panel_manager is None:
+        _chroma_panel_manager = ChromaPanelManager()
+    return _chroma_panel_manager
+
+
+# Backward compatibility alias
+def get_chroma_wheel() -> ChromaPanelManager:
+    """Backward compatibility alias - use get_chroma_panel() instead"""
+    return get_chroma_panel()
+
+
+# Legacy class name alias
+ChromaWheelManager = ChromaPanelManager

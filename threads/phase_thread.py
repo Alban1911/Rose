@@ -53,14 +53,14 @@ class PhaseThread(threading.Thread):
                         except Exception as e:
                             log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
                     
-                    # Destroy chroma wheel and button
+                    # Destroy chroma panel and button
                     chroma_selector = get_chroma_selector()
                     if chroma_selector:
                         try:
-                            chroma_selector.wheel.request_destroy()
-                            log.debug("[phase] Chroma wheel destroy requested for Lobby")
+                            chroma_selector.panel.request_destroy()
+                            log.debug("[phase] Chroma panel destroy requested for Lobby")
                         except Exception as e:
-                            log.debug(f"[phase] Error destroying chroma wheel: {e}")
+                            log.debug(f"[phase] Error destroying chroma panel: {e}")
                 
                 elif ph == "ChampSelect":
                     # State reset happens in WebSocket thread for faster response
@@ -71,14 +71,14 @@ class PhaseThread(threading.Thread):
                         
                     
                 elif ph == "InProgress":
-                    # Game starting - destroy chroma wheel and button
+                    # Game starting - destroy chroma panel and button
                     chroma_selector = get_chroma_selector()
                     if chroma_selector:
                         try:
-                            chroma_selector.wheel.request_destroy()
-                            log.debug("[phase] Chroma wheel destroy requested for InProgress")
+                            chroma_selector.panel.request_destroy()
+                            log.debug("[phase] Chroma panel destroy requested for InProgress")
                         except Exception as e:
-                            log.debug(f"[phase] Error destroying chroma wheel: {e}")
+                            log.debug(f"[phase] Error destroying chroma panel: {e}")
                 
                 elif ph == "EndOfGame":
                     # Game ended → stop overlay process

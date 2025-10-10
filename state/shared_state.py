@@ -48,4 +48,4 @@ class SharedState:
     
     # Chroma selection
     selected_chroma_id: Optional[int] = None  # Selected chroma ID (None = base skin)
-    pending_chroma_selection: bool = False  # Flag to indicate chroma wheel is open
+    pending_chroma_selection: bool = False  # Flag to indicate chroma panel is open

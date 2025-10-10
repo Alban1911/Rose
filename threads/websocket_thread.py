@@ -239,12 +239,12 @@ class WSEventThread(threading.Thread):
                         except Exception as e:
                             log.error(f"[lock:champ] Failed to notify injection manager: {e}")
                     
-                    # Create chroma wheel widgets on champion lock
+                    # Create chroma panel widgets on champion lock
                     chroma_selector = get_chroma_selector()
                     if chroma_selector:
                         try:
-                            chroma_selector.wheel.request_create()
-                            log.debug(f"[lock:champ] Requested chroma wheel creation for {champ_label}")
+                            chroma_selector.panel.request_create()
+                            log.debug(f"[lock:champ] Requested chroma panel creation for {champ_label}")
                             
                             # Download chroma previews for this champion if not already done
                             from utils.chroma_preview_manager import get_preview_manager
@@ -257,7 +257,7 @@ class WSEventThread(threading.Thread):
                             threading.Thread(target=download_previews, daemon=True, name="ChromaPreviewDownload").start()
                             
                         except Exception as e:
-                            log.error(f"[lock:champ] Failed to request chroma wheel creation: {e}")
+                            log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
             
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)

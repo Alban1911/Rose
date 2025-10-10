@@ -190,7 +190,7 @@ INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
 MAIN_LOOP_STALL_THRESHOLD_S = 5.0       # Threshold for detecting main loop stalls
 MAIN_LOOP_FORCE_QUIT_TIMEOUT_S = 2.0    # Timeout before forcing quit when stop flag is set
 QT_EVENT_PROCESSING_THRESHOLD_S = 1.0   # Warning threshold for Qt event processing
-CHROMA_WHEEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma wheel processing
+CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel processing
 
 # Process priority settings
 # Note: Lower priority for injection processes can help prevent slowing down game launch
@@ -248,33 +248,53 @@ TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
 
 
 # =============================================================================
-# CHROMA WHEEL UI CONSTANTS
+# CHROMA PANEL UI CONSTANTS
 # =============================================================================
 
-# Chroma wheel window dimensions (tight fit around preview with golden border)
-CHROMA_WHEEL_PREVIEW_WIDTH = 272        # Width of skin preview area (fills space between borders: 275 - 1 left - 1 right - 1 padding = 272)
-CHROMA_WHEEL_PREVIEW_HEIGHT = 303       # Height of skin preview area (actual image size)
-CHROMA_WHEEL_CIRCLE_RADIUS = 9          # Radius of chroma selection circles
-CHROMA_WHEEL_WINDOW_WIDTH = 275         # Total window width (1px left + 1px space + 270 preview + 1px space + 1px right + 1px extra)
-CHROMA_WHEEL_WINDOW_HEIGHT = 346        # Total window height (button zone reduced by 4px)
-CHROMA_WHEEL_CIRCLE_SPACING = 21        # Spacing between chroma circles
-CHROMA_WHEEL_BUTTON_SIZE = 33           # Size of reopen button (odd number for true center pixel: 33px has center at pixel 16)
+# Chroma panel window dimensions (tight fit around preview with golden border)
+CHROMA_PANEL_PREVIEW_WIDTH = 272        # Width of skin preview area (fills space between borders: 275 - 1 left - 1 right - 1 padding = 272)
+CHROMA_PANEL_PREVIEW_HEIGHT = 303       # Height of skin preview area (actual image size)
+CHROMA_PANEL_CIRCLE_RADIUS = 9          # Radius of chroma selection circles
+CHROMA_PANEL_WINDOW_WIDTH = 275         # Total window width (1px left + 1px space + 270 preview + 1px space + 1px right + 1px extra)
+CHROMA_PANEL_WINDOW_HEIGHT = 346        # Total window height (button zone reduced by 4px)
+CHROMA_PANEL_CIRCLE_SPACING = 21        # Spacing between chroma circles
+CHROMA_PANEL_BUTTON_SIZE = 33           # Size of reopen button (odd number for true center pixel: 33px has center at pixel 16)
 
-# Chroma wheel positioning
-CHROMA_WHEEL_SCREEN_EDGE_MARGIN = 20    # Distance from screen edge
-CHROMA_WHEEL_PREVIEW_X = 2              # X position of preview area (after 1px border + 1px space)
-CHROMA_WHEEL_PREVIEW_Y = 2              # Y position of preview area (after 1px border + 1px space)
-CHROMA_WHEEL_ROW_Y_OFFSET = 26          # Offset from bottom for chroma row (centered in gap: 52px / 2 = 26)
+# Chroma panel positioning
+CHROMA_PANEL_SCREEN_EDGE_MARGIN = 20    # Distance from screen edge
+CHROMA_PANEL_PREVIEW_X = 2              # X position of preview area (after 1px border + 1px space)
+CHROMA_PANEL_PREVIEW_Y = 2              # Y position of preview area (after 1px border + 1px space)
+CHROMA_PANEL_ROW_Y_OFFSET = 26          # Offset from bottom for chroma row (centered in gap: 52px / 2 = 26)
 
-# Chroma wheel button visual effects
-CHROMA_WHEEL_GLOW_ALPHA = 60            # Alpha value for gold glow effect on hover
-CHROMA_WHEEL_CONICAL_START_ANGLE = -65  # Start angle for rainbow gradient (degrees)
+# Chroma panel button visual effects
+CHROMA_PANEL_GLOW_ALPHA = 60            # Alpha value for gold glow effect on hover
+CHROMA_PANEL_CONICAL_START_ANGLE = -65  # Start angle for rainbow gradient (degrees)
 
-# Chroma wheel button dimensions (in pixels at reference size, scaled automatically)
-CHROMA_WHEEL_GOLD_BORDER_PX = 2         # Width of outer gold border
-CHROMA_WHEEL_DARK_BORDER_PX = 3         # Width of dark circle between gold and gradient
-CHROMA_WHEEL_GRADIENT_RING_PX = 4       # Width of rainbow gradient ring
-CHROMA_WHEEL_INNER_DISK_RADIUS_PX = 2.5 # Radius of central dark disk
+# Chroma panel button dimensions (in pixels at reference size, scaled automatically)
+CHROMA_PANEL_GOLD_BORDER_PX = 2         # Width of outer gold border
+CHROMA_PANEL_DARK_BORDER_PX = 3         # Width of dark circle between gold and gradient
+CHROMA_PANEL_GRADIENT_RING_PX = 4       # Width of rainbow gradient ring
+CHROMA_PANEL_INNER_DISK_RADIUS_PX = 2.5 # Radius of central dark disk
+
+# Chroma UI positioning - Centralized positioning for all chroma widgets
+# Anchor point: global reference point for positioning (offsets from League window center)
+# Positive x = right, Negative x = left
+# Positive y = down, Negative y = up
+CHROMA_UI_ANCHOR_OFFSET_X = 0           # Horizontal offset of anchor from League window center
+CHROMA_UI_ANCHOR_OFFSET_Y = 50          # Vertical offset of anchor from League window center (50px lower)
+
+# Button positioning (relative to anchor point)
+CHROMA_UI_BUTTON_OFFSET_X = 0           # Button horizontal offset from anchor
+CHROMA_UI_BUTTON_OFFSET_Y = 0           # Button vertical offset from anchor
+
+# Panel positioning (relative to anchor point)
+CHROMA_UI_PANEL_OFFSET_X = 0            # Panel horizontal offset from anchor
+CHROMA_UI_PANEL_OFFSET_Y_BASE = -185    # Panel notch tip 5px above button top
+# Calculation: Button top at -16px, notch tip at -21px (5px gap), panel center at -201px
+# After adjustment (+16): -185px positions notch tip 5px above button top
+
+# Widget positioning margin
+CHROMA_UI_SCREEN_MARGIN = 10            # Minimum margin from screen edges for chroma widgets
 
 
 # =============================================================================
