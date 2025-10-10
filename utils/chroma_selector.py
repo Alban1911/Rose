@@ -73,14 +73,25 @@ class ChromaSelector:
             skin_id: Skin ID to check
             
         Returns:
-            True if skin has chromas and wheel should be shown
+            True if skin has unowned chromas and wheel should be shown
         """
         if skin_id is None or skin_id == 0:
             return False  # Base skins don't have chromas
         
         try:
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
-            return chromas is not None and len(chromas) > 0
+            if not chromas or len(chromas) == 0:
+                return False
+            
+            # Filter out owned chromas
+            owned_skin_ids = self.state.owned_skin_ids
+            unowned_chromas = [
+                chroma for chroma in chromas 
+                if chroma.get('id') not in owned_skin_ids
+            ]
+            
+            # Only show wheel if there are unowned chromas
+            return len(unowned_chromas) > 0
         except Exception as e:
             log.debug(f"[CHROMA] Error checking chromas for skin {skin_id}: {e}")
             return False
@@ -102,14 +113,27 @@ class ChromaSelector:
                 self.hide()
                 return
             
+            # Filter out owned chromas
+            owned_skin_ids = self.state.owned_skin_ids
+            unowned_chromas = [
+                chroma for chroma in chromas 
+                if chroma.get('id') not in owned_skin_ids
+            ]
+            
+            # If all chromas are owned, hide the button
+            if len(unowned_chromas) == 0:
+                log.debug(f"[CHROMA] All chromas owned for skin {skin_id}, hiding button")
+                self.hide()
+                return
+            
             # Update button for this skin
-            log.debug(f"[CHROMA] Updating button for {skin_name} ({len(chromas)} chromas)")
+            log.debug(f"[CHROMA] Updating button for {skin_name} ({len(unowned_chromas)} unowned chromas out of {len(chromas)} total)")
             
             self.current_skin_id = skin_id
             
-            # Show the button (not the wheel)
+            # Show the button (not the wheel) with only unowned chromas
             try:
-                self.wheel.show_button_for_skin(skin_id, skin_name, chromas, champion_name)
+                self.wheel.show_button_for_skin(skin_id, skin_name, unowned_chromas, champion_name)
             except Exception as e:
                 log.error(f"[CHROMA] Failed to show button: {e}")
     
