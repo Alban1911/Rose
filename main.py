@@ -638,7 +638,7 @@ def main():
     app_status = AppStatus(tray_manager)
     log_success(log, "App status manager initialized", "📊")
     
-    # Check initial status (will show orange until all components are ready)
+    # Check initial status (will show locked until all components are ready)
     app_status.update_status()
     
     # Initialize core components
