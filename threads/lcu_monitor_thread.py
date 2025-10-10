@@ -67,16 +67,11 @@ class LCUMonitorThread(threading.Thread):
                     log.info("WebSocket connected - detecting language...")
                     self.ws_connected = True
                     
-                    # Load owned skins once at startup/reconnection
-                    try:
-                        owned_skins = self.lcu.owned_skins()
-                        if owned_skins and isinstance(owned_skins, list):
-                            self.state.owned_skin_ids = set(owned_skins)
-                            log.info(f"[LCU] Loaded {len(self.state.owned_skin_ids)} owned skins from inventory")
-                        else:
-                            log.warning("[LCU] Failed to fetch owned skins from LCU")
-                    except Exception as e:
-                        log.warning(f"[LCU] Error fetching owned skins: {e}")
+                    # Wait a bit for WebSocket to stabilize before fetching data
+                    time.sleep(0.5)
+                    
+                    # Load owned skins once at startup/reconnection (with retry and longer delay)
+                    self._load_owned_skins_with_retry(max_retries=5, retry_delay=1.5)
                     
                     # Try to detect language (will retry if this fails)
                     self._try_detect_language()
@@ -113,6 +108,33 @@ class LCUMonitorThread(threading.Thread):
                 log.debug(f"LCU monitor error: {e}")
             
             time.sleep(LCU_MONITOR_INTERVAL)
+    
+    def _load_owned_skins_with_retry(self, max_retries: int = 3, retry_delay: float = 1.0):
+        """Load owned skins with retry logic (LCU may not be fully ready immediately after connection)
+        
+        Args:
+            max_retries: Maximum number of retry attempts
+            retry_delay: Delay in seconds between retries
+        """
+        for attempt in range(max_retries):
+            try:
+                owned_skins = self.lcu.owned_skins()
+                if owned_skins and isinstance(owned_skins, list):
+                    self.state.owned_skin_ids = set(owned_skins)
+                    log.info(f"[LCU] Loaded {len(self.state.owned_skin_ids)} owned skins from inventory")
+                    return  # Success
+                else:
+                    if attempt < max_retries - 1:
+                        log.debug(f"[LCU] Failed to fetch owned skins (attempt {attempt + 1}/{max_retries}), retrying...")
+                        time.sleep(retry_delay)
+                    else:
+                        log.warning("[LCU] Failed to fetch owned skins from LCU after all retries")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    log.debug(f"[LCU] Error fetching owned skins (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(retry_delay)
+                else:
+                    log.warning(f"[LCU] Error fetching owned skins after all retries: {e}")
     
     def _try_detect_language(self):
         """Try to detect and initialize language from LCU"""
