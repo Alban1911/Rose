@@ -28,6 +28,8 @@ class LCUMonitorThread(threading.Thread):
         self.last_language = None
         self.waiting_for_connection = False
         self.ws_connected = False
+        self.language_initialized = False  # Track if language was successfully detected after reconnection
+        self.last_language_check = 0.0  # Timestamp of last language check
 
     def run(self):
         """Main monitoring loop"""
@@ -42,6 +44,7 @@ class LCUMonitorThread(threading.Thread):
                     self.waiting_for_connection = True
                     self.last_language = None
                     self.ws_connected = False
+                    self.language_initialized = False
                 
                 # Connection restored
                 elif not self.last_lcu_ok and current_lcu_ok:
@@ -65,18 +68,22 @@ class LCUMonitorThread(threading.Thread):
                     except Exception as e:
                         log.warning(f"[LCU] Error fetching owned skins: {e}")
                     
-                    # Try to get new language
-                    try:
-                        new_language = self.lcu.client_language
-                        if new_language and new_language != self.last_language:
-                            log.info(f"Language changed to: {new_language}")
-                            self.last_language = new_language
-                            self.language_callback(new_language)
-                        elif new_language:
-                            log.info(f"Language confirmed: {new_language}")
-                            self.last_language = new_language
-                    except Exception as e:
-                        log.debug(f"Failed to get LCU language: {e}")
+                    # Try to detect language (will retry if this fails)
+                    self._try_detect_language()
+                
+                # Language not yet initialized - retry detection
+                elif current_lcu_ok and current_ws_connected and self.ws_connected and not self.language_initialized:
+                    now = time.time()
+                    # Retry every 2 seconds if language detection failed
+                    if now - self.last_language_check >= 2.0:
+                        log.info("Retrying language detection...")
+                        self._try_detect_language()
+                
+                # Periodic language change check (every 30 seconds when stable)
+                elif current_lcu_ok and current_ws_connected and self.ws_connected and self.language_initialized:
+                    now = time.time()
+                    if now - self.last_language_check >= 30.0:
+                        self._check_language_change()
                 
                 # WebSocket disconnected
                 elif not current_ws_connected and self.ws_connected:
@@ -93,6 +100,40 @@ class LCUMonitorThread(threading.Thread):
                 log.debug(f"LCU monitor error: {e}")
             
             time.sleep(LCU_MONITOR_INTERVAL)
+    
+    def _try_detect_language(self):
+        """Try to detect and initialize language from LCU"""
+        self.last_language_check = time.time()
+        
+        try:
+            new_language = self.lcu.client_language
+            if new_language:
+                if new_language != self.last_language:
+                    log.info(f"Language detected after reconnection: {new_language}")
+                else:
+                    log.info(f"Language confirmed after reconnection: {new_language}")
+                
+                # Always call callback on reconnection to ensure OCR is reinitialized
+                self.last_language = new_language
+                self.language_initialized = True
+                self.language_callback(new_language)
+            else:
+                log.warning("Failed to get LCU language - client returned None")
+        except Exception as e:
+            log.warning(f"Failed to get LCU language: {e}")
+    
+    def _check_language_change(self):
+        """Periodically check if language has changed"""
+        self.last_language_check = time.time()
+        
+        try:
+            current_language = self.lcu.client_language
+            if current_language and current_language != self.last_language:
+                log.info(f"Language changed during session: {self.last_language} → {current_language}")
+                self.last_language = current_language
+                self.language_callback(current_language)
+        except Exception as e:
+            log.debug(f"Error checking language change: {e}")
     
     def _is_ws_connected(self) -> bool:
         """Check if WebSocket is connected"""

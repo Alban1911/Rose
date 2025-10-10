@@ -710,32 +710,35 @@ def main():
 
     # Function to update OCR language dynamically
     def update_ocr_language(new_lcu_lang: str):
-        """Update OCR language when LCU language changes"""
+        """Update OCR language when LCU language changes or reconnects"""
         if args.lang == "auto":
             new_ocr_lang = get_ocr_language(new_lcu_lang, args.lang)
-            if new_ocr_lang != ocr.lang:
-                try:
-                    # Validate that the new OCR language is available before updating
-                    if validate_ocr_language(new_ocr_lang):
-                        # Recreate OCR with new language (force reload)
+            try:
+                # Validate that the new OCR language is available before updating
+                if validate_ocr_language(new_ocr_lang):
+                    # Always recreate OCR on language callback to ensure fresh state after reconnection
+                    # This is important even if language hasn't changed, as EasyOCR may need reinitialization
+                    if new_ocr_lang != ocr.lang:
                         log.info(f"Reloading OCR with new language: {new_ocr_lang} (LCU: {new_lcu_lang})")
-                        
-                        # Create new OCR instance with new language
-                        new_ocr = OCR(
-                            lang=new_ocr_lang,
-                            psm=args.psm,
-                            tesseract_exe=args.tesseract_exe
-                        )
-                        
-                        # Update the global OCR reference
-                        ocr.__dict__.update(new_ocr.__dict__)
-                        
-                        log.info(f"✅ OCR successfully reloaded with language: {new_ocr_lang}")
                     else:
-                        # Keep current OCR language (likely English fallback) but log the LCU language
-                        log.info(f"OCR language kept at: {ocr.lang} (LCU: {new_lcu_lang}, OCR language not available)")
-                except Exception as e:
-                    log.warning(f"Failed to update OCR language: {e}")
+                        log.info(f"Reinitializing OCR after reconnection: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                    
+                    # Create new OCR instance with new language
+                    new_ocr = OCR(
+                        lang=new_ocr_lang,
+                        psm=args.psm,
+                        tesseract_exe=args.tesseract_exe
+                    )
+                    
+                    # Update the global OCR reference
+                    ocr.__dict__.update(new_ocr.__dict__)
+                    
+                    log.info(f"✅ OCR successfully reloaded with language: {new_ocr_lang}")
+                else:
+                    # Keep current OCR language (likely English fallback) but log the LCU language
+                    log.info(f"OCR language kept at: {ocr.lang} (LCU: {new_lcu_lang}, OCR language not available)")
+            except Exception as e:
+                log.warning(f"Failed to update OCR language: {e}")
 
     # Initialize thread manager for organized thread lifecycle
     thread_manager = ThreadManager()
