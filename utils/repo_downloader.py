@@ -76,6 +76,7 @@ class RepoDownloader:
                 skins_files = []
                 zip_count = 0
                 readme_count_total = 0
+                blade_variants_count = 0
                 
                 for file_info in zip_ref.filelist:
                     # Look for files in skins/ directory, but skip the skins directory itself
@@ -84,9 +85,15 @@ class RepoDownloader:
                         not file_info.filename.endswith('/')):
                         skins_files.append(file_info)
                         
+                        # Check if this is a blade variant (special weapon mods, not counted as skins)
+                        is_blade_variant = '/Blades/' in file_info.filename
+                        
                         # Count file types for accurate reporting
                         if file_info.filename.endswith('.zip'):
-                            zip_count += 1
+                            if is_blade_variant:
+                                blade_variants_count += 1
+                            else:
+                                zip_count += 1
                         elif file_info.filename.endswith('README.md'):
                             readme_count_total += 1
                 
@@ -100,6 +107,7 @@ class RepoDownloader:
                 extracted_count = 0
                 readme_count = 0
                 skipped_count = 0
+                blade_extracted_count = 0
                 
                 for file_info in skins_files:
                     try:
@@ -113,6 +121,7 @@ class RepoDownloader:
                         # Check if it's a zip file or a README in chromas directory
                         is_zip = relative_path.endswith('.zip')
                         is_chroma_readme = 'chromas/' in relative_path and relative_path.endswith('README.md')
+                        is_blade_variant = '/Blades/' in relative_path
                         
                         # Skip if it's neither a zip nor a chroma README
                         if not is_zip and not is_chroma_readme:
@@ -136,8 +145,11 @@ class RepoDownloader:
                             with open(extract_path, 'wb') as target:
                                 target.write(source.read())
                         
+                        # Count by type (blade variants counted separately)
                         if is_chroma_readme:
                             readme_count += 1
+                        elif is_blade_variant:
+                            blade_extracted_count += 1
                         else:
                             extracted_count += 1
                         
@@ -146,6 +158,8 @@ class RepoDownloader:
                 
                 log.info(f"Extracted {extracted_count} new skin files and {readme_count} new chroma READMEs "
                         f"(skipped {skipped_count} existing files)")
+                if blade_extracted_count > 0:
+                    log.debug(f"Also extracted {blade_extracted_count} blade variant files (not counted as skins)")
                 
                 # Don't download previews here - will be done on-demand when champion is locked
                 
