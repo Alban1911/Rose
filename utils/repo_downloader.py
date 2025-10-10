@@ -74,22 +74,32 @@ class RepoDownloader:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 # Find the skins folder in the ZIP
                 skins_files = []
+                zip_count = 0
+                readme_count_total = 0
+                
                 for file_info in zip_ref.filelist:
                     # Look for files in skins/ directory, but skip the skins directory itself
                     if (file_info.filename.startswith('lol-skins-main/skins/') and 
                         file_info.filename != 'lol-skins-main/skins/' and
                         not file_info.filename.endswith('/')):
                         skins_files.append(file_info)
+                        
+                        # Count file types for accurate reporting
+                        if file_info.filename.endswith('.zip'):
+                            zip_count += 1
+                        elif file_info.filename.endswith('README.md'):
+                            readme_count_total += 1
                 
                 if not skins_files:
                     log.error("No skins folder found in repository ZIP")
                     return False
                 
-                log.info(f"Found {len(skins_files)} skin files in repository")
+                log.info(f"Found {zip_count} skin .zip files and {readme_count_total} README files in repository")
                 
                 # Extract only the skins files AND chroma READMEs
                 extracted_count = 0
                 readme_count = 0
+                skipped_count = 0
                 
                 for file_info in skins_files:
                     try:
@@ -118,6 +128,7 @@ class RepoDownloader:
                         
                         # Skip if file already exists
                         if extract_path.exists():
+                            skipped_count += 1
                             continue
                         
                         # Extract the file
@@ -133,7 +144,8 @@ class RepoDownloader:
                     except Exception as e:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
                 
-                log.info(f"Extracted {extracted_count} skin files and {readme_count} chroma READMEs")
+                log.info(f"Extracted {extracted_count} new skin files and {readme_count} new chroma READMEs "
+                        f"(skipped {skipped_count} existing files)")
                 
                 # Don't download previews here - will be done on-demand when champion is locked
                 
@@ -204,6 +216,10 @@ class RepoDownloader:
         """
         Get detailed statistics categorizing base skins and chromas
         
+        Structure:
+        - Base skin: Champion/Skin Name.zip
+        - Chroma: Champion/chromas/Skin Name/Skin Name CHROMAID.zip
+        
         Returns:
             Dict with keys: 'total_skins', 'total_chromas', 'total_ids'
         """
@@ -217,15 +233,19 @@ class RepoDownloader:
             if not champion_dir.is_dir():
                 continue
             
-            # Count base skins (zip files in champion root, not in chromas/)
+            # Count base skins (zip files in champion root)
             base_skins = list(champion_dir.glob("*.zip"))
             total_skins += len(base_skins)
             
-            # Count chromas (zip files in chromas/ subdirectory)
+            # Count chromas (zip files in chromas/*/  subdirectories)
+            # Structure: Champion/chromas/SkinName/SkinName CHROMAID.zip
             chromas_dir = champion_dir / "chromas"
-            if chromas_dir.exists():
-                chroma_files = list(chromas_dir.glob("*.zip"))
-                total_chromas += len(chroma_files)
+            if chromas_dir.exists() and chromas_dir.is_dir():
+                # Chromas are in subdirectories under chromas/
+                for skin_chroma_dir in chromas_dir.iterdir():
+                    if skin_chroma_dir.is_dir():
+                        chroma_files = list(skin_chroma_dir.glob("*.zip"))
+                        total_chromas += len(chroma_files)
         
         return {
             'total_skins': total_skins,

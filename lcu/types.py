@@ -5,7 +5,7 @@ Type definitions for LCU API responses
 Provides TypedDict definitions for structured data
 """
 
-from typing import TypedDict, List, Optional, Any
+from typing import TypedDict, List, Optional
 
 
 class ChromaData(TypedDict, total=False):

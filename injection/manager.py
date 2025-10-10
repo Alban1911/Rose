@@ -13,8 +13,7 @@ from typing import Optional
 from .injector import SkinInjector
 from utils.logging import get_logger, log_section, log_event, log_success, log_action
 from constants import (
-    INJECTION_THRESHOLD_SECONDS, 
-    PERSISTENT_MONITOR_START_SECONDS,
+    INJECTION_THRESHOLD_SECONDS,
     PERSISTENT_MONITOR_CHECK_INTERVAL_S,
     PERSISTENT_MONITOR_IDLE_INTERVAL_S,
     PERSISTENT_MONITOR_WAIT_TIMEOUT_S,

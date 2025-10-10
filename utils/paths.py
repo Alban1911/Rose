@@ -8,7 +8,6 @@ Handles user data directories and permissions
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def get_user_data_dir() -> Path:

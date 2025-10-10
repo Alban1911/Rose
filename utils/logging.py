@@ -11,7 +11,6 @@ import logging
 import urllib3
 from datetime import datetime
 from urllib3.exceptions import InsecureRequestWarning
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from constants import (
     LOG_MAX_FILES_DEFAULT, LOG_MAX_TOTAL_SIZE_MB_DEFAULT,
