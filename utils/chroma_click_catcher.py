@@ -24,6 +24,8 @@ class ClickCatcherOverlay(QWidget):
         self.on_click_callback = on_click_callback
         self._league_window_hwnd = parent_hwnd
         
+        log.debug(f"[CHROMA] Creating click catcher overlay")
+        
         # Setup as transparent overlay
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
@@ -37,6 +39,8 @@ class ClickCatcherOverlay(QWidget):
         # Parent to League window if provided
         if parent_hwnd:
             self._parent_and_position()
+        else:
+            log.warning("[CHROMA] Click catcher created without parent_hwnd!")
     
     def _parent_and_position(self):
         """Parent to League and fill entire client area"""
@@ -97,7 +101,7 @@ class ClickCatcherOverlay(QWidget):
                 # Position at (0, 0) and set to BOTTOM of z-order (under everything)
                 HWND_BOTTOM = 1
                 SWP_SHOWWINDOW = 0x0040
-                ctypes.windll.user32.SetWindowPos(
+                result = ctypes.windll.user32.SetWindowPos(
                     widget_hwnd,
                     HWND_BOTTOM,  # Put at bottom of z-order (under panel/button)
                     0, 0,
@@ -105,16 +109,16 @@ class ClickCatcherOverlay(QWidget):
                     SWP_SHOWWINDOW
                 )
                 
-                log.debug(f"[CHROMA] Click catcher overlay created ({league_width}x{league_height})")
+                log.debug(f"[CHROMA] Click catcher overlay parented ({league_width}x{league_height})")
             else:
                 log.error("[CHROMA] Failed to parent click catcher to League window")
         except Exception as e:
             log.error(f"[CHROMA] Error creating click catcher: {e}")
     
     def paintEvent(self, event):
-        """Paint the overlay - nearly transparent"""
+        """Paint the overlay - nearly invisible"""
         painter = QPainter(self)
-        # Fill with nearly transparent black (alpha=1 so Qt detects mouse events)
+        # Fill with nearly transparent black (alpha=1 so Qt detects mouse events, but invisible to user)
         painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
     
     def mousePressEvent(self, event):

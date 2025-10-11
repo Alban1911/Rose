@@ -383,7 +383,8 @@ class ChromaPanelManager:
                     # Show click catcher FIRST (at bottom of z-order)
                     if self.click_catcher:
                         self.click_catcher.show()
-                        self.click_catcher.lower()  # Ensure it's at bottom
+                        self.click_catcher.raise_()  # Make it visible
+                        self.click_catcher.update()  # Force repaint
                         log.debug("[CHROMA] Click catcher overlay shown")
                     
                     # Pass the currently selected chroma ID so wheel opens at that index

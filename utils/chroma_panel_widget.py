@@ -614,12 +614,18 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # Skin name removed - preview images use full height
         
-        # Draw all chroma circles (horizontal row at bottom)
+        # Draw all chroma circles (horizontal row at bottom) - TWO PASSES for layering
+        # Pass 1: Draw circle fills (no borders)
         for i, circle in enumerate(self.circles):
-            self._draw_chroma_circle(painter, circle, i == self.selected_index)
+            self._draw_chroma_circle_fill(painter, circle, i == self.selected_index)
+        
+        # Pass 2: Draw selection borders OVER all circles (creates layering effect)
+        for i, circle in enumerate(self.circles):
+            if i == self.selected_index:
+                self._draw_chroma_circle_selection(painter, circle)
     
-    def _draw_chroma_circle(self, painter: QPainter, circle: ChromaCircle, is_selected: bool):
-        """Draw a single chroma circle - League horizontal style"""
+    def _draw_chroma_circle_fill(self, painter: QPainter, circle: ChromaCircle, is_selected: bool):
+        """Draw a single chroma circle fill (without selection border)"""
         # Small circles, no scaling
         radius = self.circle_radius
         
@@ -659,17 +665,20 @@ class ChromaPanelWidget(ChromaWidgetBase):
             painter.setBrush(QBrush(color))
             painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
         
-        # Border - golden ring for selected/hovered (no white outline)
-        if is_selected:
-            # Thick golden border for selected
-            painter.setPen(QPen(QColor("#b78c34"), 2))  # Golden selection color
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPoint(circle.x, circle.y), radius + 3, radius + 3)
-        elif circle.is_hovered:
-            # Thin golden border for hovered
+        # Draw hover border (thin golden ring) - drawn in first pass
+        if circle.is_hovered and not is_selected:
             painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden hover color
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPoint(circle.x, circle.y), radius + 1, radius + 1)
+    
+    def _draw_chroma_circle_selection(self, painter: QPainter, circle: ChromaCircle):
+        """Draw selection border on top of circle (second pass for layering)"""
+        radius = self.circle_radius
+        
+        # Thick golden border for selected - drawn OVER everything
+        painter.setPen(QPen(QColor("#b78c34"), 2))  # Golden selection color
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QPoint(circle.x, circle.y), radius + 3, radius + 3)
     
     def mouseMoveEvent(self, event):
         """Handle mouse movement for hover effects"""
