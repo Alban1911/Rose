@@ -7,29 +7,49 @@ Base classes and configuration for Chroma UI components
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt
 from utils.window_utils import get_league_window_handle, get_league_window_rect_fast
-from config import (
-    CHROMA_PANEL_BUTTON_SIZE,
-    CHROMA_UI_ANCHOR_OFFSET_X, CHROMA_UI_ANCHOR_OFFSET_Y,
-    CHROMA_UI_BUTTON_OFFSET_X, CHROMA_UI_BUTTON_OFFSET_Y,
-    CHROMA_UI_PANEL_OFFSET_X, CHROMA_UI_PANEL_OFFSET_Y_BASE,
-    CHROMA_UI_SCREEN_MARGIN
-)
 
 
 class ChromaUIConfig:
     """
     Centralized configuration for chroma UI positioning
-    All values are loaded from config.py - modify them there
+    Now uses dynamic scaling based on League window resolution
     """
-    # Load positioning values from config.py
-    ANCHOR_OFFSET_X = CHROMA_UI_ANCHOR_OFFSET_X
-    ANCHOR_OFFSET_Y = CHROMA_UI_ANCHOR_OFFSET_Y
     
-    BUTTON_OFFSET_X = CHROMA_UI_BUTTON_OFFSET_X
-    BUTTON_OFFSET_Y = CHROMA_UI_BUTTON_OFFSET_Y
+    @classmethod
+    def _get_scaled_values(cls):
+        """Get scaled values for current resolution"""
+        from utils.chroma_scaling import get_scaled_chroma_values
+        return get_scaled_chroma_values()
     
-    PANEL_OFFSET_X = CHROMA_UI_PANEL_OFFSET_X
-    PANEL_OFFSET_Y = CHROMA_UI_PANEL_OFFSET_Y_BASE - (CHROMA_PANEL_BUTTON_SIZE // 2)
+    @classmethod
+    @property
+    def ANCHOR_OFFSET_X(cls):
+        return cls._get_scaled_values().anchor_offset_x
+    
+    @classmethod
+    @property
+    def ANCHOR_OFFSET_Y(cls):
+        return cls._get_scaled_values().anchor_offset_y
+    
+    @classmethod
+    @property
+    def BUTTON_OFFSET_X(cls):
+        return cls._get_scaled_values().button_offset_x
+    
+    @classmethod
+    @property
+    def BUTTON_OFFSET_Y(cls):
+        return cls._get_scaled_values().button_offset_y
+    
+    @classmethod
+    @property
+    def PANEL_OFFSET_X(cls):
+        return cls._get_scaled_values().panel_offset_x
+    
+    @classmethod
+    @property
+    def PANEL_OFFSET_Y(cls):
+        return cls._get_scaled_values().panel_offset_y
     
     @classmethod
     def get_anchor_point(cls, screen_geometry=None):
@@ -58,9 +78,10 @@ class ChromaUIConfig:
                     window_center_x = left + (window_width // 2)
                     window_center_y = top + (window_height // 2)
                     
-                    # Apply offsets from config
-                    anchor_x = window_center_x + cls.ANCHOR_OFFSET_X
-                    anchor_y = window_center_y + cls.ANCHOR_OFFSET_Y
+                    # Apply offsets from scaled config
+                    scaled = cls._get_scaled_values()
+                    anchor_x = window_center_x + scaled.anchor_offset_x
+                    anchor_y = window_center_y + scaled.anchor_offset_y
                     
                     return (anchor_x, anchor_y)
         except Exception:
@@ -77,7 +98,8 @@ class ChromaUIConfig:
             center_x = screen.width() // 2
             center_y = screen.height() // 2
         
-        return (center_x + cls.ANCHOR_OFFSET_X, center_y + cls.ANCHOR_OFFSET_Y)
+        scaled = cls._get_scaled_values()
+        return (center_x + scaled.anchor_offset_x, center_y + scaled.anchor_offset_y)
 
 
 class ChromaWidgetBase(QWidget):
@@ -133,12 +155,15 @@ class ChromaWidgetBase(QWidget):
         screen = QApplication.primaryScreen().geometry()
         anchor_x, anchor_y = ChromaUIConfig.get_anchor_point(screen)
         
-        # Calculate position: anchor + offset - half widget size (to center on point)
+        # Calculate position: center the widget's CENTER on the anchor point + offset
+        # This ensures both button and panel have their centers aligned at the anchor point
+        # (since both have offset_x = 0)
         widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
         widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
         
         # Ensure widget stays on screen
-        margin = CHROMA_UI_SCREEN_MARGIN
+        from utils.chroma_scaling import get_scaled_chroma_values
+        margin = get_scaled_chroma_values().screen_margin
         widget_x = max(margin, min(widget_x, screen.width() - self._widget_width - margin))
         widget_y = max(margin, min(widget_y, screen.height() - self._widget_height - margin))
         

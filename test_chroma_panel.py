@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Test script for Chroma Wheel - Mythmaker Garen
+Test script for Chroma Panel - Mythmaker Garen
 Demonstrates the chroma selection UI and button interaction
 """
 
@@ -10,7 +10,8 @@ import signal
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QPixmap
-from utils.chroma_wheel import ChromaWheelWidget, OpeningButton
+from utils.chroma_panel_widget import ChromaPanelWidget
+from utils.chroma_button import OpeningButton
 from utils.chroma_preview_manager import get_preview_manager
 from utils.logging import setup_logging, get_logger
 
@@ -72,9 +73,9 @@ def on_chroma_selected(chroma_id: int, chroma_name: str):
 def main():
     """Main test function"""
     print("\n" + "="*60)
-    print("CHROMA WHEEL TEST - MYTHMAKER GAREN")
+    print("CHROMA PANEL TEST - MYTHMAKER GAREN")
     print("="*60)
-    print("\nThis test demonstrates the chroma wheel UI:")
+    print("\nThis test demonstrates the chroma panel UI:")
     print("  - Base skin (red X in center)")
     print("  - 10 chroma variants in a horizontal row")
     print("  - Hover over circles to preview")
@@ -107,8 +108,8 @@ def main():
     timer.timeout.connect(lambda: None)  # Do nothing, just let Python process signals
     timer.start(100)  # Check every 100ms
     
-    # Create chroma wheel widget
-    wheel = ChromaWheelWidget(on_chroma_selected=on_chroma_selected)
+    # Create chroma panel widget
+    panel = ChromaPanelWidget(on_chroma_selected=on_chroma_selected)
     
     # Get Mythmaker Garen chromas with real IDs
     test_chromas = create_mythmaker_garen_chromas()
@@ -133,8 +134,8 @@ def main():
     
     log.info(f"Loaded {loaded_count}/{len(test_chromas)} preview images from cache")
     
-    # Set chromas on the wheel
-    wheel.set_chromas(
+    # Set chromas on the panel
+    panel.set_chromas(
         skin_name="Mythmaker Garen",
         chromas=test_chromas,
         champion_name="Garen",
@@ -143,46 +144,46 @@ def main():
     
     # Manually set the preview images on the circles (loaded from cache)
     for i, chroma in enumerate(test_chromas):
-        if i < len(wheel.circles) - 1:  # Skip base (index 0)
+        if i < len(panel.circles) - 1:  # Skip base (index 0)
             circle_index = i + 1  # Offset by 1 because base is index 0
-            if circle_index < len(wheel.circles) and 'preview_pixmap' in chroma:
-                wheel.circles[circle_index].preview_image = chroma['preview_pixmap']
+            if circle_index < len(panel.circles) and 'preview_pixmap' in chroma:
+                panel.circles[circle_index].preview_image = chroma['preview_pixmap']
     
-    log.info("Preview images attached to wheel circles")
+    log.info("Preview images attached to panel circles")
     
     # Create the reopen button
     def on_button_click():
-        """Toggle the wheel visibility"""
-        if wheel.isVisible():
-            log.info("Closing chroma wheel")
-            wheel.hide()
+        """Toggle the panel visibility"""
+        if panel.isVisible():
+            log.info("Closing chroma panel")
+            panel.hide()
             button.set_wheel_open(False)
         else:
-            log.info("Opening chroma wheel")
-            # Position wheel above button
+            log.info("Opening chroma panel")
+            # Position panel above button
             button_pos = button.pos()
-            wheel.show_wheel(button_pos=button_pos)
+            panel.show_wheel(button_pos=button_pos)
             button.set_wheel_open(True)
     
     button = OpeningButton(on_click=on_button_click)
-    wheel.set_button_reference(button)
+    panel.set_button_reference(button)
     
-    # Show the button and open the wheel initially
+    # Show the button and open the panel initially
     button.show()
     button.raise_()
     
-    # Open the wheel after a short delay to ensure button is fully initialized
-    def open_wheel_delayed():
+    # Open the panel after a short delay to ensure button is fully initialized
+    def open_panel_delayed():
         button_pos = button.pos()
-        wheel.show_wheel(button_pos=button_pos)
+        panel.show_wheel(button_pos=button_pos)
         button.set_wheel_open(True)
-        log.info("Chroma wheel opened - hover over circles to preview, click to select")
+        log.info("Chroma panel opened - hover over circles to preview, click to select")
     
-    QTimer.singleShot(100, open_wheel_delayed)
+    QTimer.singleShot(100, open_panel_delayed)
     
     print("Test started - interact with the UI")
-    print("    Button: Click to toggle wheel open/closed")
-    print("    Wheel: Hover to preview, click to select")
+    print("    Button: Click to toggle panel open/closed")
+    print("    Panel: Hover to preview, click to select")
     print("    Keyboard: ESC=cancel, ENTER=confirm\n")
     
     # Start the application

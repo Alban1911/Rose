@@ -248,53 +248,84 @@ TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
 
 
 # =============================================================================
-# CHROMA PANEL UI CONSTANTS
+# CHROMA PANEL UI CONSTANTS - RESOLUTION ADAPTIVE
 # =============================================================================
 
-# Chroma panel window dimensions (tight fit around preview with golden border)
-CHROMA_PANEL_PREVIEW_WIDTH = 272        # Width of skin preview area (fills space between borders: 275 - 1 left - 1 right - 1 padding = 272)
-CHROMA_PANEL_PREVIEW_HEIGHT = 303       # Height of skin preview area (actual image size)
-CHROMA_PANEL_CIRCLE_RADIUS = 9          # Radius of chroma selection circles
-CHROMA_PANEL_WINDOW_WIDTH = 275         # Total window width (1px left + 1px space + 270 preview + 1px space + 1px right + 1px extra)
-CHROMA_PANEL_WINDOW_HEIGHT = 346        # Total window height (button zone reduced by 4px)
-CHROMA_PANEL_CIRCLE_SPACING = 21        # Spacing between chroma circles
-CHROMA_PANEL_BUTTON_SIZE = 33           # Size of reopen button (odd number for true center pixel: 33px has center at pixel 16)
+# Reference resolution (UI designed for this resolution)
+CHROMA_UI_REFERENCE_WIDTH = 1600
+CHROMA_UI_REFERENCE_HEIGHT = 900
 
-# Chroma panel positioning
-CHROMA_PANEL_SCREEN_EDGE_MARGIN = 20    # Distance from screen edge
-CHROMA_PANEL_PREVIEW_X = 2              # X position of preview area (after 1px border + 1px space)
-CHROMA_PANEL_PREVIEW_Y = 2              # Y position of preview area (after 1px border + 1px space)
-CHROMA_PANEL_ROW_Y_OFFSET = 26          # Offset from bottom for chroma row (centered in gap: 52px / 2 = 26)
+# Chroma panel dimensions - RATIOS (relative to reference height 900px)
+# These will be multiplied by the scale factor based on actual League window resolution
+CHROMA_PANEL_PREVIEW_WIDTH_RATIO = 0.302222      # 272px at 900p
+CHROMA_PANEL_PREVIEW_HEIGHT_RATIO = 0.336667     # 303px at 900p
+CHROMA_PANEL_CIRCLE_RADIUS_RATIO = 0.010000      # 9px at 900p
+CHROMA_PANEL_WINDOW_WIDTH_RATIO = 0.305556       # 275px at 900p
+CHROMA_PANEL_WINDOW_HEIGHT_RATIO = 0.384444      # 346px at 900p
+CHROMA_PANEL_CIRCLE_SPACING_RATIO = 0.023333     # 21px at 900p
+CHROMA_PANEL_BUTTON_SIZE_RATIO = 0.036667        # 33px at 900p
 
-# Chroma panel button visual effects
-CHROMA_PANEL_GLOW_ALPHA = 60            # Alpha value for gold glow effect on hover
-CHROMA_PANEL_CONICAL_START_ANGLE = -65  # Start angle for rainbow gradient (degrees)
+# Chroma panel positioning - RATIOS
+CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO = 0.022222 # 20px at 900p
+CHROMA_PANEL_PREVIEW_X_RATIO = 0.002222          # 2px at 900p
+CHROMA_PANEL_PREVIEW_Y_RATIO = 0.002222          # 2px at 900p
+CHROMA_PANEL_ROW_Y_OFFSET_RATIO = 0.028889       # 26px at 900p
 
-# Chroma panel button dimensions (in pixels at reference size, scaled automatically)
-CHROMA_PANEL_GOLD_BORDER_PX = 2         # Width of outer gold border
-CHROMA_PANEL_DARK_BORDER_PX = 3         # Width of dark circle between gold and gradient
-CHROMA_PANEL_GRADIENT_RING_PX = 4       # Width of rainbow gradient ring
-CHROMA_PANEL_INNER_DISK_RADIUS_PX = 2.5 # Radius of central dark disk
+# Chroma panel button visual effects (not scaled)
+CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
+CHROMA_PANEL_CONICAL_START_ANGLE = -65           # Start angle for rainbow gradient (degrees)
 
-# Chroma UI positioning - Centralized positioning for all chroma widgets
+# Chroma panel button dimensions - RATIOS (in pixels at reference size, scaled automatically)
+CHROMA_PANEL_GOLD_BORDER_PX_RATIO = 0.002222     # 2px at 900p
+CHROMA_PANEL_DARK_BORDER_PX_RATIO = 0.003333     # 3px at 900p
+CHROMA_PANEL_GRADIENT_RING_PX_RATIO = 0.004444   # 4px at 900p
+CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO = 0.002778  # 2.5px at 900p
+
+# Legacy constants for backward compatibility (at reference resolution)
+CHROMA_PANEL_PREVIEW_WIDTH = 272
+CHROMA_PANEL_PREVIEW_HEIGHT = 303
+CHROMA_PANEL_CIRCLE_RADIUS = 9
+CHROMA_PANEL_WINDOW_WIDTH = 275
+CHROMA_PANEL_WINDOW_HEIGHT = 346
+CHROMA_PANEL_CIRCLE_SPACING = 21
+CHROMA_PANEL_BUTTON_SIZE = 33
+CHROMA_PANEL_SCREEN_EDGE_MARGIN = 20
+CHROMA_PANEL_PREVIEW_X = 2
+CHROMA_PANEL_PREVIEW_Y = 2
+CHROMA_PANEL_ROW_Y_OFFSET = 26
+CHROMA_PANEL_GOLD_BORDER_PX = 2
+CHROMA_PANEL_DARK_BORDER_PX = 3
+CHROMA_PANEL_GRADIENT_RING_PX = 4
+CHROMA_PANEL_INNER_DISK_RADIUS_PX = 2.5
+
+# Chroma UI positioning - RATIOS (resolution adaptive)
 # Anchor point: global reference point for positioning (offsets from League window center)
 # Positive x = right, Negative x = left
 # Positive y = down, Negative y = up
-CHROMA_UI_ANCHOR_OFFSET_X = 0           # Horizontal offset of anchor from League window center
-CHROMA_UI_ANCHOR_OFFSET_Y = 50          # Vertical offset of anchor from League window center (50px lower)
+# IMPORTANT: Each widget centers its OWN center on (anchor + offset)
+# Since both offset_x = 0, both widgets center on the same X coordinate = perfect alignment
+CHROMA_UI_ANCHOR_OFFSET_X_RATIO = 0.0           # Horizontal offset ratio (UI center)
+CHROMA_UI_ANCHOR_OFFSET_Y_RATIO = 0.055556      # 50px at 900p (vertical offset from League center)
 
-# Button positioning (relative to anchor point)
-CHROMA_UI_BUTTON_OFFSET_X = 0           # Button horizontal offset from anchor
-CHROMA_UI_BUTTON_OFFSET_Y = 0           # Button vertical offset from anchor
+# Button positioning (relative to anchor point) - RATIOS
+CHROMA_UI_BUTTON_OFFSET_X_RATIO = 0.0           # Button horizontal offset (0 = centered at anchor)
+CHROMA_UI_BUTTON_OFFSET_Y_RATIO = 0.0           # Button vertical offset (0 = at anchor Y position)
 
-# Panel positioning (relative to anchor point)
-CHROMA_UI_PANEL_OFFSET_X = 0            # Panel horizontal offset from anchor
-CHROMA_UI_PANEL_OFFSET_Y_BASE = -185    # Panel notch tip 5px above button top
-# Calculation: Button top at -16px, notch tip at -21px (5px gap), panel center at -201px
-# After adjustment (+16): -185px positions notch tip 5px above button top
+# Panel positioning (relative to anchor point) - RATIOS
+CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Panel horizontal offset (0 = centered at anchor = aligned with button)
+CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.205556 # -185px at 900p (panel notch tip 5px above button top)
 
-# Widget positioning margin
-CHROMA_UI_SCREEN_MARGIN = 10            # Minimum margin from screen edges for chroma widgets
+# Widget positioning margin - RATIO
+CHROMA_UI_SCREEN_MARGIN_RATIO = 0.011111        # 10px at 900p
+
+# Legacy constants for backward compatibility (at reference resolution 900p)
+CHROMA_UI_ANCHOR_OFFSET_X = 0
+CHROMA_UI_ANCHOR_OFFSET_Y = 50
+CHROMA_UI_BUTTON_OFFSET_X = 0
+CHROMA_UI_BUTTON_OFFSET_Y = 0
+CHROMA_UI_PANEL_OFFSET_X = 0
+CHROMA_UI_PANEL_OFFSET_Y_BASE = -185
+CHROMA_UI_SCREEN_MARGIN = 10
 
 
 # =============================================================================

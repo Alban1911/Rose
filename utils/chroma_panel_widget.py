@@ -12,14 +12,10 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPixmap
 from utils.chroma_base import ChromaWidgetBase, ChromaUIConfig
+from utils.chroma_scaling import get_scaled_chroma_values
 from utils.logging import get_logger, log_event
 from utils.paths import get_skins_dir
-from config import (
-    CHROMA_PANEL_PREVIEW_WIDTH, CHROMA_PANEL_PREVIEW_HEIGHT, CHROMA_PANEL_CIRCLE_RADIUS,
-    CHROMA_PANEL_WINDOW_WIDTH, CHROMA_PANEL_WINDOW_HEIGHT, CHROMA_PANEL_CIRCLE_SPACING,
-    CHROMA_PANEL_PREVIEW_X, CHROMA_PANEL_PREVIEW_Y,
-    UI_QTIMER_CALLBACK_DELAY_MS
-)
+from config import UI_QTIMER_CALLBACK_DELAY_MS
 
 log = get_logger()
 
@@ -53,13 +49,15 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.hovered_index = None
         self.reopen_button_ref = None  # Reference to button widget for click detection
         
-        # Dimensions - League style with horizontal layout
-        self.preview_width = CHROMA_PANEL_PREVIEW_WIDTH
-        self.preview_height = CHROMA_PANEL_PREVIEW_HEIGHT
-        self.circle_radius = CHROMA_PANEL_CIRCLE_RADIUS
-        self.window_width = CHROMA_PANEL_WINDOW_WIDTH
-        self.window_height = CHROMA_PANEL_WINDOW_HEIGHT
-        self.circle_spacing = CHROMA_PANEL_CIRCLE_SPACING
+        # Track mouse press position for click-and-release detection
+        self._press_pos = None
+        
+        # Get scaled values for current resolution
+        self.scaled = get_scaled_chroma_values()
+        self._current_resolution = self.scaled.resolution  # Track resolution for change detection
+        
+        # Dimensions - League style with horizontal layout (using scaled values)
+        self._update_dimensions_from_scaled()
         
         # Preview image (will be downloaded/loaded)
         self.current_preview_image = None  # QPixmap for current chroma
@@ -100,12 +98,15 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.notch_height = 15
         self.setFixedSize(self.window_width, self.window_height + self.notch_height)
         
-        # Position using the synchronized positioning system
+        # Create window mask to define the visible shape (including notch)
+        self._update_window_mask()
+        
+        # Position using the synchronized positioning system (with scaled offsets)
         self.position_relative_to_anchor(
             width=self.window_width,
             height=self.window_height + self.notch_height,
-            offset_x=ChromaUIConfig.PANEL_OFFSET_X,
-            offset_y=ChromaUIConfig.PANEL_OFFSET_Y
+            offset_x=self.scaled.panel_offset_x,
+            offset_y=self.scaled.panel_offset_y
         )
         
         # Set initial opacity
@@ -117,6 +118,97 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # Start with window hidden
         self.hide()
+    
+    def _update_window_mask(self):
+        """Update the window mask to define the visible region including the notch"""
+        from PyQt6.QtGui import QRegion, QPolygon
+        from PyQt6.QtCore import QPoint
+        
+        # Calculate notch geometry (must match paintEvent parameters exactly)
+        notch_width = 31  # Width of the triangle base (odd number for true center)
+        notch_height = self.notch_height
+        notch_center_x = self.window_width // 2
+        notch_start_x = notch_center_x - (notch_width // 2)
+        notch_end_x = notch_center_x + (notch_width // 2) + 1  # +1 to get full 31 pixels
+        notch_base_y = self.window_height - 1  # Base at original window bottom
+        notch_tip_y = self.window_height + notch_height - 1  # Tip pointing outward
+        
+        # Create polygon for the entire window shape (rectangle + notch triangle)
+        points = [
+            QPoint(0, 0),                              # Top-left
+            QPoint(self.window_width, 0),              # Top-right
+            QPoint(self.window_width, self.window_height),  # Bottom-right
+            QPoint(notch_end_x, notch_base_y),         # Right side of notch base
+            QPoint(notch_center_x, notch_tip_y),       # Notch tip
+            QPoint(notch_start_x, notch_base_y),       # Left side of notch base
+            QPoint(0, self.window_height),             # Bottom-left
+        ]
+        
+        polygon = QPolygon(points)
+        region = QRegion(polygon)
+        self.setMask(region)
+    
+    def _update_dimensions_from_scaled(self):
+        """Update all dimension properties from scaled values"""
+        self.preview_width = self.scaled.preview_width
+        self.preview_height = self.scaled.preview_height
+        self.circle_radius = self.scaled.circle_radius
+        self.window_width = self.scaled.window_width
+        self.window_height = self.scaled.window_height
+        self.circle_spacing = self.scaled.circle_spacing
+    
+    def check_resolution_and_update(self):
+        """Check if resolution changed and update UI if needed"""
+        # Get current scaled values (from cache, which auto-detects resolution)
+        new_scaled = get_scaled_chroma_values()
+        
+        # Check if resolution changed
+        if new_scaled.resolution != self._current_resolution:
+            log.info(f"[CHROMA] Resolution changed from {self._current_resolution} to {new_scaled.resolution}, updating UI")
+            
+            # Update scaled values reference
+            self.scaled = new_scaled
+            self._current_resolution = new_scaled.resolution
+            
+            # Update dimensions
+            self._update_dimensions_from_scaled()
+            
+            # Update window size
+            self.setFixedSize(self.window_width, self.window_height + self.notch_height)
+            
+            # Update window mask for new size
+            self._update_window_mask()
+            
+            # Update position
+            self.position_relative_to_anchor(
+                width=self.window_width,
+                height=self.window_height + self.notch_height,
+                offset_x=self.scaled.panel_offset_x,
+                offset_y=self.scaled.panel_offset_y
+            )
+            
+            # Recalculate circle positions if we have chromas loaded
+            if self.circles:
+                self._recalculate_circle_positions()
+            
+            # Force repaint
+            self.update()
+    
+    def _recalculate_circle_positions(self):
+        """Recalculate circle positions after resolution change"""
+        if not self.circles:
+            return
+        
+        # Recalculate horizontal row positions (same logic as set_chromas)
+        num_circles = len(self.circles)
+        total_width = num_circles * (2 * self.circle_radius) + (num_circles - 1) * self.circle_spacing
+        start_x = (self.window_width - total_width) // 2
+        row_y = self.scaled.preview_y + self.scaled.preview_height + self.scaled.row_y_offset
+        
+        for i, circle in enumerate(self.circles):
+            x = start_x + (2 * self.circle_radius + self.circle_spacing) * i + self.circle_radius
+            circle.x = x
+            circle.y = row_y
     
     def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None):
         """Set the chromas to display - League horizontal style
@@ -173,7 +265,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Position circles in horizontal row, centered vertically in button zone
         total_chromas = len(self.circles)
         # Button zone is between separator line and bottom border
-        separator_y = CHROMA_PANEL_PREVIEW_Y + self.preview_height
+        separator_y = self.scaled.preview_y + self.preview_height
         bottom_border_y = self.window_height - 1
         row_y = (separator_y + bottom_border_y) // 2
         
@@ -285,30 +377,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.reopen_button_ref = button_widget
     
     def show_wheel(self, button_pos=None):
-        """Show the wheel, optionally positioned relative to button"""
+        """Show the panel (button_pos parameter kept for backward compatibility but unused)"""
         # Set opacity to 1.0 for visibility
         self._opacity = 1.0
         
-        # Position above button if button position provided
-        if button_pos:
-            from config import CHROMA_PANEL_BUTTON_SIZE
-            
-            # Center wheel horizontally with button
-            # All dimensions are odd for true center pixels:
-            # - Button: 33px (center at offset 16)
-            # - Wheel: 275px (center at offset 137)
-            # - Notch: 31px (centered at wheel center)
-            button_center_x = button_pos.x() + (CHROMA_PANEL_BUTTON_SIZE // 2)
-            wheel_x = button_center_x - (self.window_width // 2)
-            # Apply 1px manual adjustment for visual alignment
-            wheel_x -= 1
-            
-            # Position wheel above button
-            offset_above = int(CHROMA_PANEL_BUTTON_SIZE / 6)  # Small gap above button
-            # Position wheel so the main body's bottom (where notch starts) is offset_above pixels above button top
-            wheel_y = button_pos.y() - offset_above - self.window_height - 10  # 20px higher
-            
-            self.move(wheel_x, wheel_y)
+        # Position is handled by base class position_relative_to_anchor()
+        # No manual positioning needed - the anchor-based system handles alignment perfectly
         
         # Show window
         self.show()
@@ -364,10 +438,64 @@ class ChromaPanelWidget(ChromaWidgetBase):
         widget_path.lineTo(1, self.window_height - 1)  # Bottom-left (inside border)
         widget_path.closeSubpath()
         
-        # Fill the widget with notch
-        painter.fillPath(widget_path, QBrush(QColor(10, 14, 39, 240)))
+        # Enable antialiasing for images
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Draw golden border around the main rectangle (excluding notch base)
+        # LAYER 1: Draw background image first (behind everything)
+        preview_x = self.scaled.preview_x
+        preview_y = self.scaled.preview_y
+        preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
+        
+        if self.background_image and not self.background_image.isNull():
+            # Clip to the widget shape so background respects borders
+            painter.setClipPath(widget_path)
+            
+            # Scale background to exactly fit the window
+            scaled_bg = self.background_image.scaled(
+                self.window_width, self.window_height,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            
+            # Draw background starting at (0, 0) behind everything
+            painter.drawPixmap(0, 0, scaled_bg)
+            
+            # Remove clipping
+            painter.setClipping(False)
+            
+            # Draw semi-transparent overlay for better contrast (only over preview area)
+            painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(0, 0, 0, 80))
+        else:
+            # Fallback: Fill the widget with dark background
+            painter.fillPath(widget_path, QBrush(QColor(10, 14, 39, 240)))
+        
+        # LAYER 2: Draw button zone background including notch (behind all golden borders)
+        # Fill the rectangular button zone
+        button_zone_y = preview_y + self.preview_height
+        button_zone_height = self.window_height - button_zone_y
+        painter.fillRect(1, button_zone_y, self.window_width - 2, button_zone_height, QColor(10, 14, 39, 240))
+        
+        # Also fill the notch triangle area
+        from PyQt6.QtGui import QPolygon
+        notch_width = 31
+        notch_height = self.notch_height
+        notch_center_x = self.window_width // 2
+        notch_start_x = notch_center_x - (notch_width // 2)
+        notch_end_x = notch_center_x + (notch_width // 2) + 1
+        notch_base_y = self.window_height - 1
+        notch_tip_y = self.window_height + notch_height - 1
+        
+        notch_points = [
+            QPoint(notch_start_x, notch_base_y),
+            QPoint(notch_center_x, notch_tip_y),
+            QPoint(notch_end_x, notch_base_y),
+        ]
+        notch_polygon = QPolygon(notch_points)
+        painter.setBrush(QBrush(QColor(10, 14, 39, 240)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPolygon(notch_polygon)
+        
+        # LAYER 3: Draw golden borders on top of backgrounds
         painter.setPen(QPen(QColor("#b78c34"), 1))
         # Top edge
         painter.drawLine(1, 1, self.window_width - 1, 1)
@@ -381,42 +509,10 @@ class ChromaPanelWidget(ChromaWidgetBase):
         painter.drawLine(1, self.window_height - 1, notch_start_x, notch_base_y)
         
         # Draw golden border on the notch edges (the two angled edges extending outward)
-        # Use thicker pen for diagonal lines so they render properly
-        painter.setPen(QPen(QColor("#b78c34"), 1))
         painter.drawLine(notch_start_x, notch_base_y, notch_center_x, notch_tip_y)  # Left edge
         painter.drawLine(notch_center_x, notch_tip_y, notch_end_x, notch_base_y)  # Right edge
         
-        # Enable antialiasing for circles and images
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Draw preview area (large image at top)
-        preview_x = CHROMA_PANEL_PREVIEW_X
-        preview_y = CHROMA_PANEL_PREVIEW_Y
-        preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
-        
-        # Draw background image in preview area if available
-        if self.background_image and not self.background_image.isNull():
-            # Scale background to fit the preview area
-            scaled_bg = self.background_image.scaled(
-                self.preview_width, self.preview_height,
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            # Center the background in preview area, ensuring it doesn't overflow
-            bg_x = preview_x + max(0, (self.preview_width - scaled_bg.width()) // 2)
-            bg_y = preview_y + max(0, (self.preview_height - scaled_bg.height()) // 2)
-            # Clip the background to the preview area bounds
-            painter.setClipRect(preview_x, preview_y, self.preview_width, self.preview_height)
-            painter.drawPixmap(bg_x, bg_y, scaled_bg)
-            painter.setClipping(False)
-            
-            # Draw semi-transparent overlay for better contrast
-            painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(0, 0, 0, 80))
-        else:
-            # Fallback: Draw dark preview background
-            painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(20, 20, 30))
-        
-        # Draw golden separator line between preview and buttons (spans full inner width)
+        # Draw golden separator line between preview and buttons (on top of button zone)
         painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden separator color
         separator_y = preview_y + self.preview_height
         painter.drawLine(1, separator_y, self.window_width - 1, separator_y)
@@ -442,14 +538,21 @@ class ChromaPanelWidget(ChromaWidgetBase):
             pass
             
         elif preview_image and not preview_image.isNull():
-            # Draw image at native size without scaling for maximum quality
-            # Center the image in preview area
-            img_x = preview_x + (self.preview_width - preview_image.width()) // 2
-            img_y = preview_y + (self.preview_height - preview_image.height()) // 2
+            # Scale image to fit preview area (maintains aspect ratio)
+            scaled_preview = preview_image.scaled(
+                self.preview_width, 
+                self.preview_height,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            
+            # Center the scaled image in preview area
+            img_x = preview_x + (self.preview_width - scaled_preview.width()) // 2
+            img_y = preview_y + (self.preview_height - scaled_preview.height()) // 2
             
             # Use high-quality rendering
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.drawPixmap(img_x, img_y, preview_image)
+            painter.drawPixmap(img_x, img_y, scaled_preview)
         else:
             # No preview image - show placeholder
             painter.setPen(QColor(100, 100, 120))
@@ -608,24 +711,30 @@ class ChromaPanelWidget(ChromaWidgetBase):
     
     def eventFilter(self, obj, event):
         """Filter application events to detect clicks outside the chroma UI"""
-        # Process mouse button press events when the panel is visible
+        # Process mouse button events when the panel is visible
         if self.isVisible():
-            # Mouse button press - check if outside chroma UI
+            # Track mouse press position
             if event.type() == event.Type.MouseButtonPress:
-                # Get the global position of the click
-                global_pos = event.globalPosition().toPoint()
+                # Store press position but don't close yet
+                self._press_pos = event.globalPosition().toPoint()
+                return False  # Continue event propagation
+            
+            # Mouse button release - check if still outside chroma UI
+            elif event.type() == event.Type.MouseButtonRelease:
+                # Get the release position
+                release_pos = event.globalPosition().toPoint()
                 
-                # Check if the click is on the panel widget itself - if so, don't close
-                local_pos = self.mapFromGlobal(global_pos)
+                # Check if the release is on the panel widget itself - if so, don't close
+                local_pos = self.mapFromGlobal(release_pos)
                 if self.rect().contains(local_pos):
-                    return False  # Click is inside the panel, don't close
+                    return False  # Release is inside the panel, don't close
                 
-                # Check if the click is on the reopen button - if so, let button handle it
+                # Check if the release is on the reopen button - if so, let button handle it
                 if self.reopen_button_ref is not None:
                     try:
-                        button_local_pos = self.reopen_button_ref.mapFromGlobal(global_pos)
+                        button_local_pos = self.reopen_button_ref.mapFromGlobal(release_pos)
                         if self.reopen_button_ref.rect().contains(button_local_pos):
-                            # Click is on the button - let button's handler deal with it
+                            # Release is on the button - let button's handler deal with it
                             # The button will toggle the panel (close it since it's open)
                             # Ignore next deactivate event since button will handle the close
                             self.ignore_next_deactivate = True
@@ -634,9 +743,9 @@ class ChromaPanelWidget(ChromaWidgetBase):
                         # Button may have been deleted
                         pass
                 
-                # Click was outside both the panel and button - close the panel
-                # This includes clicks on the League window (which won't trigger WindowDeactivate)
-                log.debug("[CHROMA] Click detected outside chroma UI, closing panel")
+                # Release was outside both the panel and button - close the panel
+                # This includes clicks on the League window
+                log.debug("[CHROMA] Mouse released outside chroma UI, closing panel")
                 self.hide()
                 return False  # Continue event propagation
             

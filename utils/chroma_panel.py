@@ -53,6 +53,12 @@ class ChromaPanelManager:
         """Update widget positions based on current League window position"""
         try:
             with self.lock:
+                # Check for resolution changes and update all widgets
+                if self.widget:
+                    self.widget.check_resolution_and_update()
+                if self.reopen_button:
+                    self.reopen_button.check_resolution_and_update()
+                
                 if self.widget and self.widget.isVisible():
                     self.widget.update_position_if_needed()
                     

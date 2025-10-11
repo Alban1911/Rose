@@ -11,14 +11,8 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient, QPainterPath
 from utils.chroma_base import ChromaWidgetBase, ChromaUIConfig
-from config import (
-    CHROMA_PANEL_BUTTON_SIZE,
-    CHROMA_PANEL_CONICAL_START_ANGLE,
-    CHROMA_PANEL_GOLD_BORDER_PX,
-    CHROMA_PANEL_DARK_BORDER_PX,
-    CHROMA_PANEL_GRADIENT_RING_PX,
-    CHROMA_PANEL_INNER_DISK_RADIUS_PX
-)
+from utils.chroma_scaling import get_scaled_chroma_values
+from config import CHROMA_PANEL_CONICAL_START_ANGLE
 
 
 class OpeningButton(ChromaWidgetBase):
@@ -33,16 +27,20 @@ class OpeningButton(ChromaWidgetBase):
         
         # Common window flags already set by parent class
         
-        # Setup button size and position
-        self.button_size = CHROMA_PANEL_BUTTON_SIZE
+        # Get scaled values for current resolution
+        self.scaled = get_scaled_chroma_values()
+        self._current_resolution = self.scaled.resolution  # Track resolution for change detection
+        
+        # Setup button size and position (using scaled values)
+        self.button_size = self.scaled.button_size
         self.setFixedSize(self.button_size, self.button_size)
         
         # Position using the synchronized positioning system
         self.position_relative_to_anchor(
             width=self.button_size,
             height=self.button_size,
-            offset_x=ChromaUIConfig.BUTTON_OFFSET_X,
-            offset_y=ChromaUIConfig.BUTTON_OFFSET_Y
+            offset_x=self.scaled.button_offset_x,
+            offset_y=self.scaled.button_offset_y
         )
         
         # Set cursor to hand pointer for the button
@@ -60,7 +58,10 @@ class OpeningButton(ChromaWidgetBase):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         center = self.button_size // 2
-        outer_radius = (self.button_size // 2) - 3  # Leave small margin
+        # Use less margin at small resolutions (give golden border more space)
+        # Reference button size at 900p is 33px, smallest at ~576p is ~21px
+        margin = 2 if self.button_size <= 25 else 3  # Smaller margin for small resolutions
+        outer_radius = (self.button_size // 2) - margin
         
         # Calculate ratios from official button measurements and scale to current button
         # Official measurements: 2px gold, 1px trans, 2px dark, 1px trans, 4px gradient, 1px trans, 5px inner
@@ -71,14 +72,17 @@ class OpeningButton(ChromaWidgetBase):
         # Scale factor = current_radius / official_radius = 27 / 15 = 1.8
         scale_factor = outer_radius / 15.0  # Scale from official button size
         
-        # Apply ratios scaled to current button size
-        gold_border_width = int(CHROMA_PANEL_GOLD_BORDER_PX * scale_factor)
+        # Apply ratios scaled to current button size (using pre-calculated scaled values)
+        gold_border_width = int(self.scaled.gold_border_px * scale_factor)
+        # Make golden border more visible at small resolutions
+        if self.button_size <= 25:
+            gold_border_width += 1  # +1 for better visibility at smallest resolution
         transition1_width = int(1 * scale_factor)
-        dark_border_width = int(CHROMA_PANEL_DARK_BORDER_PX * scale_factor)
+        dark_border_width = int(self.scaled.dark_border_px * scale_factor) + 1  # +1 for better visibility at small resolutions
         transition2_width = int(1 * scale_factor)
-        gradient_ring_width = int(CHROMA_PANEL_GRADIENT_RING_PX * scale_factor)
+        gradient_ring_width = int(self.scaled.gradient_ring_px * scale_factor)
         transition3_width = int(1 * scale_factor)
-        inner_disk_radius = CHROMA_PANEL_INNER_DISK_RADIUS_PX * scale_factor
+        inner_disk_radius = self.scaled.inner_disk_radius_px * scale_factor
         
         # Calculate actual radii from outside in (starting from outer_radius)
         outer_gold_radius = outer_radius
@@ -229,6 +233,36 @@ class OpeningButton(ChromaWidgetBase):
         except RuntimeError as e:
             # Widget may have been deleted
             pass
+    
+    def check_resolution_and_update(self):
+        """Check if resolution changed and update UI if needed"""
+        # Get current scaled values (from cache, which auto-detects resolution)
+        new_scaled = get_scaled_chroma_values()
+        
+        # Check if resolution changed
+        if new_scaled.resolution != self._current_resolution:
+            from utils.logging import get_logger
+            log = get_logger()
+            log.info(f"[CHROMA] Button resolution changed from {self._current_resolution} to {new_scaled.resolution}, updating UI")
+            
+            # Update scaled values reference
+            self.scaled = new_scaled
+            self._current_resolution = new_scaled.resolution
+            
+            # Update button size
+            self.button_size = self.scaled.button_size
+            self.setFixedSize(self.button_size, self.button_size)
+            
+            # Update position
+            self.position_relative_to_anchor(
+                width=self.button_size,
+                height=self.button_size,
+                offset_x=self.scaled.button_offset_x,
+                offset_y=self.scaled.button_offset_y
+            )
+            
+            # Force repaint
+            self.update()
     
     def showEvent(self, event):
         """Reset hiding flag when button is shown"""
