@@ -74,7 +74,6 @@ def build_with_nuitka():
         "--include-data-dir=injection/tools=injection/tools",  # Include CSLOL tools
         "--include-data-file=injection/mods_map.json=injection/mods_map.json",
         "--include-data-file=icon.ico=icon.ico",
-        "--include-data-file=qt.conf=qt.conf",  # Qt configuration to suppress DPI warnings
         "--include-package=database",  # Include packages
         "--include-package=injection",
         "--include-package=lcu",
@@ -82,7 +81,7 @@ def build_with_nuitka():
         "--include-package=state",
         "--include-package=threads",
         "--include-package=utils",
-        "--include-package=easyocr",  # EasyOCR for GPU-accelerated OCR
+        "--include-package=easyocr",  # EasyOCR for OCR
         "--include-package=torch",  # PyTorch deep learning framework
         "--include-package=torchvision",  # Computer vision for PyTorch
         "--follow-imports",  # Follow all imports
@@ -122,10 +121,9 @@ def build_with_nuitka():
     print("Subsequent builds: 1-3 minutes (ccache only recompiles changed files!)")
     print("Nuitka compiles Python to C code for maximum protection!")
     print("Building STANDALONE mode: All files in one folder (includes injection/tools)")
-    print("\n[WARNING] NEW PACKAGES: EasyOCR + PyTorch + torchvision")
-    print("   - Executable size will be significantly larger (500-800 MB)")
-    print("   - First run requires internet to download EasyOCR models")
-    print("   - GPU acceleration supported if CUDA drivers installed\n")
+    print("\n[INFO] Includes: EasyOCR + PyTorch + torchvision (CPU mode)")
+    print("   - Executable size: ~500-800 MB")
+    print("   - First run requires internet to download EasyOCR models\n")
     
     try:
         result = subprocess.run(cmd, check=True)
@@ -223,40 +221,17 @@ if errorlevel 1 (
     
     return True
 
-def check_pytorch_cuda():
-    """Check if CUDA-enabled PyTorch is installed"""
+def check_pytorch():
+    """Check if PyTorch is installed"""
     try:
         import torch
         version = torch.__version__
-        is_cpu_only = '+cpu' in version or not hasattr(torch.version, 'cuda') or torch.version.cuda is None
-        
-        if is_cpu_only:
-            print("\n" + "!" * 70)
-            print("  WARNING: CPU-only PyTorch detected!")
-            print("!" * 70)
-            print(f"\nCurrent PyTorch version: {version}")
-            print("\nThe executable will NOT support GPU acceleration!")
-            print("All users will be forced to use CPU-only mode.")
-            print("\nTo build with GPU support, install CUDA-enabled PyTorch:")
-            print("  pip uninstall torch torchvision")
-            print("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
-            print("\nAlternatively, run: python ensure_cuda_pytorch.py")
-            print("\n" + "!" * 70)
-            
-            response = input("\nContinue with CPU-only build? (y/N): ").strip().lower()
-            if response != 'y':
-                print("\n[CANCELLED] Build cancelled.")
-                print("Please install CUDA PyTorch and try again.")
-                sys.exit(1)
-        else:
-            print(f"\n[OK] CUDA-enabled PyTorch: {version}")
-            if hasattr(torch.version, 'cuda') and torch.version.cuda:
-                print(f"[OK] Built for CUDA: {torch.version.cuda}")
-            print("[OK] Executable will support GPU acceleration!\n")
+        print(f"\n[OK] PyTorch {version} detected")
+        print("[INFO] Application configured for CPU-only mode\n")
     except ImportError:
         print("\n[ERROR] PyTorch not installed!")
-        print("\nPlease install PyTorch first:")
-        print("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
+        print("\nPlease install PyTorch:")
+        print("  pip install -r requirements.txt")
         sys.exit(1)
 
 
@@ -264,8 +239,8 @@ def main():
     """Main build process"""
     print_header("LeagueUnlocked - Nuitka Build (Python to C Compilation)")
     
-    # Check PyTorch CUDA support
-    check_pytorch_cuda()
+    # Check PyTorch is installed
+    check_pytorch()
     
     # Check if Nuitka is installed
     try:

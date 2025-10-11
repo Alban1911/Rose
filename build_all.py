@@ -75,26 +75,21 @@ def run_create_installer():
     return True
 
 
-def ensure_cuda_pytorch():
-    """Ensure CUDA-enabled PyTorch is installed"""
-    print_step(0, 3, "Verifying CUDA-enabled PyTorch Installation")
+def check_pytorch():
+    """Check if PyTorch is installed"""
+    print_step(0, 3, "Verifying PyTorch Installation")
     
-    # Run ensure_cuda_pytorch.py as a subprocess
-    result = subprocess.run(
-        [sys.executable, "ensure_cuda_pytorch.py"],
-        capture_output=False,  # Show output in real-time
-        text=True
-    )
-    
-    if result.returncode != 0:
-        print("\n[ERROR] Failed to ensure CUDA PyTorch is installed!")
-        print("\nThe build requires CUDA-enabled PyTorch to support GPU acceleration.")
-        print("Please install it manually:")
-        print("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
+    try:
+        import torch
+        version = torch.__version__
+        print(f"\n[OK] PyTorch {version} detected")
+        print("[INFO] Application configured for CPU-only mode")
+        return True
+    except ImportError:
+        print("\n[ERROR] PyTorch not installed!")
+        print("\nPlease install dependencies:")
+        print("  pip install -r requirements.txt")
         return False
-    
-    print("\n[OK] CUDA PyTorch verification completed!")
-    return True
 
 
 def build_all():
@@ -104,14 +99,13 @@ def build_all():
     
     start_time = time.time()
     
-    # Step 0: Ensure CUDA PyTorch is installed
-    if not ensure_cuda_pytorch():
+    # Step 0: Check PyTorch is installed
+    if not check_pytorch():
         print_header("[FAILED] BUILD FAILED AT STEP 0/3")
-        print("CUDA-enabled PyTorch is required for the build.")
+        print("PyTorch is required for the build.")
         print("\nTroubleshooting:")
-        print("1. Install CUDA PyTorch manually:")
-        print("   pip uninstall torch torchvision")
-        print("   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
+        print("1. Install dependencies:")
+        print("   pip install -r requirements.txt")
         print("2. Run the build again")
         return False
     
