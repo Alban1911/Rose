@@ -120,6 +120,14 @@ class ChromaPanelManager:
         if self.is_initialized:
             if self.widget:
                 try:
+                    # Un-parent from League window before destroying
+                    if hasattr(self.widget, '_league_window_hwnd') and self.widget._league_window_hwnd:
+                        import ctypes
+                        widget_hwnd = int(self.widget.winId())
+                        ctypes.windll.user32.SetParent(widget_hwnd, 0)  # Un-parent (set to desktop)
+                        self.widget._league_window_hwnd = None
+                        log.debug("[CHROMA] Panel un-parented from League window")
+                    
                     # Clear button reference before destroying
                     self.widget.set_button_reference(None)
                     # Use hide() + deleteLater() instead of close() to avoid blocking
@@ -130,6 +138,14 @@ class ChromaPanelManager:
                     log.warning(f"[CHROMA] Error destroying panel widget: {e}")
             if self.reopen_button:
                 try:
+                    # Un-parent from League window before destroying
+                    if hasattr(self.reopen_button, '_league_window_hwnd') and self.reopen_button._league_window_hwnd:
+                        import ctypes
+                        button_hwnd = int(self.reopen_button.winId())
+                        ctypes.windll.user32.SetParent(button_hwnd, 0)  # Un-parent (set to desktop)
+                        self.reopen_button._league_window_hwnd = None
+                        log.debug("[CHROMA] Button un-parented from League window")
+                    
                     # Use hide() + deleteLater() instead of close() to avoid blocking
                     self.reopen_button.hide()
                     self.reopen_button.deleteLater()
@@ -139,7 +155,7 @@ class ChromaPanelManager:
             self.is_initialized = False
             self.last_skin_name = None
             self.last_chromas = None
-            log.info("[CHROMA] Panel widgets destroyed")
+            log.info("[CHROMA] Panel widgets destroyed (un-parented from League)")
     
     def _on_chroma_selected_wrapper(self, chroma_id: int, chroma_name: str):
         """Wrapper for chroma selection - button stays visible (no need to show again)"""

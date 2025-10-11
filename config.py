@@ -298,42 +298,37 @@ CHROMA_PANEL_DARK_BORDER_PX = 3
 CHROMA_PANEL_GRADIENT_RING_PX = 4
 CHROMA_PANEL_INNER_DISK_RADIUS_PX = 2.5
 
-# Chroma UI positioning - RATIOS (resolution adaptive)
-# Anchor point: global reference point for positioning (offsets from League window center)
-# Positive x = right, Negative x = left
-# Positive y = down, Negative y = up
-# IMPORTANT: Each widget centers its OWN center on (anchor + offset)
-# Since both offset_x = 0, both widgets center on the same X coordinate = perfect alignment
-CHROMA_UI_ANCHOR_OFFSET_X_RATIO = 0.0011          # Horizontal offset ratio (UI center)
-CHROMA_UI_ANCHOR_OFFSET_Y_RATIO = 0.304           # 50px at 900p (vertical offset from League center)
+# =============================================================================
+# CHROMA UI POSITIONING - FINALIZED POSITIONS
+# =============================================================================
+#
+# 🎯 Reference Point: Opening Button Center (locked position)
+#
+# Positioning uses percentage ratios for resolution-independent placement:
+#   - X ratios relative to window WIDTH  (0.0 = center, -0.5 = far left, 0.5 = far right)
+#   - Y ratios relative to window HEIGHT (0.0 = center, -0.5 = top, 0.5 = bottom)
+#
+# Current Setup:
+#   - Button: Horizontally centered, positioned ~30% down from League window center
+#   - Panel: Horizontally aligned with button, positioned ~22% above button
+#
+# ⚠️ WARNING: These values are LOCKED. Changing them requires app restart.
+#             Widgets are parented to League window as child windows.
+#             Position updates only occur during resolution changes (auto-rebuild).
+#
+# =============================================================================
 
-# Button positioning (relative to anchor point) - RATIOS
-# TEST MODE: Modify these values and they will update in real-time (both button AND panel)!
-# Examples:
-#   0.0, 0.0     = Center of League window
-#   0.0, 0.4     = Center horizontally, near bottom
-#   0.3, 0.4     = Right side, near bottom
-#   -0.3, 0.4    = Left side, near bottom
-CHROMA_UI_BUTTON_OFFSET_X_RATIO = 0.0            # Button horizontal offset (0 = centered at anchor)
-CHROMA_UI_BUTTON_OFFSET_Y_RATIO = 0.0            # Button vertical offset (0 = at anchor Y position)
+# Button position (center of League window, 30% down)
+CHROMA_UI_ANCHOR_OFFSET_X_RATIO = 0.0           # Horizontally centered
+CHROMA_UI_ANCHOR_OFFSET_Y_RATIO = 0.3035        # ~273px down from center at 900p (near bottom)
 
+# Button offset from anchor (keep at 0,0 - button IS the anchor point)
+CHROMA_UI_BUTTON_OFFSET_X_RATIO = 0.0           # No horizontal offset
+CHROMA_UI_BUTTON_OFFSET_Y_RATIO = 0.0           # No vertical offset
 
-# Panel positioning (relative to anchor point) - RATIOS
-# Panel follows button automatically - these offsets are relative to the same anchor
-CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0             # Panel horizontal offset (0 = centered at anchor = aligned with button)
-CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.205556  # -185px at 900p (panel notch tip 5px above button top)
-
-# Widget positioning margin - RATIO
-CHROMA_UI_SCREEN_MARGIN_RATIO = 0.011111        # 10px at 900p
-
-# Legacy constants for backward compatibility (at reference resolution 900p)
-CHROMA_UI_ANCHOR_OFFSET_X = 0
-CHROMA_UI_ANCHOR_OFFSET_Y = 50
-CHROMA_UI_BUTTON_OFFSET_X = 0
-CHROMA_UI_BUTTON_OFFSET_Y = 0
-CHROMA_UI_PANEL_OFFSET_X = 0
-CHROMA_UI_PANEL_OFFSET_Y_BASE = -185
-CHROMA_UI_SCREEN_MARGIN = 10
+# Panel offset from anchor (positions panel relative to button)
+CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with button center
+CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
 
 
 # =============================================================================

@@ -11,11 +11,11 @@ from typing import Optional, Callable, List, Dict
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPixmap
-from utils.chroma_base import ChromaWidgetBase, ChromaUIConfig
+from utils.chroma_base import ChromaWidgetBase
 from utils.chroma_scaling import get_scaled_chroma_values
 from utils.logging import get_logger, log_event
 from utils.paths import get_skins_dir
-from config import UI_QTIMER_CALLBACK_DELAY_MS
+import config
 
 log = get_logger()
 
@@ -112,12 +112,29 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Create window mask to define the visible shape (including notch)
         self._update_window_mask()
         
-        # Position using the synchronized positioning system (with scaled offsets)
+        # Position using the synchronized positioning system
+        # Panel offset from anchor point (button is also centered on anchor)
+        # Calculate offset based on config ratio
+        import config
+        from utils.window_utils import get_league_window_client_size
+        
+        current_res = get_league_window_client_size()
+        if not current_res:
+            log.error("[CHROMA] Cannot create panel - League window not found")
+            return  # Cannot setup UI without League window
+        
+        window_width, window_height = current_res
+        
+        # Calculate panel offset using config ratio
+        # X offset uses WIDTH, Y offset uses HEIGHT for proper scaling
+        panel_offset_x = int(window_width * config.CHROMA_UI_PANEL_OFFSET_X_RATIO)
+        panel_offset_y = int(window_height * config.CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO)
+        
         self.position_relative_to_anchor(
             width=self.window_width,
             height=self.window_height + self.notch_height,
-            offset_x=self.scaled.panel_offset_x,
-            offset_y=self.scaled.panel_offset_y
+            offset_x=panel_offset_x,  # Now uses config!
+            offset_y=panel_offset_y   # Now uses config even in test mode!
         )
         
         # Set initial opacity
@@ -698,7 +715,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
                     if callback:
                         def call_cb():
                             callback(selected_id, selected_name)
-                        QTimer.singleShot(UI_QTIMER_CALLBACK_DELAY_MS, call_cb)
+                        QTimer.singleShot(config.UI_QTIMER_CALLBACK_DELAY_MS, call_cb)
                     return
         
         event.accept()
