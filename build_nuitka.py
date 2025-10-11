@@ -72,8 +72,10 @@ def build_with_nuitka():
         "--enable-plugin=anti-bloat",  # Reduce size
         # f"--windows-icon-from-ico=icon.ico",  # Application icon (disabled - antivirus blocks it)
         "--include-data-dir=injection/tools=injection/tools",  # Include CSLOL tools
+        "--include-data-dir=icons=icons",  # Include tray icons
         "--include-data-file=injection/mods_map.json=injection/mods_map.json",
         "--include-data-file=icon.ico=icon.ico",
+        "--include-data-file=icon.png=icon.png",
         "--include-package=database",  # Include packages
         "--include-package=injection",
         "--include-package=lcu",
@@ -205,21 +207,19 @@ if errorlevel 1 (
     except Exception as e:
         print(f"[WARNING] Could not create launcher: {e}")
     
-    # Clean up build artifacts
-    if build_dir.exists():
-        try:
-            shutil.rmtree(build_dir)
-            print("[OK] Cleaned build artifacts (main.build)")
-        except Exception as e:
-            print(f"[WARNING] Could not clean build artifacts: {e}")
-    
-    # Clean up main.dist (already copied to dist/LeagueUnlocked)
+    # Keep main.build for faster incremental builds (contains ccache artifacts)
+    # Only clean main.dist (already copied to dist/LeagueUnlocked)
     if dist_folder.exists():
         try:
             shutil.rmtree(dist_folder)
             print("[OK] Cleaned main.dist folder (already copied)")
         except Exception as e:
             print(f"[WARNING] Could not clean main.dist folder: {e}")
+    
+    # Note: main.build directory is preserved for faster incremental compilation
+    if build_dir.exists():
+        print("[INFO] Kept main.build/ for faster incremental builds (ccache artifacts)")
+        print("       To force a clean build, manually delete main.build/")
     
     return True
 

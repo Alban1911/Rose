@@ -30,7 +30,16 @@ class SkinInjector:
     
     def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
         # Use injection folder as base if paths not provided
-        injection_dir = Path(__file__).parent
+        # Handle both frozen (Nuitka) and development environments
+        import sys
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable (Nuitka)
+            # Tools are included alongside the executable
+            injection_dir = Path(sys.executable).parent / "injection"
+        else:
+            # Running as Python script
+            injection_dir = Path(__file__).parent
+        
         self.tools_dir = tools_dir or injection_dir / "tools"
         # Use user data directory for mods and skins to avoid permission issues
         self.mods_dir = mods_dir or get_injection_dir() / "mods"

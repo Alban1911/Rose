@@ -71,8 +71,18 @@ class TrayManager:
             icon_name: Name of the icon file (e.g., "locked_tray.png", "golden_unlocked_tray.png")
         """
         try:
+            # Handle both frozen (Nuitka) and development environments
+            import sys
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable (Nuitka)
+                # Icons are included alongside the executable
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                # Running as Python script
+                base_dir = os.path.dirname(os.path.dirname(__file__))
+            
             # Try to load the specified icon from icons folder
-            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", icon_name)
+            icon_path = os.path.join(base_dir, "icons", icon_name)
             if os.path.exists(icon_path):
                 with Image.open(icon_path) as img:
                     # Convert to RGBA and resize to 128x128 (doubled from 64x64)
@@ -97,7 +107,16 @@ class TrayManager:
         # Fallback to icon.png if none exist
         if not self._locked_icon_image and not self._golden_locked_icon_image and not self._unlocked_icon_image:
             try:
-                icon_path_png = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icon.png")
+                # Handle both frozen (Nuitka) and development environments
+                import sys
+                if getattr(sys, 'frozen', False):
+                    # Running as compiled executable (Nuitka)
+                    base_dir = os.path.dirname(sys.executable)
+                else:
+                    # Running as Python script
+                    base_dir = os.path.dirname(os.path.dirname(__file__))
+                
+                icon_path_png = os.path.join(base_dir, "icon.png")
                 if os.path.exists(icon_path_png):
                     with Image.open(icon_path_png) as img:
                         img = img.convert('RGBA')

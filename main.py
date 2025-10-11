@@ -643,22 +643,121 @@ def main():
     # Check initial status (will show locked until all components are ready)
     app_status.update_status()
     
-    # Initialize core components
-    lcu = LCU(args.lockfile)
-    skin_scraper = LCUSkinScraper(lcu)
-    state = SharedState()
+    # Initialize core components with error handling
+    try:
+        log.info("Initializing LCU client...")
+        lcu = LCU(args.lockfile)
+        log.info("✓ LCU client initialized")
+        
+        log.info("Initializing skin scraper...")
+        skin_scraper = LCUSkinScraper(lcu)
+        log.info("✓ Skin scraper initialized")
+        
+        log.info("Initializing shared state...")
+        state = SharedState()
+        log.info("✓ Shared state initialized")
+    except Exception as e:
+        log.error("=" * 80)
+        log.error("FATAL ERROR DURING INITIALIZATION")
+        log.error("=" * 80)
+        log.error(f"Failed to initialize core components: {e}")
+        log.error(f"Error type: {type(e).__name__}")
+        import traceback
+        log.error(f"Traceback:\n{traceback.format_exc()}")
+        log.error("=" * 80)
+        
+        # Show error message to user
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"LeagueUnlocked failed to initialize:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
+                    "LeagueUnlocked - Initialization Error",
+                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                )
+            except Exception:
+                pass
+        sys.exit(1)
     
     # Initialize PyQt6 and chroma selector
-    qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, app_status)
+    try:
+        log.info("Initializing PyQt6 and chroma selector...")
+        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, app_status)
+        log.info("✓ PyQt6 and chroma selector initialized")
+    except Exception as e:
+        log.error("=" * 80)
+        log.error("ERROR DURING PYQT6/CHROMA INITIALIZATION")
+        log.error("=" * 80)
+        log.error(f"Failed to initialize PyQt6/chroma selector: {e}")
+        log.error(f"Error type: {type(e).__name__}")
+        import traceback
+        log.error(f"Traceback:\n{traceback.format_exc()}")
+        log.error("=" * 80)
+        log.warning("Continuing without chroma selector...")
+        qt_app = None
+        chroma_selector = None
     
     # OCR will be initialized when WebSocket connects (for proper language detection)
     ocr = None
     
-    # Initialize database
-    db = NameDB(lang=args.dd_lang)
+    # Initialize database with error handling
+    try:
+        log.info("Initializing champion name database...")
+        db = NameDB(lang=args.dd_lang)
+        log.info("✓ Champion name database initialized")
+    except Exception as e:
+        log.error("=" * 80)
+        log.error("FATAL ERROR DURING DATABASE INITIALIZATION")
+        log.error("=" * 80)
+        log.error(f"Failed to initialize database: {e}")
+        log.error(f"Error type: {type(e).__name__}")
+        import traceback
+        log.error(f"Traceback:\n{traceback.format_exc()}")
+        log.error("=" * 80)
+        
+        # Show error message to user
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"LeagueUnlocked failed to initialize database:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
+                    "LeagueUnlocked - Database Error",
+                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                )
+            except Exception:
+                pass
+        sys.exit(1)
     
     # Initialize injection manager with database (lazy initialization)
-    injection_manager = InjectionManager(name_db=db)
+    try:
+        log.info("Initializing injection manager...")
+        injection_manager = InjectionManager(name_db=db)
+        log.info("✓ Injection manager initialized")
+    except Exception as e:
+        log.error("=" * 80)
+        log.error("FATAL ERROR DURING INJECTION MANAGER INITIALIZATION")
+        log.error("=" * 80)
+        log.error(f"Failed to initialize injection manager: {e}")
+        log.error(f"Error type: {type(e).__name__}")
+        import traceback
+        log.error(f"Traceback:\n{traceback.format_exc()}")
+        log.error("=" * 80)
+        
+        # Show error message to user
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"LeagueUnlocked failed to initialize injection system:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
+                    "LeagueUnlocked - Injection Error",
+                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                )
+            except Exception:
+                pass
+        sys.exit(1)
     
     # Download skins if enabled (run in background to avoid blocking startup)
     if args.download_skins:
@@ -1020,4 +1119,48 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # Top-level exception handler to catch any unhandled crashes
+        import traceback
+        import sys
+        
+        error_msg = f"""
+================================================================================
+FATAL ERROR - LeagueUnlocked Crashed
+================================================================================
+Error: {e}
+Type: {type(e).__name__}
+
+Traceback:
+{traceback.format_exc()}
+================================================================================
+
+This error has been logged. Please report this issue with the log file.
+Log location: Check %LOCALAPPDATA%\\LeagueUnlocked\\logs\\
+================================================================================
+"""
+        
+        # Try to log the error
+        try:
+            log = get_logger()
+            log.error(error_msg)
+        except:
+            # If logging fails, print to stderr
+            print(error_msg, file=sys.stderr)
+        
+        # Show error dialog on Windows
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"LeagueUnlocked crashed with an unhandled error:\n\n{str(e)}\n\nError type: {type(e).__name__}\n\nPlease check the log file in:\n%LOCALAPPDATA%\\LeagueUnlocked\\logs\\",
+                    "LeagueUnlocked - Fatal Error",
+                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                )
+            except Exception:
+                pass
+        
+        sys.exit(1)
