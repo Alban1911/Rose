@@ -263,65 +263,71 @@ class LoadoutTicker(threading.Thread):
                                     log.debug(f"[inject] No chroma selected, using base skin")
                                 
                                 # Force base skin selection via LCU before injecting
+                                # This ensures LCU has the correct state for injection to work properly
                                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                                if champ_id and lcu_skin_id is not None and lcu_skin_id != (champ_id * 1000):
+                                if champ_id:
                                     base_skin_id = champ_id * 1000
-                                    log.info(f"[inject] Forcing base skin (skinId={base_skin_id}, was {lcu_skin_id})")
                                     
-                                    base_skin_set_successfully = False
-                                    
-                                    # Find the user's action ID to update
-                                    try:
-                                        sess = self.lcu.session() or {}
-                                        actions = sess.get("actions") or []
-                                        my_cell = self.state.local_cell_id
+                                    # Only force base skin if current selection is not already base skin
+                                    if lcu_skin_id is None or lcu_skin_id != base_skin_id:
+                                        log.info(f"[inject] Forcing base skin (skinId={base_skin_id}, was {lcu_skin_id})")
                                         
-                                        action_found = False
-                                        is_action_completed = False
+                                        base_skin_set_successfully = False
                                         
-                                        for rnd in actions:
-                                            for act in rnd:
-                                                if act.get("actorCellId") == my_cell and act.get("type") == "pick":
-                                                    action_id = act.get("id")
-                                                    is_action_completed = act.get("completed", False)
-                                                    action_found = True
-                                                    
-                                                    # Try action-based approach first if not completed
-                                                    if not is_action_completed:
-                                                        if action_id is not None:
-                                                            if self.lcu.set_selected_skin(action_id, base_skin_id):
-                                                                log.info(f"[inject] ✓ Base skin forced via action")
-                                                                base_skin_set_successfully = True
-                                                            else:
-                                                                log.debug(f"[inject] Action-based approach failed")
-                                                    break
-                                            if action_found:
-                                                break
-                                        
-                                        # If action-based approach failed, try my-selection endpoint
-                                        if not base_skin_set_successfully:
-                                            if self.lcu.set_my_selection_skin(base_skin_id):
-                                                log.info(f"[inject] ✓ Base skin forced via my-selection")
-                                                base_skin_set_successfully = True
-                                            else:
-                                                log.warning(f"[inject] ✗ Failed to force base skin")
-                                        
-                                        # Verify the change was applied
-                                        if base_skin_set_successfully:
-                                            time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
-                                            verify_sess = self.lcu.session() or {}
-                                            verify_team = verify_sess.get("myTeam") or []
-                                            for player in verify_team:
-                                                if player.get("cellId") == my_cell:
-                                                    current_skin = player.get("selectedSkinId")
-                                                    if current_skin != base_skin_id:
-                                                        log.warning(f"[inject] Base skin verification failed: {current_skin} != {base_skin_id}")
-                                                    break
-                                        else:
-                                            log.warning(f"[inject] Failed to force base skin - injection may fail")
+                                        # Find the user's action ID to update
+                                        try:
+                                            sess = self.lcu.session or {}  # session is a property, not a method!
+                                            actions = sess.get("actions") or []
+                                            my_cell = self.state.local_cell_id
                                             
-                                    except Exception as e:
-                                        log.error(f"[inject] ✗ Error forcing base skin: {e}")
+                                            action_found = False
+                                            is_action_completed = False
+                                            
+                                            for rnd in actions:
+                                                for act in rnd:
+                                                    if act.get("actorCellId") == my_cell and act.get("type") == "pick":
+                                                        action_id = act.get("id")
+                                                        is_action_completed = act.get("completed", False)
+                                                        action_found = True
+                                                        
+                                                        # Try action-based approach first if not completed
+                                                        if not is_action_completed:
+                                                            if action_id is not None:
+                                                                if self.lcu.set_selected_skin(action_id, base_skin_id):
+                                                                    log.info(f"[inject] ✓ Base skin forced via action")
+                                                                    base_skin_set_successfully = True
+                                                                else:
+                                                                    log.debug(f"[inject] Action-based approach failed")
+                                                        break
+                                                if action_found:
+                                                    break
+                                            
+                                            # If action-based approach failed, try my-selection endpoint
+                                            if not base_skin_set_successfully:
+                                                if self.lcu.set_my_selection_skin(base_skin_id):
+                                                    log.info(f"[inject] ✓ Base skin forced via my-selection")
+                                                    base_skin_set_successfully = True
+                                                else:
+                                                    log.warning(f"[inject] ✗ Failed to force base skin")
+                                            
+                                            # Verify the change was applied
+                                            if base_skin_set_successfully:
+                                                time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
+                                                verify_sess = self.lcu.session or {}  # session is a property, not a method!
+                                                verify_team = verify_sess.get("myTeam") or []
+                                                for player in verify_team:
+                                                    if player.get("cellId") == my_cell:
+                                                        current_skin = player.get("selectedSkinId")
+                                                        if current_skin != base_skin_id:
+                                                            log.warning(f"[inject] Base skin verification failed: {current_skin} != {base_skin_id}")
+                                                        else:
+                                                            log.info(f"[inject] ✓ Base skin verified: {current_skin}")
+                                                        break
+                                            else:
+                                                log.warning(f"[inject] Failed to force base skin - injection may fail")
+                                                
+                                        except Exception as e:
+                                            log.error(f"[inject] ✗ Error forcing base skin: {e}")
                                 
                                 # Track if we've been in InProgress phase
                                 has_been_in_progress = False
