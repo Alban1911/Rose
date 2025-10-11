@@ -66,7 +66,11 @@ class OpeningButton(ChromaWidgetBase):
         # Use less margin at small resolutions (give golden border more space)
         # Reference button size at 900p is 33px, smallest at ~576p is ~21px
         margin = 2 if actual_size <= 25 else 3  # Smaller margin for small resolutions
-        outer_radius = (actual_size // 2) - margin
+        
+        # Transparent ring parameters
+        transparent_ring_width = 3  # 3px transparent ring
+        outer_radius = (actual_size // 2) - margin  # Outer edge of golden border
+        transparent_outer_radius = outer_radius + transparent_ring_width  # Outer edge of transparent ring
         
         # Calculate border widths as direct ratios of button radius
         # This ensures proper scaling at all resolutions
@@ -96,7 +100,29 @@ class OpeningButton(ChromaWidgetBase):
         # Determine if button should be darkened (hovered but wheel not open)
         should_darken = self.is_hovered and not self.panel_is_open
         
-        # 1. Outer metallic gold border - matches wheel border color (7% of button size)
+        # 0. Transparent ring around golden border (3px wide)
+        # Draw a transparent ring as visual spacing
+        from PyQt6.QtGui import QPainterPath
+        transparent_ring_path = QPainterPath()
+        transparent_ring_path.addEllipse(
+            center - transparent_outer_radius, 
+            center - transparent_outer_radius,
+            transparent_outer_radius * 2, 
+            transparent_outer_radius * 2
+        )
+        transparent_ring_path.addEllipse(
+            center - outer_radius, 
+            center - outer_radius,
+            outer_radius * 2, 
+            outer_radius * 2
+        )
+        transparent_ring_path.setFillRule(Qt.FillRule.OddEvenFill)
+        
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 0)))  # Fully transparent
+        painter.drawPath(transparent_ring_path)
+        
+        # 1. Outer metallic gold border - matches wheel border color
         # Darker when wheel is open
         gold_gradient = QRadialGradient(center, center, outer_gold_radius)
         if self.panel_is_open:

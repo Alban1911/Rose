@@ -265,43 +265,43 @@ class ChromaPanelManager:
                     log.info("[CHROMA] 🔄 STARTING WIDGET REBUILD (RESOLUTION CHANGE)")
                     log.info("="*80)
                     
-                    try:
-                        # Save current state
-                        was_panel_visible = self.widget and self.widget.isVisible()
-                        was_button_visible = self.reopen_button and self.reopen_button.isVisible()
-                        
-                        log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}, button_visible={was_button_visible}")
-                        
-                        # Destroy old widgets
-                        log.info("[CHROMA] Destroying old widgets...")
-                        self._destroy_widgets()
-                        
-                        # Small delay to allow cleanup
-                        from PyQt6.QtWidgets import QApplication
-                        QApplication.processEvents()
-                        
-                        # Recreate widgets with fresh resolution values
-                        log.info("[CHROMA] Creating new widgets with updated resolution...")
-                        self._create_widgets()
-                        
-                        # Restore visibility state
-                        if was_button_visible and self.current_skin_name and self.current_chromas:
-                            log.info("[CHROMA] Restoring button visibility after rebuild")
-                            self.pending_show_button = True
-                        
-                        if was_panel_visible and self.current_skin_name and self.current_chromas:
-                            log.info("[CHROMA] Restoring panel visibility after rebuild")
-                            self.pending_show = (self.current_skin_name, self.current_chromas)
-                        
-                        log.info("="*80)
-                        log.info("[CHROMA] ✅ WIDGET REBUILD COMPLETED SUCCESSFULLY")
-                        log.info("="*80)
-                    except Exception as e:
-                        log.error(f"[CHROMA] ❌ Error rebuilding widgets: {e}")
-                        import traceback
-                        log.error(traceback.format_exc())
-                    finally:
-                        self._rebuilding = False
+                try:
+                    # Save current state
+                    was_panel_visible = self.widget and self.widget.isVisible()
+                    was_button_visible = self.reopen_button and self.reopen_button.isVisible()
+                    
+                    log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}, button_visible={was_button_visible}")
+                    
+                    # Destroy old widgets
+                    log.info("[CHROMA] Destroying old widgets...")
+                    self._destroy_widgets()
+                    
+                    # Small delay to allow cleanup
+                    from PyQt6.QtWidgets import QApplication
+                    QApplication.processEvents()
+                    
+                    # Recreate widgets with fresh resolution values
+                    log.info("[CHROMA] Creating new widgets with updated resolution...")
+                    self._create_widgets()
+                    
+                    # Restore visibility state FIRST
+                    if was_button_visible and self.current_skin_name and self.current_chromas:
+                        log.info("[CHROMA] Restoring button visibility after rebuild")
+                        self.pending_show_button = True
+                    
+                    if was_panel_visible and self.current_skin_name and self.current_chromas:
+                        log.info("[CHROMA] Restoring panel visibility after rebuild")
+                        self.pending_show = (self.current_skin_name, self.current_chromas)
+                    
+                    log.info("="*80)
+                    log.info("[CHROMA] ✅ WIDGET REBUILD COMPLETED SUCCESSFULLY")
+                    log.info("="*80)
+                except Exception as e:
+                    log.error(f"[CHROMA] ❌ Error rebuilding widgets: {e}")
+                    import traceback
+                    log.error(traceback.format_exc())
+                finally:
+                    self._rebuilding = False
                     # Continue processing other requests in the same frame
                     # (removed early return)
             
@@ -329,6 +329,11 @@ class ChromaPanelManager:
                     self.widget.show_wheel(button_pos=button_pos)
                     self.widget.setVisible(True)
                     self.widget.raise_()
+                    
+                    # CRITICAL: Re-apply position AFTER show() to prevent Qt from resetting it
+                    if hasattr(self.widget, '_update_position'):
+                        self.widget._update_position()
+                    
                     log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
                     
                     # Pause OCR while panel is open (panel covers the text area)
@@ -368,7 +373,13 @@ class ChromaPanelManager:
                 if self.reopen_button:
                     self.reopen_button.show()
                     self.reopen_button.raise_()
-                    log.debug("[CHROMA] Reopen button shown")
+                    
+                    # CRITICAL: Re-apply position AFTER show() to prevent Qt from resetting it
+                    if hasattr(self.reopen_button, '_update_position'):
+                        self.reopen_button._update_position()
+                        log.debug("[CHROMA] Button shown and position re-applied")
+                    else:
+                        log.debug("[CHROMA] Reopen button shown")
             
             # Process reopen button hide request
             if self.pending_hide_button:
