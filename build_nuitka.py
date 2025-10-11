@@ -112,7 +112,9 @@ def build_with_nuitka():
         "--nofollow-import-to=torchvision.models",  # Don't include large pre-trained models
         "--nofollow-import-to=torchvision.transforms",  # Don't include transforms (using cv2)
         "--show-progress",  # Show compilation progress
-        "--low-memory",  # Reduce memory usage during compilation
+        "--jobs=12",  # Use 12 parallel jobs for faster compilation
+        "--lto=no",  # Disable Link Time Optimization (much faster, minimal impact)
+        "--mingw64",  # Use MinGW64 compiler (faster than MSVC on Windows)
         "main.py"
     ]
     
