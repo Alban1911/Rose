@@ -10,97 +10,8 @@ from utils.window_utils import get_league_window_handle, get_league_window_rect_
 import ctypes
 
 
-class ChromaUIConfig:
-    """
-    Centralized configuration for chroma UI positioning
-    Now uses dynamic scaling based on League window resolution
-    """
-    
-    @classmethod
-    def _get_scaled_values(cls):
-        """Get scaled values for current resolution"""
-        from utils.chroma_scaling import get_scaled_chroma_values
-        return get_scaled_chroma_values()
-    
-    @classmethod
-    @property
-    def ANCHOR_OFFSET_X(cls):
-        return cls._get_scaled_values().anchor_offset_x
-    
-    @classmethod
-    @property
-    def ANCHOR_OFFSET_Y(cls):
-        return cls._get_scaled_values().anchor_offset_y
-    
-    @classmethod
-    @property
-    def BUTTON_OFFSET_X(cls):
-        return cls._get_scaled_values().button_offset_x
-    
-    @classmethod
-    @property
-    def BUTTON_OFFSET_Y(cls):
-        return cls._get_scaled_values().button_offset_y
-    
-    @classmethod
-    @property
-    def PANEL_OFFSET_X(cls):
-        return cls._get_scaled_values().panel_offset_x
-    
-    @classmethod
-    @property
-    def PANEL_OFFSET_Y(cls):
-        return cls._get_scaled_values().panel_offset_y
-    
-    @classmethod
-    def get_anchor_point(cls, screen_geometry=None):
-        """
-        Get the anchor point - relative to League window center
-        FAST version using cached window handle
-        
-        Args:
-            screen_geometry: Screen geometry (for fallback if League window not found)
-            
-        Returns:
-            Tuple of (x, y) coordinates for the anchor point
-        """
-        # Try fast path: get cached window handle and position
-        try:
-            hwnd = get_league_window_handle()
-            if hwnd:
-                window_rect = get_league_window_rect_fast(hwnd)
-                if window_rect:
-                    # League window found - calculate center quickly
-                    left, top, right, bottom = window_rect
-                    window_width = right - left
-                    window_height = bottom - top
-                    
-                    # Calculate center of the League window CLIENT AREA
-                    window_center_x = left + (window_width // 2)
-                    window_center_y = top + (window_height // 2)
-                    
-                    # Apply offsets from scaled config
-                    scaled = cls._get_scaled_values()
-                    anchor_x = window_center_x + scaled.anchor_offset_x
-                    anchor_y = window_center_y + scaled.anchor_offset_y
-                    
-                    return (anchor_x, anchor_y)
-        except Exception:
-            pass
-        
-        # Fallback: Use screen center if League window not found
-        if screen_geometry:
-            center_x = screen_geometry.width() // 2
-            center_y = screen_geometry.height() // 2
-        else:
-            # Get screen geometry if not provided
-            from PyQt6.QtWidgets import QApplication
-            screen = QApplication.primaryScreen().geometry()
-            center_x = screen.width() // 2
-            center_y = screen.height() // 2
-        
-        scaled = cls._get_scaled_values()
-        return (center_x + scaled.anchor_offset_x, center_y + scaled.anchor_offset_y)
+# ChromaUIConfig class removed - no longer needed
+# All positioning is now done directly in ChromaWidgetBase using config ratios
 
 
 class ChromaWidgetBase(QWidget):
@@ -149,10 +60,10 @@ class ChromaWidgetBase(QWidget):
         self._position_offset_x = offset_x
         self._position_offset_y = offset_y
         
-        # Parent FIRST to the League window (changes coordinate system to client coords)
+        # Parent to League window (child window - Windows handles positioning automatically)
         self._parent_to_league_window()
         
-        # THEN calculate and apply position (now in correct coordinate system)
+        # Calculate and apply position in client coordinates
         self._update_position()
     
     def _update_position(self):
@@ -169,99 +80,73 @@ class ChromaWidgetBase(QWidget):
                 client_rect = wintypes.RECT()
                 ctypes.windll.user32.GetClientRect(self._league_window_hwnd, ctypes.byref(client_rect))
                 
-                window_width = client_rect.right
-                window_height = client_rect.bottom
+                window_width = client_rect.right - client_rect.left
+                window_height = client_rect.bottom - client_rect.top
             except Exception:
                 return  # Failed to get client rect
             
-            # Get scaled values based on ACTUAL League window resolution
-            from utils.chroma_scaling import get_scaled_chroma_values
-            scaled = get_scaled_chroma_values(resolution=(window_width, window_height), force_reload=False)
-            
-            # Calculate center of League client area (in client coordinates)
+            # Calculate center of League client area (in client coordinates - always starts at 0,0)
             center_x = window_width // 2
             center_y = window_height // 2
             
-            # Apply offsets from scaled config (these are already scaled based on current resolution)
-            anchor_x = center_x + scaled.anchor_offset_x
-            anchor_y = center_y + scaled.anchor_offset_y
+            # Use FIXED PERCENTAGE offsets for consistent positioning
+            # These offsets are RELATIVE TO LEAGUE WINDOW, not screen
+            import config
             
-            # Calculate ideal widget position (centered on anchor + offset)
-            ideal_widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
-            ideal_widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
+            # Read config values (will be fresh after hot-reload)
+            offset_x_ratio = config.CHROMA_UI_ANCHOR_OFFSET_X_RATIO
+            offset_y_ratio = config.CHROMA_UI_ANCHOR_OFFSET_Y_RATIO
             
-            # Apply smart clamping to keep widget reasonably within bounds
-            margin = max(2, int(scaled.screen_margin))  # Minimum 2px margin
+            anchor_x = center_x + int(window_width * offset_x_ratio)
+            anchor_y = center_y + int(window_height * offset_y_ratio)
             
-            # Calculate safe bounds with strict enforcement for very small windows
-            # At resolutions < 600px height, use aggressive clamping to prevent any overflow
-            if window_height < 600:
-                # Very small window: strictly enforce bounds with minimal margin
-                safe_margin = 5  # Minimal margin for very small windows
-                widget_x = max(safe_margin, min(ideal_widget_x, window_width - self._widget_width - safe_margin))
-                widget_y = max(safe_margin, min(ideal_widget_y, window_height - self._widget_height - safe_margin))
-                
-                # Double-check: if widget still doesn't fit, force it to top-left with margin
-                if widget_x + self._widget_width > window_width - safe_margin:
-                    widget_x = safe_margin
-                if widget_y + self._widget_height > window_height - safe_margin:
-                    widget_y = safe_margin
-            elif window_width >= self._widget_width + (2 * margin) and window_height >= self._widget_height + (2 * margin):
-                # Normal case: widget fits with margins
-                widget_x = max(margin, min(ideal_widget_x, window_width - self._widget_width - margin))
-                widget_y = max(margin, min(ideal_widget_y, window_height - self._widget_height - margin))
-            else:
-                # Small window case but not critical: center with bounds check
-                widget_x = max(margin, min(ideal_widget_x, window_width - self._widget_width - margin))
-                widget_y = max(margin, min(ideal_widget_y, window_height - self._widget_height - margin))
+            # Calculate widget position in CLIENT COORDINATES (relative to League window's top-left at 0,0)
+            # The center of the widget will be at (anchor_x + offset_x, anchor_y + offset_y)
+            widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
+            widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
             
-            # Use Windows API to position child window (Qt's move() doesn't work well with WS_CHILD)
-            SWP_NOZORDER = 0x0004
+            # Debug logging for position calculation
+            from utils.logging import get_logger
+            log = get_logger()
+            log.debug(f"[CHROMA] {self.__class__.__name__} positioned at client coords ({widget_x}, {widget_y})")
+            
+            # Use Windows API to position child window in client coordinates
+            # These coordinates are RELATIVE TO PARENT WINDOW, not screen!
             SWP_NOACTIVATE = 0x0010
             SWP_NOSIZE = 0x0001
-            ctypes.windll.user32.SetWindowPos(
+            result = ctypes.windll.user32.SetWindowPos(
                 widget_hwnd,
-                0,  # hWndInsertAfter (ignored with NOZORDER)
+                0,  # hWndInsertAfter
                 int(widget_x), int(widget_y),
                 0, 0,  # width, height (ignored with NOSIZE)
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE
+                SWP_NOACTIVATE | SWP_NOSIZE  # Removed SWP_NOZORDER to allow positioning
             )
+            
+            if not result:
+                from utils.logging import get_logger
+                log = get_logger()
+                log.error(f"[CHROMA] SetWindowPos FAILED for {self.__class__.__name__} (error: {ctypes.get_last_error()})")
+            
+            # Verify position was actually set
+            from ctypes import wintypes
+            rect = wintypes.RECT()
+            ctypes.windll.user32.GetWindowRect(widget_hwnd, ctypes.byref(rect))
+            
+            # Convert to client coordinates relative to parent
+            point = wintypes.POINT()
+            point.x = rect.left
+            point.y = rect.top
+            ctypes.windll.user32.ScreenToClient(self._league_window_hwnd, ctypes.byref(point))
+            
+            from utils.logging import get_logger
+            log = get_logger()
+            log.info(f"  - VERIFIED actual position: ({point.x}, {point.y})")
         else:
-            # Fallback to screen coordinates (original behavior)
-            screen = QApplication.primaryScreen().geometry()
-            anchor_x, anchor_y = ChromaUIConfig.get_anchor_point(screen)
-            
-            # Calculate ideal widget position (centered on anchor + offset)
-            ideal_widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
-            ideal_widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
-            
-            # Apply smart clamping to keep widget reasonably within bounds
-            from utils.chroma_scaling import get_scaled_chroma_values
-            margin = max(2, int(get_scaled_chroma_values().screen_margin))
-            
-            # Calculate safe bounds with strict enforcement for very small screens
-            # At resolutions < 600px height, use aggressive clamping to prevent any overflow
-            if screen.height() < 600:
-                # Very small screen: strictly enforce bounds with minimal margin
-                safe_margin = 5
-                widget_x = max(safe_margin, min(ideal_widget_x, screen.width() - self._widget_width - safe_margin))
-                widget_y = max(safe_margin, min(ideal_widget_y, screen.height() - self._widget_height - safe_margin))
-                
-                # Double-check: if widget still doesn't fit, force it to top-left with margin
-                if widget_x + self._widget_width > screen.width() - safe_margin:
-                    widget_x = safe_margin
-                if widget_y + self._widget_height > screen.height() - safe_margin:
-                    widget_y = safe_margin
-            elif screen.width() >= self._widget_width + (2 * margin) and screen.height() >= self._widget_height + (2 * margin):
-                # Normal case: widget fits with margins
-                widget_x = max(margin, min(ideal_widget_x, screen.width() - self._widget_width - margin))
-                widget_y = max(margin, min(ideal_widget_y, screen.height() - self._widget_height - margin))
-            else:
-                # Small screen case but not critical: center with bounds check
-                widget_x = max(margin, min(ideal_widget_x, screen.width() - self._widget_width - margin))
-                widget_y = max(margin, min(ideal_widget_y, screen.height() - self._widget_height - margin))
-            
-            self.move(widget_x, widget_y)
+            # Not parented to League - should not happen in normal operation
+            from utils.logging import get_logger
+            log = get_logger()
+            log.error(f"[CHROMA] {self.__class__.__name__} not parented - cannot position widget!")
+            self.hide()
     
     def update_position_if_needed(self):
         """
@@ -325,10 +210,24 @@ class ChromaWidgetBase(QWidget):
             # Get League window handle
             league_hwnd = get_league_window_handle()
             if not league_hwnd:
+                from utils.logging import get_logger
+                log = get_logger()
+                log.warning(f"[CHROMA] Cannot parent {self.__class__.__name__} - League window not found")
                 return
             
             # Get this widget's window handle
             widget_hwnd = int(self.winId())
+            
+            # IMPORTANT: Clear any existing parent first (handles rebuilds)
+            current_parent = ctypes.windll.user32.GetParent(widget_hwnd)
+            if current_parent and current_parent != league_hwnd:
+                ctypes.windll.user32.SetParent(widget_hwnd, 0)  # Un-parent first
+                QApplication.processEvents()
+            
+            # Move widget to (0, 0) in screen coordinates BEFORE parenting
+            # This prevents Qt from caching a screen position that might interfere
+            self.move(0, 0)
+            QApplication.processEvents()  # Ensure Qt processes the move
             
             # First, change the window style to WS_CHILD to make it a proper child window
             # This prevents Qt from fighting with Windows over positioning
@@ -391,12 +290,19 @@ class ChromaWidgetBase(QWidget):
                 # Update position in client coordinates
                 self._update_position()
                 
-                # Log success (only once per widget)
-                if not hasattr(self, '_parent_log_shown'):
-                    from utils.logging import get_logger
-                    log = get_logger()
-                    log.info(f"[CHROMA] Widget {self.__class__.__name__} parented to League window (child window style)")
-                    self._parent_log_shown = True
+                # Log success (show every time for rebuild debugging)
+                from utils.logging import get_logger
+                log = get_logger()
+                
+                # Get client rect for debugging
+                from ctypes import wintypes
+                client_rect = wintypes.RECT()
+                ctypes.windll.user32.GetClientRect(league_hwnd, ctypes.byref(client_rect))
+                log.info(f"[CHROMA] ✅ {self.__class__.__name__} parented to League window ({client_rect.right}x{client_rect.bottom})")
+            else:
+                from utils.logging import get_logger
+                log = get_logger()
+                log.error(f"[CHROMA] SetParent failed for {self.__class__.__name__} (result=0)")
         except Exception as e:
             # Parenting failed, will use fallback tracking mode
             self._league_window_hwnd = None

@@ -10,9 +10,9 @@ from typing import Callable
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient, QPainterPath
-from utils.chroma_base import ChromaWidgetBase, ChromaUIConfig
+from utils.chroma_base import ChromaWidgetBase
 from utils.chroma_scaling import get_scaled_chroma_values
-from config import CHROMA_PANEL_CONICAL_START_ANGLE
+import config
 
 
 class OpeningButton(ChromaWidgetBase):
@@ -38,11 +38,12 @@ class OpeningButton(ChromaWidgetBase):
         self.setFixedSize(self.button_size, self.button_size)
         
         # Position using the synchronized positioning system
+        # Button is centered at anchor (offset = 0, 0)
         self.position_relative_to_anchor(
             width=self.button_size,
             height=self.button_size,
-            offset_x=self.scaled.button_offset_x,
-            offset_y=self.scaled.button_offset_y
+            offset_x=0,  # No offset - button center is at anchor
+            offset_y=0
         )
         
         # Set cursor to hand pointer for the button
@@ -67,26 +68,19 @@ class OpeningButton(ChromaWidgetBase):
         margin = 2 if actual_size <= 25 else 3  # Smaller margin for small resolutions
         outer_radius = (actual_size // 2) - margin
         
-        # Calculate ratios from official button measurements and scale to current button
-        # Official measurements: 2px gold, 1px trans, 2px dark, 1px trans, 4px gradient, 1px trans, 5px inner
-        # Total official radius = 2+1+2+1+4+1+2.5 = 13.5px (assuming ~15px total radius for official button)
+        # Calculate border widths as direct ratios of button radius
+        # This ensures proper scaling at all resolutions
+        # Reference ratios based on measurements from a 33px button (radius ~13.5px after margin)
+        # Measurements: 2px gold, 1px trans, 2px dark, 1px trans, 4px gradient, 1px trans, 2.5px inner
         
-        # Calculate scale factor based on current button size
-        # Current button: 60px total, 6px margin = 54px usable = 27px radius
-        # Scale factor = current_radius / official_radius = 27 / 15 = 1.8
-        scale_factor = outer_radius / 15.0  # Scale from official button size
-        
-        # Apply ratios scaled to current button size (using pre-calculated scaled values)
-        gold_border_width = int(self.scaled.gold_border_px * scale_factor)
-        # Make golden border more visible at small resolutions
-        if self.button_size <= 25:
-            gold_border_width += 1  # +1 for better visibility at smallest resolution
-        transition1_width = int(1 * scale_factor)
-        dark_border_width = int(self.scaled.dark_border_px * scale_factor) + 1  # +1 for better visibility at small resolutions
-        transition2_width = int(1 * scale_factor)
-        gradient_ring_width = int(self.scaled.gradient_ring_px * scale_factor)
-        transition3_width = int(1 * scale_factor)
-        inner_disk_radius = self.scaled.inner_disk_radius_px * scale_factor
+        # Calculate widths as percentages of outer_radius for consistent scaling
+        gold_border_width = max(1, int(outer_radius * 0.15))      # ~15% of radius (2px at 13.5px radius)
+        transition1_width = max(1, int(outer_radius * 0.074))     # ~7.4% of radius (1px at 13.5px radius)
+        dark_border_width = max(1, int(outer_radius * 0.15))      # ~15% of radius (2px at 13.5px radius)
+        transition2_width = max(1, int(outer_radius * 0.074))     # ~7.4% of radius (1px at 13.5px radius)
+        gradient_ring_width = max(2, int(outer_radius * 0.30))    # ~30% of radius (4px at 13.5px radius)
+        transition3_width = max(1, int(outer_radius * 0.074))     # ~7.4% of radius (1px at 13.5px radius)
+        inner_disk_radius = max(1.5, outer_radius * 0.185)        # ~18.5% of radius (2.5px at 13.5px radius)
         
         # Calculate actual radii from outside in (starting from outer_radius)
         outer_gold_radius = outer_radius
@@ -144,7 +138,7 @@ class OpeningButton(ChromaWidgetBase):
         
         # 3. Rainbow gradient ring (4px width) - yellow starts at top
         # Draw gradient as outer circle, then cut out the inner part with dark color
-        rainbow_gradient = QConicalGradient(center, center, CHROMA_PANEL_CONICAL_START_ANGLE)
+        rainbow_gradient = QConicalGradient(center, center, config.CHROMA_PANEL_CONICAL_START_ANGLE)
         
         if should_darken:
             # Darker rainbow when hovered (50% darker)
@@ -192,10 +186,10 @@ class OpeningButton(ChromaWidgetBase):
         """Handle button release - trigger action on click+release"""
         if event.button() == Qt.MouseButton.LeftButton:
             # Check if mouse is still over the button
-            # Clickable zone is 20% bigger than visual button for easier clicking
+            # Clickable zone is 30% bigger than visual button for easier clicking
             center = self.button_size // 2
             visual_radius = (self.button_size // 2) - 5
-            clickable_radius = int(visual_radius * 1.2)  # 20% bigger clickable area
+            clickable_radius = int(visual_radius * 1.3)  # 30% bigger clickable area
             dx = event.pos().x() - center
             dy = event.pos().y() - center
             dist = math.sqrt(dx * dx + dy * dy)
@@ -210,7 +204,7 @@ class OpeningButton(ChromaWidgetBase):
         """Handle mouse hover"""
         center = self.button_size // 2
         visual_radius = (self.button_size // 2) - 5
-        clickable_radius = int(visual_radius * 1.2)  # 20% bigger clickable area
+        clickable_radius = int(visual_radius * 1.3)  # 30% bigger clickable area
         dx = event.pos().x() - center
         dy = event.pos().y() - center
         dist = math.sqrt(dx * dx + dy * dy)
@@ -222,7 +216,7 @@ class OpeningButton(ChromaWidgetBase):
         if was_hovered != self.is_hovered:
             self.update()
         
-        # Cursor changes to pointer in the extended clickable area (20% bigger)
+        # Cursor changes to pointer in the extended clickable area (30% bigger)
         if dist <= clickable_radius:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         else:

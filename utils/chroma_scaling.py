@@ -124,17 +124,8 @@ class ScaledChromaValues:
         self.gradient_ring_px = config.CHROMA_PANEL_GRADIENT_RING_PX_RATIO * h
         self.inner_disk_radius_px = config.CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO * h
         
-        # UI positioning - all use height for scaling (keeps proportions consistent)
-        self.anchor_offset_x = int(config.CHROMA_UI_ANCHOR_OFFSET_X_RATIO * h)
-        self.anchor_offset_y = int(config.CHROMA_UI_ANCHOR_OFFSET_Y_RATIO * h)
-        self.button_offset_x = int(config.CHROMA_UI_BUTTON_OFFSET_X_RATIO * h)
-        self.button_offset_y = int(config.CHROMA_UI_BUTTON_OFFSET_Y_RATIO * h)
-        self.panel_offset_x = int(config.CHROMA_UI_PANEL_OFFSET_X_RATIO * h)
-        self.panel_offset_y_base = int(config.CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO * h)
-        self.screen_margin = int(config.CHROMA_UI_SCREEN_MARGIN_RATIO * h)
-        
-        # Calculate final panel offset (with button size adjustment)
-        self.panel_offset_y = self.panel_offset_y_base - (self.button_size // 2)
+        # Note: UI positioning offsets removed - now calculated directly from config ratios
+        # in real-time to support hot-reload and prevent caching issues
     
     def __repr__(self):
         return f"ScaledChromaValues({self.width}x{self.height}, scale={self.scale_factor:.2f})"
