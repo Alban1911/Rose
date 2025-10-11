@@ -86,20 +86,20 @@ class TrayManager:
     def _load_icons(self):
         """Load locked, golden locked, and unlocked icons"""
         # Load locked icon
-        self._locked_icon_image = self._load_icon_from_file("locked_tray.png")
+        self._locked_icon_image = self._load_icon_from_file("tray_locked.png")
         
         # Load golden locked icon
-        self._golden_locked_icon_image = self._load_icon_from_file("golden_locked_tray.png")
+        self._golden_locked_icon_image = self._load_icon_from_file("tray_golden_locked.png")
         
         # Load golden unlocked icon
-        self._unlocked_icon_image = self._load_icon_from_file("golden_unlocked_tray.png")
+        self._unlocked_icon_image = self._load_icon_from_file("tray_golden_unlocked.png")
         
-        # Fallback to icon.ico if none exist
+        # Fallback to icon.png if none exist
         if not self._locked_icon_image and not self._golden_locked_icon_image and not self._unlocked_icon_image:
             try:
-                icon_path_ico = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icon.ico")
-                if os.path.exists(icon_path_ico):
-                    with Image.open(icon_path_ico) as img:
+                icon_path_png = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icon.png")
+                if os.path.exists(icon_path_png):
+                    with Image.open(icon_path_png) as img:
                         img = img.convert('RGBA')
                         img = img.resize((128, 128), Image.Resampling.LANCZOS)
                         self._locked_icon_image = img.copy()
