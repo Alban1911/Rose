@@ -627,9 +627,20 @@ class ChromaPanelWidget(ChromaWidgetBase):
         is_base = (circle.chroma_id == 0)
         
         # Dark border around all circles (drawn first as outline)
-        painter.setPen(QPen(QColor(20, 20, 20), 1))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
+        # At lowest resolution (576p), reduce border to make circles more visible
+        from utils.window_utils import get_league_window_client_size
+        current_res = get_league_window_client_size()
+        if current_res and current_res[1] <= 576:
+            # Lowest resolution - thinner border for better visibility
+            border_width = 0  # No dark border at lowest resolution
+        else:
+            # Normal resolutions - standard border
+            border_width = 1
+        
+        if border_width > 0:
+            painter.setPen(QPen(QColor(20, 20, 20), border_width))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
         
         if is_base:
             # Base skin: cream background with red diagonal line
@@ -763,12 +774,44 @@ class ChromaPanelWidget(ChromaWidgetBase):
     def eventFilter(self, obj, event):
         """Filter application events to detect clicks outside the chroma UI
         
-        Note: When parented to League window, coordinate conversion is unreliable,
-        so we rely primarily on focus loss events instead.
+        Note: When parented to League window, we detect mouse clicks on League to close panel.
         """
-        # Skip event filtering if we're parented (child window mode)
-        # In child window mode, we rely on focus loss to close the panel
-        if hasattr(self, '_league_window_hwnd') and self._league_window_hwnd:
+        # In parented mode, detect clicks on League window to close panel
+        if hasattr(self, '_league_window_hwnd') and self._league_window_hwnd and self.isVisible():
+            if event.type() == event.Type.MouseButtonPress:
+                try:
+                    # Check if click was on League window (parent)
+                    # If user clicks anywhere on League that's not our panel/button, close
+                    import ctypes
+                    from ctypes import wintypes
+                    
+                    # Get click position in screen coordinates
+                    cursor_pos = wintypes.POINT()
+                    ctypes.windll.user32.GetCursorPos(ctypes.byref(cursor_pos))
+                    
+                    # Check which window was clicked
+                    clicked_hwnd = ctypes.windll.user32.WindowFromPoint(cursor_pos)
+                    
+                    # Get our widget handle and button handle
+                    panel_hwnd = int(self.winId())
+                    button_hwnd = int(self.reopen_button_ref.winId()) if self.reopen_button_ref else None
+                    
+                    # If clicked window is League (our parent) and not panel/button, close panel
+                    if clicked_hwnd == self._league_window_hwnd:
+                        log.debug("[CHROMA] Click detected on League window, closing panel")
+                        self.hide()
+                        return False
+                    elif clicked_hwnd != panel_hwnd and clicked_hwnd != button_hwnd:
+                        # Clicked somewhere else (not League, not panel, not button)
+                        # Could be a child control of League - check if it's a descendant
+                        parent_hwnd = ctypes.windll.user32.GetParent(clicked_hwnd)
+                        if parent_hwnd == self._league_window_hwnd:
+                            log.debug("[CHROMA] Click detected on League UI element, closing panel")
+                            self.hide()
+                            return False
+                except Exception as e:
+                    log.debug(f"[CHROMA] Error in click detection: {e}")
+            
             return super().eventFilter(obj, event)
         
         # Original event filtering for non-parented mode

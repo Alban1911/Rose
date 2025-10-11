@@ -10,6 +10,7 @@ from typing import Optional, Callable, List, Dict
 from utils.logging import get_logger, log_event, log_success, log_action
 from utils.chroma_button import OpeningButton
 from utils.chroma_panel_widget import ChromaPanelWidget
+from utils.chroma_click_catcher import ClickCatcherOverlay
 
 log = get_logger()
 
@@ -22,6 +23,7 @@ class ChromaPanelManager:
         self.state = state  # SharedState for OCR pause control
         self.widget = None
         self.reopen_button = None
+        self.click_catcher = None  # Invisible overlay to catch clicks outside UI
         self.is_initialized = False
         self.pending_show = None  # (skin_name, chromas) to show from other threads
         self.pending_hide = False
@@ -63,10 +65,11 @@ class ChromaPanelManager:
                 log.debug("[CHROMA] Rebuild already in progress, ignoring duplicate request")
     
     def update_positions(self):
-        """Check for resolution changes periodically
+        """Check for resolution changes and focus changes periodically
         
         Note: When widgets are parented to League window (embedded mode), Windows
-        automatically handles ALL positioning. We only need to check for resolution changes.
+        automatically handles ALL positioning. We only need to check for resolution changes
+        and detect when League window gains focus to close the panel.
         """
         try:
             with self.lock:
@@ -91,6 +94,7 @@ class ChromaPanelManager:
                         self.widget.check_resolution_and_update()
                     if self.reopen_button:
                         self.reopen_button.check_resolution_and_update()
+                
         except RuntimeError:
             # Widget may have been deleted
             pass
@@ -100,7 +104,7 @@ class ChromaPanelManager:
         if not self.is_initialized:
             # Force reload of scaled values to ensure we use current resolution
             from utils.chroma_scaling import get_scaled_chroma_values
-            from utils.window_utils import get_league_window_client_size
+            from utils.window_utils import get_league_window_client_size, get_league_window_handle
             
             # Get current resolution and force cache refresh
             current_res = get_league_window_client_size()
@@ -109,16 +113,41 @@ class ChromaPanelManager:
                 # Force reload to get fresh values for current resolution
                 get_scaled_chroma_values(resolution=current_res, force_reload=True)
             
+            # Get League window handle for click catcher
+            league_hwnd = get_league_window_handle()
+            
             self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper, manager=self)
             self.reopen_button = OpeningButton(on_click=self._on_reopen_clicked, manager=self)
             # Set button reference on wheel so it can detect button clicks
             self.widget.set_button_reference(self.reopen_button)
+            
+            # Create click catcher overlay (invisible, catches clicks on League to close panel)
+            if league_hwnd:
+                self.click_catcher = ClickCatcherOverlay(
+                    on_click_callback=self._on_click_catcher_clicked,
+                    parent_hwnd=league_hwnd
+                )
+            
             self.is_initialized = True
             log.info("[CHROMA] Panel widgets created")
+    
+    def _on_click_catcher_clicked(self):
+        """Called when click catcher overlay is clicked - close panel"""
+        log.debug("[CHROMA] Click catcher clicked, closing panel")
+        self.hide()
     
     def _destroy_widgets(self):
         """Destroy widgets (must be called from main thread)"""
         if self.is_initialized:
+            # Destroy click catcher first
+            if self.click_catcher:
+                try:
+                    self.click_catcher.hide()
+                    self.click_catcher.deleteLater()
+                    self.click_catcher = None
+                except Exception as e:
+                    log.warning(f"[CHROMA] Error destroying click catcher: {e}")
+            
             if self.widget:
                 try:
                     # Un-parent from League window before destroying
@@ -351,17 +380,27 @@ class ChromaPanelManager:
                 self.pending_show = None
                 
                 if self.widget:
+                    # Show click catcher FIRST (at bottom of z-order)
+                    if self.click_catcher:
+                        self.click_catcher.show()
+                        self.click_catcher.lower()  # Ensure it's at bottom
+                        log.debug("[CHROMA] Click catcher overlay shown")
+                    
                     # Pass the currently selected chroma ID so wheel opens at that index
                     self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id)
                     # Position wheel above button
                     button_pos = self.reopen_button.pos() if self.reopen_button else None
                     self.widget.show_wheel(button_pos=button_pos)
                     self.widget.setVisible(True)
-                    self.widget.raise_()
+                    self.widget.raise_()  # Panel on top
                     
                     # CRITICAL: Re-apply position AFTER show() to prevent Qt from resetting it
                     if hasattr(self.widget, '_update_position'):
                         self.widget._update_position()
+                    
+                    # Ensure button is also on top
+                    if self.reopen_button:
+                        self.reopen_button.raise_()
                     
                     log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
                     
@@ -376,6 +415,12 @@ class ChromaPanelManager:
             # Process hide request
             if self.pending_hide:
                 self.pending_hide = False
+                
+                # Hide click catcher when panel closes
+                if self.click_catcher:
+                    self.click_catcher.hide()
+                    log.debug("[CHROMA] Click catcher overlay hidden")
+                
                 if self.widget:
                     self.widget.hide()
                     
