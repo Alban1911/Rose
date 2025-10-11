@@ -17,8 +17,9 @@ log = get_logger()
 class ChromaPanelManager:
     """Manages PyQt6 chroma panel - uses polling instead of QTimer"""
     
-    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None):
+    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, state=None):
         self.on_chroma_selected = on_chroma_selected
+        self.state = state  # SharedState for OCR pause control
         self.widget = None
         self.reopen_button = None
         self.is_initialized = False
@@ -50,7 +51,12 @@ class ChromaPanelManager:
             log.debug("[CHROMA] Destroy panel requested")
     
     def update_positions(self):
-        """Update widget positions based on current League window position"""
+        """Update widget positions based on current League window position
+        
+        Note: When widgets are parented to League window (embedded mode), Windows
+        automatically handles positioning, so this mainly handles re-parenting checks
+        and resolution changes.
+        """
         try:
             with self.lock:
                 # Check for resolution changes and update all widgets
@@ -60,18 +66,23 @@ class ChromaPanelManager:
                     self.reopen_button.check_resolution_and_update()
                 
                 if self.widget and self.widget.isVisible():
+                    # Check parenting and update position if needed
+                    # (mostly handles re-parenting and fallback mode)
                     self.widget.update_position_if_needed()
                     
                     # Check if League window gained focus - if so, close panel
-                    try:
-                        from utils.window_utils import is_league_window_focused
-                        if is_league_window_focused():
-                            log.debug("[CHROMA] League window focused, closing panel")
-                            self.pending_hide = True
-                    except Exception:
-                        pass  # Window check failed, ignore
+                    # SKIP THIS CHECK when parented (child windows are always "part of" League)
+                    if not (hasattr(self.widget, '_league_window_hwnd') and self.widget._league_window_hwnd):
+                        try:
+                            from utils.window_utils import is_league_window_focused
+                            if is_league_window_focused():
+                                log.debug("[CHROMA] League window focused, closing panel")
+                                self.pending_hide = True
+                        except Exception:
+                            pass  # Window check failed, ignore
                         
                 if self.reopen_button and self.reopen_button.isVisible():
+                    # Check parenting and update position if needed
                     self.reopen_button.update_position_if_needed()
         except RuntimeError:
             # Widget may have been deleted
@@ -156,7 +167,8 @@ class ChromaPanelManager:
     def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None):
         """Show button for a skin (not the wheel itself)
         
-        Note: chromas should only contain unowned chromas (filtered by ChromaSelector)
+        Note: chromas contains ALL chromas (both owned and unowned)
+        Each chroma has an 'is_owned' flag set by ChromaSelector
         """
         if not chromas or len(chromas) == 0:
             log.debug(f"[CHROMA] No chromas for {skin_name}, hiding button")
@@ -231,12 +243,25 @@ class ChromaPanelManager:
                     self.widget.setVisible(True)
                     self.widget.raise_()
                     log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
+                    
+                    # Pause OCR while panel is open (panel covers the text area)
+                    if self.state:
+                        self.state.chroma_panel_open = True
+                        # Store the base skin NAME to avoid re-detecting the same skin on resume
+                        # Chromas are named like "Base Skin Name" + " Ruby", so we store the base
+                        self.state.chroma_panel_skin_name = skin_name
+                        log.debug(f"[CHROMA] OCR paused - panel open (skin: {skin_name})")
             
             # Process hide request
             if self.pending_hide:
                 self.pending_hide = False
                 if self.widget:
                     self.widget.hide()
+                    
+                    # Resume OCR when panel closes
+                    if self.state:
+                        self.state.chroma_panel_open = False
+                        log.debug(f"[CHROMA] OCR resumed - panel closed")
             
             # Process button state update (after show/hide to ensure correct final state)
             if self.pending_update_button_state is not None:
@@ -284,11 +309,11 @@ class ChromaPanelManager:
 _chroma_panel_manager = None
 
 
-def get_chroma_panel() -> ChromaPanelManager:
+def get_chroma_panel(state=None) -> ChromaPanelManager:
     """Get or create global chroma panel manager"""
     global _chroma_panel_manager
     if _chroma_panel_manager is None:
-        _chroma_panel_manager = ChromaPanelManager()
+        _chroma_panel_manager = ChromaPanelManager(state=state)
     return _chroma_panel_manager
 
 

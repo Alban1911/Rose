@@ -49,3 +49,5 @@ class SharedState:
     # Chroma selection
     selected_chroma_id: Optional[int] = None  # Selected chroma ID (None = base skin)
     pending_chroma_selection: bool = False  # Flag to indicate chroma panel is open
+    chroma_panel_open: bool = False  # Flag to pause OCR when panel is open
+    chroma_panel_skin_name: Optional[str] = None  # Base skin name when panel was opened (to avoid re-detecting same skin)

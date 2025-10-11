@@ -180,15 +180,77 @@ class LoadoutTicker(threading.Thread):
                                     self.injection_manager.resume_if_suspended()
                                 except Exception as e:
                                     log.warning(f"[inject] Failed to resume game after skipping base skin: {e}")
-                        # Skip injection if user owns the OCR-detected skin (using LCU inventory)
+                        # Force owned skins/chromas instead of injecting (since owned, we can select them normally)
                         elif ocr_skin_id in owned_skin_ids:
-                            log.info(f"[inject] skipping injection - user owns this skin (skinId={ocr_skin_id}, verified via LCU inventory)")
+                            log.info(f"[inject] User owns this skin/chroma (skinId={ocr_skin_id}), forcing selection via LCU")
+                            
+                            # Force the owned skin/chroma using LCU API (same mechanism as base skin forcing)
+                            champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+                            if champ_id and self.lcu:
+                                target_skin_id = ocr_skin_id
+                                log.info(f"[inject] Forcing owned skin/chroma (skinId={target_skin_id})")
+                                
+                                forced_successfully = False
+                                
+                                # Find the user's action ID to update
+                                try:
+                                    sess = self.lcu.session() or {}
+                                    actions = sess.get("actions") or []
+                                    my_cell = self.state.local_cell_id
+                                    
+                                    action_found = False
+                                    is_action_completed = False
+                                    
+                                    for rnd in actions:
+                                        for act in rnd:
+                                            if act.get("actorCellId") == my_cell and act.get("type") == "pick":
+                                                action_id = act.get("id")
+                                                is_action_completed = act.get("completed", False)
+                                                action_found = True
+                                                
+                                                # Try action-based approach first if not completed
+                                                if not is_action_completed:
+                                                    if action_id is not None:
+                                                        if self.lcu.set_selected_skin(action_id, target_skin_id):
+                                                            log.info(f"[inject] ✓ Owned skin/chroma forced via action")
+                                                            forced_successfully = True
+                                                        else:
+                                                            log.debug(f"[inject] Action-based approach failed")
+                                                break
+                                        if action_found:
+                                            break
+                                    
+                                    # If action-based approach failed, try my-selection endpoint
+                                    if not forced_successfully:
+                                        if self.lcu.set_my_selection_skin(target_skin_id):
+                                            log.info(f"[inject] ✓ Owned skin/chroma forced via my-selection")
+                                            forced_successfully = True
+                                        else:
+                                            log.warning(f"[inject] ✗ Failed to force owned skin/chroma")
+                                    
+                                    # Verify the change was applied
+                                    if forced_successfully:
+                                        time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
+                                        verify_sess = self.lcu.session() or {}
+                                        verify_team = verify_sess.get("myTeam") or []
+                                        for player in verify_team:
+                                            if player.get("cellId") == my_cell:
+                                                current_skin = player.get("selectedSkinId")
+                                                if current_skin == target_skin_id:
+                                                    log.info(f"[inject] ✓ Owned skin/chroma verified: {current_skin}")
+                                                else:
+                                                    log.warning(f"[inject] Verification failed: {current_skin} != {target_skin_id}")
+                                                break
+                                    
+                                except Exception as e:
+                                    log.warning(f"[inject] Error forcing owned skin/chroma: {e}")
+                            
                             # Resume game if persistent monitor suspended it
                             if self.injection_manager:
                                 try:
                                     self.injection_manager.resume_if_suspended()
                                 except Exception as e:
-                                    log.warning(f"[inject] Failed to resume game after skipping owned skin: {e}")
+                                    log.warning(f"[inject] Failed to resume game after forcing owned skin: {e}")
                         # Inject if user doesn't own the hovered skin
                         elif self.injection_manager:
                             try:
@@ -210,7 +272,7 @@ class LoadoutTicker(threading.Thread):
                                     
                                     # Find the user's action ID to update
                                     try:
-                                        sess = self.lcu.session or {}
+                                        sess = self.lcu.session() or {}
                                         actions = sess.get("actions") or []
                                         my_cell = self.state.local_cell_id
                                         

@@ -58,8 +58,40 @@ class OCRSkinThread(threading.Thread):
         # Last skin shown for chroma panel (to avoid re-showing)
         self.last_chroma_panel_skin_id = None
     
+    def _should_update_hovered_skin(self, detected_skin_name: str) -> bool:
+        """
+        Check if we should update the hovered skin based on panel state
+        
+        Returns False if:
+        - Panel was recently closed and detected skin name starts with the base skin name
+        
+        This prevents re-detecting the same base skin when panel closes and OCR resumes.
+        Example: Panel opened for "Demacia Vice Garen", user selects chroma "Demacia Vice Garen Ruby",
+        panel closes, OCR detects "Demacia Vice Garen" → skip update to preserve the selected chroma.
+        """
+        # If panel is currently open, don't update (OCR is paused anyway)
+        if getattr(self.state, 'chroma_panel_open', False):
+            return False
+        
+        # Check if we just closed the panel and detected the same base skin
+        panel_skin_name = getattr(self.state, 'chroma_panel_skin_name', None)
+        if panel_skin_name is not None:
+            # Check if detected skin name starts with the base skin name
+            # Example: "Demacia Vice Garen" starts with "Demacia Vice Garen" → match
+            # Example: "Sanguine Garen" does NOT start with "Demacia Vice Garen" → different
+            if detected_skin_name.startswith(panel_skin_name):
+                log.debug(f"[ocr] Skipping update - same base skin as panel (base: '{panel_skin_name}', detected: '{detected_skin_name}')")
+                # Clear the flag so next detection works normally
+                self.state.chroma_panel_skin_name = None
+                return False
+            else:
+                # Different skin - clear the flag and allow update
+                self.state.chroma_panel_skin_name = None
+        
+        return True
+    
     def _trigger_chroma_panel(self, skin_id: int, skin_name: str):
-        """Trigger chroma panel display if skin has unowned chromas"""
+        """Trigger chroma panel display if skin has any chromas (owned or unowned)"""
         try:
             chroma_selector = get_chroma_selector()
             if not chroma_selector:
@@ -81,9 +113,9 @@ class OCRSkinThread(threading.Thread):
             
             # Always update button when switching skins (don't skip re-showing)
             # This ensures button always shows the correct skin's chromas
-            # Button shows if there are unowned chromas, regardless of base skin ownership
+            # Button shows if there are ANY chromas (owned or unowned)
             if chroma_selector.should_show_chroma_panel(skin_id):
-                log.info(f"[CHROMA] Showing button - skin has unowned chromas")
+                log.info(f"[CHROMA] Showing button - skin has chromas")
                 self.last_chroma_panel_skin_id = skin_id
                 
                 # Get champion name for direct path to chromas
@@ -445,6 +477,10 @@ class OCRSkinThread(threading.Thread):
                     skin_key = f"{champ_slug}_{skin_id}"
                     
                     if skin_key != self.last_key:
+                        # Check if we should update (handles panel close + same base skin detection)
+                        if not self._should_update_hovered_skin(skin_name):
+                            return
+                        
                         is_base = (skin_id % 1000 == 0)
                         
                         # ✨ ULTRA VISIBLE SKIN DETECTION ✨
@@ -489,6 +525,10 @@ class OCRSkinThread(threading.Thread):
                     skin_key = f"{champ_slug}_{skin_id}"
                     
                     if skin_key != self.last_key:
+                        # Check if we should update (handles panel close + same base skin detection)
+                        if not self._should_update_hovered_skin(english_skin_name):
+                            return
+                        
                         # Determine if this is base skin
                         is_base = (skin_id % 1000 == 0)  # Base skins have skinId ending in 000
                         
@@ -568,6 +608,10 @@ class OCRSkinThread(threading.Thread):
             return
         
         if best_entry.key != self.last_key:
+            # Check if we should update (handles panel close + same base skin detection)
+            if not self._should_update_hovered_skin(best_skin_name):
+                return
+            
             # ✨ ULTRA VISIBLE SKIN DETECTION ✨
             log.info("=" * LOG_SEPARATOR_WIDTH)
             if best_entry.kind == "champion":

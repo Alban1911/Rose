@@ -74,7 +74,7 @@ class ChromaSelector:
             skin_id: Skin ID to check
             
         Returns:
-            True if skin has unowned chromas and panel should be shown
+            True if skin has any chromas (owned or unowned)
             
         Raises:
             TypeError: If skin_id is not an integer
@@ -85,25 +85,15 @@ class ChromaSelector:
         
         try:
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
-            if not chromas or len(chromas) == 0:
-                return False  # No chromas available for this skin
-            
-            # Filter out owned chromas
-            owned_skin_ids = self.state.owned_skin_ids
-            unowned_chromas = [
-                chroma for chroma in chromas 
-                if chroma.get('id') not in owned_skin_ids
-            ]
-            
-            # Only show panel if there are unowned chromas
-            return len(unowned_chromas) > 0
+            # Show panel if there are ANY chromas (owned or unowned)
+            return chromas and len(chromas) > 0
         except Exception as e:
             log.debug(f"[CHROMA] Error checking chromas for skin {skin_id}: {e}")
             return False
     
     def show_button_for_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
         """
-        Show button for a skin (called when OCR detects skin with unowned chromas)
+        Show button for a skin (called when OCR detects skin with chromas)
         
         Args:
             skin_id: Skin ID to show button for
@@ -126,27 +116,27 @@ class ChromaSelector:
                 self.hide()
                 return
             
-            # Filter out owned chromas
+            # Mark ownership status on each chroma for the injection system
             owned_skin_ids = self.state.owned_skin_ids
-            unowned_chromas = [
-                chroma for chroma in chromas 
-                if chroma.get('id') not in owned_skin_ids
-            ]
+            owned_count = 0
+            for chroma in chromas:
+                chroma_id = chroma.get('id')
+                is_owned = chroma_id in owned_skin_ids
+                chroma['is_owned'] = is_owned  # Add ownership flag
+                if is_owned:
+                    owned_count += 1
             
-            # If all chromas are owned, hide the button
-            if len(unowned_chromas) == 0:
-                log.debug(f"[CHROMA] All chromas owned for skin {skin_id}, hiding button")
-                self.hide()
-                return
-            
-            # Update button for this skin
-            log.debug(f"[CHROMA] Updating button for {skin_name} ({len(unowned_chromas)} unowned chromas out of {len(chromas)} total)")
+            # Show ALL chromas (owned and unowned)
+            # The injection system will handle them differently:
+            # - Unowned chromas: inject as usual
+            # - Owned chromas: force using base skin forcing mechanism
+            log.debug(f"[CHROMA] Updating button for {skin_name} ({len(chromas)} total chromas, {owned_count} owned, {len(chromas) - owned_count} unowned)")
             
             self.current_skin_id = skin_id
             
-            # Show the button (not the panel) with only unowned chromas
+            # Show the button with ALL chromas (owned + unowned)
             try:
-                self.panel.show_button_for_skin(skin_id, skin_name, unowned_chromas, champion_name)
+                self.panel.show_button_for_skin(skin_id, skin_name, chromas, champion_name)
             except Exception as e:
                 log.error(f"[CHROMA] Failed to show button: {e}")
     
