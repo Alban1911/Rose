@@ -57,11 +57,13 @@ class OpeningButton(ChromaWidgetBase):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        center = self.button_size // 2
+        # Use actual widget size (may be constrained at small resolutions)
+        actual_size = min(self.width(), self.height())
+        center = actual_size // 2
         # Use less margin at small resolutions (give golden border more space)
         # Reference button size at 900p is 33px, smallest at ~576p is ~21px
-        margin = 2 if self.button_size <= 25 else 3  # Smaller margin for small resolutions
-        outer_radius = (self.button_size // 2) - margin
+        margin = 2 if actual_size <= 25 else 3  # Smaller margin for small resolutions
+        outer_radius = (actual_size // 2) - margin
         
         # Calculate ratios from official button measurements and scale to current button
         # Official measurements: 2px gold, 1px trans, 2px dark, 1px trans, 4px gradient, 1px trans, 5px inner
@@ -243,43 +245,80 @@ class OpeningButton(ChromaWidgetBase):
     
     def check_resolution_and_update(self):
         """Check if resolution changed and update UI if needed"""
-        # Get current League resolution directly (bypass cache)
-        from utils.window_utils import get_league_window_client_size
-        current_resolution = get_league_window_client_size()
-        
-        if not current_resolution:
-            return  # League window not found
-        
-        # Check if resolution actually changed
-        if current_resolution != self._current_resolution:
+        try:
+            # Get current League resolution directly (bypass cache)
+            from utils.window_utils import get_league_window_client_size
+            current_resolution = get_league_window_client_size()
+            
+            if not current_resolution:
+                return  # League window not found
+            
+            # Check if resolution actually changed
+            if current_resolution != self._current_resolution:
+                from utils.logging import get_logger
+                log = get_logger()
+                log.info(f"[CHROMA] Button resolution changed from {self._current_resolution} to {current_resolution}, updating UI")
+                
+                # Capture old size BEFORE updating
+                old_size = self.button_size
+                
+                # Force recalculation with new resolution
+                new_scaled = get_scaled_chroma_values(resolution=current_resolution, force_reload=False)
+                
+                # Update stored values
+                self.scaled = new_scaled
+                self._current_resolution = current_resolution
+                
+                # Update button size with new scaled value
+                self.button_size = self.scaled.button_size
+                
+                # Calculate constrained size to fit within League window
+                # At very small resolutions, ensure button fits within window
+                window_width, window_height = current_resolution
+                
+                # Use more aggressive constraints for very small windows
+                if window_height < 600:  # Very small resolution (576p)
+                    max_allowed_size = min(int(window_width * 0.04), int(window_height * 0.04))  # Max 4% for small windows
+                else:
+                    max_allowed_size = min(int(window_width * 0.08), int(window_height * 0.08))  # Max 8% for normal windows
+                
+                # Constrain button size if needed  
+                constrained_size = min(self.button_size, max_allowed_size)
+                
+                # Hide widget during resize to prevent visual glitches
+                was_visible = self.isVisible()
+                if was_visible:
+                    self.hide()
+                
+                # Update button size with constrained value
+                self.setFixedSize(constrained_size, constrained_size)
+                
+                # Force geometry update
+                self.updateGeometry()
+                
+                log.debug(f"[CHROMA] Button resized from {old_size}px to {constrained_size}px (scaled: {self.button_size}px)")
+                
+                # Update position with CONSTRAINED size and offsets
+                self.position_relative_to_anchor(
+                    width=constrained_size,
+                    height=constrained_size,
+                    offset_x=self.scaled.button_offset_x,
+                    offset_y=self.scaled.button_offset_y
+                )
+                
+                # Show widget again if it was visible
+                if was_visible:
+                    self.show()
+                    self.raise_()
+                    
+                # Force immediate repaint
+                self.repaint()
+        except Exception as e:
             from utils.logging import get_logger
             log = get_logger()
-            log.info(f"[CHROMA] Button resolution changed from {self._current_resolution} to {current_resolution}, updating UI")
-            
-            # Force recalculation with new resolution
-            new_scaled = get_scaled_chroma_values(resolution=current_resolution, force_reload=False)
-            
-            # Update stored values
-            self.scaled = new_scaled
-            self._current_resolution = current_resolution
-            
-            # Update button size (must happen BEFORE repositioning)
-            old_size = self.button_size
-            self.button_size = self.scaled.button_size
-            self.setFixedSize(self.button_size, self.button_size)
-            
-            # Update position with new size and offsets
-            self.position_relative_to_anchor(
-                width=self.button_size,
-                height=self.button_size,
-                offset_x=self.scaled.button_offset_x,
-                offset_y=self.scaled.button_offset_y
-            )
-            
-            log.debug(f"[CHROMA] Button resized from {old_size}px to {self.button_size}px")
-            
-            # Force repaint
-            self.update()
+            log.error(f"[CHROMA] Error updating button resolution: {e}")
+            import traceback
+            log.error(traceback.format_exc())
     
     def showEvent(self, event):
         """Reset hiding flag when button is shown"""

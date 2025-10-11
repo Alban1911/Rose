@@ -186,15 +186,34 @@ class ChromaWidgetBase(QWidget):
             anchor_x = center_x + scaled.anchor_offset_x
             anchor_y = center_y + scaled.anchor_offset_y
             
-            # Calculate widget position (client coordinates - relative to parent's 0,0)
-            # Widget's center should be at (anchor + offset)
-            widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
-            widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
+            # Calculate ideal widget position (centered on anchor + offset)
+            ideal_widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
+            ideal_widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
             
-            # Ensure widget stays within League window client area
-            margin = scaled.screen_margin
-            widget_x = max(margin, min(widget_x, window_width - self._widget_width - margin))
-            widget_y = max(margin, min(widget_y, window_height - self._widget_height - margin))
+            # Apply smart clamping to keep widget reasonably within bounds
+            margin = max(2, int(scaled.screen_margin))  # Minimum 2px margin
+            
+            # Calculate safe bounds with strict enforcement for very small windows
+            # At resolutions < 600px height, use aggressive clamping to prevent any overflow
+            if window_height < 600:
+                # Very small window: strictly enforce bounds with minimal margin
+                safe_margin = 5  # Minimal margin for very small windows
+                widget_x = max(safe_margin, min(ideal_widget_x, window_width - self._widget_width - safe_margin))
+                widget_y = max(safe_margin, min(ideal_widget_y, window_height - self._widget_height - safe_margin))
+                
+                # Double-check: if widget still doesn't fit, force it to top-left with margin
+                if widget_x + self._widget_width > window_width - safe_margin:
+                    widget_x = safe_margin
+                if widget_y + self._widget_height > window_height - safe_margin:
+                    widget_y = safe_margin
+            elif window_width >= self._widget_width + (2 * margin) and window_height >= self._widget_height + (2 * margin):
+                # Normal case: widget fits with margins
+                widget_x = max(margin, min(ideal_widget_x, window_width - self._widget_width - margin))
+                widget_y = max(margin, min(ideal_widget_y, window_height - self._widget_height - margin))
+            else:
+                # Small window case but not critical: center with bounds check
+                widget_x = max(margin, min(ideal_widget_x, window_width - self._widget_width - margin))
+                widget_y = max(margin, min(ideal_widget_y, window_height - self._widget_height - margin))
             
             # Use Windows API to position child window (Qt's move() doesn't work well with WS_CHILD)
             SWP_NOZORDER = 0x0004
@@ -212,15 +231,35 @@ class ChromaWidgetBase(QWidget):
             screen = QApplication.primaryScreen().geometry()
             anchor_x, anchor_y = ChromaUIConfig.get_anchor_point(screen)
             
-            # Calculate position: center the widget's CENTER on the anchor point + offset
-            widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
-            widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
+            # Calculate ideal widget position (centered on anchor + offset)
+            ideal_widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
+            ideal_widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
             
-            # Ensure widget stays on screen
+            # Apply smart clamping to keep widget reasonably within bounds
             from utils.chroma_scaling import get_scaled_chroma_values
-            margin = get_scaled_chroma_values().screen_margin
-            widget_x = max(margin, min(widget_x, screen.width() - self._widget_width - margin))
-            widget_y = max(margin, min(widget_y, screen.height() - self._widget_height - margin))
+            margin = max(2, int(get_scaled_chroma_values().screen_margin))
+            
+            # Calculate safe bounds with strict enforcement for very small screens
+            # At resolutions < 600px height, use aggressive clamping to prevent any overflow
+            if screen.height() < 600:
+                # Very small screen: strictly enforce bounds with minimal margin
+                safe_margin = 5
+                widget_x = max(safe_margin, min(ideal_widget_x, screen.width() - self._widget_width - safe_margin))
+                widget_y = max(safe_margin, min(ideal_widget_y, screen.height() - self._widget_height - safe_margin))
+                
+                # Double-check: if widget still doesn't fit, force it to top-left with margin
+                if widget_x + self._widget_width > screen.width() - safe_margin:
+                    widget_x = safe_margin
+                if widget_y + self._widget_height > screen.height() - safe_margin:
+                    widget_y = safe_margin
+            elif screen.width() >= self._widget_width + (2 * margin) and screen.height() >= self._widget_height + (2 * margin):
+                # Normal case: widget fits with margins
+                widget_x = max(margin, min(ideal_widget_x, screen.width() - self._widget_width - margin))
+                widget_y = max(margin, min(ideal_widget_y, screen.height() - self._widget_height - margin))
+            else:
+                # Small screen case but not critical: center with bounds check
+                widget_x = max(margin, min(ideal_widget_x, screen.width() - self._widget_width - margin))
+                widget_y = max(margin, min(ideal_widget_y, screen.height() - self._widget_height - margin))
             
             self.move(widget_x, widget_y)
     
