@@ -34,7 +34,10 @@ class OpeningButton(ChromaWidgetBase):
         self._updating_resolution = False  # Flag to prevent recursive updates
         
         # Setup button size and position (using scaled values)
-        self.button_size = self.scaled.button_size
+        # Add extra space for the 3px transparent ring on each side
+        self.transparent_ring_width = 3
+        self.button_visual_size = self.scaled.button_size  # Visual size (golden border)
+        self.button_size = self.button_visual_size + (self.transparent_ring_width * 2)  # Total widget size includes transparent ring
         self.setFixedSize(self.button_size, self.button_size)
         
         # Position using the synchronized positioning system
@@ -60,17 +63,25 @@ class OpeningButton(ChromaWidgetBase):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Use actual widget size (may be constrained at small resolutions)
+        # Use actual widget size (includes transparent ring)
         actual_size = min(self.width(), self.height())
         center = actual_size // 2
-        # Use less margin at small resolutions (give golden border more space)
-        # Reference button size at 900p is 33px, smallest at ~576p is ~21px
-        margin = 2 if actual_size <= 25 else 3  # Smaller margin for small resolutions
         
-        # Transparent ring parameters
-        transparent_ring_width = 3  # 3px transparent ring
-        outer_radius = (actual_size // 2) - margin  # Outer edge of golden border
-        transparent_outer_radius = outer_radius + transparent_ring_width  # Outer edge of transparent ring
+        # Transparent ring parameters (3px on each side)
+        transparent_ring_width = self.transparent_ring_width
+        
+        # Calculate radii from center
+        # Widget edge is at center ± (actual_size / 2)
+        # Transparent ring outer edge is at widget edge (margin 0)
+        transparent_outer_radius = (actual_size // 2)
+        
+        # Golden border is inside the transparent ring
+        outer_radius = transparent_outer_radius - transparent_ring_width  # Golden border outer edge
+        
+        # Use less internal margin at small resolutions
+        # Reference button size at 900p is 33px visual, smallest at ~576p is ~21px visual
+        internal_margin = 2 if self.button_visual_size <= 25 else 3
+        outer_radius -= internal_margin  # Adjust for internal spacing
         
         # Calculate border widths as direct ratios of button radius
         # This ensures proper scaling at all resolutions
@@ -101,7 +112,7 @@ class OpeningButton(ChromaWidgetBase):
         should_darken = self.is_hovered and not self.panel_is_open
         
         # 0. Transparent ring around golden border (3px wide)
-        # Draw a transparent ring as visual spacing
+        # Provides clickable area around the visible button
         from PyQt6.QtGui import QPainterPath
         transparent_ring_path = QPainterPath()
         transparent_ring_path.addEllipse(
@@ -119,7 +130,7 @@ class OpeningButton(ChromaWidgetBase):
         transparent_ring_path.setFillRule(Qt.FillRule.OddEvenFill)
         
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(0, 0, 0, 0)))  # Fully transparent
+        painter.setBrush(QBrush(QColor(0, 0, 0, 1)))  # Alpha=1 (invisible but Qt detects for mouse events)
         painter.drawPath(transparent_ring_path)
         
         # 1. Outer metallic gold border - matches wheel border color
@@ -212,10 +223,11 @@ class OpeningButton(ChromaWidgetBase):
         """Handle button release - trigger action on click+release"""
         if event.button() == Qt.MouseButton.LeftButton:
             # Check if mouse is still over the button
-            # Clickable zone is 30% bigger than visual button for easier clicking
+            # Clickable zone includes the transparent ring + 30% extra for easier clicking
             center = self.button_size // 2
-            visual_radius = (self.button_size // 2) - 5
-            clickable_radius = int(visual_radius * 1.3)  # 30% bigger clickable area
+            # Transparent ring extends to widget edge
+            transparent_outer_radius = self.button_size // 2
+            clickable_radius = int(transparent_outer_radius * 1.3)  # 30% bigger than transparent ring
             dx = event.pos().x() - center
             dy = event.pos().y() - center
             dist = math.sqrt(dx * dx + dy * dy)
@@ -229,20 +241,21 @@ class OpeningButton(ChromaWidgetBase):
     def mouseMoveEvent(self, event):
         """Handle mouse hover"""
         center = self.button_size // 2
-        visual_radius = (self.button_size // 2) - 5
-        clickable_radius = int(visual_radius * 1.3)  # 30% bigger clickable area
+        # Transparent ring extends to widget edge
+        transparent_outer_radius = self.button_size // 2
+        clickable_radius = int(transparent_outer_radius * 1.3)  # 30% bigger than transparent ring
         dx = event.pos().x() - center
         dy = event.pos().y() - center
         dist = math.sqrt(dx * dx + dy * dy)
         
-        # Visual hover uses standard radius
+        # Visual hover includes the entire transparent ring (up to widget edge)
         was_hovered = self.is_hovered
-        self.is_hovered = dist <= visual_radius
+        self.is_hovered = dist <= transparent_outer_radius
         
         if was_hovered != self.is_hovered:
             self.update()
         
-        # Cursor changes to pointer in the extended clickable area (30% bigger)
+        # Cursor changes to pointer in the extended clickable area (30% bigger than transparent ring)
         if dist <= clickable_radius:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         else:
