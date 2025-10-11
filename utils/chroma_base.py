@@ -273,18 +273,29 @@ class ChromaWidgetBase(QWidget):
         """
         if self.isVisible() and self._widget_width > 0:
             # Check if we need to re-parent (League window might have changed)
-            if not self._league_window_hwnd or not self._is_parented_correctly():
-                self._parent_to_league_window()
-            elif self._league_window_hwnd:
-                # Refresh z-order to stay on top within parent (prevents League from covering us)
-                self._refresh_z_order()
+            # Only check once per second to avoid overhead
+            import time
+            current_time = time.time()
+            if not hasattr(self, '_last_parent_check'):
+                self._last_parent_check = 0
+            
+            # Check parenting status at most once per second
+            if current_time - self._last_parent_check >= 1.0:
+                self._last_parent_check = current_time
                 
-                # ALWAYS update position when parented (handles resolution changes)
-                # This is cheap since it just uses SetWindowPos
-                self._update_position()
-            else:
-                # Not parented - update position for tracking mode
-                self._update_position()
+                if not self._league_window_hwnd or not self._is_parented_correctly():
+                    self._parent_to_league_window()
+            
+            # When parented, Windows handles positioning automatically
+            # Only refresh z-order occasionally to prevent League from covering us
+            if self._league_window_hwnd:
+                # Refresh z-order once per second
+                if not hasattr(self, '_last_zorder_refresh'):
+                    self._last_zorder_refresh = 0
+                
+                if current_time - self._last_zorder_refresh >= 1.0:
+                    self._last_zorder_refresh = current_time
+                    self._refresh_z_order()
     
     def _refresh_z_order(self):
         """Keep widget on top within parent window hierarchy"""

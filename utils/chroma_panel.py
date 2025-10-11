@@ -29,13 +29,15 @@ class ChromaPanelManager:
         self.pending_hide_button = False
         self.pending_create = False  # Request to create widgets
         self.pending_destroy = False  # Request to destroy widgets
+        self.pending_rebuild = False  # Request to rebuild widgets (for resolution changes)
         self.pending_update_button_state = None  # True/False to update button panel_is_open state
         self.current_skin_id = None  # Track current skin for button
         self.current_skin_name = None
         self.current_chromas = None
         self.current_champion_name = None  # Track champion for direct path
         self.current_selected_chroma_id = None  # Track currently applied chroma
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()  # Use RLock for reentrant locking (prevents deadlock)
+        self._rebuilding = False  # Flag to prevent infinite rebuild loops
     
     def request_create(self):
         """Request to create the panel (thread-safe, will be created in main thread)"""
@@ -50,40 +52,44 @@ class ChromaPanelManager:
             self.pending_destroy = True
             log.debug("[CHROMA] Destroy panel requested")
     
+    def request_rebuild(self):
+        """Request to rebuild the panel (thread-safe, for resolution changes)"""
+        with self.lock:
+            if not self._rebuilding:
+                self.pending_rebuild = True
+                log.info("[CHROMA] Rebuild requested (widgets will be destroyed and recreated)")
+            else:
+                log.debug("[CHROMA] Rebuild already in progress, ignoring duplicate request")
+    
     def update_positions(self):
-        """Update widget positions based on current League window position
+        """Check for resolution changes periodically
         
         Note: When widgets are parented to League window (embedded mode), Windows
-        automatically handles positioning, so this mainly handles re-parenting checks
-        and resolution changes.
+        automatically handles ALL positioning. We only need to check for resolution changes.
         """
         try:
             with self.lock:
-                # Check for resolution changes and update all widgets
-                if self.widget:
-                    self.widget.check_resolution_and_update()
-                if self.reopen_button:
-                    self.reopen_button.check_resolution_and_update()
+                # Don't check while rebuilding
+                if self._rebuilding:
+                    return
                 
-                if self.widget and self.widget.isVisible():
-                    # Check parenting and update position if needed
-                    # (mostly handles re-parenting and fallback mode)
-                    self.widget.update_position_if_needed()
+                # Only check resolution changes when widgets are visible
+                # Check at most once per second to avoid excessive polling
+                import time
+                current_time = time.time()
+                if not hasattr(self, '_last_resolution_check'):
+                    self._last_resolution_check = 0
+                
+                # Check resolution only once per second AND only if widgets are visible
+                widgets_visible = (self.widget and self.widget.isVisible()) or (self.reopen_button and self.reopen_button.isVisible())
+                if widgets_visible and (current_time - self._last_resolution_check >= 1.0):
+                    self._last_resolution_check = current_time
                     
-                    # Check if League window gained focus - if so, close panel
-                    # SKIP THIS CHECK when parented (child windows are always "part of" League)
-                    if not (hasattr(self.widget, '_league_window_hwnd') and self.widget._league_window_hwnd):
-                        try:
-                            from utils.window_utils import is_league_window_focused
-                            if is_league_window_focused():
-                                log.debug("[CHROMA] League window focused, closing panel")
-                                self.pending_hide = True
-                        except Exception:
-                            pass  # Window check failed, ignore
-                        
-                if self.reopen_button and self.reopen_button.isVisible():
-                    # Check parenting and update position if needed
-                    self.reopen_button.update_position_if_needed()
+                    # Check for resolution changes and trigger rebuild if needed
+                    if self.widget:
+                        self.widget.check_resolution_and_update()
+                    if self.reopen_button:
+                        self.reopen_button.check_resolution_and_update()
         except RuntimeError:
             # Widget may have been deleted
             pass
@@ -91,8 +97,19 @@ class ChromaPanelManager:
     def _create_widgets(self):
         """Create widgets (must be called from main thread)"""
         if not self.is_initialized:
-            self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper)
-            self.reopen_button = OpeningButton(on_click=self._on_reopen_clicked)
+            # Force reload of scaled values to ensure we use current resolution
+            from utils.chroma_scaling import get_scaled_chroma_values
+            from utils.window_utils import get_league_window_client_size
+            
+            # Get current resolution and force cache refresh
+            current_res = get_league_window_client_size()
+            if current_res:
+                log.debug(f"[CHROMA] Creating widgets for resolution: {current_res}")
+                # Force reload to get fresh values for current resolution
+                get_scaled_chroma_values(resolution=current_res, force_reload=True)
+            
+            self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper, manager=self)
+            self.reopen_button = OpeningButton(on_click=self._on_reopen_clicked, manager=self)
             # Set button reference on wheel so it can detect button clicks
             self.widget.set_button_reference(self.reopen_button)
             self.is_initialized = True
@@ -217,6 +234,60 @@ class ChromaPanelManager:
                     self._create_widgets()
                 except Exception as e:
                     log.error(f"[CHROMA] Error creating widgets: {e}")
+            
+            # Process rebuild request (resolution change) - ONLY if already initialized
+            if self.pending_rebuild:
+                if not self.is_initialized:
+                    log.warning("[CHROMA] Rebuild requested but widgets not initialized yet")
+                    self.pending_rebuild = False
+                elif self._rebuilding:
+                    log.debug("[CHROMA] Rebuild already in progress, skipping duplicate")
+                else:
+                    self.pending_rebuild = False
+                    self._rebuilding = True
+                    log.info("="*80)
+                    log.info("[CHROMA] 🔄 STARTING WIDGET REBUILD (RESOLUTION CHANGE)")
+                    log.info("="*80)
+                    
+                    try:
+                        # Save current state
+                        was_panel_visible = self.widget and self.widget.isVisible()
+                        was_button_visible = self.reopen_button and self.reopen_button.isVisible()
+                        
+                        log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}, button_visible={was_button_visible}")
+                        
+                        # Destroy old widgets
+                        log.info("[CHROMA] Destroying old widgets...")
+                        self._destroy_widgets()
+                        
+                        # Small delay to allow cleanup
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+                        
+                        # Recreate widgets with fresh resolution values
+                        log.info("[CHROMA] Creating new widgets with updated resolution...")
+                        self._create_widgets()
+                        
+                        # Restore visibility state
+                        if was_button_visible and self.current_skin_name and self.current_chromas:
+                            log.info("[CHROMA] Restoring button visibility after rebuild")
+                            self.pending_show_button = True
+                        
+                        if was_panel_visible and self.current_skin_name and self.current_chromas:
+                            log.info("[CHROMA] Restoring panel visibility after rebuild")
+                            self.pending_show = (self.current_skin_name, self.current_chromas)
+                        
+                        log.info("="*80)
+                        log.info("[CHROMA] ✅ WIDGET REBUILD COMPLETED SUCCESSFULLY")
+                        log.info("="*80)
+                    except Exception as e:
+                        log.error(f"[CHROMA] ❌ Error rebuilding widgets: {e}")
+                        import traceback
+                        log.error(traceback.format_exc())
+                    finally:
+                        self._rebuilding = False
+                    # Continue processing other requests in the same frame
+                    # (removed early return)
             
             # Process destroy request
             if self.pending_destroy:

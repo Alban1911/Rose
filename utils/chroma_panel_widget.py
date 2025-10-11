@@ -39,10 +39,11 @@ class ChromaCircle:
 class ChromaPanelWidget(ChromaWidgetBase):
     """Professional chroma panel widget with League-style design"""
     
-    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None):
+    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, manager=None):
         super().__init__()
         
         self.on_chroma_selected = on_chroma_selected
+        self.manager = manager  # Reference to ChromaPanelManager for rebuild requests
         self.circles = []
         self.skin_name = ""
         self.selected_index = 0  # Default to base (center)
@@ -62,6 +63,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Track actual display dimensions (may differ from scaled at very small resolutions)
         self._display_width = self.window_width
         self._display_height = self.window_height
+        self._scale_factor = 1.0  # Scale factor for constrained layouts
+        self._updating_resolution = False  # Flag to prevent recursive updates
+        
+        # Initialize preview positions from scaled values (will be overridden on resolution change)
+        self._preview_x = self.scaled.preview_x
+        self._preview_y = self.scaled.preview_y
         
         # Preview image (will be downloaded/loaded)
         self.current_preview_image = None  # QPixmap for current chroma
@@ -128,9 +135,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
         from PyQt6.QtGui import QRegion, QPolygon
         from PyQt6.QtCore import QPoint
         
-        # Use actual widget dimensions (which may be constrained at small resolutions)
+        # Get ACTUAL widget size from Qt (what's really set)
         actual_width = self.width()
-        actual_height = self.height() - self.notch_height  # Subtract notch height
+        actual_height = self.height()
+        
+        # Panel height is total height minus notch
+        panel_height = actual_height - self.notch_height
         
         # Calculate notch geometry (must match paintEvent parameters exactly)
         notch_width = 31  # Width of the triangle base (odd number for true center)
@@ -138,18 +148,18 @@ class ChromaPanelWidget(ChromaWidgetBase):
         notch_center_x = actual_width // 2
         notch_start_x = notch_center_x - (notch_width // 2)
         notch_end_x = notch_center_x + (notch_width // 2) + 1  # +1 to get full 31 pixels
-        notch_base_y = actual_height - 1  # Base at original window bottom
-        notch_tip_y = actual_height + notch_height - 1  # Tip pointing outward
+        notch_base_y = panel_height  # Base at panel bottom (before notch area)
+        notch_tip_y = actual_height - 1  # Tip at total widget height
         
         # Create polygon for the entire window shape (rectangle + notch triangle)
         points = [
             QPoint(0, 0),                              # Top-left
             QPoint(actual_width, 0),                   # Top-right
-            QPoint(actual_width, actual_height),       # Bottom-right
+            QPoint(actual_width, panel_height),        # Bottom-right (before notch)
             QPoint(notch_end_x, notch_base_y),         # Right side of notch base
             QPoint(notch_center_x, notch_tip_y),       # Notch tip
             QPoint(notch_start_x, notch_base_y),       # Left side of notch base
-            QPoint(0, actual_height),                  # Bottom-left
+            QPoint(0, panel_height),                   # Bottom-left (before notch)
         ]
         
         polygon = QPolygon(points)
@@ -166,7 +176,11 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.circle_spacing = self.scaled.circle_spacing
     
     def check_resolution_and_update(self):
-        """Check if resolution changed and update UI if needed"""
+        """Check if resolution changed and request rebuild if needed"""
+        # Prevent recursive calls
+        if self._updating_resolution:
+            return
+        
         try:
             # Get current League resolution directly (bypass cache)
             from utils.window_utils import get_league_window_client_size
@@ -177,97 +191,57 @@ class ChromaPanelWidget(ChromaWidgetBase):
             
             # Check if resolution actually changed
             if current_resolution != self._current_resolution:
-                log.info(f"[CHROMA] Panel resolution changed from {self._current_resolution} to {current_resolution}, updating UI")
+                self._updating_resolution = True  # Set flag
+                log.info(f"[CHROMA] Panel resolution changed from {self._current_resolution} to {current_resolution}, requesting rebuild")
                 
-                # Capture old dimensions BEFORE updating
-                old_width, old_height = self.window_width, self.window_height
-                
-                # Force recalculation with new resolution
-                new_scaled = get_scaled_chroma_values(resolution=current_resolution, force_reload=False)
-                
-                # Update stored values
-                self.scaled = new_scaled
+                # Update current resolution to prevent re-detection
                 self._current_resolution = current_resolution
                 
-                # Update dimensions from new scaled values
-                self._update_dimensions_from_scaled()
-                
-                # Calculate constrained size to fit within League window (with safety margins)
-                # At very small resolutions, aggressively constrain to prevent clipping
-                window_width, window_height = current_resolution
-                
-                # Use more aggressive constraints for very small windows
-                if window_height < 600:  # Very small resolution (576p)
-                    max_allowed_width = int(window_width * 0.55)  # 55% for small windows
-                    max_allowed_height = int(window_height * 0.65)  # 65% for small windows
+                # Request rebuild from manager instead of updating in place
+                # This prevents flickering and ensures clean scaling
+                if self.manager:
+                    self.manager.request_rebuild()
                 else:
-                    max_allowed_width = int(window_width * 0.85)  # 85% for normal windows
-                    max_allowed_height = int(window_height * 0.85)
+                    log.warning("[CHROMA] Panel has no manager reference, cannot request rebuild")
                 
-                # Constrain dimensions if needed
-                constrained_width = min(self.window_width, max_allowed_width)
-                constrained_height = min(self.window_height, max_allowed_height)
-                
-                # Hide widget during resize to prevent visual glitches
-                was_visible = self.isVisible()
-                if was_visible:
-                    self.hide()
-                
-                # Update window size with constrained dimensions
-                self.setFixedSize(constrained_width, constrained_height + self.notch_height)
-                
-                # Store actual display dimensions (may differ from scaled values at small resolutions)
-                self._display_width = constrained_width
-                self._display_height = constrained_height
-                
-                # Update window mask for new size IMMEDIATELY
-                self._update_window_mask()
-                
-                # Force geometry update
-                self.updateGeometry()
-                
-                # Log with constrained dimensions
-                log.debug(f"[CHROMA] Panel resized from {old_width}x{old_height}px to {constrained_width}x{constrained_height}px (scaled: {self.window_width}x{self.window_height}px)")
-                
-                # Recalculate circle positions if we have chromas loaded
-                if self.circles:
-                    self._recalculate_circle_positions()
-                
-                # Update position with CONSTRAINED size and offsets
-                self.position_relative_to_anchor(
-                    width=constrained_width,
-                    height=constrained_height + self.notch_height,
-                    offset_x=self.scaled.panel_offset_x,
-                    offset_y=self.scaled.panel_offset_y
-                )
-                
-                # Show widget again if it was visible
-                if was_visible:
-                    self.show()
-                    self.raise_()
-                    
-                # Force immediate repaint
-                self.repaint()
+                # Clear update flag
+                self._updating_resolution = False
         except Exception as e:
-            log.error(f"[CHROMA] Error updating panel resolution: {e}")
+            log.error(f"[CHROMA] Error checking panel resolution: {e}")
             import traceback
             log.error(traceback.format_exc())
+            # Clear flag even on error
+            self._updating_resolution = False
     
     def _recalculate_circle_positions(self):
         """Recalculate circle positions after resolution change"""
         if not self.circles:
             return
         
+        # Use actual display dimensions (hardcoded for each resolution)
+        actual_width = self._display_width if hasattr(self, '_display_width') else self.window_width
+        actual_height = self._display_height if hasattr(self, '_display_height') else self.window_height
+        
+        # Use hardcoded preview dimensions
+        preview_x = self._preview_x if hasattr(self, '_preview_x') else self.scaled.preview_x
+        preview_y = self._preview_y if hasattr(self, '_preview_y') else self.scaled.preview_y
+        preview_height = self.preview_height
+        
         # Recalculate horizontal row positions (same logic as set_chromas)
         num_circles = len(self.circles)
-        total_width = num_circles * (2 * self.circle_radius) + (num_circles - 1) * self.circle_spacing
-        start_x = (self.window_width - total_width) // 2
-        row_y = self.scaled.preview_y + self.scaled.preview_height + self.scaled.row_y_offset
+        total_width = num_circles * self.circle_spacing
+        start_x = (actual_width - total_width) // 2 + self.circle_spacing // 2
         
+        # Calculate Y position in button zone (between separator and bottom)
+        separator_y = preview_y + preview_height
+        bottom_y = actual_height - 1
+        row_y = (separator_y + bottom_y) // 2
+        
+        # Update circle positions and radius
         for i, circle in enumerate(self.circles):
-            x = start_x + (2 * self.circle_radius + self.circle_spacing) * i + self.circle_radius
-            circle.x = x
+            circle.x = start_x + (i * self.circle_spacing)
             circle.y = row_y
+            circle.radius = self.circle_radius  # Update radius to hardcoded value
     
     def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None):
         """Set the chromas to display - League horizontal style
@@ -476,9 +450,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
         painter = QPainter(self)
         painter.setOpacity(self._opacity)
         
-        # Use actual widget dimensions (may be constrained at small resolutions)
+        # Get ACTUAL widget dimensions from Qt
         actual_width = self.width()
-        actual_height = self.height() - self.notch_height  # Subtract notch height
+        actual_height = self.height()
+        
+        # Panel height is widget height minus notch extension
+        panel_height = actual_height - self.notch_height
         
         # Define notch parameters
         notch_width = 31  # Width of the triangle base (odd number for true center)
@@ -487,35 +464,36 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # For odd notch_width (31): left side gets 15 pixels, right side gets 15 pixels, center is at center
         notch_start_x = notch_center_x - (notch_width // 2)
         notch_end_x = notch_center_x + (notch_width // 2) + 1  # +1 to get full 31 pixels
-        notch_base_y = actual_height - 1  # Base of the notch (at original window bottom)
-        notch_tip_y = actual_height + notch_height - 1  # Tip pointing outward
+        notch_base_y = panel_height  # Base of the notch (at panel bottom)
+        notch_tip_y = actual_height - 1  # Tip at total widget height
         
         # Create widget path with triangular notch pointing outward
         widget_path = QPainterPath()
         widget_path.moveTo(1, 1)  # Top-left (inside border)
         widget_path.lineTo(actual_width - 1, 1)  # Top-right (inside border)
-        widget_path.lineTo(actual_width - 1, actual_height - 1)  # Bottom-right (inside border)
+        widget_path.lineTo(actual_width - 1, panel_height)  # Bottom-right (at notch base)
         widget_path.lineTo(notch_end_x, notch_base_y)  # Right side of notch base
         widget_path.lineTo(notch_center_x, notch_tip_y)  # Tip pointing outward
         widget_path.lineTo(notch_start_x, notch_base_y)  # Left side of notch base
-        widget_path.lineTo(1, actual_height - 1)  # Bottom-left (inside border)
+        widget_path.lineTo(1, panel_height)  # Bottom-left (at notch base)
         widget_path.closeSubpath()
         
         # Enable antialiasing for images
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # LAYER 1: Draw background image first (behind everything)
-        preview_x = self.scaled.preview_x
-        preview_y = self.scaled.preview_y
+        # Use hardcoded preview positions if available (set during resolution changes)
+        preview_x = self._preview_x if hasattr(self, '_preview_x') else self.scaled.preview_x
+        preview_y = self._preview_y if hasattr(self, '_preview_y') else self.scaled.preview_y
         preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
         
         if self.background_image and not self.background_image.isNull():
             # Clip to the widget shape so background respects borders
             painter.setClipPath(widget_path)
             
-            # Scale background to exactly fit the window
+            # Scale background to exactly fit the panel (not including notch)
             scaled_bg = self.background_image.scaled(
-                actual_width, actual_height,
+                actual_width, panel_height,
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
@@ -535,7 +513,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # LAYER 2: Draw button zone background including notch (behind all golden borders)
         # Fill the rectangular button zone
         button_zone_y = preview_y + self.preview_height
-        button_zone_height = actual_height - button_zone_y
+        button_zone_height = panel_height - button_zone_y
         painter.fillRect(1, button_zone_y, actual_width - 2, button_zone_height, QColor(10, 14, 39, 240))
         
         # Also fill the notch triangle area (reuse calculated values from above)
@@ -556,13 +534,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Top edge
         painter.drawLine(1, 1, actual_width - 1, 1)
         # Right edge
-        painter.drawLine(actual_width - 1, 1, actual_width - 1, actual_height - 1)
+        painter.drawLine(actual_width - 1, 1, actual_width - 1, panel_height)
         # Bottom right to notch
-        painter.drawLine(actual_width - 1, actual_height - 1, notch_end_x, notch_base_y)
+        painter.drawLine(actual_width - 1, panel_height, notch_end_x, notch_base_y)
         # Left edge
-        painter.drawLine(1, 1, 1, actual_height - 1)
+        painter.drawLine(1, 1, 1, panel_height)
         # Bottom left to notch
-        painter.drawLine(1, actual_height - 1, notch_start_x, notch_base_y)
+        painter.drawLine(1, panel_height, notch_start_x, notch_base_y)
         
         # Draw golden border on the notch edges (the two angled edges extending outward)
         painter.drawLine(notch_start_x, notch_base_y, notch_center_x, notch_tip_y)  # Left edge

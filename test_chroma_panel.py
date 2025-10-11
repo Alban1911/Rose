@@ -109,7 +109,7 @@ def main():
     timer.start(100)  # Check every 100ms
     
     # Create chroma panel widget
-    panel = ChromaPanelWidget(on_chroma_selected=on_chroma_selected)
+    panel = ChromaPanelWidget(on_chroma_selected=on_chroma_selected, manager=None)
     
     # Get Mythmaker Garen chromas with real IDs
     test_chromas = create_mythmaker_garen_chromas()
