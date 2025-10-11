@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Main entry point for the modularized SkinCloner
+Main entry point for the modularized LeagueUnlocked
 """
 
 import argparse
@@ -303,7 +303,7 @@ def create_lock_file():
         state_dir = get_state_dir()
         state_dir.mkdir(parents=True, exist_ok=True)
         
-        lock_file_path = state_dir / "skincloner.lock"
+        lock_file_path = state_dir / "leagueunlocked.lock"
         _app_state.lock_file_path = lock_file_path
         
         # Windows-only approach using file creation
@@ -392,17 +392,17 @@ def check_single_instance():
                 # = 0x50010 - Ensures dialog appears on top and gets focus
                 ctypes.windll.user32.MessageBoxW(
                     0, 
-                    "Another instance of SkinCloner is already running!\n\nPlease close the existing instance before starting a new one.",
-                    "SkinCloner - Instance Already Running",
+                    "Another instance of LeagueUnlocked is already running!\n\nPlease close the existing instance before starting a new one.",
+                    "LeagueUnlocked - Instance Already Running",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
             except (OSError, AttributeError) as e:
                 # Fallback to logging if MessageBox fails
                 log.error(f"Failed to show message box: {e}")
-                log.error("Another instance of SkinCloner is already running!")
+                log.error("Another instance of LeagueUnlocked is already running!")
                 log.error("Please close the existing instance before starting a new one.")
         else:
-            log.error("Another instance of SkinCloner is already running!")
+            log.error("Another instance of LeagueUnlocked is already running!")
             log.error("Please close the existing instance before starting a new one.")
         sys.exit(1)
 
@@ -535,7 +535,7 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     # Suppress PIL/Pillow debug messages for optional image plugins
     logging.getLogger("PIL").setLevel(logging.INFO)
     
-    log_section(log, "SkinCloner Starting", "🚀", {
+    log_section(log, "LeagueUnlocked Starting", "🚀", {
         "Verbose Mode": "Enabled" if args.verbose else "Disabled",
         "Download Skins": "Enabled" if args.download_skins else "Disabled",
         "OCR Debug": "Enabled" if args.debug_ocr else "Disabled"
@@ -670,12 +670,27 @@ def main():
         
         def download_skins_background():
             try:
+                # Download skins first
                 success = download_skins_on_startup(
                     force_update=args.force_update_skins,
                     max_champions=args.max_champions,
                     tray_manager=tray_manager,
                     injection_manager=injection_manager
                 )
+                
+                # Download preview images alongside skins
+                try:
+                    from utils.preview_repo_downloader import download_skin_previews
+                    log.info("Downloading skin preview images...")
+                    preview_success = download_skin_previews(force_update=args.force_update_skins)
+                    if preview_success:
+                        log.info("✓ Skin previews downloaded successfully")
+                    else:
+                        log.warning("⚠ Skin preview download had issues (will continue)")
+                except Exception as e:
+                    log.warning(f"Failed to download skin previews: {e}")
+                    log.warning("App will continue without preview images")
+                
                 separator = "=" * 80
                 if success:
                     log.info(separator)

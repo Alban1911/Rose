@@ -149,7 +149,7 @@ def setup_logging(verbose: bool):
         # Create a unique log file for this session with timestamp
         # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
         timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
-        log_file = logs_dir / f"skincloner_{timestamp}.log"
+        log_file = logs_dir / f"leagueunlocked_{timestamp}.log"
         
         # Setup file handler (no rotation needed since each session has its own file)
         file_handler = logging.FileHandler(
@@ -191,7 +191,7 @@ def setup_logging(verbose: bool):
             # Use logging instead of direct print to avoid blocking
             logger = logging.getLogger("startup")
             logger.info("=" * LOG_SEPARATOR_WIDTH)
-            logger.info(f"SkinCloner - Starting... (Log file: {log_file.name})")
+            logger.info(f"LeagueUnlocked - Starting... (Log file: {log_file.name})")
             logger.info("=" * LOG_SEPARATOR_WIDTH)
         except (AttributeError, OSError):
             pass  # stdout is broken, ignore

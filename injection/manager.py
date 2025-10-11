@@ -119,7 +119,7 @@ class InjectionManager:
                                     break
                                 except psutil.AccessDenied:
                                     log.error("[monitor] ACCESS DENIED - Cannot suspend game")
-                                    log.error("[monitor] Try running SkinCloner as Administrator")
+                                    log.error("[monitor] Try running LeagueUnlocked as Administrator")
                                     self._monitor_active = False
                                     break
                                 except Exception as e:

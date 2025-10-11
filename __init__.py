@@ -1,2 +1,2 @@
-# SkinCloner - Modular Skin Injector
+# LeagueUnlocked - Modular Skin Injector
 # Main package initialization

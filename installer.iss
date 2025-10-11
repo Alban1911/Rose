@@ -1,11 +1,11 @@
-; SkinCloner Installer Script for Inno Setup
+; LeagueUnlocked Installer Script for Inno Setup
 ; This creates a proper Windows installer that registers the app
 
-#define MyAppName "SkinCloner"
+#define MyAppName "LeagueUnlocked"
 #define MyAppVersion "1.1.0"
-#define MyAppPublisher "SkinCloner Team"
-#define MyAppURL "https://github.com/AlbanCliquet/SkinCloner"
-#define MyAppExeName "SkinCloner.exe"
+#define MyAppPublisher "LeagueUnlocked Team"
+#define MyAppURL "https://github.com/AlbanCliquet/LeagueUnlocked"
+#define MyAppExeName "LeagueUnlocked.exe"
 #define MyAppDescription "Automated League of Legends skin changer with OCR detection"
 
 [Setup]
@@ -24,7 +24,7 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=
 OutputDir=installer
-OutputBaseFilename=SkinCloner_Setup
+OutputBaseFilename=LeagueUnlocked_Setup
 SetupIconFile=icon.ico
 Compression=lzma
 SolidCompression=yes
@@ -48,7 +48,7 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 
 [Files]
 ; Main application files
-Source: "dist\SkinCloner\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\LeagueUnlocked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]

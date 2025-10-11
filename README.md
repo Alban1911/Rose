@@ -1,8 +1,8 @@
-# SkinCloner
+# LeagueUnlocked
 
 **League of Legends Skin Changer with Advanced OCR Detection**
 
-SkinCloner is a fully automated system that detects skin selections in League of Legends champion select using advanced OCR technology and automatically injects custom skins 500 milliseconds before the game starts. Built with a modular architecture, unified game process monitoring, and multi-language support, it provides a seamless experience for League of Legends players.
+LeagueUnlocked is a fully automated system that detects skin selections in League of Legends champion select using advanced OCR technology and automatically injects custom skins 500 milliseconds before the game starts. Built with a modular architecture, unified game process monitoring, and multi-language support, it provides a seamless experience for League of Legends players.
 
 ## 🔧 Prerequisites
 
@@ -22,7 +22,7 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
 ### 🔍 OCR Technology
 
-**SkinCloner uses EasyOCR (CPU mode) for accurate skin detection across all languages.**
+**LeagueUnlocked uses EasyOCR (CPU mode) for accurate skin detection across all languages.**
 
 - **Optimized for CPU**: Works efficiently on any modern processor
 - **Universal compatibility**: No GPU required - works on all systems
@@ -38,8 +38,8 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
 **For users who want a simple, ready-to-use application:**
 
-1. **Download the latest installer** from [releases](https://github.com/AlbanCliquet/SkinCloner/releases/latest)
-2. **Run** `SkinCloner_Setup.exe` **as Administrator**
+1. **Download the latest installer** from [releases](https://github.com/AlbanCliquet/LeagueUnlocked/releases/latest)
+2. **Run** `LeagueUnlocked_Setup.exe` **as Administrator**
 3. **Follow the setup wizard** - the installer will create shortcuts and configure the application
 4. **Launch the app** from your desktop or start menu
 
@@ -51,8 +51,8 @@ SkinCloner is a fully automated system that detects skin selections in League of
 2. **Clone this repository:**
 
    ```bash
-   git clone https://github.com/AlbanCliquet/SkinCloner.git
-   cd SkinCloner
+   git clone https://github.com/AlbanCliquet/LeagueUnlocked.git
+   cd LeagueUnlocked
    ```
 
 3. **Install dependencies:**
@@ -85,7 +85,7 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
 ## 🌍 Supported Languages
 
-**SkinCloner uses EasyOCR with support for 80+ languages**, including Latin and non-Latin alphabets:
+**LeagueUnlocked uses EasyOCR with support for 80+ languages**, including Latin and non-Latin alphabets:
 
 **Latin Alphabet:**
 
@@ -107,17 +107,17 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
 ### Quick Start
 
-**SkinCloner is designed to be completely transparent - just launch it and forget about it!**
+**LeagueUnlocked is designed to be completely transparent - just launch it and forget about it!**
 
-1. **Launch SkinCloner** (from desktop shortcut or start menu)
+1. **Launch LeagueUnlocked** (from desktop shortcut or start menu)
 2. **Accept the UAC prompt** (Administrator privileges required for injection)
 3. **Let it run in the background** - you don't need to interact with it
 4. **Play League of Legends normally** - the app works silently in the background
-5. **That's it!** SkinCloner handles everything automatically
+5. **That's it!** LeagueUnlocked handles everything automatically
 
 ### 🔐 Administrator Rights & Auto-Start
 
-**SkinCloner requires Administrator privileges** to inject skins into League of Legends.
+**LeagueUnlocked requires Administrator privileges** to inject skins into League of Legends.
 
 #### First Launch
 
@@ -129,8 +129,8 @@ SkinCloner is a fully automated system that detects skin selections in League of
 
 **Enable seamless auto-start to avoid UAC prompts on every launch:**
 
-1. Launch SkinCloner (accept the initial UAC prompt)
-2. Right-click the SkinCloner icon in the system tray
+1. Launch LeagueUnlocked (accept the initial UAC prompt)
+2. Right-click the LeagueUnlocked icon in the system tray
 3. Click **"Enable Auto-Start"**
 4. Done! The app will now:
    - Start automatically when you log into Windows
@@ -154,7 +154,7 @@ The application runs in the system tray and requires no user interaction. Simply
 
 ### How It Works Behind the Scenes
 
-While you play, SkinCloner operates through a sophisticated multi-threaded system:
+While you play, LeagueUnlocked operates through a sophisticated multi-threaded system:
 
 1. **Phase Detection**: Monitors League Client for game phases (lobby, champion select, in-game)
 2. **OCR Activation**: Automatically activates OCR when entering champion select
@@ -227,7 +227,7 @@ While you play, SkinCloner operates through a sophisticated multi-threaded syste
 
 ### Unified Game Monitor System
 
-SkinCloner uses a **single, unified monitor** for game process management, eliminating race conditions and complexity:
+LeagueUnlocked uses a **single, unified monitor** for game process management, eliminating race conditions and complexity:
 
 **Monitor Lifecycle:**
 
@@ -255,7 +255,7 @@ All application state is stored in memory using a thread-safe `SharedState` data
 
 ### Multi-Threaded Architecture
 
-SkinCloner uses 6 specialized threads for optimal performance:
+LeagueUnlocked uses 6 specialized threads for optimal performance:
 
 1. **Phase Thread**: Monitors LCU for game phase changes (lobby → champ select → in-game)
 2. **Champion Thread**: Detects champion hover/lock and fetches owned skins from LCU
@@ -271,7 +271,7 @@ All threads coordinate through the shared state system for seamless operation.
 ## 📁 Project Structure
 
 ```
-SkinCloner/
+LeagueUnlocked/
 ├── main.py                       # Main application entry point
 ├── requirements.txt              # Python dependencies
 ├── config.py                     # Centralized configuration constants
@@ -345,4 +345,4 @@ This tool is for educational purposes only. Use at your own risk. The developers
 
 ---
 
-**SkinCloner** - League of Legends Skin Changer
+**LeagueUnlocked** - League of Legends Skin Changer

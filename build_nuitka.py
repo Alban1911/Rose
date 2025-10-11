@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Build script for SkinCloner using Nuitka (Python to C compiler)
+Build script for LeagueUnlocked using Nuitka (Python to C compiler)
 Better protection than obfuscation + produces native executables
 """
 
@@ -39,7 +39,7 @@ def clean_previous_builds():
                 print(f"[ERROR] Failed to remove {dir_name}/: {e}")
     
     # Remove old exe files
-    old_exe_files = ["main.exe", "SkinCloner.exe"]
+    old_exe_files = ["main.exe", "LeagueUnlocked.exe"]
     for exe_name in old_exe_files:
         if os.path.exists(exe_name):
             try:
@@ -148,7 +148,7 @@ def organize_output():
     dist_folder = Path("main.dist")
     build_dir = Path("main.build")
     
-    output_dir = Path("dist/SkinCloner")
+    output_dir = Path("dist/LeagueUnlocked")
     
     # Wait a moment for Nuitka to finish writing files
     time.sleep(1)
@@ -171,12 +171,12 @@ def organize_output():
             shutil.copytree(dist_folder, output_dir)
             print(f"[OK] Copied distribution to {output_dir}/")
             
-            # Rename main.exe to SkinCloner.exe
+            # Rename main.exe to LeagueUnlocked.exe
             old_exe = output_dir / "main.exe"
-            new_exe = output_dir / "SkinCloner.exe"
+            new_exe = output_dir / "LeagueUnlocked.exe"
             if old_exe.exists():
                 old_exe.rename(new_exe)
-                print(f"[OK] Renamed main.exe to SkinCloner.exe")
+                print(f"[OK] Renamed main.exe to LeagueUnlocked.exe")
                 
         except Exception as e:
             print(f"[ERROR] Failed to copy distribution: {e}")
@@ -189,9 +189,9 @@ def organize_output():
     
     # Create launcher
     launcher_content = '''@echo off
-echo Starting SkinCloner...
+echo Starting LeagueUnlocked...
 echo.
-"%~dp0SkinCloner.exe" --verbose
+"%~dp0LeagueUnlocked.exe" --verbose
 if errorlevel 1 (
     echo.
     echo Application encountered an error.
@@ -213,7 +213,7 @@ if errorlevel 1 (
         except Exception as e:
             print(f"[WARNING] Could not clean build artifacts: {e}")
     
-    # Clean up main.dist (already copied to dist/SkinCloner)
+    # Clean up main.dist (already copied to dist/LeagueUnlocked)
     if dist_folder.exists():
         try:
             shutil.rmtree(dist_folder)
@@ -262,7 +262,7 @@ def check_pytorch_cuda():
 
 def main():
     """Main build process"""
-    print_header("SkinCloner - Nuitka Build (Python to C Compilation)")
+    print_header("LeagueUnlocked - Nuitka Build (Python to C Compilation)")
     
     # Check PyTorch CUDA support
     check_pytorch_cuda()
@@ -303,8 +303,8 @@ def main():
     # Print summary
     print_header("[OK] BUILD COMPLETED SUCCESSFULLY!")
     
-    exe_path = Path("dist/SkinCloner/SkinCloner.exe")
-    tools_path = Path("dist/SkinCloner/injection/tools")
+    exe_path = Path("dist/LeagueUnlocked/LeagueUnlocked.exe")
+    tools_path = Path("dist/LeagueUnlocked/injection/tools")
     
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
@@ -327,7 +327,7 @@ def main():
         print(f"  - CSLOL tools included in injection/tools/")
         print(f"  - Can be run from any location")
         print(f"\nTo test:")
-        print(f"  cd dist\\SkinCloner")
+        print(f"  cd dist\\LeagueUnlocked")
         print(f"  start.bat")
     else:
         print("[ERROR] Executable not found!")

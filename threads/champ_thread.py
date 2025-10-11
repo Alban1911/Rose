@@ -96,17 +96,6 @@ class ChampThread(threading.Thread):
                             try:
                                 chroma_selector.panel.request_create()
                                 log.debug(f"[lock:champ] Requested chroma panel creation for {nm}")
-                                
-                                # Download chroma previews for this champion if not already done
-                                from utils.chroma_preview_manager import get_preview_manager
-                                preview_manager = get_preview_manager()
-                                
-                                def download_previews():
-                                    preview_manager.download_champion_previews(nm)
-                                
-                                import threading
-                                threading.Thread(target=download_previews, daemon=True, name="ChromaPreviewDownload").start()
-                                
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
                     

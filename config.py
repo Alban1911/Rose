@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Global constants for SkinCloner
+Global constants for LeagueUnlocked
 All arbitrary values are centralized here for easy tracking and modification
 """
 
@@ -10,7 +10,7 @@ All arbitrary values are centralized here for easy tracking and modification
 # =============================================================================
 
 APP_VERSION = "1.1.0"                    # Application version
-APP_USER_AGENT = f"SkinCloner/{APP_VERSION}"  # User-Agent header for HTTP requests
+APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 
 # =============================================================================
@@ -353,10 +353,10 @@ WINDOWS_DPI_AWARENESS_SYSTEM = 1         # PROCESS_SYSTEM_DPI_AWARE
 # =============================================================================
 
 # Lock file name
-LOCK_FILE_NAME = "skincloner.lock"
+LOCK_FILE_NAME = "leagueunlocked.lock"
 
 # Log file pattern
-LOG_FILE_PATTERN = "skincloner_*.log"
+LOG_FILE_PATTERN = "leagueunlocked_*.log"
 LOG_TIMESTAMP_FORMAT = "%d-%m-%Y_%H-%M-%S"  # European format, Windows-compatible
 
 

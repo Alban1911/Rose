@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Create Windows installer for SkinCloner using Inno Setup
+Create Windows installer for LeagueUnlocked using Inno Setup
 """
 
 import os
@@ -14,7 +14,7 @@ def create_installer():
     """Create Windows installer using Inno Setup"""
     
     print("=" * 60)
-    print("Creating SkinCloner Windows Installer")
+    print("Creating LeagueUnlocked Windows Installer")
     print("=" * 60)
     
     # Check if Inno Setup is installed
@@ -40,8 +40,8 @@ def create_installer():
     print(f"Found Inno Setup: {iscc_path}")
     
     # Check if dist directory exists
-    if not os.path.exists("dist/SkinCloner"):
-        print("\nError: dist/SkinCloner directory not found!")
+    if not os.path.exists("dist/LeagueUnlocked"):
+        print("\nError: dist/LeagueUnlocked directory not found!")
         print("Please run 'python build_nuitka.py' first to create the executable.")
         return False
     
@@ -58,7 +58,7 @@ def create_installer():
     
     # Copy icon file to dist directory if it doesn't exist
     icon_src = Path("icon.ico")
-    icon_dst = Path("dist/SkinCloner/icon.ico")
+    icon_dst = Path("dist/LeagueUnlocked/icon.ico")
     if icon_src.exists() and not icon_dst.exists():
         shutil.copy2(icon_src, icon_dst)
         print(f"Copied {icon_src} to {icon_dst}")
@@ -80,7 +80,7 @@ def create_installer():
     print("\n[3/3] Installer created successfully!")
     
     # Check if installer was created
-    installer_files = list(installer_dir.glob("SkinCloner_Setup*.exe"))
+    installer_files = list(installer_dir.glob("LeagueUnlocked_Setup*.exe"))
     if installer_files:
         installer_file = installer_files[0]
         size_mb = installer_file.stat().st_size / (1024 * 1024)

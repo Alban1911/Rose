@@ -269,7 +269,9 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.skin_name = skin_name
         self.circles = []
         
-        # Base skin gets no preview (will show red X)
+        # Load base skin preview
+        base_preview = self._load_chroma_preview_image(skin_name, chroma_id=0, champion_name=champion_name)
+        
         base_circle = ChromaCircle(
             chroma_id=0,
             name="Base",
@@ -277,7 +279,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
             x=0,  # Will be positioned later
             y=0,
             radius=self.circle_radius,
-            preview_image=None  # No preview for base
+            preview_image=base_preview  # Load base skin preview
         )
         base_circle.is_selected = True
         self.circles.append(base_circle)
@@ -350,75 +352,27 @@ class ChromaPanelWidget(ChromaWidgetBase):
         return colors[index % len(colors)]
     
     def _load_chroma_preview_image(self, skin_name: str, chroma_id: Optional[int], champion_name: str = None) -> Optional[QPixmap]:
-        """Load chroma preview image - checks cache first, then README if needed"""
+        """Load chroma preview image from SkinPreviews repository"""
         try:
-            if chroma_id is None:
-                # Base skin - return None (will show red X)
+            if champion_name is None:
+                log.debug(f"[CHROMA] No champion name provided for preview")
                 return None
             
-            # FIRST: Try loading directly from cache (fast path)
-            # This works even if skins aren't downloaded, only previews
+            # Load from SkinPreviews repository
             from utils.chroma_preview_manager import get_preview_manager
             preview_manager = get_preview_manager()
             
-            image_path = preview_manager.get_preview_path(chroma_id)
+            image_path = preview_manager.get_preview_path(champion_name, skin_name, chroma_id)
+            
             if image_path:
-                log.debug(f"[CHROMA] Loading preview from cache: {image_path.name}")
+                log.debug(f"[CHROMA] Loading preview: {image_path.name}")
                 return QPixmap(str(image_path))
             
-            # SECOND: If not in cache, try to trigger download from README
-            # (This path is used when skins are downloaded but previews aren't cached yet)
-            skins_dir = get_skins_dir()
-            
-            # Direct path: skins/{Champion}/chromas/{SkinName}/README.md
-            if champion_name:
-                # Try direct path with champion name (check both "chromas" and "Chromas")
-                readme_path = skins_dir / champion_name / "chromas" / skin_name / "README.md"
-                if not readme_path.exists():
-                    readme_path = skins_dir / champion_name / "Chromas" / skin_name / "README.md"
-                
-                if readme_path.exists():
-                    log.debug(f"[CHROMA] Found README at: {readme_path}")
-                    return self._extract_image_from_readme(readme_path, chroma_id)
-            
-            # Fallback: search for the skin name in chromas directories
-            for champion_dir in skins_dir.iterdir():
-                if not champion_dir.is_dir():
-                    continue
-                
-                chromas_dir = champion_dir / "chromas" / skin_name
-                readme_path = chromas_dir / "README.md"
-                
-                if readme_path.exists():
-                    log.debug(f"[CHROMA] Found README at: {readme_path}")
-                    return self._extract_image_from_readme(readme_path, chroma_id)
-            
-            log.debug(f"[CHROMA] No preview found for chroma {chroma_id} ('{skin_name}')")
+            log.debug(f"[CHROMA] No preview found for {champion_name}/{skin_name}/chroma_{chroma_id}")
             return None
             
         except Exception as e:
             log.error(f"[CHROMA] Error loading chroma preview: {e}")
-            return None
-    
-    def _extract_image_from_readme(self, readme_path: Path, chroma_id: int) -> Optional[QPixmap]:
-        """Load image for specific chroma ID from cache (called when README exists)"""
-        try:
-            # Load from central previewcache folder
-            from utils.chroma_preview_manager import get_preview_manager
-            preview_manager = get_preview_manager()
-            
-            image_path = preview_manager.get_preview_path(chroma_id)
-            
-            if image_path:
-                log.debug(f"[CHROMA] Loading preview from cache: {image_path.name}")
-                return QPixmap(str(image_path))
-            
-            # Image not in cache - could trigger download here if needed
-            log.debug(f"[CHROMA] Preview not in cache: {chroma_id}")
-            return None
-            
-        except Exception as e:
-            log.warning(f"[CHROMA] Error loading preview image: {e}")
             return None
     
     
@@ -581,14 +535,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
             hovered_name = display_circle.name
             preview_image = display_circle.preview_image
         
-        # Check if this is base skin (chroma_id == 0)
-        is_base = display_index == 0 or display_index is None
-        
-        if is_base:
-            # Base skin - show nothing in preview (empty dark background)
-            pass
-            
-        elif preview_image and not preview_image.isNull():
+        # Draw preview image (for both base skin and chromas)
+        if preview_image and not preview_image.isNull():
             # Scale image to fit preview area (maintains aspect ratio)
             scaled_preview = preview_image.scaled(
                 self.preview_width, 

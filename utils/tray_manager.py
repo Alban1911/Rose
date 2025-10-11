@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-System tray manager for SkinCloner
+System tray manager for LeagueUnlocked
 """
 
 import os
@@ -21,7 +21,7 @@ log = get_logger()
 
 
 class TrayManager:
-    """Manages the system tray icon for SkinCloner"""
+    """Manages the system tray icon for LeagueUnlocked"""
     
     def __init__(self, quit_callback: Optional[Callable] = None):
         """
@@ -46,7 +46,7 @@ class TrayManager:
         image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
         
-        # Draw a simple "SC" logo (SkinCloner)
+        # Draw a simple "SC" logo (LeagueUnlocked)
         # Background circle (scaled 2x)
         draw.ellipse(TRAY_ICON_ELLIPSE_COORDS, fill=(0, 100, 200, 255), outline=(0, 50, 100, 255), width=TRAY_ICON_BORDER_WIDTH)
         
@@ -161,7 +161,7 @@ class TrayManager:
                 # Show error message using threaded message box
                 show_message_box_threaded(
                     "Administrator privileges are required to register auto-start.\n\n"
-                    "SkinCloner is already running as Administrator, but something went wrong.\n\n"
+                    "LeagueUnlocked is already running as Administrator, but something went wrong.\n\n"
                     "Please try restarting the application.",
                     "Admin Rights Required",
                     0x10  # MB_ICONERROR
@@ -205,7 +205,7 @@ class TrayManager:
                 # Show error message using threaded message box
                 show_message_box_threaded(
                     "Administrator privileges are required to unregister auto-start.\n\n"
-                    "SkinCloner is already running as Administrator, but something went wrong.\n\n"
+                    "LeagueUnlocked is already running as Administrator, but something went wrong.\n\n"
                     "Please try restarting the application.",
                     "Admin Rights Required",
                     0x10  # MB_ICONERROR
@@ -250,7 +250,7 @@ class TrayManager:
             autostart_item = pystray.MenuItem("Enable Auto-Start", self._on_enable_autostart)
         
         return pystray.Menu(
-            pystray.MenuItem("SkinCloner", None, enabled=False),
+            pystray.MenuItem("LeagueUnlocked", None, enabled=False),
             pystray.Menu.SEPARATOR,
             autostart_item,
             pystray.Menu.SEPARATOR,
@@ -266,9 +266,9 @@ class TrayManager:
             menu = self._create_menu()
             
             self.icon = pystray.Icon(
-                "SkinCloner",
+                "LeagueUnlocked",
                 icon_image,
-                "SkinCloner",
+                "LeagueUnlocked",
                 menu,
                 default_action=self._on_icon_click
             )
