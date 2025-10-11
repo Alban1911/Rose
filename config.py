@@ -106,6 +106,8 @@ WS_PING_TIMEOUT_DEFAULT = 10   # Seconds before WebSocket ping times out
 WS_RECONNECT_DELAY = 1.0       # Seconds to wait before WebSocket reconnect
 
 # Lock detection timing
+# Note: Loadout timer ONLY starts on FINALIZATION phase (final countdown before game start)
+# This prevents premature timer start in game modes where all champions lock before bans complete
 WS_PROBE_ITERATIONS = 8        # Number of LCU timer probe attempts
 WS_PROBE_SLEEP_MS = 60         # Milliseconds between probe attempts (0.06s)
 WS_PROBE_WINDOW_MS = 480       # Total probe window (8 * 60ms ~= 480ms)

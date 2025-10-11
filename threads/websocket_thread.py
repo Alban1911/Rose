@@ -57,30 +57,31 @@ class WSEventThread(threading.Thread):
         self.ticker: Optional[LoadoutTicker] = None
 
     def _maybe_start_timer(self, sess: dict):
-        """Start timer if conditions are met"""
+        """Start timer if conditions are met - ONLY on FINALIZATION phase"""
         t = (sess.get("timer") or {})
         phase_timer = str((t.get("phase") or "")).upper()
         left_ms = int(t.get("adjustedTimeLeftInPhase") or 0)
-        total = self.state.players_visible
-        locked_count = len(self.state.locks_by_cell)
         should_start = False
         probe_used = False
         
-        # FINALIZATION → top priority
-        if phase_timer == "FINALIZATION" and left_ms > 0:
-            should_start = True
-        # All locked: try to READ LCU timer (short grace window) before fallback
-        elif (total > 0 and locked_count >= total):
+        # ONLY start timer on FINALIZATION phase (final countdown before game start)
+        # This prevents starting too early when all champions are locked but bans are still in progress
+        if phase_timer == "FINALIZATION":
+            # If timer value is not ready yet, probe a few times to give LCU time to publish it
             if left_ms <= 0:
                 # Small 0.5s window to let LCU publish a non-zero timer
                 for _ in range(WS_PROBE_ITERATIONS):  # 8 * 60ms ~= 480ms
                     s2 = self.lcu.session or {}
                     t2 = (s2.get("timer") or {})
+                    phase_timer_probe = str((t2.get("phase") or "")).upper()
                     left_ms = int(t2.get("adjustedTimeLeftInPhase") or 0)
-                    if left_ms > 0:
+                    # Only accept timer if still in FINALIZATION phase
+                    if phase_timer_probe == "FINALIZATION" and left_ms > 0:
                         probe_used = True
                         break
                     time.sleep(WS_PROBE_SLEEP_MS / 1000.0)
+            
+            # Start timer only if we have a positive value
             if left_ms > 0:
                 should_start = True
 
@@ -92,12 +93,13 @@ class WSEventThread(threading.Thread):
                     self.state.ticker_seq = (self.state.ticker_seq or 0) + 1
                     self.state.current_ticker = self.state.ticker_seq
                     self.state.loadout_countdown_active = True
-                    mode = ("finalization" if (phase_timer == "FINALIZATION" and left_ms > 0) else "lcu-probe")
+                    mode = "finalization"  # Always finalization mode now (only starts on FINALIZATION phase)
                     log_event(log, f"Loadout ticker started", "⏰", {
                         "ID": self.state.current_ticker,
                         "Mode": mode,
                         "Remaining": f"{left_ms}ms ({left_ms/1000:.3f}s)",
-                        "Hz": self.timer_hz
+                        "Hz": self.timer_hz,
+                        "Phase": phase_timer
                     })
                     if self.ticker is None or not self.ticker.is_alive():
                         self.ticker = LoadoutTicker(self.lcu, self.state, self.timer_hz, self.fallback_ms, ticker_id=self.state.current_ticker, mode=mode, db=self.db, injection_manager=self.injection_manager)
