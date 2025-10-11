@@ -25,6 +25,7 @@ class OpeningButton(ChromaWidgetBase):
         self.is_hovered = False
         self.is_hiding = False  # Flag to prevent painting during hide
         self.panel_is_open = False  # Flag to show button as hovered when panel is open
+        self.current_chroma_color = None  # Current selected chroma color (None = show rainbow)
         
         # Common window flags already set by parent class
         
@@ -173,44 +174,59 @@ class OpeningButton(ChromaWidgetBase):
         painter.setBrush(QBrush(border_color))
         painter.drawPath(dark_border_path)
         
-        # 3. Rainbow gradient ring (4px width) - yellow starts at top
-        # Draw gradient as outer circle, then cut out the inner part with dark color
-        rainbow_gradient = QConicalGradient(center, center, config.CHROMA_PANEL_CONICAL_START_ANGLE)
+        # 3. Gradient ring (4px width) - shows rainbow or chroma color
+        # If a chroma is selected, show chroma color; otherwise show rainbow
+        painter.setPen(Qt.PenStyle.NoPen)
         
-        if should_darken:
-            # Darker rainbow when hovered (50% darker)
-            rainbow_gradient.setColorAt(0.0, QColor(128, 0, 128))    # Darker Magenta
-            rainbow_gradient.setColorAt(0.16, QColor(128, 0, 0))     # Darker Red
-            rainbow_gradient.setColorAt(0.33, QColor(128, 82, 0))    # Darker Orange
-            rainbow_gradient.setColorAt(0.5, QColor(128, 128, 0))    # Darker Yellow
-            rainbow_gradient.setColorAt(0.66, QColor(0, 128, 0))     # Darker Green
-            rainbow_gradient.setColorAt(0.83, QColor(0, 0, 128))     # Darker Blue
-            rainbow_gradient.setColorAt(1.0, QColor(64, 0, 64))      # Darker Purple
+        if self.current_chroma_color:
+            # Chroma selected - fill entire center with chroma color (gradient ring + center)
+            chroma_color = QColor(self.current_chroma_color)
+            
+            # Darken if hovered
+            if should_darken:
+                chroma_color = chroma_color.darker(200)  # 50% darker
+            
+            # Fill entire center with chroma color (no gradient, no dark center - just solid color)
+            painter.setBrush(QBrush(chroma_color))
+            painter.drawEllipse(QPoint(center, center), gradient_outer_radius, gradient_outer_radius)
         else:
-            # Normal rainbow gradient
-            rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
-            rainbow_gradient.setColorAt(0.16, QColor(255, 0, 0))     # Red
-            rainbow_gradient.setColorAt(0.33, QColor(255, 165, 0))   # Orange
-            rainbow_gradient.setColorAt(0.5, QColor(255, 255, 0))    # Yellow (now at top)
-            rainbow_gradient.setColorAt(0.66, QColor(0, 255, 0))     # Green
-            rainbow_gradient.setColorAt(0.83, QColor(0, 0, 255))     # Blue
-            rainbow_gradient.setColorAt(1.0, QColor(128, 0, 128))    # Purple
-        
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(rainbow_gradient))
-        painter.drawEllipse(QPoint(center, center), gradient_outer_radius, gradient_outer_radius)
-        
-        # Cut out the inner part of the gradient ring to create the ring shape
-        center_color = QColor(10, 10, 10) if should_darken else QColor(20, 20, 20)
-        painter.setBrush(QBrush(center_color))
-        painter.drawEllipse(center - int(gradient_inner_radius), center - int(gradient_inner_radius), 
-                           int(gradient_inner_radius) * 2, int(gradient_inner_radius) * 2)
-        
-        # 4. Dark central disk (5px diameter = 2.5px radius)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(center_color))
-        painter.drawEllipse(center - int(inner_radius), center - int(inner_radius), 
-                           int(inner_radius) * 2, int(inner_radius) * 2)
+            # Base skin - show rainbow gradient with dark center
+            rainbow_gradient = QConicalGradient(center, center, config.CHROMA_PANEL_CONICAL_START_ANGLE)
+            
+            if should_darken:
+                # Darker rainbow when hovered (50% darker)
+                rainbow_gradient.setColorAt(0.0, QColor(128, 0, 128))    # Darker Magenta
+                rainbow_gradient.setColorAt(0.16, QColor(128, 0, 0))     # Darker Red
+                rainbow_gradient.setColorAt(0.33, QColor(128, 82, 0))    # Darker Orange
+                rainbow_gradient.setColorAt(0.5, QColor(128, 128, 0))    # Darker Yellow
+                rainbow_gradient.setColorAt(0.66, QColor(0, 128, 0))     # Darker Green
+                rainbow_gradient.setColorAt(0.83, QColor(0, 0, 128))     # Darker Blue
+                rainbow_gradient.setColorAt(1.0, QColor(64, 0, 64))      # Darker Purple
+            else:
+                # Normal rainbow gradient
+                rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
+                rainbow_gradient.setColorAt(0.16, QColor(255, 0, 0))     # Red
+                rainbow_gradient.setColorAt(0.33, QColor(255, 165, 0))   # Orange
+                rainbow_gradient.setColorAt(0.5, QColor(255, 255, 0))    # Yellow (now at top)
+                rainbow_gradient.setColorAt(0.66, QColor(0, 255, 0))     # Green
+                rainbow_gradient.setColorAt(0.83, QColor(0, 0, 255))     # Blue
+                rainbow_gradient.setColorAt(1.0, QColor(128, 0, 128))    # Purple
+            
+            painter.setBrush(QBrush(rainbow_gradient))
+            painter.drawEllipse(QPoint(center, center), gradient_outer_radius, gradient_outer_radius)
+            
+            # Cut out the inner part of the gradient ring to create the ring shape (only for base/rainbow)
+            center_color = QColor(10, 10, 10) if should_darken else QColor(20, 20, 20)
+            
+            painter.setBrush(QBrush(center_color))
+            painter.drawEllipse(center - int(gradient_inner_radius), center - int(gradient_inner_radius), 
+                               int(gradient_inner_radius) * 2, int(gradient_inner_radius) * 2)
+            
+            # 4. Dark central disk (only for base/rainbow)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(center_color))
+            painter.drawEllipse(center - int(inner_radius), center - int(inner_radius), 
+                               int(inner_radius) * 2, int(inner_radius) * 2)
     
     def mousePressEvent(self, event):
         """Handle button press - track that button was pressed"""
@@ -274,6 +290,15 @@ class OpeningButton(ChromaWidgetBase):
             if self.panel_is_open != is_open:
                 self.panel_is_open = is_open
                 self.update()
+        except RuntimeError as e:
+            # Widget may have been deleted
+            pass
+    
+    def set_chroma_color(self, color: str = None):
+        """Set the chroma color to display (None = show rainbow gradient)"""
+        try:
+            self.current_chroma_color = color
+            self.update()
         except RuntimeError as e:
             # Widget may have been deleted
             pass

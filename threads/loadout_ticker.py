@@ -194,7 +194,7 @@ class LoadoutTicker(threading.Thread):
                                 
                                 # Find the user's action ID to update
                                 try:
-                                    sess = self.lcu.session() or {}
+                                    sess = self.lcu.session or {}  # session is a property, not a method!
                                     actions = sess.get("actions") or []
                                     my_cell = self.state.local_cell_id
                                     
@@ -231,7 +231,7 @@ class LoadoutTicker(threading.Thread):
                                     # Verify the change was applied
                                     if forced_successfully:
                                         time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
-                                        verify_sess = self.lcu.session() or {}
+                                        verify_sess = self.lcu.session or {}  # session is a property, not a method!
                                         verify_team = verify_sess.get("myTeam") or []
                                         for player in verify_team:
                                             if player.get("cellId") == my_cell:

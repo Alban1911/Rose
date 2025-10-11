@@ -36,6 +36,7 @@ class ChromaPanelManager:
         self.current_chromas = None
         self.current_champion_name = None  # Track champion for direct path
         self.current_selected_chroma_id = None  # Track currently applied chroma
+        self.current_chroma_color = None  # Track current chroma color for button display
         self.lock = threading.RLock()  # Use RLock for reentrant locking (prevents deadlock)
         self._rebuilding = False  # Flag to prevent infinite rebuild loops
     
@@ -163,13 +164,31 @@ class ChromaPanelManager:
         if self.on_chroma_selected:
             self.on_chroma_selected(chroma_id, chroma_name)
         
-        # Track the selected chroma ID and request button state update
+        # Track the selected chroma ID and update button color
         with self.lock:
             self.current_selected_chroma_id = chroma_id if chroma_id != 0 else None
+            
+            # Update button color to match selected chroma
+            if self.reopen_button:
+                # Find the selected chroma's color from current_chromas
+                chroma_color = None
+                if chroma_id != 0 and self.current_chromas:
+                    for chroma in self.current_chromas:
+                        if chroma.get('id') == chroma_id:
+                            colors = chroma.get('colors', [])
+                            if colors:
+                                chroma_color = colors[0] if not colors[0].startswith('#') else colors[0][1:]
+                                if not chroma_color.startswith('#'):
+                                    chroma_color = f"#{chroma_color}"
+                            break
+                
+                # Set button color (None = rainbow for base skin)
+                self.current_chroma_color = chroma_color  # Save for rebuilds
+                self.reopen_button.set_chroma_color(chroma_color)
+                log.debug(f"[CHROMA] Button color updated to: {chroma_color if chroma_color else 'rainbow'}")
+            
             self.pending_update_button_state = False  # Wheel will be hidden, so button should be unhovered
             log_event(log, f"Chroma selected: {chroma_name}" if chroma_id != 0 else "Base skin selected", "✨")
-            # Button is already visible - no need to show it again
-            # self.pending_show_button = True  # REMOVED - button already visible
     
     def _on_reopen_clicked(self):
         """Handle button click - toggle the panel for current skin"""
@@ -218,7 +237,12 @@ class ChromaPanelManager:
                 log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
                 self.pending_hide = True
                 self.current_selected_chroma_id = None  # Reset selection for new skin
+                self.current_chroma_color = None  # Reset chroma color
                 self.pending_update_button_state = False  # Reset button state when switching skins
+                
+                # Reset button to rainbow
+                if self.reopen_button:
+                    self.reopen_button.set_chroma_color(None)
             
             # Update current skin data for button (store champion name for later)
             self.current_skin_id = skin_id
@@ -284,7 +308,12 @@ class ChromaPanelManager:
                     log.info("[CHROMA] Creating new widgets with updated resolution...")
                     self._create_widgets()
                     
-                    # Restore visibility state FIRST
+                    # Restore chroma color on button after rebuild
+                    if self.reopen_button and self.current_chroma_color:
+                        self.reopen_button.set_chroma_color(self.current_chroma_color)
+                        log.debug(f"[CHROMA] Button color restored after rebuild: {self.current_chroma_color}")
+                    
+                    # Restore visibility state
                     if was_button_visible and self.current_skin_name and self.current_chromas:
                         log.info("[CHROMA] Restoring button visibility after rebuild")
                         self.pending_show_button = True
@@ -397,6 +426,11 @@ class ChromaPanelManager:
         with self.lock:
             self.pending_hide_button = True
             self.pending_update_button_state = False  # Reset button state when hiding
+            self.current_chroma_color = None  # Reset color when hiding
+            
+            # Reset button to rainbow
+            if self.reopen_button:
+                self.reopen_button.set_chroma_color(None)
     
     def cleanup(self):
         """Clean up resources (called on app exit)"""
