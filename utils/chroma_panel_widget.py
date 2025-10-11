@@ -159,33 +159,43 @@ class ChromaPanelWidget(ChromaWidgetBase):
     
     def check_resolution_and_update(self):
         """Check if resolution changed and update UI if needed"""
-        # Get current scaled values (from cache, which auto-detects resolution)
-        new_scaled = get_scaled_chroma_values()
+        # Get current League resolution directly (bypass cache)
+        from utils.window_utils import get_league_window_client_size
+        current_resolution = get_league_window_client_size()
         
-        # Check if resolution changed
-        if new_scaled.resolution != self._current_resolution:
-            log.info(f"[CHROMA] Resolution changed from {self._current_resolution} to {new_scaled.resolution}, updating UI")
+        if not current_resolution:
+            return  # League window not found
+        
+        # Check if resolution actually changed
+        if current_resolution != self._current_resolution:
+            log.info(f"[CHROMA] Panel resolution changed from {self._current_resolution} to {current_resolution}, updating UI")
             
-            # Update scaled values reference
+            # Force recalculation with new resolution
+            new_scaled = get_scaled_chroma_values(resolution=current_resolution, force_reload=False)
+            
+            # Update stored values
             self.scaled = new_scaled
-            self._current_resolution = new_scaled.resolution
+            self._current_resolution = current_resolution
             
-            # Update dimensions
+            # Update dimensions from new scaled values
             self._update_dimensions_from_scaled()
             
-            # Update window size
+            # Update window size (must happen BEFORE repositioning)
+            old_width, old_height = self.window_width, self.window_height
             self.setFixedSize(self.window_width, self.window_height + self.notch_height)
             
             # Update window mask for new size
             self._update_window_mask()
             
-            # Update position
+            # Update position with new size and offsets
             self.position_relative_to_anchor(
                 width=self.window_width,
                 height=self.window_height + self.notch_height,
                 offset_x=self.scaled.panel_offset_x,
                 offset_y=self.scaled.panel_offset_y
             )
+            
+            log.debug(f"[CHROMA] Panel resized from {old_width}x{old_height}px to {self.window_width}x{self.window_height}px")
             
             # Recalculate circle positions if we have chromas loaded
             if self.circles:
@@ -710,52 +720,59 @@ class ChromaPanelWidget(ChromaWidgetBase):
         super().changeEvent(event)
     
     def eventFilter(self, obj, event):
-        """Filter application events to detect clicks outside the chroma UI"""
-        # Process mouse button events when the panel is visible
+        """Filter application events to detect clicks outside the chroma UI
+        
+        Note: When parented to League window, coordinate conversion is unreliable,
+        so we rely primarily on focus loss events instead.
+        """
+        # Skip event filtering if we're parented (child window mode)
+        # In child window mode, we rely on focus loss to close the panel
+        if hasattr(self, '_league_window_hwnd') and self._league_window_hwnd:
+            return super().eventFilter(obj, event)
+        
+        # Original event filtering for non-parented mode
         if self.isVisible():
             # Track mouse press position
             if event.type() == event.Type.MouseButtonPress:
-                # Store press position but don't close yet
-                self._press_pos = event.globalPosition().toPoint()
-                return False  # Continue event propagation
+                try:
+                    self._press_pos = event.globalPosition().toPoint()
+                except AttributeError:
+                    self._press_pos = event.globalPos()
+                return False
             
             # Mouse button release - check if still outside chroma UI
             elif event.type() == event.Type.MouseButtonRelease:
-                # Get the release position
-                release_pos = event.globalPosition().toPoint()
+                try:
+                    release_pos = event.globalPosition().toPoint()
+                except AttributeError:
+                    release_pos = event.globalPos()
                 
-                # Check if the release is on the panel widget itself - if so, don't close
-                local_pos = self.mapFromGlobal(release_pos)
-                if self.rect().contains(local_pos):
-                    return False  # Release is inside the panel, don't close
+                try:
+                    local_pos = self.mapFromGlobal(release_pos)
+                    if self.rect().contains(local_pos):
+                        return False
+                except Exception:
+                    pass
                 
-                # Check if the release is on the reopen button - if so, let button handle it
                 if self.reopen_button_ref is not None:
                     try:
                         button_local_pos = self.reopen_button_ref.mapFromGlobal(release_pos)
                         if self.reopen_button_ref.rect().contains(button_local_pos):
-                            # Release is on the button - let button's handler deal with it
-                            # The button will toggle the panel (close it since it's open)
-                            # Ignore next deactivate event since button will handle the close
                             self.ignore_next_deactivate = True
-                            return False  # Don't close here, let button handle it
-                    except (RuntimeError, AttributeError):
-                        # Button may have been deleted
+                            return False
+                    except (RuntimeError, AttributeError, Exception):
                         pass
                 
-                # Release was outside both the panel and button - close the panel
-                # This includes clicks on the League window
                 log.debug("[CHROMA] Mouse released outside chroma UI, closing panel")
                 self.hide()
-                return False  # Continue event propagation
+                return False
             
-            # Focus out event - also close panel
+            # Focus out event
             elif event.type() == event.Type.FocusOut:
                 log.debug("[CHROMA] Panel lost focus (FocusOut), closing")
                 self.hide()
                 return False
         
-        # Continue normal event processing
         return super().eventFilter(obj, event)
 
 

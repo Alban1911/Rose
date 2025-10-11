@@ -188,14 +188,16 @@ class OpeningButton(ChromaWidgetBase):
         """Handle button release - trigger action on click+release"""
         if event.button() == Qt.MouseButton.LeftButton:
             # Check if mouse is still over the button
+            # Clickable zone is 20% bigger than visual button for easier clicking
             center = self.button_size // 2
-            radius = (self.button_size // 2) - 5
+            visual_radius = (self.button_size // 2) - 5
+            clickable_radius = int(visual_radius * 1.2)  # 20% bigger clickable area
             dx = event.pos().x() - center
             dy = event.pos().y() - center
             dist = math.sqrt(dx * dx + dy * dy)
             
-            # Only trigger if released while still over the button
-            if dist <= radius:
+            # Only trigger if released while still over the button (using larger clickable radius)
+            if dist <= clickable_radius:
                 if self.on_click:
                     self.on_click()
         event.accept()
@@ -203,19 +205,24 @@ class OpeningButton(ChromaWidgetBase):
     def mouseMoveEvent(self, event):
         """Handle mouse hover"""
         center = self.button_size // 2
-        radius = (self.button_size // 2) - 5
+        visual_radius = (self.button_size // 2) - 5
+        clickable_radius = int(visual_radius * 1.2)  # 20% bigger clickable area
         dx = event.pos().x() - center
         dy = event.pos().y() - center
         dist = math.sqrt(dx * dx + dy * dy)
         
+        # Visual hover uses standard radius
         was_hovered = self.is_hovered
-        self.is_hovered = dist <= radius
+        self.is_hovered = dist <= visual_radius
         
         if was_hovered != self.is_hovered:
             self.update()
         
-        # Cursor is always hand pointer since entire button widget is clickable
-        # (already set in __init__)
+        # Cursor changes to pointer in the extended clickable area (20% bigger)
+        if dist <= clickable_radius:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
     
     def leaveEvent(self, event):
         """Handle mouse leave"""
@@ -236,30 +243,40 @@ class OpeningButton(ChromaWidgetBase):
     
     def check_resolution_and_update(self):
         """Check if resolution changed and update UI if needed"""
-        # Get current scaled values (from cache, which auto-detects resolution)
-        new_scaled = get_scaled_chroma_values()
+        # Get current League resolution directly (bypass cache)
+        from utils.window_utils import get_league_window_client_size
+        current_resolution = get_league_window_client_size()
         
-        # Check if resolution changed
-        if new_scaled.resolution != self._current_resolution:
+        if not current_resolution:
+            return  # League window not found
+        
+        # Check if resolution actually changed
+        if current_resolution != self._current_resolution:
             from utils.logging import get_logger
             log = get_logger()
-            log.info(f"[CHROMA] Button resolution changed from {self._current_resolution} to {new_scaled.resolution}, updating UI")
+            log.info(f"[CHROMA] Button resolution changed from {self._current_resolution} to {current_resolution}, updating UI")
             
-            # Update scaled values reference
+            # Force recalculation with new resolution
+            new_scaled = get_scaled_chroma_values(resolution=current_resolution, force_reload=False)
+            
+            # Update stored values
             self.scaled = new_scaled
-            self._current_resolution = new_scaled.resolution
+            self._current_resolution = current_resolution
             
-            # Update button size
+            # Update button size (must happen BEFORE repositioning)
+            old_size = self.button_size
             self.button_size = self.scaled.button_size
             self.setFixedSize(self.button_size, self.button_size)
             
-            # Update position
+            # Update position with new size and offsets
             self.position_relative_to_anchor(
                 width=self.button_size,
                 height=self.button_size,
                 offset_x=self.scaled.button_offset_x,
                 offset_y=self.scaled.button_offset_y
             )
+            
+            log.debug(f"[CHROMA] Button resized from {old_size}px to {self.button_size}px")
             
             # Force repaint
             self.update()

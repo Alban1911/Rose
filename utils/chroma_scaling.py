@@ -7,25 +7,7 @@ Provides dynamic scaling based on League window resolution
 
 from typing import Tuple, Optional
 from utils.window_utils import get_league_window_client_size
-from config import (
-    CHROMA_UI_REFERENCE_WIDTH, CHROMA_UI_REFERENCE_HEIGHT,
-    # Dimension ratios
-    CHROMA_PANEL_PREVIEW_WIDTH_RATIO, CHROMA_PANEL_PREVIEW_HEIGHT_RATIO,
-    CHROMA_PANEL_CIRCLE_RADIUS_RATIO, CHROMA_PANEL_WINDOW_WIDTH_RATIO,
-    CHROMA_PANEL_WINDOW_HEIGHT_RATIO, CHROMA_PANEL_CIRCLE_SPACING_RATIO,
-    CHROMA_PANEL_BUTTON_SIZE_RATIO,
-    # Positioning ratios
-    CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO, CHROMA_PANEL_PREVIEW_X_RATIO,
-    CHROMA_PANEL_PREVIEW_Y_RATIO, CHROMA_PANEL_ROW_Y_OFFSET_RATIO,
-    # Button visual ratios
-    CHROMA_PANEL_GOLD_BORDER_PX_RATIO, CHROMA_PANEL_DARK_BORDER_PX_RATIO,
-    CHROMA_PANEL_GRADIENT_RING_PX_RATIO, CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO,
-    # UI positioning ratios
-    CHROMA_UI_ANCHOR_OFFSET_X_RATIO, CHROMA_UI_ANCHOR_OFFSET_Y_RATIO,
-    CHROMA_UI_BUTTON_OFFSET_X_RATIO, CHROMA_UI_BUTTON_OFFSET_Y_RATIO,
-    CHROMA_UI_PANEL_OFFSET_X_RATIO, CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO,
-    CHROMA_UI_SCREEN_MARGIN_RATIO
-)
+import config
 
 
 # Cache for scaling values to avoid recalculating every frame
@@ -47,7 +29,7 @@ def get_league_resolution() -> Tuple[int, int]:
     if client_size:
         return client_size
     # Fallback to reference resolution
-    return (CHROMA_UI_REFERENCE_WIDTH, CHROMA_UI_REFERENCE_HEIGHT)
+    return (config.CHROMA_UI_REFERENCE_WIDTH, config.CHROMA_UI_REFERENCE_HEIGHT)
 
 
 def get_scale_factor(resolution: Optional[Tuple[int, int]] = None) -> float:
@@ -66,7 +48,7 @@ def get_scale_factor(resolution: Optional[Tuple[int, int]] = None) -> float:
     width, height = resolution
     
     # Scale based on height (more consistent for 16:9 aspect ratios)
-    scale = height / CHROMA_UI_REFERENCE_HEIGHT
+    scale = height / config.CHROMA_UI_REFERENCE_HEIGHT
     
     return scale
 
@@ -113,42 +95,43 @@ class ScaledChromaValues:
         self._calculate_values()
     
     def _calculate_values(self):
-        """Calculate all scaled values from ratios"""
+        """Calculate all scaled values from ratios - reads from config dynamically"""
         h = self.height
         
-        # Panel dimensions
-        self.preview_width = int(CHROMA_PANEL_PREVIEW_WIDTH_RATIO * h)
-        self.preview_height = int(CHROMA_PANEL_PREVIEW_HEIGHT_RATIO * h)
-        self.circle_radius = int(CHROMA_PANEL_CIRCLE_RADIUS_RATIO * h)
-        self.window_width = int(CHROMA_PANEL_WINDOW_WIDTH_RATIO * h)
-        self.window_height = int(CHROMA_PANEL_WINDOW_HEIGHT_RATIO * h)
-        self.circle_spacing = int(CHROMA_PANEL_CIRCLE_SPACING_RATIO * h)
-        self.button_size = int(CHROMA_PANEL_BUTTON_SIZE_RATIO * h)
+        # Panel dimensions - read from config module (not cached imports)
+        # Everything scales based on height (as original design)
+        self.preview_width = int(config.CHROMA_PANEL_PREVIEW_WIDTH_RATIO * h)
+        self.preview_height = int(config.CHROMA_PANEL_PREVIEW_HEIGHT_RATIO * h)
+        self.circle_radius = int(config.CHROMA_PANEL_CIRCLE_RADIUS_RATIO * h)
+        self.window_width = int(config.CHROMA_PANEL_WINDOW_WIDTH_RATIO * h)
+        self.window_height = int(config.CHROMA_PANEL_WINDOW_HEIGHT_RATIO * h)
+        self.circle_spacing = int(config.CHROMA_PANEL_CIRCLE_SPACING_RATIO * h)
+        self.button_size = int(config.CHROMA_PANEL_BUTTON_SIZE_RATIO * h)
         
         # Ensure button size is odd (for true center pixel)
         if self.button_size % 2 == 0:
             self.button_size += 1
         
         # Panel positioning
-        self.screen_edge_margin = int(CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO * h)
-        self.preview_x = int(CHROMA_PANEL_PREVIEW_X_RATIO * h)
-        self.preview_y = int(CHROMA_PANEL_PREVIEW_Y_RATIO * h)
-        self.row_y_offset = int(CHROMA_PANEL_ROW_Y_OFFSET_RATIO * h)
+        self.screen_edge_margin = int(config.CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO * h)
+        self.preview_x = int(config.CHROMA_PANEL_PREVIEW_X_RATIO * h)
+        self.preview_y = int(config.CHROMA_PANEL_PREVIEW_Y_RATIO * h)
+        self.row_y_offset = int(config.CHROMA_PANEL_ROW_Y_OFFSET_RATIO * h)
         
         # Button visual dimensions
-        self.gold_border_px = CHROMA_PANEL_GOLD_BORDER_PX_RATIO * h
-        self.dark_border_px = CHROMA_PANEL_DARK_BORDER_PX_RATIO * h
-        self.gradient_ring_px = CHROMA_PANEL_GRADIENT_RING_PX_RATIO * h
-        self.inner_disk_radius_px = CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO * h
+        self.gold_border_px = config.CHROMA_PANEL_GOLD_BORDER_PX_RATIO * h
+        self.dark_border_px = config.CHROMA_PANEL_DARK_BORDER_PX_RATIO * h
+        self.gradient_ring_px = config.CHROMA_PANEL_GRADIENT_RING_PX_RATIO * h
+        self.inner_disk_radius_px = config.CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO * h
         
-        # UI positioning
-        self.anchor_offset_x = int(CHROMA_UI_ANCHOR_OFFSET_X_RATIO * h)
-        self.anchor_offset_y = int(CHROMA_UI_ANCHOR_OFFSET_Y_RATIO * h)
-        self.button_offset_x = int(CHROMA_UI_BUTTON_OFFSET_X_RATIO * h)
-        self.button_offset_y = int(CHROMA_UI_BUTTON_OFFSET_Y_RATIO * h)
-        self.panel_offset_x = int(CHROMA_UI_PANEL_OFFSET_X_RATIO * h)
-        self.panel_offset_y_base = int(CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO * h)
-        self.screen_margin = int(CHROMA_UI_SCREEN_MARGIN_RATIO * h)
+        # UI positioning - all use height for scaling (keeps proportions consistent)
+        self.anchor_offset_x = int(config.CHROMA_UI_ANCHOR_OFFSET_X_RATIO * h)
+        self.anchor_offset_y = int(config.CHROMA_UI_ANCHOR_OFFSET_Y_RATIO * h)
+        self.button_offset_x = int(config.CHROMA_UI_BUTTON_OFFSET_X_RATIO * h)
+        self.button_offset_y = int(config.CHROMA_UI_BUTTON_OFFSET_Y_RATIO * h)
+        self.panel_offset_x = int(config.CHROMA_UI_PANEL_OFFSET_X_RATIO * h)
+        self.panel_offset_y_base = int(config.CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO * h)
+        self.screen_margin = int(config.CHROMA_UI_SCREEN_MARGIN_RATIO * h)
         
         # Calculate final panel offset (with button size adjustment)
         self.panel_offset_y = self.panel_offset_y_base - (self.button_size // 2)
@@ -157,12 +140,13 @@ class ScaledChromaValues:
         return f"ScaledChromaValues({self.width}x{self.height}, scale={self.scale_factor:.2f})"
 
 
-def get_scaled_chroma_values(resolution: Optional[Tuple[int, int]] = None) -> ScaledChromaValues:
+def get_scaled_chroma_values(resolution: Optional[Tuple[int, int]] = None, force_reload: bool = False) -> ScaledChromaValues:
     """
     Get scaled chroma values with caching
     
     Args:
         resolution: (width, height) or None to auto-detect
+        force_reload: Force recalculation even if cached
         
     Returns:
         ScaledChromaValues instance with all scaled values
@@ -172,11 +156,28 @@ def get_scaled_chroma_values(resolution: Optional[Tuple[int, int]] = None) -> Sc
     if resolution is None:
         resolution = get_league_resolution()
     
-    # Return cached values if resolution hasn't changed
-    if _scale_cache['resolution'] == resolution:
+    # ALWAYS recalculate if resolution changed (don't trust cache when resolution is different)
+    resolution_changed = _scale_cache['resolution'] != resolution
+    
+    # Return cached values ONLY if resolution is the same AND not forcing reload
+    if not force_reload and not resolution_changed and _scale_cache['values'] is not None:
         return _scale_cache['values']
     
-    # Calculate new values
+    # If forcing reload, reload config module to get fresh values
+    if force_reload:
+        import importlib
+        import sys
+        
+        # Remove config from module cache
+        if 'config' in sys.modules:
+            del sys.modules['config']
+        
+        # Re-import config (this refreshes the global 'config' variable in this module)
+        global config
+        import config as config_module
+        config = config_module
+    
+    # Calculate new values (uses fresh config values if force_reload=True)
     scaled = ScaledChromaValues(resolution)
     
     # Update cache
