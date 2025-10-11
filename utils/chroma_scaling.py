@@ -159,6 +159,10 @@ def get_scaled_chroma_values(resolution: Optional[Tuple[int, int]] = None, force
     # ALWAYS recalculate if resolution changed (don't trust cache when resolution is different)
     resolution_changed = _scale_cache['resolution'] != resolution
     
+    # If resolution changed, invalidate cache completely
+    if resolution_changed:
+        _scale_cache['values'] = None
+    
     # Return cached values ONLY if resolution is the same AND not forcing reload
     if not force_reload and not resolution_changed and _scale_cache['values'] is not None:
         return _scale_cache['values']
