@@ -35,7 +35,25 @@ class SkinInjector:
         if getattr(sys, 'frozen', False):
             # Running as compiled executable (PyInstaller)
             # Tools are included alongside the executable
-            injection_dir = Path(sys.executable).parent / "injection"
+            base_dir = Path(sys.executable).parent
+            
+            # Check multiple locations for injection tools (PyInstaller can place them in different spots)
+            possible_injection_dirs = [
+                base_dir / "injection",  # Direct path
+                base_dir / "_internal" / "injection",  # _internal folder
+            ]
+            
+            injection_dir = None
+            for dir_path in possible_injection_dirs:
+                if dir_path.exists():
+                    injection_dir = dir_path
+                    log.debug(f"Found injection directory at: {injection_dir}")
+                    break
+            
+            if not injection_dir:
+                # Fallback to first option if neither exists
+                injection_dir = possible_injection_dirs[0]
+                log.warning(f"Injection directory not found, using default: {injection_dir}")
         else:
             # Running as Python script
             injection_dir = Path(__file__).parent
