@@ -23,12 +23,12 @@ def print_step(step_num, total_steps, description):
     print("-" * 70)
 
 def clean_previous_builds():
-    """Clean previous builds (NEVER touches Nuitka cache!)"""
-    print_step(1, 3, "Cleaning Previous Builds & Nuitka Cache")
+    """Clean previous builds (preserves main.build for faster incremental compilation)"""
+    print_step(1, 3, "Cleaning Previous Build Outputs")
     print("-" * 70)
     
-    # Only clean build output directories - NEVER the Nuitka cache!
-    dirs_to_clean = ["dist", "main.build", "main.dist"]
+    # Only clean output directories - PRESERVE main.build for incremental builds!
+    dirs_to_clean = ["dist", "main.dist"]
     
     for dir_name in dirs_to_clean:
         if os.path.exists(dir_name):
@@ -55,7 +55,14 @@ def clean_previous_builds():
             shutil.rmtree(dir_path)
             print(f"[OK] Removed {dir_path}/")
     
-    print("\n[INFO] Nuitka cache is PRESERVED (no re-download needed!)")
+    # Check if main.build exists (incremental build cache)
+    if os.path.exists("main.build"):
+        print("\n[INFO] ✓ Preserved main.build/ for FAST incremental compilation")
+        print("[INFO]   This will make your build 10-20x faster!")
+    else:
+        print("\n[INFO] No main.build/ found - this will be a full build (slower)")
+    
+    print("[INFO] Nuitka cache is PRESERVED (no re-download needed!)")
     print("[INFO] GCC compiler location: C:\\Users\\Florent\\AppData\\Local\\Nuitka\\Nuitka\\Cache\\downloads\\gcc")
     
     return True
@@ -69,6 +76,7 @@ def build_with_nuitka():
         "--standalone",  # Create standalone distribution (folder with all files)
         "--windows-console-mode=disable",  # No console window (updated syntax)
         "--enable-plugin=tk-inter",  # Tkinter support (for PIL)
+        "--enable-plugin=pyqt6",  # PyQt6 support (includes platform plugins)
         "--enable-plugin=anti-bloat",  # Reduce size
         # f"--windows-icon-from-ico=icon.ico",  # Application icon (disabled - antivirus blocks it)
         "--include-data-dir=injection/tools=injection/tools",  # Include CSLOL tools
