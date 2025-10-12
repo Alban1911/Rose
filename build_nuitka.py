@@ -101,9 +101,21 @@ def build_with_nuitka():
         "--include-package=utils",
         "--include-package=easyocr",  # EasyOCR for OCR
         "--include-package-data=easyocr",  # Include EasyOCR model files and data
-        "--include-module=easyocr",  # Force include easyocr module
-        "--include-module=easyocr.detection",  # Include detection submodules
-        "--include-module=easyocr.recognition",  # Include recognition submodules
+        # Force include ALL easyocr modules explicitly (Nuitka wasn't auto-detecting them)
+        "--include-module=easyocr",
+        "--include-module=easyocr.config",
+        "--include-module=easyocr.craft",
+        "--include-module=easyocr.craft_utils",
+        "--include-module=easyocr.detection",
+        "--include-module=easyocr.detection_db",
+        "--include-module=easyocr.easyocr",
+        "--include-module=easyocr.recognition",
+        "--include-module=easyocr.utils",
+        "--include-module=easyocr.imgproc",
+        "--include-module=easyocr.model",
+        "--include-module=easyocr.model.model",
+        "--include-module=easyocr.model.modules",
+        "--include-module=easyocr.model.vgg_model",
         "--include-package=torch",  # PyTorch deep learning framework
         "--include-package=torchvision",  # Computer vision for PyTorch
         "--include-package-data=torch",  # Include PyTorch data files
