@@ -1,5 +1,5 @@
-numpy>=2.0.0,<2.3.0
-scipy>=1.14.0
+numpy>=1.22.0,<2.0.0
+scipy>=1.10.0
 opencv-python>=4.5.0
 psutil>=5.8.0
 requests>=2.25.0
@@ -13,6 +13,16 @@ PyQt6>=6.5.0
 # EasyOCR for OCR (requires scipy for ndimage)
 easyocr>=1.7.0
 
-# PyTorch (CPU version) - Application configured for CPU-only mode
+# PyTorch with GPU support (CUDA) and CPU fallback
+# GPU requirements:
+#   - NVIDIA GPU with CUDA support
+#   - CUDA Toolkit 11.8 or higher (12.x recommended)
+#   - cuDNN 8.x or higher
+# If GPU is not available, PyTorch will automatically use CPU mode
 torch>=2.0.0
 torchvision>=0.15.0
+
+# Note: For explicit GPU installation with CUDA 12.1, use:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# For CPU-only installation, use:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu

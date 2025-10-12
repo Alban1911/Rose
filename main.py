@@ -937,14 +937,15 @@ def main():
                 log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
                 ocr_lang = "eng"
             
-            # Initialize OCR with determined language (CPU mode only)
-            ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe)
+            # Initialize OCR with determined language (try GPU, fallback to CPU)
+            ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe, use_gpu=True, measure_time=True)
             separator = "=" * 80
             log.info(separator)
             log.info(f"🤖 OCR INITIALIZED")
             log.info(f"   📋 Backend: {ocr.backend}")
             log.info(f"   📋 Language: {ocr_lang}")
-            log.info(f"   📋 Mode: CPU")
+            log.info(f"   📋 Mode: {'GPU' if ocr.use_gpu else 'CPU'}")
+            log.info(f"   📋 Timing: {'Enabled' if ocr.measure_time else 'Disabled'}")
             log.info(separator)
             
             # Update app status
@@ -1014,11 +1015,13 @@ def main():
                         log.info(f"   📋 New Language: {new_ocr_lang} (LCU: {new_lcu_lang})")
                         log.info(separator)
                         
-                        # Create new OCR instance with new language
+                        # Create new OCR instance with new language (try GPU, fallback to CPU)
                         new_ocr = OCR(
                             lang=new_ocr_lang,
                             psm=args.psm,
-                            tesseract_exe=args.tesseract_exe
+                            tesseract_exe=args.tesseract_exe,
+                            use_gpu=True,
+                            measure_time=True
                         )
                         
                         # Update the global OCR reference
