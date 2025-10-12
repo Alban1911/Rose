@@ -1201,7 +1201,7 @@ Log location: Check %LOCALAPPDATA%\\LeagueUnlocked\\logs\\
         # Show error dialog on Windows
         if sys.platform == "win32":
             try:
-                import ctypes
+                # ctypes already imported at top of file
                 ctypes.windll.user32.MessageBoxW(
                     0,
                     f"LeagueUnlocked crashed with an unhandled error:\n\n{str(e)}\n\nError type: {type(e).__name__}\n\nPlease check the log file in:\n%LOCALAPPDATA%\\LeagueUnlocked\\logs\\",

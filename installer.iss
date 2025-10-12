@@ -2,8 +2,8 @@
 ; This creates a proper Windows installer that registers the app
 
 #define MyAppName "LeagueUnlocked"
-#define MyAppVersion "1.1.0"
-#define MyAppPublisher "LeagueUnlocked Team"
+#define MyAppVersion "beta"
+#define MyAppPublisher "League Unlocked Team"
 #define MyAppURL "https://github.com/AlbanCliquet/LeagueUnlocked"
 #define MyAppExeName "LeagueUnlocked.exe"
 #define MyAppDescription "Automated League of Legends skin changer with OCR detection"
@@ -58,7 +58,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon; IconFilename: "{app}\icon.ico"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}} (as Administrator)"; Flags: nowait postinstall skipifsilent shellexec
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}} (as Administrator)"; Flags: nowait postinstall skipifsilent shellexec; Verb: runas
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\_internal"
