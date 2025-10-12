@@ -359,9 +359,15 @@ class OCRSkinThread(threading.Thread):
                     small = cv2.resize(band_bin, (OCR_SMALL_IMAGE_WIDTH, OCR_SMALL_IMAGE_HEIGHT), interpolation=cv2.INTER_AREA)
                     changed = True
                     
+                    # Measure change detection time
+                    change_detection_start = time.perf_counter()
                     if self.last_small is not None:
                         diff = np.mean(np.abs(small.astype(np.int16) - self.last_small.astype(np.int16))) / OCR_IMAGE_DIFF_NORMALIZATION
                         changed = diff > self.diff_threshold
+                        change_detection_time = (time.perf_counter() - change_detection_start) * 1000
+                        
+                        if changed:
+                            log.info(f"[OCR:change] Image change detected: diff={diff:.4f} (threshold={self.diff_threshold}) | Detection time: {change_detection_time:.2f}ms")
                     
                     self.last_small = small
                     
@@ -399,7 +405,13 @@ class OCRSkinThread(threading.Thread):
         from rapidfuzz.distance import Levenshtein
         from datetime import datetime
         
+        # Start timing for total OCR+matching pipeline
+        pipeline_start = time.perf_counter()
+        
         txt = self.ocr.recognize(band_bin)
+        
+        # Measure OCR recognition time
+        ocr_recognition_time = (time.perf_counter() - pipeline_start) * 1000
         
         # DEBUG: Save OCR image to debug folder (if enabled)
         if self.args.debug_ocr:
@@ -495,6 +507,11 @@ class OCRSkinThread(threading.Thread):
                             log.info(f"   📋 Champion: {champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
                             log.info(f"   🔍 Source: English DB (direct match)")
                             self.state.last_hovered_skin_id = skin_id
+                        
+                        # Log timing information
+                        total_pipeline_time = (time.perf_counter() - pipeline_start) * 1000
+                        matching_time = total_pipeline_time - ocr_recognition_time
+                        log.info(f"   ⏱️  OCR: {ocr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
                         log.info("=" * LOG_SEPARATOR_WIDTH)
                         
                         self.last_key = skin_key
@@ -544,6 +561,11 @@ class OCRSkinThread(threading.Thread):
                             log.info(f"   📋 Champion: {champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
                             log.info(f"   🔍 Source: LCU API + English DB")
                             self.state.last_hovered_skin_id = skin_id
+                        
+                        # Log timing information
+                        total_pipeline_time = (time.perf_counter() - pipeline_start) * 1000
+                        matching_time = total_pipeline_time - ocr_recognition_time
+                        log.info(f"   ⏱️  OCR: {ocr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
                         log.info("=" * LOG_SEPARATOR_WIDTH)
                         
                         self.state.last_hovered_skin_key = english_skin_name
@@ -631,5 +653,10 @@ class OCRSkinThread(threading.Thread):
                 
                 # Show chroma panel if skin has chromas
                 self._trigger_chroma_panel(best_entry.skin_id, best_skin_name)
+            
+            # Log timing information
+            total_pipeline_time = (time.perf_counter() - pipeline_start) * 1000
+            matching_time = total_pipeline_time - ocr_recognition_time
+            log.info(f"   ⏱️  OCR: {ocr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
             log.info("=" * LOG_SEPARATOR_WIDTH)
             self.last_key = best_entry.key

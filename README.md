@@ -22,10 +22,11 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
 
 ### 🔍 OCR Technology
 
-**LeagueUnlocked uses EasyOCR (CPU mode) for accurate skin detection across all languages.**
+**LeagueUnlocked uses EasyOCR with GPU acceleration for accurate skin detection across all languages.**
 
-- **Optimized for CPU**: Works efficiently on any modern processor
-- **Universal compatibility**: No GPU required - works on all systems
+- **GPU Accelerated**: Automatically uses GPU if available (CUDA) for faster OCR
+- **CPU Fallback**: Seamlessly falls back to CPU mode if GPU is not available
+- **Universal compatibility**: Works on all systems with or without GPU
 - **Advanced preprocessing**: Research-based image processing for optimal accuracy
 
 **No additional installation required** - EasyOCR models download automatically on first run!
@@ -63,13 +64,45 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
 
    This automatically installs:
 
-   - EasyOCR with PyTorch (CPU mode)
+   - EasyOCR with PyTorch (GPU-accelerated with CPU fallback)
    - OpenCV, NumPy, SciPy (image processing)
    - All other required packages
 
    **Note**: First run will download EasyOCR models (~50-100 MB) - requires internet connection.
 
-4. **Building from Source:**
+4. **GPU Acceleration (Optional - For Developers Only):**
+
+   **⚠️ NOTE FOR END USERS**: If you're using the pre-built executable (.exe), you can skip this section! The executable already includes GPU support and will automatically use your GPU if available.
+
+   **For developers** running from source who want GPU acceleration:
+
+   **Requirements:**
+
+   - NVIDIA GPU with CUDA support
+   - CUDA Toolkit 11.8+ (12.x recommended)
+   - cuDNN 8.x+
+
+   **Installation:**
+
+   ```bash
+   # Uninstall CPU-only PyTorch (if installed)
+   pip uninstall torch torchvision -y
+
+   # Install PyTorch with GPU support (CUDA 12.1)
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+   ```
+
+   **Verify GPU Setup:**
+
+   ```bash
+   python test_gpu_setup.py
+   ```
+
+   See [GPU_INSTALLATION_GUIDE.md](GPU_INSTALLATION_GUIDE.md) for detailed developer instructions.
+
+   **Performance:** GPU acceleration provides 3-8x faster OCR (50-150ms vs 200-800ms on CPU)!
+
+5. **Building from Source:**
 
    See [BUILD.md](BUILD.md) for instructions on building the application.
 
@@ -288,7 +321,7 @@ LeagueUnlocked/
 │       └── [WAD utilities]       # WAD extraction/creation tools
 │
 ├── ocr/                          # OCR functionality
-│   ├── backend.py                # EasyOCR backend (CPU mode)
+│   ├── backend.py                # EasyOCR backend (GPU/CPU mode)
 │   └── image_processing.py       # Research-based image preprocessing for OCR
 │
 ├── database/                     # Champion and skin databases
