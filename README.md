@@ -324,8 +324,9 @@ LeagueUnlocked/
 │   └── tesserocr-*.whl          # Legacy dependency (deprecated - kept for compatibility)
 │
 └── [build system]/               # Build and distribution
-    ├── build_all.py              # Complete build script (Nuitka + Installer)
-    ├── build_nuitka.py           # Nuitka compiler (Python to C)
+    ├── build_all.py              # Complete build script (PyInstaller + Installer)
+    ├── build_pyinstaller.py      # PyInstaller build script
+    ├── LeagueUnlocked.spec       # PyInstaller configuration
     ├── create_installer.py       # Inno Setup installer creator
     ├── build_requirements.txt    # Build-time dependencies
     └── installer.iss             # Inno Setup configuration

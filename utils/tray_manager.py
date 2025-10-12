@@ -71,10 +71,10 @@ class TrayManager:
             icon_name: Name of the icon file (e.g., "locked_tray.png", "golden_unlocked_tray.png")
         """
         try:
-            # Handle both frozen (Nuitka) and development environments
+            # Handle both frozen (PyInstaller) and development environments
             import sys
             if getattr(sys, 'frozen', False):
-                # Running as compiled executable (Nuitka)
+                # Running as compiled executable (PyInstaller)
                 # Icons are included alongside the executable
                 base_dir = os.path.dirname(sys.executable)
             else:
@@ -107,10 +107,10 @@ class TrayManager:
         # Fallback to icon.png if none exist
         if not self._locked_icon_image and not self._golden_locked_icon_image and not self._unlocked_icon_image:
             try:
-                # Handle both frozen (Nuitka) and development environments
+                # Handle both frozen (PyInstaller) and development environments
                 import sys
                 if getattr(sys, 'frozen', False):
-                    # Running as compiled executable (Nuitka)
+                    # Running as compiled executable (PyInstaller)
                     base_dir = os.path.dirname(sys.executable)
                 else:
                     # Running as Python script

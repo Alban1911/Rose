@@ -25,12 +25,12 @@ def print_step(step_num, total_steps, description):
 
 
 def run_build_exe():
-    """Run the build_nuitka.py script"""
-    print_step(1, 3, "Building Executable with Nuitka (Python to C Compiler)")
+    """Run the build_pyinstaller.py script"""
+    print_step(1, 3, "Building Executable with PyInstaller")
     
-    # Run build_nuitka.py as a subprocess
+    # Run build_pyinstaller.py as a subprocess
     result = subprocess.run(
-        [sys.executable, "build_nuitka.py"],
+        [sys.executable, "build_pyinstaller.py"],
         capture_output=False,  # Show output in real-time
         text=True
     )
@@ -115,9 +115,10 @@ def build_all():
         print("The executable build failed. Please check the errors above.")
         print("\nTroubleshooting:")
         print("1. Make sure all dependencies are installed:")
-        print("   pip install -r build_requirements.txt")
+        print("   pip install -r requirements.txt")
         print("2. Close any running instances of LeagueUnlocked.exe")
-        print("3. Try removing build/dist directories manually")
+        print("3. Make sure PyInstaller is installed:")
+        print("   pip install pyinstaller")
         return False
     
     # Step 2: Create installer
@@ -181,9 +182,9 @@ def main():
         print("Please run this script from the LeagueUnlocked root directory.")
         sys.exit(1)
     
-    # Check if build_nuitka.py exists
-    if not Path("build_nuitka.py").exists():
-        print("ERROR: build_nuitka.py not found!")
+    # Check if build_pyinstaller.py exists
+    if not Path("build_pyinstaller.py").exists():
+        print("ERROR: build_pyinstaller.py not found!")
         sys.exit(1)
     
     # Check if create_installer.py exists
