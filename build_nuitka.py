@@ -79,7 +79,15 @@ def build_with_nuitka():
         "--enable-plugin=pyqt6",  # PyQt6 support (includes platform plugins)
         "--enable-plugin=anti-bloat",  # Reduce size
         # f"--windows-icon-from-ico=icon.ico",  # Application icon (disabled - antivirus blocks it)
-        "--include-data-dir=injection/tools=injection/tools",  # Include CSLOL tools
+        # Include CSLOL tools - must explicitly include .exe and .dll files
+        "--include-data-file=injection/tools/mod-tools.exe=injection/tools/mod-tools.exe",
+        "--include-data-file=injection/tools/cslol-diag.exe=injection/tools/cslol-diag.exe",
+        "--include-data-file=injection/tools/cslol-dll.dll=injection/tools/cslol-dll.dll",
+        "--include-data-file=injection/tools/wad-extract.exe=injection/tools/wad-extract.exe",
+        "--include-data-file=injection/tools/wad-make.exe=injection/tools/wad-make.exe",
+        "--include-data-file=injection/tools/wad-extract-multi.bat=injection/tools/wad-extract-multi.bat",
+        "--include-data-file=injection/tools/wad-make-multi.bat=injection/tools/wad-make-multi.bat",
+        "--include-data-file=injection/tools/wxy-extract-multi.bat=injection/tools/wxy-extract-multi.bat",
         "--include-data-dir=icons=icons",  # Include tray icons
         "--include-data-file=injection/mods_map.json=injection/mods_map.json",
         "--include-data-file=icon.ico=icon.ico",
@@ -92,8 +100,10 @@ def build_with_nuitka():
         "--include-package=threads",
         "--include-package=utils",
         "--include-package=easyocr",  # EasyOCR for OCR
+        "--include-package-data=easyocr",  # Include EasyOCR model files and data
         "--include-package=torch",  # PyTorch deep learning framework
         "--include-package=torchvision",  # Computer vision for PyTorch
+        "--include-package-data=torch",  # Include PyTorch data files
         "--follow-imports",  # Follow all imports
         "--assume-yes-for-downloads",  # Auto-download dependencies
         "--nofollow-import-to=tkinter",  # Don't follow tkinter (we don't use it)
