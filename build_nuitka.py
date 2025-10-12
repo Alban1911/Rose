@@ -101,9 +101,16 @@ def build_with_nuitka():
         "--include-package=utils",
         "--include-package=easyocr",  # EasyOCR for OCR
         "--include-package-data=easyocr",  # Include EasyOCR model files and data
+        "--include-module=easyocr",  # Force include easyocr module
+        "--include-module=easyocr.detection",  # Include detection submodules
+        "--include-module=easyocr.recognition",  # Include recognition submodules
         "--include-package=torch",  # PyTorch deep learning framework
         "--include-package=torchvision",  # Computer vision for PyTorch
         "--include-package-data=torch",  # Include PyTorch data files
+        "--include-package=cv2",  # OpenCV (required by EasyOCR)
+        "--include-package=numpy",  # NumPy (required by EasyOCR)
+        "--include-package=PIL",  # Pillow (required by EasyOCR)
+        "--include-package=scipy",  # SciPy (required by EasyOCR)
         "--follow-imports",  # Follow all imports
         "--assume-yes-for-downloads",  # Auto-download dependencies
         "--nofollow-import-to=tkinter",  # Don't follow tkinter (we don't use it)

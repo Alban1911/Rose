@@ -717,7 +717,7 @@ def main():
         # Show error message to user
         if sys.platform == "win32":
             try:
-                import ctypes
+                # ctypes already imported at top of file
                 ctypes.windll.user32.MessageBoxW(
                     0,
                     f"LeagueUnlocked failed to initialize:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
@@ -767,7 +767,7 @@ def main():
         # Show error message to user
         if sys.platform == "win32":
             try:
-                import ctypes
+                # ctypes already imported at top of file
                 ctypes.windll.user32.MessageBoxW(
                     0,
                     f"LeagueUnlocked failed to initialize database:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
@@ -796,7 +796,7 @@ def main():
         # Show error message to user
         if sys.platform == "win32":
             try:
-                import ctypes
+                # ctypes already imported at top of file
                 ctypes.windll.user32.MessageBoxW(
                     0,
                     f"LeagueUnlocked failed to initialize injection system:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",

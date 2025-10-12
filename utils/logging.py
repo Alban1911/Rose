@@ -166,7 +166,10 @@ def setup_logging(verbose: bool):
                 return super().format(record)
         
         file_handler.setFormatter(_FileFmt(file_fmt))
-        file_handler.setLevel(logging.DEBUG)  # Log everything to file
+        # IMPORTANT: File handler always logs at DEBUG level (full verbose output)
+        # This ensures all debug information is captured in log files for troubleshooting,
+        # regardless of whether the user runs with --verbose flag
+        file_handler.setLevel(logging.DEBUG)
         
     except Exception as e:
         # If file logging fails, continue without it
@@ -179,10 +182,12 @@ def setup_logging(verbose: bool):
     if file_handler:
         root.addHandler(file_handler)
     
-    # Set console level based on verbose flag
+    # Console handler respects verbose flag (only shows INFO and above by default)
+    # This keeps console output clean unless user explicitly wants verbose mode
     h.setLevel(logging.DEBUG if verbose else logging.INFO)
     
-    # Always set root level to DEBUG for file logging (good for debugging)
+    # Root logger must be at DEBUG to allow file handler to receive all messages
+    # This is critical - if root is at INFO, DEBUG messages never reach the file handler
     root.setLevel(logging.DEBUG)
     
     # Add a console print to ensure output is visible (only if we have stdout and it's not redirected)
@@ -193,6 +198,13 @@ def setup_logging(verbose: bool):
             logger.info("=" * LOG_SEPARATOR_WIDTH)
             logger.info(f"LeagueUnlocked - Starting... (Log file: {log_file.name})")
             logger.info("=" * LOG_SEPARATOR_WIDTH)
+            # Log a DEBUG message to verify verbose file logging is working
+            logger.debug("File logging initialized - all DEBUG messages will be saved to log file")
+            logger.debug(f"Log file location: {log_file.absolute()}")
+            if verbose:
+                logger.info("Verbose mode: ON (console shows DEBUG messages)")
+            else:
+                logger.info("Verbose mode: OFF (console shows INFO and above, file captures all DEBUG)")
         except (AttributeError, OSError):
             pass  # stdout is broken, ignore
     

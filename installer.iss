@@ -3,6 +3,7 @@
 
 #define MyAppName "LeagueUnlocked"
 #define MyAppVersion "beta"
+#define MyAppVersionInfo "0.1.0.0"
 #define MyAppPublisher "League Unlocked Team"
 #define MyAppURL "https://github.com/AlbanCliquet/LeagueUnlocked"
 #define MyAppExeName "LeagueUnlocked.exe"
@@ -34,7 +35,7 @@ ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppVersionInfo}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppDescription}
 VersionInfoProductName={#MyAppName}
