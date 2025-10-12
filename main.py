@@ -217,17 +217,42 @@ os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
 os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false'
 
 # Import PyQt6 for chroma wheel
+PYQT6_AVAILABLE = False
+QApplication = None
+QTimer = None
+Qt = None
+
 try:
+    # Set Qt plugin path for frozen executables BEFORE import
+    if getattr(sys, 'frozen', False):
+        import os
+        # Try multiple possible plugin paths
+        possible_paths = [
+            os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt6", "plugins"),
+            os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt", "plugins"),
+            os.path.join(os.path.dirname(sys.executable), "qt6", "plugins"),
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                os.environ['QT_PLUGIN_PATH'] = path
+                break
+    
     # Suppress Qt DPI warnings during import
     with contextlib.redirect_stderr(io.StringIO()):
         from PyQt6.QtWidgets import QApplication
         from PyQt6.QtCore import QTimer, Qt
     
     PYQT6_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    # PyQt6 not installed
     PYQT6_AVAILABLE = False
-    log = get_logger()
-    log.warning("PyQt6 not available - chroma wheel will be disabled")
+except Exception as e:
+    # Qt platform plugin or other error
+    PYQT6_AVAILABLE = False
+    import traceback
+    # Don't log yet, logger not initialized
+    print(f"Warning: PyQt6 import failed: {e}")
+    print(f"Traceback: {traceback.format_exc()}")
 
 log = get_logger()
 
@@ -582,20 +607,39 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optio
     chroma_selector = None
     
     if not PYQT6_AVAILABLE:
+        log.info("PyQt6 not available - chroma selector will be disabled")
         return qt_app, chroma_selector
     
     try:
+        log.debug("Checking for existing QApplication instance...")
         # Try to get existing QApplication or create new one
         existing_app = QApplication.instance()
+        
         if existing_app is None:
-            qt_app = QApplication([sys.argv[0]])
-            log_success(log, "PyQt6 QApplication created for chroma wheel", "🎨")
+            log.debug("Creating new QApplication instance...")
+            # Set Qt platform plugin path explicitly for frozen executables
+            if getattr(sys, 'frozen', False):
+                import os
+                qt_plugin_path = os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt6", "plugins")
+                if os.path.exists(qt_plugin_path):
+                    os.environ['QT_PLUGIN_PATH'] = qt_plugin_path
+                    log.debug(f"Set QT_PLUGIN_PATH: {qt_plugin_path}")
+            
+            try:
+                qt_app = QApplication([sys.argv[0]])
+                log_success(log, "PyQt6 QApplication created for chroma wheel", "🎨")
+            except Exception as qapp_error:
+                log.error(f"Failed to create QApplication: {qapp_error}")
+                log.error("This is usually due to missing Qt platform plugins")
+                log.warning("Chroma selector will be disabled")
+                return None, None
         else:
             qt_app = existing_app
             log_success(log, "Using existing QApplication instance for chroma panel", "🎨")
         
         # Initialize chroma selector (widgets will be created on champion lock)
         try:
+            log.debug("Initializing chroma selector...")
             chroma_selector = init_chroma_selector(skin_scraper, state)
             log_success(log, "Chroma selector initialized (panel widgets will be created on champion lock)", "🌈")
             
@@ -605,11 +649,15 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optio
         except Exception as e:
             log.warning(f"Failed to initialize chroma panel: {e}")
             log.warning("Chroma selection will be disabled, but app will continue")
+            import traceback
+            log.debug(f"Chroma init traceback: {traceback.format_exc()}")
             chroma_selector = None
             
     except Exception as e:
         log.warning(f"Failed to initialize PyQt6: {e}")
         log.warning("Chroma panel will be disabled, but app will continue normally")
+        import traceback
+        log.debug(f"PyQt6 init traceback: {traceback.format_exc()}")
         qt_app = None
         chroma_selector = None
     
