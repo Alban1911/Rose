@@ -57,6 +57,90 @@ class OCRSkinThread(threading.Thread):
         
         # Last skin shown for chroma panel (to avoid re-showing)
         self.last_chroma_panel_skin_id = None
+        
+        # Track skin for fade animation
+        self.last_detected_skin_id = None
+        self.first_skin_detected = False
+        self.last_skin_had_chromas = False
+        self.last_skin_was_owned = False
+    
+    def _trigger_chroma_fade(self, skin_id: int, current_has_chromas: bool, current_is_owned: bool):
+        """Trigger chroma button and icon fade animations based on state transitions"""
+        try:
+            # Check if skin actually changed
+            if skin_id == self.last_detected_skin_id:
+                return  # Same skin, no fade needed
+            
+            # Update last detected skin
+            previous_skin_id = self.last_detected_skin_id
+            self.last_detected_skin_id = skin_id
+            
+            from utils.chroma_selector import get_chroma_selector
+            chroma_selector = get_chroma_selector()
+            if chroma_selector and chroma_selector.panel and chroma_selector.panel.reopen_button:
+                button = chroma_selector.panel.reopen_button
+                
+                if not self.first_skin_detected:
+                    # First skin of the session
+                    log.info(f"[CHROMA] First skin detected - no button animation")
+                    self.first_skin_detected = True
+                    self.last_skin_had_chromas = current_has_chromas
+                    self.last_skin_was_owned = current_is_owned
+                    
+                    # For UnownedFrame: only fade in if first skin is NOT owned
+                    if not current_is_owned:
+                        log.info(f"[CHROMA] UnownedFrame: First skin NOT owned - fade in")
+                        button.unowned_frame_fade_owned_to_not_owned_first()
+                    else:
+                        log.debug(f"[CHROMA] UnownedFrame: First skin owned - stay at 0%")
+                else:
+                    # Determine button animation based on chroma state transition
+                    prev_had_chromas = self.last_skin_had_chromas
+                    curr_has_chromas = current_has_chromas
+                    
+                    if prev_had_chromas and curr_has_chromas:
+                        # Has → Has: fade out 50ms, wait 100ms, fade in 50ms
+                        log.info(f"[CHROMA] Button: Chromas → Chromas: fade out → wait → fade in")
+                        button.fade_has_to_has()
+                    elif not prev_had_chromas and curr_has_chromas:
+                        # None → Has: wait 150ms, fade in 50ms
+                        log.info(f"[CHROMA] Button: No chromas → Chromas: wait → fade in")
+                        button.fade_none_to_has()
+                    elif prev_had_chromas and not curr_has_chromas:
+                        # Has → None: fade out 50ms
+                        log.info(f"[CHROMA] Button: Chromas → No chromas: fade out")
+                        button.fade_has_to_none()
+                    else:
+                        # None → None: nothing
+                        log.debug(f"[CHROMA] Button: No chromas → No chromas: no animation")
+                    
+                    self.last_skin_had_chromas = curr_has_chromas
+                    
+                    # Determine UnownedFrame animation based on ownership state transition
+                    # INVERTED LOGIC: UnownedFrame (Lock + OutlineGold) shows when NOT owned, hides when owned
+                    prev_was_owned = self.last_skin_was_owned
+                    curr_is_owned = current_is_owned
+                    
+                    if not prev_was_owned and not curr_is_owned:
+                        # Unowned → Unowned: fade out 50ms, wait 100ms, fade in 50ms
+                        log.info(f"[CHROMA] UnownedFrame: Unowned → Unowned: fade out → wait → fade in")
+                        button.unowned_frame_fade_not_owned_to_not_owned()
+                    elif prev_was_owned and not curr_is_owned:
+                        # Owned → Unowned: wait 150ms, fade in 50ms
+                        log.info(f"[CHROMA] UnownedFrame: Owned → Unowned: wait → fade in (show lock)")
+                        button.unowned_frame_fade_owned_to_not_owned()
+                    elif not prev_was_owned and curr_is_owned:
+                        # Unowned → Owned: fade out 50ms
+                        log.info(f"[CHROMA] UnownedFrame: Unowned → Owned: fade out (hide lock)")
+                        button.unowned_frame_fade_not_owned_to_owned()
+                    else:
+                        # Owned → Owned: nothing
+                        log.debug(f"[CHROMA] UnownedFrame: Owned → Owned: no animation")
+                    
+                    self.last_skin_was_owned = curr_is_owned
+                    
+        except Exception as e:
+            log.debug(f"[CHROMA] Failed to trigger fade: {e}")
     
     def _should_update_hovered_skin(self, detected_skin_name: str) -> bool:
         """
@@ -90,6 +174,16 @@ class OCRSkinThread(threading.Thread):
         
         return True
     
+    def _skin_has_displayable_chromas(self, skin_id: int) -> bool:
+        """Check if skin has chromas that should show the button"""
+        try:
+            chroma_selector = get_chroma_selector()
+            if chroma_selector:
+                return chroma_selector.should_show_chroma_panel(skin_id)
+        except Exception:
+            pass
+        return False
+    
     def _trigger_chroma_panel(self, skin_id: int, skin_name: str):
         """Trigger chroma panel display if skin has any chromas (owned or unowned)"""
         try:
@@ -107,9 +201,11 @@ class OCRSkinThread(threading.Thread):
                 except Exception as e:
                     log.debug(f"[CHROMA] Failed to load owned skins: {e}")
             
-            # Check if user owns the skin (for logging only)
-            is_owned = skin_id in self.state.owned_skin_ids
-            log.info(f"[CHROMA] Checking skin_id={skin_id}, base_owned={is_owned}, total_owned={len(self.state.owned_skin_ids)}")
+            # Check if user owns the skin
+            # Base skins (ending in 000) are ALWAYS owned
+            is_base_skin = (skin_id % 1000) == 0
+            is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
+            log.info(f"[CHROMA] Checking skin_id={skin_id}, is_base={is_base_skin}, owned={is_owned}, total_owned={len(self.state.owned_skin_ids)}")
             
             # Always update button when switching skins (don't skip re-showing)
             # This ensures button always shows the correct skin's chromas
@@ -218,6 +314,12 @@ class OCRSkinThread(threading.Thread):
         self.motion_until = 0.0
         self.last_ocr_t = 0.0
         self.second_shot_at = 0.0
+        
+        # Reset fade animation tracking
+        self.last_detected_skin_id = None
+        self.first_skin_detected = False
+        self.last_skin_had_chromas = False
+        self.last_skin_was_owned = False
         
         # Reset logging flags so they can log again in next session
         if hasattr(self, '_ocr_stopped_injection_logged'):
@@ -521,8 +623,17 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_id = skin_id
                         self.state.hovered_skin_timestamp = time.time()
                         
+                        # Check if current skin has chromas and is owned
+                        has_chromas = self._skin_has_displayable_chromas(skin_id)
+                        # Base skins (ending in 000) are ALWAYS owned
+                        is_base_skin = (skin_id % 1000) == 0
+                        is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
+                        
                         # Show chroma panel if skin has chromas (including base skins)
                         self._trigger_chroma_panel(skin_id, skin_name)
+                        
+                        # Trigger fade animation AFTER button is shown/hidden
+                        self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
                     return
         
         # STANDARD PIPELINE: Use LCU scraper + English DB matching (for non-English)
@@ -572,8 +683,17 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_slug = champ_slug
                         self.last_key = skin_key
                         
+                        # Check if current skin has chromas and is owned
+                        has_chromas = self._skin_has_displayable_chromas(skin_id)
+                        # Base skins (ending in 000) are ALWAYS owned
+                        is_base_skin = (skin_id % 1000) == 0
+                        is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
+                        
                         # Show chroma panel if skin has chromas (including base skins)
                         self._trigger_chroma_panel(skin_id, english_skin_name)
+                        
+                        # Trigger fade animation AFTER button is shown/hidden
+                        self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
                 else:
                     log.debug(f"[ocr] Matched skin {skin_name_client_lang} (ID: {skin_id}) but not found in English DB")
             
@@ -651,12 +771,23 @@ class OCRSkinThread(threading.Thread):
                 self.state.last_hovered_skin_id = best_entry.skin_id
                 self.state.last_hovered_skin_slug = best_entry.champ_slug
                 
+                # Check if current skin has chromas and is owned
+                skin_id_for_check = best_entry.skin_id if best_entry.kind == "skin" else 0
+                has_chromas = self._skin_has_displayable_chromas(skin_id_for_check)
+                # Base skins (ending in 000) are ALWAYS owned
+                is_base_skin = (skin_id_for_check % 1000) == 0
+                is_owned = is_base_skin or (skin_id_for_check in self.state.owned_skin_ids)
+                
                 # Show chroma panel if skin has chromas
                 self._trigger_chroma_panel(best_entry.skin_id, best_skin_name)
+            
+            # Trigger fade animation AFTER button is shown/hidden
+            self._trigger_chroma_fade(skin_id_for_check, has_chromas, is_owned)
             
             # Log timing information
             total_pipeline_time = (time.perf_counter() - pipeline_start) * 1000
             matching_time = total_pipeline_time - ocr_recognition_time
             log.info(f"   ⏱️  OCR: {ocr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
             log.info("=" * LOG_SEPARATOR_WIDTH)
+            
             self.last_key = best_entry.key

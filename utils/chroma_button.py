@@ -7,12 +7,16 @@ Chroma Opening Button - Small circular button to open the chroma panel
 
 import math
 from typing import Callable
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient, QPainterPath
+from pathlib import Path
+from PyQt6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLabel, QWidget
+from PyQt6.QtCore import Qt, QPoint, QTimer, QMetaObject, pyqtSlot
+from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient, QPainterPath, QPixmap, QPen
 from utils.chroma_base import ChromaWidgetBase
 from utils.chroma_scaling import get_scaled_chroma_values
+from utils.logging import get_logger
 import config
+
+log = get_logger()
 
 
 class OpeningButton(ChromaWidgetBase):
@@ -26,6 +30,19 @@ class OpeningButton(ChromaWidgetBase):
         self.is_hiding = False  # Flag to prevent painting during hide
         self.panel_is_open = False  # Flag to show button as hovered when panel is open
         self.current_chroma_color = None  # Current selected chroma color (None = show rainbow)
+        
+        # Fade animation state
+        self.fade_timer = None
+        self.fade_target_opacity = 1.0
+        self.fade_start_opacity = 1.0
+        self.fade_steps = 0
+        self.fade_current_step = 0
+        self.fade_in_timer = None  # Timer to schedule fade in after delay
+        
+        # Create opacity effect for fading
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.opacity_effect.setOpacity(1.0)
+        self.setGraphicsEffect(self.opacity_effect)
         
         # Common window flags already set by parent class
         
@@ -53,7 +70,118 @@ class OpeningButton(ChromaWidgetBase):
         # Set cursor to hand pointer for the button
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
+        # Create UnownedFrame (contains Lock and OutlineGold, fades when skin is NOT owned)
+        log.info("[CHROMA] Creating UnownedFrame...")
+        self._create_unowned_frame()
+        log.info("[CHROMA] UnownedFrame creation complete")
+        
         self.hide()
+    
+    def _create_unowned_frame(self):
+        """Create UnownedFrame widget containing Lock and OutlineGold (fades based on ownership)"""
+        # Create UnownedFrame container
+        self.unowned_frame = QWidget()
+        self.unowned_frame.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
+        self.unowned_frame.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.unowned_frame.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        
+        # Set a fixed size for UnownedFrame (will contain both Lock and OutlineGold)
+        # Size should be large enough to contain the largest child
+        frame_size = int(self.button_visual_size * 6)  # Large enough for both children
+        self.unowned_frame.setFixedSize(frame_size, frame_size)
+        
+        # UnownedFrame fade animation state (controls visibility of Lock and OutlineGold)
+        # Start at 0% opacity (will fade in when first NOT owned skin detected)
+        self.unowned_frame_opacity_effect = QGraphicsOpacityEffect(self.unowned_frame)
+        self.unowned_frame_opacity_effect.setOpacity(0.0)  # Start invisible (shown when NOT owned)
+        self.unowned_frame.setGraphicsEffect(self.unowned_frame_opacity_effect)
+        
+        self.unowned_frame_fade_timer = None
+        self.unowned_frame_fade_target_opacity = 0.0
+        self.unowned_frame_fade_start_opacity = 0.0
+        self.unowned_frame_fade_steps = 0
+        self.unowned_frame_fade_current_step = 0
+        self.unowned_frame_fade_in_timer = None
+        
+        # Create OutlineGold as child of UnownedFrame
+        self._create_outline_gold_child()
+        
+        # Create Lock as child of UnownedFrame
+        self._create_lock_child()
+        
+        log.info(f"[CHROMA] ✓ UnownedFrame created with Lock and OutlineGold children")
+    
+    def _create_outline_gold_child(self):
+        """Create OutlineGold image as child of UnownedFrame"""
+        self.outline_gold_label = QLabel(self.unowned_frame)  # Child of UnownedFrame
+        self.outline_gold_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.outline_gold_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.outline_gold_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        
+        try:
+            outline_gold_path = Path(__file__).parent.parent / "carousel-outline-gold.png"
+            if outline_gold_path.exists():
+                pixmap = QPixmap(str(outline_gold_path))
+                
+                # Scale OutlineGold using a single size ratio (maintains aspect ratio)
+                outline_gold_size = int(self.button_visual_size * config.CHROMA_BUTTON_OUTLINE_GOLD_SIZE_RATIO)
+                scaled_pixmap = pixmap.scaled(outline_gold_size, outline_gold_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                self.outline_gold_label.setPixmap(scaled_pixmap)
+                
+                # Get actual scaled size
+                actual_width = scaled_pixmap.width()
+                actual_height = scaled_pixmap.height()
+                self.outline_gold_label.setFixedSize(actual_width, actual_height)
+                self._outline_gold_width = actual_width
+                self._outline_gold_height = actual_height
+                
+                # Position OutlineGold centered in UnownedFrame with offset
+                frame_center_x = self.unowned_frame.width() // 2
+                frame_center_y = self.unowned_frame.height() // 2
+                offset_x = int(self.button_size * config.CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_X_RATIO)
+                offset_y = int(self.button_size * config.CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_Y_RATIO)
+                x = frame_center_x - (actual_width // 2) + offset_x
+                y = frame_center_y - (actual_height // 2) + offset_y
+                self.outline_gold_label.move(x, y)
+                
+                log.info(f"[CHROMA] ✓ OutlineGold loaded, size: {actual_width}x{actual_height}")
+            else:
+                log.warning(f"[CHROMA] OutlineGold file not found: {outline_gold_path}")
+        except Exception as e:
+            log.error(f"[CHROMA] Failed to load OutlineGold: {e}")
+    
+    def _create_lock_child(self):
+        """Create Lock image as child of UnownedFrame"""
+        self.lock_label = QLabel(self.unowned_frame)  # Child of UnownedFrame
+        self.lock_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.lock_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lock_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        
+        try:
+            lock_path = Path(__file__).parent.parent / "icon.png"
+            if lock_path.exists():
+                pixmap = QPixmap(str(lock_path))
+                lock_size = int(self.button_visual_size * config.CHROMA_BUTTON_LOCK_SIZE_RATIO)
+                scaled_pixmap = pixmap.scaled(lock_size, lock_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                self.lock_label.setPixmap(scaled_pixmap)
+                self.lock_label.setFixedSize(lock_size, lock_size)
+                self._lock_size = lock_size
+                
+                # Position Lock centered in UnownedFrame with offset (same as OutlineGold)
+                frame_center_x = self.unowned_frame.width() // 2
+                frame_center_y = self.unowned_frame.height() // 2
+                offset_x = int(self.button_size * config.CHROMA_BUTTON_LOCK_OFFSET_X_RATIO)
+                offset_y = int(self.button_size * config.CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO)
+                x = frame_center_x - (lock_size // 2) + offset_x
+                y = frame_center_y - (lock_size // 2) + offset_y
+                self.lock_label.move(x, y)
+                
+                # Raise Lock above OutlineGold (z-order within UnownedFrame)
+                self.lock_label.raise_()
+                
+                log.info(f"[CHROMA] ✓ Lock loaded, size: {lock_size}x{lock_size}")
+        except Exception as e:
+            log.error(f"[CHROMA] Failed to load Lock: {e}")
     
     def paintEvent(self, event):
         """Paint the circular button with new design"""
@@ -231,6 +359,10 @@ class OpeningButton(ChromaWidgetBase):
     def mousePressEvent(self, event):
         """Handle button press - track that button was pressed"""
         if event.button() == Qt.MouseButton.LeftButton:
+            # Don't accept clicks when button is faded out (invisible)
+            if self.opacity_effect.opacity() < 0.1:
+                event.ignore()
+                return
             # Just accept the press event, action happens on release
             pass
         event.accept()
@@ -238,6 +370,11 @@ class OpeningButton(ChromaWidgetBase):
     def mouseReleaseEvent(self, event):
         """Handle button release - trigger action on click+release"""
         if event.button() == Qt.MouseButton.LeftButton:
+            # Don't accept clicks when button is faded out (invisible)
+            if self.opacity_effect.opacity() < 0.1:
+                event.ignore()
+                return
+            
             # Check if mouse is still over the button
             # Clickable zone includes the transparent ring + 30% extra for easier clicking
             center = self.button_size // 2
@@ -320,8 +457,6 @@ class OpeningButton(ChromaWidgetBase):
             # Check if resolution actually changed
             if current_resolution != self._current_resolution:
                 self._updating_resolution = True  # Set flag
-                from utils.logging import get_logger
-                log = get_logger()
                 log.info(f"[CHROMA] Button resolution changed from {self._current_resolution} to {current_resolution}, requesting rebuild")
                 
                 # Update current resolution to prevent re-detection
@@ -337,17 +472,492 @@ class OpeningButton(ChromaWidgetBase):
                 # Clear update flag
                 self._updating_resolution = False
         except Exception as e:
-            from utils.logging import get_logger
-            log = get_logger()
             log.error(f"[CHROMA] Error checking button resolution: {e}")
             import traceback
             log.error(traceback.format_exc())
             # Clear flag even on error
             self._updating_resolution = False
     
+    def _fade_step(self):
+        """Execute one step of the fade animation"""
+        try:
+            if self.fade_current_step >= self.fade_steps:
+                # Animation complete
+                self.opacity_effect.setOpacity(self.fade_target_opacity)
+                if self.fade_timer:
+                    self.fade_timer.stop()
+                    self.fade_timer = None
+                return
+            
+            # Calculate current opacity using linear interpolation
+            progress = self.fade_current_step / self.fade_steps
+            current_opacity = self.fade_start_opacity + (self.fade_target_opacity - self.fade_start_opacity) * progress
+            self.opacity_effect.setOpacity(current_opacity)
+            
+            self.fade_current_step += 1
+        except RuntimeError:
+            # Widget may have been deleted
+            if self.fade_timer:
+                self.fade_timer.stop()
+                self.fade_timer = None
+    
+    def _start_fade(self, target_opacity: float, duration_ms: int):
+        """Start fade animation to target opacity over duration_ms"""
+        try:
+            # Stop any existing fade animation
+            if self.fade_timer:
+                self.fade_timer.stop()
+                self.fade_timer = None
+            
+            # Setup fade animation
+            self.fade_start_opacity = self.opacity_effect.opacity()
+            self.fade_target_opacity = target_opacity
+            self.fade_current_step = 0
+            
+            # Calculate steps (60 FPS = ~16.67ms per frame)
+            frame_interval_ms = 16  # ~60 FPS
+            self.fade_steps = max(1, duration_ms // frame_interval_ms)
+            
+            log.info(f"[CHROMA] Starting fade: {self.fade_start_opacity:.2f} → {target_opacity:.2f} over {duration_ms}ms ({self.fade_steps} steps)")
+            
+            # Create timer for animation
+            self.fade_timer = QTimer(self)
+            self.fade_timer.timeout.connect(self._fade_step)
+            self.fade_timer.start(frame_interval_ms)
+            
+        except RuntimeError:
+            # Widget may have been deleted
+            pass
+    
+    def fade_has_to_has(self):
+        """Chromas → Chromas: fade out 50ms, wait 100ms, fade in 50ms - thread-safe"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_has_to_has", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    def fade_none_to_has(self):
+        """No chromas → Chromas: wait 150ms, fade in 50ms - thread-safe"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_none_to_has", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    def fade_has_to_none(self):
+        """Chromas → No chromas: fade out 50ms - thread-safe"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_has_to_none", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_has_to_has(self):
+        """Chromas → Chromas: fade out 50ms, wait 100ms, fade in 50ms"""
+        try:
+            if not self.isVisible():
+                return
+            
+            # Cancel any pending animations
+            self._cancel_animations()
+            
+            # Fade out (50ms)
+            self._start_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+            
+            # Schedule fade in after: fade_out_duration + wait_time (50ms + 100ms = 150ms)
+            total_delay = config.CHROMA_FADE_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
+            self.fade_in_timer = QTimer(self)
+            self.fade_in_timer.setSingleShot(True)
+            self.fade_in_timer.timeout.connect(lambda: self._start_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.fade_in_timer.start(total_delay)
+            
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_none_to_has(self):
+        """No chromas → Chromas: wait 150ms, fade in 50ms"""
+        try:
+            if not self.isVisible():
+                return
+            
+            # Cancel any pending animations
+            self._cancel_animations()
+            
+            # Set to 0 opacity immediately
+            self.opacity_effect.setOpacity(0.0)
+            
+            # Wait 150ms, then fade in (50ms)
+            self.fade_in_timer = QTimer(self)
+            self.fade_in_timer.setSingleShot(True)
+            self.fade_in_timer.timeout.connect(lambda: self._start_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.fade_in_timer.start(150)  # 150ms wait
+            
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_has_to_none(self):
+        """Chromas → No chromas: fade out 50ms"""
+        try:
+            # Don't check visibility - button might be hidden during animation
+            
+            # Cancel any pending animations
+            self._cancel_animations()
+            
+            # Fade out only (50ms)
+            self._start_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+            
+        except RuntimeError:
+            pass
+    
+    def _cancel_animations(self):
+        """Cancel all pending animations"""
+        if self.fade_timer:
+            self.fade_timer.stop()
+            self.fade_timer = None
+        if self.fade_in_timer:
+            self.fade_in_timer.stop()
+            self.fade_in_timer = None
+    
+    def _update_unowned_frame_position(self):
+        """Update UnownedFrame position to be centered on button (in League client coordinates)"""
+        try:
+            if not hasattr(self, 'unowned_frame') or not self.unowned_frame:
+                return
+            if not hasattr(self, '_unowned_frame_parented') or not self._unowned_frame_parented:
+                return
+            
+            # Get button center in client coordinates (since button is parented to League)
+            button_center = self.rect().center()
+            button_pos = self.pos()  # Button's position in League client coords
+            button_center_x = button_pos.x() + button_center.x()
+            button_center_y = button_pos.y() + button_center.y()
+            
+            # Position UnownedFrame centered on button (Lock and OutlineGold are positioned within frame)
+            frame_x = button_center_x - (self.unowned_frame.width() // 2)
+            frame_y = button_center_y - (self.unowned_frame.height() // 2)
+            
+            self.unowned_frame.move(frame_x, frame_y)
+            
+        except Exception as e:
+            log.debug(f"[CHROMA] Failed to update UnownedFrame position: {e}")
+    
+    # ===== LOCK FADE METHODS (INVERTED: shown when NOT owned) =====
+    
+    def lock_fade_not_owned_to_not_owned(self):
+        """NOT owned → NOT owned: fade out 50ms, wait 100ms, fade in 50ms (lock stays visible)"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_lock_not_owned_to_not_owned", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    def lock_fade_not_owned_to_owned(self):
+        """NOT owned → Owned: fade out 50ms (hide lock)"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_lock_not_owned_to_owned", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    def lock_fade_owned_to_not_owned(self):
+        """Owned → NOT owned: wait 150ms, fade in 50ms (show lock)"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_lock_owned_to_not_owned", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    def lock_fade_owned_to_not_owned_first(self):
+        """First skin NOT owned: just fade in 50ms (no wait)"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_lock_owned_to_not_owned_first", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_lock_not_owned_to_not_owned(self):
+        """NOT owned → NOT owned: fade out 50ms, wait 100ms, fade in 50ms (lock stays visible)"""
+        try:
+            log.info(f"[CHROMA] Lock fade: NOT owned→NOT owned (current opacity: {self.lock_opacity_effect.opacity():.2f})")
+            self._cancel_lock_animations()
+            self._start_lock_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+            total_delay = config.CHROMA_FADE_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
+            self.lock_fade_in_timer = QTimer(self)
+            self.lock_fade_in_timer.setSingleShot(True)
+            self.lock_fade_in_timer.timeout.connect(lambda: self._start_lock_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.lock_fade_in_timer.start(total_delay)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_lock_not_owned_to_owned(self):
+        """NOT owned → Owned: fade out 50ms (hide lock)"""
+        try:
+            log.info(f"[CHROMA] Lock fade: NOT owned→owned (HIDE lock, opacity: {self.lock_opacity_effect.opacity():.2f})")
+            self._cancel_lock_animations()
+            self._start_lock_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_lock_owned_to_not_owned(self):
+        """Owned → NOT owned: wait 150ms, fade in 50ms (show lock)"""
+        try:
+            log.info(f"[CHROMA] Lock fade: owned→NOT owned (SHOW lock, opacity: {self.lock_opacity_effect.opacity():.2f})")
+            self._cancel_lock_animations()
+            self.lock_opacity_effect.setOpacity(0.0)
+            self.lock_fade_in_timer = QTimer(self)
+            self.lock_fade_in_timer.setSingleShot(True)
+            self.lock_fade_in_timer.timeout.connect(lambda: self._start_lock_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.lock_fade_in_timer.start(150)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_lock_owned_to_not_owned_first(self):
+        """First skin NOT owned: just fade in 50ms (no wait)"""
+        try:
+            log.info(f"[CHROMA] Lock fade: FIRST NOT owned (immediate fade in, opacity: {self.lock_opacity_effect.opacity():.2f})")
+            self._cancel_lock_animations()
+            self._start_lock_fade(1.0, config.CHROMA_FADE_DURATION_MS)
+        except RuntimeError:
+            pass
+    
+    def _start_lock_fade(self, target_opacity: float, duration_ms: int):
+        """Start Lock fade animation"""
+        try:
+            if self.lock_fade_timer:
+                self.lock_fade_timer.stop()
+                self.lock_fade_timer = None
+            
+            self.lock_fade_start_opacity = self.lock_opacity_effect.opacity()
+            self.lock_fade_target_opacity = target_opacity
+            self.lock_fade_current_step = 0
+            self.lock_fade_steps = max(1, duration_ms // 16)
+            
+            self.lock_fade_timer = QTimer(self)
+            self.lock_fade_timer.timeout.connect(self._lock_fade_step)
+            self.lock_fade_timer.start(16)
+        except RuntimeError:
+            pass
+    
+    def _lock_fade_step(self):
+        """Execute one step of the Lock fade animation"""
+        try:
+            if self.lock_fade_current_step >= self.lock_fade_steps:
+                self.lock_opacity_effect.setOpacity(self.lock_fade_target_opacity)
+                if self.lock_fade_timer:
+                    self.lock_fade_timer.stop()
+                    self.lock_fade_timer = None
+                return
+            
+            progress = self.lock_fade_current_step / self.lock_fade_steps
+            current_opacity = self.lock_fade_start_opacity + (self.lock_fade_target_opacity - self.lock_fade_start_opacity) * progress
+            self.lock_opacity_effect.setOpacity(current_opacity)
+            self.lock_fade_current_step += 1
+        except RuntimeError:
+            if self.lock_fade_timer:
+                self.lock_fade_timer.stop()
+                self.lock_fade_timer = None
+    
+    def _cancel_lock_animations(self):
+        """Cancel all pending Lock animations"""
+        if self.lock_fade_timer:
+            self.lock_fade_timer.stop()
+            self.lock_fade_timer = None
+        if self.lock_fade_in_timer:
+            self.lock_fade_in_timer.stop()
+            self.lock_fade_in_timer = None
+    
+    # ===== UNOWNED FRAME FADE METHODS (controls Lock and OutlineGold visibility) =====
+    
+    def unowned_frame_fade_not_owned_to_not_owned(self):
+        """NOT owned → NOT owned: fade out 50ms, wait 100ms, fade in 50ms (frame stays visible)"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_unowned_frame_not_owned_to_not_owned", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    def unowned_frame_fade_not_owned_to_owned(self):
+        """NOT owned → Owned: fade out 50ms (hide frame)"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_unowned_frame_not_owned_to_owned", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    def unowned_frame_fade_owned_to_not_owned(self):
+        """Owned → NOT owned: wait 150ms, fade in 50ms (show frame)"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_unowned_frame_owned_to_not_owned", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    def unowned_frame_fade_owned_to_not_owned_first(self):
+        """First skin NOT owned: just fade in 50ms (no wait)"""
+        try:
+            QMetaObject.invokeMethod(self, "_do_unowned_frame_owned_to_not_owned_first", Qt.ConnectionType.QueuedConnection)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_unowned_frame_not_owned_to_not_owned(self):
+        """NOT owned → NOT owned: fade out 50ms, wait 100ms, fade in 50ms (frame stays visible)"""
+        try:
+            log.info(f"[CHROMA] UnownedFrame fade: NOT owned→NOT owned (current opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
+            self._cancel_unowned_frame_animations()
+            self._start_unowned_frame_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+            total_delay = config.CHROMA_FADE_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
+            self.unowned_frame_fade_in_timer = QTimer(self)
+            self.unowned_frame_fade_in_timer.setSingleShot(True)
+            self.unowned_frame_fade_in_timer.timeout.connect(lambda: self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.unowned_frame_fade_in_timer.start(total_delay)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_unowned_frame_not_owned_to_owned(self):
+        """NOT owned → Owned: fade out 50ms (hide frame)"""
+        try:
+            log.info(f"[CHROMA] UnownedFrame fade: NOT owned→owned (HIDE, opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
+            self._cancel_unowned_frame_animations()
+            self._start_unowned_frame_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_unowned_frame_owned_to_not_owned(self):
+        """Owned → NOT owned: wait 150ms, fade in 50ms (show frame)"""
+        try:
+            log.info(f"[CHROMA] UnownedFrame fade: owned→NOT owned (SHOW, opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
+            self._cancel_unowned_frame_animations()
+            self.unowned_frame_opacity_effect.setOpacity(0.0)
+            self.unowned_frame_fade_in_timer = QTimer(self)
+            self.unowned_frame_fade_in_timer.setSingleShot(True)
+            self.unowned_frame_fade_in_timer.timeout.connect(lambda: self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.unowned_frame_fade_in_timer.start(150)
+        except RuntimeError:
+            pass
+    
+    @pyqtSlot()
+    def _do_unowned_frame_owned_to_not_owned_first(self):
+        """First skin NOT owned: just fade in 50ms (no wait)"""
+        try:
+            log.info(f"[CHROMA] UnownedFrame fade: FIRST NOT owned (immediate fade in, opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
+            self._cancel_unowned_frame_animations()
+            self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_DURATION_MS)
+        except RuntimeError:
+            pass
+    
+    def _start_unowned_frame_fade(self, target_opacity: float, duration_ms: int):
+        """Start UnownedFrame fade animation"""
+        try:
+            if self.unowned_frame_fade_timer:
+                self.unowned_frame_fade_timer.stop()
+                self.unowned_frame_fade_timer = None
+            
+            self.unowned_frame_fade_start_opacity = self.unowned_frame_opacity_effect.opacity()
+            self.unowned_frame_fade_target_opacity = target_opacity
+            self.unowned_frame_fade_current_step = 0
+            self.unowned_frame_fade_steps = max(1, duration_ms // 16)
+            
+            log.info(f"[CHROMA] UnownedFrame starting fade: {self.unowned_frame_fade_start_opacity:.2f} → {target_opacity:.2f} over {duration_ms}ms ({self.unowned_frame_fade_steps} steps)")
+            
+            self.unowned_frame_fade_timer = QTimer(self)
+            self.unowned_frame_fade_timer.timeout.connect(self._unowned_frame_fade_step)
+            self.unowned_frame_fade_timer.start(16)
+        except RuntimeError:
+            pass
+    
+    def _unowned_frame_fade_step(self):
+        """Execute one step of the UnownedFrame fade animation"""
+        try:
+            if self.unowned_frame_fade_current_step >= self.unowned_frame_fade_steps:
+                self.unowned_frame_opacity_effect.setOpacity(self.unowned_frame_fade_target_opacity)
+                if self.unowned_frame_fade_timer:
+                    self.unowned_frame_fade_timer.stop()
+                    self.unowned_frame_fade_timer = None
+                return
+            
+            progress = self.unowned_frame_fade_current_step / self.unowned_frame_fade_steps
+            current_opacity = self.unowned_frame_fade_start_opacity + (self.unowned_frame_fade_target_opacity - self.unowned_frame_fade_start_opacity) * progress
+            self.unowned_frame_opacity_effect.setOpacity(current_opacity)
+            self.unowned_frame_fade_current_step += 1
+        except RuntimeError:
+            if self.unowned_frame_fade_timer:
+                self.unowned_frame_fade_timer.stop()
+                self.unowned_frame_fade_timer = None
+    
+    def _cancel_unowned_frame_animations(self):
+        """Cancel all pending UnownedFrame animations"""
+        if self.unowned_frame_fade_timer:
+            self.unowned_frame_fade_timer.stop()
+            self.unowned_frame_fade_timer = None
+        if self.unowned_frame_fade_in_timer:
+            self.unowned_frame_fade_in_timer.stop()
+            self.unowned_frame_fade_in_timer = None
+    
     def showEvent(self, event):
-        """Reset hiding flag when button is shown"""
+        """Reset hiding flag when button is shown, parent and show UnownedFrame"""
         self.is_hiding = False
+        
+        # Get League window handle for parenting UnownedFrame
+        from utils.window_utils import get_league_window_handle
+        league_hwnd = get_league_window_handle()
+        
+        if league_hwnd:
+            # Parent UnownedFrame to League window (first time only)
+            if hasattr(self, 'unowned_frame') and self.unowned_frame:
+                if not hasattr(self, '_unowned_frame_parented'):
+                    try:
+                        import ctypes
+                        from ctypes import wintypes
+                        
+                        frame_hwnd = int(self.unowned_frame.winId())
+                        
+                        # Change window style to WS_CHILD for proper parenting
+                        GWL_STYLE = -16
+                        WS_POPUP = 0x80000000
+                        WS_CHILD = 0x40000000
+                        GetWindowLong = ctypes.windll.user32.GetWindowLongW
+                        SetWindowLong = ctypes.windll.user32.SetWindowLongW
+                        
+                        current_style = GetWindowLong(frame_hwnd, GWL_STYLE)
+                        new_style = (current_style & ~WS_POPUP) | WS_CHILD
+                        SetWindowLong(frame_hwnd, GWL_STYLE, ctypes.c_long(new_style).value)
+                        
+                        # Parent to League
+                        result = ctypes.windll.user32.SetParent(frame_hwnd, league_hwnd)
+                        if result:
+                            self._unowned_frame_parented = True
+                            log.info(f"[CHROMA] ✓ UnownedFrame parented to League window (opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
+                    except Exception as e:
+                        log.error(f"[CHROMA] Failed to parent UnownedFrame: {e}")
+                
+                # Update position and show UnownedFrame (Lock and OutlineGold are children, shown automatically)
+                self._update_unowned_frame_position()
+                self.unowned_frame.show()
+                
+                # Show children explicitly (they inherit parent's opacity)
+                if hasattr(self, 'outline_gold_label') and self.outline_gold_label:
+                    self.outline_gold_label.show()
+                if hasattr(self, 'lock_label') and self.lock_label:
+                    self.lock_label.show()
+                    self.lock_label.raise_()  # Lock above OutlineGold
+                
+                log.info(f"[CHROMA] UnownedFrame shown (opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
+        
+        # Ensure button is on top of UnownedFrame
+        self.raise_()
+        
         super().showEvent(event)
+    
+    def moveEvent(self, event):
+        """Update UnownedFrame position when button moves"""
+        super().moveEvent(event)
+        self._update_unowned_frame_position()
+    
+    def hideEvent(self, event):
+        """Button is hidden - UnownedFrame remains visible with its own opacity logic"""
+        # DO NOT hide UnownedFrame - it has independent visibility based on ownership
+        # Its visibility is controlled purely by opacity (fade effects)
+        super().hideEvent(event)
 
 

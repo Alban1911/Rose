@@ -332,6 +332,20 @@ CHROMA_UI_BUTTON_OFFSET_Y_RATIO = 0.0           # No vertical offset
 CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with button center
 CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
 
+# Chroma UI fade timing (milliseconds)
+CHROMA_FADE_DURATION_MS = 50                     # Duration of fade in/out animation
+CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 100          # Wait time between end of fade out and start of fade in
+
+# Chroma button Lock configuration (fades based on ownership - shown when NOT owned)
+CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7              # Lock size as ratio of button visual size
+CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014        # Lock X offset as ratio of button size (0.0 = centered)
+CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO = -0.83          # Lock Y offset as ratio of button size (0.0 = centered)
+
+# Chroma button OutlineGold configuration (carousel border, behind Lock - shown when NOT owned)
+CHROMA_BUTTON_OUTLINE_GOLD_SIZE_RATIO = 3.63        # OutlineGold size as ratio of button visual size (keeps aspect ratio)
+CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_X_RATIO = CHROMA_BUTTON_LOCK_OFFSET_X_RATIO  # OutlineGold X offset as ratio of button size
+CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_Y_RATIO = CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO  # OutlineGold Y offset as ratio of button size
+
 
 # =============================================================================
 # WINDOWS API CONSTANTS

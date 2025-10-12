@@ -168,9 +168,22 @@ class ChromaPanelManager:
                     log.warning(f"[CHROMA] Error destroying panel widget: {e}")
             if self.reopen_button:
                 try:
-                    # Un-parent from League window before destroying
+                    # Un-parent UnownedFrame from League window first
+                    import ctypes
+                    if hasattr(self.reopen_button, 'unowned_frame') and self.reopen_button.unowned_frame:
+                        if hasattr(self.reopen_button, '_unowned_frame_parented') and self.reopen_button._unowned_frame_parented:
+                            try:
+                                frame_hwnd = int(self.reopen_button.unowned_frame.winId())
+                                ctypes.windll.user32.SetParent(frame_hwnd, 0)  # Un-parent
+                                log.debug("[CHROMA] UnownedFrame un-parented from League window")
+                            except:
+                                pass
+                        # Lock and OutlineGold are children of UnownedFrame, will be deleted automatically
+                        self.reopen_button.unowned_frame.hide()
+                        self.reopen_button.unowned_frame.deleteLater()
+                    
+                    # Un-parent button from League window before destroying
                     if hasattr(self.reopen_button, '_league_window_hwnd') and self.reopen_button._league_window_hwnd:
-                        import ctypes
                         button_hwnd = int(self.reopen_button.winId())
                         ctypes.windll.user32.SetParent(button_hwnd, 0)  # Un-parent (set to desktop)
                         self.reopen_button._league_window_hwnd = None
@@ -323,7 +336,13 @@ class ChromaPanelManager:
                     was_panel_visible = self.widget and self.widget.isVisible()
                     was_button_visible = self.reopen_button and self.reopen_button.isVisible()
                     
-                    log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}, button_visible={was_button_visible}")
+                    # Save UnownedFrame opacity before rebuild
+                    unowned_frame_opacity = 0.0
+                    if self.reopen_button and hasattr(self.reopen_button, 'unowned_frame') and self.reopen_button.unowned_frame:
+                        if hasattr(self.reopen_button, 'unowned_frame_opacity_effect'):
+                            unowned_frame_opacity = self.reopen_button.unowned_frame_opacity_effect.opacity()
+                    
+                    log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}, button_visible={was_button_visible}, unowned_frame_opacity={unowned_frame_opacity:.2f}")
                     
                     # Destroy old widgets
                     log.info("[CHROMA] Destroying old widgets...")
@@ -341,6 +360,11 @@ class ChromaPanelManager:
                     if self.reopen_button and self.current_chroma_color:
                         self.reopen_button.set_chroma_color(self.current_chroma_color)
                         log.debug(f"[CHROMA] Button color restored after rebuild: {self.current_chroma_color}")
+                    
+                    # Restore UnownedFrame opacity after rebuild
+                    if self.reopen_button and hasattr(self.reopen_button, 'unowned_frame_opacity_effect'):
+                        self.reopen_button.unowned_frame_opacity_effect.setOpacity(unowned_frame_opacity)
+                        log.info(f"[CHROMA] UnownedFrame opacity restored after rebuild: {unowned_frame_opacity:.2f}")
                     
                     # Restore visibility state
                     if was_button_visible and self.current_skin_name and self.current_chromas:

@@ -19,6 +19,7 @@ icon_files = [
     ('icon.ico', '.'),
     ('icon.png', '.'),
     ('champ-select-flyout-background.jpg', '.'),
+    ('carousel-outline-gold.png', '.'),
 ]
 
 # Verify individual icon files
