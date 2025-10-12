@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-OCR backend implementation with EasyOCR (CPU mode)
+OCR backend implementation with EasyOCR (GPU/CPU mode)
 """
 
 import warnings
@@ -20,23 +20,45 @@ log = get_logger()
 
 
 class OCR:
-    """OCR backend using EasyOCR (CPU mode only)"""
+    """OCR backend using EasyOCR with GPU support"""
     
-    def __init__(self, lang: str = "eng", psm: int = 7, tesseract_exe: Optional[str] = None, use_gpu: bool = False):
-        """Initialize EasyOCR backend in CPU mode
+    def __init__(self, lang: str = "eng", psm: int = 7, tesseract_exe: Optional[str] = None, use_gpu: bool = True, measure_time: bool = True):
+        """Initialize EasyOCR backend with GPU support
         
         Args:
             lang: Language code (e.g., "eng", "rus", "kor", "chi_sim", etc.)
             psm: Not used for EasyOCR (kept for API compatibility)
             tesseract_exe: Not used for EasyOCR (kept for API compatibility)
-            use_gpu: Ignored - always uses CPU mode
+            use_gpu: Try to use GPU if available (default True, fallback to CPU)
+            measure_time: Enable timing measurements for OCR operations (default True)
         """
         self.lang = lang
         self.psm = int(psm)  # Keep for compatibility
         self.backend = "easyocr"
         self.reader = None
-        self.use_gpu = False  # Always use CPU
+        self.use_gpu = False  # Will be set based on actual initialization
         self.cache = {}  # Cache for OCR results
+        self.measure_time = measure_time  # Enable timing measurements
+        
+        # Timing statistics
+        self.last_ocr_time = 0.0
+        self.avg_ocr_time = 0.0
+        self.ocr_call_count = 0
+        
+        # Check if GPU is available
+        gpu_available = False
+        if use_gpu:
+            try:
+                import torch
+                gpu_available = torch.cuda.is_available()
+                if gpu_available:
+                    log.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
+                else:
+                    log.info("No GPU detected, will use CPU mode")
+            except ImportError:
+                log.info("PyTorch not configured for GPU, will use CPU mode")
+            except Exception as e:
+                log.debug(f"GPU check failed: {e}, will use CPU mode")
         
         # Language mapping: tesseract codes → EasyOCR codes
         # EasyOCR supports multiple languages simultaneously
@@ -70,20 +92,44 @@ class OCR:
             
             langs_str = "+".join(easyocr_langs)
             log.info(f"Initializing EasyOCR: {langs_str} (tesseract lang: {lang})")
-            log.info(f"Mode: CPU only")
             
-            # Initialize EasyOCR reader in CPU mode
-            self.reader = easyocr.Reader(
-                easyocr_langs,
-                gpu=False,                  # CPU mode only
-                verbose=False,              # Reduce logging
-                quantize=True,              # Use quantization for CPU speed
-                model_storage_directory=None,  # Use default cache
-                user_network_directory=None,   # Use default networks
-                download_enabled=True       # Allow downloading models if needed
-            )
+            # Try GPU mode first if requested and available
+            if use_gpu and gpu_available:
+                try:
+                    log.info("Attempting to initialize EasyOCR in GPU mode...")
+                    self.reader = easyocr.Reader(
+                        easyocr_langs,
+                        gpu=True,                   # GPU mode
+                        verbose=False,              # Reduce logging
+                        quantize=False,             # No quantization for GPU (not needed)
+                        model_storage_directory=None,  # Use default cache
+                        user_network_directory=None,   # Use default networks
+                        download_enabled=True       # Allow downloading models if needed
+                    )
+                    self.use_gpu = True
+                    log.info(f"✓ EasyOCR initialized successfully (GPU mode)")
+                except Exception as gpu_error:
+                    log.warning(f"GPU initialization failed: {gpu_error}")
+                    log.info("Falling back to CPU mode...")
+                    gpu_available = False  # Mark GPU as unavailable for fallback
             
-            log.info(f"EasyOCR initialized successfully (CPU mode)")
+            # Use CPU mode if GPU not requested or failed
+            if not self.use_gpu:
+                log.info("Initializing EasyOCR in CPU mode...")
+                self.reader = easyocr.Reader(
+                    easyocr_langs,
+                    gpu=False,                  # CPU mode
+                    verbose=False,              # Reduce logging
+                    quantize=True,              # Use quantization for CPU speed
+                    model_storage_directory=None,  # Use default cache
+                    user_network_directory=None,   # Use default networks
+                    download_enabled=True       # Allow downloading models if needed
+                )
+                log.info(f"✓ EasyOCR initialized successfully (CPU mode)")
+            
+            # Log timing measurement status
+            if self.measure_time:
+                log.info(f"⏱️  OCR timing measurements: ENABLED")
             
         except ImportError:
             raise ImportError(
@@ -96,10 +142,19 @@ class OCR:
                 log.warning(f"EasyOCR doesn't support '{lang}' language")
                 log.info(f"Falling back to English (en) for OCR")
                 
-                # Fallback to English (CPU mode)
+                # Fallback to English (try GPU first if available, then CPU)
                 import easyocr
-                self.reader = easyocr.Reader(["en"], gpu=False, verbose=False, quantize=True)
-                log.info(f"EasyOCR initialized with English fallback (CPU mode)")
+                if use_gpu and gpu_available:
+                    try:
+                        self.reader = easyocr.Reader(["en"], gpu=True, verbose=False)
+                        self.use_gpu = True
+                        log.info(f"✓ EasyOCR initialized with English fallback (GPU mode)")
+                    except Exception:
+                        self.reader = easyocr.Reader(["en"], gpu=False, verbose=False, quantize=True)
+                        log.info(f"✓ EasyOCR initialized with English fallback (CPU mode)")
+                else:
+                    self.reader = easyocr.Reader(["en"], gpu=False, verbose=False, quantize=True)
+                    log.info(f"✓ EasyOCR initialized with English fallback (CPU mode)")
             else:
                 raise RuntimeError(f"Failed to initialize EasyOCR: {e}")
 
@@ -112,15 +167,22 @@ class OCR:
         Returns:
             Recognized text string
         """
+        import time
+        start_time = time.perf_counter() if self.measure_time else 0
+        
         try:
             # Create a simple hash of the image for caching
             img_hash = hash(img.tobytes())
             
             # Check cache first
             if img_hash in self.cache:
+                if self.measure_time:
+                    cache_time = (time.perf_counter() - start_time) * 1000
+                    log.debug(f"[OCR:timing] Cache hit: {cache_time:.2f}ms")
                 return self.cache[img_hash]
             
             # Convert image format for EasyOCR (expects RGB)
+            preprocess_start = time.perf_counter() if self.measure_time else 0
             if img.ndim == 2:
                 # Grayscale to RGB
                 processed_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
@@ -130,11 +192,16 @@ class OCR:
             else:
                 processed_img = img
             
+            if self.measure_time:
+                preprocess_time = (time.perf_counter() - preprocess_start) * 1000
+                log.debug(f"[OCR:timing] Image preprocessing: {preprocess_time:.2f}ms")
+            
             # Suppress warnings during OCR processing
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 
                 # Run EasyOCR with optimized settings for complete text detection
+                ocr_start = time.perf_counter() if self.measure_time else 0
                 results = self.reader.readtext(
                     processed_img,
                     detail=1,           # Return text AND coordinates for proper ordering
@@ -149,7 +216,12 @@ class OCR:
                     canvas_size=2560,   # Higher resolution for better character recognition
                     mag_ratio=2.0       # Higher magnification for better character clarity
                 )
+                
+                if self.measure_time:
+                    ocr_time = (time.perf_counter() - ocr_start) * 1000
+                    log.info(f"[OCR:timing] EasyOCR recognition: {ocr_time:.2f}ms")
             
+            postprocess_start = time.perf_counter() if self.measure_time else 0
             if results:
                 # Sort text regions by x-coordinate (left to right) to preserve reading order
                 # Each result is a tuple: (bbox, text, confidence)
@@ -171,6 +243,19 @@ class OCR:
             if self.lang == "rus" or "ru" in self.lang_mapping.get(self.lang, []):
                 txt = self._fix_cyrillic_ocr_errors(txt)
             
+            if self.measure_time:
+                postprocess_time = (time.perf_counter() - postprocess_start) * 1000
+                total_time = (time.perf_counter() - start_time) * 1000
+                
+                # Update statistics
+                self.last_ocr_time = total_time
+                self.ocr_call_count += 1
+                self.avg_ocr_time = ((self.avg_ocr_time * (self.ocr_call_count - 1)) + total_time) / self.ocr_call_count
+                
+                log.debug(f"[OCR:timing] Text postprocessing: {postprocess_time:.2f}ms")
+                log.info(f"[OCR:timing] Total OCR time: {total_time:.2f}ms | Avg: {self.avg_ocr_time:.2f}ms | Count: {self.ocr_call_count}")
+                if txt:
+                    log.info(f"[OCR:timing] Detected text: '{txt}'")
             
             # Cache the result
             if txt and len(txt.strip()) > 2:
@@ -189,6 +274,29 @@ class OCR:
                 log.warning(f"EasyOCR error (will continue): {e}")
                 self._error_logged = True
             return ""
+    
+    def get_timing_stats(self) -> dict:
+        """Get OCR timing statistics
+        
+        Returns:
+            Dictionary with timing statistics:
+            - last_ocr_time: Time of last OCR operation (ms)
+            - avg_ocr_time: Average OCR operation time (ms)
+            - ocr_call_count: Total number of OCR calls
+        """
+        return {
+            'last_ocr_time': self.last_ocr_time,
+            'avg_ocr_time': self.avg_ocr_time,
+            'ocr_call_count': self.ocr_call_count,
+            'measure_time': self.measure_time
+        }
+    
+    def reset_timing_stats(self):
+        """Reset OCR timing statistics"""
+        self.last_ocr_time = 0.0
+        self.avg_ocr_time = 0.0
+        self.ocr_call_count = 0
+        log.info("[OCR:timing] Timing statistics reset")
     
     def _fix_cyrillic_ocr_errors(self, text: str) -> str:
         """Fix common Cyrillic OCR recognition errors (especially italic distortions)
