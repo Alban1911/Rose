@@ -75,22 +75,31 @@ class TrayManager:
             import sys
             if getattr(sys, 'frozen', False):
                 # Running as compiled executable (PyInstaller)
-                # Icons are included alongside the executable
+                # In onedir mode, data files are in _internal folder
                 base_dir = os.path.dirname(sys.executable)
+                # Try multiple locations for PyInstaller
+                possible_paths = [
+                    os.path.join(base_dir, "icons", icon_name),  # Direct path
+                    os.path.join(base_dir, "_internal", "icons", icon_name),  # _internal folder
+                ]
             else:
                 # Running as Python script
                 base_dir = os.path.dirname(os.path.dirname(__file__))
+                possible_paths = [os.path.join(base_dir, "icons", icon_name)]
             
-            # Try to load the specified icon from icons folder
-            icon_path = os.path.join(base_dir, "icons", icon_name)
-            if os.path.exists(icon_path):
-                with Image.open(icon_path) as img:
-                    # Convert to RGBA and resize to 128x128 (doubled from 64x64)
-                    img = img.convert('RGBA')
-                    img = img.resize((128, 128), Image.Resampling.LANCZOS)
-                    return img.copy()  # Return a copy to avoid issues with closed files
+            # Try each possible path
+            for icon_path in possible_paths:
+                if os.path.exists(icon_path):
+                    log.debug(f"Loading tray icon from: {icon_path}")
+                    with Image.open(icon_path) as img:
+                        # Convert to RGBA and resize to 128x128 (doubled from 64x64)
+                        img = img.convert('RGBA')
+                        img = img.resize((128, 128), Image.Resampling.LANCZOS)
+                        return img.copy()  # Return a copy to avoid issues with closed files
+            
+            log.warning(f"Icon '{icon_name}' not found in any expected location")
         except Exception as e:
-            log.debug(f"Failed to load icon '{icon_name}': {e}")
+            log.error(f"Failed to load icon '{icon_name}': {e}")
         return None
     
     def _load_icons(self):
@@ -112,20 +121,29 @@ class TrayManager:
                 if getattr(sys, 'frozen', False):
                     # Running as compiled executable (PyInstaller)
                     base_dir = os.path.dirname(sys.executable)
+                    # Try multiple locations for PyInstaller
+                    possible_paths = [
+                        os.path.join(base_dir, "icon.png"),  # Direct path
+                        os.path.join(base_dir, "_internal", "icon.png"),  # _internal folder
+                    ]
                 else:
                     # Running as Python script
                     base_dir = os.path.dirname(os.path.dirname(__file__))
+                    possible_paths = [os.path.join(base_dir, "icon.png")]
                 
-                icon_path_png = os.path.join(base_dir, "icon.png")
-                if os.path.exists(icon_path_png):
-                    with Image.open(icon_path_png) as img:
-                        img = img.convert('RGBA')
-                        img = img.resize((128, 128), Image.Resampling.LANCZOS)
-                        self._locked_icon_image = img.copy()
-                        self._golden_locked_icon_image = img.copy()
-                        self._unlocked_icon_image = img.copy()
+                # Try each possible path
+                for icon_path_png in possible_paths:
+                    if os.path.exists(icon_path_png):
+                        log.debug(f"Loading fallback icon from: {icon_path_png}")
+                        with Image.open(icon_path_png) as img:
+                            img = img.convert('RGBA')
+                            img = img.resize((128, 128), Image.Resampling.LANCZOS)
+                            self._locked_icon_image = img.copy()
+                            self._golden_locked_icon_image = img.copy()
+                            self._unlocked_icon_image = img.copy()
+                        break
             except Exception as e:
-                log.debug(f"Failed to load fallback icon: {e}")
+                log.warning(f"Failed to load fallback icon: {e}")
     
     def _get_icon_image(self) -> Image.Image:
         """Get the icon image, trying file first, then creating a default one"""

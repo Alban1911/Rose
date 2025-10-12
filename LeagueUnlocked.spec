@@ -13,28 +13,87 @@ block_cipher = None
 # Collect all data files for packages that need them
 datas = []
 
-# Icons and assets
-datas += [
-    ('icons', 'icons'),
+# Icons and assets - verify they exist
+import os
+icon_files = [
     ('icon.ico', '.'),
     ('icon.png', '.'),
+    ('champ-select-flyout-background.jpg', '.'),
 ]
 
-# Injection tools - explicitly add each file
-injection_tools = [
+# Verify individual icon files
+for src, dst in icon_files:
+    if os.path.exists(src):
+        datas += [(src, dst)]
+    else:
+        print(f"[WARNING] Missing: {src}")
+
+# Verify and add icons directory
+if os.path.exists('icons') and os.path.isdir('icons'):
+    icon_dir_files = os.listdir('icons')
+    if icon_dir_files:
+        datas += [('icons', 'icons')]
+        print(f"[OK] Icons directory found with {len(icon_dir_files)} files: {', '.join(icon_dir_files)}")
+    else:
+        print("[WARNING] Icons directory is empty")
+else:
+    print("[WARNING] Icons directory not found")
+
+# Injection tools - separate binaries (.exe, .dll) from data files (.bat)
+import os
+
+# Binary files (executables and DLLs) - these go in binaries, not datas
+injection_binaries = [
     'injection/tools/mod-tools.exe',
     'injection/tools/cslol-diag.exe',
     'injection/tools/cslol-dll.dll',
     'injection/tools/wad-extract.exe',
     'injection/tools/wad-make.exe',
+]
+
+# Data files (batch scripts, etc.)
+injection_data_files = [
     'injection/tools/wad-extract-multi.bat',
     'injection/tools/wad-make-multi.bat',
     'injection/tools/wxy-extract-multi.bat',
 ]
-for tool in injection_tools:
-    datas += [(tool, 'injection/tools')]
 
-datas += [('injection/mods_map.json', 'injection')]
+# Verify and add injection binaries
+binaries = []
+missing_binaries = []
+for tool in injection_binaries:
+    if os.path.exists(tool):
+        binaries.append((tool, 'injection/tools'))
+    else:
+        missing_binaries.append(tool)
+
+if missing_binaries:
+    print(f"[WARNING] Missing injection binaries:")
+    for tool in missing_binaries:
+        print(f"  - {tool}")
+else:
+    print(f"[OK] All {len(injection_binaries)} injection binaries found")
+
+# Verify and add injection data files
+missing_data = []
+for tool in injection_data_files:
+    if os.path.exists(tool):
+        datas += [(tool, 'injection/tools')]
+    else:
+        missing_data.append(tool)
+
+if missing_data:
+    print(f"[WARNING] Missing injection data files:")
+    for tool in missing_data:
+        print(f"  - {tool}")
+else:
+    print(f"[OK] All {len(injection_data_files)} injection data files found")
+
+# Add mods_map.json
+if os.path.exists('injection/mods_map.json'):
+    datas += [('injection/mods_map.json', 'injection')]
+else:
+    print("[WARNING] injection/mods_map.json not found")
 
 # Collect EasyOCR data files (character files, configs, etc.)
 try:
@@ -229,7 +288,7 @@ excludes = [
 a = Analysis(
     ['main.py'],
     pathex=[str(Path.cwd())],  # Add current directory to Python path
-    binaries=[],
+    binaries=binaries,  # Include injection tool executables
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
