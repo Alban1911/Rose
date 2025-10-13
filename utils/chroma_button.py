@@ -119,7 +119,7 @@ class OpeningButton(ChromaWidgetBase):
         self.outline_gold_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
         try:
-            outline_gold_path = Path(__file__).parent.parent / "carousel-outline-gold.png"
+            outline_gold_path = Path(__file__).parent.parent / "assets" / "carousel-outline-gold.png"
             if outline_gold_path.exists():
                 pixmap = QPixmap(str(outline_gold_path))
                 
@@ -158,7 +158,7 @@ class OpeningButton(ChromaWidgetBase):
         self.lock_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
         try:
-            lock_path = Path(__file__).parent.parent / "icon.png"
+            lock_path = Path(__file__).parent.parent / "assets" / "icon.png"
             if lock_path.exists():
                 pixmap = QPixmap(str(lock_path))
                 lock_size = int(self.button_visual_size * config.CHROMA_BUTTON_LOCK_SIZE_RATIO)

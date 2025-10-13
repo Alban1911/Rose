@@ -57,7 +57,7 @@ def create_installer():
     print("\n[1/3] Preparing installer files...")
     
     # Copy icon file to dist directory if it doesn't exist
-    icon_src = Path("icon.ico")
+    icon_src = Path("assets/icon.ico")
     icon_dst = Path("dist/LeagueUnlocked/icon.ico")
     if icon_src.exists() and not icon_dst.exists():
         shutil.copy2(icon_src, icon_dst)
