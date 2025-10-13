@@ -272,6 +272,23 @@ class LoadoutTicker(threading.Thread):
                                     if lcu_skin_id is None or lcu_skin_id != base_skin_id:
                                         log.info(f"[inject] Forcing base skin (skinId={base_skin_id}, was {lcu_skin_id})")
                                         
+                                        # Hide chroma border/wheel immediately when forcing base skin
+                                        try:
+                                            from utils.chroma_selector import get_chroma_selector
+                                            chroma_selector = get_chroma_selector()
+                                            if chroma_selector and chroma_selector.panel:
+                                                # Hide the chroma panel and button
+                                                chroma_selector.hide()
+                                                
+                                                # Force hide the border/lock instantly by setting opacity to 0
+                                                if chroma_selector.panel.reopen_button and chroma_selector.panel.reopen_button.unowned_frame_opacity_effect:
+                                                    chroma_selector.panel.reopen_button.unowned_frame_opacity_effect.setOpacity(0.0)
+                                                    log.info("[inject] Border/lock killed instantly - base skin forced for injection")
+                                                
+                                                log.info("[inject] Chroma UI hidden - forcing base skin for injection")
+                                        except Exception as e:
+                                            log.debug(f"[inject] Failed to hide chroma UI: {e}")
+                                        
                                         base_skin_set_successfully = False
                                         
                                         # Find the user's action ID to update
