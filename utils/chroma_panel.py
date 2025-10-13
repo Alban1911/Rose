@@ -404,6 +404,17 @@ class ChromaPanelManager:
                 self.pending_show = None
                 
                 if self.widget:
+                    # Create click catcher if it doesn't exist (was destroyed on last hide)
+                    if not self.click_catcher:
+                        from utils.window_utils import get_league_window_handle
+                        league_hwnd = get_league_window_handle()
+                        if league_hwnd:
+                            self.click_catcher = ClickCatcherOverlay(
+                                on_click_callback=self._on_click_catcher_clicked,
+                                parent_hwnd=league_hwnd
+                            )
+                            log.debug("[CHROMA] Click catcher overlay created")
+                    
                     # Show click catcher FIRST (at bottom of z-order)
                     if self.click_catcher:
                         self.click_catcher.show()
@@ -441,10 +452,15 @@ class ChromaPanelManager:
             if self.pending_hide:
                 self.pending_hide = False
                 
-                # Hide click catcher when panel closes
+                # Destroy click catcher when panel closes
                 if self.click_catcher:
-                    self.click_catcher.hide()
-                    log.debug("[CHROMA] Click catcher overlay hidden")
+                    try:
+                        self.click_catcher.hide()
+                        self.click_catcher.deleteLater()
+                        self.click_catcher = None
+                        log.debug("[CHROMA] Click catcher overlay destroyed")
+                    except Exception as e:
+                        log.warning(f"[CHROMA] Error destroying click catcher: {e}")
                 
                 if self.widget:
                     self.widget.hide()
