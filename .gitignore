@@ -33,12 +33,11 @@ wheels/
 *.csv
 MANIFEST
 
-# Nuitka (Python to C Compiler)
+# PyInstaller
 main.build/
 main.dist/
 main.exe
 main.bin
-nuitka-crash-report.xml
 
 # Virtual Environment
 venv/
@@ -81,3 +80,4 @@ htmlcov/
 *.backup
 
 ScreenshotsOfficialUI/*
+license.dat

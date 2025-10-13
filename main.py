@@ -433,6 +433,47 @@ def check_single_instance():
         sys.exit(1)
 
 
+def show_license_activation_dialog(error_message: str) -> Optional[str]:
+    """Show a dialog to enter license key"""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox, simpledialog
+        
+        # Create root window (hidden)
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        
+        # Show error message first
+        messagebox.showerror(
+            "License Required",
+            f"License Validation Failed:\n\n{error_message}\n\nPlease enter your license key in the next dialog."
+        )
+        
+        # Show input dialog
+        license_key = simpledialog.askstring(
+            "Enter License Key",
+            "Please enter your license key:",
+            parent=root
+        )
+        
+        root.destroy()
+        return license_key
+        
+    except ImportError:
+        # Tkinter not available, fallback to console
+        print(f"\nLicense Validation Failed: {error_message}")
+        print("\nPlease enter your license key:")
+        try:
+            license_key = input("License Key: ").strip()
+            return license_key if license_key else None
+        except (EOFError, KeyboardInterrupt):
+            return None
+    except Exception as e:
+        log.error(f"Failed to show license dialog: {e}")
+        return None
+
+
 def check_license():
     """Check and validate license on startup"""
     # Public key for RSA signature verification
@@ -446,7 +487,7 @@ REPLACE_WITH_YOUR_ACTUAL_PUBLIC_KEY
     
     # Initialize license client
     license_client = LicenseClient(
-        server_url="https://yourserver.com",  # TODO: Replace with actual license server URL
+        server_url="http://localhost:8000",  # TODO: Replace with actual license server URL
         license_file="license.dat",
         public_key_pem=PUBLIC_KEY  # Public key for verifying server signatures
     )
@@ -458,25 +499,71 @@ REPLACE_WITH_YOUR_ACTUAL_PUBLIC_KEY
         # License is invalid or missing - prompt for activation
         log.warning(f"License validation failed: {message}")
         
-        # In a real app, you'd show a GUI dialog here
-        # For now, we'll show an error and exit
-        if sys.platform == "win32":
-            try:
-                # Show error message
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    f"License Validation Failed:\n\n{message}\n\nPlease contact support to obtain a valid license key.",
-                    "LeagueUnlocked - License Required",
-                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                )
-            except (OSError, AttributeError):
-                print(f"License Error: {message}")
-                print("Please contact support to obtain a valid license key.")
-        else:
-            print(f"License Error: {message}")
-            print("Please contact support to obtain a valid license key.")
-        
-        sys.exit(1)
+        # Show dialog to enter license key
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            license_key = show_license_activation_dialog(message)
+            
+            if not license_key:
+                # User cancelled or didn't enter anything
+                if sys.platform == "win32":
+                    try:
+                        ctypes.windll.user32.MessageBoxW(
+                            0,
+                            "No license key entered.\n\nThe application will now exit.",
+                            "LeagueUnlocked - License Required",
+                            0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                        )
+                    except (OSError, AttributeError):
+                        print("No license key entered. Exiting.")
+                sys.exit(1)
+            
+            # Try to activate the license
+            log.info(f"Attempting to activate license (attempt {attempt + 1}/{max_attempts})...")
+            success, activation_message = license_client.activate_license(license_key)
+            
+            if success:
+                log_success(log, f"License activated successfully: {activation_message}", "✅")
+                
+                # Show success message
+                if sys.platform == "win32":
+                    try:
+                        import tkinter as tk
+                        from tkinter import messagebox
+                        root = tk.Tk()
+                        root.withdraw()
+                        root.attributes('-topmost', True)
+                        messagebox.showinfo(
+                            "License Activated",
+                            f"Success!\n\n{activation_message}\n\nLeagueUnlocked will now start."
+                        )
+                        root.destroy()
+                    except:
+                        print(f"License activated: {activation_message}")
+                
+                # Update valid status and message
+                valid = True
+                break
+            else:
+                log.warning(f"License activation failed: {activation_message}")
+                message = activation_message  # Update message for next attempt
+                
+                if attempt < max_attempts - 1:
+                    # Not the last attempt - show error and prompt again
+                    continue
+                else:
+                    # Last attempt failed - show final error and exit
+                    if sys.platform == "win32":
+                        try:
+                            ctypes.windll.user32.MessageBoxW(
+                                0,
+                                f"License activation failed after {max_attempts} attempts:\n\n{activation_message}\n\nPlease contact support for assistance.",
+                                "LeagueUnlocked - Activation Failed",
+                                0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                            )
+                        except (OSError, AttributeError):
+                            print(f"License activation failed: {activation_message}")
+                    sys.exit(1)
     
     # License is valid - log the info
     info = license_client.get_license_info()
@@ -602,6 +689,10 @@ def setup_arguments() -> argparse.Namespace:
                    help=f"Maximum number of log files to keep (default: {LOG_MAX_FILES_DEFAULT})")
     ap.add_argument("--log-max-total-size-mb", type=int, default=LOG_MAX_TOTAL_SIZE_MB_DEFAULT, 
                    help=f"Maximum total size of all log files in MB (default: {LOG_MAX_TOTAL_SIZE_MB_DEFAULT}MB)")
+    
+    # Development arguments
+    ap.add_argument("--nolicense", action="store_true", default=False,
+                   help="Skip license validation (for development/testing only)")
 
     return ap.parse_args()
 
@@ -739,8 +830,14 @@ def main():
     # Setup logging and cleanup
     setup_logging_and_cleanup(args)
     
-    # Check license validity before continuing
-    check_license()
+    # Check license validity before continuing (unless --nolicense flag is set)
+    if not args.nolicense:
+        check_license()
+    else:
+        log.warning("=" * 80)
+        log.warning("⚠️  LICENSE CHECK DISABLED (--nolicense flag)")
+        log.warning("⚠️  This should only be used for development/testing!")
+        log.warning("=" * 80)
     
     # Initialize system tray manager immediately to hide console
     tray_manager = initialize_tray_manager(args)
