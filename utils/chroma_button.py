@@ -117,6 +117,7 @@ class OpeningButton(ChromaWidgetBase):
         self.outline_gold_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.outline_gold_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.outline_gold_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.outline_gold_label.hide()  # Start hidden, will show when UnownedFrame fades in
         
         try:
             outline_gold_path = Path(__file__).parent.parent / "assets" / "carousel-outline-gold.png"
@@ -156,6 +157,7 @@ class OpeningButton(ChromaWidgetBase):
         self.lock_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.lock_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lock_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.lock_label.hide()  # Start hidden, will show when UnownedFrame fades in
         
         try:
             lock_path = Path(__file__).parent.parent / "assets" / "icon.png"
@@ -874,6 +876,14 @@ class OpeningButton(ChromaWidgetBase):
                 self.unowned_frame_fade_timer.stop()
                 self.unowned_frame_fade_timer = None
             
+            # Show children when fading in (target > 0), hide when fading out (target = 0)
+            if target_opacity > 0:
+                if hasattr(self, 'outline_gold_label') and self.outline_gold_label:
+                    self.outline_gold_label.show()
+                if hasattr(self, 'lock_label') and self.lock_label:
+                    self.lock_label.show()
+                    self.lock_label.raise_()
+            
             self.unowned_frame_fade_start_opacity = self.unowned_frame_opacity_effect.opacity()
             self.unowned_frame_fade_target_opacity = target_opacity
             self.unowned_frame_fade_current_step = 0
@@ -892,6 +902,14 @@ class OpeningButton(ChromaWidgetBase):
         try:
             if self.unowned_frame_fade_current_step >= self.unowned_frame_fade_steps:
                 self.unowned_frame_opacity_effect.setOpacity(self.unowned_frame_fade_target_opacity)
+                
+                # Hide children when fade completes at 0 opacity
+                if self.unowned_frame_fade_target_opacity == 0.0:
+                    if hasattr(self, 'outline_gold_label') and self.outline_gold_label:
+                        self.outline_gold_label.hide()
+                    if hasattr(self, 'lock_label') and self.lock_label:
+                        self.lock_label.hide()
+                
                 if self.unowned_frame_fade_timer:
                     self.unowned_frame_fade_timer.stop()
                     self.unowned_frame_fade_timer = None
@@ -963,18 +981,22 @@ class OpeningButton(ChromaWidgetBase):
                     except Exception as e:
                         log.error(f"[CHROMA] Failed to parent UnownedFrame: {e}")
                 
-                # Update position and show UnownedFrame (Lock and OutlineGold are children, shown automatically)
+                # Update position and show UnownedFrame (but it starts at 0 opacity)
                 self._update_unowned_frame_position()
+                
+                # Ensure UnownedFrame opacity is still at 0.0 (for owned skin)
+                if self.unowned_frame_opacity_effect.opacity() != 0.0:
+                    log.warning(f"[CHROMA] UnownedFrame opacity was {self.unowned_frame_opacity_effect.opacity():.2f}, resetting to 0.0")
+                    self.unowned_frame_opacity_effect.setOpacity(0.0)
+                
+                # Show UnownedFrame widget (visible but transparent at 0 opacity)
                 self.unowned_frame.show()
                 
-                # Show children explicitly (they inherit parent's opacity)
-                if hasattr(self, 'outline_gold_label') and self.outline_gold_label:
-                    self.outline_gold_label.show()
-                if hasattr(self, 'lock_label') and self.lock_label:
-                    self.lock_label.show()
-                    self.lock_label.raise_()  # Lock above OutlineGold
+                # DON'T show children explicitly - let them be controlled by parent visibility
+                # Calling .show() on children might override parent opacity in some Qt versions
+                # The children will become visible when parent opacity fades in
                 
-                log.info(f"[CHROMA] UnownedFrame shown (opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
+                log.info(f"[CHROMA] UnownedFrame positioned (opacity: {self.unowned_frame_opacity_effect.opacity():.2f}, invisible for owned skin)")
         
         # Ensure button is on top of UnownedFrame
         self.raise_()
