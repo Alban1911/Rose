@@ -176,10 +176,15 @@ class OCR:
             
             # Check cache first
             if img_hash in self.cache:
+                cached_text = self.cache[img_hash]
                 if self.measure_time:
                     cache_time = (time.perf_counter() - start_time) * 1000
-                    log.debug(f"[OCR:timing] Cache hit: {cache_time:.2f}ms")
-                return self.cache[img_hash]
+                    log.info(f"[OCR:CACHE-HIT] Instant return: {cache_time:.2f}ms | Text: '{cached_text}'")
+                    # Update timing stats for cache hits too
+                    self.last_ocr_time = cache_time
+                    self.ocr_call_count += 1
+                    self.avg_ocr_time = ((self.avg_ocr_time * (self.ocr_call_count - 1)) + cache_time) / self.ocr_call_count
+                return cached_text
             
             # Convert image format for EasyOCR (expects RGB)
             preprocess_start = time.perf_counter() if self.measure_time else 0
@@ -219,7 +224,7 @@ class OCR:
                 
                 if self.measure_time:
                     ocr_time = (time.perf_counter() - ocr_start) * 1000
-                    log.info(f"[OCR:timing] EasyOCR recognition: {ocr_time:.2f}ms")
+                    log.info(f"[OCR:COMPUTE] Processing image: {ocr_time:.2f}ms")
             
             postprocess_start = time.perf_counter() if self.measure_time else 0
             if results:

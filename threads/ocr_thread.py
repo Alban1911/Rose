@@ -510,10 +510,13 @@ class OCRSkinThread(threading.Thread):
         # Start timing for total OCR+matching pipeline
         pipeline_start = time.perf_counter()
         
+        # ALWAYS log OCR timing (even for cached/duplicate skins)
+        ocr_start = time.perf_counter()
         txt = self.ocr.recognize(band_bin)
+        ocr_recognition_time = (time.perf_counter() - ocr_start) * 1000
         
-        # Measure OCR recognition time
-        ocr_recognition_time = (time.perf_counter() - pipeline_start) * 1000
+        # Log EVERY OCR call to see cache performance
+        log.debug(f"[OCR:PERF] Recognition time: {ocr_recognition_time:.2f}ms | Text: '{txt}'")
         
         # DEBUG: Save OCR image to debug folder (if enabled)
         if self.args.debug_ocr:
