@@ -333,7 +333,7 @@ CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with butt
 CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
 
 # Chroma UI fade timing (milliseconds)
-CHROMA_FADE_IN_DURATION_MS = 500                 # Duration of fade in animation (with exponential ease-out curve)
+CHROMA_FADE_IN_DURATION_MS = 500                 # Duration of fade in animation (with gentle logarithmic ease-out curve)
 CHROMA_FADE_OUT_DURATION_MS = 50                 # Duration of fade out animation (linear, fast)
 CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 100          # Wait time between end of fade out and start of fade in
 

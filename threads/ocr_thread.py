@@ -507,6 +507,10 @@ class OCRSkinThread(threading.Thread):
         from rapidfuzz.distance import Levenshtein
         from datetime import datetime
         
+        # Skip if OCR is not yet initialized (waiting for WebSocket connection)
+        if self.ocr is None:
+            return
+        
         # Start timing for total OCR+matching pipeline
         pipeline_start = time.perf_counter()
         

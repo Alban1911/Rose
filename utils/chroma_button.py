@@ -494,8 +494,9 @@ class OpeningButton(ChromaWidgetBase):
             
             # Apply easing based on fade direction
             if self.fade_target_opacity > self.fade_start_opacity:
-                # Fade in: use exponential easing (ease-out cubic for smooth acceleration)
-                eased_progress = 1 - pow(1 - progress, 3)
+                # Fade in: use logarithmic easing for smooth, gradual fade
+                # Using a gentler curve: log(1 + progress * 3) / log(4)
+                eased_progress = math.log(1 + progress * 3) / math.log(4)
             else:
                 # Fade out: use linear (50ms, fast and direct)
                 eased_progress = progress
@@ -763,8 +764,9 @@ class OpeningButton(ChromaWidgetBase):
             
             # Apply easing based on fade direction
             if self.lock_fade_target_opacity > self.lock_fade_start_opacity:
-                # Fade in: use exponential easing (ease-out cubic for smooth acceleration)
-                eased_progress = 1 - pow(1 - progress, 3)
+                # Fade in: use logarithmic easing for smooth, gradual fade
+                # Using a gentler curve: log(1 + progress * 3) / log(4)
+                eased_progress = math.log(1 + progress * 3) / math.log(4)
             else:
                 # Fade out: use linear (50ms, fast and direct)
                 eased_progress = progress
@@ -900,8 +902,9 @@ class OpeningButton(ChromaWidgetBase):
             
             # Apply easing based on fade direction
             if self.unowned_frame_fade_target_opacity > self.unowned_frame_fade_start_opacity:
-                # Fade in: use exponential easing (ease-out cubic for smooth acceleration)
-                eased_progress = 1 - pow(1 - progress, 3)
+                # Fade in: use logarithmic easing for smooth, gradual fade
+                # Using a gentler curve: log(1 + progress * 3) / log(4)
+                eased_progress = math.log(1 + progress * 3) / math.log(4)
             else:
                 # Fade out: use linear (50ms, fast and direct)
                 eased_progress = progress
