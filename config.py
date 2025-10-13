@@ -333,8 +333,12 @@ CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with butt
 CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
 
 # Chroma UI fade timing (milliseconds)
-CHROMA_FADE_DURATION_MS = 50                     # Duration of fade in/out animation
-CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 100          # Wait time between end of fade out and start of fade in
+CHROMA_FADE_IN_DURATION_MS = 500                 # Duration of fade in animation (with ease-in curve)
+CHROMA_FADE_OUT_DURATION_MS = 30                 # Duration of fade out animation (linear)
+CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 0            # Wait time between end of fade out and start of fade in
+
+# Legacy constant for backward compatibility (uses fade-in duration)
+CHROMA_FADE_DURATION_MS = CHROMA_FADE_IN_DURATION_MS
 
 # Chroma button Lock configuration (fades based on ownership - shown when NOT owned)
 CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7              # Lock size as ratio of button visual size
