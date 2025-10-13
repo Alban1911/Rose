@@ -44,14 +44,21 @@ class ChromaPreviewManager:
             return None
         
         try:
+            # Normalize skin name: remove colons, slashes, and other special characters that might not match filesystem
+            # (e.g., "PROJECT: Naafiri" becomes "PROJECT Naafiri", "K/DA" becomes "KDA")
+            normalized_skin_name = skin_name.replace(":", "").replace("/", "")
+            
+            if normalized_skin_name != skin_name:
+                log.info(f"[CHROMA] Normalized skin name: '{skin_name}' -> '{normalized_skin_name}'")
+            
             # skin_name already includes champion (e.g. "Demacia Vice Garen")
             # Build path: Champion/{skin_name}/...
-            skin_dir = self.skin_previews_dir / champion_name / skin_name
+            skin_dir = self.skin_previews_dir / champion_name / normalized_skin_name
             log.info(f"[CHROMA] Skin directory: {skin_dir}")
             
             if chroma_id is None or chroma_id == 0:
-                # Base skin preview: {skin_name}.png
-                preview_path = skin_dir / f"{skin_name}.png"
+                # Base skin preview: {normalized_skin_name}.png
+                preview_path = skin_dir / f"{normalized_skin_name}.png"
                 log.info(f"[CHROMA] Looking for base skin preview at: {preview_path}")
             else:
                 # Chroma preview: chromas/{ID}.png
