@@ -10,25 +10,40 @@ from datetime import datetime
 from pathlib import Path
 import platform
 import uuid
-import hmac
 import hashlib
+import base64
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
+from cryptography.exceptions import InvalidSignature
 
 class LicenseClient:
-    def __init__(self, server_url: str, license_file: str = "license.dat", signing_key: str = None):
+    def __init__(self, server_url: str, license_file: str = "license.dat", public_key_pem: str = None):
         """
         Initialize the license client
         
         Args:
             server_url: URL of your license server (e.g., "https://yourserver.com")
             license_file: Path to store license data locally
-            signing_key: Secret key for HMAC signing (prevents tampering). 
-                        Should be embedded in your app. Keep this secret!
+            public_key_pem: RSA public key in PEM format for verifying signatures.
+                           This should be embedded in your app. Safe to distribute!
         """
         self.server_url = server_url.rstrip('/')
         self.license_file = license_file
-        # Use a default signing key or allow custom one
-        # In production, generate a strong key and embed it in your app
-        self.signing_key = signing_key or "YOUR-SECRET-SIGNING-KEY-CHANGE-ME"
+        
+        # Load public key for signature verification
+        if public_key_pem:
+            try:
+                self.public_key = serialization.load_pem_public_key(
+                    public_key_pem.encode('utf-8'),
+                    backend=default_backend()
+                )
+            except Exception as e:
+                print(f"Warning: Could not load public key: {e}")
+                self.public_key = None
+        else:
+            print("Warning: No public key provided - signature verification disabled")
+            self.public_key = None
     
     def get_machine_id(self) -> str:
         """
@@ -40,31 +55,9 @@ class LicenseClient:
         # Hash it to make it consistent and not expose system details
         return hashlib.sha256(machine_info.encode()).hexdigest()[:32]
     
-    def _sign_license_data(self, license_data: dict) -> str:
-        """
-        Create HMAC signature for license data to prevent tampering
-        
-        Args:
-            license_data: License data dictionary
-            
-        Returns:
-            HMAC signature as hex string
-        """
-        # Create a canonical string from the license data
-        data_string = f"{license_data['key']}|{license_data['machine_id']}|{license_data['activated_at']}|{license_data['expires_at']}"
-        
-        # Generate HMAC signature
-        signature = hmac.new(
-            self.signing_key.encode(),
-            data_string.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return signature
-    
     def _verify_license_signature(self, license_data: dict) -> bool:
         """
-        Verify that license data hasn't been tampered with
+        Verify RSA signature to ensure license data hasn't been tampered with
         
         Args:
             license_data: License data dictionary with 'signature' field
@@ -75,13 +68,35 @@ class LicenseClient:
         if 'signature' not in license_data:
             return False
         
-        stored_signature = license_data['signature']
+        if self.public_key is None:
+            print("Warning: Cannot verify signature - no public key loaded")
+            return False
         
-        # Calculate what the signature should be
-        expected_signature = self._sign_license_data(license_data)
-        
-        # Use constant-time comparison to prevent timing attacks
-        return hmac.compare_digest(stored_signature, expected_signature)
+        try:
+            # Create canonical string from license data
+            canonical_string = f"{license_data['key']}|{license_data['machine_id']}|{license_data['activated_at']}|{license_data['expires_at']}"
+            
+            # Decode signature from base64
+            signature_bytes = base64.b64decode(license_data['signature'])
+            
+            # Verify signature using public key
+            self.public_key.verify(
+                signature_bytes,
+                canonical_string.encode('utf-8'),
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+            
+            return True
+            
+        except InvalidSignature:
+            return False
+        except Exception as e:
+            print(f"Error verifying signature: {e}")
+            return False
     
     def activate_license(self, license_key: str) -> tuple[bool, str]:
         """
@@ -108,16 +123,18 @@ class LicenseClient:
             data = response.json()
             
             if data.get("success"):
-                # Save license info locally
+                # Save license info locally with signature from server
                 license_data = {
                     "key": license_key,
                     "machine_id": machine_id,
                     "activated_at": data["activated_at"],
-                    "expires_at": data["expires_at"]
+                    "expires_at": data["expires_at"],
+                    "signature": data.get("signature", "")  # Server-provided signature
                 }
                 
-                # Add cryptographic signature to prevent tampering
-                license_data["signature"] = self._sign_license_data(license_data)
+                # Verify the signature before saving
+                if license_data["signature"] and not self._verify_license_signature(license_data):
+                    return False, "Server provided invalid signature - possible security issue"
                 
                 with open(self.license_file, 'w') as f:
                     json.dump(license_data, f)
@@ -224,11 +241,18 @@ class LicenseClient:
 
 # Example usage in your LeagueUnlocked app
 if __name__ == "__main__":
+    # Public key for signature verification
+    # Get this by running: python admin/generate_rsa_keys.py
+    # This key is SAFE to embed in your application
+    PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+REPLACE_WITH_YOUR_PUBLIC_KEY
+-----END PUBLIC KEY-----"""
+    
     # Initialize the client with your server URL
     client = LicenseClient(
         server_url="http://localhost:8000",  # Change to your actual server URL
         license_file="license.dat",
-        signing_key="YOUR-SECRET-SIGNING-KEY-CHANGE-ME"  # Use a strong secret in production
+        public_key_pem=PUBLIC_KEY  # Public key for verification - safe to distribute!
     )
     
     print("=== License System Demo ===\n")

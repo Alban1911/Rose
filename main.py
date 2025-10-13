@@ -173,6 +173,7 @@ from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
 from utils.chroma_selector import init_chroma_selector
 from utils.thread_manager import ThreadManager, create_daemon_thread
+from utils.license_client import LicenseClient
 from config import *  # Import all other constants
 
 class AppState:
@@ -432,6 +433,63 @@ def check_single_instance():
         sys.exit(1)
 
 
+def check_license():
+    """Check and validate license on startup"""
+    # Public key for RSA signature verification
+    # IMPORTANT: Generate your RSA key pair with: python admin/generate_rsa_keys.py
+    # Keep the PRIVATE key on your license server (signs licenses)
+    # Embed the PUBLIC key here (verifies signatures - safe to distribute)
+    PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+REPLACE_WITH_YOUR_ACTUAL_PUBLIC_KEY
+-----END PUBLIC KEY-----"""
+    # TODO: Replace with your actual public key from generate_rsa_keys.py
+    
+    # Initialize license client
+    license_client = LicenseClient(
+        server_url="https://yourserver.com",  # TODO: Replace with actual license server URL
+        license_file="license.dat",
+        public_key_pem=PUBLIC_KEY  # Public key for verifying server signatures
+    )
+    
+    # Check if license is valid (offline check first for speed)
+    valid, message = license_client.is_license_valid(check_online=False)
+    
+    if not valid:
+        # License is invalid or missing - prompt for activation
+        log.warning(f"License validation failed: {message}")
+        
+        # In a real app, you'd show a GUI dialog here
+        # For now, we'll show an error and exit
+        if sys.platform == "win32":
+            try:
+                # Show error message
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"License Validation Failed:\n\n{message}\n\nPlease contact support to obtain a valid license key.",
+                    "LeagueUnlocked - License Required",
+                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                )
+            except (OSError, AttributeError):
+                print(f"License Error: {message}")
+                print("Please contact support to obtain a valid license key.")
+        else:
+            print(f"License Error: {message}")
+            print("Please contact support to obtain a valid license key.")
+        
+        sys.exit(1)
+    
+    # License is valid - log the info
+    info = license_client.get_license_info()
+    if info:
+        log_section(log, "License Validated", "✅", {
+            "Status": "Active",
+            "Days Remaining": str(info['days_remaining']),
+            "Expires": info['expires_at']
+        })
+    
+    return True
+
+
 def get_ocr_language(lcu_lang: str, manual_lang: str = None) -> str:
     """Get OCR language based on LCU language or manual setting"""
     if manual_lang and manual_lang != "auto":
@@ -680,6 +738,9 @@ def main():
     
     # Setup logging and cleanup
     setup_logging_and_cleanup(args)
+    
+    # Check license validity before continuing
+    check_license()
     
     # Initialize system tray manager immediately to hide console
     tray_manager = initialize_tray_manager(args)

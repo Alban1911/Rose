@@ -16,10 +16,10 @@ datas = []
 # Icons and assets - verify they exist
 import os
 icon_files = [
-    ('icon.ico', '.'),
-    ('icon.png', '.'),
-    ('champ-select-flyout-background.jpg', '.'),
-    ('carousel-outline-gold.png', '.'),
+    ('assets/icon.ico', '.'),
+    ('assets/icon.png', '.'),
+    ('assets/champ-select-flyout-background.jpg', '.'),
+    ('assets/carousel-outline-gold.png', '.'),
 ]
 
 # Verify individual icon files
@@ -149,6 +149,7 @@ hiddenimports = [
     'utils.chroma_scaling',
     'utils.chroma_selector',
     'utils.config_hot_reload',
+    'utils.license_client',
     'utils.logging',
     'utils.normalization',
     'utils.paths',
@@ -320,7 +321,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='icon.ico',
+    icon='assets/icon.ico',
     uac_admin=True,  # Request admin rights (required for injection)
 )
 
