@@ -75,7 +75,6 @@ class RepoDownloader:
                 # Find the skins folder in the ZIP
                 skins_files = []
                 zip_count = 0
-                readme_count_total = 0
                 blade_variants_count = 0
                 
                 for file_info in zip_ref.filelist:
@@ -88,24 +87,21 @@ class RepoDownloader:
                         # Check if this is a blade variant (special weapon mods, not counted as skins)
                         is_blade_variant = '/Blades/' in file_info.filename
                         
-                        # Count file types for accurate reporting
+                        # Count file types for accurate reporting (only .zip files)
                         if file_info.filename.endswith('.zip'):
                             if is_blade_variant:
                                 blade_variants_count += 1
                             else:
                                 zip_count += 1
-                        elif file_info.filename.endswith('README.md'):
-                            readme_count_total += 1
                 
                 if not skins_files:
                     log.error("No skins folder found in repository ZIP")
                     return False
                 
-                log.info(f"Found {zip_count} skin .zip files and {readme_count_total} README files in repository")
+                log.info(f"Found {zip_count} skin .zip files in repository")
                 
-                # Extract only the skins files AND chroma READMEs
+                # Extract only the skins files (skip READMEs)
                 extracted_count = 0
-                readme_count = 0
                 skipped_count = 0
                 blade_extracted_count = 0
                 
@@ -118,13 +114,12 @@ class RepoDownloader:
                         # Remove the 'lol-skins-main/' prefix from the path
                         relative_path = file_info.filename.replace('lol-skins-main/', '')
                         
-                        # Check if it's a zip file or a README in chromas directory
+                        # Check if it's a zip file
                         is_zip = relative_path.endswith('.zip')
-                        is_chroma_readme = 'chromas/' in relative_path.lower() and relative_path.endswith('README.md')
                         is_blade_variant = '/Blades/' in relative_path
                         
-                        # Skip if it's neither a zip nor a chroma README
-                        if not is_zip and not is_chroma_readme:
+                        # Skip if it's not a zip file
+                        if not is_zip:
                             continue
                         
                         # Remove the 'skins/' prefix since target_dir is already the skins directory
@@ -146,9 +141,7 @@ class RepoDownloader:
                                 target.write(source.read())
                         
                         # Count by type (blade variants counted separately)
-                        if is_chroma_readme:
-                            readme_count += 1
-                        elif is_blade_variant:
+                        if is_blade_variant:
                             blade_extracted_count += 1
                         else:
                             extracted_count += 1
@@ -156,14 +149,14 @@ class RepoDownloader:
                     except Exception as e:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
                 
-                log.info(f"Extracted {extracted_count} new skin files and {readme_count} new chroma READMEs "
+                log.info(f"Extracted {extracted_count} new skin files "
                         f"(skipped {skipped_count} existing files)")
                 if blade_extracted_count > 0:
                     log.debug(f"Also extracted {blade_extracted_count} blade variant files (not counted as skins)")
                 
                 # Don't download previews here - will be done on-demand when champion is locked
                 
-                return extracted_count > 0 or readme_count > 0
+                return extracted_count > 0
                 
         except zipfile.BadZipFile:
             log.error("Invalid ZIP file")
