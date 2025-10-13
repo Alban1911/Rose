@@ -630,14 +630,17 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_id = skin_id
                         self.state.hovered_skin_timestamp = time.time()
                         
-                        # Check if current skin has chromas and is owned
+                        # Check if current skin has chromas
                         has_chromas = self._skin_has_displayable_chromas(skin_id)
+                        
+                        # Show chroma panel if skin has chromas (including base skins)
+                        # This also loads owned skins if not already loaded
+                        self._trigger_chroma_panel(skin_id, skin_name)
+                        
+                        # Calculate is_owned AFTER trigger_chroma_panel (which loads owned skins)
                         # Base skins (ending in 000) are ALWAYS owned
                         is_base_skin = (skin_id % 1000) == 0
                         is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
-                        
-                        # Show chroma panel if skin has chromas (including base skins)
-                        self._trigger_chroma_panel(skin_id, skin_name)
                         
                         # Trigger fade animation AFTER button is shown/hidden
                         self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
@@ -690,14 +693,17 @@ class OCRSkinThread(threading.Thread):
                         self.state.last_hovered_skin_slug = champ_slug
                         self.last_key = skin_key
                         
-                        # Check if current skin has chromas and is owned
+                        # Check if current skin has chromas
                         has_chromas = self._skin_has_displayable_chromas(skin_id)
+                        
+                        # Show chroma panel if skin has chromas (including base skins)
+                        # This also loads owned skins if not already loaded
+                        self._trigger_chroma_panel(skin_id, english_skin_name)
+                        
+                        # Calculate is_owned AFTER trigger_chroma_panel (which loads owned skins)
                         # Base skins (ending in 000) are ALWAYS owned
                         is_base_skin = (skin_id % 1000) == 0
                         is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
-                        
-                        # Show chroma panel if skin has chromas (including base skins)
-                        self._trigger_chroma_panel(skin_id, english_skin_name)
                         
                         # Trigger fade animation AFTER button is shown/hidden
                         self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
@@ -781,12 +787,15 @@ class OCRSkinThread(threading.Thread):
                 # Check if current skin has chromas and is owned
                 skin_id_for_check = best_entry.skin_id if best_entry.kind == "skin" else 0
                 has_chromas = self._skin_has_displayable_chromas(skin_id_for_check)
+                
+                # Show chroma panel if skin has chromas
+                # This also loads owned skins if not already loaded
+                self._trigger_chroma_panel(best_entry.skin_id, best_skin_name)
+                
+                # Calculate is_owned AFTER trigger_chroma_panel (which loads owned skins)
                 # Base skins (ending in 000) are ALWAYS owned
                 is_base_skin = (skin_id_for_check % 1000) == 0
                 is_owned = is_base_skin or (skin_id_for_check in self.state.owned_skin_ids)
-                
-                # Show chroma panel if skin has chromas
-                self._trigger_chroma_panel(best_entry.skin_id, best_skin_name)
             
             # Trigger fade animation AFTER button is shown/hidden
             self._trigger_chroma_fade(skin_id_for_check, has_chromas, is_owned)
