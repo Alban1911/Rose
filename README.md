@@ -2,7 +2,7 @@
 
 **League of Legends Skin Changer with Advanced OCR Detection**
 
-LeagueUnlocked is a fully automated system that detects skin selections in League of Legends champion select using advanced OCR technology and automatically injects custom skins 500 milliseconds before the game starts. Built with a modular architecture, unified game process monitoring, and multi-language support, it provides a seamless experience for League of Legends players.
+LeagueUnlocked is a fully automated system that detects skin selections in League of Legends champion select using advanced OCR technology and automatically injects custom skins 300 milliseconds before the game starts. Built with a modular architecture, unified game process monitoring, multi-language support, and an interactive chroma selection UI, it provides a seamless experience for League of Legends players.
 
 ## 🔧 Prerequisites
 
@@ -98,15 +98,21 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
    python test_gpu_setup.py
    ```
 
-   See [GPU_INSTALLATION_GUIDE.md](GPU_INSTALLATION_GUIDE.md) for detailed developer instructions.
-
-   **Performance:** GPU acceleration provides 3-8x faster OCR (50-150ms vs 200-800ms on CPU)!
+   **Performance:** GPU acceleration provides much faster OCR (0-5ms vs 200-800ms on CPU)!
 
 5. **Building from Source:**
 
-   See [BUILD.md](BUILD.md) for instructions on building the application.
+   To build the executable and installer:
 
-   **TL;DR:** Run `python build_all.py` - it handles everything automatically!
+   ```bash
+   python build_all.py
+   ```
+
+   This will:
+
+   - Build the executable with PyInstaller
+   - Create a Windows installer with Inno Setup
+   - Output to `dist/LeagueUnlocked/` and `installer/` directories
 
 **System Requirements:**
 
@@ -181,8 +187,6 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
 
 - Right-click the tray icon → "Remove Auto-Start"
 
-For detailed information, see **[ADMIN_RIGHTS.md](ADMIN_RIGHTS.md)**
-
 The application runs in the system tray and requires no user interaction. Simply play League of Legends as usual, and when you hover over skins in champion select, the app will automatically detect and inject them.
 
 ### How It Works Behind the Scenes
@@ -193,9 +197,10 @@ While you play, LeagueUnlocked operates through a sophisticated multi-threaded s
 2. **OCR Activation**: Automatically activates OCR when entering champion select
 3. **Champion Lock Detection**: Detects when you lock a champion and fetches your owned skins from LCU
 4. **Real-Time Skin Detection**: Uses advanced OCR to detect skin names as you hover over them during champion select
-5. **Ownership Verification**: Automatically skips injection if you already own the detected skin
-6. **Base Skin Forcing**: Forces base skin selection before injection (required for proper skin overlay)
-7. **Automatic Injection**: Injects the last hovered unowned skin 500 milliseconds before game starts with CPU priority boost for reliability
+5. **Chroma Selection**: Shows interactive chroma wheel when skin with chromas is detected
+6. **Ownership Verification**: Automatically skips injection if you already own the detected skin
+7. **Base Skin Forcing**: Forces base skin selection before injection (required for proper skin overlay)
+8. **Automatic Injection**: Injects the last hovered unowned skin 300 milliseconds before game starts with CPU priority boost for reliability
 
 **Performance & Reliability**:
 
@@ -207,13 +212,26 @@ While you play, LeagueUnlocked operates through a sophisticated multi-threaded s
 
 **No manual intervention required - just launch the app and play!**
 
+### Chroma Selection
+
+When you hover over a skin that has chroma variants, LeagueUnlocked automatically displays an interactive chroma wheel:
+
+- **Visual Preview**: See preview images of each chroma variant
+- **One-Click Selection**: Click any chroma to select it for injection
+- **Ownership Indicators**: Lock icons show which chromas you don't own
+- **Resolution Adaptive**: UI automatically scales to match your League window resolution
+- **Instant Updates**: Selected chroma is immediately queued for injection
+
+The chroma wheel appears automatically when OCR detects a skin with chromas, and disappears when you move to a different skin or exit champion select.
+
 ## ✨ Features
 
 ### Core Capabilities
 
 - **🎯 Fully Automated**: Works completely automatically - no manual intervention required
 - **🔍 Advanced OCR Detection**: Uses EasyOCR with research-based preprocessing and optimized image processing for accurate skin name recognition
-- **⚡ Optimized Injection**: Uses high-priority processes and game suspension for reliable injection 500ms before game starts
+- **🎨 Chroma Selection UI**: Interactive chroma wheel with preview images for easy chroma variant selection
+- **⚡ Optimized Injection**: Uses high-priority processes and game suspension for reliable injection 300ms before game starts
 - **✅ Ownership Detection**: Automatically detects owned skins via LCU inventory and skips injection to avoid conflicts
 - **🔄 Base Skin Forcing**: Intelligently forces base skin selection before injection with multiple fallback endpoints
 - **🎮 Unified Game Monitor**: Single, efficient monitor handles game process suspension and resume
@@ -231,6 +249,7 @@ While you play, LeagueUnlocked operates through a sophisticated multi-threaded s
 - **🔒 Permission-Safe**: Uses user data directories to avoid permission issues
 - **🎮 Inventory-Aware**: Fetches owned skins from LCU to prevent unnecessary injections
 - **⚡ Process Management**: Unified monitor with game suspension, priority boost, and safety timeouts
+- **💾 OCR Caching**: Intelligent caching system reduces redundant OCR operations for better performance
 
 ### Advanced Features
 
@@ -241,10 +260,12 @@ While you play, LeagueUnlocked operates through a sophisticated multi-threaded s
 - **📱 System Tray Integration**: Clean background operation with system tray management
 - **🔐 Auto-Start with Admin Rights**: Task Scheduler integration for seamless auto-start (no UAC prompts)
 - **📝 Comprehensive Logging**: Detailed logging system with configurable retention
+- **🖼️ Chroma Previews**: Automatic download of chroma preview images from CommunityDragon
+- **🎯 Resolution-Adaptive UI**: Chroma UI automatically scales to match League window resolution
 
 ### Performance Optimizations
 
-- **⚡ Burst OCR**: High-frequency OCR (50 Hz) during motion/hover detection
+- **⚡ Burst OCR**: High-frequency OCR (40 Hz) during motion/hover detection
 - **💤 Idle Optimization**: Reduced OCR frequency when inactive to save CPU
 - **🎯 ROI Locking**: Intelligent region-of-interest detection and locking
 - **🔄 Adaptive Timing**: Dynamic timing adjustments based on system performance
@@ -253,6 +274,7 @@ While you play, LeagueUnlocked operates through a sophisticated multi-threaded s
 - **🔧 Robust Fallbacks**: Multiple LCU endpoints for reliable base skin forcing
 - **🧹 Automatic Cleanup**: Cleans up injection processes when entering lobby
 - **⚙️ Unified Monitor**: Single monitor eliminates race conditions and reduces complexity
+- **💨 Fast Injection**: Optimized injection timing at 300ms before game starts
 
 ---
 
@@ -321,14 +343,16 @@ LeagueUnlocked/
 │       └── [WAD utilities]       # WAD extraction/creation tools
 │
 ├── ocr/                          # OCR functionality
-│   ├── backend.py                # EasyOCR backend (GPU/CPU mode)
+│   ├── backend.py                # EasyOCR backend (GPU/CPU mode with caching)
 │   └── image_processing.py       # Research-based image preprocessing for OCR
 │
 ├── database/                     # Champion and skin databases
-│   ├── name_db.py                # Champion and skin name database
+│   └── name_db.py                # Champion and skin name database
 │
 ├── lcu/                          # League Client API integration
 │   ├── client.py                 # LCU API client implementation
+│   ├── skin_scraper.py           # Scrapes skin/chroma data from LCU
+│   ├── types.py                  # Type definitions for LCU data
 │   └── utils.py                  # LCU utility functions
 │
 ├── threads/                      # Multi-threaded components
@@ -346,15 +370,24 @@ LeagueUnlocked/
 │   ├── skin_downloader.py        # Skin download system
 │   ├── smart_skin_downloader.py  # Smart downloader with rate limiting
 │   ├── repo_downloader.py        # Repository ZIP downloader
+│   ├── preview_repo_downloader.py # Chroma preview images downloader
 │   ├── window_utils.py           # Windows window capture utilities
 │   ├── admin_utils.py            # Admin rights and auto-start management
-│   └── tray_manager.py           # System tray management
+│   ├── tray_manager.py           # System tray management
+│   ├── thread_manager.py         # Centralized thread lifecycle management
+│   ├── validation.py             # Input validation utilities
+│   ├── chroma_selector.py        # Chroma selection coordinator
+│   ├── chroma_panel.py           # Chroma panel widget manager
+│   ├── chroma_panel_widget.py    # Main chroma panel UI widget
+│   ├── chroma_button.py          # Chroma selection button UI
+│   ├── chroma_click_catcher.py   # Click detection overlay for chroma UI
+│   ├── chroma_preview_manager.py # Manages chroma preview images
+│   ├── chroma_scaling.py         # Resolution-adaptive UI scaling
+│   └── chroma_base.py            # Base classes for chroma UI
 │
 ├── state/                        # Shared state management
-│   └── shared_state.py           # Thread-safe in-memory shared state (no file I/O)
-│
-├── dependencies/                 # Local dependencies
-│   └── tesserocr-*.whl          # Legacy dependency (deprecated - kept for compatibility)
+│   ├── shared_state.py           # Thread-safe in-memory shared state (no file I/O)
+│   └── app_status.py             # Application status tracking for tray icon
 │
 └── [build system]/               # Build and distribution
     ├── build_all.py              # Complete build script (PyInstaller + Installer)
