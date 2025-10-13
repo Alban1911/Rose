@@ -489,9 +489,18 @@ class OpeningButton(ChromaWidgetBase):
                     self.fade_timer = None
                 return
             
-            # Calculate current opacity using linear interpolation
+            # Calculate progress
             progress = self.fade_current_step / self.fade_steps
-            current_opacity = self.fade_start_opacity + (self.fade_target_opacity - self.fade_start_opacity) * progress
+            
+            # Apply easing based on fade direction
+            if self.fade_target_opacity > self.fade_start_opacity:
+                # Fade in: use exponential easing (ease-out cubic for smooth acceleration)
+                eased_progress = 1 - pow(1 - progress, 3)
+            else:
+                # Fade out: use linear (50ms, fast and direct)
+                eased_progress = progress
+            
+            current_opacity = self.fade_start_opacity + (self.fade_target_opacity - self.fade_start_opacity) * eased_progress
             self.opacity_effect.setOpacity(current_opacity)
             
             self.fade_current_step += 1
@@ -552,7 +561,7 @@ class OpeningButton(ChromaWidgetBase):
     
     @pyqtSlot()
     def _do_has_to_has(self):
-        """Chromas → Chromas: fade out 50ms, wait 100ms, fade in 50ms"""
+        """Chromas → Chromas: fade out 50ms, wait 100ms, fade in exponentially"""
         try:
             if not self.isVisible():
                 return
@@ -560,14 +569,14 @@ class OpeningButton(ChromaWidgetBase):
             # Cancel any pending animations
             self._cancel_animations()
             
-            # Fade out (50ms)
-            self._start_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+            # Fade out (50ms, linear)
+            self._start_fade(0.0, config.CHROMA_FADE_OUT_DURATION_MS)
             
-            # Schedule fade in after: fade_out_duration + wait_time (50ms + 100ms = 150ms)
-            total_delay = config.CHROMA_FADE_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
+            # Schedule fade in after: fade_out_duration + wait_time
+            total_delay = config.CHROMA_FADE_OUT_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
             self.fade_in_timer = QTimer(self)
             self.fade_in_timer.setSingleShot(True)
-            self.fade_in_timer.timeout.connect(lambda: self._start_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.fade_in_timer.timeout.connect(lambda: self._start_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS))
             self.fade_in_timer.start(total_delay)
             
         except RuntimeError:
@@ -575,7 +584,7 @@ class OpeningButton(ChromaWidgetBase):
     
     @pyqtSlot()
     def _do_none_to_has(self):
-        """No chromas → Chromas: wait 150ms, fade in 50ms"""
+        """No chromas → Chromas: wait 150ms, fade in exponentially"""
         try:
             if not self.isVisible():
                 return
@@ -586,10 +595,10 @@ class OpeningButton(ChromaWidgetBase):
             # Set to 0 opacity immediately
             self.opacity_effect.setOpacity(0.0)
             
-            # Wait 150ms, then fade in (50ms)
+            # Wait 150ms, then fade in (exponential)
             self.fade_in_timer = QTimer(self)
             self.fade_in_timer.setSingleShot(True)
-            self.fade_in_timer.timeout.connect(lambda: self._start_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.fade_in_timer.timeout.connect(lambda: self._start_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS))
             self.fade_in_timer.start(150)  # 150ms wait
             
         except RuntimeError:
@@ -597,15 +606,15 @@ class OpeningButton(ChromaWidgetBase):
     
     @pyqtSlot()
     def _do_has_to_none(self):
-        """Chromas → No chromas: fade out 50ms"""
+        """Chromas → No chromas: fade out 50ms (linear)"""
         try:
             # Don't check visibility - button might be hidden during animation
             
             # Cancel any pending animations
             self._cancel_animations()
             
-            # Fade out only (50ms)
-            self._start_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+            # Fade out only (50ms, linear)
+            self._start_fade(0.0, config.CHROMA_FADE_OUT_DURATION_MS)
             
         except RuntimeError:
             pass
@@ -674,50 +683,50 @@ class OpeningButton(ChromaWidgetBase):
     
     @pyqtSlot()
     def _do_lock_not_owned_to_not_owned(self):
-        """NOT owned → NOT owned: fade out 50ms, wait 100ms, fade in 50ms (lock stays visible)"""
+        """NOT owned → NOT owned: fade out 50ms, wait 100ms, fade in exponentially (lock stays visible)"""
         try:
             log.info(f"[CHROMA] Lock fade: NOT owned→NOT owned (current opacity: {self.lock_opacity_effect.opacity():.2f})")
             self._cancel_lock_animations()
-            self._start_lock_fade(0.0, config.CHROMA_FADE_DURATION_MS)
-            total_delay = config.CHROMA_FADE_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
+            self._start_lock_fade(0.0, config.CHROMA_FADE_OUT_DURATION_MS)
+            total_delay = config.CHROMA_FADE_OUT_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
             self.lock_fade_in_timer = QTimer(self)
             self.lock_fade_in_timer.setSingleShot(True)
-            self.lock_fade_in_timer.timeout.connect(lambda: self._start_lock_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.lock_fade_in_timer.timeout.connect(lambda: self._start_lock_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS))
             self.lock_fade_in_timer.start(total_delay)
         except RuntimeError:
             pass
     
     @pyqtSlot()
     def _do_lock_not_owned_to_owned(self):
-        """NOT owned → Owned: fade out 50ms (hide lock)"""
+        """NOT owned → Owned: fade out 50ms linear (hide lock)"""
         try:
             log.info(f"[CHROMA] Lock fade: NOT owned→owned (HIDE lock, opacity: {self.lock_opacity_effect.opacity():.2f})")
             self._cancel_lock_animations()
-            self._start_lock_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+            self._start_lock_fade(0.0, config.CHROMA_FADE_OUT_DURATION_MS)
         except RuntimeError:
             pass
     
     @pyqtSlot()
     def _do_lock_owned_to_not_owned(self):
-        """Owned → NOT owned: wait 150ms, fade in 50ms (show lock)"""
+        """Owned → NOT owned: wait 150ms, fade in exponentially (show lock)"""
         try:
             log.info(f"[CHROMA] Lock fade: owned→NOT owned (SHOW lock, opacity: {self.lock_opacity_effect.opacity():.2f})")
             self._cancel_lock_animations()
             self.lock_opacity_effect.setOpacity(0.0)
             self.lock_fade_in_timer = QTimer(self)
             self.lock_fade_in_timer.setSingleShot(True)
-            self.lock_fade_in_timer.timeout.connect(lambda: self._start_lock_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.lock_fade_in_timer.timeout.connect(lambda: self._start_lock_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS))
             self.lock_fade_in_timer.start(150)
         except RuntimeError:
             pass
     
     @pyqtSlot()
     def _do_lock_owned_to_not_owned_first(self):
-        """First skin NOT owned: just fade in 50ms (no wait)"""
+        """First skin NOT owned: just fade in exponentially (no wait)"""
         try:
             log.info(f"[CHROMA] Lock fade: FIRST NOT owned (immediate fade in, opacity: {self.lock_opacity_effect.opacity():.2f})")
             self._cancel_lock_animations()
-            self._start_lock_fade(1.0, config.CHROMA_FADE_DURATION_MS)
+            self._start_lock_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS)
         except RuntimeError:
             pass
     
@@ -749,8 +758,18 @@ class OpeningButton(ChromaWidgetBase):
                     self.lock_fade_timer = None
                 return
             
+            # Calculate progress
             progress = self.lock_fade_current_step / self.lock_fade_steps
-            current_opacity = self.lock_fade_start_opacity + (self.lock_fade_target_opacity - self.lock_fade_start_opacity) * progress
+            
+            # Apply easing based on fade direction
+            if self.lock_fade_target_opacity > self.lock_fade_start_opacity:
+                # Fade in: use exponential easing (ease-out cubic for smooth acceleration)
+                eased_progress = 1 - pow(1 - progress, 3)
+            else:
+                # Fade out: use linear (50ms, fast and direct)
+                eased_progress = progress
+            
+            current_opacity = self.lock_fade_start_opacity + (self.lock_fade_target_opacity - self.lock_fade_start_opacity) * eased_progress
             self.lock_opacity_effect.setOpacity(current_opacity)
             self.lock_fade_current_step += 1
         except RuntimeError:
@@ -799,50 +818,50 @@ class OpeningButton(ChromaWidgetBase):
     
     @pyqtSlot()
     def _do_unowned_frame_not_owned_to_not_owned(self):
-        """NOT owned → NOT owned: fade out 50ms, wait 100ms, fade in 50ms (frame stays visible)"""
+        """NOT owned → NOT owned: fade out 50ms, wait 100ms, fade in exponentially (frame stays visible)"""
         try:
             log.info(f"[CHROMA] UnownedFrame fade: NOT owned→NOT owned (current opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
             self._cancel_unowned_frame_animations()
-            self._start_unowned_frame_fade(0.0, config.CHROMA_FADE_DURATION_MS)
-            total_delay = config.CHROMA_FADE_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
+            self._start_unowned_frame_fade(0.0, config.CHROMA_FADE_OUT_DURATION_MS)
+            total_delay = config.CHROMA_FADE_OUT_DURATION_MS + config.CHROMA_FADE_DELAY_BEFORE_SHOW_MS
             self.unowned_frame_fade_in_timer = QTimer(self)
             self.unowned_frame_fade_in_timer.setSingleShot(True)
-            self.unowned_frame_fade_in_timer.timeout.connect(lambda: self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.unowned_frame_fade_in_timer.timeout.connect(lambda: self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS))
             self.unowned_frame_fade_in_timer.start(total_delay)
         except RuntimeError:
             pass
     
     @pyqtSlot()
     def _do_unowned_frame_not_owned_to_owned(self):
-        """NOT owned → Owned: fade out 50ms (hide frame)"""
+        """NOT owned → Owned: fade out 50ms linear (hide frame)"""
         try:
             log.info(f"[CHROMA] UnownedFrame fade: NOT owned→owned (HIDE, opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
             self._cancel_unowned_frame_animations()
-            self._start_unowned_frame_fade(0.0, config.CHROMA_FADE_DURATION_MS)
+            self._start_unowned_frame_fade(0.0, config.CHROMA_FADE_OUT_DURATION_MS)
         except RuntimeError:
             pass
     
     @pyqtSlot()
     def _do_unowned_frame_owned_to_not_owned(self):
-        """Owned → NOT owned: wait 150ms, fade in 50ms (show frame)"""
+        """Owned → NOT owned: wait 150ms, fade in exponentially (show frame)"""
         try:
             log.info(f"[CHROMA] UnownedFrame fade: owned→NOT owned (SHOW, opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
             self._cancel_unowned_frame_animations()
             self.unowned_frame_opacity_effect.setOpacity(0.0)
             self.unowned_frame_fade_in_timer = QTimer(self)
             self.unowned_frame_fade_in_timer.setSingleShot(True)
-            self.unowned_frame_fade_in_timer.timeout.connect(lambda: self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_DURATION_MS))
+            self.unowned_frame_fade_in_timer.timeout.connect(lambda: self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS))
             self.unowned_frame_fade_in_timer.start(150)
         except RuntimeError:
             pass
     
     @pyqtSlot()
     def _do_unowned_frame_owned_to_not_owned_first(self):
-        """First skin NOT owned: just fade in 50ms (no wait)"""
+        """First skin NOT owned: just fade in exponentially (no wait)"""
         try:
             log.info(f"[CHROMA] UnownedFrame fade: FIRST NOT owned (immediate fade in, opacity: {self.unowned_frame_opacity_effect.opacity():.2f})")
             self._cancel_unowned_frame_animations()
-            self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_DURATION_MS)
+            self._start_unowned_frame_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS)
         except RuntimeError:
             pass
     
@@ -876,8 +895,18 @@ class OpeningButton(ChromaWidgetBase):
                     self.unowned_frame_fade_timer = None
                 return
             
+            # Calculate progress
             progress = self.unowned_frame_fade_current_step / self.unowned_frame_fade_steps
-            current_opacity = self.unowned_frame_fade_start_opacity + (self.unowned_frame_fade_target_opacity - self.unowned_frame_fade_start_opacity) * progress
+            
+            # Apply easing based on fade direction
+            if self.unowned_frame_fade_target_opacity > self.unowned_frame_fade_start_opacity:
+                # Fade in: use exponential easing (ease-out cubic for smooth acceleration)
+                eased_progress = 1 - pow(1 - progress, 3)
+            else:
+                # Fade out: use linear (50ms, fast and direct)
+                eased_progress = progress
+            
+            current_opacity = self.unowned_frame_fade_start_opacity + (self.unowned_frame_fade_target_opacity - self.unowned_frame_fade_start_opacity) * eased_progress
             self.unowned_frame_opacity_effect.setOpacity(current_opacity)
             self.unowned_frame_fade_current_step += 1
         except RuntimeError:
