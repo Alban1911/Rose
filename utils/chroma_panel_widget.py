@@ -676,8 +676,11 @@ class ChromaPanelWidget(ChromaWidgetBase):
                     selected_name = circle.name
                     callback = self.on_chroma_selected
                     
-                    # Hide widget first
-                    self.hide()
+                    # Hide panel through manager (to properly destroy click catcher)
+                    if self.manager:
+                        self.manager.hide()
+                    else:
+                        self.hide()
                     
                     # Call callback after a delay (outside widget context)
                     if callback:
@@ -693,7 +696,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         if event.key() == Qt.Key.Key_Escape:
             # Cancel - select base
             callback = self.on_chroma_selected
-            self.hide()
+            
+            # Hide panel through manager (to properly destroy click catcher)
+            if self.manager:
+                self.manager.hide()
+            else:
+                self.hide()
+            
             if callback:
                 def call_cb():
                     callback(0, "Base")
@@ -707,7 +716,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
                 selected_name = circle.name
                 callback = self.on_chroma_selected
                 
-                self.hide()
+                # Hide panel through manager (to properly destroy click catcher)
+                if self.manager:
+                    self.manager.hide()
+                else:
+                    self.hide()
+                
                 if callback:
                     def call_cb():
                         callback(selected_id, selected_name)
@@ -722,7 +736,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
             if not self.ignore_next_deactivate:
                 # Close immediately when focus is lost
                 log.debug("[CHROMA] Panel lost focus (League window clicked or focus changed), closing")
-                self.hide()
+                
+                # Hide panel through manager (to properly destroy click catcher)
+                if self.manager:
+                    self.manager.hide()
+                else:
+                    self.hide()
             else:
                 self.ignore_next_deactivate = False
         
@@ -756,7 +775,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
                     # If clicked window is League (our parent) and not panel/button, close panel
                     if clicked_hwnd == self._league_window_hwnd:
                         log.debug("[CHROMA] Click detected on League window, closing panel")
-                        self.hide()
+                        
+                        # Hide panel through manager (to properly destroy click catcher)
+                        if self.manager:
+                            self.manager.hide()
+                        else:
+                            self.hide()
                         return False
                     elif clicked_hwnd != panel_hwnd and clicked_hwnd != button_hwnd:
                         # Clicked somewhere else (not League, not panel, not button)
@@ -764,7 +788,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
                         parent_hwnd = ctypes.windll.user32.GetParent(clicked_hwnd)
                         if parent_hwnd == self._league_window_hwnd:
                             log.debug("[CHROMA] Click detected on League UI element, closing panel")
-                            self.hide()
+                            
+                            # Hide panel through manager (to properly destroy click catcher)
+                            if self.manager:
+                                self.manager.hide()
+                            else:
+                                self.hide()
                             return False
                 except Exception as e:
                     log.debug(f"[CHROMA] Error in click detection: {e}")
@@ -805,13 +834,23 @@ class ChromaPanelWidget(ChromaWidgetBase):
                         pass
                 
                 log.debug("[CHROMA] Mouse released outside chroma UI, closing panel")
-                self.hide()
+                
+                # Hide panel through manager (to properly destroy click catcher)
+                if self.manager:
+                    self.manager.hide()
+                else:
+                    self.hide()
                 return False
             
             # Focus out event
             elif event.type() == event.Type.FocusOut:
                 log.debug("[CHROMA] Panel lost focus (FocusOut), closing")
-                self.hide()
+                
+                # Hide panel through manager (to properly destroy click catcher)
+                if self.manager:
+                    self.manager.hide()
+                else:
+                    self.hide()
                 return False
         
         return super().eventFilter(obj, event)
