@@ -218,7 +218,6 @@ When you hover over a skin that has chroma variants, LeagueUnlocked automaticall
 
 - **Visual Preview**: See preview images of each chroma variant
 - **One-Click Selection**: Click any chroma to select it for injection
-- **Ownership Indicators**: Lock icons show which chromas you don't own
 - **Resolution Adaptive**: UI automatically scales to match your League window resolution
 - **Instant Updates**: Selected chroma is immediately queued for injection
 
