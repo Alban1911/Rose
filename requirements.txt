@@ -28,3 +28,5 @@ torchvision>=0.15.0
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 # For CPU-only installation, use:
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+pyinstaller>=6.0.0

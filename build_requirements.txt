@@ -1,7 +1,0 @@
-# Additional requirements for building the executable
-# PyInstaller: Python application freezer
-# - Bundles Python interpreter + dependencies into standalone executable
-# - Excellent compatibility with complex packages (EasyOCR, PyTorch)
-# - Faster build times than Nuitka
-# - Good protection against casual code theft (compiled bytecode)
-pyinstaller>=6.0.0
