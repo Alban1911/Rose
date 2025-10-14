@@ -434,49 +434,24 @@ def check_single_instance():
 
 
 def show_license_activation_dialog(error_message: str) -> Optional[str]:
-    """Show a dialog to enter license key"""
+    """Show the PyQt6 license dialog to enter license key"""
     try:
-        import tkinter as tk
-        from tkinter import messagebox, simpledialog
+        # Import the license dialog
+        from utils.license_dialog import show_enhanced_license_dialog
         
-        # Create root window (hidden)
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-        
-        # Force window to be on top and grab focus
-        root.lift()
-        root.focus_force()
-        
-        # Show error message first
-        messagebox.showerror(
-            "License Required",
-            f"License Validation Failed:\n\n{error_message}\n\nPlease enter your license key in the next dialog."
-        )
-        
-        # Show input dialog
-        license_key = simpledialog.askstring(
-            "Enter License Key",
-            "Please enter your license key:",
-            parent=root
-        )
-        
-        root.destroy()
+        # Show the PyQt6-based dialog
+        license_key = show_enhanced_license_dialog(error_message)
         return license_key
         
     except ImportError as e:
-        # Tkinter not available - this should not happen in windowed mode
-        print(f"ERROR: Tkinter not available: {e}")
-        print(f"License Validation Failed: {error_message}")
-        
-        # In windowed mode, we can't use console input, so show a message box instead
+        # PyQt6 not available - show error and exit
+        print(f"ERROR: PyQt6 not available: {e}")
         if sys.platform == "win32":
             try:
-                # Show error and exit - user needs to contact support
                 ctypes.windll.user32.MessageBoxW(
                     0,
-                    f"License validation failed:\n\n{error_message}\n\nTkinter is not available for license activation.\n\nPlease contact support or reinstall the application.",
-                    "LeagueUnlocked - License Error",
+                    f"PyQt6 is required for the license dialog but is not available.\n\nError: {str(e)}\n\nPlease install PyQt6 or contact support.",
+                    "LeagueUnlocked - Missing Dependency",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
             except (OSError, AttributeError):
@@ -489,7 +464,7 @@ def show_license_activation_dialog(error_message: str) -> Optional[str]:
         print(f"ERROR: Failed to show license dialog: {e}")
         print(f"Traceback:\n{error_details}")
         
-        # Try to show error via message box
+        # Show error message
         if sys.platform == "win32":
             try:
                 ctypes.windll.user32.MessageBoxW(
@@ -501,6 +476,8 @@ def show_license_activation_dialog(error_message: str) -> Optional[str]:
             except (OSError, AttributeError):
                 pass
         return None
+
+
 
 
 def check_license():
