@@ -481,13 +481,13 @@ def check_license():
     # Keep the PRIVATE key on your license server (signs licenses)
     # Embed the PUBLIC key here (verifies signatures - safe to distribute)
     PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuWYJJCvqLYJSplxOLy2P
-f97aitzvk/gVhUEjNO7Zf72DqwP9ZRIU2xSIsHeO+uKsso/SClzGL8x8mKP82RXW
-5H0KyfEu3TTUUQSfYyxIHfmfeU/pLmBzkhbnIJDbjN7S5VA1I4oAl+X4m7Zm/fXI
-mGmYYF2l3FXgG4V6jF437bznDx6nW0kigCxumltqdVSyD0GThQTMOHWVKlCKjovh
-B4s4ErT7bzHind0BmLCGQCYk7IRpEsJdrGY4unu0tm26HQOkLTvzBO7py+VMH+1s
-lpGqcs6GZhEycBwvznAow7/jFoQgjVC8Ume5Xx4t/7cdxUP0hvu2D0kz0P9XP393
-oQIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwv3HwVNTfa6xJoxsUmel
+pQ+GW9LAdxOjllmkuSVfWsVIEhXCO2RKeTx7CHDPyDqARWWuzdQXiBEcmBs72ARt
+/Xmt5cIYfUtKl2yPk8bLapaLTeFS74vZ39RHhfg2+p87h0xfDskPGd6+LEeOoUCt
+Lsp+M4hNugIW2zBnhAM51QwTpyGXPnUue8aJcj55rIFNBUyontQcExO4LTo64Vt0
+G+0d8n3SgcLAUG7FKhfTutybiLishyXUgnWcyILv3vMmq24zEDQhjA5acAaio2ZB
+JcaysDVhLPOQrtG3Kn85dLVlQNSU6B7ff77zq0sPMhUYOI58oClR75ilRyzIvGp4
+mwIDAQAB
 -----END PUBLIC KEY-----"""
     # TODO: Replace with your actual public key from generate_rsa_keys.py
     
