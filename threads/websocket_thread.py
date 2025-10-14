@@ -49,6 +49,7 @@ class WSEventThread(threading.Thread):
         self.ping_interval = ping_interval
         self.ping_timeout = ping_timeout
         self.ws = None
+        self.is_connected = False  # Track WebSocket connection status
         self.timer_hz = timer_hz
         self.fallback_ms = fallback_ms
         self.injection_manager = injection_manager
@@ -276,6 +277,10 @@ class WSEventThread(threading.Thread):
         log.info("🔌 WEBSOCKET CONNECTED")
         log.info("   📋 Status: Active")
         log.info(separator)
+        
+        # Mark WebSocket as connected
+        self.is_connected = True
+        
         try: 
             ws.send('[5,"OnJsonApiEvent"]')
         except Exception as e: 
@@ -317,6 +322,9 @@ class WSEventThread(threading.Thread):
         log.info(f"   📋 Status Code: {status}")
         log.info(f"   📋 Message: {msg}")
         log.info(separator)
+        
+        # Mark WebSocket as disconnected
+        self.is_connected = False
 
     def run(self):
         """Main WebSocket loop"""
