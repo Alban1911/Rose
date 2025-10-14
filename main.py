@@ -444,6 +444,10 @@ def show_license_activation_dialog(error_message: str) -> Optional[str]:
         root.withdraw()
         root.attributes('-topmost', True)
         
+        # Force window to be on top and grab focus
+        root.lift()
+        root.focus_force()
+        
         # Show error message first
         messagebox.showerror(
             "License Required",
@@ -460,22 +464,49 @@ def show_license_activation_dialog(error_message: str) -> Optional[str]:
         root.destroy()
         return license_key
         
-    except ImportError:
-        # Tkinter not available, fallback to console
-        print(f"\nLicense Validation Failed: {error_message}")
-        print("\nPlease enter your license key:")
-        try:
-            license_key = input("License Key: ").strip()
-            return license_key if license_key else None
-        except (EOFError, KeyboardInterrupt):
-            return None
+    except ImportError as e:
+        # Tkinter not available - this should not happen in windowed mode
+        print(f"ERROR: Tkinter not available: {e}")
+        print(f"License Validation Failed: {error_message}")
+        
+        # In windowed mode, we can't use console input, so show a message box instead
+        if sys.platform == "win32":
+            try:
+                # Show error and exit - user needs to contact support
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"License validation failed:\n\n{error_message}\n\nTkinter is not available for license activation.\n\nPlease contact support or reinstall the application.",
+                    "LeagueUnlocked - License Error",
+                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                )
+            except (OSError, AttributeError):
+                pass
+        return None
     except Exception as e:
-        log.error(f"Failed to show license dialog: {e}")
+        # Log the error with full traceback for debugging
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERROR: Failed to show license dialog: {e}")
+        print(f"Traceback:\n{error_details}")
+        
+        # Try to show error via message box
+        if sys.platform == "win32":
+            try:
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"Failed to show license dialog:\n\n{str(e)}\n\nPlease contact support.",
+                    "LeagueUnlocked - Dialog Error",
+                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+                )
+            except (OSError, AttributeError):
+                pass
         return None
 
 
 def check_license():
     """Check and validate license on startup"""
+    print("[LICENSE] Starting license check...")
+    
     # Public key for RSA signature verification
     # IMPORTANT: Generate your RSA key pair with: python admin/generate_rsa_keys.py
     # Keep the PRIVATE key on your license server (signs licenses)
@@ -491,24 +522,32 @@ mwIDAQAB
 -----END PUBLIC KEY-----"""
     # TODO: Replace with your actual public key from generate_rsa_keys.py
     
+    print("[LICENSE] Initializing license client...")
     # Initialize license client
     license_client = LicenseClient(
         server_url="https://api.leagueunlocked.net",
         license_file="license.dat",
         public_key_pem=PUBLIC_KEY  # Public key for verifying server signatures
     )
+    print("[LICENSE] License client initialized")
     
     # Check if license is valid (offline check first for speed)
+    print("[LICENSE] Checking license validity (offline)...")
     valid, message = license_client.is_license_valid(check_online=False)
+    print(f"[LICENSE] Validation result: valid={valid}, message={message}")
     
     if not valid:
         # License is invalid or missing - prompt for activation
+        print(f"[LICENSE] License validation failed: {message}")
         log.warning(f"License validation failed: {message}")
         
         # Show dialog to enter license key
         max_attempts = 3
+        print(f"[LICENSE] Showing activation dialog (max {max_attempts} attempts)...")
         for attempt in range(max_attempts):
+            print(f"[LICENSE] Attempt {attempt + 1}/{max_attempts}")
             license_key = show_license_activation_dialog(message)
+            print(f"[LICENSE] Dialog returned: {bool(license_key)}")
             
             if not license_key:
                 # User cancelled or didn't enter anything
