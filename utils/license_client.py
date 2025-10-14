@@ -23,7 +23,7 @@ class LicenseClient:
         Initialize the license client
         
         Args:
-            server_url: URL of your license server (e.g., "https://yourserver.com")
+            server_url: URL of your license server (e.g., "https://api.leagueunlocked.net")
             license_file: Path to store license data locally
             public_key_pem: RSA public key in PEM format for verifying signatures.
                            This should be embedded in your app. Safe to distribute!
@@ -237,44 +237,3 @@ class LicenseClient:
             }
         except:
             return None
-
-
-# Example usage in your LeagueUnlocked app
-if __name__ == "__main__":
-    # Public key for signature verification
-    # Get this by running: python admin/generate_rsa_keys.py
-    # This key is SAFE to embed in your application
-    PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-REPLACE_WITH_YOUR_PUBLIC_KEY
------END PUBLIC KEY-----"""
-    
-    # Initialize the client with your server URL
-    client = LicenseClient(
-        server_url="http://localhost:8000",  # Change to your actual server URL
-        license_file="license.dat",
-        public_key_pem=PUBLIC_KEY  # Public key for verification - safe to distribute!
-    )
-    
-    print("=== License System Demo ===\n")
-    
-    # Example 1: Check existing license
-    valid, message = client.is_license_valid(check_online=False)
-    print(f"Current license status: {message}")
-    
-    if valid:
-        info = client.get_license_info()
-        print(f"Days remaining: {info['days_remaining']}")
-        print(f"Expires at: {info['expires_at']}")
-    else:
-        # Example 2: Activate a new license
-        print("\nNo valid license found. Please enter your license key:")
-        license_key = input("License key: ").strip()
-        
-        if license_key:
-            success, msg = client.activate_license(license_key)
-            print(f"\nActivation result: {msg}")
-            
-            if success:
-                info = client.get_license_info()
-                print(f"License activated! Valid for {info['days_remaining']} days.")
-

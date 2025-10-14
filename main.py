@@ -481,13 +481,19 @@ def check_license():
     # Keep the PRIVATE key on your license server (signs licenses)
     # Embed the PUBLIC key here (verifies signatures - safe to distribute)
     PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-REPLACE_WITH_YOUR_ACTUAL_PUBLIC_KEY
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuWYJJCvqLYJSplxOLy2P
+f97aitzvk/gVhUEjNO7Zf72DqwP9ZRIU2xSIsHeO+uKsso/SClzGL8x8mKP82RXW
+5H0KyfEu3TTUUQSfYyxIHfmfeU/pLmBzkhbnIJDbjN7S5VA1I4oAl+X4m7Zm/fXI
+mGmYYF2l3FXgG4V6jF437bznDx6nW0kigCxumltqdVSyD0GThQTMOHWVKlCKjovh
+B4s4ErT7bzHind0BmLCGQCYk7IRpEsJdrGY4unu0tm26HQOkLTvzBO7py+VMH+1s
+lpGqcs6GZhEycBwvznAow7/jFoQgjVC8Ume5Xx4t/7cdxUP0hvu2D0kz0P9XP393
+oQIDAQAB
 -----END PUBLIC KEY-----"""
     # TODO: Replace with your actual public key from generate_rsa_keys.py
     
     # Initialize license client
     license_client = LicenseClient(
-        server_url="http://localhost:8000",  # TODO: Replace with actual license server URL
+        server_url="https://api.leagueunlocked.net",
         license_file="license.dat",
         public_key_pem=PUBLIC_KEY  # Public key for verifying server signatures
     )
