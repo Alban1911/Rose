@@ -215,6 +215,11 @@ hiddenimports = [
     'pystray',
     'pystray._win32',
     
+    # Tkinter for license dialogs
+    'tkinter',
+    'tkinter.simpledialog',
+    'tkinter.messagebox',
+    
     # Other dependencies
     'psutil',
     'yaml',
@@ -236,7 +241,7 @@ except Exception as e:
 
 # Exclusions - modules we don't need (reduces size and build time)
 excludes = [
-    'tkinter',
+    # 'tkinter',  # REMOVED - needed for license dialog
     'matplotlib',
     'pytest',
     'setuptools',
