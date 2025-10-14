@@ -167,7 +167,7 @@ from threads.champ_thread import ChampThread
 from threads.ocr_thread import OCRSkinThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
-from utils.logging import setup_logging, get_logger, log_section, log_success, log_status
+from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
 from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
@@ -613,11 +613,15 @@ mwIDAQAB
     # License is valid - log the info
     info = license_client.get_license_info()
     if info:
-        log_section(log, "License Validated", "✅", {
-            "Status": "Active",
-            "Days Remaining": str(info['days_remaining']),
-            "Expires": info['expires_at']
-        })
+        # License validation - mode-aware logging
+        if get_log_mode() == 'customer':
+            log.info(f"✅ License Valid ({info['days_remaining']} days remaining)")
+        else:
+            log_section(log, "License Validated", "✅", {
+                "Status": "Active",
+                "Days Remaining": str(info['days_remaining']),
+                "Expires": info['expires_at']
+            })
     
     return True
 
@@ -684,7 +688,10 @@ def setup_arguments() -> argparse.Namespace:
                    help="DDragon language(s): 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
     
     # General arguments
-    ap.add_argument("--verbose", action="store_true", default=DEFAULT_VERBOSE)
+    ap.add_argument("--verbose", action="store_true", default=DEFAULT_VERBOSE,
+                   help="Enable verbose logging (developer mode - shows all technical details)")
+    ap.add_argument("--debug", action="store_true", default=False,
+                   help="Enable ultra-detailed debug logging (includes function traces and variable dumps)")
     ap.add_argument("--lockfile", type=str, default=None)
     
     # OCR performance arguments
@@ -738,6 +745,8 @@ def setup_arguments() -> argparse.Namespace:
     # Development arguments
     ap.add_argument("--nolicense", action="store_true", default=False,
                    help="Skip license validation (for development/testing only)")
+    ap.add_argument("--dev", action="store_true", default=False,
+                   help="Development mode - disable log sanitization (shows full paths, ports, PIDs)")
 
     return ap.parse_args()
 
@@ -748,17 +757,38 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     from utils.logging import cleanup_logs
     cleanup_logs(max_files=args.log_max_files, max_total_size_mb=args.log_max_total_size_mb)
     
+    # Determine log mode based on flags
+    if args.debug:
+        log_mode = 'debug'
+    elif args.verbose:
+        log_mode = 'verbose'
+    else:
+        log_mode = 'customer'
+    
+    # Determine production mode (--dev disables sanitization)
+    production_mode = not args.dev  # False if --dev, True otherwise
+    
     # Setup logging first
-    setup_logging(args.verbose)
+    setup_logging(log_mode, production_mode)
+    
+    # Log dev mode status after logging is set up
+    if args.dev:
+        log.info("🛠️  Development mode enabled - log sanitization disabled")
     
     # Suppress PIL/Pillow debug messages for optional image plugins
     logging.getLogger("PIL").setLevel(logging.INFO)
     
-    log_section(log, "LeagueUnlocked Starting", "🚀", {
-        "Verbose Mode": "Enabled" if args.verbose else "Disabled",
-        "Download Skins": "Enabled" if args.download_skins else "Disabled",
-        "OCR Debug": "Enabled" if args.debug_ocr else "Disabled"
-    })
+    # Show startup banner (mode-aware via log_section)
+    if log_mode == 'customer':
+        # Simple startup for customer mode
+        pass  # Already shown in setup_logging()
+    else:
+        # Detailed startup for verbose/debug
+        log_section(log, "LeagueUnlocked Starting", "🚀", {
+            "Verbose Mode": "Enabled" if args.verbose else "Disabled",
+            "Download Skins": "Enabled" if args.download_skins else "Disabled",
+            "OCR Debug": "Enabled" if args.debug_ocr else "Disabled"
+        })
     
     # Clean up OCR debug folder on startup (only if debug mode is enabled)
     if args.debug_ocr:

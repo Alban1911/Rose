@@ -21,11 +21,34 @@ from config import (
     PRODUCTION_MODE
 )
 
+# Add custom TRACE logging level (below DEBUG)
+TRACE = 5
+logging.addLevelName(TRACE, "TRACE")
+
+def trace(self, message, *args, **kwargs):
+    """Log a trace message (ultra-detailed, below DEBUG)"""
+    if self.isEnabledFor(TRACE):
+        self._log(TRACE, message, args, **kwargs)
+
+# Add trace() method to Logger class
+logging.Logger.trace = trace
+
+# Global log mode (set by setup_logging)
+_CURRENT_LOG_MODE = 'customer'
+
+def get_log_mode() -> str:
+    """Get the current logging mode"""
+    return _CURRENT_LOG_MODE
+
 
 class SanitizingFilter(logging.Filter):
     """
-    Logging filter that sanitizes sensitive information in production mode.
-    Prevents reverse engineering by removing implementation details from logs.
+    Logging filter that sanitizes sensitive information and controls verbosity.
+    
+    Three modes:
+    - customer: Clean, user-friendly logs (INFO+ only, no technical details)
+    - verbose: Full technical details (DEBUG+, all pipeline info)
+    - debug: Ultra-detailed (TRACE+, function traces, variable dumps)
     """
     
     # Patterns to sanitize (compiled regex for performance)
@@ -56,7 +79,7 @@ class SanitizingFilter(logging.Filter):
         (re.compile(r'(cslol|wad|injection|inject|dll|suspend|process|runoverlay|mkoverlay)', re.IGNORECASE), '[IMPL_DETAIL]'),
     ]
     
-    # Sensitive message prefixes to completely suppress in production
+    # Sensitive message prefixes to completely suppress in customer mode
     SUPPRESS_PREFIXES = [
         # File/system initialization
         'File logging initialized',
@@ -64,6 +87,22 @@ class SanitizingFilter(logging.Filter):
         '[ws] WebSocket',
         'LCU lockfile',
         '  - VERIFIED actual position:',
+        
+        # Initialization messages (verbose/debug only)
+        'Initializing ',
+        '✓ ',
+        'System tray manager started',
+        'System tray icon started',
+        'System ready',
+        'OCR Debug Mode:',
+        'OCR: Thread ready',
+        'Found ',
+        'Language detected',
+        'GPU detected',
+        'Downloading ',
+        'No new ',
+        'Attempting to initialize',
+        'WebSocket connected',
         
         # Chroma implementation details (too verbose)
         '[CHROMA] get_preview_path',
@@ -121,16 +160,50 @@ class SanitizingFilter(logging.Filter):
         # Chroma checking spam (any [CHROMA] message)
         '[CHROMA]',
         
-        # Status icon updates (just UI noise)
+        # Status icon updates and app status sections (verbose only)
         'Locked icon shown',
         'Golden locked icon shown',
         'Golden unlocked icon shown',
         '[APP STATUS]',
+        '📍 System tray',
+        '📊 App status',
+        '🔒 APP STATUS',
+        '🔓 APP STATUS',
+        '🔓✨ APP STATUS',
+        '   📋 ',  # Detail lines with this prefix
+        '   ⏳ ',
+        '   ✅ ',
+        '   🎯 ',
+        '   •',   # Bullet points
         
         # Repository/skin download details
         'Using repository ZIP downloader',
         'skins, skipping download',
         'preview images',
+        '📥 STARTING SKIN DOWNLOAD',
+        '✅ SKIN DOWNLOAD COMPLETED',
+        
+        # Skin detection details (show detection, hide verbose sub-details)
+        '   📋 Champion:',  # Hide verbose champion detail line
+        '   🔍 Source:',    # Hide "Source: LCU API + English DB"
+        
+        # OCR initialization details
+        '🤖 OCR INITIALIZED',
+        'OCR thread updated',
+        '   ⏱️',  # OCR timing measurements
+        
+        # Game state details (keep Phase transitions, hide verbose details)
+        '👥 Players:',
+        '🎮 Entering ChampSelect',
+        '   • Mode:',
+        '   • Remaining:',
+        '   • Hz:',
+        '   • Phase:',
+        '   • ID:',
+        '   • Locked:',
+        
+        # License warning (keep warning itself, hide details)
+        '⚠️  This should only',
         
         # Game process monitoring (reveals technique)
         '👁️ GAME',
@@ -152,45 +225,82 @@ class SanitizingFilter(logging.Filter):
         '🧹 Killed all',
     ]
     
-    def __init__(self, production_mode: bool):
+    def __init__(self, production_mode: bool, log_mode: str = 'customer'):
+        """
+        Initialize filter
+        
+        Args:
+            production_mode: If True, sanitize paths/PIDs/ports regardless of log mode
+            log_mode: 'customer', 'verbose', or 'debug'
+        """
         super().__init__()
         self.production_mode = production_mode
+        self.log_mode = log_mode
     
     def filter(self, record: logging.LogRecord) -> bool:
         """
         Filter log records. Returns False to suppress, True to allow.
         Modifies record.msg to sanitize sensitive information.
         """
-        if not self.production_mode:
-            # In development mode, allow everything through unchanged
-            return True
-        
-        # Suppress DEBUG messages in production
-        if record.levelno < logging.INFO:
-            return False
-        
-        # Check if message should be completely suppressed
-        msg_str = str(record.getMessage())
-        for prefix in self.SUPPRESS_PREFIXES:
-            if msg_str.startswith(prefix):
+        # Customer mode: Clean, user-friendly logs
+        if self.log_mode == 'customer':
+            # Only show INFO and above in customer mode
+            if record.levelno < logging.INFO:
                 return False
-        
-        # Sanitize the message
-        sanitized = record.msg
-        if isinstance(sanitized, str):
-            for pattern, replacement in self.PATTERNS:
-                sanitized = pattern.sub(replacement, sanitized)
-            record.msg = sanitized
             
-            # Suppress if message is now empty or only whitespace after sanitization
-            if not sanitized.strip():
+            # Suppress technical details in customer mode
+            msg_str = str(record.getMessage())
+            
+            # Suppress separator lines (lines that are just "=" repeated)
+            if msg_str.strip() and all(c == '=' for c in msg_str.strip()):
                 return False
+            
+            # Suppress based on prefixes
+            for prefix in self.SUPPRESS_PREFIXES:
+                if msg_str.startswith(prefix):
+                    return False
+        
+        # Verbose mode: Show DEBUG+ but not TRACE
+        elif self.log_mode == 'verbose':
+            # Show DEBUG and above
+            if record.levelno < logging.DEBUG:
+                return False
+        
+        # Debug mode: Show everything (TRACE+)
+        else:  # log_mode == 'debug'
+            # Show all levels including TRACE
+            pass
+        
+        # Always sanitize paths, PIDs, ports in production mode (regardless of log level)
+        if self.production_mode:
+            sanitized = record.msg
+            if isinstance(sanitized, str):
+                for pattern, replacement in self.PATTERNS:
+                    sanitized = pattern.sub(replacement, sanitized)
+                record.msg = sanitized
+                
+                # Suppress if message is now empty or only whitespace after sanitization
+                if not sanitized.strip():
+                    return False
         
         return True
 
 
-def setup_logging(verbose: bool):
-    """Setup logging configuration"""
+def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
+    """
+    Setup logging configuration with three modes
+    
+    Args:
+        log_mode: 'customer' (clean logs), 'verbose' (developer), or 'debug' (ultra-detailed)
+        production_mode: Override PRODUCTION_MODE (None = use config default)
+    """
+    # Store the log mode globally
+    global _CURRENT_LOG_MODE
+    _CURRENT_LOG_MODE = log_mode
+    
+    # Determine production mode
+    if production_mode is None:
+        production_mode = PRODUCTION_MODE
     # Handle windowed mode where stdout/stderr might be None or redirected to devnull
     if sys.stdout is not None and not hasattr(sys.stdout, 'name') or sys.stdout.name != os.devnull:
         try:
@@ -295,8 +405,16 @@ def setup_logging(verbose: bool):
     # Create a safe stream handler
     safe_handler = SafeStreamHandler(output_stream)
     
-    # Set up formatter
-    fmt = "%(_when)s | %(levelname)-7s | %(message)s"
+    # Set up formatter based on log mode
+    if log_mode == 'customer':
+        # Clean, minimal format for customer logs
+        fmt = "%(_when)s | %(message)s"
+    elif log_mode == 'verbose':
+        # Detailed format for developer logs
+        fmt = "%(_when)s | %(levelname)-7s | %(message)s"
+    else:  # debug mode
+        # Ultra-detailed format for debug logs
+        fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
     
     class _Fmt(logging.Formatter):
         def format(self, record):
@@ -326,8 +444,16 @@ def setup_logging(verbose: bool):
             encoding='utf-8'
         )
         
-        # File formatter with full timestamp and more details
-        file_fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(message)s"
+        # File formatter based on log mode
+        if log_mode == 'customer':
+            # Clean format for customer logs
+            file_fmt = "%(_when)s | %(message)s"
+        elif log_mode == 'verbose':
+            # Detailed format for developer logs
+            file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
+        else:  # debug mode
+            # Ultra-detailed format with logger name and function
+            file_fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
         
         class _FileFmt(logging.Formatter):
             def format(self, record):
@@ -335,16 +461,17 @@ def setup_logging(verbose: bool):
                 return super().format(record)
         
         file_handler.setFormatter(_FileFmt(file_fmt))
-        # IMPORTANT: File handler logging level depends on production mode
-        # Production: INFO+ only (prevent reverse engineering)
-        # Development: DEBUG level (full verbose output for troubleshooting)
-        if PRODUCTION_MODE:
-            file_handler.setLevel(logging.INFO)
-        else:
-            file_handler.setLevel(logging.DEBUG)
+        
+        # File handler logging level based on mode
+        if log_mode == 'debug':
+            file_handler.setLevel(TRACE)  # Show everything including TRACE
+        elif log_mode == 'verbose':
+            file_handler.setLevel(logging.DEBUG)  # Show DEBUG and above
+        else:  # customer mode
+            file_handler.setLevel(logging.INFO)  # Show INFO and above
         
         # Add sanitizing filter to file handler
-        file_handler.addFilter(SanitizingFilter(PRODUCTION_MODE))
+        file_handler.addFilter(SanitizingFilter(production_mode, log_mode))
         
     except Exception as e:
         # If file logging fails, continue without it
@@ -357,36 +484,45 @@ def setup_logging(verbose: bool):
     if file_handler:
         root.addHandler(file_handler)
     
-    # Console handler respects verbose flag (only shows INFO and above by default)
-    # This keeps console output clean unless user explicitly wants verbose mode
-    # In production mode, always use INFO level regardless of verbose flag
-    if PRODUCTION_MODE:
-        h.setLevel(logging.INFO)
-    else:
-        h.setLevel(logging.DEBUG if verbose else logging.INFO)
+    # Console handler level based on log mode
+    if log_mode == 'debug':
+        h.setLevel(TRACE)  # Show everything including TRACE
+    elif log_mode == 'verbose':
+        h.setLevel(logging.DEBUG)  # Show DEBUG and above
+    else:  # customer mode
+        h.setLevel(logging.INFO)  # Show INFO and above (clean output)
     
     # Add sanitizing filter to console handler
-    h.addFilter(SanitizingFilter(PRODUCTION_MODE))
+    h.addFilter(SanitizingFilter(production_mode, log_mode))
     
-    # Root logger must be at DEBUG to allow file handler to receive all messages
-    # This is critical - if root is at INFO, DEBUG messages never reach the file handler
-    root.setLevel(logging.DEBUG)
+    # Root logger must be at TRACE to allow all handlers to receive all messages
+    # This is critical - if root is at INFO, DEBUG/TRACE messages never reach handlers
+    root.setLevel(TRACE)
     
     # Add a console print to ensure output is visible (only if we have stdout and it's not redirected)
     if sys.stdout is not None and not (hasattr(sys.stdout, 'name') and sys.stdout.name == os.devnull):
         try:
             # Use logging instead of direct print to avoid blocking
             logger = logging.getLogger("startup")
-            logger.info("=" * LOG_SEPARATOR_WIDTH)
-            logger.info(f"LeagueUnlocked - Starting... (Log file: {log_file.name})")
-            logger.info("=" * LOG_SEPARATOR_WIDTH)
-            # Log a DEBUG message to verify verbose file logging is working
-            logger.debug("File logging initialized - all DEBUG messages will be saved to log file")
-            logger.debug(f"Log file location: {log_file.absolute()}")
-            if verbose:
-                logger.info("Verbose mode: ON (console shows DEBUG messages)")
+            
+            # Show startup message based on log mode
+            if log_mode == 'customer':
+                # Clean startup for customer mode
+                logger.info(f"✅ LeagueUnlocked Started (Log: {log_file.name})")
             else:
-                logger.info("Verbose mode: OFF (console shows INFO and above, file captures all DEBUG)")
+                # Detailed startup for verbose/debug modes
+                logger.info("=" * LOG_SEPARATOR_WIDTH)
+                logger.info(f"LeagueUnlocked - Starting... (Log file: {log_file.name})")
+                logger.info("=" * LOG_SEPARATOR_WIDTH)
+                
+                # Log mode information
+                if log_mode == 'debug':
+                    logger.info("Debug mode: ON (ultra-detailed logs with function traces)")
+                    logger.debug(f"Log file location: {log_file.absolute()}")
+                elif log_mode == 'verbose':
+                    logger.info("Verbose mode: ON (developer logs with technical details)")
+                    logger.debug(f"Log file location: {log_file.absolute()}")
+                    
         except (AttributeError, OSError):
             pass  # stdout is broken, ignore
     
@@ -483,25 +619,40 @@ def cleanup_logs_on_startup():
 
 # ==================== Pretty Logging Helpers ====================
 
-def log_section(logger: logging.Logger, title: str, icon: str = "📌", details: dict = None):
+def log_section(logger: logging.Logger, title: str, icon: str = "📌", details: dict = None, mode: str = None):
     """
     Log a beautiful section with title and optional details
     
     Args:
         logger: Logger instance
-        title: Main title text (will be uppercased)
+        title: Main title text (will be uppercased in verbose/debug mode)
         icon: Emoji icon to use
         details: Optional dict of key-value pairs to display
+        mode: 'customer' (simple), 'verbose' (detailed), or 'debug' (ultra-detailed).
+              If None, uses current global log mode.
     
     Example:
         log_section(log, "LCU Connected", "🔗", {"Port": 2999, "Status": "Ready"})
     """
-    logger.info("=" * LOG_SEPARATOR_WIDTH)
-    logger.info(f"{icon} {title.upper()}")
-    if details:
-        for key, value in details.items():
-            logger.info(f"   📋 {key}: {value}")
-    logger.info("=" * LOG_SEPARATOR_WIDTH)
+    # Use global log mode if not specified
+    if mode is None:
+        mode = get_log_mode()
+    
+    # In customer mode, use simpler format without separators
+    if mode == 'customer':
+        if details:
+            detail_str = ", ".join(f"{k}: {v}" for k, v in details.items())
+            logger.info(f"{icon} {title} ({detail_str})")
+        else:
+            logger.info(f"{icon} {title}")
+    else:
+        # Verbose/debug mode: use full format with separators
+        logger.info("=" * LOG_SEPARATOR_WIDTH)
+        logger.info(f"{icon} {title.upper()}")
+        if details:
+            for key, value in details.items():
+                logger.info(f"   📋 {key}: {value}")
+        logger.info("=" * LOG_SEPARATOR_WIDTH)
 
 
 def log_event(logger: logging.Logger, event: str, icon: str = "✓", details: dict = None):
