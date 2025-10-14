@@ -12,6 +12,11 @@ All arbitrary values are centralized here for easy tracking and modification
 APP_VERSION = "alpha"                    # Application version
 APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
 
+# Production mode - controls logging verbosity and sensitive data exposure
+# Set to True for releases to prevent reverse engineering via logs
+# Set to False for development to get full debug information
+PRODUCTION_MODE = True
+
 
 # =============================================================================
 # OCR TIMING CONSTANTS

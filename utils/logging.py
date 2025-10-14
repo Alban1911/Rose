@@ -11,13 +11,155 @@ import logging
 import urllib3
 import threading
 import queue
+import re
 from datetime import datetime
 from urllib3.exceptions import InsecureRequestWarning
 from pathlib import Path
 from config import (
     LOG_MAX_FILES_DEFAULT, LOG_MAX_TOTAL_SIZE_MB_DEFAULT,
-    LOG_FILE_PATTERN, LOG_TIMESTAMP_FORMAT, LOG_SEPARATOR_WIDTH
+    LOG_FILE_PATTERN, LOG_TIMESTAMP_FORMAT, LOG_SEPARATOR_WIDTH,
+    PRODUCTION_MODE
 )
+
+
+class SanitizingFilter(logging.Filter):
+    """
+    Logging filter that sanitizes sensitive information in production mode.
+    Prevents reverse engineering by removing implementation details from logs.
+    """
+    
+    # Patterns to sanitize (compiled regex for performance)
+    PATTERNS = [
+        # API URLs and endpoints
+        (re.compile(r'https?://[^\s]+'), '[URL_REDACTED]'),
+        # File paths - Windows paths only (C:\, D:\, etc. with backslashes)
+        (re.compile(r'[A-Za-z]:\\[^\s]*'), '[PATH_REDACTED]'),
+        # File paths - Unix paths (multiple slashes)
+        (re.compile(r'/[^/\s]+/[^\s]+'), '[PATH_REDACTED]'),
+        # Clean up partial path leaks after redaction
+        (re.compile(r'\[PATH_REDACTED\][^\s]*'), '[PATH_REDACTED]'),
+        # API tokens/passwords (though these shouldn't be logged anyway)
+        (re.compile(r'(token|password|pw|key|auth)["\s:=]+[^\s"]+', re.IGNORECASE), r'\1=[REDACTED]'),
+        # Port numbers (could reveal implementation)
+        (re.compile(r'port["\s:=]+\d+', re.IGNORECASE), 'port=[REDACTED]'),
+        # GitHub repository references
+        (re.compile(r'github\.com/[^\s/]+/[^\s/]+'), 'github.com/[REDACTED]'),
+        # Specific implementation details
+        (re.compile(r'(cslol|wad|injection|inject|dll|suspend|process)', re.IGNORECASE), '[IMPL_DETAIL]'),
+    ]
+    
+    # Sensitive message prefixes to completely suppress in production
+    SUPPRESS_PREFIXES = [
+        # File/system initialization
+        'File logging initialized',
+        'Log file location:',
+        '[ws] WebSocket',
+        'LCU lockfile',
+        '  - VERIFIED actual position:',
+        
+        # Chroma implementation details (too verbose)
+        '[CHROMA] get_preview_path',
+        '[CHROMA] Skin directory:',
+        '[CHROMA] Looking for',
+        '[CHROMA] ✅ Found preview:',
+        '[CHROMA] ✅ ChromaPanelWidget parented',
+        '[CHROMA] ✅ OpeningButton parented',
+        '[CHROMA] Creating UnownedFrame',
+        '[CHROMA] ✓ OutlineGold loaded',
+        '[CHROMA] ✓ Lock loaded',
+        '[CHROMA] ✓ UnownedFrame created',
+        '[CHROMA] UnownedFrame creation complete',
+        '[CHROMA] Panel widgets created',
+        '[CHROMA] ✓ UnownedFrame parented',
+        '[CHROMA] UnownedFrame positioned',
+        '[CHROMA] Starting fade:',
+        '[CHROMA] UnownedFrame fade:',
+        '[CHROMA] UnownedFrame starting fade:',
+        '[CHROMA] Button:',
+        '[CHROMA] First skin detected',
+        
+        # OCR implementation details
+        '[OCR:COMPUTE]',
+        '[OCR:timing]',
+        '[OCR:change]',
+        '[OCR:CACHE-HIT]',
+        '[ocr] OCR running',
+        '[ocr] OCR stopped',
+        
+        # Injection implementation details  
+        '[inject]',
+        '[INJECT] on_champion_locked',
+        '[INJECT] Background initialization',
+        
+        # Loadout timer spam
+        '[loadout #',
+        'T-',
+        '⏰ Loadout ticker',
+        
+        # Lock details
+        '[locks]',
+        '🔒 Champion locked:',
+        
+        # LCU scraper details
+        '[LCU-SCRAPER]',
+        '[LCU] Loaded',
+        'owned skins',
+        
+        # Thread lifecycle spam
+        '✓ Phase thread',
+        '✓ LCU Monitor',
+        '✓ All threads',
+        
+        # Chroma checking spam
+        '[CHROMA] Checking skin_id=',
+        '[CHROMA] Showing button',
+        '[CHROMA] Updated last_hovered_skin_id',
+        '[CHROMA] Chroma selected:',
+        '[CHROMA] Panel widgets destroyed',
+        
+        # Status icon updates (just UI noise)
+        'Locked icon shown',
+        'Golden locked icon shown',
+        'Golden unlocked icon shown',
+        '[APP STATUS]',
+        
+        # Repository/skin download details
+        'Using repository ZIP downloader',
+        'skins, skipping download',
+        'preview images',
+    ]
+    
+    def __init__(self, production_mode: bool):
+        super().__init__()
+        self.production_mode = production_mode
+    
+    def filter(self, record: logging.LogRecord) -> bool:
+        """
+        Filter log records. Returns False to suppress, True to allow.
+        Modifies record.msg to sanitize sensitive information.
+        """
+        if not self.production_mode:
+            # In development mode, allow everything through unchanged
+            return True
+        
+        # Suppress DEBUG messages in production
+        if record.levelno < logging.INFO:
+            return False
+        
+        # Check if message should be completely suppressed
+        msg_str = str(record.getMessage())
+        for prefix in self.SUPPRESS_PREFIXES:
+            if msg_str.startswith(prefix):
+                return False
+        
+        # Sanitize the message
+        sanitized = record.msg
+        if isinstance(sanitized, str):
+            for pattern, replacement in self.PATTERNS:
+                sanitized = pattern.sub(replacement, sanitized)
+            record.msg = sanitized
+        
+        return True
 
 
 def setup_logging(verbose: bool):
@@ -166,10 +308,16 @@ def setup_logging(verbose: bool):
                 return super().format(record)
         
         file_handler.setFormatter(_FileFmt(file_fmt))
-        # IMPORTANT: File handler always logs at DEBUG level (full verbose output)
-        # This ensures all debug information is captured in log files for troubleshooting,
-        # regardless of whether the user runs with --verbose flag
-        file_handler.setLevel(logging.DEBUG)
+        # IMPORTANT: File handler logging level depends on production mode
+        # Production: INFO+ only (prevent reverse engineering)
+        # Development: DEBUG level (full verbose output for troubleshooting)
+        if PRODUCTION_MODE:
+            file_handler.setLevel(logging.INFO)
+        else:
+            file_handler.setLevel(logging.DEBUG)
+        
+        # Add sanitizing filter to file handler
+        file_handler.addFilter(SanitizingFilter(PRODUCTION_MODE))
         
     except Exception as e:
         # If file logging fails, continue without it
@@ -184,7 +332,14 @@ def setup_logging(verbose: bool):
     
     # Console handler respects verbose flag (only shows INFO and above by default)
     # This keeps console output clean unless user explicitly wants verbose mode
-    h.setLevel(logging.DEBUG if verbose else logging.INFO)
+    # In production mode, always use INFO level regardless of verbose flag
+    if PRODUCTION_MODE:
+        h.setLevel(logging.INFO)
+    else:
+        h.setLevel(logging.DEBUG if verbose else logging.INFO)
+    
+    # Add sanitizing filter to console handler
+    h.addFilter(SanitizingFilter(PRODUCTION_MODE))
     
     # Root logger must be at DEBUG to allow file handler to receive all messages
     # This is critical - if root is at INFO, DEBUG messages never reach the file handler
