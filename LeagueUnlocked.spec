@@ -13,21 +13,18 @@ block_cipher = None
 # Collect all data files for packages that need them
 datas = []
 
-# Icons and assets - verify they exist
+# Assets folder - verify and add entire directory
 import os
-icon_files = [
-    ('assets/icon.ico', '.'),
-    ('assets/icon.png', '.'),
-    ('assets/champ-select-flyout-background.jpg', '.'),
-    ('assets/carousel-outline-gold.png', '.'),
-]
-
-# Verify individual icon files
-for src, dst in icon_files:
-    if os.path.exists(src):
-        datas += [(src, dst)]
+if os.path.exists('assets') and os.path.isdir('assets'):
+    asset_files = os.listdir('assets')
+    if asset_files:
+        # Add entire assets folder (preserves directory structure)
+        datas += [('assets', 'assets')]
+        print(f"[OK] Assets directory found with {len(asset_files)} files: {', '.join(asset_files)}")
     else:
-        print(f"[WARNING] Missing: {src}")
+        print("[WARNING] Assets directory is empty")
+else:
+    print("[WARNING] Assets directory not found")
 
 # Verify and add icons directory
 if os.path.exists('icons') and os.path.isdir('icons'):

@@ -89,8 +89,11 @@ class ChromaPanelWidget(ChromaWidgetBase):
     def _load_background_image(self):
         """Load the champ-select-flyout-background.jpg image"""
         try:
-            # Try to load the background image from the assets folder
-            background_path = Path(__file__).parent.parent / "assets" / "champ-select-flyout-background.jpg"
+            # Import asset path helper for PyInstaller compatibility
+            from utils.paths import get_asset_path
+            
+            # Get background image path (works in both dev and frozen environments)
+            background_path = get_asset_path("champ-select-flyout-background.jpg")
             if background_path.exists():
                 self.background_image = QPixmap(str(background_path))
                 log.debug(f"Loaded background image: {background_path}")

@@ -120,7 +120,10 @@ class OpeningButton(ChromaWidgetBase):
         self.outline_gold_label.hide()  # Start hidden, will show when UnownedFrame fades in
         
         try:
-            outline_gold_path = Path(__file__).parent.parent / "assets" / "carousel-outline-gold.png"
+            # Import asset path helper for PyInstaller compatibility
+            from utils.paths import get_asset_path
+            
+            outline_gold_path = get_asset_path("carousel-outline-gold.png")
             if outline_gold_path.exists():
                 pixmap = QPixmap(str(outline_gold_path))
                 
@@ -160,7 +163,10 @@ class OpeningButton(ChromaWidgetBase):
         self.lock_label.hide()  # Start hidden, will show when UnownedFrame fades in
         
         try:
-            lock_path = Path(__file__).parent.parent / "assets" / "icon.png"
+            # Import asset path helper for PyInstaller compatibility
+            from utils.paths import get_asset_path
+            
+            lock_path = get_asset_path("icon.png")
             if lock_path.exists():
                 pixmap = QPixmap(str(lock_path))
                 lock_size = int(self.button_visual_size * config.CHROMA_BUTTON_LOCK_SIZE_RATIO)

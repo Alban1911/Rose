@@ -89,6 +89,21 @@ def get_app_dir() -> Path:
         return Path(__file__).parent.parent
 
 
+def get_asset_path(asset_name: str) -> Path:
+    """
+    Get the path to an asset file (icons, images, etc.)
+    Works in both development and frozen (PyInstaller) environments.
+    
+    Args:
+        asset_name: Name of the asset file (e.g., "champ-select-flyout-background.jpg")
+        
+    Returns:
+        Path to the asset file
+    """
+    app_dir = get_app_dir()
+    return app_dir / "assets" / asset_name
+
+
 def ensure_write_permissions(path: Path) -> bool:
     """
     Ensure that the given path is writable.
