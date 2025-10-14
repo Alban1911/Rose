@@ -67,14 +67,15 @@ class LCUMonitorThread(threading.Thread):
                     log.info("WebSocket connected - detecting language...")
                     self.ws_connected = True
                     
-                    # Wait a bit for WebSocket to stabilize before fetching data
-                    time.sleep(0.5)
+                    # Wait longer for WebSocket and LCU to fully stabilize
+                    time.sleep(2.0)
                     
-                    # Load owned skins once at startup/reconnection (with retry and longer delay)
-                    self._load_owned_skins_with_retry(max_retries=5, retry_delay=1.5)
-                    
-                    # Try to detect language (will retry if this fails)
+                    # Try to detect language first (will retry if this fails)
                     self._try_detect_language()
+                    
+                    # Load owned skins after language detection
+                    # WebSocket is connected, so LCU should be ready
+                    self._load_owned_skins()
                     
                     # Check initial champion select state (for issue #29: app starting after lock)
                     self._check_initial_champion_state()
@@ -109,32 +110,18 @@ class LCUMonitorThread(threading.Thread):
             
             time.sleep(LCU_MONITOR_INTERVAL)
     
-    def _load_owned_skins_with_retry(self, max_retries: int = 3, retry_delay: float = 1.0):
-        """Load owned skins with retry logic (LCU may not be fully ready immediately after connection)
-        
-        Args:
-            max_retries: Maximum number of retry attempts
-            retry_delay: Delay in seconds between retries
-        """
-        for attempt in range(max_retries):
-            try:
-                owned_skins = self.lcu.owned_skins()
-                if owned_skins and isinstance(owned_skins, list):
-                    self.state.owned_skin_ids = set(owned_skins)
-                    log.info(f"[LCU] Loaded {len(self.state.owned_skin_ids)} owned skins from inventory")
-                    return  # Success
-                else:
-                    if attempt < max_retries - 1:
-                        log.debug(f"[LCU] Failed to fetch owned skins (attempt {attempt + 1}/{max_retries}), retrying...")
-                        time.sleep(retry_delay)
-                    else:
-                        log.warning("[LCU] Failed to fetch owned skins from LCU after all retries")
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    log.debug(f"[LCU] Error fetching owned skins (attempt {attempt + 1}/{max_retries}): {e}")
-                    time.sleep(retry_delay)
-                else:
-                    log.warning(f"[LCU] Error fetching owned skins after all retries: {e}")
+    def _load_owned_skins(self):
+        """Load owned skins from LCU inventory"""
+        try:
+            owned_skins = self.lcu.owned_skins()
+            log.debug(f"[LCU] Raw owned skins response: {owned_skins}")
+            if owned_skins and isinstance(owned_skins, list):
+                self.state.owned_skin_ids = set(owned_skins)
+                log.info(f"[LCU] Loaded {len(self.state.owned_skin_ids)} owned skins from inventory")
+            else:
+                log.warning(f"[LCU] Failed to fetch owned skins from LCU - no data returned (response: {owned_skins})")
+        except Exception as e:
+            log.warning(f"[LCU] Error fetching owned skins: {e}")
     
     def _try_detect_language(self):
         """Try to detect and initialize language from LCU"""
@@ -239,11 +226,5 @@ class LCUMonitorThread(threading.Thread):
         if not self.ws_thread:
             return True  # If no WS thread, consider it always connected
         
-        try:
-            # Check if WebSocket exists and is connected
-            return (hasattr(self.ws_thread, 'ws') and 
-                    self.ws_thread.ws is not None and
-                    hasattr(self.ws_thread.ws, 'sock') and
-                    self.ws_thread.ws.sock is not None)
-        except Exception:
-            return False
+        # Use the is_connected flag from WebSocket thread
+        return getattr(self.ws_thread, 'is_connected', False)
