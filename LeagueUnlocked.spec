@@ -212,10 +212,8 @@ hiddenimports = [
     'pystray',
     'pystray._win32',
     
-    # Tkinter for license dialogs
-    'tkinter',
-    'tkinter.simpledialog',
-    'tkinter.messagebox',
+    # License dialogs (PyQt6 only)
+    'utils.license_dialog',
     
     # Other dependencies
     'psutil',
