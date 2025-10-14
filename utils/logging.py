@@ -36,8 +36,15 @@ class SanitizingFilter(logging.Filter):
         (re.compile(r'[A-Za-z]:\\[^\s]*'), '[PATH_REDACTED]'),
         # File paths - Unix paths (multiple slashes)
         (re.compile(r'/[^/\s]+/[^\s]+'), '[PATH_REDACTED]'),
-        # Clean up partial path leaks after redaction
-        (re.compile(r'\[PATH_REDACTED\][^\s]*'), '[PATH_REDACTED]'),
+        # Clean up partial path leaks after redaction (more aggressive)
+        (re.compile(r'\[PATH_REDACTED\]\s*[^\s\n]+'), '[PATH_REDACTED]'),
+        # Remove OCR timing information from messages
+        (re.compile(r'⏱️\s+OCR:\s+[\d.]+ms[^\n]+'), ''),
+        (re.compile(r'\|\s*Matching:\s*[\d.]+ms', re.IGNORECASE), ''),
+        (re.compile(r'\|\s*Total:\s*[\d.]+ms', re.IGNORECASE), ''),
+        # Remove PID numbers (process IDs)
+        (re.compile(r'PID:\s*\d+'), 'PID: [REDACTED]'),
+        (re.compile(r'PID=\d+'), 'PID=[REDACTED]'),
         # API tokens/passwords (though these shouldn't be logged anyway)
         (re.compile(r'(token|password|pw|key|auth)["\s:=]+[^\s"]+', re.IGNORECASE), r'\1=[REDACTED]'),
         # Port numbers (could reveal implementation)
@@ -45,7 +52,7 @@ class SanitizingFilter(logging.Filter):
         # GitHub repository references
         (re.compile(r'github\.com/[^\s/]+/[^\s/]+'), 'github.com/[REDACTED]'),
         # Specific implementation details
-        (re.compile(r'(cslol|wad|injection|inject|dll|suspend|process)', re.IGNORECASE), '[IMPL_DETAIL]'),
+        (re.compile(r'(cslol|wad|injection|inject|dll|suspend|process|runoverlay|mkoverlay)', re.IGNORECASE), '[IMPL_DETAIL]'),
     ]
     
     # Sensitive message prefixes to completely suppress in production
@@ -110,12 +117,8 @@ class SanitizingFilter(logging.Filter):
         '✓ LCU Monitor',
         '✓ All threads',
         
-        # Chroma checking spam
-        '[CHROMA] Checking skin_id=',
-        '[CHROMA] Showing button',
-        '[CHROMA] Updated last_hovered_skin_id',
-        '[CHROMA] Chroma selected:',
-        '[CHROMA] Panel widgets destroyed',
+        # Chroma checking spam (any [CHROMA] message)
+        '[CHROMA]',
         
         # Status icon updates (just UI noise)
         'Locked icon shown',
@@ -127,6 +130,25 @@ class SanitizingFilter(logging.Filter):
         'Using repository ZIP downloader',
         'skins, skipping download',
         'preview images',
+        
+        # Game process monitoring (reveals technique)
+        '👁️ GAME',
+        '[[IMPL_DETAIL]] Starting game monitor',
+        '🎮 Game [IMPL_DETAIL] found',
+        '⏸️ Game',
+        '▶️ Game resumed',
+        '⚙️ Game loading',
+        '❄️ mkoverlay',
+        '⚡ mkoverlay',
+        '🚀 Running overlay:',
+        '   • Auto-resume:',
+        'PID=[REDACTED], status=',
+        
+        # OCR timing
+        '⏱️  OCR timing measurements:',
+        
+        # Phase spam
+        '🧹 Killed all',
     ]
     
     def __init__(self, production_mode: bool):
