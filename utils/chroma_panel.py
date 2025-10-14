@@ -41,6 +41,7 @@ class ChromaPanelManager:
         self.current_chroma_color = None  # Track current chroma color for button display
         self.lock = threading.RLock()  # Use RLock for reentrant locking (prevents deadlock)
         self._rebuilding = False  # Flag to prevent infinite rebuild loops
+        self.pending_initial_unowned_fade = False  # Flag to trigger initial UnownedFrame fade after creation
     
     def request_create(self):
         """Request to create the panel (thread-safe, will be created in main thread)"""
@@ -48,6 +49,12 @@ class ChromaPanelManager:
             if not self.is_initialized:
                 self.pending_create = True
                 log.debug("[CHROMA] Create panel requested")
+    
+    def request_initial_unowned_fade(self):
+        """Request initial UnownedFrame fade-in for first unowned skin (thread-safe)"""
+        with self.lock:
+            self.pending_initial_unowned_fade = True
+            log.debug("[CHROMA] Initial UnownedFrame fade requested")
     
     def request_destroy(self):
         """Request to destroy the panel (thread-safe, will be destroyed in main thread)"""
@@ -261,19 +268,14 @@ class ChromaPanelManager:
     def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None):
         """Show button for a skin (not the wheel itself)
         
+        The button displays:
+        - If chromas exist: clickable chroma wheel button
+        - If no chromas: just the UnownedFrame overlay (golden border + lock for unowned skins)
+        
         Note: chromas contains ALL chromas (both owned and unowned)
         Each chroma has an 'is_owned' flag set by ChromaSelector
         """
-        if not chromas or len(chromas) == 0:
-            log.debug(f"[CHROMA] No chromas for {skin_name}, hiding button")
-            self.hide_reopen_button()
-            return
-        
         with self.lock:
-            if not self.is_initialized:
-                log.warning("[CHROMA] Wheel not initialized - cannot show button")
-                return
-            
             # If switching to a different skin, hide the wheel and reset selection
             if self.current_skin_id is not None and self.current_skin_id != skin_id:
                 log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
@@ -282,7 +284,7 @@ class ChromaPanelManager:
                 self.current_chroma_color = None  # Reset chroma color
                 self.pending_update_button_state = False  # Reset button state when switching skins
                 
-                # Reset button to rainbow
+                # Reset button to rainbow (only if button exists)
                 if self.reopen_button:
                     self.reopen_button.set_chroma_color(None)
             
@@ -292,8 +294,34 @@ class ChromaPanelManager:
             self.current_chromas = chromas
             self.current_champion_name = champion_name  # Store for image loading
             
-            log.debug(f"[CHROMA] Showing button for {skin_name} ({len(chromas)} chromas)")
+            # Queue the show/hide request regardless of initialization state
+            # Strategy for skins without chromas:
+            # - Show the button first to position the UnownedFrame
+            # - Then hide the button (UnownedFrame stays visible independently)
+            has_chromas = chromas and len(chromas) > 0
+            
+            if not self.is_initialized:
+                if has_chromas:
+                    log.debug(f"[CHROMA] Widgets not initialized yet - queueing button show for {skin_name} ({len(chromas)} chromas)")
+                else:
+                    log.debug(f"[CHROMA] Widgets not initialized yet - will show UnownedFrame only for {skin_name}")
+            else:
+                if has_chromas:
+                    log.debug(f"[CHROMA] Showing button for {skin_name} ({len(chromas)} chromas)")
+                else:
+                    log.debug(f"[CHROMA] Showing UnownedFrame only for {skin_name} (no chromas)")
+            
+            # Always show first to ensure UnownedFrame is positioned
             self.pending_show_button = True
+            
+            # For skins without chromas, immediately hide the button after showing
+            # (UnownedFrame will remain visible as it has independent visibility)
+            if not has_chromas:
+                self.pending_hide_button = True
+            else:
+                # Skin has chromas - ensure button stays visible (cancel any pending hide)
+                self.pending_hide_button = False
+            
             # Reset button state to unhovered when showing for new skin (wheel will be closed)
             if self.pending_update_button_state is None:
                 self.pending_update_button_state = False
@@ -314,6 +342,12 @@ class ChromaPanelManager:
                 self.pending_create = False
                 try:
                     self._create_widgets()
+                    
+                    # Process initial UnownedFrame fade if requested (for first unowned skin)
+                    if self.pending_initial_unowned_fade and self.reopen_button:
+                        log.info("[CHROMA] Applying initial UnownedFrame fade after widget creation")
+                        self.reopen_button.unowned_frame_fade_owned_to_not_owned_first()
+                        self.pending_initial_unowned_fade = False
                 except Exception as e:
                     log.error(f"[CHROMA] Error creating widgets: {e}")
             

@@ -77,7 +77,23 @@ class OCRSkinThread(threading.Thread):
             
             from utils.chroma_selector import get_chroma_selector
             chroma_selector = get_chroma_selector()
-            if chroma_selector and chroma_selector.panel and chroma_selector.panel.reopen_button:
+            
+            # Check if widgets are initialized
+            if chroma_selector and chroma_selector.panel:
+                if not chroma_selector.panel.reopen_button:
+                    # Widgets not created yet - queue the initial fade if needed
+                    if not self.first_skin_detected:
+                        log.info(f"[CHROMA] First skin detected but widgets not ready")
+                        if not current_is_owned:
+                            log.info(f"[CHROMA] First skin NOT owned - queueing UnownedFrame fade")
+                            chroma_selector.panel.request_initial_unowned_fade()
+                        else:
+                            log.debug(f"[CHROMA] First skin owned - no UnownedFrame fade needed")
+                        self.first_skin_detected = True
+                        self.last_skin_had_chromas = current_has_chromas
+                        self.last_skin_was_owned = current_is_owned
+                    return
+                
                 button = chroma_selector.panel.reopen_button
                 
                 if not self.first_skin_detected:
@@ -207,23 +223,37 @@ class OCRSkinThread(threading.Thread):
             is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
             log.info(f"[CHROMA] Checking skin_id={skin_id}, is_base={is_base_skin}, owned={is_owned}, total_owned={len(self.state.owned_skin_ids)}")
             
-            # Always update button when switching skins (don't skip re-showing)
-            # This ensures button always shows the correct skin's chromas
-            # Button shows if there are ANY chromas (owned or unowned)
-            if chroma_selector.should_show_chroma_panel(skin_id):
-                log.info(f"[CHROMA] Showing button - skin has chromas")
+            # Button should show for ALL unowned skins (with or without chromas)
+            # The golden border + lock (UnownedFrame) indicates the skin is not owned
+            if not is_owned:
+                # Unowned skin - show button with golden border + lock
+                log.info(f"[CHROMA] Showing button - skin NOT owned (chromas: {chroma_selector.should_show_chroma_panel(skin_id)})")
                 self.last_chroma_panel_skin_id = skin_id
                 
                 # Get champion name for direct path to chromas
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                 champion_name = self.db.champ_name_by_id.get(champ_id) if champ_id and self.db else None
                 
+                # Show button - it will display:
+                # - If skin has chromas: clickable chroma wheel + golden border + lock
+                # - If skin has no chromas: just golden border + lock (wheel disabled)
                 chroma_selector.show_button_for_skin(skin_id, skin_name, champion_name)
             else:
-                # No unowned chromas, hide button
-                log.debug(f"[CHROMA] Skin has no unowned chromas, hiding button")
-                chroma_selector.hide()
-                self.last_chroma_panel_skin_id = None  # Reset to allow re-checking
+                # Owned skin - only show button if it has chromas
+                if chroma_selector.should_show_chroma_panel(skin_id):
+                    log.info(f"[CHROMA] Showing button - owned skin with chromas")
+                    self.last_chroma_panel_skin_id = skin_id
+                    
+                    # Get champion name for direct path to chromas
+                    champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+                    champion_name = self.db.champ_name_by_id.get(champ_id) if champ_id and self.db else None
+                    
+                    chroma_selector.show_button_for_skin(skin_id, skin_name, champion_name)
+                else:
+                    # Owned skin without chromas - hide everything
+                    log.debug(f"[CHROMA] Owned skin without chromas - hiding button")
+                    chroma_selector.hide()
+                    self.last_chroma_panel_skin_id = None  # Reset to allow re-checking
         except Exception as e:
             log.debug(f"[CHROMA] Error triggering panel: {e}")
 

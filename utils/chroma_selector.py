@@ -93,7 +93,12 @@ class ChromaSelector:
     
     def show_button_for_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
         """
-        Show button for a skin (called when OCR detects skin with chromas)
+        Show button for a skin (called when OCR detects any unowned skin or owned skin with chromas)
+        
+        The button displays:
+        - Unowned skins with chromas: clickable chroma wheel + golden border + lock
+        - Unowned skins without chromas: golden border + lock only (no wheel)
+        - Owned skins with chromas: clickable chroma wheel (no golden border/lock)
         
         Args:
             skin_id: Skin ID to show button for
@@ -111,32 +116,29 @@ class ChromaSelector:
         with self.lock:
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
             
-            if not chromas or len(chromas) == 0:
-                log.debug(f"[CHROMA] No chromas found for skin {skin_id}")
-                self.hide()
-                return
-            
-            # Mark ownership status on each chroma for the injection system
+            # Mark ownership status on each chroma for the injection system (if chromas exist)
             owned_skin_ids = self.state.owned_skin_ids
             owned_count = 0
-            for chroma in chromas:
-                chroma_id = chroma.get('id')
-                is_owned = chroma_id in owned_skin_ids
-                chroma['is_owned'] = is_owned  # Add ownership flag
-                if is_owned:
-                    owned_count += 1
+            if chromas:
+                for chroma in chromas:
+                    chroma_id = chroma.get('id')
+                    is_owned = chroma_id in owned_skin_ids
+                    chroma['is_owned'] = is_owned  # Add ownership flag
+                    if is_owned:
+                        owned_count += 1
             
-            # Show ALL chromas (owned and unowned)
-            # The injection system will handle them differently:
-            # - Unowned chromas: inject as usual
-            # - Owned chromas: force using base skin forcing mechanism
-            log.debug(f"[CHROMA] Updating button for {skin_name} ({len(chromas)} total chromas, {owned_count} owned, {len(chromas) - owned_count} unowned)")
+            # Show button regardless of whether chromas exist
+            # The UnownedFrame (golden border + lock) will be shown for unowned skins
+            if chromas and len(chromas) > 0:
+                log.debug(f"[CHROMA] Updating button for {skin_name} ({len(chromas)} total chromas, {owned_count} owned, {len(chromas) - owned_count} unowned)")
+            else:
+                log.debug(f"[CHROMA] Showing button for {skin_name} (no chromas - UnownedFrame only)")
             
             self.current_skin_id = skin_id
             
-            # Show the button with ALL chromas (owned + unowned)
+            # Show the button with chromas (or empty list if no chromas)
             try:
-                self.panel.show_button_for_skin(skin_id, skin_name, chromas, champion_name)
+                self.panel.show_button_for_skin(skin_id, skin_name, chromas or [], champion_name)
             except Exception as e:
                 log.error(f"[CHROMA] Failed to show button: {e}")
     
