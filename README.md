@@ -13,23 +13,23 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
 - Windows 10/11 (64-bit)
 - 4 GB RAM
 - League of Legends installed
-- Internet connection (for first-time EasyOCR model download)
+- Internet connection (for license activation and EasyOCR models)
+- **Valid license key** (required for activation)
 
 **Recommended for Optimal Performance:**
 
 - 8+ GB RAM
 - SSD storage
+- NVIDIA GPU (optional - enables faster OCR via CUDA)
 
 ### 🔍 OCR Technology
 
-**LeagueUnlocked uses EasyOCR with GPU acceleration for accurate skin detection across all languages.**
+**LeagueUnlocked uses EasyOCR with automatic GPU acceleration for accurate skin detection across all languages.**
 
-- **GPU Accelerated**: Automatically uses GPU if available (CUDA) for faster OCR
-- **CPU Fallback**: Seamlessly falls back to CPU mode if GPU is not available
-- **Universal compatibility**: Works on all systems with or without GPU
+- **GPU Accelerated**: Automatically detects and uses NVIDIA GPU (CUDA) if available
+- **CPU Fallback**: Seamlessly falls back to CPU mode on systems without GPU
 - **Advanced preprocessing**: Research-based image processing for optimal accuracy
-
-**No additional installation required** - EasyOCR models download automatically on first run!
+- **No setup required**: EasyOCR models download automatically on first run
 
 ---
 
@@ -43,6 +43,7 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
 2. **Run** `LeagueUnlocked_Setup.exe` **as Administrator**
 3. **Follow the setup wizard** - the installer will create shortcuts and configure the application
 4. **Launch the app** from your desktop or start menu
+5. **Activate your license** when prompted (see License Activation below)
 
 ### Option 2: Source Code Version (For Developers)
 
@@ -62,45 +63,9 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
    pip install -r requirements.txt
    ```
 
-   This automatically installs:
+   **Note**: First run will download EasyOCR models (~50-100 MB). GPU support is automatic if CUDA is available.
 
-   - EasyOCR with PyTorch (GPU-accelerated with CPU fallback)
-   - OpenCV, NumPy, SciPy (image processing)
-   - All other required packages
-
-   **Note**: First run will download EasyOCR models (~50-100 MB) - requires internet connection.
-
-4. **GPU Acceleration (Optional - For Developers Only):**
-
-   **⚠️ NOTE FOR END USERS**: If you're using the pre-built executable (.exe), you can skip this section! The executable already includes GPU support and will automatically use your GPU if available.
-
-   **For developers** running from source who want GPU acceleration:
-
-   **Requirements:**
-
-   - NVIDIA GPU with CUDA support
-   - CUDA Toolkit 11.8+ (12.x recommended)
-   - cuDNN 8.x+
-
-   **Installation:**
-
-   ```bash
-   # Uninstall CPU-only PyTorch (if installed)
-   pip uninstall torch torchvision -y
-
-   # Install PyTorch with GPU support (CUDA 12.1)
-   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-   ```
-
-   **Verify GPU Setup:**
-
-   ```bash
-   python test_gpu_setup.py
-   ```
-
-   **Performance:** GPU acceleration provides much faster OCR (0-5ms vs 200-800ms on CPU)!
-
-5. **Building from Source:**
+4. **Building from Source:**
 
    To build the executable and installer:
 
@@ -114,11 +79,34 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
    - Create a Windows installer with Inno Setup
    - Output to `dist/LeagueUnlocked/` and `installer/` directories
 
-**System Requirements:**
+---
 
-- Windows 10/11 (64-bit)
-- Python 3.11
-- CSLOL tools present in `injection/tools/` directory
+## 🔐 License Activation
+
+**LeagueUnlocked requires a valid license key to operate.**
+
+### First-Time Setup
+
+1. **Launch the application** - it will check for an existing license
+2. **If no license is found**, an activation dialog will appear
+3. **Enter your license key** when prompted
+4. **Activation is automatic** - the app validates with the license server
+5. **License is saved locally** and bound to your machine
+
+### License Features
+
+- **Online validation** on first activation (requires internet)
+- **Offline verification** for subsequent launches (works without internet)
+- **Machine binding** - each license is tied to your specific computer
+- **Expiration tracking** - displays days remaining on startup
+
+### For Developers
+
+Use `--nolicense` flag to bypass license checks during development:
+
+```bash
+python main.py --nolicense
+```
 
 ---
 
@@ -189,26 +177,16 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
 
 The application runs in the system tray and requires no user interaction. Simply play League of Legends as usual, and when you hover over skins in champion select, the app will automatically detect and inject them.
 
-### How It Works Behind the Scenes
+### How It Works
 
-While you play, LeagueUnlocked operates through a sophisticated multi-threaded system:
+LeagueUnlocked operates automatically through a multi-threaded system:
 
-1. **Phase Detection**: Monitors League Client for game phases (lobby, champion select, in-game)
-2. **OCR Activation**: Automatically activates OCR when entering champion select
-3. **Champion Lock Detection**: Detects when you lock a champion and fetches your owned skins from LCU
-4. **Real-Time Skin Detection**: Uses advanced OCR to detect skin names as you hover over them during champion select
-5. **Chroma Selection**: Shows interactive chroma wheel when skin with chromas is detected
-6. **Ownership Verification**: Automatically skips injection if you already own the detected skin
-7. **Base Skin Forcing**: Forces base skin selection before injection (required for proper skin overlay)
-8. **Automatic Injection**: Injects the last hovered unowned skin 300 milliseconds before game starts with CPU priority boost for reliability
-
-**Performance & Reliability**:
-
-- **Process Suspension**: Game process is suspended during injection to ensure reliable overlay installation
-- **High-Priority Processing**: Uses CPU priority boost for mkoverlay and runoverlay processes
-- **Safety Mechanisms**: 20-second auto-resume timeout prevents game from being stuck frozen
-- **Smart Injection**: Only injects skins you don't own, verified against LCU inventory
-- **Robust Fallbacks**: Multiple LCU endpoints ensure base skin forcing works reliably
+1. **Monitors** League Client for game phases (lobby, champion select, in-game)
+2. **Activates OCR** when you enter champion select and lock a champion
+3. **Detects skin names** in real-time as you hover over them using advanced OCR
+4. **Shows chroma wheel** when hovering over skins with chroma variants
+5. **Verifies ownership** and skips injection for skins you already own
+6. **Injects selected skin** 300ms before game starts with process suspension for reliability
 
 **No manual intervention required - just launch the app and play!**
 
@@ -225,55 +203,19 @@ The chroma wheel appears automatically when OCR detects a skin with chromas, and
 
 ## ✨ Features
 
-### Core Capabilities
-
-- **🎯 Fully Automated**: Works completely automatically - no manual intervention required
-- **🔍 Advanced OCR Detection**: Uses EasyOCR with research-based preprocessing and optimized image processing for accurate skin name recognition
-- **🎨 Chroma Selection UI**: Interactive chroma wheel with preview images for easy chroma variant selection
-- **⚡ Optimized Injection**: Uses high-priority processes and game suspension for reliable injection 300ms before game starts
-- **✅ Ownership Detection**: Automatically detects owned skins via LCU inventory and skips injection to avoid conflicts
-- **🔄 Base Skin Forcing**: Intelligently forces base skin selection before injection with multiple fallback endpoints
-- **🎮 Unified Game Monitor**: Single, efficient monitor handles game process suspension and resume
-- **🌍 Multi-Language Support**: Supports 80+ languages including Latin and non-Latin alphabets (Korean, Chinese, Russian, etc.)
-- **📊 Massive Skin Collection**: 8,277+ skins for 171 champions included
-- **🧠 Smart Matching**: Advanced fuzzy matching algorithms for accurate skin detection
-
-### Technical Features
-
-- **🏗️ Modular Architecture**: Clean, maintainable codebase with separated concerns
-- **🧵 Multi-threaded Design**: Optimal performance with concurrent processing (6 specialized threads)
-- **🔄 LCU Integration**: Real-time communication with League Client API (with fallback endpoints for robustness)
-- **🛠️ CSLOL Tools**: Reliable injection using proven CSLOL modification tools
-- **📈 Optimized Loading**: Only loads necessary language databases for better performance
-- **🔒 Permission-Safe**: Uses user data directories to avoid permission issues
-- **🎮 Inventory-Aware**: Fetches owned skins from LCU to prevent unnecessary injections
-- **⚡ Process Management**: Unified monitor with game suspension, priority boost, and safety timeouts
-- **💾 OCR Caching**: Intelligent caching system reduces redundant OCR operations for better performance
-
-### Advanced Features
-
-- **📥 Smart Downloads**: Efficient repository ZIP download with automatic updates
-- **🎛️ Configurable OCR**: Adjustable confidence thresholds and processing modes
-- **📊 Real-time Monitoring**: WebSocket-based event handling for optimal performance
-- **🔧 Diagnostic Tools**: Built-in EasyOCR validation and diagnostic utilities
-- **📱 System Tray Integration**: Clean background operation with system tray management
-- **🔐 Auto-Start with Admin Rights**: Task Scheduler integration for seamless auto-start (no UAC prompts)
-- **📝 Comprehensive Logging**: Detailed logging system with configurable retention
-- **🖼️ Chroma Previews**: Automatic download of chroma preview images from CommunityDragon
-- **🎯 Resolution-Adaptive UI**: Chroma UI automatically scales to match League window resolution
-
-### Performance Optimizations
-
-- **⚡ Burst OCR**: High-frequency OCR (40 Hz) during motion/hover detection
-- **💤 Idle Optimization**: Reduced OCR frequency when inactive to save CPU
-- **🎯 ROI Locking**: Intelligent region-of-interest detection and locking
-- **🔄 Adaptive Timing**: Dynamic timing adjustments based on system performance
-- **📊 Rate Limiting**: Intelligent GitHub API rate limiting for skin downloads
-- **🎭 Smart Filtering**: Only injects unowned skins by filtering against LCU inventory
-- **🔧 Robust Fallbacks**: Multiple LCU endpoints for reliable base skin forcing
-- **🧹 Automatic Cleanup**: Cleans up injection processes when entering lobby
-- **⚙️ Unified Monitor**: Single monitor eliminates race conditions and reduces complexity
-- **💨 Fast Injection**: Optimized injection timing at 300ms before game starts
+- **🎯 Fully Automated**: Zero manual intervention - works silently in the background
+- **🔍 Advanced OCR**: EasyOCR with GPU acceleration and multi-language support (80+ languages)
+- **🎨 Interactive Chroma UI**: Resolution-adaptive chroma wheel with preview images
+- **⚡ Fast Injection**: 300ms before game starts with process suspension for reliability
+- **✅ Smart Ownership**: Auto-detects owned skins via LCU and skips injection
+- **🎮 Game Monitor**: Unified process monitor with safety timeouts and auto-resume
+- **🌍 Multi-Language**: Supports Latin and non-Latin alphabets (Korean, Chinese, Russian, Arabic, etc.)
+- **📊 Massive Collection**: 8,277+ skins for 171 champions with automatic updates
+- **🔐 Auto-Start**: Task Scheduler integration for seamless Windows startup (no UAC prompts)
+- **📱 System Tray**: Background operation with status indicators
+- **🧵 Multi-threaded**: 6 specialized threads for optimal performance
+- **💾 OCR Caching**: Intelligent caching reduces redundant operations
+- **🔧 Robust**: Multiple LCU fallback endpoints and error handling
 
 ---
 
