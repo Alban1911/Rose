@@ -36,12 +36,13 @@ class SanitizingFilter(logging.Filter):
         (re.compile(r'[A-Za-z]:\\[^\s]*'), '[PATH_REDACTED]'),
         # File paths - Unix paths (multiple slashes)
         (re.compile(r'/[^/\s]+/[^\s]+'), '[PATH_REDACTED]'),
-        # Clean up partial path leaks after redaction (more aggressive)
-        (re.compile(r'\[PATH_REDACTED\]\s*[^\s\n]+'), '[PATH_REDACTED]'),
-        # Remove OCR timing information from messages
-        (re.compile(r'⏱️\s+OCR:\s+[\d.]+ms[^\n]+'), ''),
-        (re.compile(r'\|\s*Matching:\s*[\d.]+ms', re.IGNORECASE), ''),
-        (re.compile(r'\|\s*Total:\s*[\d.]+ms', re.IGNORECASE), ''),
+        # Clean up partial path leaks after redaction (very aggressive - remove everything after [PATH_REDACTED])
+        (re.compile(r'\[PATH_REDACTED\][^\n]*'), '[PATH_REDACTED]'),
+        # Remove entire line with OCR timing (don't leave empty lines)
+        (re.compile(r'^\s*⏱️.*$', re.MULTILINE), ''),
+        # Remove timing parts from detection messages
+        (re.compile(r'\s*\|\s*Matching:.*$', re.MULTILINE), ''),
+        (re.compile(r'\s*\|\s*Total:.*$', re.MULTILINE), ''),
         # Remove PID numbers (process IDs)
         (re.compile(r'PID:\s*\d+'), 'PID: [REDACTED]'),
         (re.compile(r'PID=\d+'), 'PID=[REDACTED]'),
@@ -144,8 +145,8 @@ class SanitizingFilter(logging.Filter):
         '   • Auto-resume:',
         'PID=[REDACTED], status=',
         
-        # OCR timing
-        '⏱️  OCR timing measurements:',
+        # OCR timing (suppress any message starting with timing emoji)
+        '⏱️',
         
         # Phase spam
         '🧹 Killed all',
@@ -180,6 +181,10 @@ class SanitizingFilter(logging.Filter):
             for pattern, replacement in self.PATTERNS:
                 sanitized = pattern.sub(replacement, sanitized)
             record.msg = sanitized
+            
+            # Suppress if message is now empty or only whitespace after sanitization
+            if not sanitized.strip():
+                return False
         
         return True
 
