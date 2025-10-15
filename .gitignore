@@ -79,5 +79,5 @@ htmlcov/
 *.bak
 *.backup
 
-ScreenshotsOfficialUI/*
 license.dat
+config.ini

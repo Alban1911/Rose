@@ -7,10 +7,19 @@ Handles the actual skin injection using CSLOL tools
 
 import subprocess
 import time
+import configparser
 from pathlib import Path
 from typing import List, Dict, Optional
 import zipfile
 import shutil
+
+# Import psutil with fallback for development environments
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    psutil = None
 
 from utils.logging import get_logger, log_action, log_success, log_event
 from utils.paths import get_skins_dir, get_injection_dir
@@ -77,8 +86,84 @@ class SkinInjector:
         # Check for CSLOL tools
         self._download_cslol_tools()
         
+    def _get_config_path(self) -> Path:
+        """Get the path to the config.ini file"""
+        import sys
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable (PyInstaller)
+            base_dir = Path(sys.executable).parent
+        else:
+            # Running as Python script
+            base_dir = Path(__file__).parent.parent
+        return base_dir / "config.ini"
+    
+    def _load_config(self) -> Optional[str]:
+        """Load League path from config.ini file"""
+        config_path = self._get_config_path()
+        if not config_path.exists():
+            log.debug("Config file not found, will create one")
+            return None
+        
+        try:
+            config = configparser.ConfigParser()
+            config.read(config_path)
+            if 'General' in config and 'leaguePath' in config['General']:
+                league_path = config['General']['leaguePath']
+                log.debug(f"Loaded League path from config: {league_path}")
+                return league_path
+        except Exception as e:
+            log.warning(f"Failed to read config file: {e}")
+        
+        return None
+    
+    def _save_config(self, league_path: str):
+        """Save League path to config.ini file"""
+        config_path = self._get_config_path()
+        try:
+            config = configparser.ConfigParser()
+            
+            # Load existing config if it exists
+            if config_path.exists():
+                config.read(config_path)
+            
+            # Ensure General section exists
+            if 'General' not in config:
+                config.add_section('General')
+            
+            # Set the League path
+            config.set('General', 'leaguePath', league_path)
+            
+            # Write to file
+            with open(config_path, 'w') as f:
+                config.write(f)
+            
+            log.debug(f"Saved League path to config: {league_path}")
+        except Exception as e:
+            log.warning(f"Failed to save config file: {e}")
+    
     def _detect_game_dir(self) -> Path:
-        """Auto-detect League of Legends Game directory"""
+        """Auto-detect League of Legends Game directory using config and LeagueClient.exe detection"""
+        
+        # First, try to load from config
+        config_path = self._load_config()
+        if config_path:
+            config_game_dir = Path(config_path)
+            if config_game_dir.exists() and (config_game_dir / "League of Legends.exe").exists():
+                log_success(log, f"Using League path from config: {config_game_dir}", "📂")
+                return config_game_dir
+            else:
+                log.warning(f"Config League path is invalid: {config_path}")
+        
+        # If no valid config, try to detect via LeagueClient.exe
+        log.debug("Config not found or invalid, detecting via LeagueClient.exe")
+        detected_path = self._detect_via_leagueclient()
+        if detected_path:
+            # Save the detected path to config
+            self._save_config(str(detected_path))
+            return detected_path
+        
+        # Fallback to common paths
+        log.debug("LeagueClient.exe detection failed, trying common paths")
         candidates = [
             Path(r"C:\Riot Games\League of Legends\Game"),
             Path(r"C:\Riot Games\League of Legends"),
@@ -93,14 +178,73 @@ class SkinInjector:
                     if c.name.lower() != "game" and (c / "Game" / "League of Legends.exe").exists():
                         gd = c / "Game"
                         log_success(log, f"Auto-detected game directory: {gd}", "📂")
+                        # Save to config
+                        self._save_config(str(gd))
                         return gd
                     log_success(log, f"Auto-detected game directory: {c}", "📂")
-                    return c if c.name.lower() == "game" else (c / "Game")
+                    result = c if c.name.lower() == "game" else (c / "Game")
+                    # Save to config
+                    self._save_config(str(result))
+                    return result
 
-        # Last resort: return default
+        # Last resort: return default and save to config
         gd = Path(r"C:\Riot Games\League of Legends\Game")
         log_event(log, f"Using default game directory: {gd}", "📂")
+        # Save default to config so user can manually edit it
+        self._save_config(str(gd))
         return gd
+    
+    def _detect_via_leagueclient(self) -> Optional[Path]:
+        """Detect League path by finding running LeagueClient.exe process"""
+        if not PSUTIL_AVAILABLE:
+            log.debug("psutil not available, skipping LeagueClient.exe detection")
+            return None
+            
+        try:
+            log.debug("Looking for LeagueClient.exe process...")
+            
+            # Find LeagueClient.exe process
+            for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                try:
+                    if proc.info['name'] == 'LeagueClient.exe':
+                        exe_path = proc.info['exe']
+                        if exe_path:
+                            log.debug(f"Found LeagueClient.exe at: {exe_path}")
+                            
+                            # Convert to Path and get parent directory
+                            client_path = Path(exe_path)
+                            client_dir = client_path.parent
+                            
+                            # League should be in the same directory + "Game" subdirectory
+                            league_dir = client_dir / "Game"
+                            league_exe = league_dir / "League of Legends.exe"
+                            
+                            log.debug(f"Checking for League at: {league_exe}")
+                            if league_exe.exists():
+                                log_success(log, f"Found League via LeagueClient.exe: {league_dir}", "📂")
+                                return league_dir
+                            else:
+                                log.debug(f"League not found at expected location: {league_exe}")
+                                
+                                # Try parent directory structure (for different installers)
+                                parent_dir = client_dir.parent
+                                parent_league_dir = parent_dir / "League of Legends" / "Game"
+                                parent_league_exe = parent_league_dir / "League of Legends.exe"
+                                
+                                log.debug(f"Trying parent directory structure: {parent_league_exe}")
+                                if parent_league_exe.exists():
+                                    log_success(log, f"Found League via parent directory: {parent_league_dir}", "📂")
+                                    return parent_league_dir
+                                
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+            
+            log.debug("No LeagueClient.exe process found")
+            return None
+            
+        except Exception as e:
+            log.warning(f"Error detecting via LeagueClient.exe: {e}")
+            return None
     
     def _download_cslol_tools(self):
         """Download CSLOL tools if not present"""
@@ -302,9 +446,8 @@ class SkinInjector:
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
             
             # Boost process priority to maximize CPU contention if enabled
-            if ENABLE_PRIORITY_BOOST:
+            if ENABLE_PRIORITY_BOOST and PSUTIL_AVAILABLE:
                 try:
-                    import psutil
                     p = psutil.Process(proc.pid)
                     p.nice(psutil.HIGH_PRIORITY_CLASS)
                     log.debug(f"[inject] Boosted mkoverlay process priority (PID={proc.pid})")
@@ -358,9 +501,8 @@ class SkinInjector:
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
             
             # Boost process priority to maximize CPU contention if enabled
-            if ENABLE_PRIORITY_BOOST:
+            if ENABLE_PRIORITY_BOOST and PSUTIL_AVAILABLE:
                 try:
-                    import psutil
                     p = psutil.Process(proc.pid)
                     p.nice(psutil.HIGH_PRIORITY_CLASS)
                     log.debug(f"[inject] Boosted runoverlay process priority (PID={proc.pid})")
@@ -695,6 +837,10 @@ class SkinInjector:
             timeout = PROCESS_ENUM_TIMEOUT_S
             
             # Only get pid and name initially to avoid slow cmdline lookups
+            if not PSUTIL_AVAILABLE:
+                log.debug("[inject] psutil not available, skipping process cleanup")
+                return
+                
             for proc in psutil.process_iter(['pid', 'name']):
                 # Check timeout to prevent indefinite hangs
                 if time.time() - start_time > timeout:
