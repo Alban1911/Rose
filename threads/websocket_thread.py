@@ -56,6 +56,80 @@ class WSEventThread(threading.Thread):
         self.skin_scraper = skin_scraper
         self.ocr_init_callback = ocr_init_callback  # Callback to initialize OCR when WebSocket connects
         self.ticker: Optional[LoadoutTicker] = None
+        self.last_locked_champion_id = None  # Track previously locked champion for exchange detection
+
+    def _handle_champion_exchange(self, old_champ_id: int, new_champ_id: int, new_champ_label: str):
+        """Handle champion exchange by resetting all state and reinitializing for new champion"""
+        separator = "=" * 80
+        log.info(separator)
+        log.info("🔄 CHAMPION EXCHANGE DETECTED")
+        log.info(f"   📋 From: {self.db.champ_name_by_id.get(old_champ_id, f'Champion {old_champ_id}')} (ID: {old_champ_id})")
+        log.info(f"   📋 To: {new_champ_label} (ID: {new_champ_id})")
+        log.info("   🔄 Resetting all state for new champion...")
+        log.info(separator)
+        
+        # Reset OCR state
+        self.state.last_hovered_skin_key = None
+        self.state.last_hovered_skin_id = None
+        self.state.last_hovered_skin_slug = None
+        
+        # Reset injection state
+        self.state.injection_completed = False
+        self.state.last_hover_written = False
+        
+        # Reset locked champion state
+        self.state.locked_champ_id = new_champ_id
+        self.state.locked_champ_timestamp = time.time()
+        
+        # Clear owned skins cache (will be refreshed for new champion)
+        self.state.owned_skin_ids.clear()
+        
+        # Destroy chroma panel
+        chroma_selector = get_chroma_selector()
+        if chroma_selector and chroma_selector.panel:
+            try:
+                chroma_selector.panel.request_destroy()
+                log.debug("[exchange] Chroma panel destroy requested")
+            except Exception as e:
+                log.debug(f"[exchange] Error destroying chroma panel: {e}")
+        
+        # Reset loadout countdown if active
+        if self.state.loadout_countdown_active:
+            self.state.loadout_countdown_active = False
+            log.debug("[exchange] Reset loadout countdown state")
+        
+        # Scrape skins for new champion from LCU
+        if self.skin_scraper:
+            try:
+                self.skin_scraper.scrape_champion_skins(new_champ_id)
+                log.debug(f"[exchange] Scraped skins for {new_champ_label}")
+            except Exception as e:
+                log.error(f"[exchange] Failed to scrape champion skins: {e}")
+        
+        # Load English skin names for new champion from Data Dragon
+        try:
+            self.db.load_champion_skins_by_id(new_champ_id)
+            log.debug(f"[exchange] Loaded English skin names for {new_champ_label}")
+        except Exception as e:
+            log.error(f"[exchange] Failed to load English skin names: {e}")
+        
+        # Notify injection manager of champion exchange
+        if self.injection_manager:
+            try:
+                self.injection_manager.on_champion_locked(new_champ_label, new_champ_id, self.state.owned_skin_ids)
+                log.debug(f"[exchange] Notified injection manager of {new_champ_label}")
+            except Exception as e:
+                log.error(f"[exchange] Failed to notify injection manager: {e}")
+        
+        # Create chroma panel widgets for new champion
+        if chroma_selector:
+            try:
+                chroma_selector.panel.request_create()
+                log.debug(f"[exchange] Requested chroma panel creation for {new_champ_label}")
+            except Exception as e:
+                log.error(f"[exchange] Failed to request chroma panel creation: {e}")
+        
+        log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
     def _maybe_start_timer(self, sess: dict):
         """Start timer if conditions are met - ONLY on FINALIZATION phase"""
@@ -130,6 +204,7 @@ class WSEventThread(threading.Thread):
                     self.state.injection_completed = False  # Reset injection flag for new game
                     self.state.loadout_countdown_active = False  # Reset countdown state
                     self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
+                    self.last_locked_champion_id = None  # Reset exchange tracking for new game
                     try: 
                         self.state.processed_action_ids.clear()
                     except Exception: 
@@ -206,50 +281,83 @@ class WSEventThread(threading.Thread):
             added = sorted(list(curr_cells - prev_cells))
             removed = sorted(list(prev_cells - curr_cells))
             
+            # Check for champion exchanges in existing locks (not just new locks)
+            if self.state.local_cell_id is not None:
+                my_cell_id = int(self.state.local_cell_id)
+                if my_cell_id in new_locks:
+                    new_champ_id = new_locks[my_cell_id]
+                    # Debug logging for exchange detection
+                    log.debug(f"[exchange_debug] my_cell_id={my_cell_id}, new_champ_id={new_champ_id}, last_locked_champion_id={self.last_locked_champion_id}, state.locked_champ_id={self.state.locked_champ_id}")
+                    
+                    # Check if this is an exchange (champion ID changed but we were already locked)
+                    if (self.last_locked_champion_id is not None and 
+                        self.last_locked_champion_id != new_champ_id and
+                        self.state.locked_champ_id is not None and
+                        self.state.locked_champ_id != new_champ_id):
+                        # This is a champion exchange
+                        champ_label = self.db.champ_name_by_id.get(new_champ_id, f"#{new_champ_id}")
+                        log_event(log, f"Champion exchange detected: {champ_label}", "🔄", {"From": self.last_locked_champion_id, "To": new_champ_id})
+                        self._handle_champion_exchange(self.last_locked_champion_id, new_champ_id, champ_label)
+                        # Update tracking
+                        self.last_locked_champion_id = new_champ_id
+            
             for cid in added:
                 ch = new_locks[cid]
                 # Readable label if available
                 champ_label = self.db.champ_name_by_id.get(int(ch), f"#{ch}")
                 log_event(log, f"Champion locked: {champ_label}", "🔒", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
                 if self.state.local_cell_id is not None and cid == int(self.state.local_cell_id):
-                    separator = "=" * 80
-                    log.info(separator)
-                    log.info(f"🎮 YOUR CHAMPION LOCKED")
-                    log.info(f"   📋 Champion: {champ_label}")
-                    log.info(f"   📋 ID: {ch}")
-                    log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
-                    log.info(separator)
-                    self.state.locked_champ_id = int(ch)
-                    self.state.locked_champ_timestamp = time.time()  # Record lock time for OCR delay
+                    new_champ_id = int(ch)
                     
-                    # Scrape skins for this champion from LCU
-                    if self.skin_scraper:
+                    # Check for champion exchange (champion ID changed but we were already locked)
+                    if (self.last_locked_champion_id is not None and 
+                        self.last_locked_champion_id != new_champ_id and
+                        self.state.locked_champ_id is not None):
+                        # This is a champion exchange, not a new lock
+                        self._handle_champion_exchange(self.last_locked_champion_id, new_champ_id, champ_label)
+                    else:
+                        # This is a new champion lock (first lock or re-lock of same champion)
+                        separator = "=" * 80
+                        log.info(separator)
+                        log.info(f"🎮 YOUR CHAMPION LOCKED")
+                        log.info(f"   📋 Champion: {champ_label}")
+                        log.info(f"   📋 ID: {ch}")
+                        log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
+                        log.info(separator)
+                        self.state.locked_champ_id = new_champ_id
+                        self.state.locked_champ_timestamp = time.time()  # Record lock time for OCR delay
+                        
+                        # Scrape skins for this champion from LCU
+                        if self.skin_scraper:
+                            try:
+                                self.skin_scraper.scrape_champion_skins(int(ch))
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
+                        
+                        # Load English skin names for this champion from Data Dragon
                         try:
-                            self.skin_scraper.scrape_champion_skins(int(ch))
+                            self.db.load_champion_skins_by_id(int(ch))
                         except Exception as e:
-                            log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
+                            log.error(f"[lock:champ] Failed to load English skin names: {e}")
+                        
+                        # Notify injection manager of champion lock
+                        if self.injection_manager:
+                            try:
+                                self.injection_manager.on_champion_locked(champ_label, ch, self.state.owned_skin_ids)
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to notify injection manager: {e}")
+                        
+                        # Create chroma panel widgets on champion lock
+                        chroma_selector = get_chroma_selector()
+                        if chroma_selector:
+                            try:
+                                chroma_selector.panel.request_create()
+                                log.debug(f"[lock:champ] Requested chroma panel creation for {champ_label}")
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
                     
-                    # Load English skin names for this champion from Data Dragon
-                    try:
-                        self.db.load_champion_skins_by_id(int(ch))
-                    except Exception as e:
-                        log.error(f"[lock:champ] Failed to load English skin names: {e}")
-                    
-                    # Notify injection manager of champion lock
-                    if self.injection_manager:
-                        try:
-                            self.injection_manager.on_champion_locked(champ_label, ch, self.state.owned_skin_ids)
-                        except Exception as e:
-                            log.error(f"[lock:champ] Failed to notify injection manager: {e}")
-                    
-                    # Create chroma panel widgets on champion lock
-                    chroma_selector = get_chroma_selector()
-                    if chroma_selector:
-                        try:
-                            chroma_selector.panel.request_create()
-                            log.debug(f"[lock:champ] Requested chroma panel creation for {champ_label}")
-                        except Exception as e:
-                            log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
+                    # Update tracking for next comparison (for both new locks and exchanges)
+                    self.last_locked_champion_id = new_champ_id
             
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)
