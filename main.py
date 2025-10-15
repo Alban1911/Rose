@@ -720,8 +720,6 @@ def setup_arguments() -> argparse.Namespace:
                    help=f"Maximum total size of all log files in MB (default: {LOG_MAX_TOTAL_SIZE_MB_DEFAULT}MB)")
     
     # Development arguments
-    ap.add_argument("--nolicense", action="store_true", default=False,
-                   help="Skip license validation (for development/testing only)")
     ap.add_argument("--dev", action="store_true", default=False,
                    help="Development mode - disable log sanitization (shows full paths, ports, PIDs)")
 
@@ -882,14 +880,8 @@ def main():
     # Setup logging and cleanup
     setup_logging_and_cleanup(args)
     
-    # Check license validity before continuing (unless --nolicense flag is set)
-    if not args.nolicense:
-        check_license()
-    else:
-        log.warning("=" * 80)
-        log.warning("⚠️  LICENSE CHECK DISABLED (--nolicense flag)")
-        log.warning("⚠️  This should only be used for development/testing!")
-        log.warning("=" * 80)
+    # Check license validity before continuing
+    check_license()
     
     # Initialize system tray manager immediately to hide console
     tray_manager = initialize_tray_manager(args)

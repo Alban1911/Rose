@@ -102,12 +102,6 @@ LeagueUnlocked is a fully automated system that detects skin selections in Leagu
 
 ### For Developers
 
-Use `--nolicense` flag to bypass license checks during development:
-
-```bash
-python main.py --nolicense
-```
-
 ---
 
 ## 🌍 Supported Languages
