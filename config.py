@@ -30,6 +30,28 @@ CHAR_RECOGNITION_MAX_COMPONENT_HEIGHT = 60
 CHAR_RECOGNITION_TEMPLATE_MATCH_THRESHOLD = 0.6
 CHAR_RECOGNITION_DEBUG_MODE = False
 
+# Special character mapping for Windows filename compatibility
+# Maps special characters that can't be used in filenames to safe alternatives
+SPECIAL_CHAR_MAPPING = {
+    ':': 'colon',
+    ';': 'semicolon',
+    '<': 'less_than',
+    '>': 'greater_than',
+    '"': 'quote',
+    '/': 'slash',
+    '\\': 'backslash',
+    '|': 'pipe',
+    '?': 'question',
+    '*': 'asterisk',
+    ' ': 'space',
+    '\t': 'tab',
+    '\n': 'newline',
+    '\r': 'carriage_return'
+}
+
+# Reverse mapping: filename-safe names back to actual characters
+SPECIAL_CHAR_REVERSE_MAPPING = {v: k for k, v in SPECIAL_CHAR_MAPPING.items()}
+
 # =============================================================================
 # OCR TIMING CONSTANTS
 # =============================================================================

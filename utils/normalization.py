@@ -35,9 +35,9 @@ def levenshtein_score(ocr_text: str, skin_text: str) -> float:
         return 0.0
     
     # Remove spaces and convert to lowercase before comparison
-    ocr_text_no_spaces = ocr_text.replace(" ", "").lower()
-    skin_text_no_spaces = skin_text.replace(" ", "").lower()
-    
+    ocr_text_no_spaces = ocr_text.replace(" ", "").replace("l", "").replace("i", "").replace("1", "").replace("'", "").lower()
+    skin_text_no_spaces = skin_text.replace(" ", "").replace("l", "").replace("i", "").replace("1", "").replace("'", "").lower()
+
     # Levenshtein distance
     distance = Levenshtein.distance(ocr_text_no_spaces, skin_text_no_spaces)
     

@@ -65,6 +65,11 @@ class TemplateManager:
                 else:
                     label = filename
                 
+                # Reverse-map special character names back to actual characters
+                from config import SPECIAL_CHAR_REVERSE_MAPPING
+                if label in SPECIAL_CHAR_REVERSE_MAPPING:
+                    label = SPECIAL_CHAR_REVERSE_MAPPING[label]
+                
                 # Load template image
                 template_img = cv2.imread(str(template_file), cv2.IMREAD_GRAYSCALE)
                 if template_img is None:

@@ -94,6 +94,7 @@ def test_pattern_matching_full(use_cpu=False):
             print(f"  OCR: '{ocr_text}' ({ocr_time:.1f}ms)")
             print(f"  PAT: '{pattern_text}' ({pattern_time:.1f}ms)")
             print(f"  SIM: {similarity_pct:.1f}% ({quality})")
+            print(f"  LEV: {similarity:.3f}")
             
             # Store results
             results.append({
@@ -137,6 +138,12 @@ def test_pattern_matching_full(use_cpu=False):
     max_similarity = max(similarities) if similarities else 0
     min_similarity = min(similarities) if similarities else 0
     
+    # Levenshtein statistics
+    lev_scores = [r['similarity'] for r in results if r['similarity'] > 0]
+    avg_lev = sum(lev_scores) / len(lev_scores) if lev_scores else 0
+    max_lev = max(lev_scores) if lev_scores else 0
+    min_lev = min(lev_scores) if lev_scores else 0
+    
     # Timing statistics
     avg_ocr_time = total_ocr_time / total_tests
     avg_pattern_time = total_pattern_time / total_tests
@@ -160,6 +167,12 @@ def test_pattern_matching_full(use_cpu=False):
     print(f"  Worst similarity:   {min_similarity:.1f}%")
     print()
     
+    print("LEVENSHTEIN STATISTICS:")
+    print(f"  Average LEV score:  {avg_lev:.3f}")
+    print(f"  Best LEV score:     {max_lev:.3f}")
+    print(f"  Worst LEV score:    {min_lev:.3f}")
+    print()
+    
     print("PERFORMANCE STATISTICS:")
     print(f"  Average OCR time:     {avg_ocr_time:.2f}ms")
     print(f"  Average Pattern time: {avg_pattern_time:.2f}ms")
@@ -177,6 +190,7 @@ def test_pattern_matching_full(use_cpu=False):
             print(f"     OCR: '{r['ocr_text']}'")
             print(f"     PAT: '{r['pattern_text']}'")
             print(f"     SIM: {r['similarity_pct']:.1f}% ({r['quality']})")
+            print(f"     LEV: {r['similarity']:.3f}")
             print()
         
         print("WORST RESULTS (Bottom 5):")
@@ -185,6 +199,7 @@ def test_pattern_matching_full(use_cpu=False):
             print(f"     OCR: '{r['ocr_text']}'")
             print(f"     PAT: '{r['pattern_text']}'")
             print(f"     SIM: {r['similarity_pct']:.1f}% ({r['quality']})")
+            print(f"     LEV: {r['similarity']:.3f}")
             print()
     
     # Character-level analysis

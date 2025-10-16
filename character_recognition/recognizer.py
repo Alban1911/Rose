@@ -113,7 +113,6 @@ class CharacterRecognizer:
                 log.debug(f"[CHAR:timing] Character segmentation: {segmentation_time:.2f}ms")
             
             if not characters:
-                log.debug("No characters found in image")
                 return ""
             
             # Recognize each character
@@ -131,9 +130,6 @@ class CharacterRecognizer:
                     
                     if char_label:
                         recognized_chars.append((x_pos, char_label, confidence))
-                        log.debug(f"Recognized character: '{char_label}' (confidence: {confidence:.3f})")
-                    else:
-                        log.debug(f"Character not recognized (confidence: {confidence:.3f})")
                         
                 except Exception as e:
                     log.debug(f"Error recognizing character at x={x_pos}: {e}")

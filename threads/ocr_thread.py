@@ -26,7 +26,7 @@ log = get_logger()
 
 
 class OCRSkinThread(threading.Thread):
-    """OCR thread: Optimized with hardcoded ROI proportions"""
+    """PCR thread: Optimized with hardcoded ROI proportions for Pattern Character Recognition"""
     
     def __init__(self, state: SharedState, db: NameDB, ocr: OCR, args, lcu: Optional[LCU] = None, skin_scraper=None):
         super().__init__(daemon=True)
@@ -38,17 +38,17 @@ class OCRSkinThread(threading.Thread):
         self.lcu = lcu
         
         # Character recognition mode flags
-        self.use_pattern_matching = getattr(args, 'use_pattern_matching', False)
+        self.use_pattern_matching = True  # Always use pattern matching
         self.templates_dir = getattr(args, 'templates_dir', 'character_recognition/templates/english')
         
-        # Initialize character recognition components if needed
+        # Initialize character recognition components
         self.character_recognizer = None
-        
-        if self.use_pattern_matching:
-            from character_recognition.backend import CharacterRecognitionBackend
-            self.character_recognizer = CharacterRecognitionBackend(measure_time=True)
-            log.info("Pattern matching mode enabled")
-        self.monitor_index = 0 if args.monitor == "all" else 1
+        from character_recognition.backend import CharacterRecognitionBackend
+        self.character_recognizer = CharacterRecognitionBackend(measure_time=True)
+        log.info("🔤 Pattern matching mode enabled")
+        stats = self.character_recognizer.get_template_stats()
+        log.info(f"🔤 Loaded {stats['character_count']} character templates")
+        self.monitor_index = 0  # Always use all monitors
         self.diff_threshold = args.diff_threshold
         self.burst_ms = args.burst_ms
         self.min_ocr_interval = args.min_ocr_interval
@@ -58,7 +58,7 @@ class OCRSkinThread(threading.Thread):
         self.last_small = None
         self.last_key = None
         self.motion_until = 0.0
-        self.last_ocr_t = 0.0
+        self.last_pcr_t = 0.0
         self.second_shot_at = 0.0
         self.next_emit = time.time()
         self.emit_dt = (1.0 / max(1.0, args.idle_hz)) if args.idle_hz > 0 else None
@@ -192,7 +192,7 @@ class OCRSkinThread(threading.Thread):
             # Example: "Demacia Vice Garen" starts with "Demacia Vice Garen" → match
             # Example: "Sanguine Garen" does NOT start with "Demacia Vice Garen" → different
             if detected_skin_name.startswith(panel_skin_name):
-                log.debug(f"[ocr] Skipping update - same base skin as panel (base: '{panel_skin_name}', detected: '{detected_skin_name}')")
+                log.debug(f"[pcr] Skipping update - same base skin as panel (base: '{panel_skin_name}', detected: '{detected_skin_name}')")
                 # Clear the flag so next detection works normally
                 self.state.chroma_panel_skin_name = None
                 return False
@@ -278,7 +278,7 @@ class OCRSkinThread(threading.Thread):
             client_size = get_league_window_client_size(self.args.window_hint)
             if not client_size:
                 # Always log when window is not found
-                log.debug("[ocr] League window not found")
+                log.debug("[pcr] League window not found")
                 return None
             
             width, height = client_size
@@ -300,12 +300,12 @@ class OCRSkinThread(threading.Thread):
                             window_title = info.get('title', 'Unknown')
                             break
                     
-                    log.debug(f"[ocr] League window found: '{window_title}' - {client_rect[0]},{client_rect[1]},{client_rect[2]},{client_rect[3]} (client size: {width}x{height})")
+                    log.debug(f"[pcr] League window found: '{window_title}' - {client_rect[0]},{client_rect[1]},{client_rect[2]},{client_rect[3]} (client size: {width}x{height})")
                     self.last_window_log_time = now
                 
                 return client_rect
             else:
-                log.debug("[ocr] League window not found")
+                log.debug("[pcr] League window not found")
                 return None
         else:
             # Monitor capture mode - use monitor dimensions
@@ -318,7 +318,7 @@ class OCRSkinThread(threading.Thread):
                 
                 # Log monitor capture only every 1 second
                 if (now - self.last_window_log_time) >= self.window_log_interval:
-                    log.debug(f"[ocr] Using monitor capture (mode: {self.args.capture})")
+                    log.debug(f"[pcr] Using monitor capture (mode: {self.args.capture})")
                     self.last_window_log_time = now
                 
                 return rect
@@ -354,7 +354,7 @@ class OCRSkinThread(threading.Thread):
         self.last_small = None
         self.last_key = None
         self.motion_until = 0.0
-        self.last_ocr_t = 0.0
+        self.last_pcr_t = 0.0
         self.second_shot_at = 0.0
         
         # Reset fade animation tracking
@@ -372,12 +372,12 @@ class OCRSkinThread(threading.Thread):
             delattr(self, '_ocr_stopped_focus_logged')
 
     def _should_run_ocr(self) -> bool:
-        """Check if OCR should be running based on conditions"""
+        """Check if PCR should be running based on conditions"""
         # Must be in ChampSelect
         if self.state.phase != "ChampSelect":
             # Log when window search stops due to phase change
             if not hasattr(self, '_window_search_stopped_logged'):
-                log.debug("[ocr] Window search stopped - not in ChampSelect")
+                log.debug(f"[pcr] Window search stopped - not in ChampSelect (current phase: {self.state.phase})")
                 self._window_search_stopped_logged = True
             return False
         
@@ -388,7 +388,7 @@ class OCRSkinThread(threading.Thread):
             if hasattr(self, '_debug_no_lock') and self._debug_no_lock:
                 pass  # Already logged
             else:
-                log.debug(f"[ocr] In ChampSelect but no champion locked yet (locked_champ_id={locked_champ})")
+                log.debug(f"[pcr] In ChampSelect but no champion locked yet (locked_champ_id={locked_champ})")
                 self._debug_no_lock = True
             return False
         else:
@@ -409,7 +409,7 @@ class OCRSkinThread(threading.Thread):
         if not is_league_window_active():
             # Log once when OCR stops due to window not being focused
             if not hasattr(self, '_ocr_stopped_focus_logged'):
-                log.debug("[ocr] OCR stopped - League window not focused (Alt+Tab detected)")
+                log.debug("[pcr] OCR stopped - League window not focused (Alt+Tab detected)")
                 self._ocr_stopped_focus_logged = True
             return False
         else:
@@ -421,7 +421,7 @@ class OCRSkinThread(threading.Thread):
         if getattr(self.state, 'injection_completed', False):
             # Log once when OCR stops due to completed injection
             if not hasattr(self, '_ocr_stopped_injection_logged'):
-                log.info("[ocr] OCR stopped - injection completed")
+                log.info("[pcr] OCR stopped - injection completed")
                 self._ocr_stopped_injection_logged = True
             return False
         
@@ -440,7 +440,7 @@ class OCRSkinThread(threading.Thread):
                 if remain_ms <= threshold_ms:
                     # Log once when OCR stops due to injection threshold
                     if not hasattr(self, '_ocr_stopped_logged'):
-                        log.info(f"[ocr] OCR stopped - injection threshold reached ({remain_ms}ms <= {threshold_ms}ms)")
+                        log.info(f"[pcr] OCR stopped - injection threshold reached ({remain_ms}ms <= {threshold_ms}ms)")
                         self._ocr_stopped_logged = True
                     return False
                 else:
@@ -451,9 +451,9 @@ class OCRSkinThread(threading.Thread):
         return True
 
     def run(self):
-        """Main OCR loop - Optimized version"""
+        """Main PCR loop - Optimized version"""
         import mss  # pyright: ignore[reportMissingImports]
-        log.info("OCR: Thread ready (optimized with hardcoded ROI)")
+        log.info("PCR: Thread ready (optimized with hardcoded ROI)")
         
         ocr_running = False
         
@@ -463,18 +463,18 @@ class OCRSkinThread(threading.Thread):
                 while not self.state.stop:
                     now = time.time()
                     
-                    # Check if we should be running OCR
+                    # Check if we should be running PCR
                     should_run = self._should_run_ocr()
                     
                     # Log state changes
                     if should_run and not ocr_running:
-                        log.info("[ocr] OCR running - champion locked in ChampSelect")
+                        log.info("[pcr] PCR running - champion locked in ChampSelect")
                         ocr_running = True
-                        # Reset window search stopped flag when OCR starts
+                        # Reset window search stopped flag when PCR starts
                         if hasattr(self, '_window_search_stopped_logged'):
                             delattr(self, '_window_search_stopped_logged')
                     elif not should_run and ocr_running:
-                        log.info("[ocr] OCR stopped - waiting for champion lock")
+                        log.info("[pcr] PCR stopped - waiting for champion lock")
                         ocr_running = False
                         self._reset_ocr_state()
                     
@@ -498,7 +498,7 @@ class OCRSkinThread(threading.Thread):
                         time.sleep(OCR_NO_WINDOW_SLEEP)
                         continue
                     
-                    # Process image for OCR
+                    # Process image for PCR
                     band_bin = preprocess_band_for_ocr(band)
                     small = cv2.resize(band_bin, (OCR_SMALL_IMAGE_WIDTH, OCR_SMALL_IMAGE_HEIGHT), interpolation=cv2.INTER_AREA)
                     changed = True
@@ -515,19 +515,19 @@ class OCRSkinThread(threading.Thread):
                     
                     self.last_small = small
                     
-                    # Run OCR if image changed or in burst mode
+                    # Run PCR if image changed or in burst mode
                     if changed:
                         self.motion_until = now + (self.burst_ms / 1000.0)
-                        if now - self.last_ocr_t >= self.min_ocr_interval:
+                        if now - self.last_pcr_t >= self.min_ocr_interval:
                             self._run_ocr_and_match(band_bin)
-                            self.last_ocr_t = now
+                            self.last_pcr_t = now
                             # Disable second shot to avoid duplicate processing
                             # self.second_shot_at = now + (self.second_shot_ms / 1000.0)
                     
-                    # Continue OCR during motion burst
-                    if now < self.motion_until and (now - self.last_ocr_t >= self.min_ocr_interval):
+                    # Continue PCR during motion burst
+                    if now < self.motion_until and (now - self.last_pcr_t >= self.min_ocr_interval):
                         self._run_ocr_and_match(band_bin)
-                        self.last_ocr_t = now
+                        self.last_pcr_t = now
                     
                     # Emit periodic updates if configured
                     if self.emit_dt is not None and now >= self.next_emit and self.last_key:
@@ -546,41 +546,34 @@ class OCRSkinThread(threading.Thread):
     
 
     def _run_ocr_and_match(self, band_bin: np.ndarray):
-        """Run OCR and match against database using raw Levenshtein distance"""
+        """Run PCR and match against database using raw Levenshtein distance"""
         from rapidfuzz.distance import Levenshtein
         from datetime import datetime
         
-        
-        # Skip if OCR is not yet initialized (waiting for WebSocket connection)
-        if self.ocr is None:
+        # Skip if character recognizer is not yet initialized
+        if self.character_recognizer is None:
             return
         
-        # Start timing for total OCR+matching pipeline
+        # Start timing for total PCR+matching pipeline
         pipeline_start = time.perf_counter()
         
-        # ALWAYS log OCR timing (even for cached/duplicate skins)
-        ocr_start = time.perf_counter()
+        # ALWAYS log PCR timing (even for cached/duplicate skins)
+        pcr_start = time.perf_counter()
         
-        # Use appropriate recognition method
-        if self.use_pattern_matching and self.character_recognizer:
-            txt = self.character_recognizer.recognize(band_bin)
-        else:
-            txt = self.ocr.recognize(band_bin)
+        # Use pattern matching character recognition
+        txt = self.character_recognizer.recognize(band_bin)
         
-        ocr_recognition_time = (time.perf_counter() - ocr_start) * 1000
+        pcr_recognition_time = (time.perf_counter() - pcr_start) * 1000
         
-        # Log EVERY OCR call to see cache performance
-        log.debug(f"[OCR:PERF] Recognition time: {ocr_recognition_time:.2f}ms | Text: '{txt}'")
-        
-        # DEBUG: Save OCR image to debug folder (if enabled)
+        # DEBUG: Save PCR image to debug folder (if enabled)
         if self.args.debug_ocr:
             try:
                 # Use project directory for debug folder (where main.py is)
                 project_root = Path(__file__).resolve().parent.parent
-                debug_folder = project_root / "ocr_debug"
+                debug_folder = project_root / "pcr_debug"
                 if not debug_folder.exists():
                     debug_folder.mkdir(parents=True, exist_ok=True)
-                    log.info(f"[ocr:debug] Created debug folder: {debug_folder}")
+                    log.info(f"[pcr:debug] Created debug folder: {debug_folder}")
                 
                 # Create filename with timestamp and counter (preserve existing files)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -588,44 +581,44 @@ class OCRSkinThread(threading.Thread):
                 self._debug_counter = counter
                 
                 # Check if file already exists and increment counter if needed
-                base_filename = f"ocr_{timestamp}_{counter:04d}.png"
+                base_filename = f"pcr_{timestamp}_{counter:04d}.png"
                 filename = base_filename
                 file_counter = 1
                 while (debug_folder / filename).exists():
-                    filename = f"ocr_{timestamp}_{counter:04d}_{file_counter:02d}.png"
+                    filename = f"pcr_{timestamp}_{counter:04d}_{file_counter:02d}.png"
                     file_counter += 1
                 filepath = str(debug_folder / filename)
                 
-                # Save the image that was sent to OCR
+                # Save the image that was sent to PCR
                 success = cv2.imwrite(filepath, band_bin)
                 if success:
                     if txt:
-                        log.info(f"[ocr:debug] Saved #{counter}: '{txt}'")
+                        log.info(f"[pcr:debug] Saved #{counter}: '{txt}'")
                     else:
-                        log.info(f"[ocr:debug] Saved #{counter}: (no text detected)")
+                        log.info(f"[pcr:debug] Saved #{counter}: (no text detected)")
                 else:
-                    log.warning(f"[ocr:debug] Failed to write image #{counter}")
+                    log.warning(f"[pcr:debug] Failed to write image #{counter}")
             except Exception as e:
-                log.warning(f"[ocr:debug] Failed to save debug image: {e}")
+                log.warning(f"[pcr:debug] Failed to save debug image: {e}")
         
-        # Save raw OCR text for writing
-        prev_txt = getattr(self.state, 'ocr_last_text', None)
-        self.state.ocr_last_text = txt
+        # Save raw PCR text for writing
+        prev_txt = getattr(self.state, 'pcr_last_text', None)
+        self.state.pcr_last_text = txt
         
         if txt and txt != prev_txt:
-            log.debug(f"[ocr:text] {txt}")
+            log.debug(f"[pcr:text] {txt}")
         
         if not txt or not any(c.isalpha() for c in txt):
             return
         
+        # Log pattern matching result
+        log.info(f"🔤 Pattern Recognition: '{txt}'")
+        
         champ_id = self.state.hovered_champ_id or self.state.locked_champ_id
         
         # SECURE PIPELINE: Always match against English database for validation
-        # Check if OCR is configured for English only (not mixed with other languages)
-        is_english_only = (
-            self.ocr.lang == "eng" or 
-            (hasattr(self.ocr, 'lang_mapping') and self.ocr.lang_mapping.get(self.ocr.lang) == ["en"])
-        )
+        # Pattern matching is always English-only (templates are English)
+        is_english_only = True
         
         if is_english_only and champ_id:
             # ENGLISH OPTIMIZATION: OCR → English DB → ZIP (secure matching)
@@ -665,19 +658,19 @@ class OCRSkinThread(threading.Thread):
                         log.info("=" * LOG_SEPARATOR_WIDTH)
                         if is_base:
                             log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
-                            log.info(f"   📋 Champion: {champ_slug} | SkinID: 0 (Base) | Match: {similarity:.1%}")
-                            log.info(f"   🔍 Source: English DB (direct match)")
+                            log.info(f"   📋 Champion: {champ_slug} | SkinID: 0 (Base) | Levenshtein: {similarity:.1%}")
+                            log.info(f"   🔍 Source: Pattern Matching → English DB")
                             self.state.last_hovered_skin_id = 0
                         else:
                             log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
-                            log.info(f"   📋 Champion: {champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
-                            log.info(f"   🔍 Source: English DB (direct match)")
+                            log.info(f"   📋 Champion: {champ_slug} | SkinID: {skin_id} | Levenshtein: {similarity:.1%}")
+                            log.info(f"   🔍 Source: Pattern Matching → English DB")
                             self.state.last_hovered_skin_id = skin_id
                         
                         # Log timing information
                         total_pipeline_time = (time.perf_counter() - pipeline_start) * 1000
-                        matching_time = total_pipeline_time - ocr_recognition_time
-                        log.info(f"   ⏱️  OCR: {ocr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
+                        matching_time = total_pipeline_time - pcr_recognition_time
+                        log.info(f"   ⏱️  PCR: {pcr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
                         log.info("=" * LOG_SEPARATOR_WIDTH)
                         
                         self.last_key = skin_key
@@ -742,8 +735,8 @@ class OCRSkinThread(threading.Thread):
                         
                         # Log timing information
                         total_pipeline_time = (time.perf_counter() - pipeline_start) * 1000
-                        matching_time = total_pipeline_time - ocr_recognition_time
-                        log.info(f"   ⏱️  OCR: {ocr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
+                        matching_time = total_pipeline_time - pcr_recognition_time
+                        log.info(f"   ⏱️  PCR: {pcr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
                         log.info("=" * LOG_SEPARATOR_WIDTH)
                         
                         self.state.last_hovered_skin_key = english_skin_name
@@ -765,7 +758,7 @@ class OCRSkinThread(threading.Thread):
                         # Trigger fade animation AFTER button is shown/hidden
                         self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
                 else:
-                    log.debug(f"[ocr] Matched skin {skin_name_client_lang} (ID: {skin_id}) but not found in English DB")
+                    log.debug(f"[pcr] Matched skin {skin_name_client_lang} (ID: {skin_id}) but not found in English DB")
             
             return
         
@@ -859,8 +852,8 @@ class OCRSkinThread(threading.Thread):
             
             # Log timing information
             total_pipeline_time = (time.perf_counter() - pipeline_start) * 1000
-            matching_time = total_pipeline_time - ocr_recognition_time
-            log.info(f"   ⏱️  OCR: {ocr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
+            matching_time = total_pipeline_time - pcr_recognition_time
+            log.info(f"   ⏱️  PCR: {pcr_recognition_time:.2f}ms | Matching: {matching_time:.2f}ms | Total: {total_pipeline_time:.2f}ms")
             log.info("=" * LOG_SEPARATOR_WIDTH)
             
             self.last_key = best_entry.key

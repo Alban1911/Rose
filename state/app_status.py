@@ -20,12 +20,12 @@ class AppStatus:
     Checks:
     - Chroma selector initialization
     - Skins downloaded from repository
-    - OCR initialization
+    - PCR (Pattern Character Recognition) initialization
     
     Status:
-    - locked.png: Chroma not initialized OR Skins not downloaded OR OCR not initialized
-    - golden locked.png: Chroma initialized AND Skins downloaded BUT OCR not initialized
-    - golden unlocked.png: All components ready (Chroma AND Skins AND OCR initialized)
+    - locked.png: Chroma not initialized OR Skins not downloaded OR PCR not initialized
+    - golden locked.png: Chroma initialized AND Skins downloaded BUT PCR not initialized
+    - golden unlocked.png: All components ready (Chroma AND Skins AND PCR initialized)
     """
     
     def __init__(self, tray_manager=None):
@@ -94,25 +94,25 @@ class AppStatus:
     
     def check_ocr_initialized(self, ocr=None) -> bool:
         """
-        Check if OCR is initialized
+        Check if PCR (Pattern Character Recognition) is initialized
         
         Args:
-            ocr: OCR instance to check (if None, returns current cached state)
+            ocr: PCR instance to check (if None, returns current cached state)
         
         Returns:
-            True if OCR is initialized, False otherwise
+            True if PCR is initialized, False otherwise
         """
         if ocr is None:
             return self._ocr_initialized
         
         try:
-            # Check if OCR has the required attributes
-            return (hasattr(ocr, 'reader') and 
-                   ocr.reader is not None and 
-                   hasattr(ocr, 'backend') and 
-                   ocr.backend is not None)
+            # Check if PCR has the required attributes
+            return (hasattr(ocr, 'recognize') and 
+                   callable(getattr(ocr, 'recognize', None)) and
+                   hasattr(ocr, 'template_manager') and 
+                   ocr.template_manager is not None)
         except Exception as e:
-            log.debug(f"Failed to check OCR initialization: {e}")
+            log.debug(f"Failed to check PCR initialization: {e}")
             return False
     
     def update_status(self, ocr=None):
@@ -134,7 +134,7 @@ class AppStatus:
         # Log status for debugging
         log.debug(f"[APP STATUS] Chroma: {self._chroma_initialized}, "
                  f"Skins: {self._skins_downloaded}, "
-                 f"OCR: {self._ocr_initialized}")
+                 f"PCR: {self._ocr_initialized}")
         
         # Update tray icon based on status level
         if self.tray_manager:
@@ -146,17 +146,17 @@ class AppStatus:
                 log.info("🔓✨ APP STATUS: ALL COMPONENTS READY")
                 log.info("   📋 Chroma Selector: Initialized")
                 log.info("   📋 Skins: Downloaded")
-                log.info("   📋 OCR: Initialized")
+                log.info("   📋 PCR: Initialized")
                 log.info("   🎯 Status: Golden Unlocked")
                 log.info(separator)
             elif chroma_and_skins_ready:
                 # Chroma and skins ready, but OCR not ready - golden locked
                 self.tray_manager.set_status("golden_locked")
                 log.info(separator)
-                log.info("🔓 APP STATUS: READY (OCR PENDING)")
+                log.info("🔓 APP STATUS: READY (PCR PENDING)")
                 log.info("   📋 Chroma Selector: Initialized")
                 log.info("   📋 Skins: Downloaded")
-                log.info("   ⏳ OCR: Pending")
+                log.info("   ⏳ PCR: Pending")
                 log.info("   🎯 Status: Golden Locked")
                 log.info(separator)
             else:
@@ -166,7 +166,7 @@ class AppStatus:
                 log.info("🔒 APP STATUS: INITIALIZING")
                 log.info(f"   {'✅' if self._chroma_initialized else '⏳'} Chroma Selector: {'Initialized' if self._chroma_initialized else 'Pending'}")
                 log.info(f"   {'✅' if self._skins_downloaded else '⏳'} Skins: {'Downloaded' if self._skins_downloaded else 'Pending'}")
-                log.info(f"   {'✅' if self._ocr_initialized else '⏳'} OCR: {'Initialized' if self._ocr_initialized else 'Pending'}")
+                log.info(f"   {'✅' if self._ocr_initialized else '⏳'} PCR: {'Initialized' if self._ocr_initialized else 'Pending'}")
                 log.info("   🎯 Status: Locked")
                 log.info(separator)
     
@@ -183,12 +183,12 @@ class AppStatus:
         self.update_status()
     
     def mark_ocr_initialized(self, ocr=None):
-        """Mark OCR as initialized and update status"""
+        """Mark PCR as initialized and update status"""
         if ocr is not None:
             self._ocr_initialized = self.check_ocr_initialized(ocr)
         else:
             self._ocr_initialized = True
-        log.info("[APP STATUS] OCR initialized")
+        log.info("[APP STATUS] PCR initialized")
         self.update_status()
     
     def get_status_summary(self) -> dict:

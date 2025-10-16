@@ -643,23 +643,24 @@ def setup_arguments() -> argparse.Namespace:
     )
     
     # OCR arguments
-    ap.add_argument("--tessdata", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
     ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM, 
                    help="[DEPRECATED] Not used with EasyOCR (kept for compatibility)")
     ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
     ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, 
                    help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
-    ap.add_argument("--tesseract-exe", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
     ap.add_argument("--debug-ocr", action="store_true", default=DEFAULT_DEBUG_OCR, 
-                   help="Save OCR images to debug folder")
+                   help="Save PCR images to debug folder")
     ap.add_argument("--no-debug-ocr", action="store_false", dest="debug_ocr", 
-                   help="Disable OCR debug image saving")
+                   help="Disable PCR debug image saving")
     ap.add_argument("--clear-debug-ocr", action="store_true", default=False,
-                   help="Clear existing OCR debug images before starting (use with --debug-ocr)")
+                   help="Clear existing PCR debug images before starting (use with --debug-ocr)")
+    
+    # Pattern Character Recognition arguments
+    ap.add_argument("--templates-dir", type=str, default="character_recognition/templates/english",
+                    help="Directory containing character templates for pattern matching")
     
     # Capture arguments
     ap.add_argument("--capture", choices=["window", "screen"], default=DEFAULT_CAPTURE_MODE)
-    ap.add_argument("--monitor", choices=["all", "primary"], default=DEFAULT_MONITOR)
     ap.add_argument("--window-hint", type=str, default=DEFAULT_WINDOW_HINT)
     
     # Database arguments
@@ -725,12 +726,6 @@ def setup_arguments() -> argparse.Namespace:
     ap.add_argument("--dev", action="store_true", default=False,
                    help="Development mode - disable log sanitization (shows full paths, ports, PIDs)")
     
-    # Character recognition arguments
-    ap.add_argument("--use-pattern-matching", action="store_true", default=False,
-                   help="Use pattern matching character recognition instead of OCR")
-    ap.add_argument("--templates-dir", type=str, default="character_recognition/templates/english",
-                   help="Directory containing character templates for pattern matching")
-
     return ap.parse_args()
 
 
@@ -1142,69 +1137,42 @@ def main():
         
         tray_manager.quit_callback = updated_tray_quit_callback
 
-    # Function to initialize OCR when WebSocket connects
-    def initialize_ocr_on_connect(lcu_lang: str):
-        """Initialize OCR when WebSocket connects with proper language detection"""
-        nonlocal ocr
-        
-        if ocr is not None:
-            log.info(f"OCR already initialized with language {ocr.lang}, skipping")
-            return
-        
-        try:
-            # Determine OCR language
-            if args.lang == "auto":
-                ocr_lang = get_ocr_language(lcu_lang, args.lang)
-                log.info(f"Initializing OCR with language: {lcu_lang} → {ocr_lang}")
-            else:
-                ocr_lang = args.lang
-                log.info(f"Initializing OCR with manual language: {ocr_lang}")
+        # Function to initialize PCR when WebSocket connects
+        def initialize_ocr_on_connect(lcu_lang: str):
+            """Initialize PCR when WebSocket connects with proper language detection"""
+            nonlocal ocr
             
-            # Validate OCR language
-            if not validate_ocr_language(ocr_lang):
-                log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
-                ocr_lang = "eng"
+            if ocr is not None:
+                log.info(f"PCR already initialized with language {ocr.lang}, skipping")
+                return
             
-            # Initialize OCR with determined language (try GPU, fallback to CPU)
-            ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe, use_gpu=True, measure_time=True)
-            separator = "=" * 80
-            log.info(separator)
-            log.info(f"🤖 OCR INITIALIZED")
-            log.info(f"   📋 Backend: {ocr.backend}")
-            log.info(f"   📋 Language: {ocr_lang}")
-            log.info(f"   📋 Mode: {'GPU' if ocr.use_gpu else 'CPU'}")
-            log.info(f"   📋 Timing: {'Enabled' if ocr.measure_time else 'Disabled'}")
-            log.info(separator)
-            
-            # Update app status
-            if app_status:
-                app_status.mark_ocr_initialized(ocr)
-                
-            # Update OCR thread with the new OCR instance
-            if t_ocr:
-                t_ocr.ocr = ocr
-                log.info("OCR thread updated with new OCR instance")
-                
-        except Exception as e:
-            log.error(f"Failed to initialize OCR: {e}")
-            # Try fallback to English
+            # Initialize pattern matching character recognition
             try:
-                log.info("Attempting fallback to English OCR...")
-                ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
-                log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
+                from character_recognition.backend import CharacterRecognitionBackend
+                ocr = CharacterRecognitionBackend(measure_time=True)
+                separator = "=" * 80
+                log.info(separator)
+                log.info(f"🔤 CHARACTER RECOGNITION INITIALIZED")
+                log.info(f"   📋 Backend: Pattern Matching")
+                log.info(f"   📋 Templates: {args.templates_dir}")
+                log.info(f"   📋 Timing: {'Enabled' if ocr.measure_time else 'Disabled'}")
+                log.info(separator)
                 
+                # Update app status
                 if app_status:
                     app_status.mark_ocr_initialized(ocr)
                     
-                if t_ocr:
-                    t_ocr.ocr = ocr
-                    log.info("OCR thread updated with fallback OCR instance")
+                    # Update PCR thread with the new character recognizer
+                    if t_ocr:
+                        t_ocr.character_recognizer = ocr
+                        t_ocr.use_pattern_matching = True
+                        t_ocr.templates_dir = args.templates_dir
+                        log.info("PCR thread updated with character recognizer")
                     
-            except Exception as fallback_e:
-                log.error(f"OCR initialization failed completely: {fallback_e}")
-                log.error("EasyOCR is not properly installed or configured.")
-                log.error("Install with: pip install easyocr torch torchvision")
-                # Don't exit, let the app continue without OCR
+            except Exception as e:
+                log.error(f"Failed to initialize character recognition: {e}")
+                log.error("Character recognition is required - cannot continue without templates")
+                # Don't exit, let the app continue and show the error
     
     # Function to handle LCU disconnection
     def on_lcu_disconnected():

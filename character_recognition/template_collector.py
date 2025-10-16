@@ -190,15 +190,19 @@ class TemplateCollector:
             label = clean_text[0]
             
             # Keep case - uppercase and lowercase have different visual patterns
-            # Clean the label to make it filesystem-safe
-            # Remove or replace invalid characters for filenames
-            import re
+            # Clean the label to make it filesystem-safe using special character mapping
+            from config import SPECIAL_CHAR_MAPPING
             original_label = label
-            label = re.sub(r'[<>:"/\\|?*]', '_', label)
-            label = label.strip()
             
-            # If label is empty or just special characters, use a fallback
-            if not label or label == '_':
+            # Use special character mapping for filename-safe names
+            if label in SPECIAL_CHAR_MAPPING:
+                label = SPECIAL_CHAR_MAPPING[label]
+            else:
+                # For other characters, just strip whitespace
+                label = label.strip()
+            
+            # If label is empty, use a fallback
+            if not label:
                 label = 'UNKNOWN'
             
             # Debug logging for character labeling
