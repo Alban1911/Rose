@@ -24,23 +24,28 @@ def find_largest_connected_component(binary_img: np.ndarray) -> Tuple[np.ndarray
     Returns:
         Tuple of (cleaned_image, bounding_box) where bounding_box is (x, y, w, h)
     """
-    # Find connected components
+    # Find connected components on the original image
+    # We need to work with white pixels (255) as foreground
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_img, connectivity=8)
     
     if num_labels <= 1:  # Only background
         return binary_img, (0, 0, binary_img.shape[1], binary_img.shape[0])
     
-    # Find the largest component (excluding background label 0)
+    # Find the largest WHITE component
+    # We need to find components that are white (255), not black (0)
     largest_area = 0
     largest_label = 1
     
     for i in range(1, num_labels):
-        area = stats[i, cv2.CC_STAT_AREA]
-        if area > largest_area:
-            largest_area = area
+        # Check if this component is actually white (255) pixels
+        component_mask = (labels == i)
+        white_pixels = np.sum((binary_img == 255) & component_mask)
+        
+        if white_pixels > largest_area:
+            largest_area = white_pixels
             largest_label = i
     
-    # Create a clean image with only the largest component
+    # Create a clean image with only the largest white component
     clean_img = np.zeros_like(binary_img)
     clean_img[labels == largest_label] = 255
     
