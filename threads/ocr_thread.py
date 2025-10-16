@@ -36,6 +36,18 @@ class OCRSkinThread(threading.Thread):
         self.ocr = ocr
         self.args = args
         self.lcu = lcu
+        
+        # Character recognition mode flags
+        self.use_pattern_matching = getattr(args, 'use_pattern_matching', False)
+        self.templates_dir = getattr(args, 'templates_dir', 'character_recognition/templates/english')
+        
+        # Initialize character recognition components if needed
+        self.character_recognizer = None
+        
+        if self.use_pattern_matching:
+            from character_recognition.backend import CharacterRecognitionBackend
+            self.character_recognizer = CharacterRecognitionBackend(measure_time=True)
+            log.info("Pattern matching mode enabled")
         self.monitor_index = 0 if args.monitor == "all" else 1
         self.diff_threshold = args.diff_threshold
         self.burst_ms = args.burst_ms
@@ -531,11 +543,13 @@ class OCRSkinThread(threading.Thread):
                     time.sleep(sleep_time)
         finally:
             pass
+    
 
     def _run_ocr_and_match(self, band_bin: np.ndarray):
         """Run OCR and match against database using raw Levenshtein distance"""
         from rapidfuzz.distance import Levenshtein
         from datetime import datetime
+        
         
         # Skip if OCR is not yet initialized (waiting for WebSocket connection)
         if self.ocr is None:
@@ -546,7 +560,13 @@ class OCRSkinThread(threading.Thread):
         
         # ALWAYS log OCR timing (even for cached/duplicate skins)
         ocr_start = time.perf_counter()
-        txt = self.ocr.recognize(band_bin)
+        
+        # Use appropriate recognition method
+        if self.use_pattern_matching and self.character_recognizer:
+            txt = self.character_recognizer.recognize(band_bin)
+        else:
+            txt = self.ocr.recognize(band_bin)
+        
         ocr_recognition_time = (time.perf_counter() - ocr_start) * 1000
         
         # Log EVERY OCR call to see cache performance
@@ -562,11 +582,18 @@ class OCRSkinThread(threading.Thread):
                     debug_folder.mkdir(parents=True, exist_ok=True)
                     log.info(f"[ocr:debug] Created debug folder: {debug_folder}")
                 
-                # Create filename with timestamp and counter
+                # Create filename with timestamp and counter (preserve existing files)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 counter = getattr(self, '_debug_counter', 0) + 1
                 self._debug_counter = counter
-                filename = f"ocr_{timestamp}_{counter:04d}.png"
+                
+                # Check if file already exists and increment counter if needed
+                base_filename = f"ocr_{timestamp}_{counter:04d}.png"
+                filename = base_filename
+                file_counter = 1
+                while (debug_folder / filename).exists():
+                    filename = f"ocr_{timestamp}_{counter:04d}_{file_counter:02d}.png"
+                    file_counter += 1
                 filepath = str(debug_folder / filename)
                 
                 # Save the image that was sent to OCR

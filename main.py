@@ -654,6 +654,8 @@ def setup_arguments() -> argparse.Namespace:
                    help="Save OCR images to debug folder")
     ap.add_argument("--no-debug-ocr", action="store_false", dest="debug_ocr", 
                    help="Disable OCR debug image saving")
+    ap.add_argument("--clear-debug-ocr", action="store_true", default=False,
+                   help="Clear existing OCR debug images before starting (use with --debug-ocr)")
     
     # Capture arguments
     ap.add_argument("--capture", choices=["window", "screen"], default=DEFAULT_CAPTURE_MODE)
@@ -722,6 +724,12 @@ def setup_arguments() -> argparse.Namespace:
     # Development arguments
     ap.add_argument("--dev", action="store_true", default=False,
                    help="Development mode - disable log sanitization (shows full paths, ports, PIDs)")
+    
+    # Character recognition arguments
+    ap.add_argument("--use-pattern-matching", action="store_true", default=False,
+                   help="Use pattern matching character recognition instead of OCR")
+    ap.add_argument("--templates-dir", type=str, default="character_recognition/templates/english",
+                   help="Directory containing character templates for pattern matching")
 
     return ap.parse_args()
 
@@ -765,15 +773,33 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
             "OCR Debug": "Enabled" if args.debug_ocr else "Disabled"
         })
     
-    # Clean up OCR debug folder on startup (only if debug mode is enabled)
+    # Handle OCR debug folder
     if args.debug_ocr:
         ocr_debug_dir = Path(__file__).resolve().parent / "ocr_debug"
-        if ocr_debug_dir.exists():
+        
+        if args.clear_debug_ocr:
+            # Clear existing debug files if requested
+            if ocr_debug_dir.exists():
+                try:
+                    shutil.rmtree(ocr_debug_dir)
+                    log_success(log, f"Cleared OCR debug folder: {ocr_debug_dir}", "🧹")
+                except (OSError, PermissionError) as e:
+                    log.warning(f"Failed to clear OCR debug folder: {e}")
+        
+        # Create debug folder if it doesn't exist
+        if not ocr_debug_dir.exists():
             try:
-                shutil.rmtree(ocr_debug_dir)
-                log_success(log, f"Cleared OCR debug folder: {ocr_debug_dir}", "🧹")
+                ocr_debug_dir.mkdir(parents=True, exist_ok=True)
+                log_success(log, f"Created OCR debug folder: {ocr_debug_dir}", "📁")
             except (OSError, PermissionError) as e:
-                log.warning(f"Failed to clear OCR debug folder: {e}")
+                log.warning(f"Failed to create OCR debug folder: {e}")
+        else:
+            # Count existing files
+            existing_files = list(ocr_debug_dir.glob("*.png"))
+            if existing_files:
+                log.info(f"OCR debug folder exists with {len(existing_files)} existing images - preserving them for template collection")
+            else:
+                log.info("OCR debug folder exists but is empty - ready for new captures")
 
 
 def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:

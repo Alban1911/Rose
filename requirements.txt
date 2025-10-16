@@ -30,3 +30,6 @@ torchvision>=0.15.0
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 pyinstaller>=6.0.0
+
+# Character recognition visualization
+matplotlib>=3.5.0

@@ -76,12 +76,7 @@ def prep_for_ocr_palette(input_img: np.ndarray, tolerance: int = 33) -> np.ndarr
         new_width = int(width * scale_factor)
         binary_mask = cv2.resize(binary_mask, (new_width, 48), interpolation=cv2.INTER_NEAREST)
     
-    # STEP 3 (OPTIONAL): Morphological close to fill small gaps in characters
-    # Remove this if palette is already clean enough
-    kernel_clean = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-    final = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, kernel_clean)
-    
-    return final
+    return binary_mask
 
 
 def prep_for_ocr_legacy(bgr: np.ndarray) -> np.ndarray:
@@ -122,4 +117,11 @@ def preprocess_band_for_ocr(band_bgr: np.ndarray, tolerance: int = 33) -> np.nda
         band_bgr = cv2.resize(band_bgr, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
     
     # Apply palette-based preprocessing pipeline
-    return prep_for_ocr_palette(band_bgr, tolerance)
+    binary_img = prep_for_ocr_palette(band_bgr, tolerance)
+    
+    # Resize to fixed dimensions for consistent character recognition
+    # This ensures all images have the same resolution regardless of source
+    target_width, target_height = 606, 56
+    resized_img = cv2.resize(binary_img, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
+    
+    return resized_img

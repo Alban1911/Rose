@@ -19,6 +19,18 @@ PRODUCTION_MODE = True
 
 
 # =============================================================================
+# TEXT RECOGNITION CONSTANTS
+# =============================================================================
+
+# Character Recognition Constants
+CHAR_RECOGNITION_MIN_COMPONENT_WIDTH = 3
+CHAR_RECOGNITION_MIN_COMPONENT_HEIGHT = 8
+CHAR_RECOGNITION_MAX_COMPONENT_WIDTH = 100
+CHAR_RECOGNITION_MAX_COMPONENT_HEIGHT = 60
+CHAR_RECOGNITION_TEMPLATE_MATCH_THRESHOLD = 0.6
+CHAR_RECOGNITION_DEBUG_MODE = False
+
+# =============================================================================
 # OCR TIMING CONSTANTS
 # =============================================================================
 
