@@ -86,6 +86,7 @@ class UISkinThread(threading.Thread):
             
         return None
     
+    
     def _get_text_controls_in_container(self, container):
         """Get all TextControls within a container."""
         text_controls = []
@@ -99,7 +100,7 @@ class UISkinThread(threading.Thread):
     
     def _collect_text_controls(self, control, text_controls, depth):
         """Recursively collect TextControls."""
-        if depth > 10:  # Limit depth
+        if depth > 25:  # Limit depth
             return
             
         try:
@@ -120,97 +121,337 @@ class UISkinThread(threading.Thread):
             pass
     
     def _find_skins_optimized(self):
-        """ULTRA-FAST skin detection using specific AutomationId pattern."""
+        """ULTRA-FAST skin detection using reliable path navigation."""
         import time
         start_time = time.time()
         skin_elements = []
         
         try:
-            log.debug("Targeting ember10101 AutomationId pattern...")
+            log.debug("Using reliable path navigation for skin detection...")
             
-            # Method 1: Direct search for the specific ember10101 container
-            try:
-                # Find the GroupControl with AutomationId 'ember10101' directly using recursive search
-                ember_container = self._find_control_by_automation_id(self.league_window, "ember10101")
-                
-                if ember_container:
-                    log.debug("Found ember10101 container!")
-                    
-                    # Get all TextControls within this container
-                    skin_controls = self._get_text_controls_in_container(ember_container)
-                    
-                    log.debug(f"Found {len(skin_controls)} TextControls in ember10101")
-                    
-                    # These are all skins!
-                    for control in skin_controls:
-                        skin_elements.append(control)
-                        log.debug(f"Skin: '{control.Name}'")
-                
-                else:
-                    log.debug("ember10101 container not found, trying broader search...")
-                    # Fallback to broader ember search
-                    return self._find_skins_by_ember_pattern()
-                
-            except Exception as e:
-                log.debug(f"Direct ember10101 search failed: {e}")
-                # Fallback to broader search
-                return self._find_skins_by_ember_pattern()
+            # Use the reliable path navigation method
+            skin_elements = self._find_skins_by_path()
             
             elapsed_time = (time.time() - start_time) * 1000  # Convert to milliseconds
             log.debug(f"Found {len(skin_elements)} skins in {elapsed_time:.2f}ms!")
             
         except Exception as e:
-            log.debug(f"Ultra-fast search failed: {e}")
+            log.debug(f"Path navigation search failed: {e}")
             
         return skin_elements
     
-    def _find_skins_by_ember_pattern(self):
-        """Fallback: Search for any ember AutomationId pattern."""
+    
+    def _find_skins_by_path(self):
+        """Primary method: Navigate through reliable UI path."""
         skin_elements = []
         
         try:
-            log.debug("Searching for ember AutomationId patterns...")
+            log.debug("Using UI path navigation...")
             
-            # Find all TextControls that are children of GroupControls with ember AutomationIds
-            all_text_controls = self.league_window.FindAllChildren(
-                lambda c: (c.ControlTypeName == "TextControl" and 
-                         c.FrameworkId == "Chrome" and 
-                         c.Name and 
-                         len(c.Name.strip()) > 3 and
-                         c.IsEnabled and 
-                         not c.IsOffscreen)
-            )
+            # Follow the exact known path: PaneControl -> PaneControl -> DocumentControl -> GroupControls -> TextControls
+            children = self.league_window.GetChildren()
+            if not children:
+                return skin_elements
+            pane1 = children[0]
             
-            log.debug(f"Found {len(all_text_controls)} TextControls")
+            pane1_children = pane1.GetChildren()
+            if not pane1_children:
+                return skin_elements
+            pane2 = pane1_children[0]
             
-            # Filter for skins by checking parent AutomationId
-            for control in all_text_controls:
-                try:
-                    parent = control.GetParentControl()
-                    if parent and parent.ControlTypeName == "GroupControl":
-                        grandparent = parent.GetParentControl()
-                        if (grandparent and 
-                            grandparent.ControlTypeName == "GroupControl" and 
-                            grandparent.AutomationId and 
-                            "ember" in grandparent.AutomationId):
-                            
-                            # This is likely a skin!
-                            skin_elements.append(control)
-                            log.debug(f"Skin: '{control.Name}' (Parent: {grandparent.AutomationId})")
-                except:
-                    pass
+            pane2_children = pane2.GetChildren()
+            doc_control = None
+            for child in pane2_children:
+                if child.ControlTypeName == "DocumentControl" and child.FrameworkId == "Chrome":
+                    doc_control = child
+                    break
+            
+            if not doc_control:
+                return skin_elements
+            
+            self._navigate_to_skins(doc_control, skin_elements, 0)
             
         except Exception as e:
-            log.debug(f"Ember pattern search failed: {e}")
+            log.debug(f"Path navigation failed: {e}")
             
         return skin_elements
     
+    def _navigate_to_skins(self, control, skin_elements, depth):
+        """Navigate through GroupControls to find skin TextControls - no search, just navigation."""
+        if depth > 12:  # Limit depth based on known path
+            return
+            
+        try:
+            children = control.GetChildren()
+            
+            for child in children:
+                if child.ControlTypeName == "TextControl" and child.FrameworkId == "Chrome":
+                    # Quick check if it's a skin
+                    name = child.Name
+                    if (name and len(name.strip()) > 3 and 
+                        child.IsEnabled and not child.IsOffscreen and
+                        not name.lower().strip() in ["lol", "tft", "position", "assignée", "préparez", "équipement",
+                                                   "bannissements", "équipe", "trier", "nom", "aléatoire", "quitter",
+                                                   "voir", "compétences", "connexion", "cliquer", "entrée", "n'oubliez",
+                                                   "jamais", "mot", "passe", "aider", "sélection", "champions", "renvoyé",
+                                                   "salon", "groupe", "difficile", "mode", "aveugle", "5c5", "6", "1"]):
+                        skin_elements.append(child)
+                        log.debug(f"Skin: '{child.Name}'")
+                
+                elif child.ControlTypeName == "GroupControl" and child.FrameworkId == "Chrome":
+                    # Continue navigating
+                    self._navigate_to_skins(child, skin_elements, depth + 1)
+                    
+                elif child.ControlTypeName == "ListControl" and child.FrameworkId == "Chrome":
+                    # Navigate ListControls
+                    self._navigate_list_controls(child, skin_elements, depth + 1)
+                    
+        except Exception:
+            pass  # Continue navigating other branches
+    
+    def _navigate_list_controls(self, list_control, skin_elements, depth):
+        """Navigate ListControls for skin TextControls."""
+        try:
+            children = list_control.GetChildren()
+            for child in children:
+                if child.ControlTypeName == "ListItemControl" and child.FrameworkId == "Chrome":
+                    # Navigate within each ListItemControl
+                    self._navigate_to_skins(child, skin_elements, depth + 1)
+        except Exception:
+            pass
+    
+    def _log_detailed_skin_info(self, control, skin_name):
+        """Log detailed information about a skin control for debugging."""
+        try:
+            log.info("=" * 120)
+            log.info(f"🔍 ULTRA-DETAILED SKIN INFO FOR: '{skin_name}'")
+            log.info("=" * 120)
+            
+            # Basic control information
+            log.info(f"📋 CONTROL DETAILS:")
+            log.info(f"   Name: '{control.Name}'")
+            log.info(f"   Control Type: {control.ControlTypeName}")
+            log.info(f"   Framework ID: '{control.FrameworkId}'")
+            log.info(f"   Class Name: '{control.ClassName}'")
+            log.info(f"   Automation ID: '{control.AutomationId}'")
+            log.info(f"   Localized Control Type: '{control.LocalizedControlType}'")
+            log.info(f"   Help Text: '{getattr(control, 'HelpText', 'N/A')}'")
+            log.info(f"   Item Type: '{getattr(control, 'ItemType', 'N/A')}'")
+            log.info(f"   Item Status: '{getattr(control, 'ItemStatus', 'N/A')}'")
+            
+            # Bounding rectangle details
+            rect = control.BoundingRectangle
+            log.info(f"📐 BOUNDING RECTANGLE:")
+            log.info(f"   Left: {rect.left}")
+            log.info(f"   Top: {rect.top}")
+            log.info(f"   Right: {rect.right}")
+            log.info(f"   Bottom: {rect.bottom}")
+            log.info(f"   Width: {rect.width()}")
+            log.info(f"   Height: {rect.height()}")
+            log.info(f"   Center X: {rect.xcenter()}")
+            log.info(f"   Center Y: {rect.ycenter()}")
+            
+            # State information
+            log.info(f"🔧 CONTROL STATE:")
+            log.info(f"   Is Enabled: {control.IsEnabled}")
+            log.info(f"   Is Offscreen: {control.IsOffscreen}")
+            log.info(f"   Is Keyboard Focusable: {control.IsKeyboardFocusable}")
+            log.info(f"   Is Content Element: {control.IsContentElement}")
+            log.info(f"   Is Control Element: {control.IsControlElement}")
+            log.info(f"   Is Password: {getattr(control, 'IsPassword', 'N/A')}")
+            log.info(f"   Is Required For Form: {getattr(control, 'IsRequiredForForm', 'N/A')}")
+            
+            # Clickable point and position
+            try:
+                clickable_point = control.GetClickablePoint()
+                log.info(f"🖱️ CLICKABLE POINT: {clickable_point}")
+            except Exception as e:
+                log.info(f"🖱️ CLICKABLE POINT: Error - {e}")
+            
+            try:
+                position = control.GetPosition()
+                log.info(f"📍 POSITION: {position}")
+            except Exception as e:
+                log.info(f"📍 POSITION: Error - {e}")
+            
+            # All possible patterns
+            all_patterns = [
+                'GetValuePattern', 'GetTextPattern', 'GetLegacyIAccessiblePattern',
+                'GetInvokePattern', 'GetSelectionPattern', 'GetTogglePattern',
+                'GetExpandCollapsePattern', 'GetScrollPattern', 'GetWindowPattern',
+                'GetRangeValuePattern', 'GetSelectionItemPattern', 'GetTablePattern',
+                'GetTableItemPattern', 'GetGridPattern', 'GetGridItemPattern',
+                'GetMultipleViewPattern', 'GetTransformPattern', 'GetItemContainerPattern',
+                'GetVirtualizedItemPattern', 'GetSynchronizedInputPattern', 'GetDockPattern',
+                'GetAnnotationPattern', 'GetDragPattern', 'GetDropTargetPattern',
+                'GetObjectModelPattern', 'GetSpreadsheetPattern', 'GetSpreadsheetItemPattern',
+                'GetStylesPattern', 'GetTextChildPattern', 'GetTextEditPattern',
+                'GetTextRangePattern', 'GetTextRange2Pattern', 'GetCustomNavigationPattern'
+            ]
+            
+            patterns_available = []
+            patterns_detailed = {}
+            
+            for pattern_method in all_patterns:
+                try:
+                    pattern = getattr(control, pattern_method)()
+                    if pattern:
+                        pattern_name = pattern_method.replace('Get', '').replace('Pattern', '')
+                        patterns_available.append(pattern_name)
+                        patterns_detailed[pattern_name] = pattern
+                except:
+                    pass
+            
+            log.info(f"🎭 AVAILABLE PATTERNS: {', '.join(patterns_available) if patterns_available else 'None'}")
+            
+            # Detailed pattern information
+            for pattern_name, pattern in patterns_detailed.items():
+                log.info(f"🎭 {pattern_name.upper()} PATTERN DETAILS:")
+                try:
+                    if hasattr(pattern, 'Value'):
+                        log.info(f"   Value: '{pattern.Value}'")
+                    if hasattr(pattern, 'GetText'):
+                        log.info(f"   Text: '{pattern.GetText()}'")
+                    if hasattr(pattern, 'Name'):
+                        log.info(f"   Name: '{pattern.Name}'")
+                    if hasattr(pattern, 'Description'):
+                        log.info(f"   Description: '{pattern.Description}'")
+                    if hasattr(pattern, 'Role'):
+                        log.info(f"   Role: '{pattern.Role}'")
+                    if hasattr(pattern, 'State'):
+                        log.info(f"   State: '{pattern.State}'")
+                    if hasattr(pattern, 'Value'):
+                        log.info(f"   Value: '{pattern.Value}'")
+                    if hasattr(pattern, 'IsReadOnly'):
+                        log.info(f"   IsReadOnly: '{pattern.IsReadOnly}'")
+                    if hasattr(pattern, 'IsRequired'):
+                        log.info(f"   IsRequired: '{pattern.IsRequired}'")
+                    if hasattr(pattern, 'IsSelected'):
+                        log.info(f"   IsSelected: '{pattern.IsSelected}'")
+                    if hasattr(pattern, 'ToggleState'):
+                        log.info(f"   ToggleState: '{pattern.ToggleState}'")
+                    if hasattr(pattern, 'ExpandCollapseState'):
+                        log.info(f"   ExpandCollapseState: '{pattern.ExpandCollapseState}'")
+                    if hasattr(pattern, 'CanScroll'):
+                        log.info(f"   CanScroll: '{pattern.CanScroll}'")
+                    if hasattr(pattern, 'CanScrollHorizontally'):
+                        log.info(f"   CanScrollHorizontally: '{pattern.CanScrollHorizontally}'")
+                    if hasattr(pattern, 'CanScrollVertically'):
+                        log.info(f"   CanScrollVertically: '{pattern.CanScrollVertically}'")
+                    if hasattr(pattern, 'HorizontalScrollPercent'):
+                        log.info(f"   HorizontalScrollPercent: '{pattern.HorizontalScrollPercent}'")
+                    if hasattr(pattern, 'VerticalScrollPercent'):
+                        log.info(f"   VerticalScrollPercent: '{pattern.VerticalScrollPercent}'")
+                    if hasattr(pattern, 'HorizontalViewSize'):
+                        log.info(f"   HorizontalViewSize: '{pattern.HorizontalViewSize}'")
+                    if hasattr(pattern, 'VerticalViewSize'):
+                        log.info(f"   VerticalViewSize: '{pattern.VerticalViewSize}'")
+                    if hasattr(pattern, 'CanMaximize'):
+                        log.info(f"   CanMaximize: '{pattern.CanMaximize}'")
+                    if hasattr(pattern, 'CanMinimize'):
+                        log.info(f"   CanMinimize: '{pattern.CanMinimize}'")
+                    if hasattr(pattern, 'IsModal'):
+                        log.info(f"   IsModal: '{pattern.IsModal}'")
+                    if hasattr(pattern, 'IsTopmost'):
+                        log.info(f"   IsTopmost: '{pattern.IsTopmost}'")
+                    if hasattr(pattern, 'WindowVisualState'):
+                        log.info(f"   WindowVisualState: '{pattern.WindowVisualState}'")
+                    if hasattr(pattern, 'WindowInteractionState'):
+                        log.info(f"   WindowInteractionState: '{pattern.WindowInteractionState}'")
+                except Exception as e:
+                    log.info(f"   Error getting {pattern_name} details: {e}")
+            
+            # Complete parent hierarchy with ALL details
+            log.info(f"👨‍👩‍👧‍👦 COMPLETE PARENT HIERARCHY:")
+            current = control
+            depth = 0
+            while current and depth < 15:
+                try:
+                    parent = current.GetParentControl()
+                    if parent:
+                        log.info(f"   Level {depth + 1}: '{parent.Name}' ({parent.ControlTypeName}) - {parent.FrameworkId}")
+                        log.info(f"      Class: '{parent.ClassName}' | AutomationId: '{parent.AutomationId}'")
+                        log.info(f"      LocalizedControlType: '{parent.LocalizedControlType}'")
+                        log.info(f"      IsEnabled: {parent.IsEnabled} | IsOffscreen: {parent.IsOffscreen}")
+                        log.info(f"      BoundingRect: {parent.BoundingRectangle}")
+                        
+                        # Get parent's patterns
+                        parent_patterns = []
+                        for pattern_method in ['GetValuePattern', 'GetTextPattern', 'GetLegacyIAccessiblePattern']:
+                            try:
+                                pattern = getattr(parent, pattern_method)()
+                                if pattern:
+                                    parent_patterns.append(pattern_method.replace('Get', '').replace('Pattern', ''))
+                            except:
+                                pass
+                        log.info(f"      Available Patterns: {', '.join(parent_patterns) if parent_patterns else 'None'}")
+                        
+                        current = parent
+                        depth += 1
+                    else:
+                        break
+                except Exception as e:
+                    log.info(f"   Error at level {depth + 1}: {e}")
+                    break
+            
+            # Complete siblings information
+            try:
+                parent = control.GetParentControl()
+                if parent:
+                    siblings = parent.GetChildren()
+                    log.info(f"👥 COMPLETE SIBLINGS INFO:")
+                    log.info(f"   Total Siblings: {len(siblings)}")
+                    for i, sibling in enumerate(siblings):
+                        try:
+                            is_current = " ← THIS ONE" if sibling == control else ""
+                            log.info(f"   Sibling {i+1}: '{sibling.Name}' ({sibling.ControlTypeName}) - {sibling.FrameworkId}{is_current}")
+                            log.info(f"      AutomationId: '{sibling.AutomationId}' | Class: '{sibling.ClassName}'")
+                            log.info(f"      BoundingRect: {sibling.BoundingRectangle}")
+                            log.info(f"      IsEnabled: {sibling.IsEnabled} | IsOffscreen: {sibling.IsOffscreen}")
+                        except Exception as e:
+                            log.info(f"   Sibling {i+1}: [Error reading sibling - {e}]")
+            except Exception as e:
+                log.info(f"👥 SIBLINGS: Error getting siblings - {e}")
+            
+            # Complete children information
+            try:
+                children = control.GetChildren()
+                log.info(f"👶 COMPLETE CHILDREN INFO:")
+                log.info(f"   Total Children: {len(children)}")
+                for i, child in enumerate(children):
+                    try:
+                        log.info(f"   Child {i+1}: '{child.Name}' ({child.ControlTypeName}) - {child.FrameworkId}")
+                        log.info(f"      AutomationId: '{child.AutomationId}' | Class: '{child.ClassName}'")
+                        log.info(f"      BoundingRect: {child.BoundingRectangle}")
+                        log.info(f"      IsEnabled: {child.IsEnabled} | IsOffscreen: {child.IsOffscreen}")
+                    except Exception as e:
+                        log.info(f"   Child {i+1}: [Error reading child - {e}]")
+            except Exception as e:
+                log.info(f"👶 CHILDREN: Error getting children - {e}")
+            
+            # Additional control properties
+            log.info(f"🔍 ADDITIONAL CONTROL PROPERTIES:")
+            try:
+                log.info(f"   ProcessId: {getattr(control, 'ProcessId', 'N/A')}")
+                log.info(f"   RuntimeId: {getattr(control, 'RuntimeId', 'N/A')}")
+                log.info(f"   NativeWindowHandle: {getattr(control, 'NativeWindowHandle', 'N/A')}")
+                log.info(f"   ProviderDescription: {getattr(control, 'ProviderDescription', 'N/A')}")
+            except Exception as e:
+                log.info(f"   Error getting additional properties: {e}")
+            
+            log.info("=" * 120)
+            log.info(f"🔍 END ULTRA-DETAILED INFO FOR: '{skin_name}'")
+            log.info("=" * 120)
+            
+        except Exception as e:
+            log.error(f"Error logging detailed skin info: {e}")
+    
     def find_skin_elements_in_league(self):
-        """Find all skin text elements within the League client using learned patterns."""
+        """Find all skin text elements within the League client using optimized detection."""
         import time
         start_time = time.time()
         
-        log.debug("Starting automatic skin detection...")
+        log.debug("Starting optimized skin detection...")
         
         if not self.league_window:
             log.debug("No client window reference")
@@ -225,8 +466,10 @@ class UISkinThread(threading.Thread):
         skin_elements = []
         
         try:
-            # Use optimized search based on learned path
-            log.debug("Using optimized skin detection based on learned UI hierarchy...")
+            # Use reliable path navigation method
+            log.debug("Using reliable path navigation detection...")
+            
+            
             skin_elements = self._find_skins_optimized()
             
             elapsed_time = (time.time() - start_time) * 1000  # Convert to milliseconds
@@ -234,7 +477,7 @@ class UISkinThread(threading.Thread):
             return skin_elements
             
         except Exception as e:
-            log.debug(f"Error searching for skin elements: {e}")
+            log.debug(f"Error in optimized skin detection: {e}")
             return []
     
     def _should_run_detection(self) -> bool:
@@ -449,7 +692,7 @@ class UISkinThread(threading.Thread):
         if champ_slug not in self.db.champion_skins:
             self.db.load_champion_skins_by_id(champ_id)
         
-        # Match against skin names in the current language
+        # Match against English skin names
         best_match = None
         best_similarity = 0.0
         
@@ -460,20 +703,6 @@ class UISkinThread(threading.Thread):
             if similarity > best_similarity and similarity >= 0.3:  # 30% threshold
                 best_match = (skin_id, skin_name, similarity)
                 best_similarity = similarity
-        
-        # If no match found in current language, try English as fallback
-        if not best_match and self.db.canonical_lang != "en_US":
-            try:
-                # Get English skin names for this champion
-                english_skins = self.db.get_english_skin_names_for_champion(champ_slug)
-                if english_skins:
-                    for skin_id, skin_name in english_skins.items():
-                        similarity = levenshtein_score(detected_name, skin_name)
-                        if similarity > best_similarity and similarity >= 0.3:
-                            best_match = (skin_id, skin_name, similarity)
-                            best_similarity = similarity
-            except Exception as e:
-                log.debug(f"English fallback matching failed: {e}")
         
         return best_match
     
@@ -513,6 +742,10 @@ class UISkinThread(threading.Thread):
                         # Check if this is a new skin detection
                         if name != self.last_detected_skin_name:
                             log.info(f"UI Detection: {name}")
+                            
+                            # Special detailed logging for "Darius biosoldat"
+                            if "Darius biosoldat" in name or "biosoldat" in name.lower():
+                                self._log_detailed_skin_info(element, name)
                             
                             # Check if we should update
                             if not self._should_update_hovered_skin(name):
