@@ -34,7 +34,6 @@ def levenshtein_score(ocr_text: str, skin_text: str) -> float:
     if not ocr_text or not skin_text:
         return 0.0
     
-    # Create a translation table:
     # All l and i related characters are removed (None)
     # Everything else is normalized to base letter
     trans_table = str.maketrans({
