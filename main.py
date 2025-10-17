@@ -768,31 +768,31 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     
     # Handle PCR debug folder
     if args.debug_pcr:
-        ocr_debug_dir = Path(__file__).resolve().parent / "ocr_debug"
+        pcr_debug_dir = Path(__file__).resolve().parent / "pcr_debug"
         
         if args.clear_debug_pcr:
             # Clear existing debug files if requested
-            if ocr_debug_dir.exists():
+            if pcr_debug_dir.exists():
                 try:
-                    shutil.rmtree(ocr_debug_dir)
-                    log_success(log, f"Cleared OCR debug folder: {ocr_debug_dir}", "🧹")
+                    shutil.rmtree(pcr_debug_dir)
+                    log_success(log, f"Cleared PCR debug folder: {pcr_debug_dir}", "🧹")
                 except (OSError, PermissionError) as e:
-                    log.warning(f"Failed to clear OCR debug folder: {e}")
+                    log.warning(f"Failed to clear PCR debug folder: {e}")
         
         # Create debug folder if it doesn't exist
-        if not ocr_debug_dir.exists():
+        if not pcr_debug_dir.exists():
             try:
-                ocr_debug_dir.mkdir(parents=True, exist_ok=True)
-                log_success(log, f"Created OCR debug folder: {ocr_debug_dir}", "📁")
+                pcr_debug_dir.mkdir(parents=True, exist_ok=True)
+                log_success(log, f"Created PCR debug folder: {pcr_debug_dir}", "📁")
             except (OSError, PermissionError) as e:
-                log.warning(f"Failed to create OCR debug folder: {e}")
+                log.warning(f"Failed to create PCR debug folder: {e}")
         else:
             # Count existing files
-            existing_files = list(ocr_debug_dir.glob("*.png"))
+            existing_files = list(pcr_debug_dir.glob("*.png"))
             if existing_files:
-                log.info(f"OCR debug folder exists with {len(existing_files)} existing images - preserving them for template collection")
+                log.info(f"PCR debug folder exists with {len(existing_files)} existing images - preserving them for template collection")
             else:
-                log.info("OCR debug folder exists but is empty - ready for new captures")
+                log.info("PCR debug folder exists but is empty - ready for new captures")
 
 
 def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
@@ -1267,7 +1267,7 @@ def main():
 
     log.info("System ready - OCR active only in Champion Select")
     if args.debug_pcr:
-        log.info("PCR Debug Mode: ON - Images will be saved to 'ocr_debug/' folder")
+        log.info("PCR Debug Mode: ON - Images will be saved to 'pcr_debug/' folder")
     else:
         log.info("PCR Debug Mode: OFF - Use --debug-pcr to enable")
 
