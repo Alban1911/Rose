@@ -949,27 +949,6 @@ def main():
                 pass
         sys.exit(1)
     
-    # Initialize PyQt6 and chroma selector
-    try:
-        log.info("Initializing PyQt6 and chroma selector...")
-        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status)
-        log.info("✓ PyQt6 and chroma selector initialized")
-    except Exception as e:
-        log.error("=" * 80)
-        log.error("ERROR DURING PYQT6/CHROMA INITIALIZATION")
-        log.error("=" * 80)
-        log.error(f"Failed to initialize PyQt6/chroma selector: {e}")
-        log.error(f"Error type: {type(e).__name__}")
-        import traceback
-        log.error(f"Traceback:\n{traceback.format_exc()}")
-        log.error("=" * 80)
-        log.warning("Continuing without chroma selector...")
-        qt_app = None
-        chroma_selector = None
-    
-    # OCR will be initialized when WebSocket connects (for proper language detection)
-    ocr = None
-    
     # Initialize database with error handling
     try:
         log.info("Initializing champion name database...")
@@ -1000,6 +979,27 @@ def main():
             except Exception:
                 pass
         sys.exit(1)
+
+    # Initialize PyQt6 and chroma selector
+    try:
+        log.info("Initializing PyQt6 and chroma selector...")
+        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status)
+        log.info("✓ PyQt6 and chroma selector initialized")
+    except Exception as e:
+        log.error("=" * 80)
+        log.error("ERROR DURING PYQT6/CHROMA INITIALIZATION")
+        log.error("=" * 80)
+        log.error(f"Failed to initialize PyQt6/chroma selector: {e}")
+        log.error(f"Error type: {type(e).__name__}")
+        import traceback
+        log.error(f"Traceback:\n{traceback.format_exc()}")
+        log.error("=" * 80)
+        log.warning("Continuing without chroma selector...")
+        qt_app = None
+        chroma_selector = None
+    
+    # OCR will be initialized when WebSocket connects (for proper language detection)
+    ocr = None
     
     # Initialize injection manager with database (lazy initialization)
     try:

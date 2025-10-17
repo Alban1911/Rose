@@ -53,10 +53,27 @@ class ChromaSelector:
         try:
             with self.lock:
                 if chroma_id == 0 or chroma_id is None:
-                    # Base skin selected - use original skin ID
+                    # Base skin selected - reset to original skin ID and skin name
                     log.info(f"[CHROMA] Base skin selected")
                     self.state.selected_chroma_id = None
-                    # Keep original skin ID
+                    
+                    # Reset skin key to just the skin name (no chroma ID)
+                    if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
+                        # Get English skin name from database if available
+                        english_skin_name = self.panel.current_skin_name
+                        if self.db and self.current_skin_id:
+                            try:
+                                db_english_name = self.db.get_english_skin_name_by_id(self.current_skin_id)
+                                if db_english_name:
+                                    english_skin_name = db_english_name
+                            except Exception:
+                                pass
+                        
+                        # For base skins, use just the skin name (no chroma ID)
+                        self.state.last_hovered_skin_key = english_skin_name
+                        log.debug(f"[CHROMA] Reset last_hovered_skin_key to: {self.state.last_hovered_skin_key}")
+                    
+                    log.info(f"[CHROMA] Reset to base skin ID: {self.current_skin_id}")
                 else:
                     # Chroma selected - update skin ID to chroma ID
                     log.info(f"[CHROMA] Chroma selected: {chroma_name} (ID: {chroma_id})")
@@ -65,6 +82,23 @@ class ChromaSelector:
                     # UPDATE: Change the hovered skin ID to the chroma ID
                     # This way injection will use the chroma ID
                     self.state.last_hovered_skin_id = chroma_id
+                    
+                    # Also update the skin key to include chroma ID for injection path
+                    # Format: "{skin_name} {chroma_id}" for injection system
+                    if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
+                        # Get English skin name from database if available
+                        english_skin_name = self.panel.current_skin_name
+                        if self.db and self.current_skin_id:
+                            try:
+                                db_english_name = self.db.get_english_skin_name_by_id(self.current_skin_id)
+                                if db_english_name:
+                                    english_skin_name = db_english_name
+                            except Exception:
+                                pass
+                        
+                        # For chromas, append the chroma ID to the skin name
+                        self.state.last_hovered_skin_key = f"{english_skin_name} {chroma_id}"
+                        log.debug(f"[CHROMA] Updated last_hovered_skin_key to: {self.state.last_hovered_skin_key}")
                     
                     log.info(f"[CHROMA] Updated last_hovered_skin_id from {self.current_skin_id} to {chroma_id}")
                 
