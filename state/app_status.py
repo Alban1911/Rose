@@ -109,8 +109,8 @@ class AppStatus:
             # Check if PCR has the required attributes
             return (hasattr(ocr, 'recognize') and 
                    callable(getattr(ocr, 'recognize', None)) and
-                   hasattr(ocr, 'template_manager') and 
-                   ocr.template_manager is not None)
+                   hasattr(ocr, 'recognizer') and 
+                   ocr.recognizer is not None)
         except Exception as e:
             log.debug(f"Failed to check PCR initialization: {e}")
             return False
