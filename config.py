@@ -27,7 +27,7 @@ CHAR_RECOGNITION_MIN_COMPONENT_WIDTH = 3
 CHAR_RECOGNITION_MIN_COMPONENT_HEIGHT = 8
 CHAR_RECOGNITION_MAX_COMPONENT_WIDTH = 100
 CHAR_RECOGNITION_MAX_COMPONENT_HEIGHT = 60
-CHAR_RECOGNITION_TEMPLATE_MATCH_THRESHOLD = 0.6
+CHAR_RECOGNITION_TEMPLATE_MATCH_THRESHOLD = 0.7
 CHAR_RECOGNITION_DEBUG_MODE = False
 
 # Special character mapping for Windows filename compatibility
@@ -72,7 +72,7 @@ OCR_SECOND_SHOT_MS_DEFAULT = 100  # Delay for second OCR attempt for accuracy
 # OCR thresholds
 OCR_DIFF_THRESHOLD_DEFAULT = 0.003  # Image change threshold to trigger OCR
 OCR_MIN_CONFIDENCE_DEFAULT = 0.5    # Minimum confidence score for matches
-OCR_FUZZY_MATCH_THRESHOLD = 0.5     # Threshold for fuzzy text matching
+OCR_FUZZY_MATCH_THRESHOLD = 0.3     # Threshold for fuzzy text matching
 SKIN_NAME_MIN_SIMILARITY = 0.15     # Minimum similarity for fuzzy skin name matching (15%)
 
 # OCR window detection
