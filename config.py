@@ -79,7 +79,7 @@ SKIN_NAME_MIN_SIMILARITY = 0.15     # Minimum similarity for fuzzy skin name mat
 OCR_WINDOW_LOG_INTERVAL = 1.0  # Seconds between window detection logs
 
 # OCR debugging
-DEFAULT_DEBUG_OCR = False  # Save OCR images to debug folder (disabled by default)
+DEFAULT_DEBUG_PCR = False  # Save PCR images to debug folder (disabled by default)
 
 # OCR image processing
 OCR_SMALL_IMAGE_WIDTH = 96   # Width for small image used in change detection

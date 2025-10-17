@@ -576,7 +576,7 @@ class OCRSkinThread(threading.Thread):
         pcr_recognition_time = (time.perf_counter() - pcr_start) * 1000
         
         # DEBUG: Save PCR image to debug folder (if enabled)
-        if self.args.debug_ocr:
+        if self.args.debug_pcr:
             try:
                 # Use project directory for debug folder (where main.py is)
                 project_root = Path(__file__).resolve().parent.parent

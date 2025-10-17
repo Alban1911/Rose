@@ -646,12 +646,12 @@ def setup_arguments() -> argparse.Namespace:
     ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
     ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, 
                    help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
-    ap.add_argument("--debug-ocr", action="store_true", default=DEFAULT_DEBUG_OCR, 
+    ap.add_argument("--debug-pcr", action="store_true", default=DEFAULT_DEBUG_PCR, 
                    help="Save PCR images to debug folder")
-    ap.add_argument("--no-debug-ocr", action="store_false", dest="debug_ocr", 
+    ap.add_argument("--no-debug-pcr", action="store_false", dest="debug_pcr", 
                    help="Disable PCR debug image saving")
-    ap.add_argument("--clear-debug-ocr", action="store_true", default=False,
-                   help="Clear existing PCR debug images before starting (use with --debug-ocr)")
+    ap.add_argument("--clear-debug-pcr", action="store_true", default=False,
+                   help="Clear existing PCR debug images before starting (use with --debug-pcr)")
     
     # Pattern Character Recognition arguments
     ap.add_argument("--templates-dir", type=str, default="character_recognition/templates/english",
@@ -763,14 +763,14 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
         log_section(log, "LeagueUnlocked Starting", "🚀", {
             "Verbose Mode": "Enabled" if args.verbose else "Disabled",
             "Download Skins": "Enabled" if args.download_skins else "Disabled",
-            "OCR Debug": "Enabled" if args.debug_ocr else "Disabled"
+            "PCR Debug": "Enabled" if args.debug_pcr else "Disabled"
         })
     
-    # Handle OCR debug folder
-    if args.debug_ocr:
+    # Handle PCR debug folder
+    if args.debug_pcr:
         ocr_debug_dir = Path(__file__).resolve().parent / "ocr_debug"
         
-        if args.clear_debug_ocr:
+        if args.clear_debug_pcr:
             # Clear existing debug files if requested
             if ocr_debug_dir.exists():
                 try:
@@ -1266,10 +1266,10 @@ def main():
     thread_manager.start_all()
 
     log.info("System ready - OCR active only in Champion Select")
-    if args.debug_ocr:
-        log.info("OCR Debug Mode: ON - Images will be saved to 'ocr_debug/' folder")
+    if args.debug_pcr:
+        log.info("PCR Debug Mode: ON - Images will be saved to 'ocr_debug/' folder")
     else:
-        log.info("OCR Debug Mode: OFF - Use --debug-ocr to enable")
+        log.info("PCR Debug Mode: OFF - Use --debug-pcr to enable")
 
     last_phase = None
     last_loop_time = time.time()
