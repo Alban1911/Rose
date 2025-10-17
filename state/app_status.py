@@ -15,17 +15,15 @@ log = get_logger()
 
 class AppStatus:
     """
-    Manages application status based on initialization state of core components.
+    Manages application status based on skin download state.
     
     Checks:
-    - Chroma selector initialization
     - Skins downloaded from repository
-    - PCR (Pattern Character Recognition) initialization
+    - Skin previews downloaded
     
     Status:
-    - locked.png: Chroma not initialized OR Skins not downloaded OR PCR not initialized
-    - golden locked.png: Chroma initialized AND Skins downloaded BUT PCR not initialized
-    - golden unlocked.png: All components ready (Chroma AND Skins AND PCR initialized)
+    - locked.png: Skins not downloaded OR previews not downloaded
+    - golden unlocked.png: Skins and previews downloaded
     """
     
     def __init__(self, tray_manager=None):
@@ -36,23 +34,29 @@ class AppStatus:
             tray_manager: TrayManager instance to update status icon
         """
         self.tray_manager = tray_manager
-        self._chroma_initialized = False
         self._skins_downloaded = False
-        self._ocr_initialized = False
+        self._previews_downloaded = False
+        self._last_status = None  # Track last status to avoid duplicate logging
+        self._last_update_time = 0  # Throttle updates
         
-    def check_chroma_initialized(self) -> bool:
+    def check_previews_downloaded(self) -> bool:
         """
-        Check if Chroma selector is initialized
+        Check if skin previews are downloaded
         
         Returns:
-            True if chroma selector is initialized, False otherwise
+            True if previews are downloaded, False otherwise
         """
         try:
-            from utils.chroma_selector import get_chroma_selector
-            chroma_selector = get_chroma_selector()
-            return chroma_selector is not None
+            # Check if previews directory exists and has content
+            previews_dir = Path("previews")
+            if not previews_dir.exists():
+                return False
+            
+            # Check if there are preview image files
+            preview_files = list(previews_dir.glob("*.png"))
+            return len(preview_files) > 0
         except Exception as e:
-            log.debug(f"Failed to check chroma initialization: {e}")
+            log.debug(f"Failed to check previews directory: {e}")
             return False
     
     def check_skins_downloaded(self) -> bool:
@@ -92,104 +96,73 @@ class AppStatus:
             log.debug(f"Failed to check skins directory: {e}")
             return False
     
-    def check_ocr_initialized(self, ocr=None) -> bool:
-        """
-        Check if PCR (Pattern Character Recognition) is initialized
-        
-        Args:
-            ocr: PCR instance to check (if None, returns current cached state)
-        
-        Returns:
-            True if PCR is initialized, False otherwise
-        """
-        if ocr is None:
-            return self._ocr_initialized
-        
-        try:
-            # Check if PCR has the required attributes
-            return (hasattr(ocr, 'recognize') and 
-                   callable(getattr(ocr, 'recognize', None)) and
-                   hasattr(ocr, 'recognizer') and 
-                   ocr.recognizer is not None)
-        except Exception as e:
-            log.debug(f"Failed to check PCR initialization: {e}")
-            return False
     
-    def update_status(self, ocr=None):
+    def update_status(self, force=False):
         """
-        Update the application status by checking all components
+        Update the application status by checking skin download state
         
         Args:
-            ocr: OCR instance to check (optional)
+            force: Force update even if throttled (optional)
         """
+        import time
+        
+        # Throttle updates to prevent spam (max once per second)
+        current_time = time.time()
+        if not force and (current_time - self._last_update_time) < 1.0:
+            return
+        
+        self._last_update_time = current_time
+        
         # Check each component
-        self._chroma_initialized = self.check_chroma_initialized()
         self._skins_downloaded = self.check_skins_downloaded()
-        self._ocr_initialized = self.check_ocr_initialized(ocr)
+        self._previews_downloaded = self.check_previews_downloaded()
         
         # Determine status level
-        chroma_and_skins_ready = (self._chroma_initialized and self._skins_downloaded)
-        all_ready = (chroma_and_skins_ready and self._ocr_initialized)
+        all_ready = (self._skins_downloaded and self._previews_downloaded)
         
-        # Log status for debugging
-        log.debug(f"[APP STATUS] Chroma: {self._chroma_initialized}, "
-                 f"Skins: {self._skins_downloaded}, "
-                 f"PCR: {self._ocr_initialized}")
+        # Determine current status
+        if all_ready:
+            current_status = "unlocked"
+        else:
+            current_status = "locked"
         
-        # Update tray icon based on status level
-        if self.tray_manager:
+        # Only log and update if status changed
+        if current_status != self._last_status or force:
+            self._last_status = current_status
+            
+            # Update tray icon
+            if self.tray_manager:
+                self.tray_manager.set_status(current_status)
+            
+            # Log status change
             separator = "=" * 80
             if all_ready:
-                # All components ready - golden unlocked
-                self.tray_manager.set_status("unlocked")
                 log.info(separator)
-                log.info("🔓✨ APP STATUS: ALL COMPONENTS READY")
-                log.info("   📋 Chroma Selector: Initialized")
+                log.info("🔓✨ APP STATUS: READY")
                 log.info("   📋 Skins: Downloaded")
-                log.info("   📋 PCR: Initialized")
+                log.info("   📋 Previews: Downloaded")
                 log.info("   🎯 Status: Golden Unlocked")
                 log.info(separator)
-            elif chroma_and_skins_ready:
-                # Chroma and skins ready, but OCR not ready - golden locked
-                self.tray_manager.set_status("golden_locked")
-                log.info(separator)
-                log.info("🔓 APP STATUS: READY (PCR PENDING)")
-                log.info("   📋 Chroma Selector: Initialized")
-                log.info("   📋 Skins: Downloaded")
-                log.info("   ⏳ PCR: Pending")
-                log.info("   🎯 Status: Golden Locked")
-                log.info(separator)
             else:
-                # Some components not ready - locked
-                self.tray_manager.set_status("locked")
                 log.info(separator)
-                log.info("🔒 APP STATUS: INITIALIZING")
-                log.info(f"   {'✅' if self._chroma_initialized else '⏳'} Chroma Selector: {'Initialized' if self._chroma_initialized else 'Pending'}")
+                log.info("🔒 APP STATUS: DOWNLOADING")
                 log.info(f"   {'✅' if self._skins_downloaded else '⏳'} Skins: {'Downloaded' if self._skins_downloaded else 'Pending'}")
-                log.info(f"   {'✅' if self._ocr_initialized else '⏳'} PCR: {'Initialized' if self._ocr_initialized else 'Pending'}")
+                log.info(f"   {'✅' if self._previews_downloaded else '⏳'} Previews: {'Downloaded' if self._previews_downloaded else 'Pending'}")
                 log.info("   🎯 Status: Locked")
                 log.info(separator)
-    
-    def mark_chroma_initialized(self):
-        """Mark chroma selector as initialized and update status"""
-        self._chroma_initialized = True
-        log.info("[APP STATUS] Chroma selector initialized")
-        self.update_status()
     
     def mark_skins_downloaded(self):
         """Mark skins as downloaded and update status"""
         self._skins_downloaded = True
         log.info("[APP STATUS] Skins downloaded")
-        self.update_status()
+        self.update_status(force=True)
     
-    def mark_ocr_initialized(self, ocr=None):
-        """Mark PCR as initialized and update status"""
-        if ocr is not None:
-            self._ocr_initialized = self.check_ocr_initialized(ocr)
-        else:
-            self._ocr_initialized = True
-        log.info("[APP STATUS] PCR initialized")
-        self.update_status()
+    def mark_previews_downloaded(self):
+        """Mark previews as downloaded and update status"""
+        self._previews_downloaded = True
+        log.info("[APP STATUS] Previews downloaded")
+        self.update_status(force=True)
+    
     
     def get_status_summary(self) -> dict:
         """
@@ -199,18 +172,13 @@ class AppStatus:
             Dictionary with status of each component
         """
         return {
-            'chroma_initialized': self._chroma_initialized,
             'skins_downloaded': self._skins_downloaded,
-            'ocr_initialized': self._ocr_initialized,
-            'all_ready': (self._chroma_initialized and 
-                         self._skins_downloaded and 
-                         self._ocr_initialized)
+            'previews_downloaded': self._previews_downloaded,
+            'all_ready': (self._skins_downloaded and self._previews_downloaded)
         }
     
     @property
     def is_ready(self) -> bool:
         """Check if all components are ready"""
-        return (self._chroma_initialized and 
-               self._skins_downloaded and 
-               self._ocr_initialized)
+        return (self._skins_downloaded and self._previews_downloaded)
 

@@ -317,3 +317,81 @@ class NameDB:
         except Exception as e:
             log.debug(f"[NameDB] Failed to load English skin name for {skin_id}: {e}")
             return None
+    
+    def get_english_skin_names_for_champion(self, champion_slug: str) -> Dict[int, str]:
+        """Get English skin names for a specific champion
+        
+        Args:
+            champion_slug: The champion slug (e.g., 'ezreal')
+            
+        Returns:
+            Dictionary mapping skin_id to English skin name
+        """
+        try:
+            # If we're already using English, return current skins
+            if self.canonical_lang == "en_US":
+                return self.champion_skins.get(champion_slug, {})
+            
+            # Load English skins for this champion
+            lang = "en_US"
+            data = self._cache_json(
+                f"champion_{self.ver}_{lang}_{champion_slug}.json",
+                f"https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/{lang}/champion/{champion_slug}.json"
+            )
+            
+            champ_data = (data.get("data") or {}).get(champion_slug)
+            if not champ_data:
+                return {}
+            
+            english_skins = {}
+            skins = champ_data.get("skins", [])
+            for skin in skins:
+                skin_id = skin.get("id")
+                skin_name = skin.get("name")
+                if skin_id and skin_name:
+                    english_skins[skin_id] = skin_name
+            
+            return english_skins
+            
+        except Exception as e:
+            log.debug(f"[NameDB] Failed to load English skins for {champion_slug}: {e}")
+            return {}
+    
+    def update_language(self, new_lang: str) -> bool:
+        """Update the database language and reload data
+        
+        Args:
+            new_lang: New language code (e.g., 'fr_FR', 'en_US')
+            
+        Returns:
+            True if language was updated successfully
+        """
+        try:
+            if new_lang == self.canonical_lang:
+                log.debug(f"[NameDB] Language already set to {new_lang}")
+                return True
+            
+            log.info(f"[NameDB] Updating language from {self.canonical_lang} to {new_lang}")
+            
+            # Update language settings
+            self.langs = self._resolve_langs_spec(new_lang)
+            old_canonical = self.canonical_lang
+            self.canonical_lang = "en_US" if "en_US" in self.langs else (self.langs[0] if self.langs else "en_US")
+            
+            # Clear cached data that needs to be reloaded
+            self.champion_skins.clear()
+            self._skins_loaded.clear()
+            self._norm_cache.clear()
+            
+            # Update champion names
+            self.champ_name_by_id = self.champ_name_by_id_by_lang.get(self.canonical_lang, {})
+            
+            # Reload entries for the new language
+            self._load_index()
+            
+            log.info(f"[NameDB] Language updated to {self.canonical_lang}")
+            return True
+            
+        except Exception as e:
+            log.error(f"[NameDB] Failed to update language to {new_lang}: {e}")
+            return False

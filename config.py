@@ -15,7 +15,7 @@ APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP r
 # Production mode - controls logging verbosity and sensitive data exposure
 # Set to True for releases to prevent reverse engineering via logs
 # Set to False for development to get full debug information
-PRODUCTION_MODE = True
+PRODUCTION_MODE = False
 
 
 # =============================================================================
@@ -23,11 +23,11 @@ PRODUCTION_MODE = True
 # =============================================================================
 
 # UI detection polling
-UI_POLL_INTERVAL = 0.1  # Seconds between UI detection checks
+UI_POLL_INTERVAL = 0.01  # Seconds between UI detection checks
 UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
 
 # Skin matching
-SKIN_NAME_MIN_SIMILARITY = 0.15  # Minimum similarity for fuzzy skin name matching (15%)
+SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
 
 
 
@@ -46,7 +46,7 @@ CHAMP_POLL_INTERVAL = 0.25  # Seconds between champion state checks
 LCU_MONITOR_INTERVAL = 1.0  # Seconds between LCU connection checks
 
 # Main loop sleep intervals
-MAIN_LOOP_SLEEP = 0.01      # Main loop iteration sleep time (10ms for responsive chroma UI)
+MAIN_LOOP_SLEEP = 0.1       # Main loop iteration sleep time (100ms for responsive chroma UI)
 
 
 # =============================================================================

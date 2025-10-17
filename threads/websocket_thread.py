@@ -41,7 +41,7 @@ class WSEventThread(threading.Thread):
     
     def __init__(self, lcu: LCU, db: NameDB, state: SharedState, ping_interval: int = WS_PING_INTERVAL_DEFAULT, 
                  ping_timeout: int = WS_PING_TIMEOUT_DEFAULT, timer_hz: int = TIMER_HZ_DEFAULT, fallback_ms: int = FALLBACK_LOADOUT_MS_DEFAULT, 
-                 injection_manager=None, skin_scraper=None):
+                 injection_manager=None, skin_scraper=None, app_status_callback=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.db = db
@@ -54,6 +54,7 @@ class WSEventThread(threading.Thread):
         self.fallback_ms = fallback_ms
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
+        self.app_status_callback = app_status_callback
         self.ticker: Optional[LoadoutTicker] = None
         self.last_locked_champion_id = None  # Track previously locked champion for exchange detection
 
@@ -390,6 +391,10 @@ class WSEventThread(threading.Thread):
         # Mark WebSocket as connected
         self.is_connected = True
         
+        # Update app status to reflect LCU connection
+        if self.app_status_callback:
+            self.app_status_callback()
+        
         try: 
             ws.send('[5,"OnJsonApiEvent"]')
         except Exception as e: 
@@ -424,6 +429,10 @@ class WSEventThread(threading.Thread):
         
         # Mark WebSocket as disconnected
         self.is_connected = False
+        
+        # Update app status to reflect LCU disconnection
+        if self.app_status_callback:
+            self.app_status_callback()
 
     def run(self):
         """Main WebSocket loop"""

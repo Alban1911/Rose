@@ -449,7 +449,7 @@ class UISkinThread(threading.Thread):
         if champ_slug not in self.db.champion_skins:
             self.db.load_champion_skins_by_id(champ_id)
         
-        # Match against English skin names
+        # Match against skin names in the current language
         best_match = None
         best_similarity = 0.0
         
@@ -460,6 +460,20 @@ class UISkinThread(threading.Thread):
             if similarity > best_similarity and similarity >= 0.3:  # 30% threshold
                 best_match = (skin_id, skin_name, similarity)
                 best_similarity = similarity
+        
+        # If no match found in current language, try English as fallback
+        if not best_match and self.db.canonical_lang != "en_US":
+            try:
+                # Get English skin names for this champion
+                english_skins = self.db.get_english_skin_names_for_champion(champ_slug)
+                if english_skins:
+                    for skin_id, skin_name in english_skins.items():
+                        similarity = levenshtein_score(detected_name, skin_name)
+                        if similarity > best_similarity and similarity >= 0.3:
+                            best_match = (skin_id, skin_name, similarity)
+                            best_similarity = similarity
+            except Exception as e:
+                log.debug(f"English fallback matching failed: {e}")
         
         return best_match
     

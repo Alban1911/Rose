@@ -135,6 +135,10 @@ class LCUMonitorThread(threading.Thread):
                 else:
                     log.info(f"Language confirmed after reconnection: {new_language}")
                 
+                # Update database language if available
+                if self.db:
+                    self.db.update_language(new_language)
+                
                 # Always call callback on reconnection to ensure UI detection is reinitialized
                 self.last_language = new_language
                 self.language_initialized = True
@@ -153,6 +157,11 @@ class LCUMonitorThread(threading.Thread):
             current_language = self.lcu.client_language
             if current_language and current_language != self.last_language:
                 log.info(f"Language changed during session: {self.last_language} → {current_language}")
+                
+                # Update database language if available
+                if self.db:
+                    self.db.update_language(current_language)
+                
                 self.last_language = current_language
                 if self.language_callback:
                     self.language_callback(current_language)

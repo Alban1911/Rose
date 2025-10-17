@@ -724,7 +724,7 @@ def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
         return None
 
 
-def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_status: Optional[AppStatus] = None):
+def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_status: Optional[AppStatus] = None, lcu=None):
     """Initialize PyQt6 and chroma selector"""
     qt_app = None
     chroma_selector = None
@@ -768,7 +768,7 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
             
             # Update app status
             if app_status:
-                app_status.mark_chroma_initialized()
+                app_status.update_status(force=True)
         except Exception as e:
             log.warning(f"Failed to initialize chroma panel: {e}")
             log.warning("Chroma selection will be disabled, but app will continue")
@@ -815,13 +815,16 @@ def main():
     log_success(log, "App status manager initialized", "📊")
     
     # Check initial status (will show locked until all components are ready)
-    app_status.update_status()
+    app_status.update_status(force=True)
     
     # Initialize core components with error handling
     try:
         log.info("Initializing LCU client...")
         lcu = LCU(args.lockfile)
         log.info("✓ LCU client initialized")
+        
+        # Update app status
+        app_status.update_status(force=True)
         
         log.info("Initializing skin scraper...")
         skin_scraper = LCUSkinScraper(lcu)
@@ -857,10 +860,9 @@ def main():
     # Initialize database with error handling
     try:
         log.info("Initializing champion name database...")
-        # Load both English and French by default to ensure champion names are available
-        # regardless of which language is detected later
-        db = NameDB(lang="fr_FR,en_US")
-        log.info("✓ Champion name database initialized (fr_FR,en_US)")
+        # Initialize database with default language, will be updated when LCU language is detected
+        db = NameDB(lang="en_US")
+        log.info("✓ Champion name database initialized (en_US - will update when LCU language detected)")
     except Exception as e:
         log.error("=" * 80)
         log.error("FATAL ERROR DURING DATABASE INITIALIZATION")
@@ -888,7 +890,7 @@ def main():
     # Initialize PyQt6 and chroma selector
     try:
         log.info("Initializing PyQt6 and chroma selector...")
-        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status)
+        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status, lcu)
         log.info("✓ PyQt6 and chroma selector initialized")
     except Exception as e:
         log.error("=" * 80)
@@ -958,8 +960,12 @@ def main():
                     preview_success = download_skin_previews(force_update=args.force_update_skins)
                     if preview_success:
                         log.info("✓ Skin previews downloaded successfully")
+                        # Mark previews as downloaded in app status
+                        app_status.mark_previews_downloaded()
                     else:
                         log.warning("⚠ Skin preview download had issues (will continue)")
+                        # Still mark as downloaded even with issues (files may still exist)
+                        app_status.mark_previews_downloaded()
                 except Exception as e:
                     log.warning(f"Failed to download skin previews: {e}")
                     log.warning("App will continue without preview images")
@@ -1043,10 +1049,9 @@ def main():
     # Function to handle LCU disconnection
     def on_lcu_disconnected():
         """Handle LCU disconnection - reset UI detection status"""
-        # Update app status to golden locked (chroma and skins still ready)
+        # Update app status
         if app_status:
-            app_status._ui_detection_initialized = False
-            app_status.update_status()
+            app_status.update_status(force=True)
 
     # Initialize thread manager for organized thread lifecycle
     thread_manager = ThreadManager()
@@ -1062,7 +1067,7 @@ def main():
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
                         fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                        skin_scraper=skin_scraper)
+                        skin_scraper=skin_scraper, app_status_callback=lambda: app_status.update_status(force=True))
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     t_lcu_monitor = LCUMonitorThread(lcu, state, None, t_ws, 
@@ -1095,6 +1100,10 @@ def main():
             ph = state.phase
             if ph != last_phase:
                 last_phase = ph
+            
+            # Update app status periodically (throttled)
+            if app_status:
+                app_status.update_status()
             
             # Process Qt events if available (process ALL pending events)
             if qt_app:
