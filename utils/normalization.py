@@ -34,9 +34,39 @@ def levenshtein_score(ocr_text: str, skin_text: str) -> float:
     if not ocr_text or not skin_text:
         return 0.0
     
-    # Remove spaces and convert to lowercase before comparison
-    ocr_text_no_spaces = ocr_text.replace(" ", "").replace("l", "").replace("i", "").replace("1", "").replace("'", "").lower()
-    skin_text_no_spaces = skin_text.replace(" ", "").replace("l", "").replace("i", "").replace("1", "").replace("'", "").lower()
+    # Create a translation table:
+    # All l and i related characters are removed (None)
+    # Everything else is normalized to base letter
+    trans_table = str.maketrans({
+        # Remove spaces, apostrophes, and l/i related characters
+        ' ': None, "'": None, '1': None,
+        'l': None, 'L': None,
+        'i': None, 'I': None, 'í': None, 'ì': None, 'î': None, 'ï': None,
+        
+        # Normalize to base letters
+        'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a', 'æ': 'a',
+        'À': 'A', 'Á': 'A', 'Â': 'A', 'Ã': 'A', 'Ä': 'A', 'Å': 'A', 'Æ': 'A',
+        
+        'ç': 'c', 'Ç': 'C',
+        
+        'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+        'É': 'E', 'È': 'E', 'Ê': 'E', 'Ë': 'E',
+        
+        'ñ': 'n', 'Ñ': 'N',
+        
+        'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o', 'ø': 'o', 'œ': 'o',
+        'Ò': 'O', 'Ó': 'O', 'Ô': 'O', 'Õ': 'O', 'Ö': 'O', 'Ø': 'O', 'Œ': 'O',
+        
+        'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u',
+        'Ù': 'U', 'Ú': 'U', 'Û': 'U', 'Ü': 'U',
+        
+        'ý': 'y', 'ÿ': 'y',
+        'Ý': 'Y', 'Ÿ': 'Y'
+    })
+
+    # Apply transformation and convert to lowercase
+    ocr_text_no_spaces = ocr_text.translate(trans_table).lower()
+    skin_text_no_spaces = skin_text.translate(trans_table).lower()
 
     # Levenshtein distance
     distance = Levenshtein.distance(ocr_text_no_spaces, skin_text_no_spaces)

@@ -14,9 +14,9 @@ from utils.normalization import levenshtein_score
 
 def test_pattern_matching_full(use_cpu=False):
     """Test pattern matching on all OCR debug images with Levenshtein evaluation"""
-    debug_dir = Path("ocr_debug")
+    debug_dir = Path("pcr_debug")
     if not debug_dir.exists():
-        print("No ocr_debug directory found")
+        print("No pcr_debug directory found")
         return
     
     # Get all PNG files
