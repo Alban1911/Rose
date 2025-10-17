@@ -616,14 +616,12 @@ class OCRSkinThread(threading.Thread):
         
         champ_id = self.state.hovered_champ_id or self.state.locked_champ_id
         
-        # SECURE PIPELINE: Always match against English database for validation
-        # Pattern matching is always English-only (templates are English)
-        is_english_only = True
-        
-        if is_english_only and champ_id:
-            # ENGLISH OPTIMIZATION: OCR → English DB → ZIP (secure matching)
+        # Match against database in the current language
+        # Pattern matching uses English templates but database uses detected language
+        if champ_id:
+            # MULTI-LANGUAGE PIPELINE: PCR → Language DB → ZIP (secure matching)
             champ_slug = self.db.slug_by_id.get(champ_id)
-            log.debug(f"[DEBUG] English pipeline: champ_id={champ_id}, champ_slug={champ_slug}, txt='{txt}'")
+            log.debug(f"[DEBUG] {self.db.canonical_lang} pipeline: champ_id={champ_id}, champ_slug={champ_slug}, txt='{txt}'")
             if champ_slug:
                 # Load champion skins if not already loaded
                 if champ_slug not in self.db.champion_skins:

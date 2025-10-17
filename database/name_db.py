@@ -112,7 +112,7 @@ class NameDB:
                     pass
 
     def load_champion_skins_by_id(self, champion_id: int) -> bool:
-        """Load skin names for a specific champion by ID (English only, for skinId mapping)
+        """Load skin names for a specific champion by ID (in current database language)
         
         Args:
             champion_id: Champion ID to load skins for
@@ -130,8 +130,8 @@ class NameDB:
             return True
         
         try:
-            # Fetch champion data (English only for skinId mapping)
-            lang = "en_US"
+            # Fetch champion data using current database language
+            lang = self.canonical_lang
             data = self._cache_json(
                 f"champion_{self.ver}_{lang}_{slug}.json",
                 f"https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/{lang}/champion/{slug}.json"
