@@ -23,22 +23,30 @@ class ChromaSelector:
     - Injection later uses the selected chroma ID
     """
     
-    def __init__(self, skin_scraper, state):
+    def __init__(self, skin_scraper, state, db=None):
         """
         Initialize chroma selector
         
         Args:
             skin_scraper: LCUSkinScraper instance to get chroma data
             state: SharedState instance to track selection
+            db: NameDB instance for cross-language lookups
         """
         self.skin_scraper = skin_scraper
         self.state = state
+        self.db = db
         self.lock = threading.Lock()
         self.current_skin_id = None  # Track which skin we're showing chromas for
         
         # Get global panel manager
         self.panel = get_chroma_panel()
         self.panel.on_chroma_selected = self._on_chroma_selected
+        
+        # Pass database to preview manager
+        if db:
+            from utils.chroma_preview_manager import get_preview_manager
+            preview_manager = get_preview_manager(db)
+            log.debug("[CHROMA] Database passed to preview manager for cross-language lookups")
     
     def _on_chroma_selected(self, chroma_id: int, chroma_name: str):
         """Callback when user clicks a chroma - update state immediately"""
@@ -164,10 +172,10 @@ class ChromaSelector:
 _chroma_selector = None
 
 
-def init_chroma_selector(skin_scraper, state):
+def init_chroma_selector(skin_scraper, state, db=None):
     """Initialize global chroma selector"""
     global _chroma_selector
-    _chroma_selector = ChromaSelector(skin_scraper, state)
+    _chroma_selector = ChromaSelector(skin_scraper, state, db)
     log.debug("[CHROMA] Chroma selector initialized")
     return _chroma_selector
 

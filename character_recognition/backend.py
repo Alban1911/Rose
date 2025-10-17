@@ -15,22 +15,17 @@ log = get_logger()
 class CharacterRecognitionBackend:
     """Character recognition backend using pattern matching."""
     
-    def __init__(self, lang: str = "eng", psm: int = 7, tesseract_exe: str = None, 
-                 use_gpu: bool = True, measure_time: bool = True):
+    def __init__(self, lang: str = "eng", use_gpu: bool = True, measure_time: bool = True):
         """
         Initialize character recognition backend.
         
         Args:
             lang: Language code (kept for compatibility, only "eng" supported)
-            psm: Not used (kept for compatibility)
-            tesseract_exe: Not used (kept for compatibility)
             use_gpu: Not used (kept for compatibility)
             measure_time: Enable timing measurements for recognition operations
         """
         self.lang = lang
-        self.psm = int(psm)  # Keep for compatibility
         self.backend = "character_recognition"
-        self.tesseract_exe = tesseract_exe  # Keep for compatibility
         self.use_gpu = False  # Not applicable for pattern matching
         self.measure_time = measure_time
         

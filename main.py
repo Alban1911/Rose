@@ -643,8 +643,6 @@ def setup_arguments() -> argparse.Namespace:
     )
     
     # OCR arguments
-    ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM, 
-                   help="[DEPRECATED] Not used with EasyOCR (kept for compatibility)")
     ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
     ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, 
                    help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
@@ -821,7 +819,7 @@ def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
         return None
 
 
-def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optional[AppStatus] = None):
+def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_status: Optional[AppStatus] = None):
     """Initialize PyQt6 and chroma selector"""
     qt_app = None
     chroma_selector = None
@@ -860,7 +858,7 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optio
         # Initialize chroma selector (widgets will be created on champion lock)
         try:
             log.debug("Initializing chroma selector...")
-            chroma_selector = init_chroma_selector(skin_scraper, state)
+            chroma_selector = init_chroma_selector(skin_scraper, state, db)
             log_success(log, "Chroma selector initialized (panel widgets will be created on champion lock)", "🌈")
             
             # Update app status
@@ -954,7 +952,7 @@ def main():
     # Initialize PyQt6 and chroma selector
     try:
         log.info("Initializing PyQt6 and chroma selector...")
-        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, app_status)
+        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status)
         log.info("✓ PyQt6 and chroma selector initialized")
     except Exception as e:
         log.error("=" * 80)
@@ -975,8 +973,10 @@ def main():
     # Initialize database with error handling
     try:
         log.info("Initializing champion name database...")
-        db = NameDB(lang=args.dd_lang)
-        log.info("✓ Champion name database initialized")
+        # Load both English and French by default to ensure champion names are available
+        # regardless of which language is detected later
+        db = NameDB(lang="fr_FR,en_US")
+        log.info("✓ Champion name database initialized (fr_FR,en_US)")
     except Exception as e:
         log.error("=" * 80)
         log.error("FATAL ERROR DURING DATABASE INITIALIZATION")

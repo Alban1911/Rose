@@ -439,7 +439,7 @@ INTERESTING_PHASES = {
 # LANGUAGE MAPPING
 # =============================================================================
 
-# Map LCU languages to Tesseract OCR languages
+# Map LCU languages to OCR languages
 OCR_LANG_MAP = {
     "en_US": "eng",
     "es_ES": "spa", 
@@ -469,7 +469,6 @@ OCR_LANG_MAP = {
 # =============================================================================
 
 # OCR defaults
-DEFAULT_TESSERACT_PSM = 7              # Page segmentation mode
 DEFAULT_OCR_LANG = "auto"              # Auto-detect language
 DEFAULT_DD_LANG = "en_US"              # Data Dragon language
 
