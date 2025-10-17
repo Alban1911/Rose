@@ -5,7 +5,6 @@ Preview Repository Downloader
 Downloads the SkinPreviews repository (chroma preview images) as a ZIP and extracts it
 """
 
-import os
 import zipfile
 import tempfile
 import requests

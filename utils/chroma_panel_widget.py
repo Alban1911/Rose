@@ -6,7 +6,6 @@ Chroma Panel Widget - Main UI component for chroma selection
 """
 
 import math
-from pathlib import Path
 from typing import Optional, Callable, List, Dict
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtProperty
@@ -14,7 +13,6 @@ from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPi
 from utils.chroma_base import ChromaWidgetBase
 from utils.chroma_scaling import get_scaled_chroma_values
 from utils.logging import get_logger, log_event
-from utils.paths import get_skins_dir
 import config
 
 log = get_logger()

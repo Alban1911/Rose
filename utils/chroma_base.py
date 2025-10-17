@@ -6,7 +6,7 @@ Base classes and configuration for Chroma UI components
 
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt
-from utils.window_utils import get_league_window_handle, get_league_window_rect_fast
+from utils.window_utils import get_league_window_handle
 import ctypes
 
 
