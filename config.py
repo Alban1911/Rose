@@ -112,6 +112,10 @@ WHITE_TEXT_HSV_UPPER = [179, 70, 255]  # Upper HSV bound for white text
 # Upscaling threshold for small ROI images
 IMAGE_UPSCALE_THRESHOLD = 120  # Upscale if ROI height < this value
 
+# Image scaling dimensions for OCR preprocessing
+OCR_TARGET_WIDTH = 606   # Target width for OCR image scaling
+OCR_TARGET_HEIGHT = 56   # Target height for OCR image scaling
+
 
 # =============================================================================
 # THREAD POLLING INTERVALS

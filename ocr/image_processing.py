@@ -6,6 +6,7 @@ Image processing utilities for OCR with palette-based preprocessing
 
 import numpy as np
 import cv2
+from config import OCR_TARGET_WIDTH, OCR_TARGET_HEIGHT
 
 
 def create_palette_mask(input_img: np.ndarray, tolerance: int = 33) -> np.ndarray:
@@ -121,7 +122,7 @@ def preprocess_band_for_ocr(band_bgr: np.ndarray, tolerance: int = 33) -> np.nda
     
     # Resize to fixed dimensions for consistent character recognition
     # This ensures all images have the same resolution regardless of source
-    target_width, target_height = 606, 56
+    target_width, target_height = OCR_TARGET_WIDTH, OCR_TARGET_HEIGHT
     resized_img = cv2.resize(binary_img, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
     
     return resized_img
