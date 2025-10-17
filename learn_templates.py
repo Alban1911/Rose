@@ -19,7 +19,7 @@ from utils.logging import get_logger
 log = get_logger()
 
 
-def process_debug_images(debug_dir: str = "ocr_debug", 
+def process_debug_images(debug_dir: str = "pcr_debug", 
                         templates_dir: str = "character_recognition/templates/english",
                         min_confidence: float = 0.5) -> Dict[str, int]:
     """
@@ -168,8 +168,8 @@ Examples:
         """
     )
     
-    parser.add_argument("--debug-dir", default="ocr_debug",
-                       help="Directory containing OCR debug images (default: ocr_debug)")
+    parser.add_argument("--debug-dir", default="pcr_debug",
+                       help="Directory containing PCR debug images (default: pcr_debug)")
     parser.add_argument("--templates-dir", default="character_recognition/templates/english",
                        help="Directory to save character templates (default: character_recognition/templates/english)")
     parser.add_argument("--min-confidence", type=float, default=0.5,
