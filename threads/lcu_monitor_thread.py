@@ -135,10 +135,11 @@ class LCUMonitorThread(threading.Thread):
                 else:
                     log.info(f"Language confirmed after reconnection: {new_language}")
                 
-                # Always call callback on reconnection to ensure OCR is reinitialized
+                # Always call callback on reconnection to ensure UI detection is reinitialized
                 self.last_language = new_language
                 self.language_initialized = True
-                self.language_callback(new_language)
+                if self.language_callback:
+                    self.language_callback(new_language)
             else:
                 log.warning("Failed to get LCU language - client returned None")
         except Exception as e:
@@ -153,7 +154,8 @@ class LCUMonitorThread(threading.Thread):
             if current_language and current_language != self.last_language:
                 log.info(f"Language changed during session: {self.last_language} → {current_language}")
                 self.last_language = current_language
-                self.language_callback(current_language)
+                if self.language_callback:
+                    self.language_callback(current_language)
         except Exception as e:
             log.debug(f"Error checking language change: {e}")
     

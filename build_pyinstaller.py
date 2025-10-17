@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Build script for LeagueUnlocked using PyInstaller
-Fast builds with EasyOCR support
+Fast builds with Windows UI API support
 """
 
 import os
@@ -72,7 +72,7 @@ def build_with_pyinstaller():
     print(f"Running: {' '.join(cmd)}\n")
     print("Multi-threading: PyInstaller will use all available CPU cores")
     print("Expected time: 10-20 minutes (much faster than Nuitka!)\n")
-    print("Note: EasyOCR should work with PyInstaller!\n")
+    print("Note: Windows UI API should work with PyInstaller!\n")
     
     try:
         result = subprocess.run(cmd, check=True)
@@ -132,12 +132,12 @@ if errorlevel 1 (
     else:
         print("[WARNING] Icons directory not found!")
     
-    # Check for easyocr
-    easyocr_path = dist_folder / "easyocr"
-    if easyocr_path.exists():
-        print(f"[OK] EasyOCR directory found")
+    # Check for uiautomation
+    uiautomation_path = dist_folder / "uiautomation"
+    if uiautomation_path.exists():
+        print(f"[OK] uiautomation directory found")
     else:
-        print("[WARNING] EasyOCR directory not found - OCR might not work!")
+        print("[WARNING] uiautomation directory not found - UI detection might not work!")
     
     return True
 
@@ -189,8 +189,8 @@ def main():
         print(f"  start.bat")
         
         print(f"\nIMPORTANT: Check the log file after running!")
-        print(f"  Look for: 'OCR INITIALIZED' message")
-        print(f"  If you see that, EasyOCR is working!")
+        print(f"  Look for: 'UI Detection: Thread ready' message")
+        print(f"  If you see that, Windows UI API is working!")
     else:
         print("[ERROR] Executable not found!")
         sys.exit(1)

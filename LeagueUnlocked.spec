@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
 PyInstaller spec file for LeagueUnlocked
-Builds a standalone executable with EasyOCR support
+Builds a standalone executable with Windows UI API support
 """
 
 import sys
@@ -93,21 +93,13 @@ if os.path.exists('injection/mods_map.json'):
 else:
     print("[WARNING] injection/mods_map.json not found")
 
-# Collect EasyOCR data files (character files, configs, etc.)
+# Collect uiautomation data files
 try:
-    easyocr_datas = collect_data_files('easyocr')
-    datas += easyocr_datas
-    print(f"[OK] Collected {len(easyocr_datas)} EasyOCR data files")
+    uiautomation_datas = collect_data_files('uiautomation')
+    datas += uiautomation_datas
+    print(f"[OK] Collected {len(uiautomation_datas)} uiautomation data files")
 except Exception as e:
-    print(f"Warning: Could not collect EasyOCR data files: {e}")
-
-# Collect PyTorch data files
-try:
-    torch_datas = collect_data_files('torch')
-    datas += torch_datas
-    print(f"[OK] Collected {len(torch_datas)} PyTorch data files")
-except Exception as e:
-    print(f"Warning: Could not collect PyTorch data files: {e}")
+    print(f"Warning: Could not collect uiautomation data files: {e}")
 
 # Hidden imports - modules PyInstaller might not detect
 hiddenimports = [
@@ -122,9 +114,7 @@ hiddenimports = [
     'lcu.skin_scraper',
     'lcu.types',
     'lcu.utils',
-    'ocr',
-    'ocr.backend',
-    'ocr.image_processing',
+    'threads.ui_skin_thread',
     'state',
     'state.app_status',
     'state.shared_state',
@@ -132,7 +122,6 @@ hiddenimports = [
     'threads.champ_thread',
     'threads.lcu_monitor_thread',
     'threads.loadout_ticker',
-    'threads.ocr_thread',
     'threads.phase_thread',
     'threads.websocket_thread',
     'utils',
@@ -159,29 +148,8 @@ hiddenimports = [
     'utils.validation',
     'utils.window_utils',
     
-    # EasyOCR and all its submodules
-    'easyocr',
-    'easyocr.config',
-    'easyocr.craft',
-    'easyocr.craft_utils',
-    'easyocr.detection',
-    'easyocr.detection_db',
-    'easyocr.easyocr',
-    'easyocr.recognition',
-    'easyocr.utils',
-    'easyocr.imgproc',
-    'easyocr.model',
-    'easyocr.model.model',
-    'easyocr.model.modules',
-    'easyocr.model.vgg_model',
-    
-    # PyTorch
-    'torch',
-    'torch._C',
-    'torch.nn',
-    'torch.nn.functional',
-    'torchvision',
-    'torchvision.models',
+    # Windows UI Automation
+    'uiautomation',
     
     # PyQt6
     'PyQt6',
@@ -189,18 +157,11 @@ hiddenimports = [
     'PyQt6.QtGui',
     'PyQt6.QtWidgets',
     
-    # Computer vision
-    'cv2',
+    # Image processing (PIL only)
     'PIL',
     'PIL.Image',
     'PIL.ImageDraw',
     'PIL.ImageFont',
-    
-    # Scientific computing
-    'numpy',
-    'scipy',
-    'scipy.ndimage',
-    'scipy.stats',
     
     # Networking
     'requests',
@@ -223,16 +184,10 @@ hiddenimports = [
 
 # Collect all submodules for complex packages
 try:
-    hiddenimports += collect_submodules('easyocr')
-    print("[OK] Collected EasyOCR submodules")
+    hiddenimports += collect_submodules('uiautomation')
+    print("[OK] Collected uiautomation submodules")
 except Exception as e:
-    print(f"Warning: Could not collect EasyOCR submodules: {e}")
-
-try:
-    hiddenimports += collect_submodules('torch')
-    print("[OK] Collected PyTorch submodules")
-except Exception as e:
-    print(f"Warning: Could not collect PyTorch submodules: {e}")
+    print(f"Warning: Could not collect uiautomation submodules: {e}")
 
 # Exclusions - modules we don't need (reduces size and build time)
 excludes = [
@@ -246,6 +201,14 @@ excludes = [
     'PyQt5',  # Exclude PyQt5 to avoid conflict with PyQt6
     'PySide2',
     'PySide6',
+    # Exclude removed OCR/PCR packages
+    'easyocr',
+    'torch',
+    'torchvision',
+    'cv2',
+    'numpy',
+    'scipy',
+    'mss',
     # Exclude heavy data science packages we don't use
     'pandas',
     'pyarrow',

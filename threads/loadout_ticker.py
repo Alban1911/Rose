@@ -11,7 +11,7 @@ from lcu.client import LCU
 from state.shared_state import SharedState
 from database.name_db import NameDB
 from utils.logging import get_logger
-from utils.normalization import normalize_text
+# Note: normalize_text removed - using simple normalization instead
 from config import (
     TIMER_HZ_MIN, TIMER_HZ_MAX, TIMER_POLL_PERIOD_S,
     SKIN_THRESHOLD_MS_DEFAULT,
@@ -125,8 +125,8 @@ class LoadoutTicker(threading.Thread):
                         base_clean = base_clean[:-(len(c_clean) + 1)].rstrip()
 
                     # 4) If champion name is already included in the middle (ex: "K/DA ALL OUT Seraphine Indie"), don't add it
-                    nb = normalize_text(base_clean)
-                    nc = normalize_text(c_clean)
+                    nb = base_clean.lower().strip() if base_clean else ""
+                    nc = c_clean.lower().strip() if c_clean else ""
                     if nc and (nc in nb.split()):
                         final_label = base_clean
                     else:

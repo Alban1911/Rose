@@ -19,102 +19,16 @@ PRODUCTION_MODE = True
 
 
 # =============================================================================
-# TEXT RECOGNITION CONSTANTS
+# UI DETECTION CONSTANTS
 # =============================================================================
 
-# Character Recognition Constants
-CHAR_RECOGNITION_MIN_COMPONENT_WIDTH = 3
-CHAR_RECOGNITION_MIN_COMPONENT_HEIGHT = 8
-CHAR_RECOGNITION_MAX_COMPONENT_WIDTH = 100
-CHAR_RECOGNITION_MAX_COMPONENT_HEIGHT = 60
-CHAR_RECOGNITION_TEMPLATE_MATCH_THRESHOLD = 0.7
-CHAR_RECOGNITION_DEBUG_MODE = False
+# UI detection polling
+UI_POLL_INTERVAL = 0.1  # Seconds between UI detection checks
+UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
 
-# Special character mapping for Windows filename compatibility
-# Maps special characters that can't be used in filenames to safe alternatives
-SPECIAL_CHAR_MAPPING = {
-    ':': 'colon',
-    ';': 'semicolon',
-    '<': 'less_than',
-    '>': 'greater_than',
-    '"': 'quote',
-    '/': 'slash',
-    '\\': 'backslash',
-    '|': 'pipe',
-    '?': 'question',
-    '*': 'asterisk',
-    ' ': 'space',
-    '\t': 'tab',
-    '\n': 'newline',
-    '\r': 'carriage_return'
-}
+# Skin matching
+SKIN_NAME_MIN_SIMILARITY = 0.15  # Minimum similarity for fuzzy skin name matching (15%)
 
-# Reverse mapping: filename-safe names back to actual characters
-SPECIAL_CHAR_REVERSE_MAPPING = {v: k for k, v in SPECIAL_CHAR_MAPPING.items()}
-
-# =============================================================================
-# OCR TIMING CONSTANTS
-# =============================================================================
-
-# OCR frequency settings (Hz)
-OCR_BURST_HZ_DEFAULT = 40.0  # OCR frequency during motion/hover
-OCR_IDLE_HZ_DEFAULT = 0.0    # OCR frequency when idle (0 = disabled)
-
-# OCR timing intervals (seconds)
-OCR_MIN_INTERVAL = 0.15      # Minimum time between OCR operations
-OCR_ROI_LOCK_DURATION = 1.5  # Duration to lock ROI after detection
-OCR_CHAMPION_LOCK_DELAY_S = 0.18  # Delay after champion lock before OCR starts
-
-# OCR motion detection (milliseconds)
-OCR_BURST_MS_DEFAULT = 150   # Duration to continue burst OCR after motion
-OCR_SECOND_SHOT_MS_DEFAULT = 100  # Delay for second OCR attempt for accuracy
-
-# OCR thresholds
-OCR_DIFF_THRESHOLD_DEFAULT = 0.003  # Image change threshold to trigger OCR
-OCR_MIN_CONFIDENCE_DEFAULT = 0.5    # Minimum confidence score for matches
-OCR_FUZZY_MATCH_THRESHOLD = 0.3     # Threshold for fuzzy text matching
-SKIN_NAME_MIN_SIMILARITY = 0.15     # Minimum similarity for fuzzy skin name matching (15%)
-
-# OCR window detection
-OCR_WINDOW_LOG_INTERVAL = 1.0  # Seconds between window detection logs
-
-# OCR debugging
-DEFAULT_DEBUG_PCR = False  # Save PCR images to debug folder (disabled by default)
-
-# OCR image processing
-OCR_SMALL_IMAGE_WIDTH = 96   # Width for small image used in change detection
-OCR_SMALL_IMAGE_HEIGHT = 20  # Height for small image used in change detection
-OCR_IMAGE_DIFF_NORMALIZATION = 255.0  # Normalization value for image difference calculation
-
-
-# =============================================================================
-# ROI (REGION OF INTEREST) PROPORTIONS
-# =============================================================================
-
-# Fixed proportions for League of Legends skin name display area
-# Based on exact measurements at 1280x720: 455px from top, 450px from left/right, 230px from bottom
-ROI_PROPORTIONS = {
-    'x1_ratio': 0.352,  # 450/1280 - left edge
-    'y1_ratio': 0.632,  # 455/720  - top edge
-    'x2_ratio': 0.648,  # 830/1280 - right edge
-    'y2_ratio': 0.681   # 490/720  - bottom edge
-}
-
-
-# =============================================================================
-# IMAGE PROCESSING CONSTANTS
-# =============================================================================
-
-# HSV color ranges for white text detection (used in hardcoded ROI processing)
-WHITE_TEXT_HSV_LOWER = [0, 0, 200]     # Lower HSV bound for white text
-WHITE_TEXT_HSV_UPPER = [179, 70, 255]  # Upper HSV bound for white text
-
-# Upscaling threshold for small ROI images
-IMAGE_UPSCALE_THRESHOLD = 120  # Upscale if ROI height < this value
-
-# Image scaling dimensions for OCR preprocessing
-OCR_TARGET_WIDTH = 606   # Target width for OCR image scaling
-OCR_TARGET_HEIGHT = 56   # Target height for OCR image scaling
 
 
 # =============================================================================
@@ -133,11 +47,6 @@ LCU_MONITOR_INTERVAL = 1.0  # Seconds between LCU connection checks
 
 # Main loop sleep intervals
 MAIN_LOOP_SLEEP = 0.01      # Main loop iteration sleep time (10ms for responsive chroma UI)
-OCR_NO_WINDOW_SLEEP = 0.05  # Sleep when no window is found
-OCR_NO_CONDITION_SLEEP = 0.15  # Sleep when OCR conditions not met
-OCR_MOTION_SLEEP_DIVISOR = 10.0  # Divisor for burst mode sleep calculation
-OCR_IDLE_SLEEP_MIN = 5.0    # Minimum frequency for idle mode calculation
-OCR_IDLE_SLEEP_DEFAULT = 0.1  # Default sleep when idle mode is off
 
 
 # =============================================================================
@@ -439,47 +348,14 @@ INTERESTING_PHASES = {
 }
 
 
-# =============================================================================
-# LANGUAGE MAPPING
-# =============================================================================
-
-# Map LCU languages to OCR languages
-OCR_LANG_MAP = {
-    "en_US": "eng",
-    "es_ES": "spa", 
-    "es_MX": "spa",
-    "fr_FR": "fra",
-    "de_DE": "deu",
-    "it_IT": "ita",
-    "pt_BR": "por",
-    "ru_RU": "rus",
-    "pl_PL": "pol",
-    "tr_TR": "tur",
-    "el_GR": "ell",
-    "hu_HU": "hun",
-    "ro_RO": "ron",
-    "zh_CN": "chi_sim",
-    "zh_TW": "chi_tra",
-    "ar_AE": "ara",
-    "ar_SA": "ara",
-    "ar_EG": "ara",
-    "ja_JP": "jpn",
-    "ko_KR": "kor",
-}
 
 
 # =============================================================================
 # DEFAULT ARGUMENTS
 # =============================================================================
 
-# OCR defaults
-DEFAULT_OCR_LANG = "auto"              # Auto-detect language
+# Data Dragon language
 DEFAULT_DD_LANG = "en_US"              # Data Dragon language
-
-# Capture defaults
-DEFAULT_CAPTURE_MODE = "window"        # Window capture vs screen capture
-DEFAULT_MONITOR = "all"                # Monitor to capture
-DEFAULT_WINDOW_HINT = "League"         # Window title hint
 
 # Boolean flags
 DEFAULT_VERBOSE = False

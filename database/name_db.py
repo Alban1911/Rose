@@ -9,7 +9,7 @@ import json
 import requests
 from dataclasses import dataclass
 from typing import Optional, List, Dict
-from utils.normalization import normalize_text
+# Note: normalize_text removed - using simple normalization instead
 from utils.paths import get_user_data_dir
 from utils.logging import get_logger
 from config import DATA_DRAGON_API_TIMEOUT_S
@@ -246,7 +246,8 @@ class NameDB:
         for e in entries:
             nk = getattr(self, "_norm_cache", {}).get(e.key)
             if nk is None:
-                nk = normalize_text(e.key)
+                # Simple normalization: just lowercase and strip
+                nk = e.key.lower().strip() if e.key else ""
                 self._norm_cache[e.key] = nk
             out.append((e, nk))
         return out

@@ -156,7 +156,6 @@ if sys.platform == "win32":
     
     _console_thread = threading.Thread(target=_console_buffer_manager, daemon=True, name="ConsoleBufferManager")
     _console_thread.start()
-from ocr.backend import OCR
 from database.name_db import NameDB
 from lcu.client import LCU
 from lcu.skin_scraper import LCUSkinScraper
@@ -164,7 +163,7 @@ from state.shared_state import SharedState
 from state.app_status import AppStatus
 from threads.phase_thread import PhaseThread
 from threads.champ_thread import ChampThread
-from threads.ocr_thread import OCRSkinThread
+from threads.ui_skin_thread import UISkinThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
 from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
@@ -603,63 +602,13 @@ KwIDAQAB
     return True
 
 
-def get_ocr_language(lcu_lang: str, manual_lang: str = None) -> str:
-    """Get OCR language based on LCU language or manual setting"""
-    if manual_lang and manual_lang != "auto":
-        return manual_lang
-    
-    return OCR_LANG_MAP.get(lcu_lang, "eng")  # Default to English
-
-
-def validate_ocr_language(lang: str) -> bool:
-    """Validate that OCR language is available for EasyOCR
-    
-    Note: EasyOCR will automatically download models for supported languages,
-    so we just check if the language code is valid.
-    """
-    if not lang or lang == "auto":
-        return True
-    
-    # EasyOCR supported languages (through our mapping in backend.py)
-    supported_langs = [
-        "eng", "rus", "kor", "chi_sim", "chi_tra", "jpn", "ara",
-        "fra", "deu", "spa", "por", "ita", "pol", "ron", "hun",
-        "tur", "tha", "vie", "ell"
-    ]
-    
-    # Check if all parts of combined languages are supported
-    parts = lang.split('+')
-    for part in parts:
-        if part not in supported_langs:
-            return False
-    
-    return True
 
 
 def setup_arguments() -> argparse.Namespace:
     """Parse and return command line arguments"""
     ap = argparse.ArgumentParser(
-        description="Combined LCU + OCR Tracer (ChampSelect) — ROI lock + burst OCR + locks/timer fixes"
+        description="LeagueUnlocked - Windows UI API skin detection"
     )
-    
-    # OCR arguments
-    ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
-    ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, 
-                   help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
-    ap.add_argument("--debug-pcr", action="store_true", default=DEFAULT_DEBUG_PCR, 
-                   help="Save PCR images to debug folder")
-    ap.add_argument("--no-debug-pcr", action="store_false", dest="debug_pcr", 
-                   help="Disable PCR debug image saving")
-    ap.add_argument("--clear-debug-pcr", action="store_true", default=False,
-                   help="Clear existing PCR debug images before starting (use with --debug-pcr)")
-    
-    # Pattern Character Recognition arguments
-    ap.add_argument("--templates-dir", type=str, default="character_recognition/templates/english",
-                    help="Directory containing character templates for pattern matching")
-    
-    # Capture arguments
-    ap.add_argument("--capture", choices=["window", "screen"], default=DEFAULT_CAPTURE_MODE)
-    ap.add_argument("--window-hint", type=str, default=DEFAULT_WINDOW_HINT)
     
     # Database arguments
     ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, 
@@ -672,15 +621,6 @@ def setup_arguments() -> argparse.Namespace:
                    help="Enable ultra-detailed debug logging (includes function traces and variable dumps)")
     ap.add_argument("--lockfile", type=str, default=None)
     
-    # OCR performance arguments
-    ap.add_argument("--burst-hz", type=float, default=OCR_BURST_HZ_DEFAULT)
-    ap.add_argument("--idle-hz", type=float, default=OCR_IDLE_HZ_DEFAULT, 
-                   help="periodic re-emission (0=off)")
-    ap.add_argument("--diff-threshold", type=float, default=OCR_DIFF_THRESHOLD_DEFAULT)
-    ap.add_argument("--burst-ms", type=int, default=OCR_BURST_MS_DEFAULT)
-    ap.add_argument("--min-ocr-interval", type=float, default=OCR_MIN_INTERVAL)
-    ap.add_argument("--second-shot-ms", type=int, default=OCR_SECOND_SHOT_MS_DEFAULT)
-    ap.add_argument("--roi-lock-s", type=float, default=OCR_ROI_LOCK_DURATION)
     
     # Threading arguments
     ap.add_argument("--phase-hz", type=float, default=PHASE_HZ_DEFAULT)
@@ -696,13 +636,6 @@ def setup_arguments() -> argparse.Namespace:
     ap.add_argument("--inject-batch", type=str, default="", 
                    help="Batch to execute right after skin write (leave empty to disable)")
     
-    # Multi-language arguments (DEPRECATED - now using LCU scraper)
-    ap.add_argument("--multilang", action="store_true", default=False, 
-                   help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
-    ap.add_argument("--no-multilang", action="store_false", dest="multilang", 
-                   help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
-    ap.add_argument("--language", type=str, default=DEFAULT_OCR_LANG, 
-                   help="[DEPRECATED] Language is now auto-detected from LCU")
     
     # Skin download arguments
     ap.add_argument("--download-skins", action="store_true", default=DEFAULT_DOWNLOAD_SKINS, 
@@ -762,37 +695,9 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
         # Detailed startup for verbose/debug
         log_section(log, "LeagueUnlocked Starting", "🚀", {
             "Verbose Mode": "Enabled" if args.verbose else "Disabled",
-            "Download Skins": "Enabled" if args.download_skins else "Disabled",
-            "PCR Debug": "Enabled" if args.debug_pcr else "Disabled"
+            "Download Skins": "Enabled" if args.download_skins else "Disabled"
         })
     
-    # Handle PCR debug folder
-    if args.debug_pcr:
-        pcr_debug_dir = Path(__file__).resolve().parent / "pcr_debug"
-        
-        if args.clear_debug_pcr:
-            # Clear existing debug files if requested
-            if pcr_debug_dir.exists():
-                try:
-                    shutil.rmtree(pcr_debug_dir)
-                    log_success(log, f"Cleared PCR debug folder: {pcr_debug_dir}", "🧹")
-                except (OSError, PermissionError) as e:
-                    log.warning(f"Failed to clear PCR debug folder: {e}")
-        
-        # Create debug folder if it doesn't exist
-        if not pcr_debug_dir.exists():
-            try:
-                pcr_debug_dir.mkdir(parents=True, exist_ok=True)
-                log_success(log, f"Created PCR debug folder: {pcr_debug_dir}", "📁")
-            except (OSError, PermissionError) as e:
-                log.warning(f"Failed to create PCR debug folder: {e}")
-        else:
-            # Count existing files
-            existing_files = list(pcr_debug_dir.glob("*.png"))
-            if existing_files:
-                log.info(f"PCR debug folder exists with {len(existing_files)} existing images - preserving them for template collection")
-            else:
-                log.info("PCR debug folder exists but is empty - ready for new captures")
 
 
 def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
@@ -998,8 +903,6 @@ def main():
         qt_app = None
         chroma_selector = None
     
-    # OCR will be initialized when WebSocket connects (for proper language detection)
-    ocr = None
     
     # Initialize injection manager with database (lazy initialization)
     try:
@@ -1137,108 +1040,13 @@ def main():
         
         tray_manager.quit_callback = updated_tray_quit_callback
 
-        # Function to initialize PCR when WebSocket connects
-        def initialize_ocr_on_connect(lcu_lang: str):
-            """Initialize PCR when WebSocket connects with proper language detection"""
-            nonlocal ocr
-            
-            if ocr is not None:
-                log.info(f"PCR already initialized with language {ocr.lang}, skipping")
-                return
-            
-            # Initialize pattern matching character recognition
-            try:
-                from character_recognition.backend import CharacterRecognitionBackend
-                ocr = CharacterRecognitionBackend(measure_time=True)
-                separator = "=" * 80
-                log.info(separator)
-                log.info(f"🔤 CHARACTER RECOGNITION INITIALIZED")
-                log.info(f"   📋 Backend: Pattern Matching")
-                log.info(f"   📋 Templates: {args.templates_dir}")
-                log.info(f"   📋 Timing: {'Enabled' if ocr.measure_time else 'Disabled'}")
-                log.info(separator)
-                
-                # Update app status
-                if app_status:
-                    app_status.mark_ocr_initialized(ocr)
-                    
-                    # Update PCR thread with the new character recognizer
-                    if t_ocr:
-                        t_ocr.character_recognizer = ocr
-                        t_ocr.use_pattern_matching = True
-                        t_ocr.templates_dir = args.templates_dir
-                        log.info("PCR thread updated with character recognizer")
-                    
-            except Exception as e:
-                log.error(f"Failed to initialize character recognition: {e}")
-                log.error("Character recognition is required - cannot continue without templates")
-                # Don't exit, let the app continue and show the error
-    
     # Function to handle LCU disconnection
     def on_lcu_disconnected():
-        """Handle LCU disconnection - reset OCR status"""
-        nonlocal ocr
-        
-        # Mark OCR as uninitialized since we lost connection
-        ocr = None
-        
+        """Handle LCU disconnection - reset UI detection status"""
         # Update app status to golden locked (chroma and skins still ready)
         if app_status:
-            app_status._ocr_initialized = False
+            app_status._ui_detection_initialized = False
             app_status.update_status()
-    
-    # Function to update PCR language dynamically (for reconnections/language changes)
-    def update_ocr_language(new_lcu_lang: str):
-        """Update PCR language when LCU language changes or reconnects"""
-        nonlocal ocr
-        
-        # Only update if PCR is already initialized (language change)
-        if ocr is None:
-            log.debug("PCR initialization handled by WebSocket, skipping LCU monitor initialization")
-            return
-            
-        if args.lang == "auto":
-            new_ocr_lang = get_ocr_language(new_lcu_lang, args.lang)
-            try:
-                # For now, all languages use English pattern matching templates
-                # This allows testing if French text works with English character templates
-                if new_ocr_lang != ocr.lang:
-                    separator = "=" * 80
-                    log.info(separator)
-                    log.info(f"🔄 PCR LANGUAGE CHANGE DETECTED")
-                    log.info(f"   📋 Previous Language: {ocr.lang}")
-                    log.info(f"   📋 New Language: {new_ocr_lang} (LCU: {new_lcu_lang})")
-                    log.info(f"   📋 Note: Using English templates for all languages")
-                    log.info(separator)
-                    
-                    # Update the language attribute but keep using English templates
-                    ocr.lang = new_ocr_lang
-                    
-                    # Update database language to match the detected language
-                    # This ensures skin name matching uses the correct language database
-                    try:
-                        db.langs = [new_lcu_lang]  # Update database language
-                        db.canonical_lang = new_lcu_lang
-                        db.champ_name_by_id = db.champ_name_by_id_by_lang.get(new_lcu_lang, {})
-                        # Clear cached skins so they reload with new language
-                        db.champion_skins.clear()
-                        db._skins_loaded.clear()
-                        log.info(f"   📋 Database language updated to: {new_lcu_lang}")
-                    except Exception as e:
-                        log.warning(f"Failed to update database language: {e}")
-                    
-                    # Update PCR thread
-                    if t_ocr:
-                        t_ocr.character_recognizer = ocr
-                    
-                    log.info(separator)
-                    log.info(f"✅ PCR LANGUAGE UPDATED")
-                    log.info(f"   📋 Language: {new_ocr_lang} (templates: English, database: {new_lcu_lang})")
-                    log.info(separator)
-                else:
-                    log.debug(f"PCR language unchanged: {new_ocr_lang}")
-            except Exception as e:
-                log.warning(f"Failed to update PCR language: {e}")
 
     # Initialize thread manager for organized thread lifecycle
     thread_manager = ThreadManager()
@@ -1248,16 +1056,16 @@ def main():
                          log_transitions=False, injection_manager=injection_manager)
     thread_manager.register("Phase", t_phase)
     
-    t_ocr = OCRSkinThread(state, db, ocr, args, lcu, skin_scraper=skin_scraper)
-    thread_manager.register("OCR", t_ocr)
+    t_ui = UISkinThread(state, db, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
+    thread_manager.register("UI Detection", t_ui)
     
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
                         fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                        skin_scraper=skin_scraper, ocr_init_callback=initialize_ocr_on_connect)
+                        skin_scraper=skin_scraper)
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
-    t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws, 
+    t_lcu_monitor = LCUMonitorThread(lcu, state, None, t_ws, 
                                       db=db, skin_scraper=skin_scraper, injection_manager=injection_manager,
                                       disconnect_callback=on_lcu_disconnected)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
@@ -1265,11 +1073,7 @@ def main():
     # Start all threads
     thread_manager.start_all()
 
-    log.info("System ready - OCR active only in Champion Select")
-    if args.debug_pcr:
-        log.info("PCR Debug Mode: ON - Images will be saved to 'pcr_debug/' folder")
-    else:
-        log.info("PCR Debug Mode: OFF - Use --debug-pcr to enable")
+    log.info("System ready - UI Detection active only in Champion Select")
 
     last_phase = None
     last_loop_time = time.time()

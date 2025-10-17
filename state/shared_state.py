@@ -38,16 +38,14 @@ class SharedState:
     ticker_seq: int = 0
     current_ticker: int = 0
     
-    # OCR last raw text (exact string to write)
-    ocr_last_text: Optional[str] = None
     
     # Skin write config
     skin_write_ms: int = 2000
-    injection_completed: bool = False  # Flag to prevent OCR restart after injection
+    injection_completed: bool = False  # Flag to prevent UI detection restart after injection
     inject_batch: Optional[str] = None
     
     # Chroma selection
     selected_chroma_id: Optional[int] = None  # Selected chroma ID (None = base skin)
     pending_chroma_selection: bool = False  # Flag to indicate chroma panel is open
-    chroma_panel_open: bool = False  # Flag to pause OCR when panel is open
+    chroma_panel_open: bool = False  # Flag to pause UI detection when panel is open
     chroma_panel_skin_name: Optional[str] = None  # Base skin name when panel was opened (to avoid re-detecting same skin)

@@ -19,14 +19,13 @@ log = get_logger()
 class ChampThread(threading.Thread):
     """Thread for monitoring champion hover and lock"""
     
-    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL, injection_manager=None, skin_scraper=None):
+    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL, injection_manager=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.db = db
         self.state = state
         self.interval = interval
         self.injection_manager = injection_manager
-        self.skin_scraper = skin_scraper
         self.last_hover = None
         self.last_lock = None
         self.last_locked_champion_id = None  # Track previously locked champion for exchange detection
@@ -71,13 +70,6 @@ class ChampThread(threading.Thread):
             self.state.loadout_countdown_active = False
             log.debug("[exchange] Reset loadout countdown state")
         
-        # Scrape skins for new champion from LCU
-        if self.skin_scraper:
-            try:
-                self.skin_scraper.scrape_champion_skins(new_champ_id)
-                log.debug(f"[exchange] Scraped skins for {new_champ_label}")
-            except Exception as e:
-                log.error(f"[exchange] Failed to scrape champion skins: {e}")
         
         # Load English skin names for new champion from Data Dragon
         try:
@@ -155,12 +147,6 @@ class ChampThread(threading.Thread):
                         nm = self.db.champ_name_by_id.get(locked) or f"champ_{locked}"
                         log.info(f"[lock:champ] {nm} (id={locked})")
                         
-                        # Scrape skins for this champion from LCU
-                        if self.skin_scraper:
-                            try:
-                                self.skin_scraper.scrape_champion_skins(locked)
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
                         
                         # Load English skin names for this champion from Data Dragon
                         try:
