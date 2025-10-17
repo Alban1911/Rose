@@ -1187,57 +1187,58 @@ def main():
             app_status._ocr_initialized = False
             app_status.update_status()
     
-    # Function to update OCR language dynamically (for reconnections/language changes)
+    # Function to update PCR language dynamically (for reconnections/language changes)
     def update_ocr_language(new_lcu_lang: str):
-        """Update OCR language when LCU language changes or reconnects"""
+        """Update PCR language when LCU language changes or reconnects"""
         nonlocal ocr
         
-        # Only update if OCR is already initialized (language change)
+        # Only update if PCR is already initialized (language change)
         if ocr is None:
-            log.debug("OCR initialization handled by WebSocket, skipping LCU monitor initialization")
+            log.debug("PCR initialization handled by WebSocket, skipping LCU monitor initialization")
             return
             
         if args.lang == "auto":
             new_ocr_lang = get_ocr_language(new_lcu_lang, args.lang)
             try:
-                # Validate that the new OCR language is available before updating
-                if validate_ocr_language(new_ocr_lang):
-                    # Only recreate OCR if language actually changed
-                    if new_ocr_lang != ocr.lang:
-                        separator = "=" * 80
-                        log.info(separator)
-                        log.info(f"🔄 OCR LANGUAGE CHANGE DETECTED")
-                        log.info(f"   📋 Previous Language: {ocr.lang}")
-                        log.info(f"   📋 New Language: {new_ocr_lang} (LCU: {new_lcu_lang})")
-                        log.info(separator)
-                        
-                        # Create new OCR instance with new language (try GPU, fallback to CPU)
-                        new_ocr = OCR(
-                            lang=new_ocr_lang,
-                            psm=args.psm,
-                            tesseract_exe=args.tesseract_exe,
-                            use_gpu=True,
-                            measure_time=True
-                        )
-                        
-                        # Update the global OCR reference
-                        ocr.__dict__.update(new_ocr.__dict__)
-                        
-                        # Update OCR thread
-                        if t_ocr:
-                            t_ocr.ocr = ocr
-                        
-                        log.info(separator)
-                        log.info(f"✅ OCR RELOADED SUCCESSFULLY")
-                        log.info(f"   📋 Language: {new_ocr_lang}")
-                        log.info(separator)
-                    else:
-                        log.debug(f"OCR language unchanged: {new_ocr_lang}")
+                # For now, all languages use English pattern matching templates
+                # This allows testing if French text works with English character templates
+                if new_ocr_lang != ocr.lang:
+                    separator = "=" * 80
+                    log.info(separator)
+                    log.info(f"🔄 PCR LANGUAGE CHANGE DETECTED")
+                    log.info(f"   📋 Previous Language: {ocr.lang}")
+                    log.info(f"   📋 New Language: {new_ocr_lang} (LCU: {new_lcu_lang})")
+                    log.info(f"   📋 Note: Using English templates for all languages")
+                    log.info(separator)
+                    
+                    # Update the language attribute but keep using English templates
+                    ocr.lang = new_ocr_lang
+                    
+                    # Update database language to match the detected language
+                    # This ensures skin name matching uses the correct language database
+                    try:
+                        db.langs = [new_lcu_lang]  # Update database language
+                        db.canonical_lang = new_lcu_lang
+                        db.champ_name_by_id = db.champ_name_by_id_by_lang.get(new_lcu_lang, {})
+                        # Clear cached skins so they reload with new language
+                        db.champion_skins.clear()
+                        db._skins_loaded.clear()
+                        log.info(f"   📋 Database language updated to: {new_lcu_lang}")
+                    except Exception as e:
+                        log.warning(f"Failed to update database language: {e}")
+                    
+                    # Update PCR thread
+                    if t_ocr:
+                        t_ocr.character_recognizer = ocr
+                    
+                    log.info(separator)
+                    log.info(f"✅ PCR LANGUAGE UPDATED")
+                    log.info(f"   📋 Language: {new_ocr_lang} (templates: English, database: {new_lcu_lang})")
+                    log.info(separator)
                 else:
-                    # Keep current OCR language (likely English fallback) but log the LCU language
-                    log.info(f"OCR language kept at: {ocr.lang} (LCU: {new_lcu_lang}, OCR language not available)")
+                    log.debug(f"PCR language unchanged: {new_ocr_lang}")
             except Exception as e:
-                log.warning(f"Failed to update OCR language: {e}")
+                log.warning(f"Failed to update PCR language: {e}")
 
     # Initialize thread manager for organized thread lifecycle
     thread_manager = ThreadManager()
