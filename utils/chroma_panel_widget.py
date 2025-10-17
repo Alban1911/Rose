@@ -304,7 +304,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
             
             # Load chroma preview image with direct path
             chroma_id = chroma.get('id', 0)
-            preview_image = self._load_chroma_preview_image(skin_name, chroma_id, champion_name)
+            preview_image = self._load_chroma_preview_image(skin_name, chroma_id, champion_name, skin_id)
             
             circle = ChromaCircle(
                 chroma_id=chroma_id,
@@ -361,9 +361,15 @@ class ChromaPanelWidget(ChromaWidgetBase):
                 log.debug(f"[CHROMA] No champion name provided for preview")
                 return None
             
+            log.debug(f"[CHROMA] Loading chroma preview: skin_name='{skin_name}', chroma_id={chroma_id}, champion_name='{champion_name}', skin_id={skin_id}")
+            
             # Load from SkinPreviews repository
             from utils.chroma_preview_manager import get_preview_manager
-            preview_manager = get_preview_manager()
+            # Get database from chroma selector if available
+            from utils.chroma_selector import get_chroma_selector
+            chroma_selector = get_chroma_selector()
+            db = chroma_selector.db if chroma_selector else None
+            preview_manager = get_preview_manager(db)
             
             image_path = preview_manager.get_preview_path(champion_name, skin_name, chroma_id, skin_id)
             

@@ -98,6 +98,7 @@ class ChromaPreviewManager:
         # Try to get English name from database using skin ID
         if skin_id and hasattr(self, 'db') and self.db:
             try:
+                log.debug(f"[CHROMA] Attempting database lookup for skin ID {skin_id}")
                 english_name = self.db.get_english_skin_name_by_id(skin_id)
                 if english_name:
                     log.debug(f"[CHROMA] Converted skin name via database: '{skin_name}' -> '{english_name}' (ID: {skin_id})")
@@ -106,6 +107,8 @@ class ChromaPreviewManager:
                     log.debug(f"[CHROMA] No English name found in database for skin ID {skin_id}")
             except Exception as e:
                 log.debug(f"[CHROMA] Database lookup failed for skin ID {skin_id}: {e}")
+        else:
+            log.debug(f"[CHROMA] No database available for skin ID {skin_id} (db={hasattr(self, 'db') and self.db is not None})")
         
         # Fallback: return the original name if no database conversion is available
         log.debug(f"[CHROMA] No English conversion available for '{skin_name}', using original name")
