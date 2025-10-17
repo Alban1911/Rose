@@ -203,7 +203,9 @@ class WSEventThread(threading.Thread):
                     self.state.last_hover_written = False
                     self.state.injection_completed = False  # Reset injection flag for new game
                     self.state.loadout_countdown_active = False  # Reset countdown state
-                    self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
+                    # Reset champion lock state for new game
+                    self.state.locked_champ_id = None
+                    self.state.locked_champ_timestamp = 0.0  # Reset timestamp for new game
                     self.last_locked_champion_id = None  # Reset exchange tracking for new game
                     try: 
                         self.state.processed_action_ids.clear()

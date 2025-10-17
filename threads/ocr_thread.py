@@ -414,6 +414,9 @@ class OCRSkinThread(threading.Thread):
             if time_since_lock < OCR_CHAMPION_LOCK_DELAY_S:
                 # Still within the delay period, don't start OCR yet
                 return False
+            else:
+                # Delay period has ended
+                pass
         
         # NEW: Check if League window is active/focused
         if not is_league_window_active():
@@ -504,6 +507,7 @@ class OCRSkinThread(threading.Thread):
                     try:
                         shot = sct.grab(mon)
                         band = np.array(shot, dtype=np.uint8)[:, :, :3]
+                        
                     except Exception:
                         time.sleep(OCR_NO_WINDOW_SLEEP)
                         continue

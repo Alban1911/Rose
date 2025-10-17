@@ -39,9 +39,9 @@ def levenshtein_score(ocr_text: str, skin_text: str) -> float:
     # Everything else is normalized to base letter
     trans_table = str.maketrans({
         # Remove spaces, apostrophes, and l/i related characters
-        ' ': None, "'": None, '1': None,
-        'l': None, 'L': None,
-        'i': None, 'I': None, 'í': None, 'ì': None, 'î': None, 'ï': None,
+        ' ': None, "'": None, '1': None, '-': None,
+        'l': None, 'i': None, 'í': None, 'ì': None, 'î': None, 'ï': None,
+        
         
         # Normalize to base letters
         'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a', 'æ': 'a',

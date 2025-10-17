@@ -63,14 +63,14 @@ OCR_IDLE_HZ_DEFAULT = 0.0    # OCR frequency when idle (0 = disabled)
 # OCR timing intervals (seconds)
 OCR_MIN_INTERVAL = 0.15      # Minimum time between OCR operations
 OCR_ROI_LOCK_DURATION = 1.5  # Duration to lock ROI after detection
-OCR_CHAMPION_LOCK_DELAY_S = 0.20  # Delay after champion lock before OCR starts (200ms)
+OCR_CHAMPION_LOCK_DELAY_S = 0.18  # Delay after champion lock before OCR starts
 
 # OCR motion detection (milliseconds)
 OCR_BURST_MS_DEFAULT = 150   # Duration to continue burst OCR after motion
 OCR_SECOND_SHOT_MS_DEFAULT = 100  # Delay for second OCR attempt for accuracy
 
 # OCR thresholds
-OCR_DIFF_THRESHOLD_DEFAULT = 0.001  # Image change threshold to trigger OCR
+OCR_DIFF_THRESHOLD_DEFAULT = 0.003  # Image change threshold to trigger OCR
 OCR_MIN_CONFIDENCE_DEFAULT = 0.5    # Minimum confidence score for matches
 OCR_FUZZY_MATCH_THRESHOLD = 0.5     # Threshold for fuzzy text matching
 SKIN_NAME_MIN_SIMILARITY = 0.15     # Minimum similarity for fuzzy skin name matching (15%)
