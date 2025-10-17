@@ -16,17 +16,19 @@ log = get_logger()
 class ChromaPreviewManager:
     """Manages access to chroma preview images from SkinPreviews repository"""
     
-    def __init__(self):
+    def __init__(self, db=None):
         # SkinPreviews repository folder (downloaded previews)
         self.skin_previews_dir = get_appdata_dir() / "SkinPreviews" / "chroma_previews"
+        self.db = db  # Database instance for cross-language lookups
     
-    def get_preview_path(self, champion_name: str, skin_name: str, chroma_id: Optional[int] = None) -> Optional[Path]:
+    def get_preview_path(self, champion_name: str, skin_name: str, chroma_id: Optional[int] = None, skin_id: Optional[int] = None) -> Optional[Path]:
         """Get path to preview image
         
         Args:
             champion_name: Champion name (e.g. "Garen")
             skin_name: Skin name (e.g. "Demacia Vice")
             chroma_id: Optional chroma ID. If None/0, returns base skin preview.
+            skin_id: Optional skin ID to help find English name for preview lookup.
         
         Returns:
             Path to preview image if it exists, None otherwise
@@ -44,12 +46,15 @@ class ChromaPreviewManager:
             return None
         
         try:
+            # Convert skin name to English if needed (preview images are stored with English names)
+            english_skin_name = self._convert_to_english_skin_name(champion_name, skin_name, skin_id)
+            
             # Normalize skin name: remove colons, slashes, and other special characters that might not match filesystem
             # (e.g., "PROJECT: Naafiri" becomes "PROJECT Naafiri", "K/DA" becomes "KDA")
-            normalized_skin_name = skin_name.replace(":", "").replace("/", "")
+            normalized_skin_name = english_skin_name.replace(":", "").replace("/", "")
             
-            if normalized_skin_name != skin_name:
-                log.info(f"[CHROMA] Normalized skin name: '{skin_name}' -> '{normalized_skin_name}'")
+            if normalized_skin_name != english_skin_name:
+                log.info(f"[CHROMA] Normalized skin name: '{english_skin_name}' -> '{normalized_skin_name}'")
             
             # skin_name already includes champion (e.g. "Demacia Vice Garen")
             # Build path: Champion/{skin_name}/...
@@ -78,16 +83,46 @@ class ChromaPreviewManager:
             import traceback
             log.error(traceback.format_exc())
             return None
+    
+    def _convert_to_english_skin_name(self, champion_name: str, skin_name: str, skin_id: Optional[int] = None) -> str:
+        """Convert skin name to English for preview image lookup using database
+        
+        Args:
+            champion_name: Champion name (e.g. "Bard")
+            skin_name: Skin name in current language (e.g. "Bard fleur spirituelle")
+            skin_id: Optional skin ID to help with conversion
+            
+        Returns:
+            English skin name (e.g. "Spirit Blossom Bard")
+        """
+        # Try to get English name from database using skin ID
+        if skin_id and hasattr(self, 'db') and self.db:
+            try:
+                english_name = self.db.get_english_skin_name_by_id(skin_id)
+                if english_name:
+                    log.debug(f"[CHROMA] Converted skin name via database: '{skin_name}' -> '{english_name}' (ID: {skin_id})")
+                    return english_name
+                else:
+                    log.debug(f"[CHROMA] No English name found in database for skin ID {skin_id}")
+            except Exception as e:
+                log.debug(f"[CHROMA] Database lookup failed for skin ID {skin_id}: {e}")
+        
+        # Fallback: return the original name if no database conversion is available
+        log.debug(f"[CHROMA] No English conversion available for '{skin_name}', using original name")
+        return skin_name
 
 
 # Global instance
 _preview_manager = None
 
 
-def get_preview_manager() -> ChromaPreviewManager:
+def get_preview_manager(db=None) -> ChromaPreviewManager:
     """Get global preview manager instance"""
     global _preview_manager
     if _preview_manager is None:
-        _preview_manager = ChromaPreviewManager()
+        _preview_manager = ChromaPreviewManager(db)
+    elif db is not None and _preview_manager.db is None:
+        # Update existing instance with database if not already set
+        _preview_manager.db = db
     return _preview_manager
 

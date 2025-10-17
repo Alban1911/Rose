@@ -457,7 +457,7 @@ class ChromaPanelManager:
                         log.debug("[CHROMA] Click catcher overlay shown")
                     
                     # Pass the currently selected chroma ID so wheel opens at that index
-                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id)
+                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id, self.current_skin_id)
                     # Position wheel above button
                     button_pos = self.reopen_button.pos() if self.reopen_button else None
                     self.widget.show_wheel(button_pos=button_pos)

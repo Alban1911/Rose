@@ -43,11 +43,7 @@ class OCRSkinThread(threading.Thread):
         
         # Initialize character recognition components
         self.character_recognizer = None
-        from character_recognition.backend import CharacterRecognitionBackend
-        self.character_recognizer = CharacterRecognitionBackend(measure_time=True)
-        log.info("🔤 Pattern matching mode enabled")
-        stats = self.character_recognizer.get_template_stats()
-        log.info(f"🔤 Loaded {stats['character_count']} character templates")
+        # Character recognizer will be set by main thread when WebSocket connects
         self.monitor_index = 0  # Always use all monitors
         self.diff_threshold = args.diff_threshold
         self.burst_ms = args.burst_ms
@@ -244,7 +240,14 @@ class OCRSkinThread(threading.Thread):
                 
                 # Get champion name for direct path to chromas
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                champion_name = self.db.champ_name_by_id.get(champ_id) if champ_id and self.db else None
+                champion_name = None
+                if champ_id and self.db:
+                    # Try current language first
+                    champion_name = self.db.champ_name_by_id.get(champ_id)
+                    # If not found, try English as fallback
+                    if not champion_name and hasattr(self.db, 'champ_name_by_id_by_lang'):
+                        english_names = self.db.champ_name_by_id_by_lang.get('en_US', {})
+                        champion_name = english_names.get(champ_id)
                 
                 # Show button - it will display:
                 # - If skin has chromas: clickable chroma wheel + golden border + lock
@@ -258,7 +261,14 @@ class OCRSkinThread(threading.Thread):
                     
                     # Get champion name for direct path to chromas
                     champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                    champion_name = self.db.champ_name_by_id.get(champ_id) if champ_id and self.db else None
+                    champion_name = None
+                    if champ_id and self.db:
+                        # Try current language first
+                        champion_name = self.db.champ_name_by_id.get(champ_id)
+                        # If not found, try English as fallback
+                        if not champion_name and hasattr(self.db, 'champ_name_by_id_by_lang'):
+                            english_names = self.db.champ_name_by_id_by_lang.get('en_US', {})
+                            champion_name = english_names.get(champ_id)
                     
                     chroma_selector.show_button_for_skin(skin_id, skin_name, champion_name)
                 else:

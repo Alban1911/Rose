@@ -263,7 +263,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
             circle.y = row_y
             circle.radius = self.circle_radius  # Update radius to hardcoded value
     
-    def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None):
+    def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None, skin_id: Optional[int] = None):
         """Set the chromas to display - League horizontal style
         
         Note: The chromas list should already be filtered to only include unowned chromas
@@ -273,7 +273,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.circles = []
         
         # Load base skin preview
-        base_preview = self._load_chroma_preview_image(skin_name, chroma_id=0, champion_name=champion_name)
+        base_preview = self._load_chroma_preview_image(skin_name, chroma_id=0, champion_name=champion_name, skin_id=skin_id)
         
         base_circle = ChromaCircle(
             chroma_id=0,
@@ -354,7 +354,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         ]
         return colors[index % len(colors)]
     
-    def _load_chroma_preview_image(self, skin_name: str, chroma_id: Optional[int], champion_name: str = None) -> Optional[QPixmap]:
+    def _load_chroma_preview_image(self, skin_name: str, chroma_id: Optional[int], champion_name: str = None, skin_id: Optional[int] = None) -> Optional[QPixmap]:
         """Load chroma preview image from SkinPreviews repository"""
         try:
             if champion_name is None:
@@ -365,7 +365,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
             from utils.chroma_preview_manager import get_preview_manager
             preview_manager = get_preview_manager()
             
-            image_path = preview_manager.get_preview_path(champion_name, skin_name, chroma_id)
+            image_path = preview_manager.get_preview_path(champion_name, skin_name, chroma_id, skin_id)
             
             if image_path:
                 log.debug(f"[CHROMA] Loading preview: {image_path.name}")

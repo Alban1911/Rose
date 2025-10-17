@@ -22,18 +22,15 @@ log = get_logger()
 class OCR:
     """OCR backend using EasyOCR with GPU support"""
     
-    def __init__(self, lang: str = "eng", psm: int = 7, tesseract_exe: Optional[str] = None, use_gpu: bool = True, measure_time: bool = True):
+    def __init__(self, lang: str = "eng", use_gpu: bool = True, measure_time: bool = True):
         """Initialize EasyOCR backend with GPU support
         
         Args:
             lang: Language code (e.g., "eng", "rus", "kor", "chi_sim", etc.)
-            psm: Not used for EasyOCR (kept for API compatibility)
-            tesseract_exe: Not used for EasyOCR (kept for API compatibility)
             use_gpu: Try to use GPU if available (default True, fallback to CPU)
             measure_time: Enable timing measurements for OCR operations (default True)
         """
         self.lang = lang
-        self.psm = int(psm)  # Keep for compatibility
         self.backend = "easyocr"
         self.reader = None
         self.use_gpu = False  # Will be set based on actual initialization
@@ -60,7 +57,7 @@ class OCR:
             except Exception as e:
                 log.debug(f"GPU check failed: {e}, will use CPU mode")
         
-        # Language mapping: tesseract codes → EasyOCR codes
+        # Language mapping: OCR language codes → EasyOCR codes
         # EasyOCR supports multiple languages simultaneously
         self.lang_mapping = {
             "eng": ["en"],
@@ -91,7 +88,7 @@ class OCR:
             import easyocr
             
             langs_str = "+".join(easyocr_langs)
-            log.info(f"Initializing EasyOCR: {langs_str} (tesseract lang: {lang})")
+            log.info(f"Initializing EasyOCR: {langs_str} (lang: {lang})")
             
             # Try GPU mode first if requested and available
             if use_gpu and gpu_available:

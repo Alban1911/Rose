@@ -250,3 +250,69 @@ class NameDB:
                 self._norm_cache[e.key] = nk
             out.append((e, nk))
         return out
+    
+    def get_english_skin_name_by_id(self, skin_id: int) -> Optional[str]:
+        """Get English skin name by skin ID
+        
+        Args:
+            skin_id: The skin ID to look up
+            
+        Returns:
+            English skin name if found, None otherwise
+        """
+        # First check if we already have it cached
+        if skin_id in self.skin_name_by_id:
+            cached_name = self.skin_name_by_id[skin_id]
+            # If it's already English (from canonical_lang), return it
+            if self.canonical_lang == "en_US":
+                return cached_name
+        
+        # Find the champion for this skin ID
+        champion_slug = None
+        for slug, skins in self.champion_skins.items():
+            if skin_id in skins:
+                champion_slug = slug
+                break
+        
+        if not champion_slug:
+            log.debug(f"[NameDB] No champion found for skin ID {skin_id}")
+            return None
+        
+        # Load English skin data for this champion
+        try:
+            if "en_US" not in self.langs:
+                log.debug(f"[NameDB] English not loaded, loading champion {champion_slug}")
+                # Temporarily add English to languages if not already loaded
+                self.langs.append("en_US")
+            
+            data = self._cache_json(
+                f"champion_{self.ver}_en_US_{champion_slug}.json",
+                f"https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/en_US/champion/{champion_slug}.json"
+            )
+            
+            champ_data = (data.get("data") or {}).get(champion_slug)
+            if not champ_data:
+                return None
+            
+            skins = champ_data.get("skins") or []
+            champ_name = champ_data.get("name", champion_slug)
+            
+            for s in skins:
+                try:
+                    sid = int(s.get("id", 0))
+                    num = int(s.get("num", -1))
+                    sname = s.get("name") or "default"
+                    
+                    if sid == skin_id:
+                        # For base skin (num=0), use champion name
+                        if num == 0 or sname == "default":
+                            return champ_name
+                        return sname
+                except Exception:
+                    pass
+            
+            return None
+            
+        except Exception as e:
+            log.debug(f"[NameDB] Failed to load English skin name for {skin_id}: {e}")
+            return None
