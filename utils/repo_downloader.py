@@ -6,14 +6,11 @@ Downloads the entire repository as a ZIP file and extracts it locally
 Much more efficient than individual API calls
 """
 
-import os
-import re
 import zipfile
 import tempfile
 import requests
 from pathlib import Path
 from typing import Optional, Dict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S

@@ -11,7 +11,6 @@ import ctypes
 import io
 import logging
 import os
-import shutil
 import signal
 import sys
 import threading
@@ -766,9 +765,6 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
             chroma_selector = init_chroma_selector(skin_scraper, state, db)
             log_success(log, "Chroma selector initialized (panel widgets will be created on champion lock)", "🌈")
             
-            # Update app status
-            if app_status:
-                app_status.update_status(force=True)
         except Exception as e:
             log.warning(f"Failed to initialize chroma panel: {e}")
             log.warning("Chroma selection will be disabled, but app will continue")
@@ -823,8 +819,6 @@ def main():
         lcu = LCU(args.lockfile)
         log.info("✓ LCU client initialized")
         
-        # Update app status
-        app_status.update_status(force=True)
         
         log.info("Initializing skin scraper...")
         skin_scraper = LCUSkinScraper(lcu)
@@ -960,12 +954,14 @@ def main():
                     preview_success = download_skin_previews(force_update=args.force_update_skins)
                     if preview_success:
                         log.info("✓ Skin previews downloaded successfully")
-                        # Mark previews as downloaded in app status
-                        app_status.mark_previews_downloaded()
+                        # Only mark if not already detected
+                        if not app_status.check_previews_downloaded():
+                            app_status.mark_previews_downloaded()
                     else:
                         log.warning("⚠ Skin preview download had issues (will continue)")
                         # Still mark as downloaded even with issues (files may still exist)
-                        app_status.mark_previews_downloaded()
+                        if not app_status.check_previews_downloaded():
+                            app_status.mark_previews_downloaded()
                 except Exception as e:
                     log.warning(f"Failed to download skin previews: {e}")
                     log.warning("App will continue without preview images")
@@ -976,15 +972,21 @@ def main():
                     log.info("✅ SKIN DOWNLOAD COMPLETED")
                     log.info("   📋 Status: Success")
                     log.info(separator)
-                    # Mark skins as downloaded in app status
-                    app_status.mark_skins_downloaded()
+                    # Only mark if not already detected
+                    if not app_status.check_skins_downloaded():
+                        app_status.mark_skins_downloaded()
+                    # Mark download process as complete
+                    app_status.mark_download_process_complete()
                 else:
                     log.info(separator)
                     log.info("⚠️ SKIN DOWNLOAD COMPLETED WITH ISSUES")
                     log.info("   📋 Status: Partial Success")
                     log.info(separator)
                     # Still mark as downloaded even with issues (files may still exist)
-                    app_status.mark_skins_downloaded()
+                    if not app_status.check_skins_downloaded():
+                        app_status.mark_skins_downloaded()
+                    # Mark download process as complete
+                    app_status.mark_download_process_complete()
             except Exception as e:
                 separator = "=" * 80
                 log.info(separator)
@@ -992,7 +994,8 @@ def main():
                 log.error(f"   📋 Error: {e}")
                 log.info(separator)
                 # Check if skins exist anyway
-                app_status.mark_skins_downloaded()
+                if not app_status.check_skins_downloaded():
+                    app_status.mark_skins_downloaded()
         
         # Start skin download in a separate thread to avoid blocking
         skin_download_thread = create_daemon_thread(target=download_skins_background, 
@@ -1001,7 +1004,10 @@ def main():
     else:
         log.info("Automatic skin download disabled")
         # Check if skins already exist
-        app_status.mark_skins_downloaded()
+        if not app_status.check_skins_downloaded():
+            app_status.mark_skins_downloaded()
+        # Mark download process as complete since it's disabled
+        app_status.mark_download_process_complete()
         # Initialize injection system immediately when download is disabled
         injection_manager.initialize_when_ready()
     
@@ -1049,9 +1055,6 @@ def main():
     # Function to handle LCU disconnection
     def on_lcu_disconnected():
         """Handle LCU disconnection - reset UI detection status"""
-        # Update app status
-        if app_status:
-            app_status.update_status(force=True)
 
     # Initialize thread manager for organized thread lifecycle
     thread_manager = ThreadManager()
@@ -1067,7 +1070,7 @@ def main():
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
                         fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                        skin_scraper=skin_scraper, app_status_callback=lambda: app_status.update_status(force=True))
+                        skin_scraper=skin_scraper)
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     t_lcu_monitor = LCUMonitorThread(lcu, state, None, t_ws, 
@@ -1101,9 +1104,6 @@ def main():
             if ph != last_phase:
                 last_phase = ph
             
-            # Update app status periodically (throttled)
-            if app_status:
-                app_status.update_status()
             
             # Process Qt events if available (process ALL pending events)
             if qt_app:

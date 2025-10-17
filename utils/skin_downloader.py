@@ -5,14 +5,10 @@ Skin Downloader
 Automatically downloads skins from the GitHub repository
 """
 
-import os
-import json
 import time
 import requests
-import zipfile
 from pathlib import Path
 from typing import List, Dict, Optional
-from urllib.parse import urljoin, urlparse
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 from config import (

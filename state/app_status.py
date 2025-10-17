@@ -5,8 +5,6 @@ Application Status Manager
 Manages the app state and tray icon status based on initialization checks
 """
 
-from typing import Optional
-from pathlib import Path
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 
@@ -36,6 +34,7 @@ class AppStatus:
         self.tray_manager = tray_manager
         self._skins_downloaded = False
         self._previews_downloaded = False
+        self._download_process_complete = False  # Track if download process is complete
         self._last_status = None  # Track last status to avoid duplicate logging
         self._last_update_time = 0  # Throttle updates
         
@@ -47,13 +46,14 @@ class AppStatus:
             True if previews are downloaded, False otherwise
         """
         try:
+            from utils.paths import get_appdata_dir
             # Check if previews directory exists and has content
-            previews_dir = Path("previews")
+            previews_dir = get_appdata_dir() / "SkinPreviews"
             if not previews_dir.exists():
                 return False
             
             # Check if there are preview image files
-            preview_files = list(previews_dir.glob("*.png"))
+            preview_files = list(previews_dir.rglob("*.png"))
             return len(preview_files) > 0
         except Exception as e:
             log.debug(f"Failed to check previews directory: {e}")
@@ -117,8 +117,9 @@ class AppStatus:
         self._skins_downloaded = self.check_skins_downloaded()
         self._previews_downloaded = self.check_previews_downloaded()
         
-        # Determine status level
-        all_ready = (self._skins_downloaded and self._previews_downloaded)
+        
+        # Determine status level - only show unlocked if download process is complete
+        all_ready = (self._skins_downloaded and self._previews_downloaded and self._download_process_complete)
         
         # Determine current status
         if all_ready:
@@ -154,13 +155,16 @@ class AppStatus:
     def mark_skins_downloaded(self):
         """Mark skins as downloaded and update status"""
         self._skins_downloaded = True
-        log.info("[APP STATUS] Skins downloaded")
         self.update_status(force=True)
     
     def mark_previews_downloaded(self):
         """Mark previews as downloaded and update status"""
         self._previews_downloaded = True
-        log.info("[APP STATUS] Previews downloaded")
+        self.update_status(force=True)
+    
+    def mark_download_process_complete(self):
+        """Mark download process as complete and update status"""
+        self._download_process_complete = True
         self.update_status(force=True)
     
     

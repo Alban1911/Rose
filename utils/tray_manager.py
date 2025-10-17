@@ -35,7 +35,6 @@ class TrayManager:
         self.tray_thread = None
         self._stop_event = threading.Event()
         self._locked_icon_image = None
-        self._golden_locked_icon_image = None
         self._unlocked_icon_image = None
         self._base_icon_image = None  # Current base icon (locked or unlocked)
         
@@ -103,18 +102,15 @@ class TrayManager:
         return None
     
     def _load_icons(self):
-        """Load locked, golden locked, and unlocked icons"""
+        """Load locked and unlocked icons"""
         # Load locked icon
         self._locked_icon_image = self._load_icon_from_file("tray_locked.png")
-        
-        # Load golden locked icon
-        self._golden_locked_icon_image = self._load_icon_from_file("tray_golden_locked.png")
         
         # Load golden unlocked icon
         self._unlocked_icon_image = self._load_icon_from_file("tray_golden_unlocked.png")
         
         # Fallback to icon.png if none exist
-        if not self._locked_icon_image and not self._golden_locked_icon_image and not self._unlocked_icon_image:
+        if not self._locked_icon_image and not self._unlocked_icon_image:
             try:
                 # Handle both frozen (PyInstaller) and development environments
                 import sys
@@ -139,7 +135,6 @@ class TrayManager:
                             img = img.convert('RGBA')
                             img = img.resize((128, 128), Image.Resampling.LANCZOS)
                             self._locked_icon_image = img.copy()
-                            self._golden_locked_icon_image = img.copy()
                             self._unlocked_icon_image = img.copy()
                         break
             except Exception as e:
@@ -362,7 +357,7 @@ class TrayManager:
         Update the tray icon to show the specified status
         
         Args:
-            status: "locked", "golden_locked", or "unlocked"
+            status: "locked" or "unlocked"
         """
         # Wait for tray icon to be ready (up to 5 seconds)
         max_wait = TRAY_READY_MAX_WAIT_S
@@ -382,11 +377,6 @@ class TrayManager:
                 if self._locked_icon_image:
                     self.icon.icon = self._locked_icon_image
                     log.info("Locked icon shown")
-            elif status == "golden_locked":
-                # Show golden locked icon
-                if self._golden_locked_icon_image:
-                    self.icon.icon = self._golden_locked_icon_image
-                    log.info("Golden locked icon shown")
             elif status == "unlocked":
                 # Show golden unlocked icon
                 if self._unlocked_icon_image:

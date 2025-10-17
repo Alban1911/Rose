@@ -6,7 +6,7 @@ Chroma Panel Manager - Coordinates chroma panel and button widgets
 """
 
 import threading
-from typing import Optional, Callable, List, Dict
+from typing import Callable, List, Dict
 from utils.logging import get_logger, log_event, log_success, log_action
 from utils.chroma_button import OpeningButton
 from utils.chroma_panel_widget import ChromaPanelWidget
