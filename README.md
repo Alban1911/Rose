@@ -34,12 +34,13 @@
 **LeagueUnlocked uses Windows UI Automation API to detect skin names in champion select:**
 
 1. **UI Detection** - Monitors the League client window for skin name elements
-2. **Position-Based Scanning** - Searches a 50x50 pixel area around the calculated skin name position (50% width, 65.8% height from window top)
-3. **Multi-Language Support** - Downloads language-specific champion data from Riot's Data Dragon API
-4. **Smart Matching** - Uses fuzzy text matching to identify skins across different languages
-5. **Automatic Injection** - Injects the selected skin when the game starts
+2. **Center-Based Scanning** - Calculates the center position of the skin name area (50% width, 65.8% height from window top) and searches outward from there
+3. **Smart Search Pattern** - Uses a left-biased horizontal search pattern since skin names are positioned to the left of center, with minimal vertical searching since Y position is constant
+4. **Multi-Language Support** - Downloads language-specific champion data from Riot's Data Dragon API
+5. **Smart Matching** - Uses fuzzy text matching to identify skins across different languages
+6. **Automatic Injection** - Injects the selected skin when the game starts
 
-**Key Technical Detail:** The detection searches in a 50x50 pixel area with 3-pixel steps to handle slight position variations between different languages and resolutions. If skin detection fails, the search area can be adjusted by modifying the tolerance values in the code.
+**Key Technical Detail:** The detection uses a center-based approach with left-biased search ranges (-120 to +20 pixels horizontally, ±10 pixels vertically) to handle variable text lengths efficiently. This method is much more reliable than fixed-position searching since skin name positions vary with text length, but their center position remains consistent.
 
 ---
 
