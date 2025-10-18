@@ -74,7 +74,7 @@ class UIDetector:
                     if text and len(text.strip()) >= 2:
                         # Basic validation
                         if (any(c.isalpha() for c in text) and 
-                            not any(indicator in text for indicator in [":", "!", "x", "⁦", "⁩", "#", "→", "←", "↑", "↓", "•", "○", "●"])):
+                            not any(indicator in text for indicator in ["!", "⁦", "⁩", "#", "→", "←", "↑", "↓", "•", "○", "●"])):
                             log.info(f"Found skin name via pixel coordinates: '{text}'")
                             return element
                         else:
