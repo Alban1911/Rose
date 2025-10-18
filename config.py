@@ -303,6 +303,10 @@ CHROMA_BUTTON_OUTLINE_GOLD_SIZE_RATIO = 3.63        # OutlineGold size as ratio 
 CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_X_RATIO = CHROMA_BUTTON_LOCK_OFFSET_X_RATIO  # OutlineGold X offset as ratio of button size
 CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_Y_RATIO = CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO  # OutlineGold Y offset as ratio of button size
 
+# Chroma button image size (button-chroma.png dimensions at 1600x900 resolution)
+CHROMA_BUTTON_IMAGE_WIDTH_PIXELS = 23               # Fixed width in pixels at 1600x900 resolution
+CHROMA_BUTTON_IMAGE_HEIGHT_PIXELS = 23              # Fixed height in pixels at 1600x900 resolution
+
 
 # =============================================================================
 # UNOWNED FRAME UI POSITIONING - INDEPENDENT FROM CHROMA BUTTON

@@ -9,7 +9,7 @@ import math
 from typing import Callable
 from PyQt6.QtWidgets import QGraphicsOpacityEffect
 from PyQt6.QtCore import Qt, QPoint, QTimer, QMetaObject, pyqtSlot
-from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient
+from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient, QPixmap
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from utils.logging import get_logger
@@ -194,59 +194,41 @@ class OpeningButton(ChromaWidgetBase):
         painter.setBrush(QBrush(border_color))
         painter.drawPath(dark_border_path)
         
-        # 3. Gradient ring (4px width) - shows rainbow or chroma color
-        # If a chroma is selected, show chroma color; otherwise show rainbow
+        # 3. Button chroma image - replaces gradient ring and inner circle
         painter.setPen(Qt.PenStyle.NoPen)
         
-        if self.current_chroma_color:
-            # Chroma selected - fill entire center with chroma color (gradient ring + center)
-            chroma_color = QColor(self.current_chroma_color)
-            
-            # Darken if hovered
-            if should_darken:
-                chroma_color = chroma_color.darker(200)  # 50% darker
-            
-            # Fill entire center with chroma color (no gradient, no dark center - just solid color)
-            painter.setBrush(QBrush(chroma_color))
-            painter.drawEllipse(QPoint(center, center), gradient_outer_radius, gradient_outer_radius)
-        else:
-            # Base skin - show rainbow gradient with dark center
-            rainbow_gradient = QConicalGradient(center, center, config.CHROMA_PANEL_CONICAL_START_ANGLE)
-            
-            if should_darken:
-                # Darker rainbow when hovered (50% darker)
-                rainbow_gradient.setColorAt(0.0, QColor(128, 0, 128))    # Darker Magenta
-                rainbow_gradient.setColorAt(0.16, QColor(128, 0, 0))     # Darker Red
-                rainbow_gradient.setColorAt(0.33, QColor(128, 82, 0))    # Darker Orange
-                rainbow_gradient.setColorAt(0.5, QColor(128, 128, 0))    # Darker Yellow
-                rainbow_gradient.setColorAt(0.66, QColor(0, 128, 0))     # Darker Green
-                rainbow_gradient.setColorAt(0.83, QColor(0, 0, 128))     # Darker Blue
-                rainbow_gradient.setColorAt(1.0, QColor(64, 0, 64))      # Darker Purple
+        # Load and draw the button-chroma.png image
+        try:
+            button_chroma_pixmap = QPixmap("assets/button-chroma.png")
+            if not button_chroma_pixmap.isNull():
+                # Scale the image to fit the gradient area
+                scaled_pixmap = button_chroma_pixmap.scaled(
+                    int(gradient_outer_radius * 2), int(gradient_outer_radius * 2),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                # Center the image
+                image_x = center - scaled_pixmap.width() // 2
+                image_y = center - scaled_pixmap.height() // 2
+                
+                # Apply darkening effect if hovered
+                if should_darken:
+                    # Create a darker version of the image
+                    dark_pixmap = scaled_pixmap.copy()
+                    painter_dark = QPainter(dark_pixmap)
+                    painter_dark.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+                    painter_dark.fillRect(dark_pixmap.rect(), QColor(128, 128, 128, 255))  # 50% darker
+                    painter_dark.end()
+                    painter.drawPixmap(image_x, image_y, dark_pixmap)
+                else:
+                    painter.drawPixmap(image_x, image_y, scaled_pixmap)
+                    
+                log.debug(f"[CHROMA] Button chroma image drawn at ({image_x}, {image_y}), size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
             else:
-                # Normal rainbow gradient
-                rainbow_gradient.setColorAt(0.0, QColor(255, 0, 255))    # Magenta
-                rainbow_gradient.setColorAt(0.16, QColor(255, 0, 0))     # Red
-                rainbow_gradient.setColorAt(0.33, QColor(255, 165, 0))   # Orange
-                rainbow_gradient.setColorAt(0.5, QColor(255, 255, 0))    # Yellow (now at top)
-                rainbow_gradient.setColorAt(0.66, QColor(0, 255, 0))     # Green
-                rainbow_gradient.setColorAt(0.83, QColor(0, 0, 255))     # Blue
-                rainbow_gradient.setColorAt(1.0, QColor(128, 0, 128))    # Purple
-            
-            painter.setBrush(QBrush(rainbow_gradient))
-            painter.drawEllipse(QPoint(center, center), gradient_outer_radius, gradient_outer_radius)
-            
-            # Cut out the inner part of the gradient ring to create the ring shape (only for base/rainbow)
-            center_color = QColor(10, 10, 10) if should_darken else QColor(20, 20, 20)
-            
-            painter.setBrush(QBrush(center_color))
-            painter.drawEllipse(center - int(gradient_inner_radius), center - int(gradient_inner_radius), 
-                               int(gradient_inner_radius) * 2, int(gradient_inner_radius) * 2)
-            
-            # 4. Dark central disk (only for base/rainbow)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(center_color))
-            painter.drawEllipse(center - int(inner_radius), center - int(inner_radius), 
-                               int(inner_radius) * 2, int(inner_radius) * 2)
+                log.warning("[CHROMA] Failed to load button-chroma.png")
+        except Exception as e:
+            log.error(f"[CHROMA] Error loading button-chroma.png: {e}")
     
     def mousePressEvent(self, event):
         """Handle button press - track that button was pressed"""
