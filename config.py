@@ -32,10 +32,10 @@ SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matchin
 # Skin name detection search ranges
 UI_SKIN_SEARCH_CENTER_X_RATIO = 0.5    # 50% of window width (center horizontally)
 UI_SKIN_SEARCH_CENTER_Y_RATIO = 0.658  # 65.8% of window height (skin name area)
-UI_SKIN_SEARCH_LEFT_RANGE = 150        # Pixels to search left of center (for long skin names)
-UI_SKIN_SEARCH_RIGHT_RANGE = 50        # Pixels to search right of center (increased for short names like "Vi")
-UI_SKIN_SEARCH_VERTICAL_RANGE = 40     # Pixels to search vertically (increased for language differences)
-UI_SKIN_SEARCH_STEP_SIZE = 2           # Even smaller step size for better coverage
+UI_SKIN_SEARCH_LEFT_RANGE = 200        # Pixels to search left of center (for long skin names and RTL languages)
+UI_SKIN_SEARCH_RIGHT_RANGE = 100       # Pixels to search right of center (increased for RTL languages like Arabic)
+UI_SKIN_SEARCH_VERTICAL_RANGE = 60     # Pixels to search vertically (increased for language differences)
+UI_SKIN_SEARCH_STEP_SIZE = 1           # Even smaller step size for better coverage
 
 
 
