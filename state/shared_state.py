@@ -49,3 +49,7 @@ class SharedState:
     pending_chroma_selection: bool = False  # Flag to indicate chroma panel is open
     chroma_panel_open: bool = False  # Flag to pause UI detection when panel is open
     chroma_panel_skin_name: Optional[str] = None  # Base skin name when panel was opened (to avoid re-detecting same skin)
+    
+    # UI Detection
+    ui_last_text: Optional[str] = None  # Last detected skin name from UI
+    ui_skin_id: Optional[int] = None  # Last detected skin ID from UI

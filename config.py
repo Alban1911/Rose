@@ -25,17 +25,11 @@ PRODUCTION_MODE = False
 # UI detection polling
 UI_POLL_INTERVAL = 0.01  # Seconds between UI detection checks
 UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
+UIA_DELAY_MS = 25  # Milliseconds to wait after champion lock before starting UI Detection
 
 # Skin matching
 SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
 
-# Skin name detection search ranges
-UI_SKIN_SEARCH_CENTER_X_RATIO = 0.5    # 50% of window width (center horizontally)
-UI_SKIN_SEARCH_CENTER_Y_RATIO = 0.658  # 65.8% of window height (skin name area)
-UI_SKIN_SEARCH_LEFT_RANGE = 200        # Pixels to search left of center (for long skin names and RTL languages)
-UI_SKIN_SEARCH_RIGHT_RANGE = 100       # Pixels to search right of center (increased for RTL languages like Arabic)
-UI_SKIN_SEARCH_VERTICAL_RANGE = 60     # Pixels to search vertically (increased for language differences)
-UI_SKIN_SEARCH_STEP_SIZE = 1           # Even smaller step size for better coverage
 
 
 

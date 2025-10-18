@@ -162,7 +162,7 @@ from state.shared_state import SharedState
 from state.app_status import AppStatus
 from threads.phase_thread import PhaseThread
 from threads.champ_thread import ChampThread
-from threads.ui_skin_thread import UISkinThread
+from uia import UISkinThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
 from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
