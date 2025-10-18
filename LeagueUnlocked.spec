@@ -178,8 +178,6 @@ hiddenimports = [
     
     # Other dependencies
     'psutil',
-    'yaml',
-    'packaging',
 ]
 
 # Collect all submodules for complex packages

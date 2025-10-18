@@ -1014,7 +1014,7 @@ def main():
         injection_manager.initialize_when_ready()
     
     # Multi-language support is no longer needed - we use LCU scraper + English DB
-    # Skin names are matched using: OCR (client lang) → LCU scraper → skinId → English DB
+    # Skin names are matched using: Windows UI API (client lang) → LCU scraper → skinId → English DB
     
     
     # Configure skin writing
