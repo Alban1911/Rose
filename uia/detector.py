@@ -39,11 +39,11 @@ class UIDetector:
             window_width = window_rect.width()
             window_height = window_rect.height()
             
-            # Use your exact known pixel coordinates (relative to window)
-            # You mentioned you know the exact center pixel of the skin name area
-            # Please provide the exact coordinates here (relative to window):
-            relative_x = int(window_width * 0.5)  # Replace with your exact X coordinate relative to window
-            relative_y = int(window_height * 0.658)  # Replace with your exact Y coordinate relative to window
+            # Use percentage-based coordinates for skin name detection
+            # Y position is constant at 63.9% of window height for all skins
+            # X position is approximately 45% (center-ish) to catch most skin names
+            relative_x = int(window_width * 0.5)  # ~45% of window width (center-ish)
+            relative_y = int(window_height * 0.639)  # 63.9% of window height (constant)
             
             # Convert to absolute screen coordinates
             # PyWinAuto's element_info_from_point() expects screen coordinates, not window-relative

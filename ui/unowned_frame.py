@@ -8,7 +8,7 @@ Shows golden border and lock icon for unowned skins
 
 import time
 from PyQt6.QtWidgets import QWidget, QLabel, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QTimer, QMetaObject, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, QMetaObject, pyqtSlot, QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
@@ -20,6 +20,10 @@ log = get_logger()
 
 class UnownedFrame(ChromaWidgetBase):
     """UI component showing golden border and lock for unowned skins"""
+    
+    # Signals for thread-safe operations
+    fade_in_requested = pyqtSignal()
+    fade_out_requested = pyqtSignal()
     
     def __init__(self):
         super().__init__()
@@ -44,6 +48,10 @@ class UnownedFrame(ChromaWidgetBase):
         self.fade_steps = 0
         self.fade_current_step = 0
         
+        # Connect signals for thread-safe operations
+        self.fade_in_requested.connect(self._do_fade_in)
+        self.fade_out_requested.connect(self._do_fade_out)
+        
         # Start invisible
         self.opacity_effect.setOpacity(0.0)
         self.hide()
@@ -54,9 +62,9 @@ class UnownedFrame(ChromaWidgetBase):
         frame_size = int(self.scaled.button_size * 6)
         self.setFixedSize(frame_size, frame_size)
         
-        # Create merged unowned frame image
-        self.merged_frame = QLabel(self)
-        self.merged_frame.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Create unowned frame image
+        self.unowned_frame_image = QLabel(self)
+        self.unowned_frame_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Load unowned frame image
         try:
@@ -68,21 +76,38 @@ class UnownedFrame(ChromaWidgetBase):
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation
                 )
-                self.merged_frame.setPixmap(scaled_pixmap)
+                self.unowned_frame_image.setPixmap(scaled_pixmap)
                 log.debug(f"[UnownedFrame] Unowned frame loaded, size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
             else:
                 log.warning("[UnownedFrame] Failed to load unownedframe.png image")
         except Exception as e:
             log.error(f"[UnownedFrame] Error loading unowned frame: {e}")
         
-        # Position merged frame to fill the entire widget
-        self.merged_frame.move(0, 0)
-        self.merged_frame.resize(frame_size, frame_size)
+        # Position unowned frame to fill the entire widget
+        self.unowned_frame_image.move(0, 0)
+        self.unowned_frame_image.resize(frame_size, frame_size)
         
         log.info("[UnownedFrame] Unowned frame component created successfully")
     
     def fade_in(self):
-        """Fade in the UnownedFrame"""
+        """Fade in the UnownedFrame (thread-safe)"""
+        try:
+            log.info("[UnownedFrame] Requesting fade in")
+            self.fade_in_requested.emit()
+        except Exception as e:
+            log.error(f"[UnownedFrame] Error requesting fade in: {e}")
+    
+    def fade_out(self):
+        """Fade out the UnownedFrame (thread-safe)"""
+        try:
+            log.info("[UnownedFrame] Requesting fade out")
+            self.fade_out_requested.emit()
+        except Exception as e:
+            log.error(f"[UnownedFrame] Error requesting fade out: {e}")
+    
+    @pyqtSlot()
+    def _do_fade_in(self):
+        """Actually perform fade in (called in main thread)"""
         try:
             log.info("[UnownedFrame] Fading in")
             self._start_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS)
@@ -90,8 +115,9 @@ class UnownedFrame(ChromaWidgetBase):
         except Exception as e:
             log.error(f"[UnownedFrame] Error fading in: {e}")
     
-    def fade_out(self):
-        """Fade out the UnownedFrame"""
+    @pyqtSlot()
+    def _do_fade_out(self):
+        """Actually perform fade out (called in main thread)"""
         try:
             log.info("[UnownedFrame] Fading out")
             self._start_fade(0.0, config.CHROMA_FADE_OUT_DURATION_MS)
