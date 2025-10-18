@@ -17,7 +17,7 @@ log = get_logger()
 class ChromaSelector:
     """
     Manages chroma selection with new workflow:
-    - Show wheel immediately when OCR detects skin with chromas
+    - Show wheel immediately when UI detection finds skin with chromas
     - Clicking chroma instantly updates state.last_hovered_skin_id
     - No confirmation needed
     - Injection later uses the selected chroma ID
@@ -135,7 +135,7 @@ class ChromaSelector:
     
     def show_button_for_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
         """
-        Show button for a skin (called when OCR detects any unowned skin or owned skin with chromas)
+        Show button for a skin (called when UI detection finds any unowned skin or owned skin with chromas)
         
         The button displays:
         - Unowned skins with chromas: clickable chroma wheel + golden border + lock

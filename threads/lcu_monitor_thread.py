@@ -175,7 +175,7 @@ class LCUMonitorThread(threading.Thread):
         """Check if we're already in ChampSelect with a locked champion (Issue #29)
         
         This handles the case where the app is launched after the user has already
-        locked in a champion. Without this check, OCR would never start.
+        locked in a champion.
         """
         try:
             # Only check if we're in ChampSelect
@@ -231,7 +231,7 @@ class LCUMonitorThread(threading.Thread):
                         except Exception as e:
                             log.debug(f"[init-state] Failed to notify injection manager: {e}")
                     
-                    log.info(f"[init-state] OCR will start after app initialization (champion: {champ_name})")
+                    log.info(f"[init-state] App will start after initialization (champion: {champ_name})")
         except Exception as e:
             log.debug(f"Error checking initial champion state: {e}")
     

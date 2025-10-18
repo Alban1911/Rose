@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Injection Manager
-Manages the injection process and coordinates with OCR system
+Manages the injection process and coordinates with UI detection system
 """
 
 import time
