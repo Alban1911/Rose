@@ -7,7 +7,6 @@ Manages chroma selector and panel for skins with chromas
 """
 
 import threading
-from typing import Optional
 from utils.logging import get_logger
 from ui.chroma_selector import ChromaSelector
 

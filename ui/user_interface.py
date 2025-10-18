@@ -130,13 +130,7 @@ class UserInterface:
         """Show UnownedFrame for unowned skin"""
         if self.unowned_frame:
             try:
-                # Position UnownedFrame relative to chroma button if available
-                if self.chroma_ui and self.chroma_ui.chroma_selector and self.chroma_ui.chroma_selector.panel:
-                    panel = self.chroma_ui.chroma_selector.panel
-                    if hasattr(panel, 'reopen_button') and panel.reopen_button:
-                        button_pos = panel.reopen_button.pos()
-                        self.unowned_frame._update_position(button_pos)
-                
+                # UnownedFrame is statically positioned - just show it
                 # Check if this is the first unowned skin or switching between unowned skins
                 if self._last_unowned_skin_id is None:
                     # First unowned skin - immediate fade in

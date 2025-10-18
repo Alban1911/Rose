@@ -7,9 +7,9 @@ Chroma Opening Button - Small circular button to open the chroma panel
 
 import math
 from typing import Callable
-from PyQt6.QtWidgets import QGraphicsOpacityEffect, QLabel, QWidget
+from PyQt6.QtWidgets import QGraphicsOpacityEffect
 from PyQt6.QtCore import Qt, QPoint, QTimer, QMetaObject, pyqtSlot
-from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient, QPixmap
+from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from utils.logging import get_logger
