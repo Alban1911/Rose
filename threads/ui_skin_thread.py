@@ -84,7 +84,98 @@ class UISkinThread(threading.Thread):
     
     
     def _find_skin_name_element(self):
-        """Find the specific skin name element at the exact known position - optimized for parallel execution."""
+        """Find the skin name element using Windows UI Automation API."""
+        try:
+            # Method 1: Try to find by parent hierarchy (most reliable)
+            skin_element = self._find_skin_by_hierarchy()
+            if skin_element:
+                return skin_element
+            
+            # Method 2: Fallback to position-based search
+            return self._find_skin_by_position()
+            
+        except Exception as e:
+            log.debug(f"Error finding skin name element: {e}")
+            return None
+    
+    def _find_skin_by_hierarchy(self):
+        """Find skin name using the known parent hierarchy structure."""
+        try:
+            log.debug("Trying hierarchy-based search for skin name...")
+            
+            # Look for TextControls within the League window that are likely skin names
+            # We'll search for Chrome TextControls that have text content
+            all_text_controls = []
+            self._collect_text_controls_recursive(self.league_window, all_text_controls, 0)
+            
+            log.debug(f"Found {len(all_text_controls)} TextControls in League window")
+            
+            # Filter for likely skin names based on characteristics
+            # Skin names are typically:
+            # - Chrome TextControls
+            # - Have non-empty text content
+            # - Are within a reasonable size range (not too small, not too large)
+            # - Are positioned in the expected area relative to the window
+            
+            window_rect = self.league_window.BoundingRectangle
+            window_width = window_rect.width()
+            window_height = window_rect.height()
+            
+            # Calculate expected skin name position relative to window (not screen!)
+            expected_center_x_ratio = UI_SKIN_SEARCH_CENTER_X_RATIO  # 0.5 (center horizontally)
+            expected_center_y_ratio = UI_SKIN_SEARCH_CENTER_Y_RATIO  # 0.658 (skin name area)
+            
+            expected_center_x = window_rect.left + int(window_width * expected_center_x_ratio)
+            expected_center_y = window_rect.top + int(window_height * expected_center_y_ratio)
+            
+            skin_candidates = []
+            for text_control in all_text_controls:
+                try:
+                    if not text_control.Name or not text_control.Name.strip():
+                        continue
+                    
+                    rect = text_control.BoundingRectangle
+                    if not rect:
+                        continue
+                    
+                    # Check if it's in the expected area relative to the window
+                    control_center_x = rect.xcenter()
+                    control_center_y = rect.ycenter()
+                    
+                    # Calculate distance from expected position (using absolute coordinates for distance calc)
+                    distance_x = abs(control_center_x - expected_center_x)
+                    distance_y = abs(control_center_y - expected_center_y)
+                    
+                    # Should be close to expected position and have reasonable dimensions
+                    if (distance_x < 200 and  # Within 200 pixels horizontally
+                        distance_y < 100 and  # Within 100 pixels vertically
+                        rect.width() > 20 and rect.width() < 300 and  # Reasonable text width
+                        rect.height() > 10 and rect.height() < 50):   # Reasonable text height
+                        
+                        # Calculate total distance for ranking
+                        total_distance = (distance_x ** 2 + distance_y ** 2) ** 0.5
+                        skin_candidates.append((text_control, total_distance))
+                        
+                except Exception:
+                    continue
+            
+            if skin_candidates:
+                # Sort by distance from expected position
+                skin_candidates.sort(key=lambda x: x[1])
+                
+                best_candidate = skin_candidates[0][0]
+                log.info(f"Found skin name via hierarchy: '{best_candidate.Name}'")
+                return best_candidate
+            
+            log.debug("No suitable skin name candidates found via hierarchy")
+            return None
+            
+        except Exception as e:
+            log.debug(f"Hierarchy search failed: {e}")
+            return None
+    
+    def _find_skin_by_position(self):
+        """Fallback method: Find skin name using position-based search."""
         try:
             log.debug("Getting skin name element at exact position...")
             
@@ -157,7 +248,7 @@ class UISkinThread(threading.Thread):
             return None
             
         except Exception as e:
-            log.debug(f"Error finding skin name element: {e}")
+            log.debug(f"Error in position-based search: {e}")
             return None
     
     def _debug_mouse_hover(self):
