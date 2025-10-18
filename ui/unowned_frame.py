@@ -6,9 +6,8 @@ UnownedFrame - UI component for showing unowned skin indicator
 Shows golden border and lock icon for unowned skins
 """
 
-import time
-from PyQt6.QtWidgets import QWidget, QLabel, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QTimer, QMetaObject, pyqtSlot, QObject, pyqtSignal
+from PyQt6.QtWidgets import QLabel, QGraphicsOpacityEffect
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
@@ -57,10 +56,70 @@ class UnownedFrame(ChromaWidgetBase):
         self.hide()
     
     def _create_components(self):
-        """Create the merged unowned frame component"""
-        # Set size based on scaled values
-        frame_size = int(self.scaled.button_size * 6)
-        self.setFixedSize(frame_size, frame_size)
+        """Create the merged unowned frame component with static positioning"""
+        # Get League window for static positioning
+        from utils.window_utils import get_league_window_handle, find_league_window_rect
+        import ctypes
+        
+        # Get League window handle and size
+        league_hwnd = get_league_window_handle()
+        window_rect = find_league_window_rect()
+        if not league_hwnd or not window_rect:
+            log.debug("[UnownedFrame] Could not get League window for static positioning")
+            return
+        
+        window_left, window_top, window_right, window_bottom = window_rect
+        window_width = window_right - window_left
+        window_height = window_bottom - window_top
+        
+        # Calculate static size and position using config ratios
+        frame_width = int(window_width * config.UNOWNED_FRAME_WIDTH_RATIO)
+        frame_height = int(window_height * config.UNOWNED_FRAME_HEIGHT_RATIO)
+        
+        # Set static size
+        self.setFixedSize(frame_width, frame_height)
+        
+        # Calculate static position relative to League window TOP-LEFT (0,0)
+        # Use fixed pixel coordinates directly (no scaling)
+        target_x = config.UNOWNED_FRAME_ANCHOR_OFFSET_X_PIXELS
+        target_y = config.UNOWNED_FRAME_ANCHOR_OFFSET_Y_PIXELS
+        
+        # Make this widget a child of League window (static embedding)
+        widget_hwnd = int(self.winId())
+        ctypes.windll.user32.SetParent(widget_hwnd, league_hwnd)
+        
+        # For child windows, use client coordinates directly
+        # But first, make sure the window style is WS_CHILD
+        GWL_STYLE = -16
+        WS_CHILD = 0x40000000
+        WS_POPUP = 0x80000000
+        
+        # Set window style to WS_CHILD (64-bit compatible)
+        if ctypes.sizeof(ctypes.c_void_p) == 8:  # 64-bit
+            # Use SetWindowLongPtrW for 64-bit
+            SetWindowLongPtr = ctypes.windll.user32.SetWindowLongPtrW
+            SetWindowLongPtr.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_longlong]
+            SetWindowLongPtr.restype = ctypes.c_longlong
+            GetWindowLongPtr = ctypes.windll.user32.GetWindowLongPtrW
+            GetWindowLongPtr.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            GetWindowLongPtr.restype = ctypes.c_longlong
+            
+            current_style = GetWindowLongPtr(widget_hwnd, GWL_STYLE)
+            new_style = (current_style & ~WS_POPUP) | WS_CHILD
+            SetWindowLongPtr(widget_hwnd, GWL_STYLE, new_style)
+        else:
+            # Use SetWindowLongW for 32-bit
+            current_style = ctypes.windll.user32.GetWindowLongW(widget_hwnd, GWL_STYLE)
+            new_style = (current_style & ~WS_POPUP) | WS_CHILD
+            ctypes.windll.user32.SetWindowLongW(widget_hwnd, GWL_STYLE, new_style)
+        
+        # Position it statically in League window client coordinates
+        ctypes.windll.user32.SetWindowPos(
+            widget_hwnd, 0, target_x, target_y, 0, 0,
+            0x0010 | 0x0001  # SWP_NOACTIVATE | SWP_NOSIZE
+        )
+        
+        log.debug(f"[UnownedFrame] Static positioning: window={window_width}x{window_height}, position=({target_x}, {target_y}), size={frame_width}x{frame_height}")
         
         # Create unowned frame image
         self.unowned_frame_image = QLabel(self)
@@ -70,9 +129,9 @@ class UnownedFrame(ChromaWidgetBase):
         try:
             unowned_pixmap = QPixmap("assets/unownedframe.png")
             if not unowned_pixmap.isNull():
-                # Scale the image to fit the frame
+                # Scale the image to fit the calculated frame size
                 scaled_pixmap = unowned_pixmap.scaled(
-                    frame_size, frame_size,
+                    frame_width, frame_height,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation
                 )
@@ -85,7 +144,7 @@ class UnownedFrame(ChromaWidgetBase):
         
         # Position unowned frame to fill the entire widget
         self.unowned_frame_image.move(0, 0)
-        self.unowned_frame_image.resize(frame_size, frame_size)
+        self.unowned_frame_image.resize(frame_width, frame_height)
         
         log.info("[UnownedFrame] Unowned frame component created successfully")
     
@@ -188,17 +247,7 @@ class UnownedFrame(ChromaWidgetBase):
                 self.fade_timer.stop()
                 self.fade_timer = None
     
-    def _update_position(self, button_pos):
-        """Update position relative to button"""
-        try:
-            # Position UnownedFrame centered on the button
-            frame_size = int(self.scaled.button_size * 6)
-            x = button_pos.x() - (frame_size - self.scaled.button_size) // 2
-            y = button_pos.y() - (frame_size - self.scaled.button_size) // 2
-            self.move(x, y)
-            log.debug(f"[UnownedFrame] Position updated to ({x}, {y})")
-        except Exception as e:
-            log.debug(f"[UnownedFrame] Error updating position: {e}")
+    
     
     def cleanup(self):
         """Clean up resources"""

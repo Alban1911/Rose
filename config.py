@@ -305,6 +305,19 @@ CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_Y_RATIO = CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO  #
 
 
 # =============================================================================
+# UNOWNED FRAME UI POSITIONING - INDEPENDENT FROM CHROMA BUTTON
+# =============================================================================
+
+# UnownedFrame position (fixed pixel coordinates at 1600x900 resolution)
+UNOWNED_FRAME_ANCHOR_OFFSET_X_PIXELS = 726          # Fixed X position in pixels
+UNOWNED_FRAME_ANCHOR_OFFSET_Y_PIXELS = 642          # Fixed Y position in pixels
+
+# UnownedFrame size (specific pixel dimensions as ratios)
+UNOWNED_FRAME_WIDTH_RATIO = 148/1600                # 148/1600 = 0.0925 (9.25% of window width)
+UNOWNED_FRAME_HEIGHT_RATIO = 84/900                 # 84/900 = 0.093333 (9.33% of window height)
+
+
+# =============================================================================
 # WINDOWS API CONSTANTS
 # =============================================================================
 
