@@ -29,6 +29,14 @@ UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
 # Skin matching
 SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
 
+# Skin name detection search ranges
+UI_SKIN_SEARCH_CENTER_X_RATIO = 0.5    # 50% of window width (center horizontally)
+UI_SKIN_SEARCH_CENTER_Y_RATIO = 0.658  # 65.8% of window height (skin name area)
+UI_SKIN_SEARCH_LEFT_RANGE = 150        # Pixels to search left of center (for long skin names)
+UI_SKIN_SEARCH_RIGHT_RANGE = 50        # Pixels to search right of center (increased for short names like "Vi")
+UI_SKIN_SEARCH_VERTICAL_RANGE = 40     # Pixels to search vertically (increased for language differences)
+UI_SKIN_SEARCH_STEP_SIZE = 2           # Even smaller step size for better coverage
+
 
 
 # =============================================================================

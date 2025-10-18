@@ -15,7 +15,11 @@ from lcu.client import LCU
 from utils.normalization import levenshtein_score
 from utils.logging import get_logger
 from utils.chroma_selector import get_chroma_selector
-from config import UI_POLL_INTERVAL, UI_DETECTION_TIMEOUT
+from config import (
+    UI_POLL_INTERVAL, UI_DETECTION_TIMEOUT, UI_SKIN_SEARCH_CENTER_X_RATIO, 
+    UI_SKIN_SEARCH_CENTER_Y_RATIO, UI_SKIN_SEARCH_LEFT_RANGE, UI_SKIN_SEARCH_RIGHT_RANGE, 
+    UI_SKIN_SEARCH_VERTICAL_RANGE, UI_SKIN_SEARCH_STEP_SIZE
+)
 
 # Suppress uiautomation/comtypes debug messages
 logging.getLogger('comtypes').setLevel(logging.WARNING)
@@ -92,8 +96,8 @@ class UISkinThread(threading.Thread):
             window_top = window_rect.top
             
             # Calculate center position relative to window (this is consistent!)
-            center_x = int(window_width * 0.5)  # 50% of window width - CENTER
-            center_y = int(window_height * 0.658)  # 65.8% of window height - CENTER
+            center_x = int(window_width * UI_SKIN_SEARCH_CENTER_X_RATIO)  # Center horizontally
+            center_y = int(window_height * UI_SKIN_SEARCH_CENTER_Y_RATIO)  # Skin name area
             
             # Convert to screen coordinates
             target_center_x = window_left + center_x
@@ -106,18 +110,18 @@ class UISkinThread(threading.Thread):
             # Skin names are positioned to the left of center, so search more left than right
             search_offsets = [
                 (0, 0),      # Center
-                (-10, 0), (10, 0), (0, -5), (0, 5),    # Small cross
-                (-20, 0), (20, 0), (0, -10), (0, 10),  # Medium cross
-                (-30, 0), (20, 0),                      # Large horizontal (more left)
-                (-40, 0), (20, 0),                      # Extra large horizontal (more left)
-                (-50, 0), (20, 0),                      # Maximum horizontal (more left)
-                (-60, 0), (20, 0),                      # Extended horizontal (more left)
-                (-70, 0), (20, 0),                      # Full range horizontal (more left)
-                (-80, 0), (20, 0),                      # Extended left range
-                (-90, 0), (20, 0),                      # Maximum left range
-                (-100, 0), (20, 0),                     # Full left range
-                (-110, 0), (20, 0),                     # Extended left range
-                (-120, 0), (20, 0),                     # Maximum left range
+                (-10, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0), (0, -5), (0, 5),    # Small cross
+                (-20, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0), (0, -UI_SKIN_SEARCH_VERTICAL_RANGE), (0, UI_SKIN_SEARCH_VERTICAL_RANGE),  # Medium cross
+                (-30, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                      # Large horizontal (more left)
+                (-40, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                      # Extra large horizontal (more left)
+                (-50, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                      # Maximum horizontal (more left)
+                (-60, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                      # Extended horizontal (more left)
+                (-70, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                      # Full range horizontal (more left)
+                (-80, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                      # Extended left range
+                (-90, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                      # Maximum left range
+                (-100, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                     # Full left range
+                (-110, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),                     # Extended left range
+                (-UI_SKIN_SEARCH_LEFT_RANGE, 0), (UI_SKIN_SEARCH_RIGHT_RANGE, 0),  # Maximum left range
             ]
             
             for offset_x, offset_y in search_offsets:
@@ -137,8 +141,8 @@ class UISkinThread(threading.Thread):
             
             # Fallback: if horizontal pattern fails, try a focused grid (wide left X, narrow right X, narrow Y)
             log.debug(f"Horizontal pattern failed, trying focused grid around center ({target_center_x}, {target_center_y})")
-            for offset_x in range(-120, 21, 5):  # -120 to +20 in steps of 5 (wide left, narrow right)
-                for offset_y in range(-10, 11, 5):  # -10 to +10 in steps of 5 (narrow Y range)
+            for offset_x in range(-UI_SKIN_SEARCH_LEFT_RANGE, UI_SKIN_SEARCH_RIGHT_RANGE + 1, UI_SKIN_SEARCH_STEP_SIZE):  # Wide left, narrow right
+                for offset_y in range(-UI_SKIN_SEARCH_VERTICAL_RANGE, UI_SKIN_SEARCH_VERTICAL_RANGE + 1, UI_SKIN_SEARCH_STEP_SIZE):  # Narrow Y range
                     try:
                         test_x = target_center_x + offset_x
                         test_y = target_center_y + offset_y
