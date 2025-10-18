@@ -222,10 +222,10 @@ class LCUSkinScraper:
         return True
     
     def find_skin_by_text(self, text: str, use_levenshtein: bool = True) -> Optional[Tuple[int, str, float]]:
-        """Find best matching skin by OCR text using Levenshtein distance
+        """Find best matching skin by text using Levenshtein distance
         
         Args:
-            text: OCR text to match
+            text: Text to match
             use_levenshtein: If True, use Levenshtein distance for fuzzy matching
             
         Returns:

@@ -20,7 +20,7 @@ class ChromaPanelManager:
     
     def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, state=None):
         self.on_chroma_selected = on_chroma_selected
-        self.state = state  # SharedState for OCR pause control
+        self.state = state  # SharedState for panel control
         self.widget = None
         self.reopen_button = None
         self.click_catcher = None  # Invisible overlay to catch clicks outside UI
@@ -483,13 +483,13 @@ class ChromaPanelManager:
                     
                     log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
                     
-                    # Pause OCR while panel is open (panel covers the text area)
+                    # Pause UI detection while panel is open (panel covers the text area)
                     if self.state:
                         self.state.chroma_panel_open = True
                         # Store the base skin NAME to avoid re-detecting the same skin on resume
                         # Chromas are named like "Base Skin Name" + " Ruby", so we store the base
                         self.state.chroma_panel_skin_name = skin_name
-                        log.debug(f"[CHROMA] OCR paused - panel open (skin: {skin_name})")
+                        log.debug(f"[CHROMA] UI detection paused - panel open (skin: {skin_name})")
             
             # Process hide request
             if self.pending_hide:
@@ -508,10 +508,10 @@ class ChromaPanelManager:
                 if self.widget:
                     self.widget.hide()
                     
-                    # Resume OCR when panel closes
+                    # Resume UI detection when panel closes
                     if self.state:
                         self.state.chroma_panel_open = False
-                        log.debug(f"[CHROMA] OCR resumed - panel closed")
+                        log.debug(f"[CHROMA] UI detection resumed - panel closed")
             
             # Process button state update (after show/hide to ensure correct final state)
             if self.pending_update_button_state is not None:

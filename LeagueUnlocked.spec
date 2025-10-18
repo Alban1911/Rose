@@ -199,7 +199,7 @@ excludes = [
     'PyQt5',  # Exclude PyQt5 to avoid conflict with PyQt6
     'PySide2',
     'PySide6',
-    # Exclude removed OCR/PCR packages
+    # Exclude removed packages
     'easyocr',
     'torch',
     'torchvision',
