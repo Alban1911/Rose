@@ -44,8 +44,10 @@ class UserInterface:
             db=self.db
         )
         
-        # UnownedFrame will be created when needed
-        self.unowned_frame = None
+        # Create UnownedFrame instance directly
+        from ui.unowned_frame import UnownedFrame
+        self.unowned_frame = UnownedFrame()
+        self._last_unowned_skin_id = None
     
     def show_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
         """Show UI for a specific skin - manages both ChromaUI and UnownedFrame"""
@@ -126,37 +128,44 @@ class UserInterface:
     
     def _show_unowned_frame(self, skin_id: int, skin_name: str, champion_name: str = None):
         """Show UnownedFrame for unowned skin"""
-        # Use the UnownedFrame from the chroma button if available
-        if self.chroma_ui and self.chroma_ui.chroma_selector and self.chroma_ui.chroma_selector.panel:
-            panel = self.chroma_ui.chroma_selector.panel
-            if hasattr(panel, 'reopen_button') and panel.reopen_button:
-                try:
-                    # Trigger fade in on the chroma button's UnownedFrame
-                    panel.reopen_button.unowned_frame_fade_owned_to_not_owned_first()
-                    log.debug(f"[UI] UnownedFrame shown for {skin_name}")
-                except Exception as e:
-                    log.error(f"[UI] Error showing UnownedFrame: {e}")
-            else:
-                log.debug("[UI] Chroma button not available for UnownedFrame")
-        else:
-            log.debug("[UI] ChromaUI not available for UnownedFrame")
+        if self.unowned_frame:
+            try:
+                # Position UnownedFrame relative to chroma button if available
+                if self.chroma_ui and self.chroma_ui.chroma_selector and self.chroma_ui.chroma_selector.panel:
+                    panel = self.chroma_ui.chroma_selector.panel
+                    if hasattr(panel, 'reopen_button') and panel.reopen_button:
+                        button_pos = panel.reopen_button.pos()
+                        self.unowned_frame._update_position(button_pos)
+                
+                # Check if this is the first unowned skin or switching between unowned skins
+                if self._last_unowned_skin_id is None:
+                    # First unowned skin - immediate fade in
+                    self.unowned_frame.fade_in()
+                    log.debug(f"[UI] UnownedFrame first shown for {skin_name}")
+                else:
+                    # Switching between unowned skins - fade out then fade in
+                    self.unowned_frame.fade_out()
+                    # Schedule fade in after fade out completes
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(200, lambda: self.unowned_frame.fade_in())
+                    log.debug(f"[UI] UnownedFrame transition shown for {skin_name}")
+                
+                # Track the last unowned skin
+                self._last_unowned_skin_id = skin_id
+            except Exception as e:
+                log.error(f"[UI] Error showing UnownedFrame: {e}")
     
     def _hide_unowned_frame(self):
         """Hide UnownedFrame"""
-        # Use the UnownedFrame from the chroma button if available
-        if self.chroma_ui and self.chroma_ui.chroma_selector and self.chroma_ui.chroma_selector.panel:
-            panel = self.chroma_ui.chroma_selector.panel
-            if hasattr(panel, 'reopen_button') and panel.reopen_button:
-                try:
-                    # Trigger fade out on the chroma button's UnownedFrame
-                    panel.reopen_button.unowned_frame_fade_not_owned_to_owned()
-                    log.debug("[UI] UnownedFrame hidden")
-                except Exception as e:
-                    log.debug(f"[UI] Error hiding UnownedFrame: {e}")
-            else:
-                log.debug("[UI] Chroma button not available for UnownedFrame")
-        else:
-            log.debug("[UI] ChromaUI not available for UnownedFrame")
+        if self.unowned_frame:
+            try:
+                # Fade out UnownedFrame
+                self.unowned_frame.fade_out()
+                # Reset tracking when hiding
+                self._last_unowned_skin_id = None
+                log.debug("[UI] UnownedFrame hidden")
+            except Exception as e:
+                log.debug(f"[UI] Error hiding UnownedFrame: {e}")
     
     
     def cleanup(self):

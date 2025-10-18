@@ -129,7 +129,9 @@ class ChromaPanelManager:
             league_hwnd = get_league_window_handle()
             
             self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper, manager=self)
+            log.info("[CHROMA] ChromaPanelWidget created")
             self.reopen_button = OpeningButton(on_click=self._on_reopen_clicked, manager=self)
+            log.info("[CHROMA] OpeningButton created")
             # Set button reference on wheel so it can detect button clicks
             self.widget.set_button_reference(self.reopen_button)
             

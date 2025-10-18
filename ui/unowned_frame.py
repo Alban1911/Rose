@@ -189,6 +189,18 @@ class UnownedFrame(ChromaWidgetBase):
                 self.fade_timer.stop()
                 self.fade_timer = None
     
+    def _update_position(self, button_pos):
+        """Update position relative to button"""
+        try:
+            # Position UnownedFrame centered on the button
+            frame_size = int(self.scaled.button_size * 6)
+            x = button_pos.x() - (frame_size - self.scaled.button_size) // 2
+            y = button_pos.y() - (frame_size - self.scaled.button_size) // 2
+            self.move(x, y)
+            log.debug(f"[UnownedFrame] Position updated to ({x}, {y})")
+        except Exception as e:
+            log.debug(f"[UnownedFrame] Error updating position: {e}")
+    
     def cleanup(self):
         """Clean up resources"""
         try:

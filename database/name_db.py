@@ -404,11 +404,11 @@ class NameDB:
             self._skins_loaded.clear()
             self._norm_cache.clear()
             
-            # Update champion names
-            self.champ_name_by_id = self.champ_name_by_id_by_lang.get(self.canonical_lang, {})
-            
             # Reload entries for the new language
             self._load_index()
+            
+            # Update champion names AFTER loading the data
+            self.champ_name_by_id = self.champ_name_by_id_by_lang.get(self.canonical_lang, {})
             
             log.info(f"[NameDB] ✅ Language update complete: {self.canonical_lang}")
             return True

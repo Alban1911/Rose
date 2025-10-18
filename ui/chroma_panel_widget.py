@@ -356,7 +356,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         """Load chroma preview image from SkinPreviews repository"""
         try:
             if champion_name is None:
-                log.debug(f"[CHROMA] No champion name provided for preview")
+                log.warning(f"[CHROMA] No champion name provided for preview")
                 return None
             
             log.debug(f"[CHROMA] Loading chroma preview: skin_name='{skin_name}', chroma_id={chroma_id}, champion_name='{champion_name}', skin_id={skin_id}")
@@ -373,13 +373,20 @@ class ChromaPanelWidget(ChromaWidgetBase):
             
             if image_path:
                 log.debug(f"[CHROMA] Loading preview: {image_path.name}")
-                return QPixmap(str(image_path))
+                pixmap = QPixmap(str(image_path))
+                if pixmap.isNull():
+                    log.error(f"[CHROMA] Failed to load pixmap from {image_path}")
+                    return None
+                log.debug(f"[CHROMA] Successfully loaded preview: {image_path.name} ({pixmap.size().width()}x{pixmap.size().height()})")
+                return pixmap
             
-            log.debug(f"[CHROMA] No preview found for {champion_name}/{skin_name}/chroma_{chroma_id}")
+            log.warning(f"[CHROMA] No preview found for {champion_name}/{skin_name}/chroma_{chroma_id}")
             return None
             
         except Exception as e:
             log.error(f"[CHROMA] Error loading chroma preview: {e}")
+            import traceback
+            log.error(traceback.format_exc())
             return None
     
     
