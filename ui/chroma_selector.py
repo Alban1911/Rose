@@ -7,7 +7,7 @@ Shows chroma wheel immediately when skin is detected (not during injection)
 
 import threading
 from typing import Optional
-from utils.chroma_panel import get_chroma_panel
+from ui.chroma_panel import get_chroma_panel
 from utils.logging import get_logger
 from utils.validation import validate_skin_id, validate_skin_name
 
@@ -44,7 +44,7 @@ class ChromaSelector:
         
         # Pass database to preview manager
         if db:
-            from utils.chroma_preview_manager import get_preview_manager
+            from ui.chroma_preview_manager import get_preview_manager
             preview_manager = get_preview_manager(db)
             log.debug("[CHROMA] Database passed to preview manager for cross-language lookups")
     

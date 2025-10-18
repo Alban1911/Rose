@@ -274,18 +274,12 @@ class LoadoutTicker(threading.Thread):
                                         
                                         # Hide chroma border/wheel immediately when forcing base skin
                                         try:
-                                            from utils.chroma_selector import get_chroma_selector
-                                            chroma_selector = get_chroma_selector()
-                                            if chroma_selector and chroma_selector.panel:
-                                                # Hide the chroma panel and button
-                                                chroma_selector.hide()
+                                            from ui.user_interface import _user_interface
+                                            if _user_interface:
+                                                # Hide all UI components
+                                                _user_interface.hide_all()
                                                 
-                                                # Force hide the border/lock instantly by setting opacity to 0
-                                                if chroma_selector.panel.reopen_button and chroma_selector.panel.reopen_button.unowned_frame_opacity_effect:
-                                                    chroma_selector.panel.reopen_button.unowned_frame_opacity_effect.setOpacity(0.0)
-                                                    log.info("[inject] Border/lock killed instantly - base skin forced for injection")
-                                                
-                                                log.info("[inject] Chroma UI hidden - forcing base skin for injection")
+                                                log.info("[inject] UI hidden - base skin forced for injection")
                                         except Exception as e:
                                             log.debug(f"[inject] Failed to hide chroma UI: {e}")
                                         
