@@ -46,7 +46,7 @@ CHAMP_POLL_INTERVAL = 0.25  # Seconds between champion state checks
 LCU_MONITOR_INTERVAL = 1.0  # Seconds between LCU connection checks
 
 # Main loop sleep intervals
-MAIN_LOOP_SLEEP = 0.1       # Main loop iteration sleep time (100ms for responsive chroma UI)
+MAIN_LOOP_SLEEP = 0.016     # Main loop iteration sleep time (16ms for 60 FPS responsive chroma UI)
 
 
 # =============================================================================

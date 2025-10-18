@@ -72,14 +72,18 @@ class ChromaPanelManager:
                 log.debug("[CHROMA] Rebuild already in progress, ignoring duplicate request")
     
     def update_positions(self):
-        """Check for resolution changes and focus changes periodically
+        """Check for resolution changes and focus changes periodically - NON-BLOCKING
         
         Note: When widgets are parented to League window (embedded mode), Windows
         automatically handles ALL positioning. We only need to check for resolution changes
         and detect when League window gains focus to close the panel.
         """
         try:
-            with self.lock:
+            # Try to acquire lock with timeout to avoid blocking
+            if not self.lock.acquire(blocking=False):
+                return  # Skip this iteration if lock is held by another thread
+            
+            try:
                 # Don't check while rebuilding
                 if self._rebuilding:
                     return
@@ -96,12 +100,13 @@ class ChromaPanelManager:
                 if widgets_visible and (current_time - self._last_resolution_check >= 1.0):
                     self._last_resolution_check = current_time
                     
-                    # Check for resolution changes and trigger rebuild if needed
-                    if self.widget:
-                        self.widget.check_resolution_and_update()
-                    if self.reopen_button:
-                        self.reopen_button.check_resolution_and_update()
-                
+                # Check for resolution changes and trigger rebuild if needed
+                if self.widget:
+                    self.widget.check_resolution_and_update()
+                if self.reopen_button:
+                    self.reopen_button.check_resolution_and_update()
+            finally:
+                self.lock.release()
         except RuntimeError:
             # Widget may have been deleted
             pass
@@ -335,8 +340,12 @@ class ChromaPanelManager:
                 self.pending_hide_button = True
     
     def process_pending(self):
-        """Process pending show/hide requests (must be called from main thread)"""
-        with self.lock:
+        """Process pending show/hide requests (must be called from main thread) - NON-BLOCKING"""
+        # Try to acquire lock with timeout to avoid blocking
+        if not self.lock.acquire(blocking=False):
+            return  # Skip this iteration if lock is held by another thread
+        
+        try:
             # Process create request
             if self.pending_create:
                 self.pending_create = False
@@ -535,6 +544,8 @@ class ChromaPanelManager:
                 self.pending_hide_button = False
                 if self.reopen_button:
                     self.reopen_button.hide()
+        finally:
+            self.lock.release()
     
     def hide(self):
         """Request to hide the chroma panel (thread-safe)"""

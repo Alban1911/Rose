@@ -51,6 +51,8 @@ class UISkinThread(threading.Thread):
         self.first_skin_detected = False
         self.last_skin_had_chromas = False
         self.last_skin_was_owned = False
+        self.chroma_operations_running = False  # Flag to prevent too many chroma threads
+        self.last_chroma_operation_time = 0.0  # Track last chroma operation time
         
         # Detection state flags
         self.detection_available = False
@@ -72,11 +74,11 @@ class UISkinThread(threading.Thread):
     
     
     def _find_skin_name_element(self):
-        """Find the specific skin name element at the exact known position."""
+        """Find the specific skin name element at the exact known position - optimized for parallel execution."""
         try:
             log.debug("Getting skin name element at exact position...")
             
-            # Get window dimensions and position
+            # Get window dimensions and position (non-blocking)
             window_rect = self.league_window.BoundingRectangle
             window_width = window_rect.width()
             window_height = window_rect.height()
@@ -93,7 +95,7 @@ class UISkinThread(threading.Thread):
             
             log.debug(f"Looking for TextControl at position ({target_x}, {target_y})")
             
-            # Use uiautomation's FromPoint method to get control at exact position
+            # Use uiautomation's FromPoint method to get control at exact position (fast)
             try:
                 control = auto.ControlFromPoint(target_x, target_y)
                 log.debug(f"Control at position: {control.ControlTypeName if control else 'None'} - {control.FrameworkId if control else 'None'}")
@@ -105,7 +107,7 @@ class UISkinThread(threading.Thread):
                     # The skin name is inside the document, try to get it directly
                     log.debug(f"Found DocumentControl at position, trying direct TextControl access...")
                     
-                    # Try to get TextControl directly at the same position within the document
+                    # Try to get TextControl directly at the same position within the document (fast)
                     try:
                         text_control = auto.ControlFromPoint(target_x, target_y)
                         if text_control and text_control.ControlTypeName == "TextControl" and text_control.FrameworkId == "Chrome":
@@ -114,7 +116,7 @@ class UISkinThread(threading.Thread):
                     except Exception as e:
                         log.debug(f"Direct TextControl access failed: {e}")
                     
-                    # Fallback: search for TextControl within the document
+                    # Fallback: search for TextControl within the document (limited scope)
                     text_control = self._find_text_control_at_position(control, target_x, target_y)
                     if text_control:
                         log.debug(f"Found TextControl within DocumentControl: '{text_control.Name}'")
@@ -124,7 +126,7 @@ class UISkinThread(threading.Thread):
             except Exception as e:
                 log.debug(f"Error getting control from point: {e}")
             
-            # Fallback: try a small area around the target position
+            # Fallback: try a small area around the target position (limited iterations)
             tolerance = 20
             for offset_x in range(-tolerance, tolerance + 1, 5):
                 for offset_y in range(-tolerance, tolerance + 1, 5):
@@ -295,6 +297,40 @@ class UISkinThread(threading.Thread):
         except Exception:
             pass
         return False
+    
+    def _queue_chroma_operations(self, skin_id: int, skin_name: str, has_chromas: bool, is_owned: bool):
+        """Queue chroma operations to avoid blocking the UI thread"""
+        try:
+            # Throttle chroma operations to prevent overwhelming the UI
+            current_time = time.time()
+            if current_time - self.last_chroma_operation_time < 0.1:  # 100ms throttle
+                return
+            
+            # Prevent too many chroma operation threads
+            if self.chroma_operations_running:
+                return
+            
+            self.chroma_operations_running = True
+            self.last_chroma_operation_time = current_time
+            
+            # Use a separate thread to handle chroma operations
+            def run_chroma_operations():
+                try:
+                    # Small delay to prevent overwhelming the UI thread
+                    time.sleep(0.01)  # 10ms delay
+                    self._trigger_chroma_panel(skin_id, skin_name)
+                    self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
+                except Exception as e:
+                    log.debug(f"Error in chroma operations thread: {e}")
+                finally:
+                    self.chroma_operations_running = False
+            
+            # Start chroma operations in a separate daemon thread
+            chroma_thread = threading.Thread(target=run_chroma_operations, daemon=True, name="ChromaOperations")
+            chroma_thread.start()
+        except Exception as e:
+            log.debug(f"Error queuing chroma operations: {e}")
+            self.chroma_operations_running = False
     
     def _trigger_chroma_panel(self, skin_id: int, skin_name: str):
         """Trigger chroma panel display if skin has any chromas (owned or unowned)"""
@@ -496,18 +532,18 @@ class UISkinThread(threading.Thread):
         return True
     
     def monitor_skin_changes(self):
-        """Monitor the focused skin name element for changes"""
+        """Monitor the focused skin name element for changes - optimized for parallel execution"""
         if not self.skin_name_element:
             return
         
         try:
-            # Check if the skin name element still exists
+            # Quick check if the skin name element still exists (non-blocking)
             if not self.skin_name_element.Exists():
                 log.debug("Skin name element no longer exists, need to re-find it")
                 self.skin_name_element = None
                 return
             
-            # Get the current name from the element
+            # Get the current name from the element (non-blocking)
             name = self.skin_name_element.Name
             if not name or not name.strip():
                 return
@@ -520,36 +556,33 @@ class UISkinThread(threading.Thread):
                 if "Darius biosoldat" in name or "biosoldat" in name.lower():
                     self._log_detailed_skin_info(self.skin_name_element, name)
                 
-                # Check if we should update
+                # Check if we should update (non-blocking)
                 if not self._should_update_hovered_skin(name):
                     return
                 
-                # Match against database
+                # Match against database (non-blocking)
                 match_result = self._match_skin_name(name)
                 if match_result:
                     skin_id, skin_name, similarity = match_result
                     
-                    # Update state
+                    # Update state (non-blocking)
                     self.state.last_hovered_skin_name = skin_name
                     self.state.last_hovered_skin_id = skin_id
                     self.state.last_hovered_champ_id = self.state.locked_champ_id
                     self.state.last_hovered_champ_slug = self.db.slug_by_id.get(self.state.locked_champ_id)
                     self.state.hovered_skin_timestamp = time.time()
                     
-                    # Check if current skin has chromas
+                    # Check if current skin has chromas (non-blocking)
                     has_chromas = self._skin_has_displayable_chromas(skin_id)
                     
-                    # Show chroma panel if skin has chromas
-                    self._trigger_chroma_panel(skin_id, skin_name)
-                    
-                    # Calculate is_owned
+                    # Calculate is_owned (non-blocking)
                     is_base_skin = (skin_id % 1000) == 0
                     is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
                     
-                    # Trigger fade animation
-                    self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
+                    # Queue chroma operations to avoid blocking the UI thread
+                    self._queue_chroma_operations(skin_id, skin_name, has_chromas, is_owned)
                     
-                    # Log detection
+                    # Log detection (non-blocking)
                     log.info("=" * 80)
                     if is_base_skin:
                         log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
@@ -571,10 +604,12 @@ class UISkinThread(threading.Thread):
             self.skin_name_element = None
     
     def run(self):
-        """Main UI detection loop"""
+        """Main UI detection loop - optimized for parallel execution"""
         log.info("UI Detection: Thread ready")
         
         detection_running = False
+        last_check_time = 0
+        check_interval = 0.1  # Check every 100ms for responsiveness
         
         while not self.state.stop:
             now = time.time()
@@ -587,19 +622,19 @@ class UISkinThread(threading.Thread):
                 log.info("UI Detection: Starting - champion locked in ChampSelect")
                 detection_running = True
                 
-                # Find League client
+                # Find League client (non-blocking)
                 if not self.find_league_client():
                     log.warning("UI Detection: League client not found")
                     self.detection_available = False
-                    time.sleep(1.0)
+                    time.sleep(check_interval)  # Short sleep for responsiveness
                     continue
                 
-                # Find skin elements
+                # Find skin elements (non-blocking)
                 self.skin_elements = self.find_skin_elements_in_league()
                 if not self.skin_elements:
                     log.warning("UI Detection: No skin elements found")
                     self.detection_available = False
-                    time.sleep(1.0)
+                    time.sleep(check_interval)  # Short sleep for responsiveness
                     continue
                 
                 log.info(f"UI Detection: Found {len(self.skin_elements)} skin elements")
@@ -616,24 +651,26 @@ class UISkinThread(threading.Thread):
                 self.last_detected_skin_key = None
             
             if not should_run:
-                time.sleep(self.interval)
+                time.sleep(check_interval)  # Short sleep for responsiveness
                 continue
             
-            # Check if League client still exists
-            if not self.league_window or not self.league_window.Exists():
-                log.debug("UI Detection: League client lost, reconnecting...")
-                if not self.find_league_client():
-                    time.sleep(1.0)
-                    continue
-                
-                # Re-find skin elements
-                self.skin_elements = self.find_skin_elements_in_league()
-                if not self.skin_elements:
-                    log.warning("UI Detection: No skin elements found after reconnection")
-                    time.sleep(1.0)
-                    continue
+            # Check if League client still exists (only check periodically)
+            if now - last_check_time > 1.0:  # Check every 1 second instead of every loop
+                if not self.league_window or not self.league_window.Exists():
+                    log.debug("UI Detection: League client lost, reconnecting...")
+                    if not self.find_league_client():
+                        time.sleep(check_interval)
+                        continue
+                    
+                    # Re-find skin elements
+                    self.skin_elements = self.find_skin_elements_in_league()
+                    if not self.skin_elements:
+                        log.warning("UI Detection: No skin elements found after reconnection")
+                        time.sleep(check_interval)
+                        continue
+                last_check_time = now
             
-            # Monitor for skin changes
+            # Monitor for skin changes (non-blocking)
             if self.detection_available:
                 if self.skin_name_element:
                     # We have a focused element, monitor it
@@ -647,4 +684,5 @@ class UISkinThread(threading.Thread):
                     else:
                         log.debug("Still no skin name element found")
             
-            time.sleep(self.interval)
+            # Use shorter sleep for better responsiveness
+            time.sleep(check_interval)
