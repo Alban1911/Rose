@@ -10,6 +10,8 @@ from typing import Optional
 from .connection import UIConnection
 from .detector import UIDetector
 from .debug import UIDebugger
+from config import UIA_DELAY_MS
+
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ class UISkinThread(threading.Thread):
                     if not self.detection_available:
                         if self._initialize_detection():
                             self.detection_available = True
-                            log.info("UI Detection: Starting - champion locked in ChampSelect (50ms delay)")
+                            log.info(f"UI Detection: Starting - champion locked in ChampSelect ({UIA_DELAY_MS}ms delay)")
                     
                     # Debug mouse hover if enabled
                     if self.mousehover_debug:
@@ -152,13 +154,43 @@ class UISkinThread(threading.Thread):
             skin_id = self._find_skin_id(skin_name)
             if skin_id:
                 self.shared_state.ui_skin_id = skin_id
+                # Also set last_hovered_skin_id for injection pipeline
+                self.shared_state.last_hovered_skin_id = skin_id
+                # Set skin key for injection
+                self.shared_state.last_hovered_skin_key = skin_name
                 log.info(f"UI Detection: Mapped skin name to ID - {skin_id}")
+                
+                # Trigger chroma selector for detected skin
+                self._trigger_chroma_selector(skin_id, skin_name)
             
             self.last_skin_name = skin_name
             self.last_skin_id = skin_id
             
         except Exception as e:
             log.error(f"Error processing skin name: {e}")
+    
+    def _trigger_chroma_selector(self, skin_id: int, skin_name: str):
+        """Trigger chroma selector for detected skin"""
+        try:
+            # Import here to avoid circular imports
+            from utils.chroma_selector import get_chroma_selector
+            
+            chroma_selector = get_chroma_selector()
+            if chroma_selector:
+                # Get champion name for chroma selector
+                champ_id = self.shared_state.locked_champ_id
+                champion_name = None
+                if champ_id and self.name_db:
+                    champion_name = self.name_db.champ_name_by_id.get(champ_id)
+                
+                # Show chroma selector for this skin
+                chroma_selector.show_button_for_skin(int(skin_id), skin_name, champion_name)
+                log.info(f"UI Detection: Triggered chroma selector for skin {skin_id} - '{skin_name}'")
+            else:
+                log.debug("UI Detection: Chroma selector not available")
+                
+        except Exception as e:
+            log.error(f"UI Detection: Failed to trigger chroma selector: {e}")
     
     def _find_skin_id(self, skin_name: str) -> Optional[int]:
         """Find skin ID from skin name"""
