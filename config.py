@@ -27,6 +27,11 @@ UI_POLL_INTERVAL = 0.01  # Seconds between UI detection checks
 UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
 UIA_DELAY_MS = 5  # Milliseconds to wait after champion lock before starting UI Detection
 
+# UI Detection coordinates (percentage-based, resolution-independent)
+# THESE ARE THE CORRECT VALUES - DO NOT CHANGE WITHOUT TESTING
+UI_DETECTION_SKIN_NAME_X_RATIO = 0.5    # X position as percentage of window width (50% = center)
+UI_DETECTION_SKIN_NAME_Y_RATIO = 0.6395  # Y position as percentage of window height (63.9% = constant for all skins of top pixel)
+
 # Skin matching
 SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
 

@@ -5,6 +5,7 @@ UI element detection methods for League of Legends
 import logging
 from typing import Optional
 from pywinauto import Application
+import config
 
 log = logging.getLogger(__name__)
 
@@ -40,10 +41,9 @@ class UIDetector:
             window_height = window_rect.height()
             
             # Use percentage-based coordinates for skin name detection
-            # Y position is constant at 63.9% of window height for all skins
-            # X position is approximately 45% (center-ish) to catch most skin names
-            relative_x = int(window_width * 0.5)  # ~45% of window width (center-ish)
-            relative_y = int(window_height * 0.639)  # 63.9% of window height (constant)
+            # These constants are defined in config.py and tested to be correct
+            relative_x = int(window_width * config.UI_DETECTION_SKIN_NAME_X_RATIO)  # 50% of window width (center)
+            relative_y = int(window_height * config.UI_DETECTION_SKIN_NAME_Y_RATIO)  # 63.9% of window height (constant)
             
             # Convert to absolute screen coordinates
             # PyWinAuto's element_info_from_point() expects screen coordinates, not window-relative
