@@ -49,64 +49,37 @@ class UnownedFrame(ChromaWidgetBase):
         self.hide()
     
     def _create_components(self):
-        """Create the golden border and lock components"""
+        """Create the merged unowned frame component"""
         # Set size based on scaled values
         frame_size = int(self.scaled.button_size * 6)
         self.setFixedSize(frame_size, frame_size)
         
-        # Create golden border (OutlineGold)
-        self.outline_gold = QLabel(self)
-        self.outline_gold.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Create merged unowned frame image
+        self.merged_frame = QLabel(self)
+        self.merged_frame.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Load golden border image
+        # Load unowned frame image
         try:
-            gold_pixmap = QPixmap("assets/carousel-outline-gold.png")
-            if not gold_pixmap.isNull():
+            unowned_pixmap = QPixmap("assets/unownedframe.png")
+            if not unowned_pixmap.isNull():
                 # Scale the image to fit the frame
-                scaled_pixmap = gold_pixmap.scaled(
+                scaled_pixmap = unowned_pixmap.scaled(
                     frame_size, frame_size,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation
                 )
-                self.outline_gold.setPixmap(scaled_pixmap)
-                log.debug(f"[UnownedFrame] Golden border loaded, size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
+                self.merged_frame.setPixmap(scaled_pixmap)
+                log.debug(f"[UnownedFrame] Unowned frame loaded, size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
             else:
-                log.warning("[UnownedFrame] Failed to load golden border image")
+                log.warning("[UnownedFrame] Failed to load unownedframe.png image")
         except Exception as e:
-            log.error(f"[UnownedFrame] Error loading golden border: {e}")
+            log.error(f"[UnownedFrame] Error loading unowned frame: {e}")
         
-        # Position golden border in center
-        self.outline_gold.move(0, 0)
-        self.outline_gold.resize(frame_size, frame_size)
+        # Position merged frame to fill the entire widget
+        self.merged_frame.move(0, 0)
+        self.merged_frame.resize(frame_size, frame_size)
         
-        # Create lock icon
-        self.lock_icon = QLabel(self)
-        self.lock_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Load lock image (you'll need to add a lock image asset)
-        try:
-            # For now, create a simple text-based lock
-            self.lock_icon.setText("🔒")
-            self.lock_icon.setStyleSheet("""
-                QLabel {
-                    color: #FFD700;
-                    font-size: 24px;
-                    font-weight: bold;
-                    background: transparent;
-                }
-            """)
-            log.debug("[UnownedFrame] Lock icon created")
-        except Exception as e:
-            log.error(f"[UnownedFrame] Error creating lock icon: {e}")
-        
-        # Position lock in center
-        lock_size = 56  # Fixed size for lock
-        lock_x = (frame_size - lock_size) // 2
-        lock_y = (frame_size - lock_size) // 2
-        self.lock_icon.move(lock_x, lock_y)
-        self.lock_icon.resize(lock_size, lock_size)
-        
-        log.info("[UnownedFrame] Components created successfully")
+        log.info("[UnownedFrame] Unowned frame component created successfully")
     
     def fade_in(self):
         """Fade in the UnownedFrame"""
