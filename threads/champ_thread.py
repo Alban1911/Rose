@@ -10,7 +10,7 @@ from lcu.client import LCU
 from database.name_db import NameDB
 from state.shared_state import SharedState
 from utils.logging import get_logger
-from utils.chroma_selector import get_chroma_selector
+from ui.user_interface import get_user_interface
 from config import CHAMP_POLL_INTERVAL
 
 log = get_logger()
@@ -56,14 +56,14 @@ class ChampThread(threading.Thread):
         # Clear owned skins cache (will be refreshed for new champion)
         self.state.owned_skin_ids.clear()
         
-        # Destroy chroma panel
-        chroma_selector = get_chroma_selector()
-        if chroma_selector and chroma_selector.panel:
-            try:
-                chroma_selector.panel.request_destroy()
-                log.debug("[exchange] Chroma panel destroy requested")
-            except Exception as e:
-                log.debug(f"[exchange] Error destroying chroma panel: {e}")
+        # Hide UI
+        try:
+            from ui.user_interface import _user_interface
+            if _user_interface:
+                _user_interface.hide_all()
+                log.debug("[exchange] UI hidden")
+        except Exception as e:
+            log.debug(f"[exchange] Error hiding UI: {e}")
         
         # Reset loadout countdown if active
         if self.state.loadout_countdown_active:

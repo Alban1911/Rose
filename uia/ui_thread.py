@@ -160,8 +160,7 @@ class UISkinThread(threading.Thread):
                 self.shared_state.last_hovered_skin_key = skin_name
                 log.info(f"UI Detection: Mapped skin name to ID - {skin_id}")
                 
-                # Trigger chroma selector for detected skin
-                self._trigger_chroma_selector(skin_id, skin_name)
+                # The main thread will detect this state change and notify chroma UI
             
             self.last_skin_name = skin_name
             self.last_skin_id = skin_id
@@ -169,28 +168,6 @@ class UISkinThread(threading.Thread):
         except Exception as e:
             log.error(f"Error processing skin name: {e}")
     
-    def _trigger_chroma_selector(self, skin_id: int, skin_name: str):
-        """Trigger chroma selector for detected skin"""
-        try:
-            # Import here to avoid circular imports
-            from utils.chroma_selector import get_chroma_selector
-            
-            chroma_selector = get_chroma_selector()
-            if chroma_selector:
-                # Get champion name for chroma selector
-                champ_id = self.shared_state.locked_champ_id
-                champion_name = None
-                if champ_id and self.name_db:
-                    champion_name = self.name_db.champ_name_by_id.get(champ_id)
-                
-                # Show chroma selector for this skin
-                chroma_selector.show_button_for_skin(int(skin_id), skin_name, champion_name)
-                log.info(f"UI Detection: Triggered chroma selector for skin {skin_id} - '{skin_name}'")
-            else:
-                log.debug("UI Detection: Chroma selector not available")
-                
-        except Exception as e:
-            log.error(f"UI Detection: Failed to trigger chroma selector: {e}")
     
     def _find_skin_id(self, skin_name: str) -> Optional[int]:
         """Find skin ID from skin name"""
@@ -210,7 +187,23 @@ class UISkinThread(threading.Thread):
             if not skin_names:
                 return None
             
-            # Find matching skin
+            # Use fuzzy matching to find the best skin match
+            if self.skin_scraper:
+                # Ensure we have the champion skins scraped
+                if self.skin_scraper.scrape_champion_skins(champ_id):
+                    # Use the fuzzy matching from skin scraper
+                    result = self.skin_scraper.find_skin_by_text(skin_name)
+                    if result:
+                        skin_id, matched_name, similarity = result
+                        log.info(f"UI Detection: Fuzzy match found - '{skin_name}' -> '{matched_name}' (ID: {skin_id}, similarity: {similarity:.2f})")
+                        return skin_id
+            
+            # Fallback to exact match if fuzzy matching fails
+            for skin_id, names in skin_names.items():
+                if skin_name == names:
+                    return skin_id
+            
+            # Last resort: substring match
             for skin_id, names in skin_names.items():
                 if skin_name in names:
                     return skin_id
