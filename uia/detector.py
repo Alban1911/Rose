@@ -67,6 +67,12 @@ class UIDetector:
             
             if element:
                 try:
+                    # Check element type first - reject Document elements
+                    element_type = str(type(element))
+                    if "Document" in element_type:
+                        log.debug(f"Rejecting Document element: {element_type}")
+                        return None
+                    
                     # Get text directly from the element
                     text = element.window_text()
                     log.debug(f"Text found: '{text}'")

@@ -91,7 +91,7 @@ def find_skin_coords():
         log.info("\nLooking for specific skin name patterns...")
         skin_names = []
         for text, x, y, rect in skin_candidates:
-            if any(keyword in text.lower() for keyword in ['garen']):
+            if any(keyword in text.lower() for keyword in ['garen', 'darkin', 'universe', 'mundo', 'darius']): # basically put the skin names you want to test here
                 log.info(f"*** POTENTIAL SKIN: '{text}' at ({x}, {y}) ***")
                 if x is not None and y is not None:
                     skin_names.append((text, x, y))

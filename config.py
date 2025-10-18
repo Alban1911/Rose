@@ -30,7 +30,7 @@ UIA_DELAY_MS = 5  # Milliseconds to wait after champion lock before starting UI 
 # UI Detection coordinates (percentage-based, resolution-independent)
 # THESE ARE THE CORRECT VALUES - DO NOT CHANGE WITHOUT TESTING
 UI_DETECTION_SKIN_NAME_X_RATIO = 0.5    # X position as percentage of window width (50% = center)
-UI_DETECTION_SKIN_NAME_Y_RATIO = 0.6395  # Y position as percentage of window height (63.9% = constant for all skins of top pixel)
+UI_DETECTION_SKIN_NAME_Y_RATIO = 0.64  # Y position as percentage of window height (63.9% = constant for all skins of top pixel, +0.1% for safety)
 
 # Skin matching
 SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
