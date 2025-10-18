@@ -6,6 +6,7 @@ UI skin detection thread - Windows UI Automation API
 
 import time
 import threading
+import logging
 from typing import Optional, List, Dict, Any
 import uiautomation as auto
 from database.name_db import NameDB
@@ -15,6 +16,10 @@ from utils.normalization import levenshtein_score
 from utils.logging import get_logger
 from utils.chroma_selector import get_chroma_selector
 from config import UI_POLL_INTERVAL, UI_DETECTION_TIMEOUT
+
+# Suppress uiautomation/comtypes debug messages
+logging.getLogger('comtypes').setLevel(logging.WARNING)
+logging.getLogger('uiautomation').setLevel(logging.WARNING)
 
 log = get_logger()
 
@@ -35,6 +40,7 @@ class UISkinThread(threading.Thread):
         # UI detection state
         self.league_window = None
         self.skin_elements = []
+        self.skin_name_element = None  # Focus on the specific skin name element
         self.last_detected_skin_name = None
         self.last_detected_skin_id = None
         self.last_detected_skin_key = None
@@ -64,161 +70,154 @@ class UISkinThread(threading.Thread):
             log.debug(f"Error finding League client: {e}")
             return False
     
-    def _find_control_by_automation_id(self, control, target_id, depth=0):
-        """Recursively find a control by AutomationId."""
-        if depth > 15:  # Prevent infinite recursion
+    
+    def _find_skin_name_element(self):
+        """Find the specific skin name element at the exact known position."""
+        try:
+            log.debug("Getting skin name element at exact position...")
+            
+            # Get window dimensions and position
+            window_rect = self.league_window.BoundingRectangle
+            window_width = window_rect.width()
+            window_height = window_rect.height()
+            window_left = window_rect.left
+            window_top = window_rect.top
+            
+            # Calculate exact position relative to window
+            relative_x = int(window_width * 0.5)  # 50% of window width
+            relative_y = int(window_height * 0.658)  # 65.8% of window height
+            
+            # Convert to screen coordinates
+            target_x = window_left + relative_x
+            target_y = window_top + relative_y
+            
+            log.debug(f"Looking for TextControl at position ({target_x}, {target_y})")
+            
+            # Use uiautomation's FromPoint method to get control at exact position
+            try:
+                control = auto.ControlFromPoint(target_x, target_y)
+                log.debug(f"Control at position: {control.ControlTypeName if control else 'None'} - {control.FrameworkId if control else 'None'}")
+                
+                if control and control.ControlTypeName == "TextControl" and control.FrameworkId == "Chrome":
+                    log.debug(f"Found TextControl at position: '{control.Name}'")
+                    return control
+                elif control and control.ControlTypeName == "DocumentControl" and control.FrameworkId == "Chrome":
+                    # The skin name is inside the document, try to get it directly
+                    log.debug(f"Found DocumentControl at position, trying direct TextControl access...")
+                    
+                    # Try to get TextControl directly at the same position within the document
+                    try:
+                        text_control = auto.ControlFromPoint(target_x, target_y)
+                        if text_control and text_control.ControlTypeName == "TextControl" and text_control.FrameworkId == "Chrome":
+                            log.debug(f"Found TextControl directly: '{text_control.Name}'")
+                            return text_control
+                    except Exception as e:
+                        log.debug(f"Direct TextControl access failed: {e}")
+                    
+                    # Fallback: search for TextControl within the document
+                    text_control = self._find_text_control_at_position(control, target_x, target_y)
+                    if text_control:
+                        log.debug(f"Found TextControl within DocumentControl: '{text_control.Name}'")
+                        return text_control
+                else:
+                    log.debug(f"Control at position is not a Chrome TextControl: {control.ControlTypeName if control else 'None'}")
+            except Exception as e:
+                log.debug(f"Error getting control from point: {e}")
+            
+            # Fallback: try a small area around the target position
+            tolerance = 20
+            for offset_x in range(-tolerance, tolerance + 1, 5):
+                for offset_y in range(-tolerance, tolerance + 1, 5):
+                    try:
+                        test_x = target_x + offset_x
+                        test_y = target_y + offset_y
+                        control = auto.ControlFromPoint(test_x, test_y)
+                        if control and control.ControlTypeName == "TextControl" and control.FrameworkId == "Chrome":
+                            log.debug(f"Found TextControl at offset position ({test_x}, {test_y}): '{control.Name}'")
+                            return control
+                    except Exception:
+                        continue
+            
+            log.debug("No TextControl found at skin name position")
             return None
             
+        except Exception as e:
+            log.debug(f"Error finding skin name element: {e}")
+            return None
+    
+    def _find_text_control_at_position(self, parent_control, target_x, target_y):
+        """Find a TextControl at the specific position within a parent control."""
         try:
-            # Check if this control matches
-            if control.AutomationId == target_id:
-                return control
+            # Get all TextControls within the parent using recursive search
+            text_controls = []
+            self._collect_text_controls_recursive(parent_control, text_controls, 0)
             
-            # Search children
-            children = control.GetChildren()
-            for child in children:
-                result = self._find_control_by_automation_id(child, target_id, depth + 1)
-                if result:
-                    return result
+            log.debug(f"Found {len(text_controls)} TextControls within DocumentControl")
+            
+            # Log all TextControls found for debugging
+            for i, text_control in enumerate(text_controls):
+                try:
+                    rect = text_control.BoundingRectangle
+                    if rect:
+                        control_x = rect.xcenter()
+                        control_y = rect.ycenter()
+                        distance = ((control_x - target_x) ** 2 + (control_y - target_y) ** 2) ** 0.5
+                        log.debug(f"TextControl {i+1}: '{text_control.Name}' at ({control_x}, {control_y}) - distance: {distance:.1f}px")
+                except Exception as e:
+                    log.debug(f"TextControl {i+1}: Error getting position - {e}")
+            
+            # Find the one closest to our target position
+            closest_control = None
+            closest_distance = float('inf')
+            
+            for text_control in text_controls:
+                try:
+                    rect = text_control.BoundingRectangle
+                    if not rect:
+                        continue
                     
-        except Exception:
-            pass
+                    # Calculate distance from target position to control center
+                    control_x = rect.xcenter()
+                    control_y = rect.ycenter()
+                    distance = ((control_x - target_x) ** 2 + (control_y - target_y) ** 2) ** 0.5
+                    
+                    # Check if this control is closer and within reasonable distance
+                    if distance < closest_distance and distance < 100:  # Within 100 pixels
+                        closest_control = text_control
+                        closest_distance = distance
+                        
+                except Exception:
+                    continue
             
-        return None
-    
-    
-    def _get_text_controls_in_container(self, container):
-        """Get all TextControls within a container."""
-        text_controls = []
-        
-        try:
-            self._collect_text_controls(container, text_controls, 0)
-        except Exception:
-            pass
+            if closest_control:
+                log.debug(f"Found closest TextControl at distance {closest_distance:.1f}px: '{closest_control.Name}'")
+                return closest_control
             
-        return text_controls
+            log.debug("No TextControl found within 100px of target position")
+            return None
+            
+        except Exception as e:
+            log.debug(f"Error finding TextControl at position: {e}")
+            return None
     
-    def _collect_text_controls(self, control, text_controls, depth):
-        """Recursively collect TextControls."""
-        if depth > 25:  # Limit depth
+    def _collect_text_controls_recursive(self, control, text_controls, depth):
+        """Recursively collect TextControls from a parent control."""
+        if depth > 10:  # Limit depth to prevent infinite recursion
             return
             
         try:
-            if (control.ControlTypeName == "TextControl" and 
-                control.FrameworkId == "Chrome" and 
-                control.Name and 
-                len(control.Name.strip()) > 3 and
-                control.IsEnabled and 
-                not control.IsOffscreen):
+            # Check if this control is a TextControl
+            if control.ControlTypeName == "TextControl" and control.FrameworkId == "Chrome":
                 text_controls.append(control)
             
-            # Search children
+            # Get children and recurse
             children = control.GetChildren()
             for child in children:
-                self._collect_text_controls(child, text_controls, depth + 1)
+                self._collect_text_controls_recursive(child, text_controls, depth + 1)
                 
         except Exception:
-            pass
+            pass  # Continue with other children
     
-    def _find_skins_optimized(self):
-        """ULTRA-FAST skin detection using reliable path navigation."""
-        import time
-        start_time = time.time()
-        skin_elements = []
-        
-        try:
-            log.debug("Using reliable path navigation for skin detection...")
-            
-            # Use the reliable path navigation method
-            skin_elements = self._find_skins_by_path()
-            
-            elapsed_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-            log.debug(f"Found {len(skin_elements)} skins in {elapsed_time:.2f}ms!")
-            
-        except Exception as e:
-            log.debug(f"Path navigation search failed: {e}")
-            
-        return skin_elements
-    
-    
-    def _find_skins_by_path(self):
-        """Primary method: Navigate through reliable UI path."""
-        skin_elements = []
-        
-        try:
-            log.debug("Using UI path navigation...")
-            
-            # Follow the exact known path: PaneControl -> PaneControl -> DocumentControl -> GroupControls -> TextControls
-            children = self.league_window.GetChildren()
-            if not children:
-                return skin_elements
-            pane1 = children[0]
-            
-            pane1_children = pane1.GetChildren()
-            if not pane1_children:
-                return skin_elements
-            pane2 = pane1_children[0]
-            
-            pane2_children = pane2.GetChildren()
-            doc_control = None
-            for child in pane2_children:
-                if child.ControlTypeName == "DocumentControl" and child.FrameworkId == "Chrome":
-                    doc_control = child
-                    break
-            
-            if not doc_control:
-                return skin_elements
-            
-            self._navigate_to_skins(doc_control, skin_elements, 0)
-            
-        except Exception as e:
-            log.debug(f"Path navigation failed: {e}")
-            
-        return skin_elements
-    
-    def _navigate_to_skins(self, control, skin_elements, depth):
-        """Navigate through GroupControls to find skin TextControls - no search, just navigation."""
-        if depth > 12:  # Limit depth based on known path
-            return
-            
-        try:
-            children = control.GetChildren()
-            
-            for child in children:
-                if child.ControlTypeName == "TextControl" and child.FrameworkId == "Chrome":
-                    # Quick check if it's a skin
-                    name = child.Name
-                    if (name and len(name.strip()) > 3 and 
-                        child.IsEnabled and not child.IsOffscreen and
-                        not name.lower().strip() in ["lol", "tft", "position", "assignée", "préparez", "équipement",
-                                                   "bannissements", "équipe", "trier", "nom", "aléatoire", "quitter",
-                                                   "voir", "compétences", "connexion", "cliquer", "entrée", "n'oubliez",
-                                                   "jamais", "mot", "passe", "aider", "sélection", "champions", "renvoyé",
-                                                   "salon", "groupe", "difficile", "mode", "aveugle", "5c5", "6", "1"]):
-                        skin_elements.append(child)
-                        log.debug(f"Skin: '{child.Name}'")
-                
-                elif child.ControlTypeName == "GroupControl" and child.FrameworkId == "Chrome":
-                    # Continue navigating
-                    self._navigate_to_skins(child, skin_elements, depth + 1)
-                    
-                elif child.ControlTypeName == "ListControl" and child.FrameworkId == "Chrome":
-                    # Navigate ListControls
-                    self._navigate_list_controls(child, skin_elements, depth + 1)
-                    
-        except Exception:
-            pass  # Continue navigating other branches
-    
-    def _navigate_list_controls(self, list_control, skin_elements, depth):
-        """Navigate ListControls for skin TextControls."""
-        try:
-            children = list_control.GetChildren()
-            for child in children:
-                if child.ControlTypeName == "ListItemControl" and child.FrameworkId == "Chrome":
-                    # Navigate within each ListItemControl
-                    self._navigate_to_skins(child, skin_elements, depth + 1)
-        except Exception:
-            pass
     
     def _log_detailed_skin_info(self, control, skin_name):
         """Log detailed information about a skin control for debugging."""
@@ -447,11 +446,11 @@ class UISkinThread(threading.Thread):
             log.error(f"Error logging detailed skin info: {e}")
     
     def find_skin_elements_in_league(self):
-        """Find all skin text elements within the League client using optimized detection."""
+        """Find the specific skin name element at exact position and lock onto it for monitoring."""
         import time
         start_time = time.time()
         
-        log.debug("Starting optimized skin detection...")
+        log.debug("Starting direct position-based skin detection...")
         
         if not self.league_window:
             log.debug("No client window reference")
@@ -463,21 +462,23 @@ class UISkinThread(threading.Thread):
         
         log.debug("League client window found and exists")
         
-        skin_elements = []
-        
         try:
-            # Use reliable path navigation method
-            log.debug("Using reliable path navigation detection...")
+            # Get the skin name element directly at the exact position
+            skin_name_element = self._find_skin_name_element()
             
-            
-            skin_elements = self._find_skins_optimized()
-            
-            elapsed_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-            log.debug(f"Search complete. Found {len(skin_elements)} skin elements in {elapsed_time:.2f}ms")
-            return skin_elements
+            if skin_name_element:
+                # Store reference to the skin name element
+                self.skin_name_element = skin_name_element
+                elapsed_time = (time.time() - start_time) * 1000
+                log.debug(f"Found skin name element: '{skin_name_element.Name}' in {elapsed_time:.2f}ms")
+                return [skin_name_element]  # Return as list for compatibility
+            else:
+                elapsed_time = (time.time() - start_time) * 1000
+                log.debug(f"No skin name element found at position in {elapsed_time:.2f}ms")
+                return []
             
         except Exception as e:
-            log.debug(f"Error in optimized skin detection: {e}")
+            log.debug(f"Error in direct position detection: {e}")
             return []
     
     def _should_run_detection(self) -> bool:
@@ -725,76 +726,79 @@ class UISkinThread(threading.Thread):
         return True
     
     def monitor_skin_changes(self):
-        """Monitor skin elements for name changes"""
-        if not self.skin_elements:
+        """Monitor the focused skin name element for changes"""
+        if not self.skin_name_element:
             return
         
-        current_skins = set()
-        
-        # Check each skin element
-        for element in self.skin_elements:
-            try:
-                if element.Exists():
-                    name = element.Name
-                    if name and name.strip():
-                        current_skins.add(name)
-                        
-                        # Check if this is a new skin detection
-                        if name != self.last_detected_skin_name:
-                            log.info(f"UI Detection: {name}")
-                            
-                            # Special detailed logging for "Darius biosoldat"
-                            if "Darius biosoldat" in name or "biosoldat" in name.lower():
-                                self._log_detailed_skin_info(element, name)
-                            
-                            # Check if we should update
-                            if not self._should_update_hovered_skin(name):
-                                return
-                            
-                            # Match against database
-                            match_result = self._match_skin_name(name)
-                            if match_result:
-                                skin_id, skin_name, similarity = match_result
-                                
-                                # Update state
-                                self.state.last_hovered_skin_name = skin_name
-                                self.state.last_hovered_skin_id = skin_id
-                                self.state.last_hovered_champ_id = self.state.locked_champ_id
-                                self.state.last_hovered_champ_slug = self.db.slug_by_id.get(self.state.locked_champ_id)
-                                self.state.hovered_skin_timestamp = time.time()
-                                
-                                # Check if current skin has chromas
-                                has_chromas = self._skin_has_displayable_chromas(skin_id)
-                                
-                                # Show chroma panel if skin has chromas
-                                self._trigger_chroma_panel(skin_id, skin_name)
-                                
-                                # Calculate is_owned
-                                is_base_skin = (skin_id % 1000) == 0
-                                is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
-                                
-                                # Trigger fade animation
-                                self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
-                                
-                                # Log detection
-                                log.info("=" * 80)
-                                if is_base_skin:
-                                    log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
-                                    log.info(f"   📋 Champion: {self.state.last_hovered_champ_slug} | SkinID: 0 (Base) | Match: {similarity:.1%}")
-                                    log.info(f"   🔍 Source: Windows UI API")
-                                else:
-                                    log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
-                                    log.info(f"   📋 Champion: {self.state.last_hovered_champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
-                                    log.info(f"   🔍 Source: Windows UI API")
-                                log.info("=" * 80)
-                                
-                                self.last_detected_skin_name = name
-                                self.last_detected_skin_id = skin_id
-                                self.last_detected_skin_key = f"{self.state.last_hovered_champ_slug}_{skin_id}"
-                                
-            except Exception as e:
-                log.debug(f"Error checking skin element: {e}")
-                continue
+        try:
+            # Check if the skin name element still exists
+            if not self.skin_name_element.Exists():
+                log.debug("Skin name element no longer exists, need to re-find it")
+                self.skin_name_element = None
+                return
+            
+            # Get the current name from the element
+            name = self.skin_name_element.Name
+            if not name or not name.strip():
+                return
+            
+            # Check if this is a new skin detection
+            if name != self.last_detected_skin_name:
+                log.info(f"UI Detection: {name}")
+                
+                # Special detailed logging for "Darius biosoldat"
+                if "Darius biosoldat" in name or "biosoldat" in name.lower():
+                    self._log_detailed_skin_info(self.skin_name_element, name)
+                
+                # Check if we should update
+                if not self._should_update_hovered_skin(name):
+                    return
+                
+                # Match against database
+                match_result = self._match_skin_name(name)
+                if match_result:
+                    skin_id, skin_name, similarity = match_result
+                    
+                    # Update state
+                    self.state.last_hovered_skin_name = skin_name
+                    self.state.last_hovered_skin_id = skin_id
+                    self.state.last_hovered_champ_id = self.state.locked_champ_id
+                    self.state.last_hovered_champ_slug = self.db.slug_by_id.get(self.state.locked_champ_id)
+                    self.state.hovered_skin_timestamp = time.time()
+                    
+                    # Check if current skin has chromas
+                    has_chromas = self._skin_has_displayable_chromas(skin_id)
+                    
+                    # Show chroma panel if skin has chromas
+                    self._trigger_chroma_panel(skin_id, skin_name)
+                    
+                    # Calculate is_owned
+                    is_base_skin = (skin_id % 1000) == 0
+                    is_owned = is_base_skin or (skin_id in self.state.owned_skin_ids)
+                    
+                    # Trigger fade animation
+                    self._trigger_chroma_fade(skin_id, has_chromas, is_owned)
+                    
+                    # Log detection
+                    log.info("=" * 80)
+                    if is_base_skin:
+                        log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
+                        log.info(f"   📋 Champion: {self.state.last_hovered_champ_slug} | SkinID: 0 (Base) | Match: {similarity:.1%}")
+                        log.info(f"   🔍 Source: Windows UI API")
+                    else:
+                        log.info(f"🎨 SKIN DETECTED >>> {skin_name.upper()} <<<")
+                        log.info(f"   📋 Champion: {self.state.last_hovered_champ_slug} | SkinID: {skin_id} | Match: {similarity:.1%}")
+                        log.info(f"   🔍 Source: Windows UI API")
+                    log.info("=" * 80)
+                    
+                    self.last_detected_skin_name = name
+                    self.last_detected_skin_id = skin_id
+                    self.last_detected_skin_key = f"{self.state.last_hovered_champ_slug}_{skin_id}"
+                
+        except Exception as e:
+            log.debug(f"Error monitoring skin name element: {e}")
+            # If there's an error, reset the element so we can re-find it
+            self.skin_name_element = None
     
     def run(self):
         """Main UI detection loop"""
@@ -836,6 +840,7 @@ class UISkinThread(threading.Thread):
                 detection_running = False
                 self.detection_available = False
                 self.skin_elements = []
+                self.skin_name_element = None  # Reset focused element
                 self.last_detected_skin_name = None
                 self.last_detected_skin_id = None
                 self.last_detected_skin_key = None
@@ -859,7 +864,17 @@ class UISkinThread(threading.Thread):
                     continue
             
             # Monitor for skin changes
-            if self.detection_available and self.skin_elements:
-                self.monitor_skin_changes()
+            if self.detection_available:
+                if self.skin_name_element:
+                    # We have a focused element, monitor it
+                    self.monitor_skin_changes()
+                elif self.skin_elements:
+                    # Fallback: try to find the skin name element from existing elements
+                    log.debug("No focused skin name element, attempting to find one...")
+                    self.skin_name_element = self._find_skin_name_element()
+                    if self.skin_name_element:
+                        log.debug(f"Found skin name element: '{self.skin_name_element.Name}'")
+                    else:
+                        log.debug("Still no skin name element found")
             
             time.sleep(self.interval)
