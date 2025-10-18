@@ -68,7 +68,7 @@ class WSEventThread(threading.Thread):
         log.info("   🔄 Resetting all state for new champion...")
         log.info(separator)
         
-        # Reset OCR state
+        # Reset skin state
         self.state.last_hovered_skin_key = None
         self.state.last_hovered_skin_id = None
         self.state.last_hovered_skin_slug = None
@@ -327,7 +327,7 @@ class WSEventThread(threading.Thread):
                         log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
                         log.info(separator)
                         self.state.locked_champ_id = new_champ_id
-                        self.state.locked_champ_timestamp = time.time()  # Record lock time for OCR delay
+                        self.state.locked_champ_timestamp = time.time()  # Record lock time
                         
                         # Scrape skins for this champion from LCU
                         if self.skin_scraper:

@@ -40,7 +40,7 @@ class ChampThread(threading.Thread):
         log.info("   🔄 Resetting all state for new champion...")
         log.info(separator)
         
-        # Reset OCR state
+        # Reset skin state
         self.state.last_hovered_skin_key = None
         self.state.last_hovered_skin_id = None
         self.state.last_hovered_skin_slug = None
@@ -172,7 +172,7 @@ class ChampThread(threading.Thread):
                     
                     # Always update the state, even for the same champion
                     self.state.locked_champ_id = locked
-                    self.state.locked_champ_timestamp = time.time()  # Record lock time for OCR delay
+                    self.state.locked_champ_timestamp = time.time()  # Record lock time
                     self.last_lock = locked
                     self.last_locked_champion_id = locked  # Update tracking for next comparison
             except Exception:

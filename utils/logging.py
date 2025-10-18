@@ -61,7 +61,7 @@ class SanitizingFilter(logging.Filter):
         (re.compile(r'/[^/\s]+/[^\s]+'), '[PATH_REDACTED]'),
         # Clean up partial path leaks after redaction (very aggressive - remove everything after [PATH_REDACTED])
         (re.compile(r'\[PATH_REDACTED\][^\n]*'), '[PATH_REDACTED]'),
-        # Remove entire line with OCR timing (don't leave empty lines)
+        # Remove entire line with timing (don't leave empty lines)
         (re.compile(r'^\s*⏱️.*$', re.MULTILINE), ''),
         # Remove timing parts from detection messages
         (re.compile(r'\s*\|\s*Matching:.*$', re.MULTILINE), ''),
@@ -94,8 +94,8 @@ class SanitizingFilter(logging.Filter):
         'System tray manager started',
         'System tray icon started',
         'System ready',
-        'OCR Debug Mode:',
-        'OCR: Thread ready',
+        'Debug Mode:',
+        'Thread ready',
         'Found ',
         'Language detected',
         'GPU detected',
@@ -125,13 +125,13 @@ class SanitizingFilter(logging.Filter):
         '[CHROMA] Button:',
         '[CHROMA] First skin detected',
         
-        # OCR implementation details
-        '[OCR:COMPUTE]',
-        '[OCR:timing]',
-        '[OCR:change]',
-        '[OCR:CACHE-HIT]',
-        '[ocr] OCR running',
-        '[ocr] OCR stopped',
+        # Implementation details
+        '[COMPUTE]',
+        '[timing]',
+        '[change]',
+        '[CACHE-HIT]',
+        '[running]',
+        '[stopped]',
         
         # Injection implementation details  
         '[inject]',
@@ -187,10 +187,10 @@ class SanitizingFilter(logging.Filter):
         '   📋 Champion:',  # Hide verbose champion detail line
         '   🔍 Source:',    # Hide "Source: LCU API + English DB"
         
-        # OCR initialization details
-        '🤖 OCR INITIALIZED',
-        'OCR thread updated',
-        '   ⏱️',  # OCR timing measurements
+        # Initialization details
+        '🤖 INITIALIZED',
+        'Thread updated',
+        '   ⏱️',  # Timing measurements
         
         # Game state details (keep Phase transitions, hide verbose details)
         '👥 Players:',
@@ -218,7 +218,7 @@ class SanitizingFilter(logging.Filter):
         '   • Auto-resume:',
         'PID=[REDACTED], status=',
         
-        # OCR timing (suppress any message starting with timing emoji)
+        # Timing (suppress any message starting with timing emoji)
         '⏱️',
         
         # Phase spam

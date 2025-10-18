@@ -15,7 +15,7 @@ class SharedState:
     phase: Optional[str] = None
     hovered_champ_id: Optional[int] = None
     locked_champ_id: Optional[int] = None
-    locked_champ_timestamp: float = 0.0  # Time when champion was locked (for OCR delay)
+    locked_champ_timestamp: float = 0.0  # Time when champion was locked
     last_hovered_skin_key: Optional[str] = None
     last_hovered_skin_id: Optional[int] = None
     last_hovered_skin_slug: Optional[str] = None

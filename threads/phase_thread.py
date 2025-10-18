@@ -65,7 +65,7 @@ class PhaseThread(threading.Thread):
                 elif ph == "ChampSelect":
                     # State reset happens in WebSocket thread for faster response
                     # Force immediate check for locked champion when entering ChampSelect
-                    # This helps OCR restart immediately if champion is already locked
+                    # This helps UI detection restart immediately if champion is already locked
                     self.state.locked_champ_id = None  # Reset first
                     self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                         
