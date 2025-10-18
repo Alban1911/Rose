@@ -75,18 +75,19 @@ def run_create_installer():
     return True
 
 
-def check_pytorch():
-    """Check if PyTorch is installed"""
-    print_step(0, 3, "Verifying PyTorch Installation")
+def check_dependencies():
+    """Check if required dependencies are installed"""
+    print_step(0, 3, "Verifying Dependencies")
     
     try:
-        import torch
-        version = torch.__version__
-        print(f"\n[OK] PyTorch {version} detected")
-        print("[INFO] Application configured for CPU-only mode")
+        import uiautomation
+        import PyQt6
+        import requests
+        print(f"\n[OK] Core dependencies detected")
+        print("[INFO] Windows UI API and PyQt6 ready")
         return True
-    except ImportError:
-        print("\n[ERROR] PyTorch not installed!")
+    except ImportError as e:
+        print(f"\n[ERROR] Missing dependency: {e}")
         print("\nPlease install dependencies:")
         print("  pip install -r requirements.txt")
         return False
@@ -99,10 +100,10 @@ def build_all():
     
     start_time = time.time()
     
-    # Step 0: Check PyTorch is installed
-    if not check_pytorch():
+    # Step 0: Check dependencies are installed
+    if not check_dependencies():
         print_header("[FAILED] BUILD FAILED AT STEP 0/3")
-        print("PyTorch is required for the build.")
+        print("Required dependencies are missing.")
         print("\nTroubleshooting:")
         print("1. Install dependencies:")
         print("   pip install -r requirements.txt")

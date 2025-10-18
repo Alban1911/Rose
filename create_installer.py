@@ -42,7 +42,7 @@ def create_installer():
     # Check if dist directory exists
     if not os.path.exists("dist/LeagueUnlocked"):
         print("\nError: dist/LeagueUnlocked directory not found!")
-        print("Please run 'python build_nuitka.py' first to create the executable.")
+        print("Please run 'python build_pyinstaller.py' first to create the executable.")
         return False
     
     # Create installer directory

@@ -79,7 +79,7 @@ class LoadoutTicker(threading.Thread):
                 remain_ms = prev_remain_ms
             prev_remain_ms = remain_ms
             
-            # Store remaining time in shared state for OCR thread
+            # Store remaining time in shared state for UI detection thread
             self.state.last_remain_ms = remain_ms
             
             bucket = remain_ms // 1000
@@ -135,16 +135,16 @@ class LoadoutTicker(threading.Thread):
                     final_label = raw or ""
 
                 # For injection, we need the English name from the database
-                # Use the English skin name that was already processed by OCR thread
+                # Use the English skin name that was already processed by UI detection thread
                 injection_name = getattr(self.state, 'last_hovered_skin_key', None)
                 name = final_label if final_label else None
                 if injection_name:
                     name = injection_name
                 else:
-                    # Fallback to OCR text if no English name available
-                    name = getattr(self.state, 'ocr_last_text', None) or name
+                    # Fallback to UI detected text if no English name available
+                    name = getattr(self.state, 'ui_last_text', None) or name
                     if name:
-                        # If OCR text is like "Champion X Champion", normalize to "X Champion"
+                        # If UI detected text is like "Champion X Champion", normalize to "X Champion"
                         try:
                             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                             cname = (self.db.champ_name_by_id.get(champ_id or -1, "") or "").strip() if self.db else ""
@@ -167,12 +167,12 @@ class LoadoutTicker(threading.Thread):
                     
                     try:
                         # Smart injection logic: only inject if user doesn't own the hovered skin
-                        ocr_skin_id = self.state.last_hovered_skin_id
+                        ui_skin_id = self.state.last_hovered_skin_id
                         lcu_skin_id = self.state.selected_skin_id
                         owned_skin_ids = self.state.owned_skin_ids
                         
                         # Skip injection for base skins
-                        if ocr_skin_id == 0:
+                        if ui_skin_id == 0:
                             log.info(f"[inject] skipping base skin injection (skinId=0)")
                             # Resume game if persistent monitor suspended it
                             if self.injection_manager:
@@ -181,13 +181,13 @@ class LoadoutTicker(threading.Thread):
                                 except Exception as e:
                                     log.warning(f"[inject] Failed to resume game after skipping base skin: {e}")
                         # Force owned skins/chromas instead of injecting (since owned, we can select them normally)
-                        elif ocr_skin_id in owned_skin_ids:
-                            log.info(f"[inject] User owns this skin/chroma (skinId={ocr_skin_id}), forcing selection via LCU")
+                        elif ui_skin_id in owned_skin_ids:
+                            log.info(f"[inject] User owns this skin/chroma (skinId={ui_skin_id}), forcing selection via LCU")
                             
                             # Force the owned skin/chroma using LCU API (same mechanism as base skin forcing)
                             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                             if champ_id and self.lcu:
-                                target_skin_id = ocr_skin_id
+                                target_skin_id = ui_skin_id
                                 log.info(f"[inject] Forcing owned skin/chroma (skinId={target_skin_id})")
                                 
                                 forced_successfully = False
@@ -254,7 +254,7 @@ class LoadoutTicker(threading.Thread):
                         # Inject if user doesn't own the hovered skin
                         elif self.injection_manager:
                             try:
-                                # Get selected chroma ID from state (already selected via wheel shown by OCR)
+                                # Get selected chroma ID from state (already selected via wheel shown by UI detection)
                                 selected_chroma_id = self.state.selected_chroma_id
                                 
                                 if selected_chroma_id:
@@ -368,7 +368,7 @@ class LoadoutTicker(threading.Thread):
                                             chroma_id=selected_chroma_id
                                         )
                                         
-                                        # Set flag to prevent OCR from restarting (even if processes errored)
+                                        # Set flag to prevent UI detection from restarting (even if processes errored)
                                         self.state.injection_completed = True
                                         
                                         if success:

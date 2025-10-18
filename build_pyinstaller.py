@@ -176,7 +176,7 @@ def main():
         print(f"\nYour application is ready!")
         print(f"\nMode: STANDALONE (folder with all dependencies)")
         print(f"  - All DLLs and dependencies included")
-        print(f"  - EasyOCR should be fully functional!")
+        print(f"  - Windows UI API should be fully functional!")
         print(f"  - CSLOL tools included")
         
         print(f"\nProtection:")
