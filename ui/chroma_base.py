@@ -114,9 +114,10 @@ class ChromaWidgetBase(QWidget):
             # These coordinates are RELATIVE TO PARENT WINDOW, not screen!
             SWP_NOACTIVATE = 0x0010
             SWP_NOSIZE = 0x0001
+            HWND_TOP = 0  # Place at top of z-order (z=1, in front of UnownedFrame)
             result = ctypes.windll.user32.SetWindowPos(
                 widget_hwnd,
-                0,  # hWndInsertAfter
+                HWND_TOP,  # hWndInsertAfter - place at top of z-order
                 int(widget_x), int(widget_y),
                 0, 0,  # width, height (ignored with NOSIZE)
                 SWP_NOACTIVATE | SWP_NOSIZE  # Removed SWP_NOZORDER to allow positioning
@@ -191,10 +192,10 @@ class ChromaWidgetBase(QWidget):
             SWP_NOSIZE = 0x0001
             SWP_NOACTIVATE = 0x0010
             
-            # Move to top of z-order without activating
+            # Move to z-order 1 (in front of UnownedFrame which is at z=0)
             ctypes.windll.user32.SetWindowPos(
                 widget_hwnd,
-                HWND_TOP,
+                HWND_TOP,  # This puts it at the top of the z-order
                 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
             )

@@ -114,6 +114,7 @@ class UnownedFrame(ChromaWidgetBase):
             ctypes.windll.user32.SetWindowLongW(widget_hwnd, GWL_STYLE, new_style)
         
         # Position it statically in League window client coordinates
+        # Set z-order to 0 (behind other windows) - UnownedFrame should be behind chroma button
         ctypes.windll.user32.SetWindowPos(
             widget_hwnd, 0, target_x, target_y, 0, 0,
             0x0010 | 0x0001  # SWP_NOACTIVATE | SWP_NOSIZE
