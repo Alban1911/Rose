@@ -91,57 +91,60 @@ class UISkinThread(threading.Thread):
             window_left = window_rect.left
             window_top = window_rect.top
             
-            # Calculate exact position relative to window
-            relative_x = int(window_width * 0.5)  # 50% of window width
-            relative_y = int(window_height * 0.658)  # 65.8% of window height
+            # Calculate center position relative to window (this is consistent!)
+            center_x = int(window_width * 0.5)  # 50% of window width - CENTER
+            center_y = int(window_height * 0.658)  # 65.8% of window height - CENTER
             
             # Convert to screen coordinates
-            target_x = window_left + relative_x
-            target_y = window_top + relative_y
+            target_center_x = window_left + center_x
+            target_center_y = window_top + center_y
             
-            log.debug(f"Looking for TextControl at position ({target_x}, {target_y})")
+            log.debug(f"Looking for TextControl centered at ({target_center_x}, {target_center_y})")
             
-            # Use uiautomation's FromPoint method to get control at exact position (fast)
-            try:
-                control = auto.ControlFromPoint(target_x, target_y)
-                log.debug(f"Control at position: {control.ControlTypeName if control else 'None'} - {control.FrameworkId if control else 'None'}")
-                
-                if control and control.ControlTypeName == "TextControl" and control.FrameworkId == "Chrome":
-                    log.debug(f"Found TextControl at position: '{control.Name}'")
-                    return control
-                elif control and control.ControlTypeName == "DocumentControl" and control.FrameworkId == "Chrome":
-                    # The skin name is inside the document, try to get it directly
-                    log.debug(f"Found DocumentControl at position, trying direct TextControl access...")
+            # Search in a horizontal line pattern from the center (most efficient)
+            # Y is constant, so we only need small Y range but large X range for text length variation
+            # Skin names are positioned to the left of center, so search more left than right
+            search_offsets = [
+                (0, 0),      # Center
+                (-10, 0), (10, 0), (0, -5), (0, 5),    # Small cross
+                (-20, 0), (20, 0), (0, -10), (0, 10),  # Medium cross
+                (-30, 0), (20, 0),                      # Large horizontal (more left)
+                (-40, 0), (20, 0),                      # Extra large horizontal (more left)
+                (-50, 0), (20, 0),                      # Maximum horizontal (more left)
+                (-60, 0), (20, 0),                      # Extended horizontal (more left)
+                (-70, 0), (20, 0),                      # Full range horizontal (more left)
+                (-80, 0), (20, 0),                      # Extended left range
+                (-90, 0), (20, 0),                      # Maximum left range
+                (-100, 0), (20, 0),                     # Full left range
+                (-110, 0), (20, 0),                     # Extended left range
+                (-120, 0), (20, 0),                     # Maximum left range
+            ]
+            
+            for offset_x, offset_y in search_offsets:
+                try:
+                    test_x = target_center_x + offset_x
+                    test_y = target_center_y + offset_y
+                    control = auto.ControlFromPoint(test_x, test_y)
                     
-                    # Try to get TextControl directly at the same position within the document (fast)
-                    try:
-                        text_control = auto.ControlFromPoint(target_x, target_y)
-                        if text_control and text_control.ControlTypeName == "TextControl" and text_control.FrameworkId == "Chrome":
-                            log.debug(f"Found TextControl directly: '{text_control.Name}'")
-                            return text_control
-                    except Exception as e:
-                        log.debug(f"Direct TextControl access failed: {e}")
-                    
-                    # Fallback: search for TextControl within the document (limited scope)
-                    text_control = self._find_text_control_at_position(control, target_x, target_y)
-                    if text_control:
-                        log.debug(f"Found TextControl within DocumentControl: '{text_control.Name}'")
-                        return text_control
-                else:
-                    log.debug(f"Control at position is not a Chrome TextControl: {control.ControlTypeName if control else 'None'}")
-            except Exception as e:
-                log.debug(f"Error getting control from point: {e}")
+                    if control and control.ControlTypeName == "TextControl" and control.FrameworkId == "Chrome":
+                        log.info(f"Found TextControl at center+offset ({test_x}, {test_y}): '{control.Name}'")
+                        return control
+                    elif control:
+                        log.debug(f"At ({test_x}, {test_y}): {control.ControlTypeName} - {control.FrameworkId}")
+                except Exception as e:
+                    log.debug(f"Error at ({test_x}, {test_y}): {e}")
+                    continue
             
-            # Fallback: try a larger area around the target position (limited iterations)
-            tolerance = 50  # Increased from 20 to 50 pixels
-            for offset_x in range(-tolerance, tolerance + 1, 3):  # Smaller step size for better coverage
-                for offset_y in range(-tolerance, tolerance + 1, 3):
+            # Fallback: if horizontal pattern fails, try a focused grid (wide left X, narrow right X, narrow Y)
+            log.debug(f"Horizontal pattern failed, trying focused grid around center ({target_center_x}, {target_center_y})")
+            for offset_x in range(-120, 21, 5):  # -120 to +20 in steps of 5 (wide left, narrow right)
+                for offset_y in range(-10, 11, 5):  # -10 to +10 in steps of 5 (narrow Y range)
                     try:
-                        test_x = target_x + offset_x
-                        test_y = target_y + offset_y
+                        test_x = target_center_x + offset_x
+                        test_y = target_center_y + offset_y
                         control = auto.ControlFromPoint(test_x, test_y)
                         if control and control.ControlTypeName == "TextControl" and control.FrameworkId == "Chrome":
-                            log.info(f"Found TextControl at offset position ({test_x}, {test_y}): '{control.Name}'")
+                            log.info(f"Found TextControl in focused grid at ({test_x}, {test_y}): '{control.Name}'")
                             return control
                     except Exception:
                         continue
@@ -173,6 +176,8 @@ class UISkinThread(threading.Thread):
             
             self.last_mouse_position = current_pos
             self.last_mouse_debug_time = now
+            
+            log.debug(f"[MOUSE] Debugging mouse position: ({x}, {y})")
             
             # Get control at mouse position
             control = auto.ControlFromPoint(x, y)
@@ -788,22 +793,24 @@ class UISkinThread(threading.Thread):
                         continue
                 last_check_time = now
             
+            # Mouse hover debugging (always active when enabled)
+            if self.mousehover_debug:
+                log.debug(f"[MOUSE] Mouse hover debug enabled, detection_available={self.detection_available}")
+            self._debug_mouse_hover()
+            
             # Monitor for skin changes (non-blocking)
             if self.detection_available:
                 if self.skin_name_element:
                     # We have a focused element, monitor it
                     self.monitor_skin_changes()
-                elif self.skin_elements:
-                    # Fallback: try to find the skin name element from existing elements
-                    log.debug("No focused skin name element, attempting to find one...")
+                else:
+                    # Always try to find the skin name element (continuous search)
+                    log.debug("Searching for skin name element...")
                     self.skin_name_element = self._find_skin_name_element()
                     if self.skin_name_element:
                         log.debug(f"Found skin name element: '{self.skin_name_element.Name}'")
                     else:
-                        log.debug("Still no skin name element found")
-            
-            # Mouse hover debugging (always active when enabled)
-            self._debug_mouse_hover()
+                        log.debug("No skin name element found")
             
             # Use shorter sleep for better responsiveness
             time.sleep(check_interval)
