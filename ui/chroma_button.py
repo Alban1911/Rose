@@ -214,11 +214,11 @@ class OpeningButton(ChromaWidgetBase):
                 
                 # Apply darkening effect if hovered
                 if should_darken:
-                    # Create a darker version of the image
+                    # Create a darker version of the image using overlay mode
                     dark_pixmap = scaled_pixmap.copy()
                     painter_dark = QPainter(dark_pixmap)
-                    painter_dark.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
-                    painter_dark.fillRect(dark_pixmap.rect(), QColor(128, 128, 128, 255))  # 50% darker
+                    painter_dark.setCompositionMode(QPainter.CompositionMode.CompositionMode_Overlay)
+                    painter_dark.fillRect(dark_pixmap.rect(), QColor(0, 0, 0, 100))  # Semi-transparent black overlay
                     painter_dark.end()
                     painter.drawPixmap(image_x, image_y, dark_pixmap)
                 else:
