@@ -58,15 +58,25 @@ class NameDB:
         p = os.path.join(CACHE, name)
         if os.path.isfile(p):
             try: 
+                log.debug(f"[NameDB] Using cached data: {name}")
                 return json.load(open(p, "r", encoding="utf-8"))
             except Exception: 
+                log.debug(f"[NameDB] Cached file corrupted, re-downloading: {name}")
                 pass
         
-        r = requests.get(url, timeout=DATA_DRAGON_API_TIMEOUT_S)
-        r.raise_for_status()
-        data = r.json()
-        json.dump(data, open(p, "w", encoding="utf-8"))
-        return data
+        log.info(f"[NameDB] Downloading language data: {name}")
+        log.debug(f"[NameDB] Download URL: {url}")
+        
+        try:
+            r = requests.get(url, timeout=DATA_DRAGON_API_TIMEOUT_S)
+            r.raise_for_status()
+            data = r.json()
+            json.dump(data, open(p, "w", encoding="utf-8"))
+            log.info(f"[NameDB] ✓ Language data downloaded and cached: {name}")
+            return data
+        except Exception as e:
+            log.error(f"[NameDB] ✗ Failed to download language data {name}: {e}")
+            raise
 
     def _load_versions(self):
         """Load Data Dragon versions"""
@@ -94,12 +104,16 @@ class NameDB:
 
     def _load_index(self):
         """Load champion index"""
+        log.info(f"[NameDB] Loading champion data for {len(self.langs)} language(s): {', '.join(self.langs)}")
+        
         for lang in self.langs:
+            log.info(f"[NameDB] Loading champion data for language: {lang}")
             data = self._cache_json(
                 f"champion_{self.ver}_{lang}.json",
                 f"https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/{lang}/champion.json"
             )
             lang_map: Dict[int, str] = self.champ_name_by_id_by_lang.setdefault(lang, {})
+            champion_count = 0
             for slug, obj in (data.get("data") or {}).items():
                 try:
                     cid = int(obj.get("key"))
@@ -108,8 +122,13 @@ class NameDB:
                     lang_map[cid] = cname
                     self.entries_by_champ.setdefault(slug, [])
                     self.entries_by_champ[slug].append(Entry(key=cname, kind="champion", champ_slug=slug, champ_id=cid))
+                    champion_count += 1
                 except Exception:
                     pass
+            
+            log.info(f"[NameDB] ✓ Loaded {champion_count} champions for language: {lang}")
+        
+        log.info(f"[NameDB] ✓ Champion data loading complete for all languages")
 
     def load_champion_skins_by_id(self, champion_id: int) -> bool:
         """Load skin names for a specific champion by ID (in current database language)
@@ -371,12 +390,14 @@ class NameDB:
                 log.debug(f"[NameDB] Language already set to {new_lang}")
                 return True
             
-            log.info(f"[NameDB] Updating language from {self.canonical_lang} to {new_lang}")
+            log.info(f"[NameDB] 🔄 Starting language update: {self.canonical_lang} → {new_lang}")
             
             # Update language settings
             self.langs = self._resolve_langs_spec(new_lang)
             old_canonical = self.canonical_lang
             self.canonical_lang = "en_US" if "en_US" in self.langs else (self.langs[0] if self.langs else "en_US")
+            
+            log.info(f"[NameDB] Clearing cached data for language change...")
             
             # Clear cached data that needs to be reloaded
             self.champion_skins.clear()
@@ -389,9 +410,9 @@ class NameDB:
             # Reload entries for the new language
             self._load_index()
             
-            log.info(f"[NameDB] Language updated to {self.canonical_lang}")
+            log.info(f"[NameDB] ✅ Language update complete: {self.canonical_lang}")
             return True
             
         except Exception as e:
-            log.error(f"[NameDB] Failed to update language to {new_lang}: {e}")
+            log.error(f"[NameDB] ❌ Failed to update language to {new_lang}: {e}")
             return False

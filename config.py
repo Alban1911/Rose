@@ -154,14 +154,9 @@ CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel 
 LCU_API_TIMEOUT_S = 2.0                 # Timeout for LCU API requests
 LCU_SKIN_SCRAPER_TIMEOUT_S = 3.0        # Timeout for LCU skin scraper requests
 DATA_DRAGON_API_TIMEOUT_S = 8           # Timeout for Data Dragon API requests
-GITHUB_API_TIMEOUT_S = 30               # Already defined as RATE_LIMIT_REQUEST_TIMEOUT
 CHROMA_DOWNLOAD_TIMEOUT_S = 10          # Timeout for chroma preview downloads
 DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S = 30    # Timeout for skin downloads
 SKIN_DOWNLOAD_STREAM_TIMEOUT_S = 60     # Timeout for streaming skin downloads
-
-# Polling timeouts (seconds)
-FUTURE_RESULT_TIMEOUT_S = 0             # Timeout for future.result() (immediate)
-
 
 # =============================================================================
 # SLEEP & DELAY CONSTANTS
@@ -198,7 +193,6 @@ TRAY_ICON_FONT_SIZE = 40                # Font size for "SC" text on icon
 TRAY_ICON_TEXT_X = 36                   # X position for text
 TRAY_ICON_TEXT_Y = 44                   # Y position for text
 TRAY_ICON_DOT_SIZE = 70                 # Size of status indicator dot
-TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
 
 
 # =============================================================================

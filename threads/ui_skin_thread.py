@@ -28,7 +28,8 @@ class UISkinThread(threading.Thread):
     """Thread for monitoring skin names using Windows UI Automation API"""
     
     def __init__(self, state: SharedState, db: NameDB, lcu: Optional[LCU] = None, 
-                 skin_scraper=None, injection_manager=None, interval: float = UI_POLL_INTERVAL):
+                 skin_scraper=None, injection_manager=None, interval: float = UI_POLL_INTERVAL, 
+                 mousehover_debug: bool = False):
         super().__init__(daemon=True)
         self.state = state
         self.db = db
@@ -36,6 +37,7 @@ class UISkinThread(threading.Thread):
         self.skin_scraper = skin_scraper
         self.injection_manager = injection_manager
         self.interval = interval
+        self.mousehover_debug = mousehover_debug
         
         # UI detection state
         self.league_window = None
@@ -57,6 +59,10 @@ class UISkinThread(threading.Thread):
         # Detection state flags
         self.detection_available = False
         self.last_detection_attempt = 0.0
+        
+        # Mouse hover debugging
+        self.last_mouse_position = None
+        self.last_mouse_debug_time = 0.0
         
     def find_league_client(self) -> bool:
         """Find the League of Legends client window."""
@@ -126,16 +132,16 @@ class UISkinThread(threading.Thread):
             except Exception as e:
                 log.debug(f"Error getting control from point: {e}")
             
-            # Fallback: try a small area around the target position (limited iterations)
-            tolerance = 20
-            for offset_x in range(-tolerance, tolerance + 1, 5):
-                for offset_y in range(-tolerance, tolerance + 1, 5):
+            # Fallback: try a larger area around the target position (limited iterations)
+            tolerance = 50  # Increased from 20 to 50 pixels
+            for offset_x in range(-tolerance, tolerance + 1, 3):  # Smaller step size for better coverage
+                for offset_y in range(-tolerance, tolerance + 1, 3):
                     try:
                         test_x = target_x + offset_x
                         test_y = target_y + offset_y
                         control = auto.ControlFromPoint(test_x, test_y)
                         if control and control.ControlTypeName == "TextControl" and control.FrameworkId == "Chrome":
-                            log.debug(f"Found TextControl at offset position ({test_x}, {test_y}): '{control.Name}'")
+                            log.info(f"Found TextControl at offset position ({test_x}, {test_y}): '{control.Name}'")
                             return control
                     except Exception:
                         continue
@@ -146,6 +152,107 @@ class UISkinThread(threading.Thread):
         except Exception as e:
             log.debug(f"Error finding skin name element: {e}")
             return None
+    
+    def _debug_mouse_hover(self):
+        """Debug mouse hover - show all UI element information at cursor position"""
+        if not self.mousehover_debug:
+            return
+        
+        try:
+            import win32gui
+            import win32api
+            
+            # Get current mouse position
+            x, y = win32gui.GetCursorPos()
+            current_pos = (x, y)
+            
+            # Only debug if mouse moved or enough time passed
+            now = time.time()
+            if current_pos == self.last_mouse_position and (now - self.last_mouse_debug_time) < 0.5:
+                return
+            
+            self.last_mouse_position = current_pos
+            self.last_mouse_debug_time = now
+            
+            # Get control at mouse position
+            control = auto.ControlFromPoint(x, y)
+            
+            if control:
+                log.info("=" * 80)
+                log.info(f"🖱️  MOUSE HOVER DEBUG at ({x}, {y})")
+                log.info("=" * 80)
+                
+                # Basic properties
+                log.info(f"Control Type: {control.ControlTypeName}")
+                log.info(f"Framework: {control.FrameworkId}")
+                log.info(f"Name: '{control.Name}'")
+                log.info(f"Automation ID: '{getattr(control, 'AutomationId', 'N/A')}'")
+                log.info(f"Class Name: '{getattr(control, 'ClassName', 'N/A')}'")
+                log.info(f"Process ID: {getattr(control, 'ProcessId', 'N/A')}")
+                log.info(f"Runtime ID: {getattr(control, 'RuntimeId', 'N/A')}")
+                
+                # Bounding rectangle
+                try:
+                    rect = control.BoundingRectangle
+                    if rect:
+                        log.info(f"Bounding Rectangle: ({rect.left}, {rect.top}, {rect.right}, {rect.bottom})")
+                        log.info(f"Size: {rect.width()}x{rect.height()}")
+                    else:
+                        log.info("Bounding Rectangle: Not available")
+                except Exception as e:
+                    log.info(f"Bounding Rectangle: Error - {e}")
+                
+                # Parent information
+                try:
+                    parent = control.GetParentControl()
+                    if parent:
+                        log.info(f"Parent Type: {parent.ControlTypeName}")
+                        log.info(f"Parent Name: '{parent.Name}'")
+                        log.info(f"Parent Framework: {parent.FrameworkId}")
+                    else:
+                        log.info("Parent: None")
+                except Exception as e:
+                    log.info(f"Parent: Error - {e}")
+                
+                # Children count
+                try:
+                    children = control.GetChildren()
+                    log.info(f"Children Count: {len(children)}")
+                    if len(children) > 0:
+                        log.info("Children Types:")
+                        for i, child in enumerate(children[:5]):  # Show first 5 children
+                            try:
+                                log.info(f"  [{i}] {child.ControlTypeName} - '{child.Name}'")
+                            except:
+                                log.info(f"  [{i}] <error getting child info>")
+                        if len(children) > 5:
+                            log.info(f"  ... and {len(children) - 5} more children")
+                except Exception as e:
+                    log.info(f"Children: Error - {e}")
+                
+                # Additional properties
+                try:
+                    properties = [
+                        'IsEnabled', 'IsOffscreen', 'IsKeyboardFocusable', 'IsPassword',
+                        'HasKeyboardFocus', 'IsContentElement', 'IsControlElement'
+                    ]
+                    log.info("Additional Properties:")
+                    for prop in properties:
+                        try:
+                            value = getattr(control, prop, None)
+                            if value is not None:
+                                log.info(f"  {prop}: {value}")
+                        except:
+                            pass
+                except Exception as e:
+                    log.info(f"Additional Properties: Error - {e}")
+                
+                log.info("=" * 80)
+            else:
+                log.info(f"🖱️  MOUSE HOVER DEBUG at ({x}, {y}): No control found")
+                
+        except Exception as e:
+            log.debug(f"Mouse hover debug error: {e}")
     
     def _find_text_control_at_position(self, parent_control, target_x, target_y):
         """Find a TextControl at the specific position within a parent control."""
@@ -268,7 +375,7 @@ class UISkinThread(threading.Thread):
         locked_timestamp = getattr(self.state, "locked_champ_timestamp", 0.0)
         if locked_timestamp > 0:
             time_since_lock = time.time() - locked_timestamp
-            if time_since_lock < 0.2:  # 200ms delay after lock
+            if time_since_lock < 0.1:  # 100ms delay after lock
                 return False
         
         # Stop detection if injection has been completed
@@ -694,6 +801,9 @@ class UISkinThread(threading.Thread):
                         log.debug(f"Found skin name element: '{self.skin_name_element.Name}'")
                     else:
                         log.debug("Still no skin name element found")
+            
+            # Mouse hover debugging (always active when enabled)
+            self._debug_mouse_hover()
             
             # Use shorter sleep for better responsiveness
             time.sleep(check_interval)

@@ -23,9 +23,23 @@
 
 - **🎨 Every Skin Instantly** - Access to all skins for all champions
 - **🌈 Chroma Selection** - Beautiful UI to choose any chroma variant
-- **🌍 Works in Any Language** - All languages supported except Greek (coming soon)
+- **🌍 Works in Any Language** - All languages supported
 - **✅ Smart & Safe** - Never injects skins you already own
 - **🔐 Professional Grade** - Licensed software with enterprise-level security
+
+---
+
+## 🎮 **How It Works**
+
+**LeagueUnlocked uses Windows UI Automation API to detect skin names in champion select:**
+
+1. **UI Detection** - Monitors the League client window for skin name elements
+2. **Position-Based Scanning** - Searches a 50x50 pixel area around the calculated skin name position (50% width, 65.8% height from window top)
+3. **Multi-Language Support** - Downloads language-specific champion data from Riot's Data Dragon API
+4. **Smart Matching** - Uses fuzzy text matching to identify skins across different languages
+5. **Automatic Injection** - Injects the selected skin when the game starts
+
+**Key Technical Detail:** The detection searches in a 50x50 pixel area with 3-pixel steps to handle slight position variations between different languages and resolutions. If skin detection fails, the search area can be adjusted by modifying the tolerance values in the code.
 
 ---
 

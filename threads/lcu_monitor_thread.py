@@ -128,15 +128,17 @@ class LCUMonitorThread(threading.Thread):
         self.last_language_check = time.time()
         
         try:
+            log.info("[LCU] 🔍 Detecting client language...")
             new_language = self.lcu.client_language
             if new_language:
                 if new_language != self.last_language:
-                    log.info(f"Language detected after reconnection: {new_language}")
+                    log.info(f"[LCU] 🌍 Language detected: {new_language}")
                 else:
-                    log.info(f"Language confirmed after reconnection: {new_language}")
+                    log.info(f"[LCU] 🌍 Language confirmed: {new_language}")
                 
                 # Update database language if available
                 if self.db:
+                    log.info(f"[LCU] 📥 Updating database for language: {new_language}")
                     self.db.update_language(new_language)
                 
                 # Always call callback on reconnection to ensure UI detection is reinitialized
@@ -145,9 +147,9 @@ class LCUMonitorThread(threading.Thread):
                 if self.language_callback:
                     self.language_callback(new_language)
             else:
-                log.warning("Failed to get LCU language - client returned None")
+                log.warning("[LCU] ❌ Failed to get LCU language - client returned None")
         except Exception as e:
-            log.warning(f"Failed to get LCU language: {e}")
+            log.warning(f"[LCU] ❌ Failed to get LCU language: {e}")
     
     def _check_language_change(self):
         """Periodically check if language has changed"""
@@ -156,17 +158,18 @@ class LCUMonitorThread(threading.Thread):
         try:
             current_language = self.lcu.client_language
             if current_language and current_language != self.last_language:
-                log.info(f"Language changed during session: {self.last_language} → {current_language}")
+                log.info(f"[LCU] 🌍 Language changed during session: {self.last_language} → {current_language}")
                 
                 # Update database language if available
                 if self.db:
+                    log.info(f"[LCU] 📥 Updating database for language change: {current_language}")
                     self.db.update_language(current_language)
                 
                 self.last_language = current_language
                 if self.language_callback:
                     self.language_callback(current_language)
         except Exception as e:
-            log.debug(f"Error checking language change: {e}")
+            log.debug(f"[LCU] Error checking language change: {e}")
     
     def _check_initial_champion_state(self):
         """Check if we're already in ChampSelect with a locked champion (Issue #29)
