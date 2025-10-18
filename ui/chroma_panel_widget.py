@@ -10,8 +10,8 @@ from typing import Optional, Callable, List, Dict
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPixmap
-from utils.chroma_base import ChromaWidgetBase
-from utils.chroma_scaling import get_scaled_chroma_values
+from ui.chroma_base import ChromaWidgetBase
+from ui.chroma_scaling import get_scaled_chroma_values
 from utils.logging import get_logger, log_event
 import config
 
@@ -362,9 +362,9 @@ class ChromaPanelWidget(ChromaWidgetBase):
             log.debug(f"[CHROMA] Loading chroma preview: skin_name='{skin_name}', chroma_id={chroma_id}, champion_name='{champion_name}', skin_id={skin_id}")
             
             # Load from SkinPreviews repository
-            from utils.chroma_preview_manager import get_preview_manager
+            from ui.chroma_preview_manager import get_preview_manager
             # Get database from chroma selector if available
-            from utils.chroma_selector import get_chroma_selector
+            from ui.chroma_selector import get_chroma_selector
             chroma_selector = get_chroma_selector()
             db = chroma_selector.db if chroma_selector else None
             preview_manager = get_preview_manager(db)

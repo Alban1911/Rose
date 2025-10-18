@@ -9,7 +9,7 @@ import threading
 from lcu.client import LCU
 from state.shared_state import SharedState
 from utils.logging import get_logger, log_status, log_action
-from utils.chroma_selector import get_chroma_selector
+from ui.user_interface import get_user_interface
 from config import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT
 
 log = get_logger()
@@ -53,14 +53,14 @@ class PhaseThread(threading.Thread):
                         except Exception as e:
                             log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
                     
-                    # Destroy chroma panel and button
-                    chroma_selector = get_chroma_selector()
-                    if chroma_selector:
-                        try:
-                            chroma_selector.panel.request_destroy()
-                            log.debug("[phase] Chroma panel destroy requested for Lobby")
-                        except Exception as e:
-                            log.debug(f"[phase] Error destroying chroma panel: {e}")
+                    # Hide UI for Lobby
+                    try:
+                        from ui.user_interface import _user_interface
+                        if _user_interface:
+                            _user_interface.hide_all()
+                            log.debug("[phase] UI hidden for Lobby")
+                    except Exception as e:
+                        log.debug(f"[phase] Error hiding UI: {e}")
                 
                 elif ph == "ChampSelect":
                     # State reset happens in WebSocket thread for faster response

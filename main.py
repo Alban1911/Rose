@@ -169,7 +169,7 @@ from utils.logging import setup_logging, get_logger, log_section, log_success, l
 from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
-from utils.chroma_selector import init_chroma_selector
+from ui.user_interface import get_user_interface
 from utils.thread_manager import ThreadManager, create_daemon_thread
 from utils.license_client import LicenseClient
 from config import *  # Import all other constants
@@ -761,17 +761,19 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
             qt_app = existing_app
             log_success(log, "Using existing QApplication instance for chroma panel", "🎨")
         
-        # Initialize chroma selector (widgets will be created on champion lock)
+        # Initialize user interface (widgets will be created on champion lock)
         try:
-            log.debug("Initializing chroma selector...")
-            chroma_selector = init_chroma_selector(skin_scraper, state, db)
-            log_success(log, "Chroma selector initialized (panel widgets will be created on champion lock)", "🌈")
+            log.debug("Initializing user interface...")
+            user_interface = get_user_interface(state, skin_scraper, db)
+            # For backward compatibility, get the chroma selector from the UI
+            chroma_selector = user_interface.chroma_ui.chroma_selector
+            log_success(log, "User interface initialized (panel widgets will be created on champion lock)", "🌈")
             
         except Exception as e:
-            log.warning(f"Failed to initialize chroma panel: {e}")
-            log.warning("Chroma selection will be disabled, but app will continue")
+            log.warning(f"Failed to initialize user interface: {e}")
+            log.warning("UI will be disabled, but app will continue")
             import traceback
-            log.debug(f"Chroma init traceback: {traceback.format_exc()}")
+            log.debug(f"UI init traceback: {traceback.format_exc()}")
             chroma_selector = None
             
     except Exception as e:
@@ -883,21 +885,23 @@ def main():
                 pass
         sys.exit(1)
 
-    # Initialize PyQt6 and chroma selector
+    # Initialize PyQt6 and user interface
     try:
-        log.info("Initializing PyQt6 and chroma selector...")
+        log.info("Initializing PyQt6 and user interface...")
         qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status, lcu)
-        log.info("✓ PyQt6 and chroma selector initialized")
+        # Initialize user interface
+        user_interface = get_user_interface(state, skin_scraper, db)
+        log.info("✓ PyQt6 and user interface initialized")
     except Exception as e:
         log.error("=" * 80)
-        log.error("ERROR DURING PYQT6/CHROMA INITIALIZATION")
+        log.error("ERROR DURING PYQT6/UI INITIALIZATION")
         log.error("=" * 80)
-        log.error(f"Failed to initialize PyQt6/chroma selector: {e}")
+        log.error(f"Failed to initialize PyQt6/user interface: {e}")
         log.error(f"Error type: {type(e).__name__}")
         import traceback
         log.error(f"Traceback:\n{traceback.format_exc()}")
         log.error("=" * 80)
-        log.warning("Continuing without chroma selector...")
+        log.warning("Continuing without UI...")
         qt_app = None
         chroma_selector = None
     
@@ -1110,12 +1114,37 @@ def main():
             # Process Qt events if available (process ALL pending events)
             if qt_app:
                 try:
-                    # Process pending chroma panel requests first
-                    if chroma_selector and chroma_selector.panel:
+                    # Check for skin changes and notify UI (modular architecture)
+                    if state.last_hovered_skin_id and state.locked_champ_id:
+                        current_skin_id = state.last_hovered_skin_id
+                        current_skin_name = state.last_hovered_skin_key
+                        
+                        # Get champion name
+                        champion_name = None
+                        if db:
+                            champion_name = db.champ_name_by_id.get(state.locked_champ_id)
+                        
+                        # Check if this is a new skin (debouncing at main loop level)
+                        if not hasattr(main, '_last_notified_skin_id') or main._last_notified_skin_id != current_skin_id:
+                            # Notify UserInterface of the skin change
+                            try:
+                                # Get the user interface that was already initialized
+                                from ui.user_interface import _user_interface
+                                if _user_interface:
+                                    _user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name)
+                                    log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
+                                    # Track the last notified skin
+                                    main._last_notified_skin_id = current_skin_id
+                            except Exception as e:
+                                log.debug(f"[MAIN] Failed to notify UI: {e}")
+                    
+                    # Process pending UI requests
+                    from ui.user_interface import _user_interface
+                    if _user_interface and _user_interface.chroma_ui and _user_interface.chroma_ui.chroma_selector.panel:
                         chroma_start = time.time()
-                        chroma_selector.panel.process_pending()
+                        _user_interface.chroma_ui.chroma_selector.panel.process_pending()
                         # Update positions to follow League window
-                        chroma_selector.panel.update_positions()
+                        _user_interface.chroma_ui.chroma_selector.panel.update_positions()
                         chroma_elapsed = time.time() - chroma_start
                         if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
                             log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")

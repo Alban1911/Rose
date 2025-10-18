@@ -8,9 +8,9 @@ Chroma Panel Manager - Coordinates chroma panel and button widgets
 import threading
 from typing import Callable, List, Dict
 from utils.logging import get_logger, log_event, log_success, log_action
-from utils.chroma_button import OpeningButton
-from utils.chroma_panel_widget import ChromaPanelWidget
-from utils.chroma_click_catcher import ClickCatcherOverlay
+from ui.chroma_button import OpeningButton
+from ui.chroma_panel_widget import ChromaPanelWidget
+from ui.chroma_click_catcher import ClickCatcherOverlay
 
 log = get_logger()
 
@@ -115,7 +115,7 @@ class ChromaPanelManager:
         """Create widgets (must be called from main thread)"""
         if not self.is_initialized:
             # Force reload of scaled values to ensure we use current resolution
-            from utils.chroma_scaling import get_scaled_chroma_values
+            from ui.chroma_scaling import get_scaled_chroma_values
             from utils.window_utils import get_league_window_client_size, get_league_window_handle
             
             # Get current resolution and force cache refresh
@@ -306,6 +306,8 @@ class ChromaPanelManager:
             has_chromas = chromas and len(chromas) > 0
             
             if not self.is_initialized:
+                # Request widget creation
+                self.request_create()
                 if has_chromas:
                     log.debug(f"[CHROMA] Widgets not initialized yet - queueing button show for {skin_name} ({len(chromas)} chromas)")
                 else:
@@ -330,6 +332,22 @@ class ChromaPanelManager:
             # Reset button state to unhovered when showing for new skin (wheel will be closed)
             if self.pending_update_button_state is None:
                 self.pending_update_button_state = False
+            
+            # Check ownership and trigger UnownedFrame fade if needed
+            if self.state:
+                is_owned = skin_id in self.state.owned_skin_ids
+                is_base_skin = skin_id % 1000 == 0
+                
+                # UnownedFrame should show for unowned skins that are not base skins
+                should_show_unowned_frame = not is_owned and not is_base_skin
+                
+                if should_show_unowned_frame:
+                    log.debug(f"[CHROMA] Skin {skin_id} is unowned (not base) - will trigger UnownedFrame fade")
+                    self.pending_initial_unowned_fade = True
+                elif is_base_skin:
+                    log.debug(f"[CHROMA] Skin {skin_id} is base skin - UnownedFrame hidden")
+                elif is_owned:
+                    log.debug(f"[CHROMA] Skin {skin_id} is owned - UnownedFrame hidden")
     
     def show_wheel_directly(self):
         """Request to show the chroma panel for current skin (called by button click)"""
