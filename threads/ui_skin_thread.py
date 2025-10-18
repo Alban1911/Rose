@@ -597,6 +597,17 @@ class UISkinThread(threading.Thread):
                     self.last_detected_skin_name = name
                     self.last_detected_skin_id = skin_id
                     self.last_detected_skin_key = f"{self.state.last_hovered_champ_slug}_{skin_id}"
+                    
+                    # Update state with English skin name for injection
+                    if self.db:
+                        english_skin_name = self.db.get_english_skin_name_by_id(skin_id)
+                        if english_skin_name:
+                            self.state.last_hovered_skin_key = english_skin_name
+                            log.debug(f"Updated last_hovered_skin_key to English: '{english_skin_name}'")
+                        else:
+                            log.warning(f"Could not get English name for skin ID {skin_id}")
+                    else:
+                        log.warning("No database available to get English skin name")
                 
         except Exception as e:
             log.debug(f"Error monitoring skin name element: {e}")
