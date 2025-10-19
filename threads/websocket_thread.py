@@ -200,7 +200,7 @@ class WSEventThread(threading.Thread):
                     self.state.last_hovered_skin_id = None
                     self.state.last_hovered_skin_slug = None
                     self.state.selected_skin_id = None  # Reset LCU selected skin
-                    self.state.owned_skin_ids.clear()  # Clear owned skins (will be refreshed on champion lock)
+                    self.state.owned_skin_ids.clear()  # Clear owned skins (will be refreshed immediately)
                     self.state.last_hover_written = False
                     self.state.injection_completed = False  # Reset injection flag for new game
                     self.state.loadout_countdown_active = False  # Reset countdown state
@@ -212,6 +212,19 @@ class WSEventThread(threading.Thread):
                         self.state.processed_action_ids.clear()
                     except Exception: 
                         self.state.processed_action_ids = set()
+                    
+                    # Load owned skins immediately when entering ChampSelect
+                    try:
+                        owned_skins = self.lcu.owned_skins()
+                        log.debug(f"[WS] Raw owned skins response: {owned_skins}")
+                        if owned_skins and isinstance(owned_skins, list):
+                            self.state.owned_skin_ids = set(owned_skins)
+                            log.info(f"[WS] Loaded {len(self.state.owned_skin_ids)} owned skins from inventory")
+                        else:
+                            log.warning(f"[WS] Failed to fetch owned skins from LCU - no data returned (response: {owned_skins})")
+                    except Exception as e:
+                        log.warning(f"[WS] Error fetching owned skins: {e}")
+                    
                     log.debug("[WS] State reset complete - ready for new champion select")
                         
                 
