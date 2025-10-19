@@ -4,7 +4,6 @@
 Find correct skin name coordinates when in champion select
 """
 
-import time
 import logging
 from pywinauto import Application
 
@@ -56,13 +55,13 @@ def find_skin_coords():
                     text_clean = text.strip()
                     
                     # Skip UI elements
-                    ui_indicators = [":", "!", "x", "⁦", "⁩", "#", "→", "←", "↑", "↓", "•", "○", "●", "PVP", "COOP", "ENTRAÎNEMENT", "BANNISSEMENTS", "MODE AVEUGLE", "QUITTER", "VOIR LES COMPÉTENCES", "Trier par", "Aléatoire", "SOCIAL", "HORS LIGNE", "En ligne", "En jeu", "Absent", "Hors ligne", "RIOT MOBILE", "GÉNÉRAL", "JOUER", "LOL", "TFT", "Difficile", "Cliquer", "Entrée", "pour voir"]
+                    ui_indicators = [":", "!", "x", "⁦", "⁩", "#", "→", "←", "↑", "↓", "•", "○", "●"]
                     if any(pattern in text_clean for pattern in ui_indicators):
                         continue
                     
                     # Must have letters and reasonable length
                     if (any(c.isalpha() for c in text_clean) and 
-                        3 <= len(text_clean) <= 50 and
+                        2 <= len(text_clean) <= 50 and
                         not text_clean.isdigit()):
                         
                         # Get element position
@@ -91,7 +90,7 @@ def find_skin_coords():
         log.info("\nLooking for specific skin name patterns...")
         skin_names = []
         for text, x, y, rect in skin_candidates:
-            if any(keyword in text.lower() for keyword in ['garen', 'darkin', 'universe', 'mundo', 'darius']): # basically put the skin names you want to test here
+            if any(keyword in text.lower() for keyword in ['vi']): # basically put the skin names you want to test here
                 log.info(f"*** POTENTIAL SKIN: '{text}' at ({x}, {y}) ***")
                 if x is not None and y is not None:
                     skin_names.append((text, x, y))

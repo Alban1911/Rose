@@ -42,8 +42,8 @@ class UIDetector:
             
             # Use percentage-based coordinates for skin name detection
             # These constants are defined in config.py and tested to be correct
-            relative_x = int(window_width * config.UI_DETECTION_SKIN_NAME_X_RATIO)  # 50% of window width (center)
-            relative_y = int(window_height * config.UI_DETECTION_SKIN_NAME_Y_RATIO)  # 63.9% of window height (constant)
+            relative_x = int(window_width * config.UI_DETECTION_SKIN_NAME_X_RATIO)  # 49.5% of window width (center)
+            relative_y = int(window_height * config.UI_DETECTION_SKIN_NAME_Y_RATIO)  # 64% of window height (constant)
             
             # Convert to absolute screen coordinates
             # PyWinAuto's element_info_from_point() expects screen coordinates, not window-relative
