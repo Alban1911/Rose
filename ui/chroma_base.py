@@ -74,95 +74,8 @@ class ChromaWidgetBase(QWidget):
         # Parent to League window (child window - Windows handles positioning automatically)
         self._parent_to_league_window()
         
-        # Calculate and apply position in client coordinates
-        self._update_position()
+        # Position is now handled by individual widgets using absolute coordinates
     
-    def _update_position(self):
-        """Update widget position relative to League window (in client coordinates if parented)"""
-        # If we're parented to League, use client coordinates; otherwise use screen coordinates
-        if self._league_window_hwnd:
-            # Get this widget's window handle for positioning
-            widget_hwnd = int(self.winId())
-            
-            # Get League window client area size ONLY (no screen coordinates needed!)
-            # Windows automatically handles the screen position since we're a child window
-            try:
-                from ctypes import wintypes
-                client_rect = wintypes.RECT()
-                ctypes.windll.user32.GetClientRect(self._league_window_hwnd, ctypes.byref(client_rect))
-                
-                window_width = client_rect.right - client_rect.left
-                window_height = client_rect.bottom - client_rect.top
-            except Exception:
-                return  # Failed to get client rect
-            
-            # Hardcoded positions for each resolution (no scaling)
-            if window_width == 1600 and window_height == 900:
-                # 1600x900 resolution
-                widget_x = 778
-                widget_y = 700
-            elif window_width == 1280 and window_height == 720:
-                # 1280x720 resolution
-                widget_x = 622
-                widget_y = 560
-            elif window_width == 1024 and window_height == 576:
-                # 1024x576 resolution
-                widget_x = 496
-                widget_y = 446
-            else:
-                # Unsupported resolution - use default 1600x900 values
-                from utils.logging import get_logger
-                log = get_logger()
-                log.warning(f"[CHROMA] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
-                widget_x = 777
-                widget_y = 700
-            
-            # Debug logging for position calculation
-            from utils.logging import get_logger
-            log = get_logger()
-            log.debug(f"[CHROMA] {self.__class__.__name__} positioned at client coords ({widget_x}, {widget_y})")
-            
-            # Use Windows API to position child window in client coordinates
-            # These coordinates are RELATIVE TO PARENT WINDOW, not screen!
-            SWP_NOACTIVATE = 0x0010
-            SWP_NOSIZE = 0x0001
-            HWND_TOP = 0  # Place at top of z-order (above UnownedFrame)
-            result = ctypes.windll.user32.SetWindowPos(
-                widget_hwnd,
-                HWND_TOP,  # hWndInsertAfter - place at top of z-order
-                int(widget_x), int(widget_y),
-                0, 0,  # width, height (ignored with NOSIZE)
-                SWP_NOACTIVATE | SWP_NOSIZE  # Removed SWP_NOZORDER to allow positioning
-            )
-            
-            if not result:
-                from utils.logging import get_logger
-                log = get_logger()
-                log.error(f"[CHROMA] SetWindowPos FAILED for {self.__class__.__name__} (error: {ctypes.get_last_error()})")
-            
-            # Note: Z-order will be handled by the refresh mechanism
-            
-            # Verify position was actually set
-            from ctypes import wintypes
-            rect = wintypes.RECT()
-            ctypes.windll.user32.GetWindowRect(widget_hwnd, ctypes.byref(rect))
-            log.debug(f"[CHROMA] {self.__class__.__name__} positioned at ({rect.left}, {rect.top}) with size ({rect.right - rect.left}, {rect.bottom - rect.top})")
-            
-            # Convert to client coordinates relative to parent
-            point = wintypes.POINT()
-            point.x = rect.left
-            point.y = rect.top
-            ctypes.windll.user32.ScreenToClient(self._league_window_hwnd, ctypes.byref(point))
-            
-            from utils.logging import get_logger
-            log = get_logger()
-            log.info(f"  - VERIFIED actual position: ({point.x}, {point.y})")
-        else:
-            # Not parented to League - should not happen in normal operation
-            from utils.logging import get_logger
-            log = get_logger()
-            log.error(f"[CHROMA] {self.__class__.__name__} not parented - cannot position widget!")
-            self.hide()
     
     def update_position_if_needed(self):
         """
@@ -292,8 +205,7 @@ class ChromaWidgetBase(QWidget):
                     SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_FRAMECHANGED
                 )
                 
-                # Update position in client coordinates
-                self._update_position()
+                # Position is now handled by individual widgets using absolute coordinates
                 
                 # Log success (show every time for rebuild debugging)
                 from utils.logging import get_logger

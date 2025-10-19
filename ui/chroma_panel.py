@@ -114,16 +114,7 @@ class ChromaPanelManager:
     def _create_widgets(self):
         """Create widgets (must be called from main thread)"""
         if not self.is_initialized:
-            # Force reload of scaled values to ensure we use current resolution
-            from ui.chroma_scaling import get_scaled_chroma_values
-            from utils.window_utils import get_league_window_client_size, get_league_window_handle
-            
-            # Get current resolution and force cache refresh
-            current_res = get_league_window_client_size()
-            if current_res:
-                log.debug(f"[CHROMA] Creating widgets for resolution: {current_res}")
-                # Force reload to get fresh values for current resolution
-                get_scaled_chroma_values(resolution=current_res, force_reload=True)
+            from utils.window_utils import get_league_window_handle
             
             # Get League window handle for click catcher
             league_hwnd = get_league_window_handle()
@@ -490,9 +481,8 @@ class ChromaPanelManager:
                     self.widget.raise_()  # Panel on top
                     self.widget.bring_to_front()  # Ensure proper z-order
                     
-                    # CRITICAL: Re-apply position AFTER show() to prevent Qt from resetting it
-                    if hasattr(self.widget, '_update_position'):
-                        self.widget._update_position()
+                    # Position is handled by _position_panel_absolutely() in setup_ui()
+                    # No need to call _update_position() since we use absolute positioning
                     
                     # Ensure button is also on top
                     if self.reopen_button:
