@@ -320,16 +320,10 @@ class ChromaPanelManager:
                 else:
                     log.debug(f"[CHROMA] Showing UnownedFrame only for {skin_name} (no chromas)")
             
-            # Always show first to ensure UnownedFrame is positioned
+            # Always show button to ensure UnownedFrame is positioned
+            # The button should stay visible for all skins (both with and without chromas)
             self.pending_show_button = True
-            
-            # For skins without chromas, immediately hide the button after showing
-            # (UnownedFrame will remain visible as it has independent visibility)
-            if not has_chromas:
-                self.pending_hide_button = True
-            else:
-                # Skin has chromas - ensure button stays visible (cancel any pending hide)
-                self.pending_hide_button = False
+            self.pending_hide_button = False  # Never hide the button
             
             # Reset button state to unhovered when showing for new skin (wheel will be closed)
             if self.pending_update_button_state is None:
