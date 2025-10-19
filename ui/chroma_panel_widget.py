@@ -142,13 +142,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self._update_window_mask()
         
         # Position panel directly relative to League window (not relative to button)
-        # Use hardcoded absolute coordinates for each resolution
+        # Use panel position from config for each resolution
         window_width, window_height = self._current_resolution
         
-        # Position panel at top-left corner of League window for testing
-        # You can move it from there to the desired position
-        panel_x = 10  # 10px from left edge
-        panel_y = 10  # 10px from top edge
+        # Get panel position from scaled values (config-based)
+        panel_x = scaled_values.panel_x  # X position from left edge of League window
+        panel_y = scaled_values.panel_y  # Y position from top edge of League window
         
         # Position panel directly in League window using absolute coordinates
         self._position_panel_absolutely(panel_x, panel_y)

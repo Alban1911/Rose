@@ -227,12 +227,42 @@ CHROMA_PANEL_CONFIGS = {
         'preview_x': 2,
         'preview_y': 2,
         'row_y_offset': 42,
+        'panel_x': 10,  # X position from left edge of League window
+        'panel_y': 10,  # Y position from top edge of League window
     },
     (1280, 720): {
-        #TODO
+        'preview_width': 304,
+        'preview_height': 315,
+        'circle_radius': 11,
+        'window_width': 310,
+        'window_height': 376,
+        'circle_spacing': 27,
+        'button_size': 43,
+        'button_width': 304,
+        'button_height': 54,
+        'screen_edge_margin': 25,
+        'preview_x': 3,
+        'preview_y': 3,
+        'row_y_offset': 33,
+        'panel_x': 8,  # X position from left edge of League window
+        'panel_y': 8,  # Y position from top edge of League window
     },
     (1024, 576): {
-        #TODO
+        'preview_width': 243,
+        'preview_height': 252,
+        'circle_radius': 9,
+        'window_width': 248,
+        'window_height': 301,
+        'circle_spacing': 22,
+        'button_size': 35,
+        'button_width': 243,
+        'button_height': 43,
+        'screen_edge_margin': 20,
+        'preview_x': 2,
+        'preview_y': 2,
+        'row_y_offset': 26,
+        'panel_x': 6,  # X position from left edge of League window
+        'panel_y': 6,  # Y position from top edge of League window
     }
 }
 
