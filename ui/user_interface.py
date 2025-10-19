@@ -115,6 +115,14 @@ class UserInterface:
     def _skin_has_chromas(self, skin_id: int) -> bool:
         """Check if skin has chromas"""
         try:
+            # First, check if this skin_id is a chroma by looking it up in the chroma cache
+            if self.skin_scraper and self.skin_scraper.cache:
+                if skin_id in self.skin_scraper.cache.chroma_id_map:
+                    # This is a chroma - it's always considered to have chromas
+                    # because it's part of the base skin's chroma set
+                    return True
+            
+            # For base skins, check if they actually have chromas
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
             return chromas and len(chromas) > 0
         except Exception as e:

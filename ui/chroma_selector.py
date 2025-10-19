@@ -84,10 +84,28 @@ class ChromaSelector:
                     self.state.last_hovered_skin_id = chroma_id
                     
                     # Also update the skin key to include chroma ID for injection path
-                    # Format: "{skin_name} {chroma_id}" for injection system
+                    # Format: "{base_skin_name} {chroma_id}" for injection system
                     if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
+                        # Get the base skin name (remove any existing chroma IDs from the name)
+                        base_skin_name = self.panel.current_skin_name
+                        
+                        # Remove any trailing chroma IDs from the skin name to get the clean base name
+                        # This prevents corruption like "Garen 86008 86009 86008"
+                        words = base_skin_name.split()
+                        # Keep only the champion name and base skin name, remove any chroma IDs
+                        clean_words = []
+                        for word in words:
+                            # Skip words that look like chroma IDs (numbers)
+                            if not word.isdigit():
+                                clean_words.append(word)
+                            else:
+                                # Stop at the first number we encounter (base skin ID or chroma ID)
+                                break
+                        
+                        base_skin_name = ' '.join(clean_words)
+                        
                         # Get English skin name from database if available
-                        english_skin_name = self.panel.current_skin_name
+                        english_skin_name = base_skin_name
                         if self.db and self.current_skin_id:
                             try:
                                 db_english_name = self.db.get_english_skin_name_by_id(self.current_skin_id)
@@ -96,7 +114,7 @@ class ChromaSelector:
                             except Exception:
                                 pass
                         
-                        # For chromas, append the chroma ID to the skin name
+                        # For chromas, append the chroma ID to the clean base skin name
                         self.state.last_hovered_skin_key = f"{english_skin_name} {chroma_id}"
                         log.debug(f"[CHROMA] Updated last_hovered_skin_key to: {self.state.last_hovered_skin_key}")
                     
@@ -156,7 +174,16 @@ class ChromaSelector:
         validate_skin_name(skin_name)
         
         with self.lock:
-            chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
+            # Check if this is a chroma ID - if so, get the base skin ID for chroma data
+            base_skin_id = skin_id
+            if self.skin_scraper and self.skin_scraper.cache:
+                if skin_id in self.skin_scraper.cache.chroma_id_map:
+                    # This is a chroma, get its base skin ID
+                    chroma_data = self.skin_scraper.cache.chroma_id_map[skin_id]
+                    base_skin_id = chroma_data.get('skinId')
+                    log.debug(f"[CHROMA] Detected chroma {skin_id}, using base skin {base_skin_id} for chroma data")
+            
+            chromas = self.skin_scraper.get_chromas_for_skin(base_skin_id)
             
             # Mark ownership status on each chroma for the injection system (if chromas exist)
             owned_skin_ids = self.state.owned_skin_ids
