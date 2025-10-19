@@ -48,6 +48,10 @@ class SharedState:
     selected_chroma_id: Optional[int] = None  # Selected chroma ID (None = base skin)
     pending_chroma_selection: bool = False  # Flag to indicate chroma panel is open
     chroma_panel_open: bool = False  # Flag to pause UI detection when panel is open
+    
+    # Game mode detection
+    current_game_mode: Optional[str] = None  # Current game mode (ARAM, CLASSIC, etc.)
+    current_map_id: Optional[int] = None  # Current map ID (12 = ARAM, 11 = SR)
     chroma_panel_skin_name: Optional[str] = None  # Base skin name when panel was opened (to avoid re-detecting same skin)
     
     # UI Detection

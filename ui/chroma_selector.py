@@ -39,7 +39,7 @@ class ChromaSelector:
         self.current_skin_id = None  # Track which skin we're showing chromas for
         
         # Get global panel manager
-        self.panel = get_chroma_panel()
+        self.panel = get_chroma_panel(state=state, lcu=skin_scraper.lcu)
         self.panel.on_chroma_selected = self._on_chroma_selected
         
         # Pass database to preview manager
