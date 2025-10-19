@@ -19,14 +19,13 @@ log = logging.getLogger(__name__)
 class UISkinThread(threading.Thread):
     """Thread for detecting skin names from League of Legends UI"""
     
-    def __init__(self, shared_state, name_db, lcu, skin_scraper=None, injection_manager=None, mousehover_debug=False, interval=0.1):
+    def __init__(self, shared_state, name_db, lcu, skin_scraper=None, injection_manager=None, interval=0.1):
         super().__init__(daemon=True)
         self.shared_state = shared_state
         self.name_db = name_db
         self.lcu = lcu
         self.skin_scraper = skin_scraper
         self.injection_manager = injection_manager
-        self.mousehover_debug = mousehover_debug
         self.interval = interval
         
         # Thread control
@@ -62,9 +61,6 @@ class UISkinThread(threading.Thread):
                             self.detection_available = True
                             log.info(f"UI Detection: Starting - champion locked in ChampSelect ({UIA_DELAY_MS}ms delay)")
                     
-                    # Debug mouse hover if enabled
-                    if self.mousehover_debug:
-                        self._debug_mouse_hover()
                     
                     # Find skin name element if not found yet
                     if self.skin_name_element is None:
@@ -135,16 +131,6 @@ class UISkinThread(threading.Thread):
             log.error(f"Failed to initialize detection: {e}")
             return False
     
-    def _debug_mouse_hover(self):
-        """Debug mouse hover if enabled"""
-        try:
-            import win32gui
-            x, y = win32gui.GetCursorPos()
-            self.debugger.debug_mouse_hover(x, y)
-        except ImportError:
-            log.debug("win32gui not available for mouse hover debug")
-        except Exception as e:
-            log.debug(f"Mouse hover debug error: {e}")
     
     def _get_skin_name(self) -> Optional[str]:
         """Get skin name from the detected element"""
