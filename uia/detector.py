@@ -6,6 +6,7 @@ import logging
 from typing import Optional
 from pywinauto import Application
 import config
+from utils.normalization import levenshtein_score
 
 log = logging.getLogger(__name__)
 
@@ -54,84 +55,45 @@ class UIDetector:
             text_elements = self.league_window.descendants(control_type="Text")
             log.info(f"Found {len(text_elements)} Text elements")
             
-            # Print the whole text_elements list for debugging
-            print("\n" + "=" * 80)
-            print("WHOLE TEXT_ELEMENTS LIST:")
-            print("=" * 80)
+            # Find the element right after the second 'YOUR TEAM'S BANS'
+            log.info("\nSearching for element after second 'YOUR TEAM'S BANS'...")
+            
+            your_teams_bans_count = 0
+            chosen_candidate = None
+            chosen_index = -1
+            
             for i, element in enumerate(text_elements):
                 try:
                     text = element.window_text()
-                    print(f"\n[{i:3d}] Element Information:")
-                    print(f"     Text: '{text}'")
-                    
-                    # Get property values by calling the methods
-                    try:
-                        control_type = element.control_type()
-                        print(f"     Control Type: {control_type}")
-                    except:
-                        print(f"     Control Type: Unknown")
-                    
-                    try:
-                        class_name = element.class_name()
-                        print(f"     Class Name: {class_name}")
-                    except:
-                        print(f"     Class Name: Unknown")
-                    
-                    try:
-                        automation_id = element.automation_id()
-                        print(f"     Automation ID: {automation_id}")
-                    except:
-                        print(f"     Automation ID: Unknown")
-                    
-                    try:
-                        name = element.name()
-                        print(f"     Name: {name}")
-                    except:
-                        print(f"     Name: Unknown")
-                    
-                    try:
-                        is_enabled = element.is_enabled()
-                        print(f"     Is Enabled: {is_enabled}")
-                    except:
-                        print(f"     Is Enabled: Unknown")
-                    
-                    try:
-                        is_visible = element.is_visible()
-                        print(f"     Is Visible: {is_visible}")
-                    except:
-                        print(f"     Is Visible: Unknown")
-                    
-                    try:
-                        has_keyboard_focus = element.has_keyboard_focus()
-                        print(f"     Has Keyboard Focus: {has_keyboard_focus}")
-                    except:
-                        print(f"     Has Keyboard Focus: Unknown")
-                    
-                    try:
-                        is_offscreen = element.is_offscreen()
-                        print(f"     Is Offscreen: {is_offscreen}")
-                    except:
-                        print(f"     Is Offscreen: Unknown")
-                    
-                    # Try to get additional properties if available
-                    try:
-                        if hasattr(element, 'get_properties'):
-                            props = element.get_properties()
-                            print(f"     Properties: {props}")
-                    except:
-                        pass
+                    if text == 'YOUR TEAM\'S BANS':
+                        your_teams_bans_count += 1
+                        log.info(f"Found 'YOUR TEAM'S BANS' #{your_teams_bans_count} at index {i}")
                         
+                        # If this is the second occurrence, the next element should be the skin name
+                        if your_teams_bans_count == 2:
+                            if i + 1 < len(text_elements):
+                                chosen_candidate = text_elements[i + 1]
+                                chosen_index = i + 1
+                                log.info(f"Found second 'YOUR TEAM'S BANS' at index {i}, taking next element at index {i + 1}")
+                                break
+                            else:
+                                log.warning("Second 'YOUR TEAM'S BANS' found but no element follows it")
+                                break
                 except Exception as e:
-                    print(f"[{i:3d}] Error getting element info: {e}")
-            print("\n" + "=" * 80)
+                    log.debug(f"Error checking element {i}: {e}")
+                    continue
             
-            # Optimized: Take candidate #-14 directly (skin name is always there)
-            log.info("\nTaking candidate #-14 directly (known skin name position)...")
-            chosen_candidate = text_elements[-14]
-            skin_name = chosen_candidate.window_text()
+            if chosen_candidate:
+                try:
+                    skin_name = chosen_candidate.window_text()
+                    log.info(f"✓ Found skin name element: '{skin_name}' (candidate #{chosen_index})")
+                    return chosen_candidate
+                except Exception as e:
+                    log.error(f"Error getting skin name from chosen candidate: {e}")
+            else:
+                log.warning("Could not find element after second 'YOUR TEAM'S BANS'")
             
-            log.info(f"✓ Found skin name element: '{skin_name}' (candidate #{len(text_elements) - 14})")
-            return chosen_candidate
+            return None
             
         except Exception as e:
             log.error(f"Error in element path search: {e}")
@@ -197,7 +159,7 @@ class UIDetector:
             for skin_data in scraped_skins:
                 skin_name_from_scraper = skin_data.get('skinName', '')
                 if skin_name_from_scraper:
-                    similarity = self._levenshtein_similarity(text, skin_name_from_scraper)
+                    similarity = levenshtein_score(text, skin_name_from_scraper)
                     if similarity >= 0.95:
                         log.info(f"UI Detection: '{text}' matches scraped skin '{skin_name_from_scraper}' with similarity {similarity:.3f}")
                         return True
@@ -210,30 +172,6 @@ class UIDetector:
         except Exception as e:
             log.debug(f"Error validating skin name for champion: {e}")
             return False
-    
-    def _levenshtein_similarity(self, s1: str, s2: str) -> float:
-        """Calculate Levenshtein similarity between two strings (0.0 to 1.0)"""
-        if len(s1) < len(s2):
-            return self._levenshtein_similarity(s2, s1)
-        
-        if len(s2) == 0:
-            return 0.0
-        
-        previous_row = list(range(len(s2) + 1))
-        for i, c1 in enumerate(s1):
-            current_row = [i + 1]
-            for j, c2 in enumerate(s2):
-                insertions = previous_row[j + 1] + 1
-                deletions = current_row[j] + 1
-                substitutions = previous_row[j] + (c1 != c2)
-                current_row.append(min(insertions, deletions, substitutions))
-            previous_row = current_row
-        
-        max_len = max(len(s1), len(s2))
-        distance = previous_row[-1]
-        similarity = 1.0 - (distance / max_len)
-        return similarity
-    
     
     def _cache_element(self, element):
         """Cache the found element"""
