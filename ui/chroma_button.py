@@ -60,7 +60,7 @@ class OpeningButton(ChromaWidgetBase):
             self.button_visual_size = 30  # Visual size (golden border)
         elif window_width == 1024 and window_height == 576:
             # 1024x576 resolution
-            self.button_visual_size = 24  # Visual size (golden border)
+            self.button_visual_size = 28  # Visual size (golden border)
         else:
             # Unsupported resolution - use default 1600x900 values
             log.warning(f"[CHROMA] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")

@@ -99,7 +99,7 @@ class ChromaWidgetBase(QWidget):
             # Hardcoded positions for each resolution (no scaling)
             if window_width == 1600 and window_height == 900:
                 # 1600x900 resolution
-                widget_x = 777
+                widget_x = 778
                 widget_y = 700
             elif window_width == 1280 and window_height == 720:
                 # 1280x720 resolution
@@ -107,8 +107,8 @@ class ChromaWidgetBase(QWidget):
                 widget_y = 560
             elif window_width == 1024 and window_height == 576:
                 # 1024x576 resolution
-                widget_x = 499
-                widget_y = 450
+                widget_x = 496
+                widget_y = 446
             else:
                 # Unsupported resolution - use default 1600x900 values
                 from utils.logging import get_logger
