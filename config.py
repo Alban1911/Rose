@@ -228,7 +228,7 @@ CHROMA_PANEL_CONFIGS = {
         'preview_y': 2,
         'row_y_offset': 42,
         'panel_x': 608,  # X position from left edge of League window
-        'panel_y': 222,  # Y position from top edge of League window
+        'panel_y': 225,  # Y position from top edge of League window
     },
     (1280, 720): {
         'preview_width': 304,      # 380 * (1280/1600) = 304
@@ -245,7 +245,7 @@ CHROMA_PANEL_CONFIGS = {
         'preview_y': 2,            # 2 * (720/900) = 1.6 ≈ 2
         'row_y_offset': 34,        # 42 * (720/900) = 33.6 ≈ 34
         'panel_x': 487,            # 608 * (1280/1600) = 486.4 ≈ 486
-        'panel_y': 178,            # 222 * (720/900) = 177.6 ≈ 178
+        'panel_y': 179,            # 222 * (720/900) = 177.6 ≈ 178
     },
     (1024, 576): {
         'preview_width': 243,      # 380 * (1024/1600) = 243.2 ≈ 243
@@ -262,7 +262,7 @@ CHROMA_PANEL_CONFIGS = {
         'preview_y': 1,            # 2 * (576/900) = 1.28 ≈ 1
         'row_y_offset': 27,        # 42 * (576/900) = 26.88 ≈ 27
         'panel_x': 389,            # 608 * (1024/1600) = 389.12 ≈ 389
-        'panel_y': 142,            # 222 * (576/900) = 142.08 ≈ 142
+        'panel_y': 141,            # 222 * (576/900) = 142.08 ≈ 142
     }
 }
 # DEPRECATED - All values now hard-coded in CHROMA_PANEL_CONFIGS
