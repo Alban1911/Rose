@@ -10,6 +10,7 @@ import threading
 from typing import Optional, Callable
 from utils.logging import get_logger
 from ui.chroma_ui import ChromaUI
+from ui.z_order_manager import get_z_order_manager
 
 log = get_logger()
 
@@ -22,6 +23,9 @@ class UserInterface:
         self.skin_scraper = skin_scraper
         self.db = db
         self.lock = threading.Lock()
+        
+        # Z-order management
+        self._z_manager = get_z_order_manager()
         
         # UI Components
         self.chroma_ui = None
@@ -177,6 +181,22 @@ class UserInterface:
             log.error(f"[UI] Error checking resolution changes: {e}")
             import traceback
             log.error(traceback.format_exc())
+    
+    def refresh_z_order(self):
+        """Refresh z-order for all UI components"""
+        try:
+            self._z_manager.refresh_z_order()
+            # Only log occasionally to avoid spam - log at most once per 10 seconds
+            import time
+            current_time = time.time()
+            if not hasattr(self, '_last_zorder_log_time'):
+                self._last_zorder_log_time = 0
+            
+            if current_time - self._last_zorder_log_time >= 10.0:
+                self._last_zorder_log_time = current_time
+                log.debug("[UI] Z-order refreshed for all components")
+        except Exception as e:
+            log.error(f"[UI] Error refreshing z-order: {e}")
     
     def cleanup(self):
         """Clean up all UI components"""

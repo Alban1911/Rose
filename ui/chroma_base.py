@@ -7,6 +7,7 @@ Base classes and configuration for Chroma UI components
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt
 from utils.window_utils import get_league_window_handle
+from ui.z_order_manager import get_z_order_manager, ZOrderManager
 import ctypes
 
 
@@ -19,9 +20,10 @@ class ChromaWidgetBase(QWidget):
     Base class for chroma UI widgets (panel and button)
     Provides common functionality and synchronized positioning
     Uses Windows parent-child relationship to embed in League window
+    Now uses centralized z-order management instead of creation order dependency
     """
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, z_level: int = None, widget_name: str = None):
         super().__init__(parent)
         self._setup_common_window_flags()
         self._anchor_offset_x = 0  # Override in child classes
@@ -31,6 +33,15 @@ class ChromaWidgetBase(QWidget):
         self._position_offset_x = 0  # Store position offsets
         self._position_offset_y = 0
         self._league_window_hwnd = None  # Store League window handle for parenting
+        
+        # Z-order management
+        self._z_level = z_level
+        self._widget_name = widget_name
+        self._z_manager = get_z_order_manager()
+        
+        # Register with z-order manager if both z_level and widget_name are provided
+        if z_level is not None and widget_name is not None:
+            self._z_manager.register_widget(self, widget_name, z_level)
     
     def _setup_common_window_flags(self):
         """Setup common window flags and attributes for chroma UI"""
@@ -175,60 +186,24 @@ class ChromaWidgetBase(QWidget):
                 if not self._league_window_hwnd or not self._is_parented_correctly():
                     self._parent_to_league_window()
             
-            # When parented, Windows handles positioning automatically
-            # Only refresh z-order occasionally to prevent League from covering us
-            if self._league_window_hwnd:
-                # Refresh z-order once per second
-                if not hasattr(self, '_last_zorder_refresh'):
-                    self._last_zorder_refresh = 0
-                
-                if current_time - self._last_zorder_refresh >= 1.0:
-                    self._last_zorder_refresh = current_time
-                    self._refresh_z_order()
+            # Z-order is now managed centrally - no need for individual widget z-order refresh
+            # The z-order manager handles all z-order updates efficiently
     
-    def _refresh_z_order(self):
-        """Keep widget above UnownedFrame in z-order"""
-        try:
-            widget_hwnd = int(self.winId())
-            SWP_NOMOVE = 0x0002
-            SWP_NOSIZE = 0x0001
-            SWP_NOACTIVATE = 0x0010
-            
-            # Use HWND_TOP to keep above UnownedFrame
-            HWND_TOP = 0
-            ctypes.windll.user32.SetWindowPos(
-                widget_hwnd,
-                HWND_TOP,  # Keep at top of z-order
-                0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-            )
-        except Exception as e:
-            log.debug(f"[CHROMA] Error refreshing z-order for {self.__class__.__name__}: {e}")
+    def refresh_z_order(self):
+        """Refresh z-order using centralized manager"""
+        if self._widget_name:
+            self._z_manager.refresh_z_order()
     
-    def _bring_to_front(self):
-        """Bring this widget to the front of the z-order"""
-        try:
-            from utils.logging import get_logger
-            log = get_logger()
-            
-            widget_hwnd = int(self.winId())
-            SWP_NOMOVE = 0x0002
-            SWP_NOSIZE = 0x0001
-            SWP_NOACTIVATE = 0x0010
-            
-            # Use HWND_TOP to bring to front
-            HWND_TOP = 0
-            ctypes.windll.user32.SetWindowPos(
-                widget_hwnd,
-                HWND_TOP,
-                0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-            )
-            log.debug(f"[CHROMA] {self.__class__.__name__} brought to front")
-        except Exception as e:
-            from utils.logging import get_logger
-            log = get_logger()
-            log.debug(f"[CHROMA] Error bringing {self.__class__.__name__} to front: {e}")
+    def bring_to_front(self):
+        """Bring this widget to the front of its z-level"""
+        if self._widget_name:
+            self._z_manager.bring_to_front(self._widget_name)
+    
+    def set_z_level(self, z_level: int):
+        """Change this widget's z-level"""
+        if self._widget_name:
+            self._z_manager.set_z_level(self._widget_name, z_level)
+            self._z_level = z_level
     
     def _parent_to_league_window(self):
         """
@@ -357,4 +332,11 @@ class ChromaWidgetBase(QWidget):
         """Get screen center coordinates (for backward compatibility)"""
         screen = QApplication.primaryScreen().geometry()
         return (screen.width() // 2, screen.height() // 2)
+    
+    def cleanup(self):
+        """Clean up widget and unregister from z-order manager"""
+        if self._widget_name:
+            self._z_manager.unregister_widget(self._widget_name)
+            self._widget_name = None
+            self._z_level = None
 

@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt, QPoint, QTimer, QMetaObject, pyqtSlot
 from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient, QPixmap
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
+from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
 import config
 
@@ -22,7 +23,11 @@ class OpeningButton(ChromaWidgetBase):
     """Small circular button to reopen chroma panel"""
     
     def __init__(self, on_click: Callable[[], None] = None, manager=None):
-        super().__init__()
+        # Initialize with explicit z-level instead of relying on creation order
+        super().__init__(
+            z_level=ZOrderManager.Z_LEVELS['CHROMA_BUTTON'],
+            widget_name='chroma_button'
+        )
         self.on_click = on_click
         self.manager = manager  # Reference to ChromaPanelManager for rebuild requests
         self.is_hovered = False
@@ -375,7 +380,7 @@ class OpeningButton(ChromaWidgetBase):
             
             self.show()
             self.raise_()
-            self._bring_to_front()
+            self.bring_to_front()
             
             # Debug: Check position after showing
             log.debug(f"[CHROMA] Button position after show: ({self.x()}, {self.y()}) size: {self.width()}x{self.height()}")

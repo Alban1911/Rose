@@ -7,6 +7,7 @@ Click Catcher Overlay - Invisible layer to detect clicks outside chroma UI
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QColor
+from ui.z_order_manager import get_z_order_manager, ZOrderManager
 from utils.logging import get_logger
 
 log = get_logger()
@@ -23,6 +24,10 @@ class ClickCatcherOverlay(QWidget):
         super().__init__()
         self.on_click_callback = on_click_callback
         self._league_window_hwnd = parent_hwnd
+        
+        # Register with z-order manager for proper layering
+        self._z_manager = get_z_order_manager()
+        self._z_manager.register_widget(self, 'click_catcher', ZOrderManager.Z_LEVELS['CLICK_CATCHER'])
         
         log.debug(f"[CHROMA] Creating click catcher overlay")
         
@@ -98,16 +103,18 @@ class ClickCatcherOverlay(QWidget):
                 # Fill entire League client area
                 self.setGeometry(0, 0, league_width, league_height)
                 
-                # Position at (0, 0) and set to BOTTOM of z-order (under everything)
-                HWND_BOTTOM = 1
+                # Z-order is now managed centrally - just show the window
                 SWP_SHOWWINDOW = 0x0040
                 result = ctypes.windll.user32.SetWindowPos(
                     widget_hwnd,
-                    HWND_BOTTOM,  # Put at bottom of z-order (under panel/button)
+                    0,  # HWND_TOP - z-order will be managed centrally
                     0, 0,
                     league_width, league_height,
                     SWP_SHOWWINDOW
                 )
+                
+                # Refresh z-order to ensure proper layering
+                self._z_manager.refresh_z_order()
                 
                 log.debug(f"[CHROMA] Click catcher overlay parented ({league_width}x{league_height})")
             else:
@@ -128,4 +135,9 @@ class ClickCatcherOverlay(QWidget):
             if self.on_click_callback:
                 self.on_click_callback()
         event.accept()
+    
+    def cleanup(self):
+        """Clean up click catcher and unregister from z-order manager"""
+        self._z_manager.unregister_widget('click_catcher')
+        self.hide()
 

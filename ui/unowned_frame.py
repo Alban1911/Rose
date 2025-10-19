@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSlot, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
+from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
 import config
 
@@ -25,7 +26,11 @@ class UnownedFrame(ChromaWidgetBase):
     fade_out_requested = pyqtSignal()
     
     def __init__(self):
-        super().__init__()
+        # Initialize with explicit z-level instead of relying on creation order
+        super().__init__(
+            z_level=ZOrderManager.Z_LEVELS['UNOWNED_FRAME'],
+            widget_name='unowned_frame'
+        )
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -189,33 +194,11 @@ class UnownedFrame(ChromaWidgetBase):
         
         log.info("[UnownedFrame] Unowned frame component created successfully")
         
-        # Ensure UnownedFrame stays behind other UI elements
-        self.ensure_behind_other_ui()
+        # Z-order is now managed centrally - no need for manual z-order management
+        # The UnownedFrame is automatically positioned behind interactive elements
         
         # Make sure it's visible (but transparent)
         self.show()
-    
-    def ensure_behind_other_ui(self):
-        """Ensure UnownedFrame stays behind other UI elements but in front of League window"""
-        try:
-            import ctypes
-            widget_hwnd = int(self.winId())
-            SWP_NOMOVE = 0x0002
-            SWP_NOSIZE = 0x0001
-            SWP_NOACTIVATE = 0x0010
-            
-            # Use HWND_TOP to keep in front of League window
-            # The chroma button will naturally appear on top since it's created after
-            HWND_TOP = 0
-            ctypes.windll.user32.SetWindowPos(
-                widget_hwnd,
-                HWND_TOP,
-                0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-            )
-            log.debug("[UnownedFrame] Forced to top of z-order (behind chroma button due to creation order)")
-        except Exception as e:
-            log.debug(f"[UnownedFrame] Error ensuring z-order: {e}")
     
     def fade_in(self):
         """Fade in the UnownedFrame (thread-safe)"""
@@ -241,14 +224,26 @@ class UnownedFrame(ChromaWidgetBase):
             self._start_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS)
             self.show()
             
+            # Ensure proper z-order after showing (with small delay to ensure widget is fully shown)
+            from PyQt6.QtCore import QTimer
+            def delayed_zorder_refresh():
+                log.debug("[UnownedFrame] Applying delayed z-order refresh after fade-in")
+                self.refresh_z_order()
+                # Also force the chroma button to come to front to ensure it's above the unowned frame
+                try:
+                    from ui.z_order_manager import get_z_order_manager
+                    z_manager = get_z_order_manager()
+                    z_manager.bring_to_front('chroma_button')
+                    log.debug("[UnownedFrame] Forced chroma button to front after unowned frame fade-in")
+                except Exception as e:
+                    log.debug(f"[UnownedFrame] Error bringing chroma button to front: {e}")
+            QTimer.singleShot(50, delayed_zorder_refresh)  # Increased delay to 50ms
+            
             # Debug: Check if widget is visible and positioned correctly
             log.debug(f"[UnownedFrame] After show - visible: {self.isVisible()}, size: {self.size().width()}x{self.size().height()}, pos: ({self.x()}, {self.y()})")
             
-            # Ensure z-order is maintained after showing
-            self.ensure_behind_other_ui()
-            
-            # Debug: Check again after z-order adjustment
-            log.debug(f"[UnownedFrame] After z-order - visible: {self.isVisible()}, size: {self.size().width()}x{self.size().height()}, pos: ({self.x()}, {self.y()})")
+            # Debug: Check visibility after showing
+            log.debug(f"[UnownedFrame] After show - visible: {self.isVisible()}, size: {self.size().width()}x{self.size().height()}, pos: ({self.x()}, {self.y()})")
         except Exception as e:
             log.error(f"[UnownedFrame] Error fading in: {e}")
     
@@ -301,7 +296,7 @@ class UnownedFrame(ChromaWidgetBase):
                 # Hide if fully transparent
                 if self.fade_target_opacity <= 0.0:
                     self.hide()
-                # Note: Don't adjust z-order after fade completion to maintain natural layering
+                # Z-order is managed centrally - no manual adjustment needed
                 
                 log.debug(f"[UnownedFrame] Fade complete: opacity={self.fade_target_opacity:.2f}")
                 return
@@ -318,8 +313,7 @@ class UnownedFrame(ChromaWidgetBase):
             current_opacity = self.fade_start_opacity + (self.fade_target_opacity - self.fade_start_opacity) * eased_progress
             self.opacity_effect.setOpacity(current_opacity)
             
-            # Skip z-order adjustments during fade to prevent flickering
-            # The z-order is set once at the beginning and should remain stable
+            # Z-order is managed centrally - no manual adjustments needed during fade
             
             self.fade_current_step += 1
             
@@ -389,6 +383,10 @@ class UnownedFrame(ChromaWidgetBase):
             
             # Ensure it's visible (but transparent)
             self.show()
+            
+            # Ensure proper z-order after rebuild (with small delay to ensure widget is fully shown)
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(10, self.refresh_z_order)
             
             log.info("[UnownedFrame] Rebuild completed")
         except Exception as e:

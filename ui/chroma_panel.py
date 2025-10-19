@@ -488,6 +488,7 @@ class ChromaPanelManager:
                     self.widget.show_wheel(button_pos=button_pos)
                     self.widget.setVisible(True)
                     self.widget.raise_()  # Panel on top
+                    self.widget.bring_to_front()  # Ensure proper z-order
                     
                     # CRITICAL: Re-apply position AFTER show() to prevent Qt from resetting it
                     if hasattr(self.widget, '_update_position'):
@@ -496,6 +497,7 @@ class ChromaPanelManager:
                     # Ensure button is also on top
                     if self.reopen_button:
                         self.reopen_button.raise_()
+                        self.reopen_button.bring_to_front()
                     
                     log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
                     

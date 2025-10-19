@@ -1143,6 +1143,8 @@ def main():
                         _user_interface.chroma_ui.chroma_selector.panel.process_pending()
                         # Update positions to follow League window
                         _user_interface.chroma_ui.chroma_selector.panel.update_positions()
+                        # Refresh z-order for all UI components
+                        _user_interface.refresh_z_order()
                         chroma_elapsed = time.time() - chroma_start
                         if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
                             log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
@@ -1200,6 +1202,14 @@ def main():
         
         # Clean up lock file on exit
         cleanup_lock_file()
+        
+        # Clean up z-order manager
+        try:
+            from ui.z_order_manager import cleanup_z_order_manager
+            cleanup_z_order_manager()
+            log.debug("[MAIN] Z-order manager cleaned up")
+        except Exception as e:
+            log.debug(f"[MAIN] Error cleaning up z-order manager: {e}")
         
         # Clean up console if we allocated one
         if sys.platform == "win32":

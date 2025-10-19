@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPixmap
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
+from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger, log_event
 import config
 
@@ -38,7 +39,11 @@ class ChromaPanelWidget(ChromaWidgetBase):
     """Professional chroma panel widget with League-style design"""
     
     def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, manager=None):
-        super().__init__()
+        # Initialize with explicit z-level instead of relying on creation order
+        super().__init__(
+            z_level=ZOrderManager.Z_LEVELS['CHROMA_PANEL'],
+            widget_name='chroma_panel'
+        )
         
         self.on_chroma_selected = on_chroma_selected
         self.manager = manager  # Reference to ChromaPanelManager for rebuild requests
@@ -405,6 +410,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Show window
         self.show()
         self.raise_()
+        self.bring_to_front()
         
         # Force a repaint
         self.update()
