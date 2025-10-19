@@ -76,17 +76,17 @@ WS_PROBE_WINDOW_MS = 480       # Total probe window (8 * 60ms ~= 480ms)
 # LOADOUT TIMER CONSTANTS
 # =============================================================================
 
-TIMER_HZ_DEFAULT = 1000              # Countdown display frequency (Hz)
-TIMER_HZ_MIN = 10                    # Minimum timer frequency
-TIMER_HZ_MAX = 2000                  # Maximum timer frequency
-TIMER_POLL_PERIOD_S = 0.2            # Seconds between LCU resync checks
-FALLBACK_LOADOUT_MS_DEFAULT = 0      # Deprecated: fallback countdown duration
+TIMER_HZ_DEFAULT = 1000                     # Countdown display frequency (Hz)
+TIMER_HZ_MIN = 10                           # Minimum timer frequency
+TIMER_HZ_MAX = 2000                         # Maximum timer frequency
+TIMER_POLL_PERIOD_S = 0.2                   # Seconds between LCU resync checks
+FALLBACK_LOADOUT_MS_DEFAULT = 0             # Fallback countdown duration (ms)
 
 # Skin injection timing
-SKIN_THRESHOLD_MS_DEFAULT = 300      # Time before loadout ends to write skin (ms)
-INJECTION_THRESHOLD_SECONDS = 2.0    # Seconds between injection attempts
-BASE_SKIN_VERIFICATION_WAIT_S = 0.15 # Seconds to wait for LCU to process base skin change
-PERSISTENT_MONITOR_START_SECONDS = 1 # Seconds remaining when persistent game monitor starts
+SKIN_THRESHOLD_MS_DEFAULT = 3000            # Time before loadout ends to write skin (ms)
+INJECTION_THRESHOLD_SECONDS = 2.0           # Seconds between injection attempts
+BASE_SKIN_VERIFICATION_WAIT_S = 0.15        # Seconds to wait for LCU to process base skin change
+PERSISTENT_MONITOR_START_SECONDS = 1        # Seconds remaining when persistent game monitor starts
 PERSISTENT_MONITOR_CHECK_INTERVAL_S = 0.05  # Seconds between game process checks
 PERSISTENT_MONITOR_IDLE_INTERVAL_S = 0.1    # Seconds to wait when game already suspended
 PERSISTENT_MONITOR_WAIT_TIMEOUT_S = 3.0     # Max seconds to wait for persistent monitor to suspend game
@@ -229,74 +229,12 @@ CHROMA_PANEL_CONFIGS = {
         'row_y_offset': 42,
     },
     (1280, 720): {
-        'preview_width': 304,
-        'preview_height': 315,
-        'circle_radius': 11,
-        'window_width': 310,
-        'window_height': 376,  # Increased from 350 to accommodate 54px button height
-        'circle_spacing': 27,
-        'button_size': 43,
-        'button_width': 304,
-        'button_height': 54,
-        'screen_edge_margin': 25,
-        'preview_x': 3,
-        'preview_y': 3,
-        'row_y_offset': 33,
+        #TODO
     },
     (1024, 576): {
-        'preview_width': 243,
-        'preview_height': 252,
-        'circle_radius': 9,
-        'window_width': 248,
-        'window_height': 301,  # Increased from 280 to accommodate 43px button height
-        'circle_spacing': 22,
-        'button_size': 35,
-        'button_width': 243,
-        'button_height': 43,
-        'screen_edge_margin': 20,
-        'preview_x': 2,
-        'preview_y': 2,
-        'row_y_offset': 26,
+        #TODO
     }
 }
-# DEPRECATED - All values now hard-coded in CHROMA_PANEL_CONFIGS
-CHROMA_PANEL_WINDOW_WIDTH_RATIO = 0.305556       # 275px at 900p (deprecated)
-CHROMA_PANEL_WINDOW_HEIGHT_RATIO = 0.384444      # 346px at 900p (deprecated)
-CHROMA_PANEL_CIRCLE_SPACING_RATIO = 0.023333     # 21px at 900p (deprecated)
-CHROMA_PANEL_BUTTON_SIZE_RATIO = 0.045           # 36px at 900p (deprecated)
-
-# DEPRECATED - All positioning now hard-coded in CHROMA_PANEL_CONFIGS
-CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO = 0.022222 # 20px at 900p (deprecated)
-CHROMA_PANEL_PREVIEW_X_RATIO = 0.002222          # 2px at 900p (deprecated)
-CHROMA_PANEL_PREVIEW_Y_RATIO = 0.002222          # 2px at 900p (deprecated)
-CHROMA_PANEL_ROW_Y_OFFSET_RATIO = 0.028889       # 26px at 900p (deprecated)
-
-# Chroma panel button visual effects (not scaled)
-CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
-CHROMA_PANEL_CONICAL_START_ANGLE = -65           # Start angle for rainbow gradient (degrees)
-
-# Chroma panel button dimensions - DEPRECATED (now hard-coded as fixed values)
-CHROMA_PANEL_GOLD_BORDER_PX_RATIO = 0.002        # Deprecated - now fixed at 2px
-CHROMA_PANEL_DARK_BORDER_PX_RATIO = 0.002222     # Deprecated - now fixed at 3px
-CHROMA_PANEL_GRADIENT_RING_PX_RATIO = 0.0062     # Deprecated - now fixed at 4px
-CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO = 0.006  # Deprecated - now fixed at 2.5px
-
-# Legacy constants for backward compatibility (at reference resolution)
-CHROMA_PANEL_PREVIEW_WIDTH = 380
-CHROMA_PANEL_PREVIEW_HEIGHT = 394
-CHROMA_PANEL_CIRCLE_RADIUS = 9
-CHROMA_PANEL_WINDOW_WIDTH = 275
-CHROMA_PANEL_WINDOW_HEIGHT = 346
-CHROMA_PANEL_CIRCLE_SPACING = 21
-CHROMA_PANEL_BUTTON_SIZE = 33
-CHROMA_PANEL_SCREEN_EDGE_MARGIN = 20
-CHROMA_PANEL_PREVIEW_X = 2
-CHROMA_PANEL_PREVIEW_Y = 2
-CHROMA_PANEL_ROW_Y_OFFSET = 26
-CHROMA_PANEL_GOLD_BORDER_PX = 2
-CHROMA_PANEL_DARK_BORDER_PX = 3
-CHROMA_PANEL_GRADIENT_RING_PX = 4
-CHROMA_PANEL_INNER_DISK_RADIUS_PX = 2.5
 
 # =============================================================================
 # CHROMA UI POSITIONING - FINALIZED POSITIONS
@@ -331,16 +269,16 @@ CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with butt
 CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
 
 # Chroma UI fade timing (milliseconds)
-CHROMA_FADE_IN_DURATION_MS = 500                 # Duration of fade in animation (with gentle logarithmic ease-out curve)
-CHROMA_FADE_OUT_DURATION_MS = 50                 # Duration of fade out animation (linear, fast)
+CHROMA_FADE_IN_DURATION_MS = 500                # Duration of fade in animation (with gentle logarithmic ease-out curve)
+CHROMA_FADE_OUT_DURATION_MS = 50                # Duration of fade out animation (linear, fast)
 CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 100          # Wait time between end of fade out and start of fade in
 
 # Legacy constant for backward compatibility (uses fade-in duration)
 CHROMA_FADE_DURATION_MS = CHROMA_FADE_IN_DURATION_MS
 
 # Chroma button Lock configuration (fades based on ownership - shown when NOT owned)
-CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7              # Lock size as ratio of button visual size
-CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014        # Lock X offset as ratio of button size (0.0 = centered)
+CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7                # Lock size as ratio of button visual size
+CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014         # Lock X offset as ratio of button size (0.0 = centered)
 CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO = -0.83          # Lock Y offset as ratio of button size (0.0 = centered)
 
 # Chroma button OutlineGold configuration (carousel border, behind Lock - shown when NOT owned)
@@ -411,14 +349,12 @@ INTERESTING_PHASES = {
 }
 
 
-
-
 # =============================================================================
 # DEFAULT ARGUMENTS
 # =============================================================================
 
 # Data Dragon language
-DEFAULT_DD_LANG = "en_US"              # Data Dragon language
+DEFAULT_DD_LANG = "en_US"          # Data Dragon language
 
 # Boolean flags
 DEFAULT_VERBOSE = False
@@ -426,5 +362,3 @@ DEFAULT_WEBSOCKET_ENABLED = True
 DEFAULT_MULTILANG_ENABLED = False  # DEPRECATED - Using LCU scraper instead
 DEFAULT_DOWNLOAD_SKINS = True
 DEFAULT_FORCE_UPDATE_SKINS = False
-
-
