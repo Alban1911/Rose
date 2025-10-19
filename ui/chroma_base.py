@@ -103,8 +103,8 @@ class ChromaWidgetBase(QWidget):
                 widget_y = 700
             elif window_width == 1280 and window_height == 720:
                 # 1280x720 resolution
-                widget_x = 624
-                widget_y = 563
+                widget_x = 622
+                widget_y = 560
             elif window_width == 1024 and window_height == 576:
                 # 1024x576 resolution
                 widget_x = 499
