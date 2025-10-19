@@ -76,17 +76,17 @@ WS_PROBE_WINDOW_MS = 480       # Total probe window (8 * 60ms ~= 480ms)
 # LOADOUT TIMER CONSTANTS
 # =============================================================================
 
-TIMER_HZ_DEFAULT = 1000              # Countdown display frequency (Hz)
-TIMER_HZ_MIN = 10                    # Minimum timer frequency
-TIMER_HZ_MAX = 2000                  # Maximum timer frequency
-TIMER_POLL_PERIOD_S = 0.2            # Seconds between LCU resync checks
-FALLBACK_LOADOUT_MS_DEFAULT = 0      # Deprecated: fallback countdown duration
+TIMER_HZ_DEFAULT = 1000                     # Countdown display frequency (Hz)
+TIMER_HZ_MIN = 10                           # Minimum timer frequency
+TIMER_HZ_MAX = 2000                         # Maximum timer frequency
+TIMER_POLL_PERIOD_S = 0.2                   # Seconds between LCU resync checks
+FALLBACK_LOADOUT_MS_DEFAULT = 0             # Fallback countdown duration (ms)
 
 # Skin injection timing
-SKIN_THRESHOLD_MS_DEFAULT = 300      # Time before loadout ends to write skin (ms)
-INJECTION_THRESHOLD_SECONDS = 2.0    # Seconds between injection attempts
-BASE_SKIN_VERIFICATION_WAIT_S = 0.15 # Seconds to wait for LCU to process base skin change
-PERSISTENT_MONITOR_START_SECONDS = 1 # Seconds remaining when persistent game monitor starts
+SKIN_THRESHOLD_MS_DEFAULT = 3000            # Time before loadout ends to write skin (ms)
+INJECTION_THRESHOLD_SECONDS = 2.0           # Seconds between injection attempts
+BASE_SKIN_VERIFICATION_WAIT_S = 0.15        # Seconds to wait for LCU to process base skin change
+PERSISTENT_MONITOR_START_SECONDS = 1        # Seconds remaining when persistent game monitor starts
 PERSISTENT_MONITOR_CHECK_INTERVAL_S = 0.05  # Seconds between game process checks
 PERSISTENT_MONITOR_IDLE_INTERVAL_S = 0.1    # Seconds to wait when game already suspended
 PERSISTENT_MONITOR_WAIT_TIMEOUT_S = 3.0     # Max seconds to wait for persistent monitor to suspend game
@@ -337,16 +337,16 @@ CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with butt
 CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
 
 # Chroma UI fade timing (milliseconds)
-CHROMA_FADE_IN_DURATION_MS = 500                 # Duration of fade in animation (with gentle logarithmic ease-out curve)
-CHROMA_FADE_OUT_DURATION_MS = 50                 # Duration of fade out animation (linear, fast)
+CHROMA_FADE_IN_DURATION_MS = 500                # Duration of fade in animation (with gentle logarithmic ease-out curve)
+CHROMA_FADE_OUT_DURATION_MS = 50                # Duration of fade out animation (linear, fast)
 CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 100          # Wait time between end of fade out and start of fade in
 
 # Legacy constant for backward compatibility (uses fade-in duration)
 CHROMA_FADE_DURATION_MS = CHROMA_FADE_IN_DURATION_MS
 
 # Chroma button Lock configuration (fades based on ownership - shown when NOT owned)
-CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7              # Lock size as ratio of button visual size
-CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014        # Lock X offset as ratio of button size (0.0 = centered)
+CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7                # Lock size as ratio of button visual size
+CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014         # Lock X offset as ratio of button size (0.0 = centered)
 CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO = -0.83          # Lock Y offset as ratio of button size (0.0 = centered)
 
 # Chroma button OutlineGold configuration (carousel border, behind Lock - shown when NOT owned)
@@ -417,14 +417,12 @@ INTERESTING_PHASES = {
 }
 
 
-
-
 # =============================================================================
 # DEFAULT ARGUMENTS
 # =============================================================================
 
 # Data Dragon language
-DEFAULT_DD_LANG = "en_US"              # Data Dragon language
+DEFAULT_DD_LANG = "en_US"          # Data Dragon language
 
 # Boolean flags
 DEFAULT_VERBOSE = False
@@ -432,5 +430,3 @@ DEFAULT_WEBSOCKET_ENABLED = True
 DEFAULT_MULTILANG_ENABLED = False  # DEPRECATED - Using LCU scraper instead
 DEFAULT_DOWNLOAD_SKINS = True
 DEFAULT_FORCE_UPDATE_SKINS = False
-
-

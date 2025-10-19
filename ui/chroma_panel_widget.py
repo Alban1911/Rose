@@ -143,6 +143,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # Position panel directly relative to League window (not relative to button)
         # Use panel position from config for each resolution
+        # Use panel position from config for each resolution
         window_width, window_height = self._current_resolution
         
         # Get scaled values for current resolution
