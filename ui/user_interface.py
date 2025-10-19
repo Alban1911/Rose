@@ -51,6 +51,11 @@ class UserInterface:
         # Create UnownedFrame instance directly
         from ui.unowned_frame import UnownedFrame
         self.unowned_frame = UnownedFrame()
+        
+        # Ensure the initial UnownedFrame is properly positioned
+        self.unowned_frame._create_components()
+        self.unowned_frame.show()
+        
         self._last_unowned_skin_id = None
     
     def show_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
@@ -168,9 +173,54 @@ class UserInterface:
     def check_resolution_and_update(self):
         """Check for resolution changes and update UI components accordingly"""
         try:
-            # Check UnownedFrame for resolution changes
+            # Check if UnownedFrame needs resolution update by destroying and recreating it
             if self.unowned_frame:
-                self.unowned_frame.check_resolution_and_update()
+                # Get current resolution
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                
+                if current_resolution and hasattr(self.unowned_frame, '_current_resolution'):
+                    # Only recreate if resolution actually changed AND it's not None
+                    if (self.unowned_frame._current_resolution is not None and 
+                        current_resolution != self.unowned_frame._current_resolution):
+                        log.info(f"[UI] UnownedFrame resolution changed from {self.unowned_frame._current_resolution} to {current_resolution}, destroying and recreating")
+                        
+                        # Save current state
+                        current_opacity = 0.0
+                        if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
+                            current_opacity = self.unowned_frame.opacity_effect.opacity()
+                        
+                        # Completely destroy the old UnownedFrame
+                        self.unowned_frame.hide()
+                        self.unowned_frame.deleteLater()
+                        self.unowned_frame = None
+                        
+                        # Small delay to ensure cleanup
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+                        
+                        # Create completely new UnownedFrame with fresh resolution values
+                        from ui.unowned_frame import UnownedFrame
+                        self.unowned_frame = UnownedFrame()
+                        
+                        # Force the UnownedFrame to recreate its components with proper positioning
+                        self.unowned_frame._create_components()
+                        
+                        # Ensure the new UnownedFrame is properly positioned and shown
+                        self.unowned_frame.show()
+                        
+                        # Restore opacity state
+                        if self.unowned_frame.opacity_effect:
+                            self.unowned_frame.opacity_effect.setOpacity(current_opacity)
+                        
+                        # Ensure proper z-order
+                        self.unowned_frame.refresh_z_order()
+                        
+                        log.info(f"[UI] UnownedFrame recreated with new resolution, restored opacity: {current_opacity:.2f}")
+                    elif self.unowned_frame._current_resolution is None:
+                        # Just update the resolution without recreating
+                        self.unowned_frame._current_resolution = current_resolution
+                        log.debug(f"[UI] UnownedFrame resolution initialized to {current_resolution}")
             
             # Check ChromaUI for resolution changes (it handles its own resolution checking)
             if self.chroma_ui:
