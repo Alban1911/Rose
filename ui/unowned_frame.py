@@ -80,9 +80,9 @@ class UnownedFrame(ChromaWidgetBase):
         self.setFixedSize(frame_width, frame_height)
         
         # Calculate static position relative to League window TOP-LEFT (0,0)
-        # Use fixed pixel coordinates directly (no scaling)
-        target_x = config.UNOWNED_FRAME_ANCHOR_OFFSET_X_PIXELS
-        target_y = config.UNOWNED_FRAME_ANCHOR_OFFSET_Y_PIXELS
+        # Use ratio-based coordinates that scale with window size
+        target_x = int(window_width * config.UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO)
+        target_y = int(window_height * config.UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO)
         
         # Make this widget a child of League window (static embedding)
         widget_hwnd = int(self.winId())

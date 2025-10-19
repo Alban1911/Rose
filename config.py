@@ -312,9 +312,9 @@ CHROMA_BUTTON_IMAGE_HEIGHT_PIXELS = 23              # Fixed height in pixels at 
 # UNOWNED FRAME UI POSITIONING - INDEPENDENT FROM CHROMA BUTTON
 # =============================================================================
 
-# UnownedFrame position (fixed pixel coordinates at 1600x900 resolution)
-UNOWNED_FRAME_ANCHOR_OFFSET_X_PIXELS = 726          # Fixed X position in pixels
-UNOWNED_FRAME_ANCHOR_OFFSET_Y_PIXELS = 642          # Fixed Y position in pixels
+# UnownedFrame position (ratios based on 1600x900 resolution)
+UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO = 726/1600      # 726/1600 = 0.45375 (45.375% of window width)
+UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO = 642/900       # 642/900 = 0.713333 (71.33% of window height)
 
 # UnownedFrame size (specific pixel dimensions as ratios)
 UNOWNED_FRAME_WIDTH_RATIO = 148/1600                # 148/1600 = 0.0925 (9.25% of window width)

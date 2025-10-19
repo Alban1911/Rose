@@ -18,6 +18,7 @@ from state.shared_state import SharedState
 from threads.loadout_ticker import LoadoutTicker
 from utils.logging import get_logger, log_section, log_status, log_event
 from ui.user_interface import get_user_interface
+from ui.chroma_selector import get_chroma_selector
 from config import (
     WS_PING_INTERVAL_DEFAULT, WS_PING_TIMEOUT_DEFAULT, WS_RECONNECT_DELAY,
     WS_PROBE_ITERATIONS, WS_PROBE_SLEEP_MS, TIMER_HZ_DEFAULT,
