@@ -64,77 +64,27 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self._current_resolution = current_resolution  # Track resolution for change detection
         self._updating_resolution = False  # Flag to prevent recursive updates
         
-        # Hardcoded panel dimensions for each resolution
-        window_width, window_height = current_resolution
-        if window_width == 1600 and window_height == 900:
-            # 1600x900 resolution (reference)
-            self.preview_width = 272
-            self.preview_height = 303
-            self.circle_radius = 9
-            self.window_width = 275
-            self.window_height = 346
-            self.circle_spacing = 21
-            self.button_size = 33
-            self.screen_edge_margin = 20
-            self.preview_x = 2
-            self.preview_y = 2
-            self.row_y_offset = 26
-            self.gold_border_px = 2
-            self.dark_border_px = 3
-            self.gradient_ring_px = 4
-            self.inner_disk_radius_px = 2.5
-        elif window_width == 1280 and window_height == 720:
-            # 1280x720 resolution (scale factor 0.8)
-            self.preview_width = 218  # 272 * 0.8
-            self.preview_height = 242  # 303 * 0.8
-            self.circle_radius = 7  # 9 * 0.8
-            self.window_width = 220  # 275 * 0.8
-            self.window_height = 277  # 346 * 0.8
-            self.circle_spacing = 17  # 21 * 0.8
-            self.button_size = 26  # 33 * 0.8
-            self.screen_edge_margin = 16  # 20 * 0.8
-            self.preview_x = 2  # 2 * 0.8
-            self.preview_y = 2  # 2 * 0.8
-            self.row_y_offset = 21  # 26 * 0.8
-            self.gold_border_px = 1.6  # 2 * 0.8
-            self.dark_border_px = 2.4  # 3 * 0.8
-            self.gradient_ring_px = 3.2  # 4 * 0.8
-            self.inner_disk_radius_px = 2.0  # 2.5 * 0.8
-        elif window_width == 1024 and window_height == 576:
-            # 1024x576 resolution (scale factor 0.64)
-            self.preview_width = 174  # 272 * 0.64
-            self.preview_height = 194  # 303 * 0.64
-            self.circle_radius = 6  # 9 * 0.64
-            self.window_width = 176  # 275 * 0.64
-            self.window_height = 221  # 346 * 0.64
-            self.circle_spacing = 13  # 21 * 0.64
-            self.button_size = 21  # 33 * 0.64
-            self.screen_edge_margin = 13  # 20 * 0.64
-            self.preview_x = 1  # 2 * 0.64
-            self.preview_y = 1  # 2 * 0.64
-            self.row_y_offset = 17  # 26 * 0.64
-            self.gold_border_px = 1.3  # 2 * 0.64
-            self.dark_border_px = 1.9  # 3 * 0.64
-            self.gradient_ring_px = 2.6  # 4 * 0.64
-            self.inner_disk_radius_px = 1.6  # 2.5 * 0.64
-        else:
-            # Unsupported resolution - use default 1600x900 values
-            log.warning(f"[CHROMA] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
-            self.preview_width = 272
-            self.preview_height = 303
-            self.circle_radius = 9
-            self.window_width = 275
-            self.window_height = 346
-            self.circle_spacing = 21
-            self.button_size = 33
-            self.screen_edge_margin = 20
-            self.preview_x = 2
-            self.preview_y = 2
-            self.row_y_offset = 26
-            self.gold_border_px = 2
-            self.dark_border_px = 3
-            self.gradient_ring_px = 4
-            self.inner_disk_radius_px = 2.5
+        # Use hard-coded values from ScaledChromaValues
+        from ui.chroma_scaling import get_scaled_chroma_values
+        scaled_values = get_scaled_chroma_values(current_resolution)
+        
+        self.preview_width = scaled_values.preview_width
+        self.preview_height = scaled_values.preview_height
+        self.circle_radius = scaled_values.circle_radius
+        self.window_width = scaled_values.window_width
+        self.window_height = scaled_values.window_height
+        self.circle_spacing = scaled_values.circle_spacing
+        self.button_size = scaled_values.button_size
+        self.button_width = scaled_values.button_width
+        self.button_height = scaled_values.button_height
+        self.screen_edge_margin = scaled_values.screen_edge_margin
+        self.preview_x = scaled_values.preview_x
+        self.preview_y = scaled_values.preview_y
+        self.row_y_offset = scaled_values.row_y_offset
+        self.gold_border_px = scaled_values.gold_border_px
+        self.dark_border_px = scaled_values.dark_border_px
+        self.gradient_ring_px = scaled_values.gradient_ring_px
+        self.inner_disk_radius_px = scaled_values.inner_disk_radius_px
         
         # Track actual display dimensions (may differ from scaled at very small resolutions)
         self._display_width = self.window_width
@@ -325,15 +275,19 @@ class ChromaPanelWidget(ChromaWidgetBase):
         preview_y = self._preview_y if hasattr(self, '_preview_y') else self.preview_y
         preview_height = self.preview_height
         
+        # Button zone starts after preview and uses hard-coded button dimensions
+        button_zone_y = preview_y + preview_height
+        button_zone_width = self.button_width
+        button_zone_height = self.button_height
+        button_zone_x = (actual_width - button_zone_width) // 2  # Center the button zone
+        
+        # Position circles in the center of the button zone
+        row_y = button_zone_y + (button_zone_height // 2)
+        
         # Recalculate horizontal row positions (same logic as set_chromas)
         num_circles = len(self.circles)
         total_width = num_circles * self.circle_spacing
-        start_x = (actual_width - total_width) // 2 + self.circle_spacing // 2
-        
-        # Calculate Y position in button zone (between separator and bottom)
-        separator_y = preview_y + preview_height
-        bottom_y = actual_height - 1
-        row_y = (separator_y + bottom_y) // 2
+        start_x = button_zone_x + (button_zone_width - total_width) // 2 + self.circle_spacing // 2
         
         # Update circle positions and radius
         for i, circle in enumerate(self.circles):
@@ -395,16 +349,20 @@ class ChromaPanelWidget(ChromaWidgetBase):
             )
             self.circles.append(circle)
         
-        # Position circles in horizontal row, centered vertically in button zone
+        # Position circles in horizontal row, centered in button zone
         total_chromas = len(self.circles)
-        # Button zone is between separator line and bottom border
-        separator_y = self.preview_y + self.preview_height
-        bottom_border_y = self.window_height - 1
-        row_y = (separator_y + bottom_border_y) // 2
+        # Button zone starts after preview and uses hard-coded button dimensions
+        button_zone_y = self.preview_y + self.preview_height
+        button_zone_width = self.button_width
+        button_zone_height = self.button_height
+        button_zone_x = (self.window_width - button_zone_width) // 2  # Center the button zone
         
-        # Calculate total width needed
+        # Position circles in the center of the button zone
+        row_y = button_zone_y + (button_zone_height // 2)
+        
+        # Calculate total width needed for circles
         total_width = total_chromas * self.circle_spacing
-        start_x = (self.window_width - total_width) // 2 + self.circle_spacing // 2
+        start_x = button_zone_x + (button_zone_width - total_width) // 2 + self.circle_spacing // 2
         
         for i, circle in enumerate(self.circles):
             circle.x = start_x + (i * self.circle_spacing)
@@ -577,10 +535,16 @@ class ChromaPanelWidget(ChromaWidgetBase):
             painter.fillPath(widget_path, QBrush(QColor(10, 14, 39, 240)))
         
         # LAYER 2: Draw button zone background including notch (behind all golden borders)
-        # Fill the rectangular button zone
+        # Fill the rectangular button zone using hard-coded button dimensions
         button_zone_y = preview_y + self.preview_height
-        button_zone_height = panel_height - button_zone_y
-        painter.fillRect(1, button_zone_y, actual_width - 2, button_zone_height, QColor(10, 14, 39, 240))
+        button_zone_width = self.button_width
+        button_zone_height = self.button_height
+        button_zone_x = (actual_width - button_zone_width) // 2  # Center the button zone
+        
+        # Ensure button zone background is drawn behind borders
+        painter.setPen(Qt.PenStyle.NoPen)  # No border on the background fill
+        painter.setBrush(QBrush(QColor(10, 14, 39, 240)))
+        painter.drawRect(button_zone_x, button_zone_y, button_zone_width, button_zone_height)
         
         # Also fill the notch triangle area (reuse calculated values from above)
         from PyQt6.QtGui import QPolygon
