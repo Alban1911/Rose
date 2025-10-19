@@ -320,10 +320,13 @@ class ChromaPanelManager:
                 else:
                     log.debug(f"[CHROMA] Showing UnownedFrame only for {skin_name} (no chromas)")
             
-            # Always show button to ensure UnownedFrame is positioned
-            # The button should stay visible for all skins (both with and without chromas)
-            self.pending_show_button = True
-            self.pending_hide_button = False  # Never hide the button
+            # Show or hide button based on whether skin has chromas
+            if has_chromas:
+                self.pending_show_button = True
+                self.pending_hide_button = False
+            else:
+                self.pending_show_button = False
+                self.pending_hide_button = True
             
             # Reset button state to unhovered when showing for new skin (wheel will be closed)
             if self.pending_update_button_state is None:
@@ -367,9 +370,8 @@ class ChromaPanelManager:
                     self._create_widgets()
                     
                     # Process initial UnownedFrame fade if requested (for first unowned skin)
-                    if self.pending_initial_unowned_fade and self.reopen_button:
-                        log.info("[CHROMA] Applying initial UnownedFrame fade after widget creation")
-                        self.reopen_button.unowned_frame_fade_owned_to_not_owned_first()
+                    if self.pending_initial_unowned_fade:
+                        log.info("[CHROMA] Initial UnownedFrame fade will be handled by UserInterface")
                         self.pending_initial_unowned_fade = False
                 except Exception as e:
                     log.error(f"[CHROMA] Error creating widgets: {e}")
@@ -543,21 +545,17 @@ class ChromaPanelManager:
             if self.pending_show_button:
                 self.pending_show_button = False
                 if self.reopen_button:
-                    self.reopen_button.show()
-                    self.reopen_button.raise_()
-                    
-                    # CRITICAL: Re-apply position AFTER show() to prevent Qt from resetting it
-                    if hasattr(self.reopen_button, '_update_position'):
-                        self.reopen_button._update_position()
-                        log.debug("[CHROMA] Button shown and position re-applied")
-                    else:
-                        log.debug("[CHROMA] Reopen button shown")
+                    # Add a small delay for initial show to ensure League window is ready
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(100, self.reopen_button.show_for_chromas)
+                    log.debug("[CHROMA] Button show scheduled for chromas")
             
             # Process reopen button hide request
             if self.pending_hide_button:
                 self.pending_hide_button = False
                 if self.reopen_button:
-                    self.reopen_button.hide()
+                    self.reopen_button.hide_for_no_chromas()
+                    log.debug("[CHROMA] Button hidden for no chromas")
         finally:
             self.lock.release()
     

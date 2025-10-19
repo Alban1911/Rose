@@ -208,6 +208,9 @@ class ChromaWidgetBase(QWidget):
     def _bring_to_front(self):
         """Bring this widget to the front of the z-order"""
         try:
+            from utils.logging import get_logger
+            log = get_logger()
+            
             widget_hwnd = int(self.winId())
             SWP_NOMOVE = 0x0002
             SWP_NOSIZE = 0x0001
@@ -223,6 +226,8 @@ class ChromaWidgetBase(QWidget):
             )
             log.debug(f"[CHROMA] {self.__class__.__name__} brought to front")
         except Exception as e:
+            from utils.logging import get_logger
+            log = get_logger()
             log.debug(f"[CHROMA] Error bringing {self.__class__.__name__} to front: {e}")
     
     def _parent_to_league_window(self):
