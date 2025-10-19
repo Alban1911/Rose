@@ -227,36 +227,42 @@ CHROMA_PANEL_CONFIGS = {
         'preview_x': 2,
         'preview_y': 2,
         'row_y_offset': 42,
+        'panel_x': 608,  # X position from left edge of League window
+        'panel_y': 222,  # Y position from top edge of League window
     },
     (1280, 720): {
-        'preview_width': 304,
-        'preview_height': 315,
-        'circle_radius': 11,
-        'window_width': 310,
-        'window_height': 376,  # Increased from 350 to accommodate 54px button height
-        'circle_spacing': 27,
-        'button_size': 43,
-        'button_width': 304,
-        'button_height': 54,
-        'screen_edge_margin': 25,
-        'preview_x': 3,
-        'preview_y': 3,
-        'row_y_offset': 33,
+        'preview_width': 304,      # 380 * (1280/1600) = 304
+        'preview_height': 315,     # 394 * (720/900) = 315.2 ≈ 315
+        'circle_radius': 11,       # 14 * (720/900) = 11.2 ≈ 11
+        'window_width': 307,       # 384 * (1280/1600) = 307.2 ≈ 307
+        'window_height': 371,      # 464 * (720/900) = 371.2 ≈ 371
+        'circle_spacing': 27,      # 34 * (720/900) = 27.2 ≈ 27
+        'button_size': 43,         # 54 * (720/900) = 43.2 ≈ 43
+        'button_width': 304,       # 380 * (1280/1600) = 304
+        'button_height': 54,       # 68 * (720/900) = 54.4 ≈ 54
+        'screen_edge_margin': 26,  # 32 * (720/900) = 25.6 ≈ 26
+        'preview_x': 2,            # 2 * (1280/1600) = 1.6 ≈ 2
+        'preview_y': 2,            # 2 * (720/900) = 1.6 ≈ 2
+        'row_y_offset': 34,        # 42 * (720/900) = 33.6 ≈ 34
+        'panel_x': 487,            # 608 * (1280/1600) = 486.4 ≈ 486
+        'panel_y': 178,            # 222 * (720/900) = 177.6 ≈ 178
     },
     (1024, 576): {
-        'preview_width': 243,
-        'preview_height': 252,
-        'circle_radius': 9,
-        'window_width': 248,
-        'window_height': 301,  # Increased from 280 to accommodate 43px button height
-        'circle_spacing': 22,
-        'button_size': 35,
-        'button_width': 243,
-        'button_height': 43,
-        'screen_edge_margin': 20,
-        'preview_x': 2,
-        'preview_y': 2,
-        'row_y_offset': 26,
+        'preview_width': 243,      # 380 * (1024/1600) = 243.2 ≈ 243
+        'preview_height': 252,     # 394 * (576/900) = 252.16 ≈ 252
+        'circle_radius': 9,        # 14 * (576/900) = 8.96 ≈ 9
+        'window_width': 246,       # 384 * (1024/1600) = 245.76 ≈ 246
+        'window_height': 296,      # 464 * (576/900) = 296.96 ≈ 297
+        'circle_spacing': 22,      # 34 * (576/900) = 21.76 ≈ 22
+        'button_size': 35,         # 54 * (576/900) = 34.56 ≈ 35
+        'button_width': 243,       # 380 * (1024/1600) = 243.2 ≈ 243
+        'button_height': 43,       # 68 * (576/900) = 43.52 ≈ 43
+        'screen_edge_margin': 20,  # 32 * (576/900) = 20.48 ≈ 20
+        'preview_x': 1,            # 2 * (1024/1600) = 1.28 ≈ 1
+        'preview_y': 1,            # 2 * (576/900) = 1.28 ≈ 1
+        'row_y_offset': 27,        # 42 * (576/900) = 26.88 ≈ 27
+        'panel_x': 389,            # 608 * (1024/1600) = 389.12 ≈ 389
+        'panel_y': 142,            # 222 * (576/900) = 142.08 ≈ 142
     }
 }
 # DEPRECATED - All values now hard-coded in CHROMA_PANEL_CONFIGS
