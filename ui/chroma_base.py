@@ -128,10 +128,13 @@ class ChromaWidgetBase(QWidget):
                 log = get_logger()
                 log.error(f"[CHROMA] SetWindowPos FAILED for {self.__class__.__name__} (error: {ctypes.get_last_error()})")
             
+            # Note: Z-order will be handled by the refresh mechanism
+            
             # Verify position was actually set
             from ctypes import wintypes
             rect = wintypes.RECT()
             ctypes.windll.user32.GetWindowRect(widget_hwnd, ctypes.byref(rect))
+            log.debug(f"[CHROMA] {self.__class__.__name__} positioned at ({rect.left}, {rect.top}) with size ({rect.right - rect.left}, {rect.bottom - rect.top})")
             
             # Convert to client coordinates relative to parent
             point = wintypes.POINT()
@@ -199,8 +202,28 @@ class ChromaWidgetBase(QWidget):
                 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
             )
-        except Exception:
-            pass  # Silently fail if z-order refresh fails
+        except Exception as e:
+            log.debug(f"[CHROMA] Error refreshing z-order for {self.__class__.__name__}: {e}")
+    
+    def _bring_to_front(self):
+        """Bring this widget to the front of the z-order"""
+        try:
+            widget_hwnd = int(self.winId())
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_NOACTIVATE = 0x0010
+            
+            # Use HWND_TOP to bring to front
+            HWND_TOP = 0
+            ctypes.windll.user32.SetWindowPos(
+                widget_hwnd,
+                HWND_TOP,
+                0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+            )
+            log.debug(f"[CHROMA] {self.__class__.__name__} brought to front")
+        except Exception as e:
+            log.debug(f"[CHROMA] Error bringing {self.__class__.__name__} to front: {e}")
     
     def _parent_to_league_window(self):
         """

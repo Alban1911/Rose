@@ -301,9 +301,7 @@ class UnownedFrame(ChromaWidgetBase):
                 # Hide if fully transparent
                 if self.fade_target_opacity <= 0.0:
                     self.hide()
-                else:
-                    # Ensure z-order is maintained after fade completion
-                    self.ensure_behind_other_ui()
+                # Note: Don't adjust z-order after fade completion to maintain natural layering
                 
                 log.debug(f"[UnownedFrame] Fade complete: opacity={self.fade_target_opacity:.2f}")
                 return
