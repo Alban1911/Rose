@@ -247,10 +247,6 @@ class OpeningButton(ChromaWidgetBase):
     def mousePressEvent(self, event):
         """Handle button press - track that button was pressed"""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Don't accept clicks when button is faded out (invisible)
-            if self.opacity_effect.opacity() < 0.1:
-                event.ignore()
-                return
             # Just accept the press event, action happens on release
             pass
         event.accept()
@@ -258,11 +254,6 @@ class OpeningButton(ChromaWidgetBase):
     def mouseReleaseEvent(self, event):
         """Handle button release - trigger action on click+release"""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Don't accept clicks when button is faded out (invisible)
-            if self.opacity_effect.opacity() < 0.1:
-                event.ignore()
-                return
-            
             # Check if mouse is still over the button
             # Clickable zone includes the transparent ring + 30% extra for easier clicking
             center = self.button_size // 2
