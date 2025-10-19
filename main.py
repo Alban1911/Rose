@@ -1147,6 +1147,10 @@ def main():
                         if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
                             log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
                     
+                    # Check for resolution changes and update UI components
+                    if _user_interface:
+                        _user_interface.check_resolution_and_update()
+                    
                     # Process all Qt events
                     qt_start = time.time()
                     qt_app.processEvents()

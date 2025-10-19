@@ -114,7 +114,7 @@ class ChromaWidgetBase(QWidget):
             # These coordinates are RELATIVE TO PARENT WINDOW, not screen!
             SWP_NOACTIVATE = 0x0010
             SWP_NOSIZE = 0x0001
-            HWND_TOP = 0  # Place at top of z-order (z=1, in front of UnownedFrame)
+            HWND_TOP = 0  # Place at top of z-order (above UnownedFrame)
             result = ctypes.windll.user32.SetWindowPos(
                 widget_hwnd,
                 HWND_TOP,  # hWndInsertAfter - place at top of z-order
@@ -184,18 +184,18 @@ class ChromaWidgetBase(QWidget):
                     self._refresh_z_order()
     
     def _refresh_z_order(self):
-        """Keep widget on top within parent window hierarchy"""
+        """Keep widget above UnownedFrame in z-order"""
         try:
             widget_hwnd = int(self.winId())
-            HWND_TOP = 0
             SWP_NOMOVE = 0x0002
             SWP_NOSIZE = 0x0001
             SWP_NOACTIVATE = 0x0010
             
-            # Move to z-order 1 (in front of UnownedFrame which is at z=0)
+            # Use HWND_TOP to keep above UnownedFrame
+            HWND_TOP = 0
             ctypes.windll.user32.SetWindowPos(
                 widget_hwnd,
-                HWND_TOP,  # This puts it at the top of the z-order
+                HWND_TOP,  # Keep at top of z-order
                 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
             )

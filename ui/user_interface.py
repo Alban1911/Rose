@@ -161,6 +161,22 @@ class UserInterface:
             except Exception as e:
                 log.debug(f"[UI] Error hiding UnownedFrame: {e}")
     
+    def check_resolution_and_update(self):
+        """Check for resolution changes and update UI components accordingly"""
+        try:
+            # Check UnownedFrame for resolution changes
+            if self.unowned_frame:
+                self.unowned_frame.check_resolution_and_update()
+            
+            # Check ChromaUI for resolution changes (it handles its own resolution checking)
+            if self.chroma_ui:
+                # ChromaUI components handle their own resolution checking
+                pass
+                
+        except Exception as e:
+            log.error(f"[UI] Error checking resolution changes: {e}")
+            import traceback
+            log.error(traceback.format_exc())
     
     def cleanup(self):
         """Clean up all UI components"""
