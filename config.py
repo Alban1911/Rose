@@ -210,12 +210,6 @@ TRAY_ICON_DOT_SIZE = 70                 # Size of status indicator dot
 CHROMA_UI_REFERENCE_WIDTH = 1600
 CHROMA_UI_REFERENCE_HEIGHT = 900
 
-# Chroma panel dimensions - DEPRECATED RATIOS (kept for backward compatibility)
-# All new code should use CHROMA_PANEL_CONFIGS for hard-coded values
-CHROMA_PANEL_PREVIEW_WIDTH_RATIO = 0.422222      # 380px at 900p (deprecated)
-CHROMA_PANEL_PREVIEW_HEIGHT_RATIO = 0.437778     # 394px at 900p (deprecated)
-CHROMA_PANEL_CIRCLE_RADIUS_RATIO = 0.010000      # 9px at 900p (deprecated)
-
 # Hard-coded configurations for three supported resolutions
 # All values are fixed pixel values relative to League window
 CHROMA_PANEL_CONFIGS = {
@@ -223,15 +217,15 @@ CHROMA_PANEL_CONFIGS = {
         'preview_width': 380,
         'preview_height': 394,
         'circle_radius': 14,
-        'window_width': 388,
-        'window_height': 470,  # Increased from 438 to accommodate 68px button height
+        'window_width': 384,
+        'window_height': 464,  # Increased from 438 to accommodate 68px button height
         'circle_spacing': 34,
         'button_size': 54,
         'button_width': 380,
         'button_height': 68,
         'screen_edge_margin': 32,
-        'preview_x': 4,
-        'preview_y': 4,
+        'preview_x': 2,
+        'preview_y': 2,
         'row_y_offset': 42,
     },
     (1280, 720): {

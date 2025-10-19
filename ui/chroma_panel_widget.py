@@ -482,12 +482,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
         panel_height = actual_height - self.notch_height
         
         # Define notch parameters
-        notch_width = 31  # Width of the triangle base (odd number for true center)
+        notch_width = 29  # Width of the triangle base (odd number for true center, made 1px narrower)
         notch_height = self.notch_height  # Height of the triangle (pointing outward)
         notch_center_x = actual_width // 2
-        # For odd notch_width (31): left side gets 15 pixels, right side gets 15 pixels, center is at center
+        # For odd notch_width (29): left side gets 14 pixels, right side gets 14 pixels, center is at center
         notch_start_x = notch_center_x - (notch_width // 2)
-        notch_end_x = notch_center_x + (notch_width // 2) + 1  # +1 to get full 31 pixels
+        notch_end_x = notch_center_x + (notch_width // 2) + 1  # +1 to get full 29 pixels
         notch_base_y = panel_height  # Base of the notch (at panel bottom)
         notch_tip_y = actual_height - 1  # Tip at total widget height
         
@@ -531,8 +531,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
             # Draw semi-transparent overlay for better contrast (only over preview area)
             painter.fillRect(preview_x, preview_y, self.preview_width, self.preview_height, QColor(0, 0, 0, 80))
         else:
-            # Fallback: Fill the widget with dark background
-            painter.fillPath(widget_path, QBrush(QColor(10, 14, 39, 240)))
+            # Fallback: Fill the widget with black background
+            painter.fillPath(widget_path, QBrush(QColor(0, 0, 0, 255)))
         
         # LAYER 2: Draw button zone background including notch (behind all golden borders)
         # Fill the rectangular button zone using hard-coded button dimensions
@@ -543,10 +543,10 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # Ensure button zone background is drawn behind borders
         painter.setPen(Qt.PenStyle.NoPen)  # No border on the background fill
-        painter.setBrush(QBrush(QColor(10, 14, 39, 240)))
+        painter.setBrush(QBrush(QColor(0, 0, 0, 255)))
         painter.drawRect(button_zone_x, button_zone_y, button_zone_width, button_zone_height)
         
-        # LAYER 3: Draw golden borders first (behind triangle)
+        # LAYER 3: Draw most golden borders (but not lower border yet)
         painter.setPen(QPen(QColor("#b78c34"), 1))
         # Top edge
         painter.drawLine(1, 1, actual_width - 1, 1)
@@ -555,14 +555,15 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Left edge
         painter.drawLine(1, 1, 1, panel_height)
         
-        # Draw the lower border segments (behind the triangle)
+        # LAYER 4: Draw lower border segments (above rectangle, behind triangle)
         # Bottom right to notch
         painter.drawLine(actual_width - 1, panel_height, notch_end_x, notch_base_y)
         # Bottom left to notch
         painter.drawLine(1, panel_height, notch_start_x, notch_base_y)
         
-        # LAYER 4: Draw triangle notch on top of borders
-        from PyQt6.QtGui import QPolygon
+        # LAYER 5: Draw triangle notch on top of lower border
+        # Use clipping to ensure triangle completely covers the border area
+        from PyQt6.QtGui import QPolygon, QRegion
         
         notch_points = [
             QPoint(notch_start_x, notch_base_y),
@@ -570,11 +571,20 @@ class ChromaPanelWidget(ChromaWidgetBase):
             QPoint(notch_end_x, notch_base_y),
         ]
         notch_polygon = QPolygon(notch_points)
-        painter.setBrush(QBrush(QColor(10, 14, 39, 240)))
+        
+        # Create a clipping region for the triangle area to ensure clean coverage
+        triangle_region = QRegion(notch_polygon)
+        painter.setClipRegion(triangle_region)
+        
+        # Fill the triangle area completely
+        painter.setBrush(QBrush(QColor(0, 0, 0, 255)))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPolygon(notch_polygon)
         
-        # LAYER 5: Draw golden border on the notch edges (on top of triangle)
+        # Remove clipping
+        painter.setClipping(False)
+        
+        # LAYER 6: Draw golden border on the notch edges (on top of triangle)
         painter.setPen(QPen(QColor("#b78c34"), 1))
         painter.drawLine(notch_start_x, notch_base_y, notch_center_x, notch_tip_y)  # Left edge
         painter.drawLine(notch_center_x, notch_tip_y, notch_end_x, notch_base_y)  # Right edge
