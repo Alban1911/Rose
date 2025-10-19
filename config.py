@@ -210,35 +210,86 @@ TRAY_ICON_DOT_SIZE = 70                 # Size of status indicator dot
 CHROMA_UI_REFERENCE_WIDTH = 1600
 CHROMA_UI_REFERENCE_HEIGHT = 900
 
-# Chroma panel dimensions - RATIOS (relative to reference height 900px)
-# These will be multiplied by the scale factor based on actual League window resolution
-CHROMA_PANEL_PREVIEW_WIDTH_RATIO = 0.302222      # 272px at 900p
-CHROMA_PANEL_PREVIEW_HEIGHT_RATIO = 0.336667     # 303px at 900p
-CHROMA_PANEL_CIRCLE_RADIUS_RATIO = 0.010000      # 9px at 900p
-CHROMA_PANEL_WINDOW_WIDTH_RATIO = 0.305556       # 275px at 900p
-CHROMA_PANEL_WINDOW_HEIGHT_RATIO = 0.384444      # 346px at 900p
-CHROMA_PANEL_CIRCLE_SPACING_RATIO = 0.023333     # 21px at 900p
-CHROMA_PANEL_BUTTON_SIZE_RATIO = 0.045           # 36px at 900p (10% larger)
+# Chroma panel dimensions - DEPRECATED RATIOS (kept for backward compatibility)
+# All new code should use CHROMA_PANEL_CONFIGS for hard-coded values
+CHROMA_PANEL_PREVIEW_WIDTH_RATIO = 0.422222      # 380px at 900p (deprecated)
+CHROMA_PANEL_PREVIEW_HEIGHT_RATIO = 0.437778     # 394px at 900p (deprecated)
+CHROMA_PANEL_CIRCLE_RADIUS_RATIO = 0.010000      # 9px at 900p (deprecated)
 
-# Chroma panel positioning - RATIOS
-CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO = 0.022222 # 20px at 900p
-CHROMA_PANEL_PREVIEW_X_RATIO = 0.002222          # 2px at 900p
-CHROMA_PANEL_PREVIEW_Y_RATIO = 0.002222          # 2px at 900p
-CHROMA_PANEL_ROW_Y_OFFSET_RATIO = 0.028889       # 26px at 900p
+# Hard-coded configurations for three supported resolutions
+# All values are fixed pixel values relative to League window
+CHROMA_PANEL_CONFIGS = {
+    (1600, 900): {
+        'preview_width': 380,
+        'preview_height': 394,
+        'circle_radius': 14,
+        'window_width': 388,
+        'window_height': 470,  # Increased from 438 to accommodate 68px button height
+        'circle_spacing': 34,
+        'button_size': 54,
+        'button_width': 380,
+        'button_height': 68,
+        'screen_edge_margin': 32,
+        'preview_x': 4,
+        'preview_y': 4,
+        'row_y_offset': 42,
+    },
+    (1280, 720): {
+        'preview_width': 304,
+        'preview_height': 315,
+        'circle_radius': 11,
+        'window_width': 310,
+        'window_height': 376,  # Increased from 350 to accommodate 54px button height
+        'circle_spacing': 27,
+        'button_size': 43,
+        'button_width': 304,
+        'button_height': 54,
+        'screen_edge_margin': 25,
+        'preview_x': 3,
+        'preview_y': 3,
+        'row_y_offset': 33,
+    },
+    (1024, 576): {
+        'preview_width': 243,
+        'preview_height': 252,
+        'circle_radius': 9,
+        'window_width': 248,
+        'window_height': 301,  # Increased from 280 to accommodate 43px button height
+        'circle_spacing': 22,
+        'button_size': 35,
+        'button_width': 243,
+        'button_height': 43,
+        'screen_edge_margin': 20,
+        'preview_x': 2,
+        'preview_y': 2,
+        'row_y_offset': 26,
+    }
+}
+# DEPRECATED - All values now hard-coded in CHROMA_PANEL_CONFIGS
+CHROMA_PANEL_WINDOW_WIDTH_RATIO = 0.305556       # 275px at 900p (deprecated)
+CHROMA_PANEL_WINDOW_HEIGHT_RATIO = 0.384444      # 346px at 900p (deprecated)
+CHROMA_PANEL_CIRCLE_SPACING_RATIO = 0.023333     # 21px at 900p (deprecated)
+CHROMA_PANEL_BUTTON_SIZE_RATIO = 0.045           # 36px at 900p (deprecated)
+
+# DEPRECATED - All positioning now hard-coded in CHROMA_PANEL_CONFIGS
+CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO = 0.022222 # 20px at 900p (deprecated)
+CHROMA_PANEL_PREVIEW_X_RATIO = 0.002222          # 2px at 900p (deprecated)
+CHROMA_PANEL_PREVIEW_Y_RATIO = 0.002222          # 2px at 900p (deprecated)
+CHROMA_PANEL_ROW_Y_OFFSET_RATIO = 0.028889       # 26px at 900p (deprecated)
 
 # Chroma panel button visual effects (not scaled)
 CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
 CHROMA_PANEL_CONICAL_START_ANGLE = -65           # Start angle for rainbow gradient (degrees)
 
-# Chroma panel button dimensions - RATIOS (in pixels at reference size, scaled automatically)
-CHROMA_PANEL_GOLD_BORDER_PX_RATIO = 0.002
-CHROMA_PANEL_DARK_BORDER_PX_RATIO = 0.002222
-CHROMA_PANEL_GRADIENT_RING_PX_RATIO = 0.0062
-CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO = 0.006
+# Chroma panel button dimensions - DEPRECATED (now hard-coded as fixed values)
+CHROMA_PANEL_GOLD_BORDER_PX_RATIO = 0.002        # Deprecated - now fixed at 2px
+CHROMA_PANEL_DARK_BORDER_PX_RATIO = 0.002222     # Deprecated - now fixed at 3px
+CHROMA_PANEL_GRADIENT_RING_PX_RATIO = 0.0062     # Deprecated - now fixed at 4px
+CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO = 0.006  # Deprecated - now fixed at 2.5px
 
 # Legacy constants for backward compatibility (at reference resolution)
-CHROMA_PANEL_PREVIEW_WIDTH = 272
-CHROMA_PANEL_PREVIEW_HEIGHT = 303
+CHROMA_PANEL_PREVIEW_WIDTH = 380
+CHROMA_PANEL_PREVIEW_HEIGHT = 394
 CHROMA_PANEL_CIRCLE_RADIUS = 9
 CHROMA_PANEL_WINDOW_WIDTH = 275
 CHROMA_PANEL_WINDOW_HEIGHT = 346
