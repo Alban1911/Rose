@@ -95,7 +95,7 @@ def get_asset_path(asset_name: str) -> Path:
     Works in both development and frozen (PyInstaller) environments.
     
     Args:
-        asset_name: Name of the asset file (e.g., "champ-select-flyout-background.jpg")
+        asset_name: Name of the asset file (e.g., "champ-select-flyout-background-sr.jpg")
         
     Returns:
         Path to the asset file

@@ -18,9 +18,10 @@ log = get_logger()
 class ChromaPanelManager:
     """Manages PyQt6 chroma panel - uses polling instead of QTimer"""
     
-    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, state=None):
+    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, state=None, lcu=None):
         self.on_chroma_selected = on_chroma_selected
         self.state = state  # SharedState for panel control
+        self.lcu = lcu  # LCU client for game mode detection
         self.widget = None
         self.reopen_button = None
         self.click_catcher = None  # Invisible overlay to catch clicks outside UI
@@ -119,7 +120,7 @@ class ChromaPanelManager:
             # Get League window handle for click catcher
             league_hwnd = get_league_window_handle()
             
-            self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper, manager=self)
+            self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper, manager=self, lcu=self.lcu)
             log.info("[CHROMA] ChromaPanelWidget created")
             self.reopen_button = OpeningButton(on_click=self._on_reopen_clicked, manager=self)
             log.info("[CHROMA] OpeningButton created")
@@ -493,6 +494,10 @@ class ChromaPanelManager:
                         self.click_catcher.update()  # Force repaint
                         log.debug("[CHROMA] Click catcher overlay shown")
                     
+                    # Reload background based on current game mode before showing
+                    if self.widget:
+                        self.widget.reload_background()
+                    
                     # Pass the currently selected chroma ID so wheel opens at that index
                     self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id, self.current_skin_id)
                     # Position wheel above button
@@ -606,11 +611,11 @@ class ChromaPanelManager:
 _chroma_panel_manager = None
 
 
-def get_chroma_panel(state=None) -> ChromaPanelManager:
+def get_chroma_panel(state=None, lcu=None) -> ChromaPanelManager:
     """Get or create global chroma panel manager"""
     global _chroma_panel_manager
     if _chroma_panel_manager is None:
-        _chroma_panel_manager = ChromaPanelManager(state=state)
+        _chroma_panel_manager = ChromaPanelManager(state=state, lcu=lcu)
     return _chroma_panel_manager
 
 

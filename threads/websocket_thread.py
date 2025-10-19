@@ -213,6 +213,9 @@ class WSEventThread(threading.Thread):
                     except Exception: 
                         self.state.processed_action_ids = set()
                     
+                    # Detect game mode once when entering champion select
+                    self._detect_game_mode()
+                    
                     # Load owned skins immediately when entering ChampSelect
                     try:
                         owned_skins = self.lcu.owned_skins()
@@ -502,6 +505,48 @@ class WSEventThread(threading.Thread):
                 log.debug("[ws] WebSocket closed on thread exit")
             except Exception:
                 pass
+    
+    def _detect_game_mode(self):
+        """Detect game mode once when entering champion select"""
+        try:
+            if not self.lcu.ok:
+                log.info("[WS] LCU not connected - cannot detect game mode")
+                return
+            
+            # Get game session data
+            session = self.lcu.get("/lol-gameflow/v1/session")
+            if not session:
+                log.info("[WS] No game session data available")
+                return
+            
+            # Extract game mode and map ID from the correct location
+            game_mode = None
+            map_id = None
+            
+            # Check gameData.queue (the correct location based on the session data)
+            if "gameData" in session:
+                game_data = session.get("gameData", {})
+                if "queue" in game_data:
+                    queue = game_data.get("queue", {})
+                    game_mode = queue.get("gameMode")
+                    map_id = queue.get("mapId")
+            
+            # Store in shared state
+            self.state.current_game_mode = game_mode
+            self.state.current_map_id = map_id
+            
+            # Log the detection result
+            if map_id == 12 or game_mode == "ARAM":
+                log.info("[WS] ARAM mode detected - chroma panel will use ARAM background")
+            elif map_id == 11 or game_mode == "CLASSIC":
+                log.info("[WS] Summoner's Rift mode detected - chroma panel will use SR background")
+            else:
+                log.info(f"[WS] Unknown game mode ({game_mode}, Map ID: {map_id}) - defaulting to SR background")
+                
+        except Exception as e:
+            log.warning(f"[WS] Error detecting game mode: {e}")
+            import traceback
+            log.warning(f"[WS] Traceback: {traceback.format_exc()}")
     
     def stop(self):
         """Stop the WebSocket thread gracefully"""

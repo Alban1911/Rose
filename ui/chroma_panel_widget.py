@@ -37,7 +37,7 @@ class ChromaCircle:
 class ChromaPanelWidget(ChromaWidgetBase):
     """Professional chroma panel widget with League-style design"""
     
-    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, manager=None):
+    def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, manager=None, lcu=None):
         # Initialize with explicit z-level instead of relying on creation order
         super().__init__(
             z_level=ZOrderManager.Z_LEVELS['CHROMA_PANEL'],
@@ -46,6 +46,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         self.on_chroma_selected = on_chroma_selected
         self.manager = manager  # Reference to ChromaPanelManager for rebuild requests
+        self.lcu = lcu  # LCU client for game mode detection
         self.circles = []
         self.skin_name = ""
         self.selected_index = 0  # Default to base (center)
@@ -100,7 +101,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.current_preview_image = None  # QPixmap for current chroma
         
         # Background image
-        self.background_image = None  # QPixmap for champ-select-flyout-background.jpg
+        self.background_image = None  # QPixmap for dynamic background (ARAM or SR)
         self._load_background_image()
         
         # Animation
@@ -113,13 +114,16 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.setup_ui()
     
     def _load_background_image(self):
-        """Load the champ-select-flyout-background.jpg image"""
+        """Load the appropriate background image based on game mode"""
         try:
             # Import asset path helper for PyInstaller compatibility
             from utils.paths import get_asset_path
             
+            # Determine background filename based on game mode
+            background_filename = self._get_background_filename()
+            
             # Get background image path (works in both dev and frozen environments)
-            background_path = get_asset_path("champ-select-flyout-background.jpg")
+            background_path = get_asset_path(background_filename)
             if background_path.exists():
                 self.background_image = QPixmap(str(background_path))
                 log.debug(f"Loaded background image: {background_path}")
@@ -129,6 +133,37 @@ class ChromaPanelWidget(ChromaWidgetBase):
         except Exception as e:
             log.debug(f"Failed to load background image: {e}")
             self.background_image = None
+
+    def _get_background_filename(self) -> str:
+        """Get the appropriate background filename based on stored game mode"""
+        try:
+            # Get game mode from shared state (detected once in champion select)
+            if self.manager and self.manager.state:
+                map_id = self.manager.state.current_map_id
+                game_mode = self.manager.state.current_game_mode
+                
+                log.info(f"[CHROMA] Using stored game mode: {game_mode} (Map ID: {map_id})")
+                
+                # Check if we're in ARAM mode
+                if map_id == 12 or game_mode == "ARAM":
+                    log.info("[CHROMA] ARAM mode detected - using ARAM background")
+                    return "champ-select-flyout-background-aram.png"
+                else:
+                    log.info("[CHROMA] Summoner's Rift mode detected - using SR background")
+                    return "champ-select-flyout-background-sr.jpg"
+            else:
+                log.info("[CHROMA] No game mode data available - defaulting to SR background")
+                return "champ-select-flyout-background-sr.jpg"
+        except Exception as e:
+            log.info(f"[CHROMA] Error getting game mode: {e} - defaulting to SR background")
+            return "champ-select-flyout-background-sr.jpg"
+
+    def reload_background(self):
+        """Reload the background image based on current game mode"""
+        log.info("[CHROMA] Reloading background image...")
+        self._load_background_image()
+        # Force a repaint to show the new background
+        self.update()
         
     def setup_ui(self):
         """Setup the window and styling"""

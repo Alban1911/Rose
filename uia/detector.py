@@ -68,7 +68,7 @@ class UIDetector:
             
             for i, element in enumerate(text_elements):
                 try:
-                    text = element.window_text()
+                    text = element.window_text().upper()
                     if text in your_teams_bans_text:
                         your_teams_bans_count += 1
                         log.info(f"Found {text} #{your_teams_bans_count} at index {i}")

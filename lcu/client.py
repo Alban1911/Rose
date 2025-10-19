@@ -321,3 +321,34 @@ class LCU:
         except Exception as e:
             log.warning(f"LCU set_my_selection_skin exception: {e}")
             return False
+
+    @property
+    def game_session(self) -> Optional[dict]:
+        """Get current game session with mode and map info"""
+        return self.get("/lol-gameflow/v1/session")
+
+    @property
+    def game_mode(self) -> Optional[str]:
+        """Get current game mode (e.g., 'ARAM', 'CLASSIC')"""
+        session = self.game_session
+        if session and isinstance(session, dict):
+            return session.get("gameData", {}).get("gameMode")
+        return None
+
+    @property
+    def map_id(self) -> Optional[int]:
+        """Get current map ID (12 = Howling Abyss, 11 = Summoner's Rift)"""
+        session = self.game_session
+        if session and isinstance(session, dict):
+            return session.get("gameData", {}).get("mapId")
+        return None
+
+    @property
+    def is_aram(self) -> bool:
+        """Check if currently in ARAM (Howling Abyss)"""
+        return self.map_id == 12 or self.game_mode == "ARAM"
+
+    @property
+    def is_sr(self) -> bool:
+        """Check if currently in Summoner's Rift"""
+        return self.map_id == 11 or self.game_mode == "CLASSIC"
