@@ -275,7 +275,29 @@ class ChromaPanelManager:
         """
         with self.lock:
             # If switching to a different skin, hide the wheel and reset selection
-            if self.current_skin_id is not None and self.current_skin_id != skin_id:
+            # But don't reset if it's just a chroma selection for the same base skin
+            is_different_skin = (self.current_skin_id is not None and 
+                               self.current_skin_id != skin_id)
+            
+            # Check if this is a chroma selection for the same base skin
+            is_chroma_selection = False
+            if is_different_skin:
+                # Check if both IDs are chromas of the same base skin
+                current_base_id = self.current_skin_id
+                new_base_id = skin_id
+                
+                # If current is a chroma, get its base skin ID
+                if current_base_id % 1000 != 0:
+                    current_base_id = (current_base_id // 1000) * 1000
+                
+                # If new is a chroma, get its base skin ID
+                if new_base_id % 1000 != 0:
+                    new_base_id = (new_base_id // 1000) * 1000
+                
+                # If both have the same base skin ID, it's a chroma selection
+                is_chroma_selection = (current_base_id == new_base_id)
+            
+            if is_different_skin and not is_chroma_selection:
                 log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
                 self.pending_hide = True
                 self.current_selected_chroma_id = None  # Reset selection for new skin
@@ -285,6 +307,8 @@ class ChromaPanelManager:
                 # Reset button to rainbow (only if button exists)
                 if self.reopen_button:
                     self.reopen_button.set_chroma_color(None)
+            elif is_chroma_selection:
+                log.debug(f"[CHROMA] Chroma selection for same base skin - preserving selection")
             
             # Update current skin data for button (store champion name for later)
             self.current_skin_id = skin_id
