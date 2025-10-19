@@ -308,8 +308,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.skin_name = skin_name
         self.circles = []
         
+        # For preview loading, use the base skin name (remove chroma ID if present)
+        # This ensures we load previews from the correct base skin folder
+        base_skin_name_for_previews = self._get_base_skin_name_for_previews(skin_name, skin_id)
+        log.debug(f"[CHROMA] Preview loading: original='{skin_name}' -> base='{base_skin_name_for_previews}'")
+        
         # Load base skin preview
-        base_preview = self._load_chroma_preview_image(skin_name, chroma_id=0, champion_name=champion_name, skin_id=skin_id)
+        base_preview = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id=0, champion_name=champion_name, skin_id=skin_id)
         
         base_circle = ChromaCircle(
             chroma_id=0,
@@ -340,7 +345,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
             
             # Load chroma preview image with direct path
             chroma_id = chroma.get('id', 0)
-            preview_image = self._load_chroma_preview_image(skin_name, chroma_id, champion_name, skin_id)
+            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id, champion_name, skin_id)
             
             circle = ChromaCircle(
                 chroma_id=chroma_id,
@@ -934,5 +939,64 @@ class ChromaPanelWidget(ChromaWidgetBase):
                 return False
         
         return super().eventFilter(obj, event)
+
+    def _get_base_skin_name_for_previews(self, skin_name: str, skin_id: Optional[int] = None) -> str:
+        """Get the base skin name for preview loading, removing any chroma ID suffixes
+        
+        This ensures we load preview images from the correct base skin folder
+        instead of trying to find a folder named after the chroma ID.
+        
+        Args:
+            skin_name: Current skin name (may include chroma ID)
+            skin_id: Optional skin ID to help determine if this is a chroma
+            
+        Returns:
+            Base skin name for preview loading
+        """
+        try:
+            # If this is a chroma ID, we need to get the base skin name
+            if skin_id and skin_id % 1000 != 0:
+                # This is likely a chroma ID, get the base skin ID using skin scraper
+                from ui.chroma_selector import get_chroma_selector
+                chroma_selector = get_chroma_selector()
+                if chroma_selector and chroma_selector.skin_scraper and chroma_selector.skin_scraper.cache:
+                    # Use the chroma cache to get the base skin ID
+                    chroma_data = chroma_selector.skin_scraper.cache.chroma_id_map.get(skin_id)
+                    if chroma_data:
+                        base_skin_id = chroma_data.get('skinId')
+                        log.debug(f"[CHROMA] Found base skin ID {base_skin_id} for chroma {skin_id}")
+                        
+                        # Try to get the base skin name from database
+                        if chroma_selector.db:
+                            try:
+                                base_skin_name = chroma_selector.db.get_english_skin_name_by_id(base_skin_id)
+                                if base_skin_name:
+                                    log.debug(f"[CHROMA] Using base skin name from database: '{base_skin_name}' for chroma {skin_id}")
+                                    return base_skin_name
+                            except Exception as e:
+                                log.debug(f"[CHROMA] Database lookup failed for base skin {base_skin_id}: {e}")
+            
+            # Fallback: remove any trailing chroma IDs from the skin name
+            # Split by spaces and remove any words that are purely numeric (chroma IDs)
+            words = skin_name.split()
+            clean_words = []
+            for word in words:
+                # Skip words that look like chroma IDs (numbers)
+                if not word.isdigit():
+                    clean_words.append(word)
+                else:
+                    # Stop at the first number we encounter (base skin ID or chroma ID)
+                    break
+            
+            base_skin_name = ' '.join(clean_words)
+            
+            if base_skin_name != skin_name:
+                log.debug(f"[CHROMA] Cleaned skin name for previews: '{skin_name}' -> '{base_skin_name}'")
+            
+            return base_skin_name
+            
+        except Exception as e:
+            log.debug(f"[CHROMA] Error getting base skin name for previews: {e}")
+            return skin_name
 
 
