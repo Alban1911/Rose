@@ -31,7 +31,8 @@ class SimpleLicenseDialog(QDialog):
         
         # Set window icon if available
         try:
-            icon_path = "assets/icon.ico"
+            from utils.paths import get_asset_path
+            icon_path = str(get_asset_path("icon.ico"))
             if os.path.exists(icon_path):
                 self.setWindowIcon(QIcon(icon_path))
         except:

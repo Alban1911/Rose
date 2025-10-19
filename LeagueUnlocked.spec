@@ -114,7 +114,6 @@ hiddenimports = [
     'lcu.skin_scraper',
     'lcu.types',
     'lcu.utils',
-    'threads.ui_skin_thread',
     'state',
     'state.app_status',
     'state.shared_state',

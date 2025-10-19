@@ -190,10 +190,13 @@ class UnownedFrame(ChromaWidgetBase):
             self.unowned_frame_image.clear()
             self.unowned_frame_image.setPixmap(QPixmap())  # Set empty pixmap
             
-            log.debug(f"[UnownedFrame] Loading FRESH image from: assets/unownedframe.png")
+            # Use proper asset path resolution for PyInstaller compatibility
+            from utils.paths import get_asset_path
+            asset_path = get_asset_path("unownedframe.png")
+            log.debug(f"[UnownedFrame] Loading FRESH image from: {asset_path}")
             # Force reload from file system - create completely new QPixmap
             unowned_pixmap = QPixmap()
-            unowned_pixmap.load("assets/unownedframe.png")
+            unowned_pixmap.load(str(asset_path))
             log.debug(f"[UnownedFrame] Image loaded: null={unowned_pixmap.isNull()}, size={unowned_pixmap.width()}x{unowned_pixmap.height()}")
             
             if not unowned_pixmap.isNull():
