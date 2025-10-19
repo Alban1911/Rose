@@ -590,9 +590,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         painter.drawLine(notch_center_x, notch_tip_y, notch_end_x, notch_base_y)  # Right edge
         
         # Draw golden separator line between preview and buttons (on top of button zone)
-        painter.setPen(QPen(QColor("#b78c34"), 1))  # Golden separator color
+        # Disable antialiasing to ensure exact 1px thickness
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setPen(QPen(QColor("#2b2f1c"), 1))  # Golden separator color, 1px thickness
         separator_y = preview_y + self.preview_height
-        painter.drawLine(1, separator_y, actual_width - 1, separator_y)
+        painter.drawLine(2, separator_y, actual_width - 3, separator_y)
+        # Re-enable antialiasing for other elements
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         
         # Draw hovered chroma preview image
         # If no button is hovered, show the currently selected/applied chroma
