@@ -70,33 +70,19 @@ class TrayManager:
             icon_name: Name of the icon file (e.g., "locked_tray.png", "golden_unlocked_tray.png")
         """
         try:
-            # Handle both frozen (PyInstaller) and development environments
-            import sys
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable (PyInstaller)
-                # In onedir mode, data files are in _internal folder
-                base_dir = os.path.dirname(sys.executable)
-                # Try multiple locations for PyInstaller
-                possible_paths = [
-                    os.path.join(base_dir, "icons", icon_name),  # Direct path
-                    os.path.join(base_dir, "_internal", "icons", icon_name),  # _internal folder
-                ]
+            # Use proper icon path resolution for PyInstaller compatibility
+            from utils.paths import get_icon_path
+            icon_path = get_icon_path(icon_name)
+            
+            if icon_path.exists():
+                log.debug(f"Loading tray icon from: {icon_path}")
+                with Image.open(icon_path) as img:
+                    # Convert to RGBA and resize to 128x128 (doubled from 64x64)
+                    img = img.convert('RGBA')
+                    img = img.resize((128, 128), Image.Resampling.LANCZOS)
+                    return img.copy()  # Return a copy to avoid issues with closed files
             else:
-                # Running as Python script
-                base_dir = os.path.dirname(os.path.dirname(__file__))
-                possible_paths = [os.path.join(base_dir, "icons", icon_name)]
-            
-            # Try each possible path
-            for icon_path in possible_paths:
-                if os.path.exists(icon_path):
-                    log.debug(f"Loading tray icon from: {icon_path}")
-                    with Image.open(icon_path) as img:
-                        # Convert to RGBA and resize to 128x128 (doubled from 64x64)
-                        img = img.convert('RGBA')
-                        img = img.resize((128, 128), Image.Resampling.LANCZOS)
-                        return img.copy()  # Return a copy to avoid issues with closed files
-            
-            log.warning(f"Icon '{icon_name}' not found in any expected location")
+                log.warning(f"Icon '{icon_name}' not found at: {icon_path}")
         except Exception as e:
             log.error(f"Failed to load icon '{icon_name}': {e}")
         return None

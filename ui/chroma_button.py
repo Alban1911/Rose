@@ -281,7 +281,8 @@ class OpeningButton(ChromaWidgetBase):
     def _draw_rainbow_image(self, painter, center, gradient_outer_radius, should_darken):
         """Draw the rainbow button-chroma.png image"""
         try:
-            button_chroma_pixmap = QPixmap("assets/button-chroma.png")
+            from utils.paths import get_asset_path
+            button_chroma_pixmap = QPixmap(str(get_asset_path("button-chroma.png")))
             if not button_chroma_pixmap.isNull():
                 # Scale the image to fit the gradient area
                 scaled_pixmap = button_chroma_pixmap.scaled(
