@@ -167,18 +167,21 @@ class UnownedFrame(ChromaWidgetBase):
         
         # Load unowned frame image
         try:
-            # Clear any existing pixmap first
+            # Completely clear any existing pixmap first
             self.unowned_frame_image.clear()
+            self.unowned_frame_image.setPixmap(QPixmap())  # Set empty pixmap
             
-            log.debug(f"[UnownedFrame] Loading image from: assets/unownedframe.png")
-            unowned_pixmap = QPixmap("assets/unownedframe.png")
+            log.debug(f"[UnownedFrame] Loading FRESH image from: assets/unownedframe.png")
+            # Force reload from file system - create completely new QPixmap
+            unowned_pixmap = QPixmap()
+            unowned_pixmap.load("assets/unownedframe.png")
             log.debug(f"[UnownedFrame] Image loaded: null={unowned_pixmap.isNull()}, size={unowned_pixmap.width()}x{unowned_pixmap.height()}")
             
             if not unowned_pixmap.isNull():
-                # Scale the image to fit the calculated frame size
+                # Scale the image to EXACTLY fit the calculated frame size (ignore aspect ratio)
                 scaled_pixmap = unowned_pixmap.scaled(
                     frame_width, frame_height,
-                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
                     Qt.TransformationMode.SmoothTransformation
                 )
                 
@@ -207,6 +210,14 @@ class UnownedFrame(ChromaWidgetBase):
         # Force QLabel to update its display after resizing
         self.unowned_frame_image.update()
         self.unowned_frame_image.repaint()
+        
+        # Force widget update to ensure all changes are applied
+        self.update()
+        self.repaint()
+        
+        # Debug: Final check of QLabel state
+        final_pixmap = self.unowned_frame_image.pixmap()
+        log.debug(f"[UnownedFrame] Final QLabel state: has_pixmap={not final_pixmap.isNull() if final_pixmap else False}, size={self.unowned_frame_image.size().width()}x{self.unowned_frame_image.size().height()}, visible={self.unowned_frame_image.isVisible()}")
         
         log.debug(f"[UnownedFrame] QLabel resized to: {frame_width}x{frame_height}")
         
@@ -357,6 +368,13 @@ class UnownedFrame(ChromaWidgetBase):
             
             # Check if resolution actually changed
             if current_resolution != self._current_resolution:
+                # Check if we just rebuilt recently (within last 100ms) to prevent conflicts
+                import time
+                current_time = time.time()
+                if hasattr(self, '_last_rebuild_time') and (current_time - self._last_rebuild_time) < 0.1:
+                    log.debug(f"[UnownedFrame] Skipping rebuild - just rebuilt {current_time - self._last_rebuild_time:.3f}s ago")
+                    return
+                
                 self._updating_resolution = True  # Set flag
                 log.info(f"[UnownedFrame] Resolution changed from {self._current_resolution} to {current_resolution}, requesting rebuild")
                 
@@ -365,6 +383,9 @@ class UnownedFrame(ChromaWidgetBase):
                 
                 # Request rebuild
                 self._rebuild_for_resolution_change()
+                
+                # Record rebuild time
+                self._last_rebuild_time = current_time
                 
                 # Clear update flag
                 self._updating_resolution = False
@@ -376,39 +397,48 @@ class UnownedFrame(ChromaWidgetBase):
             self._updating_resolution = False
     
     def _rebuild_for_resolution_change(self):
-        """Rebuild UnownedFrame for resolution change"""
+        """Completely rebuild UnownedFrame for resolution change - clean start"""
         try:
-            log.info("[UnownedFrame] Rebuilding for resolution change...")
+            log.info("[UnownedFrame] Starting complete rebuild for resolution change...")
+            
+            # Save current opacity state
+            current_opacity = self.opacity_effect.opacity() if self.opacity_effect else 0.0
+            
+            # Completely clear existing components
+            if hasattr(self, 'unowned_frame_image') and self.unowned_frame_image:
+                self.unowned_frame_image.deleteLater()
+                self.unowned_frame_image = None
             
             # Get fresh scaled values for new resolution
             self.scaled = get_scaled_chroma_values(force_reload=True)
             
-            # Log current widget size before rebuild
-            current_size = self.size()
-            log.debug(f"[UnownedFrame] Current widget size before rebuild: {current_size.width()}x{current_size.height()}")
+            # Small delay to ensure cleanup
+            from PyQt6.QtWidgets import QApplication
+            QApplication.processEvents()
             
-            # Recreate components with new resolution
+            # Recreate all components from scratch with new resolution values
             self._create_components()
             
-            # Log new widget size after rebuild
-            new_size = self.size()
-            log.debug(f"[UnownedFrame] New widget size after rebuild: {new_size.width()}x{new_size.height()}")
-            
-            # Force widget update to ensure size changes are applied
-            self.updateGeometry()
+            # Force a complete widget refresh to ensure image is properly displayed
+            from PyQt6.QtWidgets import QApplication
+            QApplication.processEvents()
             self.update()
             self.repaint()
             
-            # Ensure it's visible (but transparent)
-            self.show()
+            # Restore opacity state
+            if self.opacity_effect:
+                self.opacity_effect.setOpacity(current_opacity)
             
-            # Ensure proper z-order after rebuild (with small delay to ensure widget is fully shown)
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(10, self.refresh_z_order)
+            # Ensure proper z-order
+            self.refresh_z_order()
             
-            log.info("[UnownedFrame] Rebuild completed")
+            # Final refresh to ensure everything is displayed
+            QApplication.processEvents()
+            
+            log.info(f"[UnownedFrame] Complete rebuild finished, restored opacity: {current_opacity:.2f}")
+            
         except Exception as e:
-            log.error(f"[UnownedFrame] Error during rebuild: {e}")
+            log.error(f"[UnownedFrame] Error in complete rebuild: {e}")
             import traceback
             log.error(traceback.format_exc())
     
