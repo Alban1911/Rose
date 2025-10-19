@@ -25,12 +25,15 @@ class UnownedFrame(ChromaWidgetBase):
     fade_in_requested = pyqtSignal()
     fade_out_requested = pyqtSignal()
     
-    def __init__(self):
+    def __init__(self, state=None):
         # Initialize with explicit z-level instead of relying on creation order
         super().__init__(
             z_level=ZOrderManager.Z_LEVELS['UNOWNED_FRAME'],
             widget_name='unowned_frame'
         )
+        
+        # Store reference to shared state for ownership checking
+        self.state = state
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -154,12 +157,28 @@ class UnownedFrame(ChromaWidgetBase):
         # Use HWND_TOP to place it in front of League window, but it will be behind chroma button
         # because chroma button is created after this and uses HWND_TOP as well
         HWND_TOP = 0
-        ctypes.windll.user32.SetWindowPos(
-            widget_hwnd, HWND_TOP, target_x, target_y, 0, 0,
-            0x0010 | 0x0001  # SWP_NOACTIVATE | SWP_NOSIZE
+        
+        # First, ensure the widget is properly shown and positioned
+        self.show()
+        
+        # Apply positioning with multiple flags to ensure it works
+        result = ctypes.windll.user32.SetWindowPos(
+            widget_hwnd, HWND_TOP, target_x, target_y, frame_width, frame_height,
+            0x0010 | 0x0004 | 0x0001  # SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE
         )
         
-        log.debug(f"[UnownedFrame] Static positioning: window={window_width}x{window_height}, position=({target_x}, {target_y}), size={frame_width}x{frame_height}")
+        log.debug(f"[UnownedFrame] Static positioning: window={window_width}x{window_height}, position=({target_x}, {target_y}), size={frame_width}x{frame_height}, SetWindowPos result={result}")
+        
+        # Force a position update using PyQt6 methods as well
+        self.move(target_x, target_y)
+        self.resize(frame_width, frame_height)
+        
+        # Verify the positioning was applied correctly
+        import time
+        time.sleep(0.01)  # Small delay to ensure positioning is applied
+        actual_x = self.x()
+        actual_y = self.y()
+        log.debug(f"[UnownedFrame] Position verification: expected=({target_x}, {target_y}), actual=({actual_x}, {actual_y})")
         
         # Create unowned frame image
         self.unowned_frame_image = QLabel(self)
@@ -228,6 +247,18 @@ class UnownedFrame(ChromaWidgetBase):
         
         # Make sure it's visible (but transparent)
         self.show()
+        
+        # Ensure the QLabel is also visible
+        self.unowned_frame_image.show()
+        self.unowned_frame_image.update()
+        self.unowned_frame_image.repaint()
+        log.debug(f"[UnownedFrame] QLabel visibility set to: {self.unowned_frame_image.isVisible()}")
+        
+        # Force a complete refresh of the entire widget
+        self.update()
+        self.repaint()
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
     
     def fade_in(self):
         """Fade in the UnownedFrame (thread-safe)"""
@@ -425,9 +456,18 @@ class UnownedFrame(ChromaWidgetBase):
             self.update()
             self.repaint()
             
-            # Restore opacity state
+            # Restore opacity state based on current skin ownership
             if self.opacity_effect:
-                self.opacity_effect.setOpacity(current_opacity)
+                # Check if current skin should show UnownedFrame
+                should_show = self._should_show_for_current_skin()
+                if should_show:
+                    # If current skin is unowned and not base, set opacity to 1.0
+                    self.opacity_effect.setOpacity(1.0)
+                    log.info("[UnownedFrame] Restored opacity to 1.0 for unowned skin after rebuild")
+                else:
+                    # If current skin is owned or base, keep it hidden
+                    self.opacity_effect.setOpacity(0.0)
+                    log.info("[UnownedFrame] Kept opacity at 0.0 for owned/base skin after rebuild")
             
             # Ensure proper z-order
             self.refresh_z_order()
@@ -441,6 +481,31 @@ class UnownedFrame(ChromaWidgetBase):
             log.error(f"[UnownedFrame] Error in complete rebuild: {e}")
             import traceback
             log.error(traceback.format_exc())
+    
+    def _should_show_for_current_skin(self):
+        """Check if UnownedFrame should be visible for the current skin"""
+        try:
+            if not self.state:
+                log.debug("[UnownedFrame] No state available for ownership check")
+                return False
+            
+            # Get current skin ID from state
+            current_skin_id = self.state.last_hovered_skin_id
+            if not current_skin_id:
+                log.debug("[UnownedFrame] No current skin ID in state")
+                return False
+            
+            # Check ownership and base skin status
+            is_owned = current_skin_id in self.state.owned_skin_ids
+            is_base_skin = current_skin_id % 1000 == 0
+            should_show = not is_owned and not is_base_skin
+            
+            log.debug(f"[UnownedFrame] Ownership check: skin_id={current_skin_id}, is_owned={is_owned}, is_base_skin={is_base_skin}, should_show={should_show}")
+            return should_show
+            
+        except Exception as e:
+            log.error(f"[UnownedFrame] Error checking current skin ownership: {e}")
+            return False
     
     def cleanup(self):
         """Clean up resources"""

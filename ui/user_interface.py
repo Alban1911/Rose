@@ -50,7 +50,7 @@ class UserInterface:
         
         # Create UnownedFrame instance directly
         from ui.unowned_frame import UnownedFrame
-        self.unowned_frame = UnownedFrame()
+        self.unowned_frame = UnownedFrame(state=self.state)
         
         # Ensure the initial UnownedFrame is properly positioned
         self.unowned_frame._create_components()
@@ -201,22 +201,27 @@ class UserInterface:
                         
                         # Create completely new UnownedFrame with fresh resolution values
                         from ui.unowned_frame import UnownedFrame
-                        self.unowned_frame = UnownedFrame()
+                        self.unowned_frame = UnownedFrame(state=self.state)
                         
-                        # Force the UnownedFrame to recreate its components with proper positioning
+                        # Ensure the initial UnownedFrame is properly positioned (same as initialization)
                         self.unowned_frame._create_components()
-                        
-                        # Ensure the new UnownedFrame is properly positioned and shown
                         self.unowned_frame.show()
                         
-                        # Restore opacity state
+                        # Use the same logic as skin swaps to show the UnownedFrame
                         if self.unowned_frame.opacity_effect:
-                            self.unowned_frame.opacity_effect.setOpacity(current_opacity)
+                            # Check if current skin should show UnownedFrame
+                            should_show = self.unowned_frame._should_show_for_current_skin()
+                            if should_show:
+                                # Use the same method that works during skin swaps
+                                log.info("[UI] UnownedFrame recreated with new resolution, using skin swap logic to show unowned skin")
+                                self._show_unowned_frame(self.current_skin_id, self.current_skin_name, self.current_champion_name)
+                            else:
+                                # If current skin is owned or base, keep it hidden
+                                self.unowned_frame.opacity_effect.setOpacity(0.0)
+                                log.info("[UI] UnownedFrame recreated with new resolution, set opacity to 0.0 for owned/base skin")
                         
                         # Ensure proper z-order
                         self.unowned_frame.refresh_z_order()
-                        
-                        log.info(f"[UI] UnownedFrame recreated with new resolution, restored opacity: {current_opacity:.2f}")
                     elif self.unowned_frame._current_resolution is None:
                         # Just update the resolution without recreating
                         self.unowned_frame._current_resolution = current_resolution

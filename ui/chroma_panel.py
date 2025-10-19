@@ -386,11 +386,12 @@ class ChromaPanelManager:
                     was_panel_visible = self.widget and self.widget.isVisible()
                     was_button_visible = self.reopen_button and self.reopen_button.isVisible()
                     
-                    # Save UnownedFrame opacity before rebuild
+                    # Save UnownedFrame opacity before rebuild (only for button's UnownedFrame)
                     unowned_frame_opacity = 0.0
                     if self.reopen_button and hasattr(self.reopen_button, 'unowned_frame') and self.reopen_button.unowned_frame:
                         if hasattr(self.reopen_button, 'unowned_frame_opacity_effect'):
                             unowned_frame_opacity = self.reopen_button.unowned_frame_opacity_effect.opacity()
+                            log.debug(f"[CHROMA] Saved button's UnownedFrame opacity: {unowned_frame_opacity:.2f}")
                     
                     log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}, button_visible={was_button_visible}, unowned_frame_opacity={unowned_frame_opacity:.2f}")
                     
@@ -411,10 +412,10 @@ class ChromaPanelManager:
                         self.reopen_button.set_chroma_color(self.current_chroma_color)
                         log.debug(f"[CHROMA] Button color restored after rebuild: {self.current_chroma_color}")
                     
-                    # Restore UnownedFrame opacity after rebuild
+                    # Restore UnownedFrame opacity after rebuild (only for button's UnownedFrame)
                     if self.reopen_button and hasattr(self.reopen_button, 'unowned_frame_opacity_effect'):
                         self.reopen_button.unowned_frame_opacity_effect.setOpacity(unowned_frame_opacity)
-                        log.info(f"[CHROMA] UnownedFrame opacity restored after rebuild: {unowned_frame_opacity:.2f}")
+                        log.debug(f"[CHROMA] Button's UnownedFrame opacity restored after rebuild: {unowned_frame_opacity:.2f}")
                     
                     # Restore visibility state
                     if was_button_visible and self.current_skin_name and self.current_chromas:
