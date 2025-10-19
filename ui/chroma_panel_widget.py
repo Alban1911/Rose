@@ -546,7 +546,22 @@ class ChromaPanelWidget(ChromaWidgetBase):
         painter.setBrush(QBrush(QColor(10, 14, 39, 240)))
         painter.drawRect(button_zone_x, button_zone_y, button_zone_width, button_zone_height)
         
-        # Also fill the notch triangle area (reuse calculated values from above)
+        # LAYER 3: Draw golden borders first (behind triangle)
+        painter.setPen(QPen(QColor("#b78c34"), 1))
+        # Top edge
+        painter.drawLine(1, 1, actual_width - 1, 1)
+        # Right edge
+        painter.drawLine(actual_width - 1, 1, actual_width - 1, panel_height)
+        # Left edge
+        painter.drawLine(1, 1, 1, panel_height)
+        
+        # Draw the lower border segments (behind the triangle)
+        # Bottom right to notch
+        painter.drawLine(actual_width - 1, panel_height, notch_end_x, notch_base_y)
+        # Bottom left to notch
+        painter.drawLine(1, panel_height, notch_start_x, notch_base_y)
+        
+        # LAYER 4: Draw triangle notch on top of borders
         from PyQt6.QtGui import QPolygon
         
         notch_points = [
@@ -559,20 +574,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPolygon(notch_polygon)
         
-        # LAYER 3: Draw golden borders on top of backgrounds
+        # LAYER 5: Draw golden border on the notch edges (on top of triangle)
         painter.setPen(QPen(QColor("#b78c34"), 1))
-        # Top edge
-        painter.drawLine(1, 1, actual_width - 1, 1)
-        # Right edge
-        painter.drawLine(actual_width - 1, 1, actual_width - 1, panel_height)
-        # Bottom right to notch
-        painter.drawLine(actual_width - 1, panel_height, notch_end_x, notch_base_y)
-        # Left edge
-        painter.drawLine(1, 1, 1, panel_height)
-        # Bottom left to notch
-        painter.drawLine(1, panel_height, notch_start_x, notch_base_y)
-        
-        # Draw golden border on the notch edges (the two angled edges extending outward)
         painter.drawLine(notch_start_x, notch_base_y, notch_center_x, notch_tip_y)  # Left edge
         painter.drawLine(notch_center_x, notch_tip_y, notch_end_x, notch_base_y)  # Right edge
         

@@ -55,12 +55,30 @@ class UISkinThread(threading.Thread):
         
         while self.running and not self.stop_event.is_set():
             try:
-                if self._should_run_detection():
+                # Handle PyWinAuto connection (connect when entering ChampSelect)
+                if self._should_connect():
+                    if not self.connection.is_connected():
+                        if self.connection.connect():
+                            self.detector = UIDetector(self.connection.league_window, self.skin_scraper, self.shared_state)
+                            self.debugger = UIDebugger(self.connection.league_window)
+                            log.info("UI Detection: PyWinAuto connected in ChampSelect phase")
+                else:
+                    if self.connection.is_connected():
+                        self.connection.disconnect()
+                        self.detector = None
+                        self.debugger = None
+                        log.info("UI Detection: PyWinAuto disconnected - left ChampSelect phase")
+                        self.detection_available = False
+                        self.skin_name_element = None
+                        self.last_skin_name = None
+                        self.last_skin_id = None
+                        self.detection_attempts = 0
+                
+                # Handle skin name detection (only when champion is locked and delay has passed)
+                if self._should_run_detection() and self.connection.is_connected():
                     if not self.detection_available:
-                        if self._initialize_detection():
-                            self.detection_available = True
-                            log.info(f"UI Detection: Starting - champion locked in ChampSelect ({UIA_DELAY_MS}ms delay)")
-                    
+                        self.detection_available = True
+                        log.info(f"UI Detection: Starting - champion locked in ChampSelect ({UIA_DELAY_MS}ms delay)")
                     
                     # Find skin name element if not found yet
                     if self.skin_name_element is None:
@@ -105,6 +123,10 @@ class UISkinThread(threading.Thread):
         self.connection.disconnect()
         log.info("UI Detection: Stop requested")
     
+    def _should_connect(self) -> bool:
+        """Check if we should establish PyWinAuto connection"""
+        return self.shared_state.phase == "ChampSelect"
+    
     def _should_run_detection(self) -> bool:
         """Check if we should run detection based on current state"""
         if self.shared_state.phase != "ChampSelect" or self.shared_state.locked_champ_id is None:
@@ -119,17 +141,6 @@ class UISkinThread(threading.Thread):
         
         return False
     
-    def _initialize_detection(self) -> bool:
-        """Initialize UI detection components"""
-        try:
-            if self.connection.connect():
-                self.detector = UIDetector(self.connection.league_window, self.skin_scraper, self.shared_state)
-                self.debugger = UIDebugger(self.connection.league_window)
-                return True
-            return False
-        except Exception as e:
-            log.error(f"Failed to initialize detection: {e}")
-            return False
     
     
     def _get_skin_name(self) -> Optional[str]:
