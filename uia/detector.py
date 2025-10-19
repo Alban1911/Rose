@@ -10,6 +10,10 @@ from utils.normalization import levenshtein_score
 
 log = logging.getLogger(__name__)
 
+your_teams_bans_text = {"عمليات استبعاد فريقك".upper(), "Zákazy tvého týmu".upper(), "Auswahl deines Teams".upper(), "Οι αποκλεισμοί της ομάδας σας".upper(), "Your Team's Bans".upper(), "Bloqueos de tu equipo".upper(),
+"Bannissements de votre équipe".upper(), "Saját csapat kitiltásai".upper(), "Ban Timmu".upper(), "Ban della tua squadra".upper(), "あなたのチームのバン".upper(), "아군 팀 금지 챔피언".upper(), "Bany twojej drużyny".upper(),
+"Banimentos da sua equipe".upper(), "Blocările echipei tale".upper(), "Блокировки вашей команды".upper(), "การแบนของทีมคุณ".upper(), "Takımının Yasaklamaları".upper(), "Đội mình cấm".upper(), "己方队伍的禁用".upper(), "友方禁用英雄".upper()}
+
 
 class UIDetector:
     """Handles UI element detection for skin names"""
@@ -56,7 +60,7 @@ class UIDetector:
             log.info(f"Found {len(text_elements)} Text elements")
             
             # Find the element right after the second 'YOUR TEAM'S BANS'
-            log.info("\nSearching for element after second 'YOUR TEAM'S BANS'...")
+            log.info("\nSearching for element after second 'YOUR TEAM'S BANS' equivalent (depends on the language)...")
             
             your_teams_bans_count = 0
             chosen_candidate = None
@@ -65,19 +69,19 @@ class UIDetector:
             for i, element in enumerate(text_elements):
                 try:
                     text = element.window_text()
-                    if text == 'YOUR TEAM\'S BANS':
+                    if text in your_teams_bans_text:
                         your_teams_bans_count += 1
-                        log.info(f"Found 'YOUR TEAM'S BANS' #{your_teams_bans_count} at index {i}")
+                        log.info(f"Found {text} #{your_teams_bans_count} at index {i}")
                         
                         # If this is the second occurrence, the next element should be the skin name
                         if your_teams_bans_count == 2:
                             if i + 1 < len(text_elements):
                                 chosen_candidate = text_elements[i + 1]
                                 chosen_index = i + 1
-                                log.info(f"Found second 'YOUR TEAM'S BANS' at index {i}, taking next element at index {i + 1}")
+                                log.info(f"Found second {text} at index {i}, taking next element at index {i + 1}")
                                 break
                             else:
-                                log.warning("Second 'YOUR TEAM'S BANS' found but no element follows it")
+                                log.warning(f"Second {text} found but no element follows it")
                                 break
                 except Exception as e:
                     log.debug(f"Error checking element {i}: {e}")
@@ -91,7 +95,7 @@ class UIDetector:
                 except Exception as e:
                     log.error(f"Error getting skin name from chosen candidate: {e}")
             else:
-                log.warning("Could not find element after second 'YOUR TEAM'S BANS'")
+                log.warning(f"Could not find element after second {text}")
             
             return None
             
