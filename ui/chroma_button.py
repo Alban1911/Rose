@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import QGraphicsOpacityEffect
 from PyQt6.QtCore import Qt, QPoint, QTimer, QMetaObject, pyqtSlot
 from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QConicalGradient, QPixmap
 from ui.chroma_base import ChromaWidgetBase
-from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
 import config
@@ -71,14 +70,28 @@ class OpeningButton(ChromaWidgetBase):
         self.button_size = self.button_visual_size + (self.transparent_ring_width * 2)  # Total widget size includes transparent ring
         self.setFixedSize(self.button_size, self.button_size)
         
-        # Position using the synchronized positioning system
-        # Button is centered at anchor (offset = 0, 0)
-        self.position_relative_to_anchor(
-            width=self.button_size,
-            height=self.button_size,
-            offset_x=0,  # No offset - button center is at anchor
-            offset_y=0
-        )
+        # Position button directly relative to League window using absolute coordinates
+        # Button should be at center X, 80.35% down from top (same as anchor point)
+        window_width, window_height = current_resolution
+        if window_width == 1600 and window_height == 900:
+            # 1600x900 resolution (reference)
+            button_x = 800 - (self.button_size // 2)  # Center horizontally
+            button_y = 723 - (self.button_size // 2)  # 80.35% down from top
+        elif window_width == 1280 and window_height == 720:
+            # 1280x720 resolution (scale factor 0.8)
+            button_x = 640 - (self.button_size // 2)  # Center horizontally
+            button_y = 578 - (self.button_size // 2)  # 80.35% down from top
+        elif window_width == 1024 and window_height == 576:
+            # 1024x576 resolution (scale factor 0.64)
+            button_x = 512 - (self.button_size // 2)  # Center horizontally
+            button_y = 463 - (self.button_size // 2)  # 80.35% down from top
+        else:
+            # Unsupported resolution - use default 1600x900 values
+            button_x = 800 - (self.button_size // 2)
+            button_y = 723 - (self.button_size // 2)
+        
+        # Position button absolutely in League window
+        self._position_button_absolutely(button_x, button_y)
         
         # Set cursor to hand pointer for the button
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -88,6 +101,29 @@ class OpeningButton(ChromaWidgetBase):
         
         self.hide()
     
+    def _position_button_absolutely(self, x: int, y: int):
+        """Position button directly in League window using absolute coordinates"""
+        try:
+            # First, parent the widget to League window using the base class method
+            self._parent_to_league_window()
+            
+            # Get button widget handle
+            widget_hwnd = int(self.winId())
+            
+            # Position it statically in League window client coordinates
+            import ctypes
+            HWND_TOP = 0
+            ctypes.windll.user32.SetWindowPos(
+                widget_hwnd, HWND_TOP, x, y, 0, 0,
+                0x0010 | 0x0001  # SWP_NOACTIVATE | SWP_NOSIZE
+            )
+            
+            log.debug(f"[CHROMA] Button positioned absolutely at ({x}, {y})")
+            
+        except Exception as e:
+            log.error(f"[CHROMA] Error positioning button absolutely: {e}")
+            import traceback
+            log.error(traceback.format_exc())
     
     def paintEvent(self, event):
         """Paint the circular button with new design"""
@@ -373,8 +409,7 @@ class OpeningButton(ChromaWidgetBase):
                 QTimer.singleShot(100, self.show_instantly)
                 return
             
-            # Ensure button is positioned correctly before showing
-            self._update_position()
+            # Button position is handled by position_relative_to_anchor() in __init__
             
             # Verify position is valid (not 0,0 which indicates positioning failed)
             if self.x() == 0 and self.y() == 0:

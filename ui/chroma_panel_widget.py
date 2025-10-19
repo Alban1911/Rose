@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPixmap
 from ui.chroma_base import ChromaWidgetBase
-from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger, log_event
 import config
@@ -56,12 +55,86 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Track mouse press position for click-and-release detection
         self._press_pos = None
         
-        # Get scaled values for current resolution
-        self.scaled = get_scaled_chroma_values()
-        self._current_resolution = self.scaled.resolution  # Track resolution for change detection
+        # Get current resolution for hardcoded sizing
+        from utils.window_utils import get_league_window_client_size
+        current_resolution = get_league_window_client_size()
+        if not current_resolution:
+            current_resolution = (1600, 900)  # Fallback to reference resolution
         
-        # Dimensions - League style with horizontal layout (using scaled values)
-        self._update_dimensions_from_scaled()
+        self._current_resolution = current_resolution  # Track resolution for change detection
+        self._updating_resolution = False  # Flag to prevent recursive updates
+        
+        # Hardcoded panel dimensions for each resolution
+        window_width, window_height = current_resolution
+        if window_width == 1600 and window_height == 900:
+            # 1600x900 resolution (reference)
+            self.preview_width = 272
+            self.preview_height = 303
+            self.circle_radius = 9
+            self.window_width = 275
+            self.window_height = 346
+            self.circle_spacing = 21
+            self.button_size = 33
+            self.screen_edge_margin = 20
+            self.preview_x = 2
+            self.preview_y = 2
+            self.row_y_offset = 26
+            self.gold_border_px = 2
+            self.dark_border_px = 3
+            self.gradient_ring_px = 4
+            self.inner_disk_radius_px = 2.5
+        elif window_width == 1280 and window_height == 720:
+            # 1280x720 resolution (scale factor 0.8)
+            self.preview_width = 218  # 272 * 0.8
+            self.preview_height = 242  # 303 * 0.8
+            self.circle_radius = 7  # 9 * 0.8
+            self.window_width = 220  # 275 * 0.8
+            self.window_height = 277  # 346 * 0.8
+            self.circle_spacing = 17  # 21 * 0.8
+            self.button_size = 26  # 33 * 0.8
+            self.screen_edge_margin = 16  # 20 * 0.8
+            self.preview_x = 2  # 2 * 0.8
+            self.preview_y = 2  # 2 * 0.8
+            self.row_y_offset = 21  # 26 * 0.8
+            self.gold_border_px = 1.6  # 2 * 0.8
+            self.dark_border_px = 2.4  # 3 * 0.8
+            self.gradient_ring_px = 3.2  # 4 * 0.8
+            self.inner_disk_radius_px = 2.0  # 2.5 * 0.8
+        elif window_width == 1024 and window_height == 576:
+            # 1024x576 resolution (scale factor 0.64)
+            self.preview_width = 174  # 272 * 0.64
+            self.preview_height = 194  # 303 * 0.64
+            self.circle_radius = 6  # 9 * 0.64
+            self.window_width = 176  # 275 * 0.64
+            self.window_height = 221  # 346 * 0.64
+            self.circle_spacing = 13  # 21 * 0.64
+            self.button_size = 21  # 33 * 0.64
+            self.screen_edge_margin = 13  # 20 * 0.64
+            self.preview_x = 1  # 2 * 0.64
+            self.preview_y = 1  # 2 * 0.64
+            self.row_y_offset = 17  # 26 * 0.64
+            self.gold_border_px = 1.3  # 2 * 0.64
+            self.dark_border_px = 1.9  # 3 * 0.64
+            self.gradient_ring_px = 2.6  # 4 * 0.64
+            self.inner_disk_radius_px = 1.6  # 2.5 * 0.64
+        else:
+            # Unsupported resolution - use default 1600x900 values
+            log.warning(f"[CHROMA] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
+            self.preview_width = 272
+            self.preview_height = 303
+            self.circle_radius = 9
+            self.window_width = 275
+            self.window_height = 346
+            self.circle_spacing = 21
+            self.button_size = 33
+            self.screen_edge_margin = 20
+            self.preview_x = 2
+            self.preview_y = 2
+            self.row_y_offset = 26
+            self.gold_border_px = 2
+            self.dark_border_px = 3
+            self.gradient_ring_px = 4
+            self.inner_disk_radius_px = 2.5
         
         # Track actual display dimensions (may differ from scaled at very small resolutions)
         self._display_width = self.window_width
@@ -69,9 +142,9 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self._scale_factor = 1.0  # Scale factor for constrained layouts
         self._updating_resolution = False  # Flag to prevent recursive updates
         
-        # Initialize preview positions from scaled values (will be overridden on resolution change)
-        self._preview_x = self.scaled.preview_x
-        self._preview_y = self.scaled.preview_y
+        # Initialize preview positions from hardcoded values
+        self._preview_x = self.preview_x
+        self._preview_y = self.preview_y
         
         # Preview image (will be downloaded/loaded)
         self.current_preview_image = None  # QPixmap for current chroma
@@ -118,30 +191,17 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Create window mask to define the visible shape (including notch)
         self._update_window_mask()
         
-        # Position using the synchronized positioning system
-        # Panel offset from anchor point (button is also centered on anchor)
-        # Calculate offset based on config ratio
-        import config
-        from utils.window_utils import get_league_window_client_size
+        # Position panel directly relative to League window (not relative to button)
+        # Use hardcoded absolute coordinates for each resolution
+        window_width, window_height = self._current_resolution
         
-        current_res = get_league_window_client_size()
-        if not current_res:
-            log.error("[CHROMA] Cannot create panel - League window not found")
-            return  # Cannot setup UI without League window
+        # Position panel at top-left corner of League window for testing
+        # You can move it from there to the desired position
+        panel_x = 10  # 10px from left edge
+        panel_y = 10  # 10px from top edge
         
-        window_width, window_height = current_res
-        
-        # Calculate panel offset using config ratio
-        # X offset uses WIDTH, Y offset uses HEIGHT for proper scaling
-        panel_offset_x = int(window_width * config.CHROMA_UI_PANEL_OFFSET_X_RATIO)
-        panel_offset_y = int(window_height * config.CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO)
-        
-        self.position_relative_to_anchor(
-            width=self.window_width,
-            height=self.window_height + self.notch_height,
-            offset_x=panel_offset_x,  # Now uses config!
-            offset_y=panel_offset_y   # Now uses config even in test mode!
-        )
+        # Position panel directly in League window using absolute coordinates
+        self._position_panel_absolutely(panel_x, panel_y)
         
         # Set initial opacity
         self._opacity = 1.0
@@ -189,14 +249,29 @@ class ChromaPanelWidget(ChromaWidgetBase):
         region = QRegion(polygon)
         self.setMask(region)
     
-    def _update_dimensions_from_scaled(self):
-        """Update all dimension properties from scaled values"""
-        self.preview_width = self.scaled.preview_width
-        self.preview_height = self.scaled.preview_height
-        self.circle_radius = self.scaled.circle_radius
-        self.window_width = self.scaled.window_width
-        self.window_height = self.scaled.window_height
-        self.circle_spacing = self.scaled.circle_spacing
+    def _position_panel_absolutely(self, x: int, y: int):
+        """Position panel directly in League window using absolute coordinates"""
+        try:
+            # First, parent the widget to League window using the base class method
+            self._parent_to_league_window()
+            
+            # Get panel widget handle
+            widget_hwnd = int(self.winId())
+            
+            # Position it statically in League window client coordinates
+            import ctypes
+            HWND_TOP = 0
+            ctypes.windll.user32.SetWindowPos(
+                widget_hwnd, HWND_TOP, x, y, 0, 0,
+                0x0010 | 0x0001  # SWP_NOACTIVATE | SWP_NOSIZE
+            )
+            
+            log.debug(f"[CHROMA] Panel positioned absolutely at ({x}, {y})")
+            
+        except Exception as e:
+            log.error(f"[CHROMA] Error positioning panel absolutely: {e}")
+            import traceback
+            log.error(traceback.format_exc())
     
     def check_resolution_and_update(self):
         """Check if resolution changed and request rebuild if needed"""
@@ -246,8 +321,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
         actual_height = self._display_height if hasattr(self, '_display_height') else self.window_height
         
         # Use hardcoded preview dimensions
-        preview_x = self._preview_x if hasattr(self, '_preview_x') else self.scaled.preview_x
-        preview_y = self._preview_y if hasattr(self, '_preview_y') else self.scaled.preview_y
+        preview_x = self._preview_x if hasattr(self, '_preview_x') else self.preview_x
+        preview_y = self._preview_y if hasattr(self, '_preview_y') else self.preview_y
         preview_height = self.preview_height
         
         # Recalculate horizontal row positions (same logic as set_chromas)
@@ -323,7 +398,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Position circles in horizontal row, centered vertically in button zone
         total_chromas = len(self.circles)
         # Button zone is between separator line and bottom border
-        separator_y = self.scaled.preview_y + self.preview_height
+        separator_y = self.preview_y + self.preview_height
         bottom_border_y = self.window_height - 1
         row_y = (separator_y + bottom_border_y) // 2
         
@@ -404,8 +479,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Set opacity to 1.0 for visibility
         self._opacity = 1.0
         
-        # Position is handled by base class position_relative_to_anchor()
-        # No manual positioning needed - the anchor-based system handles alignment perfectly
+        # Position is handled by _position_panel_absolutely() in setup_ui()
+        # Panel is positioned directly relative to League window, not relative to button
         
         # Show window
         self.show()
@@ -474,8 +549,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # LAYER 1: Draw background image first (behind everything)
         # Use hardcoded preview positions if available (set during resolution changes)
-        preview_x = self._preview_x if hasattr(self, '_preview_x') else self.scaled.preview_x
-        preview_y = self._preview_y if hasattr(self, '_preview_y') else self.scaled.preview_y
+        preview_x = self._preview_x if hasattr(self, '_preview_x') else self.preview_x
+        preview_y = self._preview_y if hasattr(self, '_preview_y') else self.preview_y
         preview_rect = (preview_x, preview_y, self.preview_width, self.preview_height)
         
         if self.background_image and not self.background_image.isNull():
