@@ -25,7 +25,7 @@ PRODUCTION_MODE = False
 # UI detection polling
 UI_POLL_INTERVAL = 0.01  # Seconds between UI detection checks
 UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
-UIA_DELAY_MS = 5  # Milliseconds to wait after champion lock before starting UI Detection
+UIA_DELAY_MS = 5 # Milliseconds to wait after champion lock before starting UI Detection
 
 # UI Detection coordinates (percentage-based, resolution-independent)
 # THESE ARE THE CORRECT VALUES - DO NOT CHANGE WITHOUT TESTING

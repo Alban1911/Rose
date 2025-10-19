@@ -54,22 +54,84 @@ class UIDetector:
             text_elements = self.league_window.descendants(control_type="Text")
             log.info(f"Found {len(text_elements)} Text elements")
             
-            # Skip expensive logging - go straight to candidate #54
+            # Print the whole text_elements list for debugging
+            print("\n" + "=" * 80)
+            print("WHOLE TEXT_ELEMENTS LIST:")
+            print("=" * 80)
+            for i, element in enumerate(text_elements):
+                try:
+                    text = element.window_text()
+                    print(f"\n[{i:3d}] Element Information:")
+                    print(f"     Text: '{text}'")
+                    
+                    # Get property values by calling the methods
+                    try:
+                        control_type = element.control_type()
+                        print(f"     Control Type: {control_type}")
+                    except:
+                        print(f"     Control Type: Unknown")
+                    
+                    try:
+                        class_name = element.class_name()
+                        print(f"     Class Name: {class_name}")
+                    except:
+                        print(f"     Class Name: Unknown")
+                    
+                    try:
+                        automation_id = element.automation_id()
+                        print(f"     Automation ID: {automation_id}")
+                    except:
+                        print(f"     Automation ID: Unknown")
+                    
+                    try:
+                        name = element.name()
+                        print(f"     Name: {name}")
+                    except:
+                        print(f"     Name: Unknown")
+                    
+                    try:
+                        is_enabled = element.is_enabled()
+                        print(f"     Is Enabled: {is_enabled}")
+                    except:
+                        print(f"     Is Enabled: Unknown")
+                    
+                    try:
+                        is_visible = element.is_visible()
+                        print(f"     Is Visible: {is_visible}")
+                    except:
+                        print(f"     Is Visible: Unknown")
+                    
+                    try:
+                        has_keyboard_focus = element.has_keyboard_focus()
+                        print(f"     Has Keyboard Focus: {has_keyboard_focus}")
+                    except:
+                        print(f"     Has Keyboard Focus: Unknown")
+                    
+                    try:
+                        is_offscreen = element.is_offscreen()
+                        print(f"     Is Offscreen: {is_offscreen}")
+                    except:
+                        print(f"     Is Offscreen: Unknown")
+                    
+                    # Try to get additional properties if available
+                    try:
+                        if hasattr(element, 'get_properties'):
+                            props = element.get_properties()
+                            print(f"     Properties: {props}")
+                    except:
+                        pass
+                        
+                except Exception as e:
+                    print(f"[{i:3d}] Error getting element info: {e}")
+            print("\n" + "=" * 80)
             
-            # Optimized: Take candidate #54 directly (skin name is always there)
-            log.info("\nTaking candidate #54 directly (known skin name position)...")
-            if len(text_elements) >= 54:
-                candidate_54 = text_elements[53]  # 0-indexed, so 53 = candidate 54
-                skin_name = candidate_54.window_text()
-                
-                log.info(f"✓ Found skin name element: '{skin_name}' (candidate #54)")
-                return candidate_54
-            else:
-                log.info("✗ Not enough candidates (need at least 54)")
+            # Optimized: Take candidate #-14 directly (skin name is always there)
+            log.info("\nTaking candidate #-14 directly (known skin name position)...")
+            chosen_candidate = text_elements[-14]
+            skin_name = chosen_candidate.window_text()
             
-            # No fallback needed - we know position #54 is always the skin name
-            log.info("✗ No skin name element found (not enough candidates)")
-            return None
+            log.info(f"✓ Found skin name element: '{skin_name}' (candidate #{len(text_elements) - 14})")
+            return chosen_candidate
             
         except Exception as e:
             log.error(f"Error in element path search: {e}")
