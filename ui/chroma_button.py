@@ -41,15 +41,33 @@ class OpeningButton(ChromaWidgetBase):
         
         # Common window flags already set by parent class
         
-        # Get scaled values for current resolution
-        self.scaled = get_scaled_chroma_values()
-        self._current_resolution = self.scaled.resolution  # Track resolution for change detection
+        # Get current resolution for hardcoded sizing
+        from utils.window_utils import get_league_window_client_size
+        current_resolution = get_league_window_client_size()
+        if not current_resolution:
+            current_resolution = (1600, 900)  # Fallback to reference resolution
+        
+        self._current_resolution = current_resolution  # Track resolution for change detection
         self._updating_resolution = False  # Flag to prevent recursive updates
         
-        # Setup button size and position (using scaled values)
+        # Hardcoded button sizes for each resolution
+        window_width, window_height = current_resolution
+        if window_width == 1600 and window_height == 900:
+            # 1600x900 resolution
+            self.button_visual_size = 40  # Visual size (golden border)
+        elif window_width == 1280 and window_height == 720:
+            # 1280x720 resolution
+            self.button_visual_size = 30  # Visual size (golden border)
+        elif window_width == 1024 and window_height == 576:
+            # 1024x576 resolution
+            self.button_visual_size = 24  # Visual size (golden border)
+        else:
+            # Unsupported resolution - use default 1600x900 values
+            log.warning(f"[CHROMA] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
+            self.button_visual_size = 41
+        
         # Add extra space for the 3px transparent ring on each side
         self.transparent_ring_width = 3
-        self.button_visual_size = self.scaled.button_size  # Visual size (golden border)
         self.button_size = self.button_visual_size + (self.transparent_ring_width * 2)  # Total widget size includes transparent ring
         self.setFixedSize(self.button_size, self.button_size)
         

@@ -96,25 +96,26 @@ class ChromaWidgetBase(QWidget):
             except Exception:
                 return  # Failed to get client rect
             
-            # Calculate center of League client area (in client coordinates - always starts at 0,0)
-            center_x = window_width // 2
-            center_y = window_height // 2
-            
-            # Use FIXED PERCENTAGE offsets for consistent positioning
-            # These offsets are RELATIVE TO LEAGUE WINDOW, not screen
-            import config
-            
-            # Read config values (will be fresh after hot-reload)
-            offset_x_ratio = config.CHROMA_UI_ANCHOR_OFFSET_X_RATIO
-            offset_y_ratio = config.CHROMA_UI_ANCHOR_OFFSET_Y_RATIO
-            
-            anchor_x = center_x + int(window_width * offset_x_ratio)
-            anchor_y = center_y + int(window_height * offset_y_ratio)
-            
-            # Calculate widget position in CLIENT COORDINATES (relative to League window's top-left at 0,0)
-            # The center of the widget will be at (anchor_x + offset_x, anchor_y + offset_y)
-            widget_x = anchor_x + self._position_offset_x - (self._widget_width // 2)
-            widget_y = anchor_y + self._position_offset_y - (self._widget_height // 2)
+            # Hardcoded positions for each resolution (no scaling)
+            if window_width == 1600 and window_height == 900:
+                # 1600x900 resolution
+                widget_x = 777
+                widget_y = 700
+            elif window_width == 1280 and window_height == 720:
+                # 1280x720 resolution
+                widget_x = 624
+                widget_y = 563
+            elif window_width == 1024 and window_height == 576:
+                # 1024x576 resolution
+                widget_x = 499
+                widget_y = 450
+            else:
+                # Unsupported resolution - use default 1600x900 values
+                from utils.logging import get_logger
+                log = get_logger()
+                log.warning(f"[CHROMA] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
+                widget_x = 777
+                widget_y = 700
             
             # Debug logging for position calculation
             from utils.logging import get_logger

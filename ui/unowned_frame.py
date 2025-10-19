@@ -106,12 +106,12 @@ class UnownedFrame(ChromaWidgetBase):
             target_x = 465
             target_y = 411
         else:
-            # Fallback to ratio-based scaling for other resolutions
-            frame_width = int(window_width * config.UNOWNED_FRAME_WIDTH_RATIO)
-            frame_height = int(window_height * config.UNOWNED_FRAME_HEIGHT_RATIO)
-            target_x = int(window_width * config.UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO)
-            target_y = int(window_height * config.UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO)
-            log.debug(f"[UnownedFrame] Using fallback scaling for resolution {window_width}x{window_height}")
+            # Unsupported resolution - use default 1600x900 values
+            log.warning(f"[UnownedFrame] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
+            frame_width = 148
+            frame_height = 84
+            target_x = 726
+            target_y = 642
         
         log.debug(f"[UnownedFrame] Hardcoded positioning: window={window_width}x{window_height}, frame={frame_width}x{frame_height}, pos=({target_x}, {target_y})")
         
