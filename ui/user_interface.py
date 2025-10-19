@@ -75,6 +75,9 @@ class UserInterface:
             self.current_skin_name = skin_name
             self.current_champion_name = champion_name
             
+            # Check if this is a chroma selection for the same base skin
+            is_chroma_selection = self._is_chroma_selection_for_same_base_skin(skin_id, skin_name)
+            
             # Check if skin has chromas
             has_chromas = self._skin_has_chromas(skin_id)
             
@@ -84,9 +87,10 @@ class UserInterface:
             
             # Determine what to show
             should_show_chroma_ui = has_chromas
-            should_show_unowned_frame = not is_owned and not is_base_skin
+            # Don't show UnownedFrame if this is a chroma selection for the same base skin
+            should_show_unowned_frame = not is_owned and not is_base_skin and not is_chroma_selection
             
-            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned}, is_base_skin={is_base_skin}")
+            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned}, is_base_skin={is_base_skin}, is_chroma_selection={is_chroma_selection}")
             log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}, unowned_frame={should_show_unowned_frame}")
             
             # Show/hide ChromaUI based on chromas
@@ -116,6 +120,60 @@ class UserInterface:
         except Exception as e:
             log.debug(f"[UI] Error checking chromas for skin {skin_id}: {e}")
             return False
+    
+    def _is_chroma_selection_for_same_base_skin(self, skin_id: int, skin_name: str) -> bool:
+        """Check if this is a chroma selection for the same base skin we were already showing"""
+        try:
+            # Check if we have a current skin ID that's a base skin
+            if not hasattr(self, 'current_skin_id') or self.current_skin_id is None:
+                return False
+            
+            # Check if the current skin is a base skin (ID % 1000 == 0)
+            current_base_skin_id = self.current_skin_id
+            if current_base_skin_id % 1000 != 0:
+                # Current skin is already a chroma, get its base skin
+                current_base_skin_id = self._get_base_skin_id_for_chroma(current_base_skin_id)
+                if current_base_skin_id is None:
+                    return False
+            
+            # Check if the new skin_id is a chroma of the same base skin
+            if skin_id % 1000 == 0:
+                # New skin is a base skin, not a chroma selection
+                return False
+            
+            # Get the base skin ID for the new chroma
+            new_base_skin_id = self._get_base_skin_id_for_chroma(skin_id)
+            if new_base_skin_id is None:
+                return False
+            
+            # Check if both chromas belong to the same base skin
+            is_same_base = current_base_skin_id == new_base_skin_id
+            
+            if is_same_base:
+                log.debug(f"[UI] Detected chroma selection for same base skin: {current_base_skin_id} -> {skin_id}")
+            
+            return is_same_base
+            
+        except Exception as e:
+            log.debug(f"[UI] Error checking chroma selection: {e}")
+            return False
+    
+    def _get_base_skin_id_for_chroma(self, chroma_id: int) -> Optional[int]:
+        """Get the base skin ID for a given chroma ID"""
+        try:
+            if not self.skin_scraper or not self.skin_scraper.cache:
+                return None
+            
+            # Check if this chroma ID exists in the cache
+            chroma_data = self.skin_scraper.cache.chroma_id_map.get(chroma_id)
+            if chroma_data:
+                return chroma_data.get('skinId')
+            
+            return None
+            
+        except Exception as e:
+            log.debug(f"[UI] Error getting base skin ID for chroma {chroma_id}: {e}")
+            return None
     
     def _show_chroma_ui(self, skin_id: int, skin_name: str, champion_name: str = None):
         """Show ChromaUI for skin with chromas"""

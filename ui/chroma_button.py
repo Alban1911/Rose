@@ -244,10 +244,42 @@ class OpeningButton(ChromaWidgetBase):
         painter.setBrush(QBrush(border_color))
         painter.drawPath(dark_border_path)
         
-        # 3. Button chroma image - replaces gradient ring and inner circle
+        # 3. Button chroma image or colored disk - replaces gradient ring and inner circle
         painter.setPen(Qt.PenStyle.NoPen)
         
-        # Load and draw the button-chroma.png image
+        # If a chroma color is selected, draw a colored disk instead of the rainbow image
+        if self.current_chroma_color:
+            try:
+                # Create a colored disk with the selected chroma color
+                chroma_color = QColor(self.current_chroma_color)
+                
+                # Apply darkening effect if hovered
+                if should_darken:
+                    # Darken the chroma color by reducing brightness
+                    chroma_color = chroma_color.darker(150)  # 150% darker
+                
+                painter.setBrush(QBrush(chroma_color))
+                
+                # Draw the colored disk in the gradient area (same size as the button-chroma.png)
+                painter.drawEllipse(
+                    center - gradient_outer_radius, 
+                    center - gradient_outer_radius,
+                    gradient_outer_radius * 2, 
+                    gradient_outer_radius * 2
+                )
+                
+                log.debug(f"[CHROMA] Colored disk drawn with color: {self.current_chroma_color}")
+                
+            except Exception as e:
+                log.error(f"[CHROMA] Error drawing colored disk: {e}")
+                # Fallback to rainbow image if colored disk fails
+                self._draw_rainbow_image(painter, center, gradient_outer_radius, should_darken)
+        else:
+            # No chroma selected, show the rainbow gradient image
+            self._draw_rainbow_image(painter, center, gradient_outer_radius, should_darken)
+    
+    def _draw_rainbow_image(self, painter, center, gradient_outer_radius, should_darken):
+        """Draw the rainbow button-chroma.png image"""
         try:
             button_chroma_pixmap = QPixmap("assets/button-chroma.png")
             if not button_chroma_pixmap.isNull():
