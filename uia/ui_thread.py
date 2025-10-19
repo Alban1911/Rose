@@ -43,6 +43,11 @@ class UISkinThread(threading.Thread):
         self.skin_name_element = None
         self.last_skin_name = None
         self.last_skin_id = None
+        
+        # Detection retry logic
+        self.detection_attempts = 0
+        self.max_detection_attempts = 50  # Try for ~5 seconds at 0.1s interval
+        self.detection_backoff_delay = 0.5  # Wait longer between attempts after failures
     
     def run(self):
         """Main thread loop"""
@@ -63,13 +68,21 @@ class UISkinThread(threading.Thread):
                     
                     # Find skin name element if not found yet
                     if self.skin_name_element is None:
-                        self.skin_name_element = self.detector.find_skin_name_element()
+                        self.skin_name_element = self._find_skin_element_with_retry()
                     
                     # Get skin name if element is available
                     if self.skin_name_element:
-                        skin_name = self._get_skin_name()
-                        if skin_name and skin_name != self.last_skin_name:
-                            self._process_skin_name(skin_name)
+                        # Validate that the cached element is still valid
+                        if not self._is_element_still_valid():
+                            log.debug("UI Detection: Cached element is no longer valid, clearing cache")
+                            self.skin_name_element = None
+                            self.last_skin_name = None
+                            self.last_skin_id = None
+                        else:
+                            skin_name = self._get_skin_name()
+                            if skin_name and skin_name != self.last_skin_name:
+                                # The detector already validated this is a valid skin name
+                                self._process_skin_name(skin_name)
                 else:
                     if self.detection_available:
                         log.info("UI Detection: Stopped - waiting for champion lock")
@@ -77,6 +90,8 @@ class UISkinThread(threading.Thread):
                         self.skin_name_element = None
                         self.last_skin_name = None
                         self.last_skin_id = None
+                        # Reset detection attempts when stopping
+                        self.detection_attempts = 0
                 
                 # Wait before next iteration
                 self.stop_event.wait(self.interval)
@@ -112,7 +127,7 @@ class UISkinThread(threading.Thread):
         """Initialize UI detection components"""
         try:
             if self.connection.connect():
-                self.detector = UIDetector(self.connection.league_window)
+                self.detector = UIDetector(self.connection.league_window, self.skin_scraper, self.shared_state)
                 self.debugger = UIDebugger(self.connection.league_window)
                 return True
             return False
@@ -168,6 +183,46 @@ class UISkinThread(threading.Thread):
         except Exception as e:
             log.error(f"Error processing skin name: {e}")
     
+    
+    def _is_element_still_valid(self) -> bool:
+        """Check if the cached element is still valid"""
+        try:
+            if not self.skin_name_element:
+                return False
+            
+            # Try to access the element's text to see if it's still valid
+            text = self.skin_name_element.window_text()
+            return text is not None
+            
+        except Exception as e:
+            log.debug(f"Error validating cached element: {e}")
+            return False
+    
+    
+    def _find_skin_element_with_retry(self) -> Optional[object]:
+        """Find skin element with retry logic and backoff"""
+        if self.detection_attempts >= self.max_detection_attempts:
+            # Reset attempts after max reached
+            self.detection_attempts = 0
+            return None
+        
+        self.detection_attempts += 1
+        
+        # Try to find the element
+        element = self.detector.find_skin_name_element()
+        
+        if element:
+            # Success! Reset attempts
+            self.detection_attempts = 0
+            log.info(f"UI Detection: Found skin element after {self.detection_attempts} attempts")
+            return element
+        else:
+            # Failed, use backoff delay
+            if self.detection_attempts > 10:  # After 1 second of trying
+                log.debug(f"UI Detection: Attempt {self.detection_attempts}/{self.max_detection_attempts} - League may still be loading")
+                # Use longer delay for subsequent attempts
+                self.stop_event.wait(self.detection_backoff_delay)
+            return None
     
     def _find_skin_id(self, skin_name: str) -> Optional[int]:
         """Find skin ID from skin name"""
