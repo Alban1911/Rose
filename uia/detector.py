@@ -25,14 +25,10 @@ class UIDetector:
     def find_skin_name_element(self) -> Optional[object]:
         """Find the skin name element using element path navigation"""
         try:
-            # First, try to use cached element if it's still valid
+            # First, try to use cached element if available
             if self.cache_valid and self.cached_element:
-                if self._is_cached_element_still_valid():
-                    log.debug("Using cached skin name element")
-                    return self.cached_element
-                else:
-                    log.debug("Cached element no longer valid, clearing cache")
-                    self._clear_cache()
+                log.debug("Using cached skin name element")
+                return self.cached_element
             
             # If no valid cache, try to find element using path navigation
             element = self._find_by_element_path()
@@ -66,93 +62,6 @@ class UIDetector:
                 candidate_54 = text_elements[53]  # 0-indexed, so 53 = candidate 54
                 skin_name = candidate_54.window_text()
                 
-                # Log all available information about the element
-                log.info("=" * 80)
-                log.info("SKIN NAME ELEMENT DETAILS:")
-                log.info("=" * 80)
-                log.info(f"Text: '{skin_name}'")
-                log.info(f"Element Type: {type(candidate_54)}")
-                
-                try:
-                    control_type = candidate_54.control_type()
-                    log.info(f"Control Type: {control_type}")
-                except Exception as e:
-                    log.info(f"Control Type: Error - {e}")
-                
-                try:
-                    class_name = candidate_54.class_name()
-                    log.info(f"Class Name: {class_name}")
-                except Exception as e:
-                    log.info(f"Class Name: Error - {e}")
-                
-                try:
-                    automation_id = candidate_54.automation_id()
-                    log.info(f"Automation ID: '{automation_id}'")
-                except Exception as e:
-                    log.info(f"Automation ID: Error - {e}")
-                
-                
-                # Get parent hierarchy information and validate expected pattern
-                try:
-                    parent_count = 0
-                    current = candidate_54
-                    parent_chain = []
-                    while current.parent() and parent_count < 20:
-                        current = current.parent()
-                        parent_count += 1
-                        try:
-                            parent_text = current.window_text()[:50] if current.window_text() else "No text"
-                            parent_type = str(type(current))
-                            parent_chain.append(f"Level {parent_count}: {parent_type} - '{parent_text}'")
-                        except:
-                            parent_chain.append(f"Level {parent_count}: {type(current)} - Error reading")
-                    
-                    log.info(f"Parent Depth: {parent_count}")
-                    log.info("Parent Chain:")
-                    for parent_info in parent_chain[-5:]:  # Show last 5 levels
-                        log.info(f"  {parent_info}")
-                    
-                    # Validate expected hierarchy pattern
-                    expected_pattern = [
-                        "UIAWrapper - 'No text'",  # Level 2
-                        "UIAWrapper - 'No text'",  # Level 3  
-                        "UIAWrapper - 'League of Legends'",  # Level 4
-                        "UIAWrapper - 'Desktop 1'"  # Level 5
-                    ]
-                    
-                    hierarchy_valid = True
-                    if len(parent_chain) >= 4:
-                        for i, expected in enumerate(expected_pattern):
-                            if i < len(parent_chain):
-                                actual = parent_chain[-(i+1)]  # Check from bottom up
-                                if expected not in actual:
-                                    hierarchy_valid = False
-                                    break
-                    
-                    if hierarchy_valid:
-                        log.info("✓ Parent hierarchy matches expected pattern")
-                    else:
-                        log.info("⚠ Parent hierarchy does not match expected pattern")
-                        
-                except Exception as e:
-                    log.info(f"Parent Info: Error - {e}")
-                
-                # Get useful properties in a clean format
-                try:
-                    log.info("Useful Properties:")
-                    log.info(f"  Element Info: {candidate_54.element_info}")
-                    log.info(f"  Can Be Label: {candidate_54.can_be_label}")
-                    log.info(f"  Has Title: {candidate_54.has_title}")
-                    log.info(f"  Is Enabled: {candidate_54.is_enabled()}")
-                    log.info(f"  Is Visible: {candidate_54.is_visible()}")
-                    log.info(f"  Is Keyboard Focusable: {candidate_54.is_keyboard_focusable()}")
-                    log.info(f"  Process ID: {candidate_54.process_id()}")
-                    log.info(f"  Window Classes: {candidate_54.windowclasses}")
-                    log.info(f"  Writable Props: {candidate_54.writable_props}")
-                except Exception as e:
-                    log.info(f"Properties: Error - {e}")
-                
-                log.info("=" * 80)
                 log.info(f"✓ Found skin name element: '{skin_name}' (candidate #54)")
                 return candidate_54
             else:
@@ -263,19 +172,6 @@ class UIDetector:
         similarity = 1.0 - (distance / max_len)
         return similarity
     
-    def _is_cached_element_still_valid(self) -> bool:
-        """Check if the cached element is still valid"""
-        try:
-            if not self.cached_element:
-                return False
-            
-            # Try to access the element's text to see if it's still valid
-            text = self.cached_element.window_text()
-            return text is not None
-            
-        except Exception as e:
-            log.debug(f"Error validating cached element: {e}")
-            return False
     
     def _cache_element(self, element):
         """Cache the found element"""
@@ -290,15 +186,3 @@ class UIDetector:
         self.cache_valid = False
         log.debug("Element cache cleared")
     
-    def find_skin_name_by_mouse_hover(self) -> Optional[object]:
-        """Find skin name by mouse hover detection (only when --mousehover flag is used)"""
-        try:
-            # This function would be called only when --mousehover flag is enabled
-            # Implementation would depend on how you want to handle mouse hover detection
-            # For now, return None as this is a placeholder
-            log.debug("Mouse hover detection not implemented yet")
-            return None
-            
-        except Exception as e:
-            log.debug(f"Error in mouse hover detection: {e}")
-            return None
