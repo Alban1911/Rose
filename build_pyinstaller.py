@@ -111,34 +111,6 @@ if errorlevel 1 (
     except Exception as e:
         print(f"[WARNING] Could not create launcher: {e}")
     
-    # Verify CSLOL tools
-    tools_path = dist_folder / "injection" / "tools"
-    if tools_path.exists():
-        exe_files = list(tools_path.glob("*.exe"))
-        dll_files = list(tools_path.glob("*.dll"))
-        bat_files = list(tools_path.glob("*.bat"))
-        print(f"[OK] CSLOL tools: {len(exe_files)} .exe, {len(dll_files)} .dll, {len(bat_files)} .bat")
-        
-        if len(exe_files) < 5:
-            print(f"[WARNING] Expected 5+ .exe files, only found {len(exe_files)}")
-    else:
-        print("[WARNING] CSLOL tools directory not found!")
-    
-    # Verify icons
-    icons_path = dist_folder / "icons"
-    if icons_path.exists():
-        icon_files = list(icons_path.glob("*.png"))
-        print(f"[OK] Icons: {len(icon_files)} files")
-    else:
-        print("[WARNING] Icons directory not found!")
-    
-    # Check for uiautomation
-    uiautomation_path = dist_folder / "uiautomation"
-    if uiautomation_path.exists():
-        print(f"[OK] uiautomation directory found")
-    else:
-        print("[WARNING] uiautomation directory not found - UI detection might not work!")
-    
     return True
 
 
