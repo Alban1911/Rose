@@ -73,6 +73,8 @@ class ScaledChromaValues:
             self.preview_x = config_values['preview_x']
             self.preview_y = config_values['preview_y']
             self.row_y_offset = config_values['row_y_offset']
+            self.panel_x = config_values['panel_x']
+            self.panel_y = config_values['panel_y']
         else:
             # Fallback to 1600x900 values for unsupported resolutions
             fallback_config = config.CHROMA_PANEL_CONFIGS[(1600, 900)]
@@ -89,6 +91,8 @@ class ScaledChromaValues:
             self.preview_x = fallback_config['preview_x']
             self.preview_y = fallback_config['preview_y']
             self.row_y_offset = fallback_config['row_y_offset']
+            self.panel_x = fallback_config['panel_x']
+            self.panel_y = fallback_config['panel_y']
         
         # Button visual dimensions (fixed values)
         # Increase gold border by 1px for maximum resolution (1600x900)
