@@ -86,22 +86,40 @@ class UnownedFrame(ChromaWidgetBase):
         window_width = window_right - window_left
         window_height = window_bottom - window_top
         
-        # Calculate static size and position using config ratios
-        frame_width = int(window_width * config.UNOWNED_FRAME_WIDTH_RATIO)
-        frame_height = int(window_height * config.UNOWNED_FRAME_HEIGHT_RATIO)
+        # Hardcoded positions for each resolution (no scaling)
+        if window_width == 1600 and window_height == 900:
+            # 1600x900 resolution
+            frame_width = 148
+            frame_height = 84
+            target_x = 726
+            target_y = 642
+        elif window_width == 1280 and window_height == 720:
+            # 1280x720 resolution
+            frame_width = 118
+            frame_height = 67
+            target_x = 581
+            target_y = 513
+        elif window_width == 1024 and window_height == 576:
+            # 1024x576 resolution
+            frame_width = 95
+            frame_height = 54
+            target_x = 465
+            target_y = 411
+        else:
+            # Fallback to ratio-based scaling for other resolutions
+            frame_width = int(window_width * config.UNOWNED_FRAME_WIDTH_RATIO)
+            frame_height = int(window_height * config.UNOWNED_FRAME_HEIGHT_RATIO)
+            target_x = int(window_width * config.UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO)
+            target_y = int(window_height * config.UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO)
+            log.debug(f"[UnownedFrame] Using fallback scaling for resolution {window_width}x{window_height}")
         
-        log.debug(f"[UnownedFrame] New size calculation: window={window_width}x{window_height}, frame={frame_width}x{frame_height}")
+        log.debug(f"[UnownedFrame] Hardcoded positioning: window={window_width}x{window_height}, frame={frame_width}x{frame_height}, pos=({target_x}, {target_y})")
         
         # Set static size
         self.setFixedSize(frame_width, frame_height)
         
         # Force geometry update to ensure size is applied
         self.setGeometry(self.x(), self.y(), frame_width, frame_height)
-        
-        # Calculate static position relative to League window TOP-LEFT (0,0)
-        # Use ratio-based coordinates that scale with window size
-        target_x = int(window_width * config.UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO)
-        target_y = int(window_height * config.UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO)
         
         # Make this widget a child of League window (static embedding)
         widget_hwnd = int(self.winId())
