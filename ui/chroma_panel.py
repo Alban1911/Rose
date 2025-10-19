@@ -263,7 +263,7 @@ class ChromaPanelManager:
                 # self.pending_hide_button = True  # REMOVED - button stays visible
                 # self.pending_show_button = False  # REMOVED - no need to cancel show
     
-    def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None):
+    def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None, is_chroma_selection: bool = False):
         """Show button for a skin (not the wheel itself)
         
         The button displays:
@@ -278,24 +278,6 @@ class ChromaPanelManager:
             # But don't reset if it's just a chroma selection for the same base skin
             is_different_skin = (self.current_skin_id is not None and 
                                self.current_skin_id != skin_id)
-            
-            # Check if this is a chroma selection for the same base skin
-            is_chroma_selection = False
-            if is_different_skin:
-                # Check if both IDs are chromas of the same base skin
-                current_base_id = self.current_skin_id
-                new_base_id = skin_id
-                
-                # If current is a chroma, get its base skin ID
-                if current_base_id % 1000 != 0:
-                    current_base_id = (current_base_id // 1000) * 1000
-                
-                # If new is a chroma, get its base skin ID
-                if new_base_id % 1000 != 0:
-                    new_base_id = (new_base_id // 1000) * 1000
-                
-                # If both have the same base skin ID, it's a chroma selection
-                is_chroma_selection = (current_base_id == new_base_id)
             
             if is_different_skin and not is_chroma_selection:
                 log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
@@ -337,9 +319,23 @@ class ChromaPanelManager:
             
             # Show or hide button based on whether skin has chromas
             if has_chromas:
-                self.pending_show_button = True
-                self.pending_hide_button = False
+                # Check if we're switching between different skins (both with chromas)
+                if is_different_skin and not is_chroma_selection:
+                    # Hide button first, then show it after 25ms for smooth transition
+                    log.debug(f"[CHROMA] Different skin transition detected - hiding button with delay")
+                    self.pending_show_button = False
+                    self.pending_hide_button = True
+                    
+                    # Schedule button to show after 25ms
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(25, lambda: self._delayed_show_button())
+                else:
+                    # Normal show for same skin or chroma selection
+                    log.debug(f"[CHROMA] Same skin or chroma selection - showing button normally")
+                    self.pending_show_button = True
+                    self.pending_hide_button = False
             else:
+                log.debug(f"[CHROMA] No chromas - hiding button")
                 self.pending_show_button = False
                 self.pending_hide_button = True
             
@@ -564,7 +560,7 @@ class ChromaPanelManager:
                 if self.reopen_button:
                     # Add a small delay for initial show to ensure League window is ready
                     from PyQt6.QtCore import QTimer
-                    QTimer.singleShot(100, self.reopen_button.show_for_chromas)
+                    QTimer.singleShot(25, self.reopen_button.show_for_chromas)
                     log.debug("[CHROMA] Button show scheduled for chromas")
             
             # Process reopen button hide request
@@ -575,6 +571,15 @@ class ChromaPanelManager:
                     log.debug("[CHROMA] Button hidden for no chromas")
         finally:
             self.lock.release()
+    
+    def _delayed_show_button(self):
+        """Delayed show button for smooth transition between different skins"""
+        with self.lock:
+            # Only show if we still have chromas for the current skin
+            if self.current_chromas and len(self.current_chromas) > 0:
+                self.pending_show_button = True
+                self.pending_hide_button = False
+                log.debug("[CHROMA] Delayed button show after skin transition")
     
     def hide(self):
         """Request to hide the chroma panel (thread-safe)"""

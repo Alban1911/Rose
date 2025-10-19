@@ -203,11 +203,36 @@ class ChromaSelector:
             else:
                 log.debug(f"[CHROMA] Showing button for {skin_name} (no chromas - UnownedFrame only)")
             
+            # Check if this is a chroma selection for the same base skin
+            is_chroma_selection = False
+            if self.current_skin_id is not None and self.current_skin_id != skin_id:
+                log.debug(f"[CHROMA] Checking chroma selection: current={self.current_skin_id} -> new={skin_id}")
+                
+                # Check if both IDs are chromas of the same base skin
+                current_base_id = self.current_skin_id
+                new_base_id = skin_id
+                
+                # If current is a chroma, get its base skin ID from the chroma cache
+                if current_base_id in self.skin_scraper.cache.chroma_id_map:
+                    chroma_data = self.skin_scraper.cache.chroma_id_map[current_base_id]
+                    current_base_id = chroma_data.get('skinId', current_base_id)
+                    log.debug(f"[CHROMA] Current skin {self.current_skin_id} is chroma of base skin {current_base_id}")
+                
+                # If new is a chroma, get its base skin ID from the chroma cache
+                if new_base_id in self.skin_scraper.cache.chroma_id_map:
+                    chroma_data = self.skin_scraper.cache.chroma_id_map[new_base_id]
+                    new_base_id = chroma_data.get('skinId', new_base_id)
+                    log.debug(f"[CHROMA] New skin {skin_id} is chroma of base skin {new_base_id}")
+                
+                # If both have the same base skin ID, it's a chroma selection
+                is_chroma_selection = (current_base_id == new_base_id)
+                log.debug(f"[CHROMA] Base skin comparison: {current_base_id} == {new_base_id} -> is_chroma_selection={is_chroma_selection}")
+            
             self.current_skin_id = skin_id
             
             # Show the button with chromas (or empty list if no chromas)
             try:
-                self.panel.show_button_for_skin(skin_id, skin_name, chromas or [], champion_name)
+                self.panel.show_button_for_skin(skin_id, skin_name, chromas or [], champion_name, is_chroma_selection)
             except Exception as e:
                 log.error(f"[CHROMA] Failed to show button: {e}")
     
