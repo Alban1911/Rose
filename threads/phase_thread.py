@@ -21,13 +21,15 @@ class PhaseThread(threading.Thread):
     
     INTERESTING = INTERESTING_PHASES
     
-    def __init__(self, lcu: LCU, state: SharedState, interval: float = PHASE_POLL_INTERVAL_DEFAULT, log_transitions: bool = True, injection_manager=None):
+    def __init__(self, lcu: LCU, state: SharedState, interval: float = PHASE_POLL_INTERVAL_DEFAULT, log_transitions: bool = True, injection_manager=None, skin_scraper=None, db=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
         self.interval = interval
         self.log_transitions = log_transitions
         self.injection_manager = injection_manager
+        self.skin_scraper = skin_scraper
+        self.db = db
         self.last_phase = None
 
     def run(self):
@@ -54,14 +56,14 @@ class PhaseThread(threading.Thread):
                         except Exception as e:
                             log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
                     
-                    # Hide UI for Lobby
+                    # Request UI destruction for Lobby
                     try:
-                        from ui.user_interface import _user_interface
-                        if _user_interface:
-                            _user_interface.hide_all()
-                            log.debug("[phase] UI hidden for Lobby")
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface.request_ui_destruction()
+                        log_action(log, "UI destruction requested for Lobby", "🏠")
                     except Exception as e:
-                        log.debug(f"[phase] Error hiding UI: {e}")
+                        log.warning(f"[phase] Failed to request UI destruction for Lobby: {e}")
                 
                 elif ph == "ChampSelect":
                     # State reset happens in WebSocket thread for faster response
@@ -71,8 +73,27 @@ class PhaseThread(threading.Thread):
                     self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                         
                     
+                elif ph == "GameStart":
+                    # Game starting - request UI destruction
+                    try:
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface.request_ui_destruction()
+                        log_action(log, "UI destruction requested for GameStart", "🚀")
+                    except Exception as e:
+                        log.warning(f"[phase] Failed to request UI destruction for GameStart: {e}")
+                
                 elif ph == "InProgress":
-                    # Game starting - destroy chroma panel and button
+                    # Game starting - request UI destruction
+                    try:
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface.request_ui_destruction()
+                        log_action(log, "UI destruction requested for InProgress", "🎮")
+                    except Exception as e:
+                        log.warning(f"[phase] Failed to request UI destruction for InProgress: {e}")
+                    
+                    # Also destroy chroma panel and button for backward compatibility
                     chroma_selector = get_chroma_selector()
                     if chroma_selector:
                         try:
@@ -82,7 +103,15 @@ class PhaseThread(threading.Thread):
                             log.debug(f"[phase] Error destroying chroma panel: {e}")
                 
                 elif ph == "EndOfGame":
-                    # Game ended → stop overlay process
+                    # Game ended → request UI destruction and stop overlay process
+                    try:
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface.request_ui_destruction()
+                        log_action(log, "UI destruction requested for EndOfGame", "🏁")
+                    except Exception as e:
+                        log.warning(f"[phase] Failed to request UI destruction for EndOfGame: {e}")
+                    
                     if self.injection_manager:
                         try:
                             self.injection_manager.stop_overlay_process()
@@ -91,7 +120,15 @@ class PhaseThread(threading.Thread):
                             log.warning(f"[phase] Failed to stop overlay process: {e}")
                     
                 else:
-                    # Exit champ select → reset counter/timer
+                    # Exit champ select or other phases → request UI destruction and reset counter/timer
+                    try:
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface.request_ui_destruction()
+                        log_action(log, f"UI destruction requested for {ph}", "🔄")
+                    except Exception as e:
+                        log.warning(f"[phase] Failed to request UI destruction for {ph}: {e}")
+                    
                     self.state.hovered_champ_id = None
                     self.state.locked_champ_id = None  # Reset locked champion
                     self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp

@@ -179,7 +179,7 @@ class WSEventThread(threading.Thread):
                         "Phase": phase_timer
                     })
                     if self.ticker is None or not self.ticker.is_alive():
-                        self.ticker = LoadoutTicker(self.lcu, self.state, self.timer_hz, self.fallback_ms, ticker_id=self.state.current_ticker, mode=mode, db=self.db, injection_manager=self.injection_manager)
+                        self.ticker = LoadoutTicker(self.lcu, self.state, self.timer_hz, self.fallback_ms, ticker_id=self.state.current_ticker, mode=mode, db=self.db, injection_manager=self.injection_manager, skin_scraper=self.skin_scraper)
                         self.ticker.start()
 
     def _handle_api_event(self, payload: dict):
@@ -213,6 +213,15 @@ class WSEventThread(threading.Thread):
                         self.state.processed_action_ids.clear()
                     except Exception: 
                         self.state.processed_action_ids = set()
+                    
+                    # Request UI initialization when entering ChampSelect
+                    try:
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface.request_ui_initialization()
+                        log_event(log, "UI initialization requested for ChampSelect", "🎨")
+                    except Exception as e:
+                        log.warning(f"Failed to request UI initialization for ChampSelect: {e}")
                     
                     # Detect game mode once when entering champion select
                     self._detect_game_mode()

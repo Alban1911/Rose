@@ -20,13 +20,14 @@ log = get_logger()
 class ChampThread(threading.Thread):
     """Thread for monitoring champion hover and lock"""
     
-    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL, injection_manager=None):
+    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, interval: float = CHAMP_POLL_INTERVAL, injection_manager=None, skin_scraper=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.db = db
         self.state = state
         self.interval = interval
         self.injection_manager = injection_manager
+        self.skin_scraper = skin_scraper
         self.last_hover = None
         self.last_lock = None
         self.last_locked_champion_id = None  # Track previously locked champion for exchange detection
@@ -59,9 +60,10 @@ class ChampThread(threading.Thread):
         
         # Hide UI
         try:
-            from ui.user_interface import _user_interface
-            if _user_interface:
-                _user_interface.hide_all()
+            from ui.user_interface import get_user_interface
+            user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+            if user_interface.is_ui_initialized():
+                user_interface.hide_all()
                 log.debug("[exchange] UI hidden")
         except Exception as e:
             log.debug(f"[exchange] Error hiding UI: {e}")

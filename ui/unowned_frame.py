@@ -516,7 +516,10 @@ class UnownedFrame(ChromaWidgetBase):
             if self.fade_timer:
                 self.fade_timer.stop()
                 self.fade_timer = None
+            
+            # Properly destroy the PyQt6 widget
             self.hide()
-            log.debug("[UnownedFrame] Cleaned up")
+            self.deleteLater()
+            log.debug("[UnownedFrame] Cleaned up and scheduled for deletion")
         except Exception as e:
             log.debug(f"[UnownedFrame] Error during cleanup: {e}")

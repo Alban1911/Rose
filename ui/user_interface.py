@@ -27,7 +27,7 @@ class UserInterface:
         # Z-order management
         self._z_manager = get_z_order_manager()
         
-        # UI Components
+        # UI Components (will be initialized when entering ChampSelect)
         self.chroma_ui = None
         self.unowned_frame = None
         
@@ -36,30 +36,61 @@ class UserInterface:
         self.current_skin_name = None
         self.current_champion_name = None
         
-        # Initialize components
-        self._initialize_components()
+        # Pending initialization/destruction flags
+        self._pending_ui_initialization = False
+        self._pending_ui_destruction = False
+        self._ui_destruction_in_progress = False
+        self._last_destruction_time = 0.0
     
     def _initialize_components(self):
-        """Initialize all UI components"""
-        # Initialize ChromaUI (chroma selector + panel)
-        self.chroma_ui = ChromaUI(
-            skin_scraper=self.skin_scraper,
-            state=self.state,
-            db=self.db
-        )
-        
-        # Create UnownedFrame instance directly
-        from ui.unowned_frame import UnownedFrame
-        self.unowned_frame = UnownedFrame(state=self.state)
-        
-        # Ensure the initial UnownedFrame is properly positioned
-        self.unowned_frame._create_components()
-        self.unowned_frame.show()
-        
-        self._last_unowned_skin_id = None
+        """Initialize all UI components (must be called from main thread)"""
+        try:
+            log.info("[UI] Creating ChromaUI components...")
+            # Initialize ChromaUI (chroma selector + panel)
+            self.chroma_ui = ChromaUI(
+                skin_scraper=self.skin_scraper,
+                state=self.state,
+                db=self.db
+            )
+            log.info("[UI] ChromaUI created successfully")
+            
+            log.info("[UI] Creating UnownedFrame components...")
+            # Create UnownedFrame instance directly
+            from ui.unowned_frame import UnownedFrame
+            self.unowned_frame = UnownedFrame(state=self.state)
+            
+            # Ensure the initial UnownedFrame is properly positioned
+            self.unowned_frame._create_components()
+            self.unowned_frame.show()
+            log.info("[UI] UnownedFrame created successfully")
+            
+            self._last_unowned_skin_id = None
+            log.info("[UI] All UI components initialized successfully")
+            
+        except Exception as e:
+            log.error(f"[UI] Failed to initialize UI components: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+            # Clean up any partially created components
+            if self.chroma_ui:
+                try:
+                    self.chroma_ui.cleanup()
+                except:
+                    pass
+                self.chroma_ui = None
+            if self.unowned_frame:
+                try:
+                    self.unowned_frame.cleanup()
+                except:
+                    pass
+                self.unowned_frame = None
+            raise
     
     def show_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
         """Show UI for a specific skin - manages both ChromaUI and UnownedFrame"""
+        if not self.is_ui_initialized():
+            log.debug("[UI] Cannot show skin - UI not initialized")
+            return
         with self.lock:
             # Prevent duplicate processing of the same skin
             if (self.current_skin_id == skin_id and 
@@ -108,6 +139,9 @@ class UserInterface:
     def hide_all(self):
         """Hide all UI components"""
         with self.lock:
+            if not self.is_ui_initialized():
+                log.debug("[UI] Cannot hide - UI not initialized")
+                return
             log.info("[UI] Hiding all UI components")
             self._hide_chroma_ui()
             self._hide_unowned_frame()
@@ -319,6 +353,188 @@ class UserInterface:
         except Exception as e:
             log.error(f"[UI] Error refreshing z-order: {e}")
     
+    def is_ui_initialized(self):
+        """Check if UI components are initialized"""
+        return self.chroma_ui is not None and self.unowned_frame is not None
+    
+    def request_ui_initialization(self):
+        """Request UI initialization (called from any thread)"""
+        with self.lock:
+            if self._ui_destruction_in_progress:
+                log.warning("[UI] UI initialization requested but destruction is in progress - skipping")
+                return
+            
+            # Check if we're in cooldown period after destruction
+            import time
+            current_time = time.time()
+            if self._last_destruction_time > 0 and (current_time - self._last_destruction_time) < 0.5:  # 500ms cooldown
+                remaining_time = 0.5 - (current_time - self._last_destruction_time)
+                log.warning(f"[UI] UI initialization requested but in cooldown period - {remaining_time:.2f}s remaining")
+                return
+            
+            if not self.is_ui_initialized() and not self._pending_ui_initialization:
+                log.info("[UI] UI initialization requested for ChampSelect")
+                # Defer widget creation to main thread to avoid PyQt6 thread issues
+                self._pending_ui_initialization = True
+                self._pending_ui_destruction = False  # Cancel any pending destruction
+            else:
+                log.debug("[UI] UI initialization requested but already initialized or pending")
+    
+    def process_pending_operations(self):
+        """Process pending UI operations (must be called from main thread)"""
+        with self.lock:
+            # Handle pending destruction first (takes priority)
+            if self._pending_ui_destruction:
+                log.info("[UI] Processing pending UI destruction in main thread")
+                self._pending_ui_destruction = False
+                self._ui_destruction_in_progress = True
+                try:
+                    log.debug("[UI] About to call destroy_ui()")
+                    self.destroy_ui()
+                    log.debug("[UI] destroy_ui() completed successfully")
+                    
+                    # Record destruction time for cooldown
+                    import time
+                    self._last_destruction_time = time.time()
+                    log.debug("[UI] Destruction completed and timestamp recorded")
+                except Exception as e:
+                    log.error(f"[UI] Failed to process pending UI destruction: {e}")
+                    import traceback
+                    log.error(f"[UI] Destruction failure traceback: {traceback.format_exc()}")
+                finally:
+                    self._ui_destruction_in_progress = False
+                    log.debug("[UI] Destruction flag cleared")
+            
+            # Handle pending initialization only if not destroyed
+            elif self._pending_ui_initialization and not self.is_ui_initialized():
+                log.info("[UI] Processing pending UI initialization in main thread")
+                self._pending_ui_initialization = False
+                try:
+                    self._initialize_components()
+                except Exception as e:
+                    log.error(f"[UI] Failed to process pending UI initialization: {e}")
+                    # Reset the flag so we can try again later
+                    self._pending_ui_initialization = True
+    
+    def request_ui_destruction(self):
+        """Request UI destruction (called from any thread)"""
+        with self.lock:
+            if self.is_ui_initialized():
+                log.info("[UI] UI destruction requested")
+                self._pending_ui_destruction = True
+                self._pending_ui_initialization = False  # Cancel any pending initialization
+            else:
+                log.debug("[UI] UI destruction requested but UI not initialized")
+    
+    def has_pending_operations(self):
+        """Check if there are pending UI operations"""
+        return self._pending_ui_initialization or self._pending_ui_destruction
+    
+    def destroy_ui(self):
+        """Destroy UI components (must be called from main thread)"""
+        log.info("[UI] Starting UI component destruction")
+        
+        # Try to acquire lock with timeout to avoid deadlock
+        import time
+        lock_acquired = False
+        try:
+            lock_acquired = self.lock.acquire(timeout=1.0)  # 1 second timeout
+            if not lock_acquired:
+                log.warning("[UI] Could not acquire lock for destruction - proceeding without lock")
+        except Exception as e:
+            log.warning(f"[UI] Lock acquisition failed: {e} - proceeding without lock")
+        
+        try:
+            # Store references to cleanup outside the lock to avoid deadlock
+            chroma_ui_to_cleanup = None
+            unowned_frame_to_cleanup = None
+            
+            if lock_acquired:
+                try:
+                    log.debug("[UI] Lock acquired, storing references")
+                    chroma_ui_to_cleanup = self.chroma_ui
+                    unowned_frame_to_cleanup = self.unowned_frame
+                    self.chroma_ui = None
+                    self.unowned_frame = None
+                    
+                    # Also clear global instances
+                    try:
+                        from ui.chroma_panel import clear_global_panel_manager
+                        clear_global_panel_manager()
+                        log.debug("[UI] Global instances cleared")
+                    except Exception as e:
+                        log.debug(f"[UI] Could not clear global instances: {e}")
+                    
+                    log.debug("[UI] References stored and cleared")
+                finally:
+                    self.lock.release()
+                    lock_acquired = False
+            else:
+                # If we couldn't acquire lock, try to get references without lock (risky but necessary)
+                log.warning("[UI] Attempting to get UI references without lock for cleanup")
+                try:
+                    chroma_ui_to_cleanup = self.chroma_ui
+                    unowned_frame_to_cleanup = self.unowned_frame
+                    log.debug("[UI] Got references without lock")
+                except Exception as e:
+                    log.warning(f"[UI] Could not get references without lock: {e}")
+            
+            # Cleanup components outside the lock to avoid deadlock
+            if chroma_ui_to_cleanup:
+                log.debug("[UI] Cleaning up ChromaUI...")
+                try:
+                    chroma_ui_to_cleanup.cleanup()
+                    log.debug("[UI] ChromaUI cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up ChromaUI: {e}")
+                    import traceback
+                    log.error(f"[UI] ChromaUI cleanup traceback: {traceback.format_exc()}")
+            
+            if unowned_frame_to_cleanup:
+                log.debug("[UI] Cleaning up UnownedFrame...")
+                try:
+                    unowned_frame_to_cleanup.cleanup()
+                    log.debug("[UI] UnownedFrame cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up UnownedFrame: {e}")
+                    import traceback
+                    log.error(f"[UI] UnownedFrame cleanup traceback: {traceback.format_exc()}")
+            
+            # If we couldn't get references, try to force cleanup through global instances
+            if not chroma_ui_to_cleanup and not unowned_frame_to_cleanup:
+                log.warning("[UI] No references obtained, attempting global cleanup")
+                try:
+                    # Try to cleanup global chroma panel manager
+                    from ui.chroma_panel import _chroma_panel_manager
+                    if _chroma_panel_manager:
+                        log.debug("[UI] Cleaning up global chroma panel manager")
+                        _chroma_panel_manager.cleanup()
+                        log.debug("[UI] Global chroma panel manager cleaned up")
+                except Exception as e:
+                    log.warning(f"[UI] Error cleaning up global chroma panel manager: {e}")
+            
+            # Force Qt to process events to ensure widgets are actually destroyed
+            log.debug("[UI] Processing Qt events for widget destruction...")
+            try:
+                from PyQt6.QtWidgets import QApplication
+                QApplication.processEvents()
+                log.debug("[UI] Qt events processed successfully")
+            except Exception as e:
+                log.error(f"[UI] Error processing Qt events: {e}")
+                import traceback
+                log.error(f"[UI] Qt events traceback: {traceback.format_exc()}")
+            
+            log.info("[UI] UI components destroyed successfully")
+            
+        except Exception as e:
+            log.error(f"[UI] Critical error during UI destruction: {e}")
+            import traceback
+            log.error(f"[UI] UI destruction traceback: {traceback.format_exc()}")
+            raise
+        finally:
+            if lock_acquired:
+                self.lock.release()
+    
     def cleanup(self):
         """Clean up all UI components"""
         with self.lock:
@@ -338,4 +554,12 @@ def get_user_interface(state=None, skin_scraper=None, db=None) -> UserInterface:
     global _user_interface
     if _user_interface is None:
         _user_interface = UserInterface(state, skin_scraper, db)
+    else:
+        # Update the existing instance with new parameters if they were provided
+        if state is not None and _user_interface.state != state:
+            _user_interface.state = state
+        if skin_scraper is not None and _user_interface.skin_scraper != skin_scraper:
+            _user_interface.skin_scraper = skin_scraper
+        if db is not None and _user_interface.db != db:
+            _user_interface.db = db
     return _user_interface

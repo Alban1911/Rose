@@ -781,20 +781,8 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
             qt_app = existing_app
             log_success(log, "Using existing QApplication instance for chroma panel", "🎨")
         
-        # Initialize user interface (widgets will be created on champion lock)
-        try:
-            log.debug("Initializing user interface...")
-            user_interface = get_user_interface(state, skin_scraper, db)
-            # For backward compatibility, get the chroma selector from the UI
-            chroma_selector = user_interface.chroma_ui.chroma_selector
-            log_success(log, "User interface initialized (panel widgets will be created on champion lock)", "🌈")
-            
-        except Exception as e:
-            log.warning(f"Failed to initialize user interface: {e}")
-            log.warning("UI will be disabled, but app will continue")
-            import traceback
-            log.debug(f"UI init traceback: {traceback.format_exc()}")
-            chroma_selector = None
+        # UI will be initialized when entering ChampSelect phase
+        chroma_selector = None
             
     except Exception as e:
         log.warning(f"Failed to initialize PyQt6: {e}")
@@ -912,23 +900,21 @@ def main():
                 pass
         sys.exit(1)
 
-    # Initialize PyQt6 and user interface
+    # Initialize PyQt6 (UI will be initialized when entering ChampSelect)
     try:
-        log.info("Initializing PyQt6 and user interface...")
+        log.info("Initializing PyQt6...")
         qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status, lcu)
-        # Initialize user interface
-        user_interface = get_user_interface(state, skin_scraper, db)
-        log.info("✓ PyQt6 and user interface initialized")
+        log.info("✓ PyQt6 initialized (UI will be created when entering ChampSelect)")
     except Exception as e:
         log.error("=" * 80)
-        log.error("ERROR DURING PYQT6/UI INITIALIZATION")
+        log.error("ERROR DURING PYQT6 INITIALIZATION")
         log.error("=" * 80)
-        log.error(f"Failed to initialize PyQt6/user interface: {e}")
+        log.error(f"Failed to initialize PyQt6: {e}")
         log.error(f"Error type: {type(e).__name__}")
         import traceback
         log.error(f"Traceback:\n{traceback.format_exc()}")
         log.error("=" * 80)
-        log.warning("Continuing without UI...")
+        log.warning("Continuing without PyQt6...")
         qt_app = None
         chroma_selector = None
     
@@ -1094,7 +1080,7 @@ def main():
     
     # Create and register threads
     t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), 
-                         log_transitions=False, injection_manager=injection_manager)
+                         log_transitions=False, injection_manager=injection_manager, skin_scraper=skin_scraper, db=db)
     thread_manager.register("Phase", t_phase)
     
     t_ui = UISkinThread(state, db_local, db_en, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
@@ -1156,31 +1142,39 @@ def main():
                             # Notify UserInterface of the skin change
                             try:
                                 # Get the user interface that was already initialized
-                                from ui.user_interface import _user_interface
-                                if _user_interface:
-                                    _user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name)
+                                from ui.user_interface import get_user_interface
+                                user_interface = get_user_interface()
+                                if user_interface.is_ui_initialized():
+                                    user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name)
                                     log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
                                     # Track the last notified skin
                                     main._last_notified_skin_id = current_skin_id
                             except Exception as e:
                                 log.debug(f"[MAIN] Failed to notify UI: {e}")
                     
-                    # Process pending UI requests
-                    from ui.user_interface import _user_interface
-                    if _user_interface and _user_interface.chroma_ui and _user_interface.chroma_ui.chroma_selector.panel:
+                    # Process pending UI initialization and requests
+                    from ui.user_interface import get_user_interface
+                    user_interface = get_user_interface()
+                    
+                    # Process pending UI operations first (must be done in main thread)
+                    if user_interface.has_pending_operations():
+                        log.debug("[MAIN] Processing pending UI operations")
+                    user_interface.process_pending_operations()
+                    
+                    if user_interface.is_ui_initialized() and user_interface.chroma_ui and user_interface.chroma_ui.chroma_selector and user_interface.chroma_ui.chroma_selector.panel:
                         chroma_start = time.time()
-                        _user_interface.chroma_ui.chroma_selector.panel.process_pending()
+                        user_interface.chroma_ui.chroma_selector.panel.process_pending()
                         # Update positions to follow League window
-                        _user_interface.chroma_ui.chroma_selector.panel.update_positions()
+                        user_interface.chroma_ui.chroma_selector.panel.update_positions()
                         # Refresh z-order for all UI components
-                        _user_interface.refresh_z_order()
+                        user_interface.refresh_z_order()
                         chroma_elapsed = time.time() - chroma_start
                         if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
                             log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
                     
                     # Check for resolution changes and update UI components
-                    if _user_interface:
-                        _user_interface.check_resolution_and_update()
+                    if user_interface.is_ui_initialized():
+                        user_interface.check_resolution_and_update()
                     
                     # Process all Qt events
                     qt_start = time.time()

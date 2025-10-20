@@ -603,12 +603,49 @@ class ChromaPanelManager:
                 self.reopen_button.set_chroma_color(None)
     
     def cleanup(self):
-        """Clean up resources (called on app exit)"""
-        self.request_destroy()
+        """Clean up resources (called on app exit or UI destruction)"""
+        try:
+            log.debug("[CHROMA] Starting ChromaPanelManager cleanup")
+            
+            # Try to acquire lock with timeout to avoid deadlock
+            import time
+            lock_acquired = False
+            try:
+                lock_acquired = self.lock.acquire(timeout=0.5)  # 500ms timeout
+                if not lock_acquired:
+                    log.warning("[CHROMA] Could not acquire lock for cleanup - forcing destruction")
+            except Exception as e:
+                log.warning(f"[CHROMA] Lock acquisition failed: {e} - forcing destruction")
+            
+            try:
+                # Force immediate destruction of widgets
+                if self.is_initialized:
+                    log.debug("[CHROMA] Force destroying widgets during cleanup")
+                    self._destroy_widgets()
+                    log.debug("[CHROMA] Widget destruction completed")
+                else:
+                    log.debug("[CHROMA] Not initialized, requesting destruction")
+                    # Just request destruction if not initialized
+                    self.request_destroy()
+                log.debug("[CHROMA] ChromaPanelManager cleanup completed")
+            finally:
+                if lock_acquired:
+                    self.lock.release()
+                    
+        except Exception as e:
+            log.error(f"[CHROMA] Error during cleanup: {e}")
+            import traceback
+            log.error(f"[CHROMA] Cleanup traceback: {traceback.format_exc()}")
 
 
 # Global panel manager instance
 _chroma_panel_manager = None
+
+
+def clear_global_panel_manager():
+    """Clear the global panel manager instance"""
+    global _chroma_panel_manager
+    _chroma_panel_manager = None
 
 
 def get_chroma_panel(state=None, lcu=None) -> ChromaPanelManager:

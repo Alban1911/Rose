@@ -27,7 +27,7 @@ class LoadoutTicker(threading.Thread):
     
     def __init__(self, lcu: LCU, state: SharedState, hz: int, fallback_ms: int, 
                  ticker_id: int, mode: str = "auto", db: Optional[NameDB] = None, 
-                 injection_manager=None):
+                 injection_manager=None, skin_scraper=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
@@ -37,6 +37,7 @@ class LoadoutTicker(threading.Thread):
         self.mode = mode
         self.db = db
         self.injection_manager = injection_manager
+        self.skin_scraper = skin_scraper
 
     def run(self):
         """Main ticker loop"""
@@ -276,10 +277,11 @@ class LoadoutTicker(threading.Thread):
                                         
                                         # Hide chroma border/wheel immediately when forcing base skin
                                         try:
-                                            from ui.user_interface import _user_interface
-                                            if _user_interface:
+                                            from ui.user_interface import get_user_interface
+                                            user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                                            if user_interface.is_ui_initialized():
                                                 # Hide all UI components
-                                                _user_interface.hide_all()
+                                                user_interface.hide_all()
                                                 
                                                 log.info("[inject] UI hidden - base skin forced for injection")
                                         except Exception as e:
