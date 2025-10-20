@@ -48,11 +48,54 @@ class ChromaSelector:
             preview_manager = get_preview_manager(db)
             log.debug("[CHROMA] Database passed to preview manager for cross-language lookups")
     
-    def _on_chroma_selected(self, chroma_id: int, chroma_name: str):
+    def _get_elementalist_forms(self):
+        """Get Elementalist Lux Forms data structure (equivalent to chromas)"""
+        forms = [
+            {'id': 'Lux Elementalist Air.zip', 'name': 'Air', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Air.zip'},
+            {'id': 'Lux Elementalist Dark.zip', 'name': 'Dark', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Dark.zip'},
+            {'id': 'Lux Elementalist Ice.zip', 'name': 'Ice', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Ice.zip'},
+            {'id': 'Lux Elementalist Magma.zip', 'name': 'Magma', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Magma.zip'},
+            {'id': 'Lux Elementalist Mystic.zip', 'name': 'Mystic', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Mystic.zip'},
+            {'id': 'Lux Elementalist Nature.zip', 'name': 'Nature', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Nature.zip'},
+            {'id': 'Lux Elementalist Storm.zip', 'name': 'Storm', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Storm.zip'},
+            {'id': 'Lux Elementalist Water.zip', 'name': 'Water', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Water.zip'},
+        ]
+        log.debug(f"[CHROMA] Created {len(forms)} Elementalist Lux Forms")
+        return forms
+    
+    def _on_chroma_selected(self, chroma_id, chroma_name: str):
         """Callback when user clicks a chroma - update state immediately"""
         try:
             with self.lock:
-                if chroma_id == 0 or chroma_id is None:
+                # Check if this is an Elementalist Lux Form (string ID)
+                if isinstance(chroma_id, str) and chroma_id.endswith('.zip'):
+                    # This is a Form selection
+                    log.info(f"[CHROMA] Form selected: {chroma_name} (File: {chroma_id})")
+                    
+                    # Find the Form data to get the form_path
+                    form_data = None
+                    if self.current_skin_id == 99007:  # Elementalist Lux
+                        forms = self._get_elementalist_forms()
+                        for form in forms:
+                            if form['id'] == chroma_id:
+                                form_data = form
+                                break
+                    
+                    if form_data:
+                        # Store the Form file path for injection
+                        self.state.selected_form_path = form_data['form_path']
+                        self.state.selected_chroma_id = chroma_id  # Store the file name as ID
+                        
+                        # Update the skin name to include the Form name for injection
+                        if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
+                            base_skin_name = self.panel.current_skin_name
+                            # Create the Form skin name: "Elementalist Lux {Form Name}"
+                            form_skin_name = f"{base_skin_name} {chroma_name}"
+                            self.state.last_hovered_skin_key = form_skin_name
+                            log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
+                            log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
+                    
+                elif chroma_id == 0 or chroma_id is None:
                     # Base skin selected - reset to original skin ID and skin name
                     log.info(f"[CHROMA] Base skin selected")
                     self.state.selected_chroma_id = None
@@ -75,7 +118,7 @@ class ChromaSelector:
                     
                     log.info(f"[CHROMA] Reset to base skin ID: {self.current_skin_id}")
                 else:
-                    # Chroma selected - update skin ID to chroma ID
+                    # Regular chroma selected - update skin ID to chroma ID
                     log.info(f"[CHROMA] Chroma selected: {chroma_name} (ID: {chroma_id})")
                     self.state.selected_chroma_id = chroma_id
                     
@@ -183,7 +226,12 @@ class ChromaSelector:
                     base_skin_id = chroma_data.get('skinId')
                     log.debug(f"[CHROMA] Detected chroma {skin_id}, using base skin {base_skin_id} for chroma data")
             
-            chromas = self.skin_scraper.get_chromas_for_skin(base_skin_id)
+            # Special case: Elementalist Lux (skin ID 99007) has Forms instead of chromas
+            if base_skin_id == 99007:
+                chromas = self._get_elementalist_forms()
+                log.debug(f"[CHROMA] Using Elementalist Lux Forms instead of chromas")
+            else:
+                chromas = self.skin_scraper.get_chromas_for_skin(base_skin_id)
             
             # Mark ownership status on each chroma for the injection system (if chromas exist)
             owned_skin_ids = self.state.owned_skin_ids

@@ -166,6 +166,11 @@ class UserInterface:
     def _skin_has_chromas(self, skin_id: int) -> bool:
         """Check if skin has chromas"""
         try:
+            # Special case: Elementalist Lux (skin ID 99007) has Forms instead of chromas
+            if skin_id == 99007:
+                log.debug(f"[UI] Elementalist Lux detected - has Forms instead of chromas")
+                return True
+            
             # First, check if this skin_id is a chroma by looking it up in the chroma cache
             if self.skin_scraper and self.skin_scraper.cache:
                 if skin_id in self.skin_scraper.cache.chroma_id_map:
