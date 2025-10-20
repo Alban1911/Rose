@@ -279,10 +279,27 @@ class OpeningButton(ChromaWidgetBase):
             self._draw_rainbow_image(painter, center, gradient_outer_radius, should_darken)
     
     def _draw_rainbow_image(self, painter, center, gradient_outer_radius, should_darken):
-        """Draw the rainbow button-chroma.png image"""
+        """Draw the rainbow button-chroma.png image or star.png for Elementalist Lux"""
         try:
             from utils.paths import get_asset_path
-            button_chroma_pixmap = QPixmap(str(get_asset_path("button-chroma.png")))
+            
+            # Check if current skin is Elementalist Lux (base skin ID 99007 or forms 99991-99998)
+            is_elementalist_lux = False
+            if self.manager and hasattr(self.manager, 'current_skin_id') and self.manager.current_skin_id:
+                current_skin_id = self.manager.current_skin_id
+                # Check if it's Elementalist Lux base skin or one of its forms
+                if current_skin_id == 99007 or (99991 <= current_skin_id <= 99998):
+                    is_elementalist_lux = True
+            
+            # Choose the appropriate image
+            if is_elementalist_lux:
+                image_path = "star.png"
+                log.debug("[CHROMA] Using star.png for Elementalist Lux")
+            else:
+                image_path = "button-chroma.png"
+                log.debug("[CHROMA] Using button-chroma.png for regular skin")
+            
+            button_chroma_pixmap = QPixmap(str(get_asset_path(image_path)))
             if not button_chroma_pixmap.isNull():
                 # Scale the image to fit the gradient area
                 scaled_pixmap = button_chroma_pixmap.scaled(
@@ -307,11 +324,11 @@ class OpeningButton(ChromaWidgetBase):
                 else:
                     painter.drawPixmap(image_x, image_y, scaled_pixmap)
                     
-                log.debug(f"[CHROMA] Button chroma image drawn at ({image_x}, {image_y}), size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
+                log.debug(f"[CHROMA] Button image ({image_path}) drawn at ({image_x}, {image_y}), size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
             else:
-                log.warning("[CHROMA] Failed to load button-chroma.png")
+                log.warning(f"[CHROMA] Failed to load {image_path}")
         except Exception as e:
-            log.error(f"[CHROMA] Error loading button-chroma.png: {e}")
+            log.error(f"[CHROMA] Error loading {image_path}: {e}")
     
     def mousePressEvent(self, event):
         """Handle button press - track that button was pressed"""
