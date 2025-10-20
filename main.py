@@ -856,9 +856,16 @@ def main():
     # Initialize database with error handling
     try:
         log.info("Initializing champion name database...")
-        # Initialize database with default language, will be updated when LCU language is detected
-        db = NameDB(lang="en_US")
-        log.info("✓ Champion name database initialized (en_US - will update when LCU language detected)")
+        # Create English database for file name mapping
+        db_en = NameDB(lang="en_US")
+        log.info("✓ English database initialized for file name mapping")
+        
+        # Create local database for skin name detection (will be updated when LCU language detected)
+        db_local = NameDB(lang="en_US")  # Will be updated to actual language later
+        log.info("✓ Local database initialized (will update when LCU language detected)")
+        
+        # For backwards compatibility, use English database as primary
+        db = db_en
     except Exception as e:
         log.error("=" * 80)
         log.error("FATAL ERROR DURING DATABASE INITIALIZATION")
@@ -1068,7 +1075,7 @@ def main():
                          log_transitions=False, injection_manager=injection_manager)
     thread_manager.register("Phase", t_phase)
     
-    t_ui = UISkinThread(state, db, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
+    t_ui = UISkinThread(state, db_local, db_en, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
     thread_manager.register("UI Detection", t_ui)
     
     t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
@@ -1078,7 +1085,7 @@ def main():
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     t_lcu_monitor = LCUMonitorThread(lcu, state, None, t_ws, 
-                                      db=db, skin_scraper=skin_scraper, injection_manager=injection_manager,
+                                      db=db_local, skin_scraper=skin_scraper, injection_manager=injection_manager,
                                       disconnect_callback=on_lcu_disconnected)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
     

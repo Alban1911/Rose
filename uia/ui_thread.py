@@ -19,10 +19,11 @@ log = logging.getLogger(__name__)
 class UISkinThread(threading.Thread):
     """Thread for detecting skin names from League of Legends UI"""
     
-    def __init__(self, shared_state, name_db, lcu, skin_scraper=None, injection_manager=None, interval=0.1):
+    def __init__(self, shared_state, name_db_local, name_db_en, lcu, skin_scraper=None, injection_manager=None, interval=0.1):
         super().__init__(daemon=True)
         self.shared_state = shared_state
-        self.name_db = name_db
+        self.name_db_local = name_db_local  # For skin name → ID mapping
+        self.name_db_en = name_db_en      # For ID → English name mapping
         self.lcu = lcu
         self.skin_scraper = skin_scraper
         self.injection_manager = injection_manager
@@ -162,15 +163,27 @@ class UISkinThread(threading.Thread):
             # Update shared state
             self.shared_state.ui_last_text = skin_name
             
-            # Try to find skin ID
+            # Try to find skin ID using local database
             skin_id = self._find_skin_id(skin_name)
             if skin_id:
+                log.debug(f"[UI] Found skin ID {skin_id} for '{skin_name}'")
                 self.shared_state.ui_skin_id = skin_id
                 # Also set last_hovered_skin_id for injection pipeline
                 self.shared_state.last_hovered_skin_id = skin_id
-                # Set skin key for injection
-                self.shared_state.last_hovered_skin_key = skin_name
-                log.info(f"UI Detection: Mapped skin name to ID - {skin_id}")
+                
+                # Get English skin name from English database for injection
+                english_skin_name = None
+                if self.name_db_en and skin_id in self.name_db_en.skin_name_by_id:
+                    english_skin_name = self.name_db_en.skin_name_by_id[skin_id].strip()
+                    log.debug(f"UI Detection: Found English name '{english_skin_name}' for skin ID {skin_id}")
+                else:
+                    log.warning(f"UI Detection: Skin ID {skin_id} not found in English database, using localized name '{skin_name}'")
+                
+                # Set skin key for injection (use English name from database)
+                self.shared_state.last_hovered_skin_key = english_skin_name or skin_name
+                log.info(f"UI Detection: Mapped skin name to ID - {skin_id} (using: {self.shared_state.last_hovered_skin_key})")
+            else:
+                log.debug(f"[UI] No skin ID found for '{skin_name}'")
                 
                 # The main thread will detect this state change and notify chroma UI
             
@@ -227,16 +240,26 @@ class UISkinThread(threading.Thread):
             # Get current champion
             champ_id = self.shared_state.locked_champ_id
             if not champ_id:
+                log.debug(f"[UI] No locked champion ID for skin '{skin_name}'")
                 return None
             
-            # Get champion slug
-            champion_slug = self.name_db.slug_by_id.get(champ_id)
+            # Get champion slug from local database
+            champion_slug = self.name_db_local.slug_by_id.get(champ_id)
             if not champion_slug:
+                log.debug(f"[UI] No champion slug found for champion ID {champ_id}")
                 return None
             
-            # Get skin names for champion
-            skin_names = self.name_db.get_english_skin_names_for_champion(champion_slug)
+            log.debug(f"[UI] Looking up skin '{skin_name}' for champion {champion_slug} (ID: {champ_id})")
+            
+            # Load skin names for champion from local database (in current language)
+            if not self.name_db_local.load_champion_skins_by_id(champ_id):
+                log.debug(f"[UI] Failed to load skin names for champion {champion_slug}")
+                return None
+            
+            # Get skin names for champion from local database
+            skin_names = self.name_db_local.champion_skins.get(champion_slug, {})
             if not skin_names:
+                log.debug(f"[UI] No skin names found for champion {champion_slug}")
                 return None
             
             # Use fuzzy matching to find the best skin match

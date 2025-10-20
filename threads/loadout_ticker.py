@@ -140,9 +140,11 @@ class LoadoutTicker(threading.Thread):
                 name = final_label if final_label else None
                 if injection_name:
                     name = injection_name
+                    log.debug(f"[inject] Using English name from database: '{name}'")
                 else:
                     # Fallback to UI detected text if no English name available
                     name = getattr(self.state, 'ui_last_text', None) or name
+                    log.warning(f"[inject] No English name found, using localized: '{name}'")
                     if name:
                         # If UI detected text is like "Champion X Champion", normalize to "X Champion"
                         try:

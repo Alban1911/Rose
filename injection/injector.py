@@ -288,6 +288,7 @@ class SkinInjector:
             chroma_id: Optional chroma ID to look for in chromas subdirectory
             skin_name: Optional base skin name for chroma lookup
         """
+        log.debug(f"[inject] Resolving zip for: '{zip_arg}' (chroma_id: {chroma_id}, skin_name: {skin_name})")
         cand = Path(zip_arg)
         if cand.exists():
             return cand
@@ -370,6 +371,8 @@ class SkinInjector:
                     score += 0.15
                 if score > best_score:
                     best, best_score = zp, score
+            if best:
+                log.debug(f"[inject] Fuzzy match found: '{best.name}' (score: {best_score:.3f}) for target '{target_norm}'")
             return best
         except Exception:
             return None
