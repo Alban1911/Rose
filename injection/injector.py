@@ -298,6 +298,36 @@ class SkinInjector:
         # If chroma_id is provided, look in chromas subdirectory structure
         # Structure: skins/{Champion}/chromas/{SkinName}/{SkinName} {ChromaId}.zip
         if chroma_id is not None and skin_name:
+            # Special handling for Elementalist Lux forms (fake IDs 99991-99998)
+            if 99991 <= chroma_id <= 99998:
+                log.info(f"[inject] Detected Elementalist Lux form fake ID: {chroma_id}")
+                
+                # Map fake IDs to form names
+                form_names = {
+                    99991: 'Air',
+                    99992: 'Dark', 
+                    99993: 'Ice',
+                    99994: 'Magma',
+                    99995: 'Mystic',
+                    99996: 'Nature',
+                    99997: 'Storm',
+                    99998: 'Water'
+                }
+                
+                form_name = form_names.get(chroma_id, 'Unknown')
+                log.info(f"[inject] Looking for Elementalist Lux {form_name} form")
+                
+                # Look for the form file in the Lux/Forms directory
+                form_pattern = f"Lux Elementalist {form_name}.zip"
+                form_files = list(self.zips_dir.rglob(f"Lux/Forms/{form_pattern}"))
+                if form_files:
+                    log_success(log, f"Found Elementalist Lux {form_name} form: {form_files[0].name}", "✨")
+                    return form_files[0]
+                else:
+                    log.warning(f"[inject] Elementalist Lux {form_name} form file not found: {form_pattern}")
+                    log.debug(f"[inject] Expected path like: skins/.../Lux/Forms/{form_pattern}")
+                    return None
+            
             # Try to find chroma file by ID in subdirectory structure
             chroma_pattern = f"{skin_name} {chroma_id}.zip"
             

@@ -51,26 +51,26 @@ class ChromaSelector:
     def _get_elementalist_forms(self):
         """Get Elementalist Lux Forms data structure (equivalent to chromas)"""
         forms = [
-            {'id': 'Lux Elementalist Air.zip', 'name': 'Air', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Air.zip'},
-            {'id': 'Lux Elementalist Dark.zip', 'name': 'Dark', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Dark.zip'},
-            {'id': 'Lux Elementalist Ice.zip', 'name': 'Ice', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Ice.zip'},
-            {'id': 'Lux Elementalist Magma.zip', 'name': 'Magma', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Magma.zip'},
-            {'id': 'Lux Elementalist Mystic.zip', 'name': 'Mystic', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Mystic.zip'},
-            {'id': 'Lux Elementalist Nature.zip', 'name': 'Nature', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Nature.zip'},
-            {'id': 'Lux Elementalist Storm.zip', 'name': 'Storm', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Storm.zip'},
-            {'id': 'Lux Elementalist Water.zip', 'name': 'Water', 'colors': ['#FFFFFF'], 'is_owned': True, 'form_path': 'Lux/Forms/Lux Elementalist Water.zip'},
+            {'id': 99991, 'name': 'Air', 'colors': ['#808080'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Air.zip'},
+            {'id': 99992, 'name': 'Dark', 'colors': ['#000000'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Dark.zip'},
+            {'id': 99993, 'name': 'Ice', 'colors': ['#87CEEB'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Ice.zip'},
+            {'id': 99994, 'name': 'Magma', 'colors': ['#FF0000'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Magma.zip'},
+            {'id': 99995, 'name': 'Mystic', 'colors': ['#800080'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Mystic.zip'},
+            {'id': 99996, 'name': 'Nature', 'colors': ['#008000'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Nature.zip'},
+            {'id': 99997, 'name': 'Storm', 'colors': ['#FFFF00'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Storm.zip'},
+            {'id': 99998, 'name': 'Water', 'colors': ['#000080'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Water.zip'},
         ]
-        log.debug(f"[CHROMA] Created {len(forms)} Elementalist Lux Forms")
+        log.debug(f"[CHROMA] Created {len(forms)} Elementalist Lux Forms with fake IDs (99991-99998)")
         return forms
     
     def _on_chroma_selected(self, chroma_id, chroma_name: str):
         """Callback when user clicks a chroma - update state immediately"""
         try:
             with self.lock:
-                # Check if this is an Elementalist Lux Form (string ID)
-                if isinstance(chroma_id, str) and chroma_id.endswith('.zip'):
+                # Check if this is an Elementalist Lux Form (fake ID 99991-99998)
+                if isinstance(chroma_id, int) and 99991 <= chroma_id <= 99998:
                     # This is a Form selection
-                    log.info(f"[CHROMA] Form selected: {chroma_name} (File: {chroma_id})")
+                    log.info(f"[CHROMA] Form selected: {chroma_name} (Fake ID: {chroma_id})")
                     
                     # Find the Form data to get the form_path
                     form_data = None
@@ -84,7 +84,10 @@ class ChromaSelector:
                     if form_data:
                         # Store the Form file path for injection
                         self.state.selected_form_path = form_data['form_path']
-                        self.state.selected_chroma_id = chroma_id  # Store the file name as ID
+                        self.state.selected_chroma_id = chroma_id  # Store the fake ID
+                        
+                        # Update the skin ID to the fake ID so injection system treats it as unowned
+                        self.state.last_hovered_skin_id = chroma_id
                         
                         # Update the skin name to include the Form name for injection
                         if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
@@ -94,6 +97,7 @@ class ChromaSelector:
                             self.state.last_hovered_skin_key = form_skin_name
                             log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                             log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
+                            log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
                     
                 elif chroma_id == 0 or chroma_id is None:
                     # Base skin selected - reset to original skin ID and skin name
