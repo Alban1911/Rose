@@ -7,7 +7,6 @@ Pillow>=8.0.0
 pystray>=0.19.0
 PyQt6>=6.5.0
 cryptography
-uiautomation>=2.0.0
 pywinauto>=0.6.8
 
 # Build requirements
