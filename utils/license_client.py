@@ -12,6 +12,8 @@ import platform
 import uuid
 import hashlib
 import base64
+import sys
+from typing import Optional
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.backends import default_backend
@@ -29,7 +31,23 @@ class LicenseClient:
                            This should be embedded in your app. Safe to distribute!
         """
         self.server_url = server_url.rstrip('/')
-        self.license_file = license_file
+
+        # Resolve license file path to be anchored to the executable directory when frozen.
+        # This ensures the same location regardless of the current working directory.
+        try:
+            if getattr(sys, "frozen", False):
+                base_dir = Path(sys.executable).resolve().parent
+            else:
+                # When running from source, anchor to project root (file two levels up)
+                base_dir = Path(__file__).resolve().parent.parent
+
+            lic_path = Path(license_file)
+            if not lic_path.is_absolute():
+                lic_path = base_dir / lic_path
+            self.license_file = str(lic_path)
+        except Exception:
+            # Fallback to original behavior if path resolution fails for any reason
+            self.license_file = license_file
         
         # Load public key for signature verification
         if public_key_pem:
@@ -50,10 +68,35 @@ class LicenseClient:
         Generate a unique machine identifier
         This helps prevent the same key from being used on multiple machines
         """
-        # Combine system info to create a unique ID
-        machine_info = f"{platform.node()}-{platform.machine()}-{uuid.getnode()}"
-        # Hash it to make it consistent and not expose system details
-        return hashlib.sha256(machine_info.encode()).hexdigest()[:32]
+        # Prefer a stable OS-guided identifier on Windows
+        if sys.platform == "win32":
+            machine_guid = self._get_windows_machine_guid()
+            if machine_guid:
+                return hashlib.sha256(machine_guid.encode("utf-8")).hexdigest()[:32]
+
+        # Cross-platform fallback: use a combination that is relatively stable
+        # Avoid hostname alone (can change). Include MAC and architecture.
+        mac_address = uuid.getnode()
+        arch = platform.machine() or ""
+        system = platform.system() or ""
+        canonical = f"{system}|{arch}|{mac_address}"
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+
+    def _get_windows_machine_guid(self) -> Optional[str]:
+        """
+        Retrieve the Windows MachineGuid from the registry, which is stable for the OS install.
+        Returns None if unavailable.
+        """
+        try:
+            import winreg  # type: ignore
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as key:
+                value, _ = winreg.QueryValueEx(key, "MachineGuid")
+                # Normalize formatting
+                if isinstance(value, str):
+                    return value.strip().lower()
+                return None
+        except Exception:
+            return None
     
     def _verify_license_signature(self, license_data: dict) -> bool:
         """
