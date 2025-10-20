@@ -127,15 +127,26 @@ class UserInterface:
             is_base_skin = skin_id % 1000 == 0
             # Determine new base skin id for current selection
             new_base_skin_id = skin_id if is_base_skin else self._get_base_skin_id_for_chroma(skin_id)
+            
+            # For chromas, check if the base skin is owned
+            base_skin_owned = False
+            if new_base_skin_id is not None:
+                base_skin_owned = new_base_skin_id in self.state.owned_skin_ids
+            
+            # Special case: Elementalist Lux forms (fake IDs 99991-99998) should always show UnownedFrame
+            is_elementalist_form = 99991 <= skin_id <= 99998
+            
             # Same-base chroma swap occurs when switching from base skin (or its chroma) to another chroma of same base
             is_same_base_chroma = (not is_base_skin) and (prev_base_skin_id is not None) and (new_base_skin_id == prev_base_skin_id)
             
             # Determine what to show
             should_show_chroma_ui = has_chromas
-            # Always show UnownedFrame for unowned, non-base skins (do not hide on chroma selection)
-            should_show_unowned_frame = (not is_owned) and (not is_base_skin)
+            # Show UnownedFrame for:
+            # 1. Elementalist Lux forms (fake IDs 99991-99998) - always show
+            # 2. Unowned skins/chromas where the base skin is also not owned
+            should_show_unowned_frame = is_elementalist_form or ((not is_owned) and (not is_base_skin) and (not base_skin_owned))
             
-            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned}, is_base_skin={is_base_skin}, is_chroma_selection={is_chroma_selection}")
+            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned}, is_base_skin={is_base_skin}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_chroma_selection={is_chroma_selection}")
             log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}, unowned_frame={should_show_unowned_frame}")
             
             # Show/hide ChromaUI based on chromas
