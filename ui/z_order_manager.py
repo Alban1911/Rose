@@ -118,8 +118,9 @@ class ZOrderManager:
             SWP_NOACTIVATE = 0x0010
             
             # Apply z-order in sequence: lowest z-level first, then higher levels
-            # Each widget is placed above the previous one
-            previous_hwnd = HWND_BOTTOM
+            # Start from HWND_TOP so our first widget is brought above League's child controls
+            # Then place each subsequent widget above the previous one
+            previous_hwnd = HWND_TOP
             
             for widget_name, widget in sorted_widgets:
                 try:

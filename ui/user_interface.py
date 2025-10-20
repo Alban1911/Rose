@@ -118,8 +118,8 @@ class UserInterface:
             
             # Determine what to show
             should_show_chroma_ui = has_chromas
-            # Don't show UnownedFrame if this is a chroma selection for the same base skin
-            should_show_unowned_frame = not is_owned and not is_base_skin and not is_chroma_selection
+            # Always show UnownedFrame for unowned, non-base skins (do not hide on chroma selection)
+            should_show_unowned_frame = (not is_owned) and (not is_base_skin)
             
             log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned}, is_base_skin={is_base_skin}, is_chroma_selection={is_chroma_selection}")
             log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}, unowned_frame={should_show_unowned_frame}")
