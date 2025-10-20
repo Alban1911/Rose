@@ -611,11 +611,11 @@ class ChromaPanelManager:
             import time
             lock_acquired = False
             try:
-                lock_acquired = self.lock.acquire(timeout=0.5)  # 500ms timeout
+                lock_acquired = self.lock.acquire(timeout=0.05)  # 50ms timeout
                 if not lock_acquired:
-                    log.warning("[CHROMA] Could not acquire lock for cleanup - forcing destruction")
+                    log.debug("[CHROMA] Could not acquire lock for cleanup - forcing destruction")
             except Exception as e:
-                log.warning(f"[CHROMA] Lock acquisition failed: {e} - forcing destruction")
+                log.debug(f"[CHROMA] Lock acquisition failed: {e} - forcing destruction")
             
             try:
                 # Force immediate destruction of widgets

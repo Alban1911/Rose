@@ -438,11 +438,11 @@ class UserInterface:
         import time
         lock_acquired = False
         try:
-            lock_acquired = self.lock.acquire(timeout=1.0)  # 1 second timeout
+            lock_acquired = self.lock.acquire(timeout=0.001)  # 1ms timeout
             if not lock_acquired:
-                log.warning("[UI] Could not acquire lock for destruction - proceeding without lock")
+                log.debug("[UI] Could not acquire lock for destruction - proceeding without lock")
         except Exception as e:
-            log.warning(f"[UI] Lock acquisition failed: {e} - proceeding without lock")
+            log.debug(f"[UI] Lock acquisition failed: {e} - proceeding without lock")
         
         try:
             # Store references to cleanup outside the lock to avoid deadlock
