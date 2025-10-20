@@ -80,11 +80,10 @@ def check_dependencies():
     print_step(0, 3, "Verifying Dependencies")
     
     try:
-        import uiautomation
         import PyQt6
         import requests
         print(f"\n[OK] Core dependencies detected")
-        print("[INFO] Windows UI API and PyQt6 ready")
+        print("[INFO] PyQt6 and requests ready")
         return True
     except ImportError as e:
         print(f"\n[ERROR] Missing dependency: {e}")

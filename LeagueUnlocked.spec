@@ -93,13 +93,7 @@ if os.path.exists('injection/mods_map.json'):
 else:
     print("[WARNING] injection/mods_map.json not found")
 
-# Collect uiautomation data files
-try:
-    uiautomation_datas = collect_data_files('uiautomation')
-    datas += uiautomation_datas
-    print(f"[OK] Collected {len(uiautomation_datas)} uiautomation data files")
-except Exception as e:
-    print(f"Warning: Could not collect uiautomation data files: {e}")
+# uiautomation removed - using custom uia module instead
 
 # Hidden imports - modules PyInstaller might not detect
 hiddenimports = [
@@ -125,14 +119,23 @@ hiddenimports = [
     'threads.websocket_thread',
     'utils',
     'utils.admin_utils',
-    'utils.chroma_base',
-    'utils.chroma_button',
-    'utils.chroma_click_catcher',
-    'utils.chroma_panel',
-    'utils.chroma_panel_widget',
-    'utils.chroma_preview_manager',
-    'utils.chroma_scaling',
-    'utils.chroma_selector',
+    'ui.chroma_base',
+    'ui.chroma_button',
+    'ui.chroma_click_catcher',
+    'ui.chroma_panel',
+    'ui.chroma_panel_widget',
+    'ui.chroma_preview_manager',
+    'ui.chroma_scaling',
+    'ui.chroma_selector',
+    'ui.chroma_ui',
+    'ui.unowned_frame',
+    'ui.user_interface',
+    'ui.z_order_manager',
+    'uia',
+    'uia.connection',
+    'uia.debug',
+    'uia.detector',
+    'uia.ui_thread',
     'utils.config_hot_reload',
     'utils.license_client',
     'utils.logging',
@@ -147,8 +150,7 @@ hiddenimports = [
     'utils.validation',
     'utils.window_utils',
     
-    # Windows UI Automation
-    'uiautomation',
+    # Windows UI Automation - using custom uia module instead
     
     # PyQt6
     'PyQt6',
@@ -177,14 +179,10 @@ hiddenimports = [
     
     # Other dependencies
     'psutil',
+    'pywinauto',
 ]
 
-# Collect all submodules for complex packages
-try:
-    hiddenimports += collect_submodules('uiautomation')
-    print("[OK] Collected uiautomation submodules")
-except Exception as e:
-    print(f"Warning: Could not collect uiautomation submodules: {e}")
+# uiautomation submodules removed - using custom uia module instead
 
 # Exclusions - modules we don't need (reduces size and build time)
 excludes = [
