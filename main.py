@@ -172,7 +172,27 @@ from utils.tray_manager import TrayManager
 from ui.user_interface import get_user_interface
 from utils.thread_manager import ThreadManager, create_daemon_thread
 from utils.license_client import LicenseClient
-from config import *  # Import all other constants
+from config import (
+    DEFAULT_DD_LANG,
+    DEFAULT_VERBOSE,
+    PHASE_HZ_DEFAULT,
+    WS_PING_INTERVAL_DEFAULT,
+    TIMER_HZ_DEFAULT,
+    FALLBACK_LOADOUT_MS_DEFAULT,
+    SKIN_THRESHOLD_MS_DEFAULT,
+    DEFAULT_DOWNLOAD_SKINS,
+    DEFAULT_FORCE_UPDATE_SKINS,
+    LOG_MAX_FILES_DEFAULT,
+    LOG_MAX_TOTAL_SIZE_MB_DEFAULT,
+    TRAY_INIT_SLEEP_S,
+    MAIN_LOOP_FORCE_QUIT_TIMEOUT_S,
+    PHASE_POLL_INTERVAL_DEFAULT,
+    WS_PING_TIMEOUT_DEFAULT,
+    CHROMA_PANEL_PROCESSING_THRESHOLD_S,
+    QT_EVENT_PROCESSING_THRESHOLD_S,
+    MAIN_LOOP_SLEEP,
+    THREAD_JOIN_TIMEOUT_S,
+)
 
 class AppState:
     """Application state to replace global variables"""

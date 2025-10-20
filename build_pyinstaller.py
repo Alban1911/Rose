@@ -70,9 +70,6 @@ def build_with_pyinstaller():
     ]
     
     print(f"Running: {' '.join(cmd)}\n")
-    print("Multi-threading: PyInstaller will use all available CPU cores")
-    print("Expected time: 10-20 minutes (much faster than Nuitka!)\n")
-    print("Note: Windows UI API should work with PyInstaller!\n")
     
     try:
         result = subprocess.run(cmd, check=True)
@@ -116,7 +113,7 @@ if errorlevel 1 (
 
 def main():
     """Main build process"""
-    print_header("LeagueUnlocked - PyInstaller Build (Fast & Compatible)")
+    print_header("LeagueUnlocked - PyInstaller Build")
     
     start_time = time.time()
     

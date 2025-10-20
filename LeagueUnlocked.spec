@@ -136,7 +136,6 @@ hiddenimports = [
     'uia.debug',
     'uia.detector',
     'uia.ui_thread',
-    'utils.config_hot_reload',
     'utils.license_client',
     'utils.logging',
     'utils.normalization',
@@ -149,8 +148,6 @@ hiddenimports = [
     'utils.tray_manager',
     'utils.validation',
     'utils.window_utils',
-    
-    # Windows UI Automation - using custom uia module instead
     
     # PyQt6
     'PyQt6',
@@ -181,8 +178,6 @@ hiddenimports = [
     'psutil',
     'pywinauto',
 ]
-
-# uiautomation submodules removed - using custom uia module instead
 
 # Exclusions - modules we don't need (reduces size and build time)
 excludes = [

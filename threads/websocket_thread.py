@@ -10,6 +10,8 @@ import time
 import ssl
 import base64
 import threading
+import logging
+import traceback
 from typing import Optional
 from lcu.client import LCU
 from lcu.utils import compute_locked
@@ -31,7 +33,6 @@ log = get_logger()
 try:
     import websocket  # websocket-client  # pyright: ignore[reportMissingImports]
     # Disable websocket ping logs
-    import logging
     logging.getLogger("websocket").setLevel(logging.WARNING)
 except Exception:
     websocket = None
@@ -545,7 +546,6 @@ class WSEventThread(threading.Thread):
                 
         except Exception as e:
             log.warning(f"[WS] Error detecting game mode: {e}")
-            import traceback
             log.warning(f"[WS] Traceback: {traceback.format_exc()}")
     
     def stop(self):

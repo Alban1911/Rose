@@ -4,7 +4,7 @@ UI connection management for League of Legends
 
 import logging
 from typing import Optional
-from pywinauto import Application
+from pywinauto.application import Application
 
 log = logging.getLogger(__name__)
 
