@@ -41,6 +41,8 @@ class UserInterface:
         self._pending_ui_destruction = False
         self._ui_destruction_in_progress = False
         self._last_destruction_time = 0.0
+        # Track last base skin shown (owned or unowned) to detect chroma swaps within same base
+        self._last_base_skin_id = None
     
     def _initialize_components(self):
         """Initialize all UI components (must be called from main thread)"""
@@ -65,6 +67,8 @@ class UserInterface:
             log.info("[UI] UnownedFrame created successfully")
             
             self._last_unowned_skin_id = None
+            # Track last base skin that showed UnownedFrame to control fade behavior
+            self._last_unowned_base_skin_id = None
             log.info("[UI] All UI components initialized successfully")
             
         except Exception as e:
@@ -101,6 +105,12 @@ class UserInterface:
             
             log.info(f"[UI] Showing skin: {skin_name} (ID: {skin_id})")
             
+            # Capture previous base skin before updating current
+            prev_skin_id = self.current_skin_id
+            prev_base_skin_id = None
+            if prev_skin_id is not None:
+                prev_base_skin_id = prev_skin_id if (prev_skin_id % 1000 == 0) else self._get_base_skin_id_for_chroma(prev_skin_id)
+
             # Update current skin tracking
             self.current_skin_id = skin_id
             self.current_skin_name = skin_name
@@ -115,6 +125,10 @@ class UserInterface:
             # Check ownership
             is_owned = skin_id in self.state.owned_skin_ids
             is_base_skin = skin_id % 1000 == 0
+            # Determine new base skin id for current selection
+            new_base_skin_id = skin_id if is_base_skin else self._get_base_skin_id_for_chroma(skin_id)
+            # Same-base chroma swap occurs when switching from base skin (or its chroma) to another chroma of same base
+            is_same_base_chroma = (not is_base_skin) and (prev_base_skin_id is not None) and (new_base_skin_id == prev_base_skin_id)
             
             # Determine what to show
             should_show_chroma_ui = has_chromas
@@ -132,9 +146,12 @@ class UserInterface:
             
             # Show/hide UnownedFrame based on ownership
             if should_show_unowned_frame:
-                self._show_unowned_frame(skin_id, skin_name, champion_name)
+                self._show_unowned_frame(skin_id, skin_name, champion_name, is_same_base_chroma=is_same_base_chroma)
             else:
                 self._hide_unowned_frame()
+
+            # Update last base skin id after handling
+            self._last_base_skin_id = new_base_skin_id if new_base_skin_id is not None else (skin_id if is_base_skin else None)
     
     def hide_all(self):
         """Hide all UI components"""
@@ -235,26 +252,46 @@ class UserInterface:
             except Exception as e:
                 log.debug(f"[UI] Error hiding ChromaUI: {e}")
     
-    def _show_unowned_frame(self, skin_id: int, skin_name: str, champion_name: str = None):
+    def _show_unowned_frame(self, skin_id: int, skin_name: str, champion_name: str = None, is_same_base_chroma: bool = False):
         """Show UnownedFrame for unowned skin"""
         if self.unowned_frame:
             try:
-                # UnownedFrame is statically positioned - just show it
-                # Check if this is the first unowned skin or switching between unowned skins
-                if self._last_unowned_skin_id is None:
-                    # First unowned skin - immediate fade in
+                # Determine base skin ID for the current skin
+                current_base_skin_id = skin_id
+                if skin_id % 1000 != 0:
+                    base_id = self._get_base_skin_id_for_chroma(skin_id)
+                    if base_id is not None:
+                        current_base_skin_id = base_id
+                # No-op on chroma swaps within the same base skin (decide after computing base id)
+                if is_same_base_chroma:
+                    log.debug(f"[UI] UnownedFrame no-op for same base chroma swap: {skin_name}")
+                    # Track last ids and exit without triggering fades
+                    self._last_unowned_skin_id = skin_id
+                    self._last_unowned_base_skin_id = current_base_skin_id
+                    return
+                
+                # Decide fade behavior based on base skin changes only
+                if getattr(self, '_last_unowned_base_skin_id', None) is None:
+                    # First time showing - fade in
                     self.unowned_frame.fade_in()
                     log.debug(f"[UI] UnownedFrame first shown for {skin_name}")
+                elif self._last_unowned_base_skin_id == current_base_skin_id:
+                    # Same base skin (e.g., chroma swap) - do nothing (avoid triggering any fade)
+                    log.debug(f"[UI] UnownedFrame unchanged for same base skin (no-op) for {skin_name}")
+                    # Track IDs and exit early without any visual changes
+                    self._last_unowned_skin_id = skin_id
+                    self._last_unowned_base_skin_id = current_base_skin_id
+                    return
                 else:
-                    # Switching between unowned skins - fade out then fade in
+                    # Different base skin - perform fade transition
                     self.unowned_frame.fade_out()
-                    # Schedule fade in after fade out completes
                     from PyQt6.QtCore import QTimer
                     QTimer.singleShot(200, lambda: self.unowned_frame.fade_in())
-                    log.debug(f"[UI] UnownedFrame transition shown for {skin_name}")
+                    log.debug(f"[UI] UnownedFrame transition (different base skin) shown for {skin_name}")
                 
-                # Track the last unowned skin
+                # Track last shown IDs
                 self._last_unowned_skin_id = skin_id
+                self._last_unowned_base_skin_id = current_base_skin_id
             except Exception as e:
                 log.error(f"[UI] Error showing UnownedFrame: {e}")
     
@@ -266,6 +303,7 @@ class UserInterface:
                 self.unowned_frame.fade_out()
                 # Reset tracking when hiding
                 self._last_unowned_skin_id = None
+                self._last_unowned_base_skin_id = None
                 log.debug("[UI] UnownedFrame hidden")
             except Exception as e:
                 log.debug(f"[UI] Error hiding UnownedFrame: {e}")
