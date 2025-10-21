@@ -63,9 +63,9 @@ class UnownedFrame(ChromaWidgetBase):
         self.fade_in_requested.connect(self._do_fade_in)
         self.fade_out_requested.connect(self._do_fade_out)
         
-        # Start visible but transparent (opacity 0)
+        # Start hidden (like other UI components)
         self.opacity_effect.setOpacity(0.0)
-        self.show()
+        self.hide()
     
     def _create_components(self):
         """Create the merged unowned frame component with static positioning"""
@@ -248,11 +248,9 @@ class UnownedFrame(ChromaWidgetBase):
         # Z-order is now managed centrally - no need for manual z-order management
         # The UnownedFrame is automatically positioned behind interactive elements
         
-        # Make sure it's visible (but transparent)
-        self.show()
-        
-        # Ensure the QLabel is also visible
-        self.unowned_frame_image.show()
+        # Widget starts hidden - only show when fade_in() is called
+        # Ensure the QLabel is ready but not visible
+        self.unowned_frame_image.hide()
         self.unowned_frame_image.update()
         self.unowned_frame_image.repaint()
         log.debug(f"[UnownedFrame] QLabel visibility set to: {self.unowned_frame_image.isVisible()}")
@@ -287,6 +285,10 @@ class UnownedFrame(ChromaWidgetBase):
             self._start_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS)
             self.show()
             
+            # Also show the QLabel when fading in
+            if hasattr(self, 'unowned_frame_image') and self.unowned_frame_image:
+                self.unowned_frame_image.show()
+            
             # Ensure proper z-order after showing (with small delay to ensure widget is fully shown)
             from PyQt6.QtCore import QTimer
             def delayed_zorder_refresh():
@@ -316,6 +318,10 @@ class UnownedFrame(ChromaWidgetBase):
         try:
             log.info("[UnownedFrame] Fading out")
             self._start_fade(0.0, config.CHROMA_FADE_OUT_DURATION_MS)
+            
+            # Also hide the QLabel when fading out
+            if hasattr(self, 'unowned_frame_image') and self.unowned_frame_image:
+                self.unowned_frame_image.hide()
         except Exception as e:
             log.error(f"[UnownedFrame] Error fading out: {e}")
     
@@ -359,6 +365,9 @@ class UnownedFrame(ChromaWidgetBase):
                 # Hide if fully transparent
                 if self.fade_target_opacity <= 0.0:
                     self.hide()
+                    # Also hide the QLabel when fully transparent
+                    if hasattr(self, 'unowned_frame_image') and self.unowned_frame_image:
+                        self.unowned_frame_image.hide()
                 # Z-order is managed centrally - no manual adjustment needed
                 
                 log.debug(f"[UnownedFrame] Fade complete: opacity={self.fade_target_opacity:.2f}")
@@ -464,12 +473,18 @@ class UnownedFrame(ChromaWidgetBase):
                 # Check if current skin should show UnownedFrame
                 should_show = self._should_show_for_current_skin()
                 if should_show:
-                    # If current skin is unowned and not base, set opacity to 1.0
+                    # If current skin is unowned and not base, set opacity to 1.0 and show
                     self.opacity_effect.setOpacity(1.0)
+                    self.show()
+                    if hasattr(self, 'unowned_frame_image') and self.unowned_frame_image:
+                        self.unowned_frame_image.show()
                     log.info("[UnownedFrame] Restored opacity to 1.0 for unowned skin after rebuild")
                 else:
                     # If current skin is owned or base, keep it hidden
                     self.opacity_effect.setOpacity(0.0)
+                    self.hide()
+                    if hasattr(self, 'unowned_frame_image') and self.unowned_frame_image:
+                        self.unowned_frame_image.hide()
                     log.info("[UnownedFrame] Kept opacity at 0.0 for owned/base skin after rebuild")
             
             # Ensure proper z-order
