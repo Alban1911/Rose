@@ -350,7 +350,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         log.debug(f"[CHROMA] Preview loading: original='{skin_name}' -> base='{base_skin_name_for_previews}'")
         
         # Load base skin preview
-        base_preview = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id=0, champion_name=champion_name, skin_id=skin_id)
+        # For Elementalist Lux forms, always use base skin ID (99007) for the base circle preview
+        base_preview_skin_id = skin_id
+        if (99991 <= skin_id <= 99999) or skin_id == 99007:
+            base_preview_skin_id = 99007  # Always use base skin ID for Elementalist Lux base circle
+            log.debug(f"[CHROMA] Elementalist Lux detected - using base skin ID {base_preview_skin_id} for base circle preview instead of {skin_id}")
+        
+        base_preview = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id=0, champion_name=champion_name, skin_id=base_preview_skin_id)
         
         base_circle = ChromaCircle(
             chroma_id=0,
@@ -764,9 +770,10 @@ class ChromaPanelWidget(ChromaWidgetBase):
         try:
             from utils.paths import get_asset_path
             
-            # For base skin (chroma_id = 0), use the skin_id instead
+            # For base skin (chroma_id = 0), always use base skin ID (99007) for Elementalist Lux
             if circle.chroma_id == 0:
-                image_id = self.skin_id
+                # Always use base skin ID (99007) for Elementalist Lux base circle
+                image_id = 99007
             else:
                 image_id = circle.chroma_id
             
