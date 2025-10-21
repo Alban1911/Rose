@@ -349,11 +349,11 @@ class OpeningButton(ChromaWidgetBase):
                 return None
             
             # Check if this is Elementalist Lux base skin or one of its forms
-            if current_skin_id == 99007 or (99991 <= current_skin_id <= 99998):
+            if current_skin_id == 99007 or (99991 <= current_skin_id <= 99999):
                 # If a specific form is selected, use that form's image
                 if hasattr(self.manager, 'current_selected_chroma_id') and self.manager.current_selected_chroma_id:
                     selected_chroma_id = self.manager.current_selected_chroma_id
-                    if 99991 <= selected_chroma_id <= 99998:
+                    if 99991 <= selected_chroma_id <= 99999:
                         return f"{selected_chroma_id}.png"
                 
                 # If no specific form is selected, use the base skin image (99007.png)

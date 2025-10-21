@@ -298,8 +298,8 @@ class SkinInjector:
         # If chroma_id is provided, look in chromas subdirectory structure
         # Structure: skins/{Champion}/chromas/{SkinName}/{SkinName} {ChromaId}.zip
         if chroma_id is not None and skin_name:
-            # Special handling for Elementalist Lux forms (fake IDs 99991-99998)
-            if 99991 <= chroma_id <= 99998:
+            # Special handling for Elementalist Lux forms (fake IDs 99991-99999)
+            if 99991 <= chroma_id <= 99999:
                 log.info(f"[inject] Detected Elementalist Lux form fake ID: {chroma_id}")
                 
                 # Map fake IDs to form names
@@ -311,7 +311,8 @@ class SkinInjector:
                     99995: 'Mystic',
                     99996: 'Nature',
                     99997: 'Storm',
-                    99998: 'Water'
+                    99998: 'Water',
+                    99999: 'Fire'
                 }
                 
                 form_name = form_names.get(chroma_id, 'Unknown')
