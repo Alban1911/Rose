@@ -719,7 +719,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         if is_base:
             # Check if this is Elementalist Lux base skin
-            if circle.chroma_id == 0 and hasattr(self, 'skin_id') and self.skin_id == 99007:
+            if circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 99007 or (99991 <= self.skin_id <= 99999)):
                 # Elementalist Lux base skin: use form-specific image
                 self._draw_elementalist_form_circle(painter, circle, radius)
             else:
@@ -733,8 +733,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
                 offset = int(radius * 0.7)  # Diagonal line from corner to corner
                 painter.drawLine(circle.x + offset, circle.y - offset, circle.x - offset, circle.y + offset)
         else:
-            # Check if this is an Elementalist Lux form (fake IDs 99991-99998) or base skin (99007)
-            if 99991 <= circle.chroma_id <= 99998 or circle.chroma_id == 99007:
+            # Check if this is an Elementalist Lux form (fake IDs 99991-99999) or base skin (99007)
+            if 99991 <= circle.chroma_id <= 99999 or circle.chroma_id == 99007:
                 # Elementalist Lux form or base skin: use form-specific image
                 self._draw_elementalist_form_circle(painter, circle, radius)
             else:

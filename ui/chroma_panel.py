@@ -303,7 +303,10 @@ class ChromaPanelManager:
             # Strategy for skins without chromas:
             # - Show the button first to position the UnownedFrame
             # - Then hide the button (UnownedFrame stays visible independently)
-            has_chromas = chromas and len(chromas) > 0
+            
+            # Check if this is Elementalist Lux base skin or form - they always have chromas
+            is_elementalist_lux = skin_id == 99007 or (99991 <= skin_id <= 99999)
+            has_chromas = (chromas and len(chromas) > 0) or is_elementalist_lux
             
             if not self.is_initialized:
                 # Request widget creation
@@ -356,11 +359,11 @@ class ChromaPanelManager:
                     if base_skin_id is not None:
                         base_skin_owned = base_skin_id in self.state.owned_skin_ids
                 
-                # Special case: Elementalist Lux forms (fake IDs 99991-99998) should always show UnownedFrame
-                is_elementalist_form = 99991 <= skin_id <= 99998
+                # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
+                is_elementalist_form = 99991 <= skin_id <= 99999
                 
                 # UnownedFrame should show for:
-                # 1. Elementalist Lux forms (fake IDs 99991-99998) - always show
+                # 1. Elementalist Lux forms (fake IDs 99991-99999) - always show
                 # 2. Unowned skins/chromas where the base skin is also not owned
                 should_show_unowned_frame = is_elementalist_form or (not is_owned and not is_base_skin and not base_skin_owned)
                 
@@ -661,7 +664,7 @@ class ChromaPanelManager:
                 return None
             
             # Check if this is an Elementalist Lux form (fake ID)
-            if 99991 <= chroma_id <= 99998:
+            if 99991 <= chroma_id <= 99999:
                 return 99007  # Elementalist Lux base skin ID
             
             # For regular chromas, we need to get the base skin ID from the skin scraper

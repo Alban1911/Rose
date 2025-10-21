@@ -51,24 +51,25 @@ class ChromaSelector:
     def _get_elementalist_forms(self):
         """Get Elementalist Lux Forms data structure (equivalent to chromas)"""
         forms = [
-            {'id': 99991, 'name': 'Air', 'colors': ['#808080'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Air.zip'},
-            {'id': 99992, 'name': 'Dark', 'colors': ['#000000'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Dark.zip'},
-            {'id': 99993, 'name': 'Ice', 'colors': ['#87CEEB'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Ice.zip'},
-            {'id': 99994, 'name': 'Magma', 'colors': ['#FF0000'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Magma.zip'},
-            {'id': 99995, 'name': 'Mystic', 'colors': ['#800080'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Mystic.zip'},
-            {'id': 99996, 'name': 'Nature', 'colors': ['#008000'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Nature.zip'},
-            {'id': 99997, 'name': 'Storm', 'colors': ['#FFFF00'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Storm.zip'},
-            {'id': 99998, 'name': 'Water', 'colors': ['#000080'], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Water.zip'},
+            {'id': 99991, 'name': 'Air', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Air.zip'},
+            {'id': 99992, 'name': 'Dark', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Dark.zip'},
+            {'id': 99993, 'name': 'Ice', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Ice.zip'},
+            {'id': 99994, 'name': 'Magma', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Magma.zip'},
+            {'id': 99995, 'name': 'Mystic', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Mystic.zip'},
+            {'id': 99996, 'name': 'Nature', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Nature.zip'},
+            {'id': 99997, 'name': 'Storm', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Storm.zip'},
+            {'id': 99998, 'name': 'Water', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Lux Elementalist Water.zip'},
+            {'id': 99999, 'name': 'Fire', 'colors': [], 'is_owned': False, 'form_path': 'Lux/Forms/Elementalist Lux Fire.zip'},
         ]
-        log.debug(f"[CHROMA] Created {len(forms)} Elementalist Lux Forms with fake IDs (99991-99998)")
+        log.debug(f"[CHROMA] Created {len(forms)} Elementalist Lux Forms with fake IDs (99991-99999)")
         return forms
     
     def _on_chroma_selected(self, chroma_id, chroma_name: str):
         """Callback when user clicks a chroma - update state immediately"""
         try:
             with self.lock:
-                # Check if this is an Elementalist Lux Form (fake ID 99991-99998)
-                if isinstance(chroma_id, int) and 99991 <= chroma_id <= 99998:
+                # Check if this is an Elementalist Lux Form (fake ID 99991-99999)
+                if isinstance(chroma_id, int) and 99991 <= chroma_id <= 99999:
                     # This is a Form selection
                     log.info(f"[CHROMA] Form selected: {chroma_name} (Fake ID: {chroma_id})")
                     
@@ -264,14 +265,26 @@ class ChromaSelector:
                 current_base_id = self.current_skin_id
                 new_base_id = skin_id
                 
-                # If current is a chroma, get its base skin ID from the chroma cache
-                if current_base_id in self.skin_scraper.cache.chroma_id_map:
+                # Special handling for Elementalist Lux forms (fake IDs 99991-99999)
+                if 99991 <= current_base_id <= 99999:
+                    current_base_id = 99007  # Elementalist Lux base skin ID
+                    log.debug(f"[CHROMA] Current skin {self.current_skin_id} is Elementalist Lux form of base skin {current_base_id}")
+                elif current_base_id == 99007:
+                    current_base_id = 99007  # Elementalist Lux base skin ID
+                    log.debug(f"[CHROMA] Current skin {self.current_skin_id} is Elementalist Lux base skin")
+                elif current_base_id in self.skin_scraper.cache.chroma_id_map:
                     chroma_data = self.skin_scraper.cache.chroma_id_map[current_base_id]
                     current_base_id = chroma_data.get('skinId', current_base_id)
                     log.debug(f"[CHROMA] Current skin {self.current_skin_id} is chroma of base skin {current_base_id}")
                 
-                # If new is a chroma, get its base skin ID from the chroma cache
-                if new_base_id in self.skin_scraper.cache.chroma_id_map:
+                # Special handling for Elementalist Lux forms (fake IDs 99991-99999)
+                if 99991 <= new_base_id <= 99999:
+                    new_base_id = 99007  # Elementalist Lux base skin ID
+                    log.debug(f"[CHROMA] New skin {skin_id} is Elementalist Lux form of base skin {new_base_id}")
+                elif new_base_id == 99007:
+                    new_base_id = 99007  # Elementalist Lux base skin ID
+                    log.debug(f"[CHROMA] New skin {skin_id} is Elementalist Lux base skin")
+                elif new_base_id in self.skin_scraper.cache.chroma_id_map:
                     chroma_data = self.skin_scraper.cache.chroma_id_map[new_base_id]
                     new_base_id = chroma_data.get('skinId', new_base_id)
                     log.debug(f"[CHROMA] New skin {skin_id} is chroma of base skin {new_base_id}")
