@@ -435,6 +435,18 @@ class ChromaPanelWidget(ChromaWidgetBase):
                     base_circle.is_selected = False  # Unselect base
                     log.debug(f"[CHROMA] Immortalized Legend Kai'Sa detected - selecting HOL chroma circle")
                     break
+        
+        # Special handling for Ahri skins - if we're opening for Immortalized Legend (103086), 
+        # select the HOL chroma instead of the base skin
+        elif skin_id == 103086:
+            # Immortalized Legend Ahri is treated as a chroma selection
+            for i, circle in enumerate(self.circles):
+                if circle.chroma_id == 103086:  # HOL chroma real ID
+                    self.selected_index = i
+                    circle.is_selected = True
+                    base_circle.is_selected = False  # Unselect base
+                    log.debug(f"[CHROMA] Immortalized Legend Ahri detected - selecting HOL chroma circle")
+                    break
         elif selected_chroma_id is not None:
             for i, circle in enumerate(self.circles):
                 if circle.chroma_id == selected_chroma_id:
@@ -746,6 +758,10 @@ class ChromaPanelWidget(ChromaWidgetBase):
             elif circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 145070 or self.skin_id == 145071):
                 # Risen Legend Kai'Sa base skin: use risen.png image
                 self._draw_hol_chroma_circle(painter, circle, radius)
+            # Check if this is Risen Legend Ahri base skin
+            elif circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 103085 or self.skin_id == 103086):
+                # Risen Legend Ahri base skin: use risen.png image
+                self._draw_hol_chroma_circle(painter, circle, radius)
             else:
                 # Regular base skin: cream background with red diagonal line
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -764,6 +780,10 @@ class ChromaPanelWidget(ChromaWidgetBase):
             # Check if this is a Risen Legend Kai'Sa base skin (145070) or Immortalized Legend (145071)
             elif circle.chroma_id == 145070 or circle.chroma_id == 145071:
                 # Risen Legend Kai'Sa base skin or Immortalized Legend: use HOL-specific image
+                self._draw_hol_chroma_circle(painter, circle, radius)
+            # Check if this is a Risen Legend Ahri base skin (103085) or Immortalized Legend (103086)
+            elif circle.chroma_id == 103085 or circle.chroma_id == 103086:
+                # Risen Legend Ahri base skin or Immortalized Legend: use HOL-specific image
                 self._draw_hol_chroma_circle(painter, circle, radius)
             else:
                 # Regular chroma: use chroma color
@@ -838,19 +858,22 @@ class ChromaPanelWidget(ChromaWidgetBase):
             painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
     
     def _draw_hol_chroma_circle(self, painter, circle, radius):
-        """Draw a Risen Legend Kai'Sa HOL chroma circle with HOL-specific image"""
+        """Draw a HOL chroma circle with HOL-specific image (Kai'Sa or Ahri)"""
         try:
             from utils.paths import get_asset_path
             
-            # For base skin (chroma_id = 0) or base skin ID (145070), use risen image
-            if circle.chroma_id == 0 or circle.chroma_id == 145070:
+            # Determine which champion and which image to use
+            if circle.chroma_id == 0 or circle.chroma_id == 145070 or circle.chroma_id == 103085:
+                # Base skins: use risen image
                 image_name = "risen.png"
+                folder_name = "kaisa_buttons" if (circle.chroma_id == 0 or circle.chroma_id == 145070) else "ahri_buttons"
             else:
-                # For Immortalized Legend (chroma_id = 145071), use immortal image
+                # Immortalized Legend skins: use immortal image
                 image_name = "immortal.png"
+                folder_name = "kaisa_buttons" if circle.chroma_id == 145071 else "ahri_buttons"
             
-            # Use HOL-specific image from kaisa_buttons folder
-            full_image_path = f"kaisa_buttons/{image_name}"
+            # Use HOL-specific image from appropriate folder
+            full_image_path = f"{folder_name}/{image_name}"
             form_pixmap = QPixmap(str(get_asset_path(full_image_path)))
             
             if not form_pixmap.isNull():

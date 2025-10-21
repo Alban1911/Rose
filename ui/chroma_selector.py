@@ -72,6 +72,14 @@ class ChromaSelector:
         log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Kai'Sa HOL chromas with real skin ID (145071)")
         return chromas
     
+    def _get_ahri_hol_chromas(self):
+        """Get Risen Legend Ahri HOL chroma data structure (equivalent to chromas)"""
+        chromas = [
+            {'id': 103086, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False},
+        ]
+        log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Ahri HOL chromas with real skin ID (103086)")
+        return chromas
+    
     def _on_chroma_selected(self, chroma_id, chroma_name: str):
         """Callback when user clicks a chroma - update state immediately"""
         try:
@@ -125,6 +133,25 @@ class ChromaSelector:
                         self.state.last_hovered_skin_key = hol_skin_name
                         log.debug(f"[CHROMA] HOL skin name: {hol_skin_name}")
                         log.debug(f"[CHROMA] HOL skin ID: 145071")
+                        log.debug(f"[CHROMA] Using real ID {chroma_id} for injection (not owned)")
+                
+                # Check if this is a Risen Legend Ahri HOL chroma (real ID 103086)
+                elif chroma_id == 103086:
+                    # This is a HOL chroma selection
+                    log.info(f"[CHROMA] Ahri HOL chroma selected: {chroma_name} (Real ID: {chroma_id})")
+                    
+                    # Store the HOL skin ID for injection
+                    self.state.selected_chroma_id = chroma_id
+                    self.state.last_hovered_skin_id = 103086  # Immortalized Legend Ahri skin ID
+                    
+                    # Update the skin name to include the HOL chroma name for injection
+                    if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
+                        base_skin_name = self.panel.current_skin_name
+                        # Create the HOL skin name: "Risen Legend Ahri Immortalized Legend"
+                        hol_skin_name = f"{base_skin_name} {chroma_name}"
+                        self.state.last_hovered_skin_key = hol_skin_name
+                        log.debug(f"[CHROMA] Ahri HOL skin name: {hol_skin_name}")
+                        log.debug(f"[CHROMA] Ahri HOL skin ID: 103086")
                         log.debug(f"[CHROMA] Using real ID {chroma_id} for injection (not owned)")
                     
                 elif chroma_id == 0 or chroma_id is None:
@@ -275,6 +302,14 @@ class ChromaSelector:
             elif base_skin_id == 145071:
                 chromas = self._get_hol_chromas()
                 log.debug(f"[CHROMA] Using Risen Legend Kai'Sa HOL chroma for Immortalized Legend (treated as chroma)")
+            # Special case: Risen Legend Ahri (skin ID 103085) has HOL chroma instead of regular chromas
+            elif base_skin_id == 103085:
+                chromas = self._get_ahri_hol_chromas()
+                log.debug(f"[CHROMA] Using Risen Legend Ahri HOL chroma instead of regular chromas")
+            # Special case: Immortalized Legend Ahri (skin ID 103086) is treated as a chroma of Risen Legend Ahri
+            elif base_skin_id == 103086:
+                chromas = self._get_ahri_hol_chromas()
+                log.debug(f"[CHROMA] Using Risen Legend Ahri HOL chroma for Immortalized Legend Ahri (treated as chroma)")
             else:
                 chromas = self.skin_scraper.get_chromas_for_skin(base_skin_id)
             
