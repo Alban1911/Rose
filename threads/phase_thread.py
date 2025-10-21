@@ -74,17 +74,12 @@ class PhaseThread(threading.Thread):
                         
                     
                 elif ph == "GameStart":
-                    # Game starting - request UI destruction
-                    try:
-                        from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
-                        user_interface.request_ui_destruction()
-                        log_action(log, "UI destruction requested for GameStart", "🚀")
-                    except Exception as e:
-                        log.warning(f"[phase] Failed to request UI destruction for GameStart: {e}")
+                    # Game starting - don't destroy UI yet, let injection complete first
+                    # UI will be destroyed when injection completes or when InProgress phase is reached
+                    log_action(log, "GameStart detected - UI will be destroyed after injection", "🚀")
                 
                 elif ph == "InProgress":
-                    # Game starting - request UI destruction
+                    # Game in progress - request UI destruction
                     try:
                         from ui.user_interface import get_user_interface
                         user_interface = get_user_interface(self.state, self.skin_scraper, self.db)

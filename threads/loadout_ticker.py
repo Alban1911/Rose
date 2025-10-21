@@ -10,7 +10,7 @@ from typing import Optional
 from lcu.client import LCU
 from state.shared_state import SharedState
 from database.name_db import NameDB
-from utils.logging import get_logger
+from utils.logging import get_logger, log_action
 # Note: normalize_text removed - using simple normalization instead
 from config import (
     TIMER_HZ_MIN, TIMER_HZ_MAX, TIMER_POLL_PERIOD_S,
@@ -379,6 +379,15 @@ class LoadoutTicker(threading.Thread):
                                             log.error(f"❌ INJECTION FAILED >>> {name.upper()} <<<")
                                             log.error("=" * LOG_SEPARATOR_WIDTH)
                                             log.error(f"[inject] Skin will likely NOT appear in-game")
+                                        
+                                        # Request UI destruction after injection completes
+                                        try:
+                                            from ui.user_interface import get_user_interface
+                                            user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                                            user_interface.request_ui_destruction()
+                                            log_action(log, "UI destruction requested after injection completion", "🧹")
+                                        except Exception as e:
+                                            log.warning(f"[inject] Failed to request UI destruction after injection: {e}")
                                     except Exception as e:
                                         log.error(f"[inject] injection thread error: {e}")
                                         self.state.injection_completed = True  # Set flag even on error
