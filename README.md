@@ -10,8 +10,14 @@ conda create -n leagueunlocked python=3.11 -y
 # Activate the environment
 conda activate leagueunlocked
 
+# Clone the repository
+git clone https://github.com/AlbanCliquet/LeagueUnlocked.git
+
 # Navigate to project directory (adjust path as needed)
 cd ".\LeagueUnlocked"
+
+# Switch to dev branch
+git checkout dev
 
 # Install all dependencies
 pip install -r requirements.txt
