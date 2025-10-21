@@ -341,6 +341,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         by the ChromaSelector before being passed to this method.
         """
         self.skin_name = skin_name
+        self.skin_id = skin_id  # Store skin_id for Elementalist Lux detection
         self.circles = []
         
         # For preview loading, use the base skin name (remove chroma ID if present)
@@ -349,7 +350,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         log.debug(f"[CHROMA] Preview loading: original='{skin_name}' -> base='{base_skin_name_for_previews}'")
         
         # Load base skin preview
-        base_preview = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id=0, champion_name=champion_name, skin_id=skin_id)
+        # For Elementalist Lux forms, always use base skin ID (99007) for the base circle preview
+        base_preview_skin_id = skin_id
+        if (99991 <= skin_id <= 99999) or skin_id == 99007:
+            base_preview_skin_id = 99007  # Always use base skin ID for Elementalist Lux base circle
+            log.debug(f"[CHROMA] Elementalist Lux detected - using base skin ID {base_preview_skin_id} for base circle preview instead of {skin_id}")
+        
+        base_preview = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id=0, champion_name=champion_name, skin_id=base_preview_skin_id)
         
         base_circle = ChromaCircle(
             chroma_id=0,
@@ -717,21 +724,31 @@ class ChromaPanelWidget(ChromaWidgetBase):
             painter.drawEllipse(QPoint(circle.x, circle.y), radius, radius)
         
         if is_base:
-            # Base skin: cream background with red diagonal line
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor("#f1e6d3")))  # Cream/beige
-            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
-            
-            # Draw diagonal red line across the circle (top-right to bottom-left)
-            painter.setPen(QPen(QColor("#bf1f37"), 2))  # Red diagonal
-            offset = int(radius * 0.7)  # Diagonal line from corner to corner
-            painter.drawLine(circle.x + offset, circle.y - offset, circle.x - offset, circle.y + offset)
+            # Check if this is Elementalist Lux base skin
+            if circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 99007 or (99991 <= self.skin_id <= 99999)):
+                # Elementalist Lux base skin: use form-specific image
+                self._draw_elementalist_form_circle(painter, circle, radius)
+            else:
+                # Regular base skin: cream background with red diagonal line
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(QColor("#f1e6d3")))  # Cream/beige
+                painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+                
+                # Draw diagonal red line across the circle (top-right to bottom-left)
+                painter.setPen(QPen(QColor("#bf1f37"), 2))  # Red diagonal
+                offset = int(radius * 0.7)  # Diagonal line from corner to corner
+                painter.drawLine(circle.x + offset, circle.y - offset, circle.x - offset, circle.y + offset)
         else:
-            # Regular chroma: use chroma color
-            color = QColor(circle.color)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(color))
-            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+            # Check if this is an Elementalist Lux form (fake IDs 99991-99999) or base skin (99007)
+            if 99991 <= circle.chroma_id <= 99999 or circle.chroma_id == 99007:
+                # Elementalist Lux form or base skin: use form-specific image
+                self._draw_elementalist_form_circle(painter, circle, radius)
+            else:
+                # Regular chroma: use chroma color
+                color = QColor(circle.color)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(color))
+                painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
         
         # Draw hover border (thin golden ring) - drawn in first pass
         if circle.is_hovered and not is_selected:
@@ -747,6 +764,56 @@ class ChromaPanelWidget(ChromaWidgetBase):
         painter.setPen(QPen(QColor("#b78c34"), 2))  # Golden selection color
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(QPoint(circle.x, circle.y), radius + 3, radius + 3)
+    
+    def _draw_elementalist_form_circle(self, painter: QPainter, circle: ChromaCircle, radius: int):
+        """Draw an Elementalist Lux form circle with form-specific image"""
+        try:
+            from utils.paths import get_asset_path
+            
+            # For base skin (chroma_id = 0), always use base skin ID (99007) for Elementalist Lux
+            if circle.chroma_id == 0:
+                # Always use base skin ID (99007) for Elementalist Lux base circle
+                image_id = 99007
+            else:
+                image_id = circle.chroma_id
+            
+            # Use form-specific image based on image_id
+            image_path = f"{image_id}.png"
+            # Elementalist form images are in the elementalist_buttons subfolder
+            full_image_path = f"elementalist_buttons/{image_path}"
+            form_pixmap = QPixmap(str(get_asset_path(full_image_path)))
+            
+            if not form_pixmap.isNull():
+                # Scale the image to fit the circle
+                scaled_pixmap = form_pixmap.scaled(
+                    (radius - 1) * 2, (radius - 1) * 2,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                # Center the image in the circle
+                image_x = circle.x - scaled_pixmap.width() // 2
+                image_y = circle.y - scaled_pixmap.height() // 2
+                
+                # Draw the form image
+                painter.drawPixmap(image_x, image_y, scaled_pixmap)
+                
+                log.debug(f"[CHROMA] Elementalist form image ({full_image_path}) drawn at ({image_x}, {image_y})")
+            else:
+                # Fallback to chroma color if image not found
+                log.warning(f"[CHROMA] Failed to load Elementalist form image: {full_image_path}")
+                color = QColor(circle.color)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(color))
+                painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+                
+        except Exception as e:
+            log.error(f"[CHROMA] Error drawing Elementalist form circle: {e}")
+            # Fallback to chroma color
+            color = QColor(circle.color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
     
     def mouseMoveEvent(self, event):
         """Handle mouse movement for hover effects"""

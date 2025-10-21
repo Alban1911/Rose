@@ -127,15 +127,26 @@ class UserInterface:
             is_base_skin = skin_id % 1000 == 0
             # Determine new base skin id for current selection
             new_base_skin_id = skin_id if is_base_skin else self._get_base_skin_id_for_chroma(skin_id)
+            
+            # For chromas, check if the base skin is owned
+            base_skin_owned = False
+            if new_base_skin_id is not None:
+                base_skin_owned = new_base_skin_id in self.state.owned_skin_ids
+            
+            # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
+            is_elementalist_form = 99991 <= skin_id <= 99999
+            
             # Same-base chroma swap occurs when switching from base skin (or its chroma) to another chroma of same base
             is_same_base_chroma = (not is_base_skin) and (prev_base_skin_id is not None) and (new_base_skin_id == prev_base_skin_id)
             
             # Determine what to show
             should_show_chroma_ui = has_chromas
-            # Always show UnownedFrame for unowned, non-base skins (do not hide on chroma selection)
-            should_show_unowned_frame = (not is_owned) and (not is_base_skin)
+            # Show UnownedFrame for:
+            # 1. Elementalist Lux forms (fake IDs 99991-99999) - always show
+            # 2. Unowned skins/chromas where the base skin is also not owned
+            should_show_unowned_frame = is_elementalist_form or ((not is_owned) and (not is_base_skin) and (not base_skin_owned))
             
-            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned}, is_base_skin={is_base_skin}, is_chroma_selection={is_chroma_selection}")
+            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned}, is_base_skin={is_base_skin}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_chroma_selection={is_chroma_selection}")
             log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}, unowned_frame={should_show_unowned_frame}")
             
             # Show/hide ChromaUI based on chromas
@@ -166,6 +177,16 @@ class UserInterface:
     def _skin_has_chromas(self, skin_id: int) -> bool:
         """Check if skin has chromas"""
         try:
+            # Special case: Elementalist Lux (skin ID 99007) has Forms instead of chromas
+            if skin_id == 99007:
+                log.debug(f"[UI] Elementalist Lux detected - has Forms instead of chromas")
+                return True
+            
+            # Special case: Elementalist Lux forms (fake IDs 99991-99999) are considered chromas
+            if 99991 <= skin_id <= 99999:
+                log.debug(f"[UI] Elementalist Lux form detected - considered as chroma")
+                return True
+            
             # First, check if this skin_id is a chroma by looking it up in the chroma cache
             if self.skin_scraper and self.skin_scraper.cache:
                 if skin_id in self.skin_scraper.cache.chroma_id_map:
@@ -220,6 +241,14 @@ class UserInterface:
     def _get_base_skin_id_for_chroma(self, chroma_id: int) -> Optional[int]:
         """Get the base skin ID for a given chroma ID"""
         try:
+            # Check if this is an Elementalist Lux form (fake ID)
+            if 99991 <= chroma_id <= 99999:
+                return 99007  # Elementalist Lux base skin ID
+            
+            # Special case: Elementalist Lux base skin (99007)
+            if chroma_id == 99007:
+                return 99007  # Elementalist Lux base skin ID
+            
             if not self.skin_scraper or not self.skin_scraper.cache:
                 return None
             

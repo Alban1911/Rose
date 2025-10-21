@@ -247,8 +247,12 @@ class OpeningButton(ChromaWidgetBase):
         # 3. Button chroma image or colored disk - replaces gradient ring and inner circle
         painter.setPen(Qt.PenStyle.NoPen)
         
-        # If a chroma color is selected, draw a colored disk instead of the rainbow image
-        if self.current_chroma_color:
+        # Check if we should use a form-specific image for Elementalist Lux
+        form_image_path = self._get_elementalist_form_image()
+        if form_image_path:
+            # Use form-specific image for Elementalist Lux
+            self._draw_form_image(painter, center, gradient_outer_radius, should_darken, form_image_path)
+        elif self.current_chroma_color:
             try:
                 # Create a colored disk with the selected chroma color
                 chroma_color = QColor(self.current_chroma_color)
@@ -279,10 +283,27 @@ class OpeningButton(ChromaWidgetBase):
             self._draw_rainbow_image(painter, center, gradient_outer_radius, should_darken)
     
     def _draw_rainbow_image(self, painter, center, gradient_outer_radius, should_darken):
-        """Draw the rainbow button-chroma.png image"""
+        """Draw the rainbow button-chroma.png image or star.png for Elementalist Lux"""
         try:
             from utils.paths import get_asset_path
-            button_chroma_pixmap = QPixmap(str(get_asset_path("button-chroma.png")))
+            
+            # Check if current skin is Elementalist Lux (base skin ID 99007 or forms 99991-99998)
+            is_elementalist_lux = False
+            if self.manager and hasattr(self.manager, 'current_skin_id') and self.manager.current_skin_id:
+                current_skin_id = self.manager.current_skin_id
+                # Check if it's Elementalist Lux base skin or one of its forms
+                if current_skin_id == 99007 or (99991 <= current_skin_id <= 99998):
+                    is_elementalist_lux = True
+            
+            # Choose the appropriate image
+            if is_elementalist_lux:
+                image_path = "star.png"
+                log.debug("[CHROMA] Using star.png for Elementalist Lux")
+            else:
+                image_path = "button-chroma.png"
+                log.debug("[CHROMA] Using button-chroma.png for regular skin")
+            
+            button_chroma_pixmap = QPixmap(str(get_asset_path(image_path)))
             if not button_chroma_pixmap.isNull():
                 # Scale the image to fit the gradient area
                 scaled_pixmap = button_chroma_pixmap.scaled(
@@ -307,11 +328,84 @@ class OpeningButton(ChromaWidgetBase):
                 else:
                     painter.drawPixmap(image_x, image_y, scaled_pixmap)
                     
-                log.debug(f"[CHROMA] Button chroma image drawn at ({image_x}, {image_y}), size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
+                log.debug(f"[CHROMA] Button image ({image_path}) drawn at ({image_x}, {image_y}), size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
             else:
-                log.warning("[CHROMA] Failed to load button-chroma.png")
+                log.warning(f"[CHROMA] Failed to load {image_path}")
         except Exception as e:
-            log.error(f"[CHROMA] Error loading button-chroma.png: {e}")
+            log.error(f"[CHROMA] Error loading {image_path}: {e}")
+    
+    def _get_elementalist_form_image(self):
+        """Get the form-specific image path for Elementalist Lux forms"""
+        try:
+            if not self.manager:
+                return None
+            
+            # Check if current skin is Elementalist Lux (base skin ID 99007 or forms 99991-99998)
+            current_skin_id = None
+            if hasattr(self.manager, 'current_skin_id'):
+                current_skin_id = self.manager.current_skin_id
+            
+            if not current_skin_id:
+                return None
+            
+            # Check if this is Elementalist Lux base skin or one of its forms
+            if current_skin_id == 99007 or (99991 <= current_skin_id <= 99999):
+                # If a specific form is selected, use that form's image
+                if hasattr(self.manager, 'current_selected_chroma_id') and self.manager.current_selected_chroma_id:
+                    selected_chroma_id = self.manager.current_selected_chroma_id
+                    if 99991 <= selected_chroma_id <= 99999:
+                        return f"{selected_chroma_id}.png"
+                
+                # If no specific form is selected, use the base skin image (99007.png)
+                # This applies to both base skin (99007) and active forms (99991-99998)
+                return "99007.png"
+            
+            return None
+        except Exception as e:
+            log.debug(f"[CHROMA] Error getting Elementalist form image: {e}")
+            return None
+    
+    def _draw_form_image(self, painter, center, gradient_outer_radius, should_darken, image_path):
+        """Draw the form-specific image for Elementalist Lux forms"""
+        try:
+            from utils.paths import get_asset_path
+            
+            # Elementalist form images are in the elementalist_buttons subfolder
+            full_image_path = f"elementalist_buttons/{image_path}"
+            form_pixmap = QPixmap(str(get_asset_path(full_image_path)))
+            if not form_pixmap.isNull():
+                # Scale the image to fit the gradient area
+                scaled_pixmap = form_pixmap.scaled(
+                    int(gradient_outer_radius * 2), int(gradient_outer_radius * 2),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                # Center the image
+                image_x = center - scaled_pixmap.width() // 2
+                image_y = center - scaled_pixmap.height() // 2
+                
+                # Apply darkening effect if hovered
+                if should_darken:
+                    # Create a darker version of the image using overlay mode
+                    dark_pixmap = scaled_pixmap.copy()
+                    painter_dark = QPainter(dark_pixmap)
+                    painter_dark.setCompositionMode(QPainter.CompositionMode.CompositionMode_Overlay)
+                    painter_dark.fillRect(dark_pixmap.rect(), QColor(0, 0, 0, 100))  # Semi-transparent black overlay
+                    painter_dark.end()
+                    painter.drawPixmap(image_x, image_y, dark_pixmap)
+                else:
+                    painter.drawPixmap(image_x, image_y, scaled_pixmap)
+                    
+                log.debug(f"[CHROMA] Form image ({full_image_path}) drawn at ({image_x}, {image_y}), size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
+            else:
+                log.warning(f"[CHROMA] Failed to load form image {full_image_path}")
+                # Fallback to rainbow image
+                self._draw_rainbow_image(painter, center, gradient_outer_radius, should_darken)
+        except Exception as e:
+            log.error(f"[CHROMA] Error loading form image {image_path}: {e}")
+            # Fallback to rainbow image
+            self._draw_rainbow_image(painter, center, gradient_outer_radius, should_darken)
     
     def mousePressEvent(self, event):
         """Handle button press - track that button was pressed"""
