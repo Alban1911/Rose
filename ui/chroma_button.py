@@ -289,16 +289,28 @@ class OpeningButton(ChromaWidgetBase):
             
             # Check if current skin is Elementalist Lux (base skin ID 99007 or forms 99991-99998)
             is_elementalist_lux = False
+            is_hol_kaisa = False
             if self.manager and hasattr(self.manager, 'current_skin_id') and self.manager.current_skin_id:
                 current_skin_id = self.manager.current_skin_id
                 # Check if it's Elementalist Lux base skin or one of its forms
                 if current_skin_id == 99007 or (99991 <= current_skin_id <= 99998):
                     is_elementalist_lux = True
+                # Check if it's Risen Legend Kai'Sa base skin, Immortalized Legend, or HOL chroma
+                elif current_skin_id == 145070 or current_skin_id == 145071 or current_skin_id == 100001:
+                    is_hol_kaisa = True
             
             # Choose the appropriate image
             if is_elementalist_lux:
                 image_path = "star.png"
                 log.debug("[CHROMA] Using star.png for Elementalist Lux")
+            elif is_hol_kaisa:
+                # Use HOL button image for Risen Legend Kai'Sa
+                if self.is_hovered or self.panel_is_open:
+                    image_path = "hol-button-hover.png"
+                    log.debug("[CHROMA] Using hol-button-hover.png for Risen Legend Kai'Sa (hovered)")
+                else:
+                    image_path = "hol-button.png"
+                    log.debug("[CHROMA] Using hol-button.png for Risen Legend Kai'Sa")
             else:
                 image_path = "button-chroma.png"
                 log.debug("[CHROMA] Using button-chroma.png for regular skin")

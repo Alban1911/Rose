@@ -64,6 +64,14 @@ class ChromaSelector:
         log.debug(f"[CHROMA] Created {len(forms)} Elementalist Lux Forms with fake IDs (99991-99999)")
         return forms
     
+    def _get_hol_chromas(self):
+        """Get Risen Legend Kai'Sa HOL chroma data structure (equivalent to chromas)"""
+        chromas = [
+            {'id': 100001, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False, 'hol_skin_id': 145071},
+        ]
+        log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Kai'Sa HOL chromas with fake ID (100001) -> real skin ID (145071)")
+        return chromas
+    
     def _on_chroma_selected(self, chroma_id, chroma_name: str):
         """Callback when user clicks a chroma - update state immediately"""
         try:
@@ -99,6 +107,25 @@ class ChromaSelector:
                             log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                             log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                             log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
+                
+                # Check if this is a Risen Legend Kai'Sa HOL chroma (fake ID 100001)
+                elif chroma_id == 100001:
+                    # This is a HOL chroma selection
+                    log.info(f"[CHROMA] HOL chroma selected: {chroma_name} (Fake ID: {chroma_id})")
+                    
+                    # Store the HOL skin ID for injection
+                    self.state.selected_chroma_id = chroma_id
+                    self.state.last_hovered_skin_id = 145071  # Immortalized Legend Kai'Sa skin ID
+                    
+                    # Update the skin name to include the HOL chroma name for injection
+                    if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
+                        base_skin_name = self.panel.current_skin_name
+                        # Create the HOL skin name: "Risen Legend Kai'Sa Immortalized Legend"
+                        hol_skin_name = f"{base_skin_name} {chroma_name}"
+                        self.state.last_hovered_skin_key = hol_skin_name
+                        log.debug(f"[CHROMA] HOL skin name: {hol_skin_name}")
+                        log.debug(f"[CHROMA] HOL skin ID: 145071")
+                        log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
                     
                 elif chroma_id == 0 or chroma_id is None:
                     # Base skin selected - reset to original skin ID and skin name
@@ -240,6 +267,14 @@ class ChromaSelector:
             if base_skin_id == 99007:
                 chromas = self._get_elementalist_forms()
                 log.debug(f"[CHROMA] Using Elementalist Lux Forms instead of chromas")
+            # Special case: Risen Legend Kai'Sa (skin ID 145070) has HOL chroma instead of regular chromas
+            elif base_skin_id == 145070:
+                chromas = self._get_hol_chromas()
+                log.debug(f"[CHROMA] Using Risen Legend Kai'Sa HOL chroma instead of regular chromas")
+            # Special case: Immortalized Legend Kai'Sa (skin ID 145071) is treated as a chroma of Risen Legend
+            elif base_skin_id == 145071:
+                chromas = self._get_hol_chromas()
+                log.debug(f"[CHROMA] Using Risen Legend Kai'Sa HOL chroma for Immortalized Legend (treated as chroma)")
             else:
                 chromas = self.skin_scraper.get_chromas_for_skin(base_skin_id)
             
