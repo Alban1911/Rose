@@ -138,6 +138,11 @@ class OpeningButton(ChromaWidgetBase):
         actual_size = min(self.width(), self.height())
         center = actual_size // 2
         
+        # Check if this is a HOL button - if so, only draw the rectangular image
+        if self._is_hol_button():
+            self._draw_hol_button_only(painter, center, actual_size)
+            return
+        
         # Transparent ring parameters (3px on each side)
         transparent_ring_width = self.transparent_ring_width
         
@@ -295,8 +300,8 @@ class OpeningButton(ChromaWidgetBase):
                 # Check if it's Elementalist Lux base skin or one of its forms
                 if current_skin_id == 99007 or (99991 <= current_skin_id <= 99998):
                     is_elementalist_lux = True
-                # Check if it's Risen Legend Kai'Sa base skin, Immortalized Legend, or HOL chroma
-                elif current_skin_id == 145070 or current_skin_id == 145071 or current_skin_id == 100001:
+                # Check if it's Risen Legend Kai'Sa base skin or Immortalized Legend
+                elif current_skin_id == 145070 or current_skin_id == 145071:
                     is_hol_kaisa = True
             
             # Choose the appropriate image
@@ -304,13 +309,9 @@ class OpeningButton(ChromaWidgetBase):
                 image_path = "star.png"
                 log.debug("[CHROMA] Using star.png for Elementalist Lux")
             elif is_hol_kaisa:
-                # Use HOL button image for Risen Legend Kai'Sa
-                if self.is_hovered or self.panel_is_open:
-                    image_path = "hol-button-hover.png"
-                    log.debug("[CHROMA] Using hol-button-hover.png for Risen Legend Kai'Sa (hovered)")
-                else:
-                    image_path = "hol-button.png"
-                    log.debug("[CHROMA] Using hol-button.png for Risen Legend Kai'Sa")
+                # Use HOL button image for Risen Legend Kai'Sa - rectangular, no darkening
+                self._draw_hol_button(painter, center, gradient_outer_radius)
+                return
             else:
                 image_path = "button-chroma.png"
                 log.debug("[CHROMA] Using button-chroma.png for regular skin")
@@ -594,6 +595,89 @@ class OpeningButton(ChromaWidgetBase):
         except RuntimeError:
             pass
     
+    
+    def _is_hol_button(self):
+        """Check if this is a HOL button (Kai'Sa skins)"""
+        if self.manager and hasattr(self.manager, 'current_skin_id') and self.manager.current_skin_id:
+            current_skin_id = self.manager.current_skin_id
+            return current_skin_id == 145070 or current_skin_id == 145071
+        return False
+    
+    def _draw_hol_button_only(self, painter, center, actual_size):
+        """Draw only the HOL rectangular image - no circular button background"""
+        try:
+            from utils.paths import get_asset_path
+            
+            # Choose image based on hover state
+            if self.is_hovered or self.panel_is_open:
+                image_path = "hol-button-hover.png"
+                log.debug("[CHROMA] Using hol-button-hover.png for Risen Legend Kai'Sa (hovered)")
+            else:
+                image_path = "hol-button.png"
+                log.debug("[CHROMA] Using hol-button.png for Risen Legend Kai'Sa")
+            
+            hol_pixmap = QPixmap(str(get_asset_path(image_path)))
+            if not hol_pixmap.isNull():
+                # Scale the image to fit the button area (rectangular) - adjust size based on resolution
+                # At lowest res (1024x576), use 4px bigger to prevent cropping
+                # At higher res, use 5px bigger
+                size_increase = 4 if actual_size <= 50 else 5  # Adjust threshold as needed
+                button_size = actual_size + size_increase
+                scaled_pixmap = hol_pixmap.scaled(
+                    button_size, button_size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                # Center the image - 1px higher
+                image_x = center - scaled_pixmap.width() // 2
+                image_y = center - scaled_pixmap.height() // 2 - 1
+                
+                # Draw the image directly (no circular background)
+                painter.drawPixmap(image_x, image_y, scaled_pixmap)
+                log.debug(f"[CHROMA] HOL button image ({image_path}) drawn at ({image_x}, {image_y}), size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
+            else:
+                log.warning(f"[CHROMA] Failed to load HOL button image: {image_path}")
+                
+        except Exception as e:
+            log.error(f"[CHROMA] Error drawing HOL button: {e}")
+    
+    def _draw_hol_button(self, painter, center, gradient_outer_radius):
+        """Draw HOL button as rectangular image - no circular disk, just image switching"""
+        try:
+            from utils.paths import get_asset_path
+            
+            # Choose image based on hover state
+            if self.is_hovered or self.panel_is_open:
+                image_path = "hol-button-hover.png"
+                log.debug("[CHROMA] Using hol-button-hover.png for Risen Legend Kai'Sa (hovered)")
+            else:
+                image_path = "hol-button.png"
+                log.debug("[CHROMA] Using hol-button.png for Risen Legend Kai'Sa")
+            
+            hol_pixmap = QPixmap(str(get_asset_path(image_path)))
+            if not hol_pixmap.isNull():
+                # Scale the image to fit the button area (rectangular, not circular)
+                # Use the full button size instead of the circular gradient area
+                button_size = int(gradient_outer_radius * 2)  # Use same size as circular button
+                scaled_pixmap = hol_pixmap.scaled(
+                    button_size, button_size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                # Center the image
+                image_x = center - scaled_pixmap.width() // 2
+                image_y = center - scaled_pixmap.height() // 2
+                
+                # Draw the image directly (no darkening effect)
+                painter.drawPixmap(image_x, image_y, scaled_pixmap)
+                log.debug(f"[CHROMA] HOL button image ({image_path}) drawn at ({image_x}, {image_y}), size: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
+            else:
+                log.warning(f"[CHROMA] Failed to load HOL button image: {image_path}")
+                
+        except Exception as e:
+            log.error(f"[CHROMA] Error drawing HOL button: {e}")
     
     def showEvent(self, event):
         """Reset hiding flag when button is shown"""
