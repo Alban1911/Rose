@@ -135,17 +135,22 @@ class LoadoutTicker(threading.Thread):
                 except Exception:
                     final_label = raw or ""
 
-                # For injection, we need the English name from the database
-                # Use the English skin name that was already processed by UI detection thread
-                injection_name = getattr(self.state, 'last_hovered_skin_key', None)
-                name = final_label if final_label else None
-                if injection_name:
-                    name = injection_name
-                    log.debug(f"[inject] Using English name from database: '{name}'")
+                # Check if random mode is active
+                if getattr(self.state, 'random_mode_active', False) and getattr(self.state, 'random_skin_name', None):
+                    name = self.state.random_skin_name
+                    log.info(f"[RANDOM] Injecting random skin: {name}")
                 else:
-                    # Fallback to UI detected text if no English name available
-                    name = getattr(self.state, 'ui_last_text', None) or name
-                    log.warning(f"[inject] No English name found, using localized: '{name}'")
+                    # For injection, we need the English name from the database
+                    # Use the English skin name that was already processed by UI detection thread
+                    injection_name = getattr(self.state, 'last_hovered_skin_key', None)
+                    name = final_label if final_label else None
+                    if injection_name:
+                        name = injection_name
+                        log.debug(f"[inject] Using English name from database: '{name}'")
+                    else:
+                        # Fallback to UI detected text if no English name available
+                        name = getattr(self.state, 'ui_last_text', None) or name
+                        log.warning(f"[inject] No English name found, using localized: '{name}'")
                     if name:
                         # If UI detected text is like "Champion X Champion", normalize to "X Champion"
                         try:
@@ -368,6 +373,12 @@ class LoadoutTicker(threading.Thread):
                                         
                                         # Set flag to prevent UI detection from restarting (even if processes errored)
                                         self.state.injection_completed = True
+                                        
+                                        # Clear random state after injection
+                                        if getattr(self.state, 'random_mode_active', False):
+                                            self.state.random_skin_name = None
+                                            self.state.random_mode_active = False
+                                            log.info("[RANDOM] Random mode cleared after injection")
                                         
                                         if success:
                                             log.info("=" * LOG_SEPARATOR_WIDTH)
