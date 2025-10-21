@@ -295,6 +295,19 @@ class SkinInjector:
 
         self.zips_dir.mkdir(parents=True, exist_ok=True)
 
+        # Special handling for Risen Legend Kai'Sa base skin (skin_id 145070)
+        if skin_name and "Risen Legend Kai'Sa" in skin_name and chroma_id is None:
+            log.info(f"[inject] Detected Risen Legend Kai'Sa base skin")
+            
+            # Hardcoded path for Risen Legend Kai'Sa base skin file
+            risen_path = self.zips_dir / "Kai'Sa" / "Risen Legend KaiSa.zip"
+            if risen_path.exists():
+                log_success(log, f"Found Risen Legend Kai'Sa skin: {risen_path.name}", "✨")
+                return risen_path
+            else:
+                log.warning(f"[inject] Risen Legend Kai'Sa skin file not found: {risen_path}")
+                return None
+
         # If chroma_id is provided, look in chromas subdirectory structure
         # Structure: skins/{Champion}/chromas/{SkinName}/{SkinName} {ChromaId}.zip
         if chroma_id is not None and skin_name:
@@ -327,6 +340,19 @@ class SkinInjector:
                 else:
                     log.warning(f"[inject] Elementalist Lux {form_name} form file not found: {form_pattern}")
                     log.debug(f"[inject] Expected path like: skins/.../Lux/Forms/{form_pattern}")
+                    return None
+            
+            # Special handling for Risen Legend Kai'Sa HOL chroma (fake ID 100001)
+            elif chroma_id == 100001:
+                log.info(f"[inject] Detected Risen Legend Kai'Sa HOL chroma fake ID: {chroma_id}")
+                
+                # Hardcoded path for Immortalized Legend Kai'Sa skin file
+                immortal_path = self.zips_dir / "Kai'Sa" / "Immortalized Legend KaiSa.zip"
+                if immortal_path.exists():
+                    log_success(log, f"Found Immortalized Legend Kai'Sa skin: {immortal_path.name}", "✨")
+                    return immortal_path
+                else:
+                    log.warning(f"[inject] Immortalized Legend Kai'Sa skin file not found: {immortal_path}")
                     return None
             
             # Try to find chroma file by ID in subdirectory structure
