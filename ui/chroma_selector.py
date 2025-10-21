@@ -224,7 +224,12 @@ class ChromaSelector:
         with self.lock:
             # Check if this is a chroma ID - if so, get the base skin ID for chroma data
             base_skin_id = skin_id
-            if self.skin_scraper and self.skin_scraper.cache:
+            
+            # Special handling for Elementalist Lux forms (fake IDs 99991-99999)
+            if 99991 <= skin_id <= 99999:
+                base_skin_id = 99007  # Elementalist Lux base skin ID
+                log.debug(f"[CHROMA] Detected Elementalist Lux form {skin_id}, using base skin {base_skin_id} for chroma data")
+            elif self.skin_scraper and self.skin_scraper.cache:
                 if skin_id in self.skin_scraper.cache.chroma_id_map:
                     # This is a chroma, get its base skin ID
                     chroma_data = self.skin_scraper.cache.chroma_id_map[skin_id]
