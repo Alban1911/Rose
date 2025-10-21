@@ -187,6 +187,21 @@ class UserInterface:
                 log.debug(f"[UI] Elementalist Lux form detected - considered as chroma")
                 return True
             
+            # Special case: Risen Legend Kai'Sa (skin ID 145070) has HOL chroma instead of regular chromas
+            if skin_id == 145070:
+                log.debug(f"[UI] Risen Legend Kai'Sa detected - has HOL chroma instead of regular chromas")
+                return True
+            
+            # Special case: Immortalized Legend Kai'Sa (skin ID 145071) is treated as a chroma of Risen Legend
+            if skin_id == 145071:
+                log.debug(f"[UI] Immortalized Legend Kai'Sa detected - treated as chroma of Risen Legend")
+                return True
+            
+            # Special case: Risen Legend Kai'Sa HOL chroma (fake ID 100001) is considered a chroma
+            if skin_id == 100001:
+                log.debug(f"[UI] Risen Legend Kai'Sa HOL chroma detected - considered as chroma")
+                return True
+            
             # First, check if this skin_id is a chroma by looking it up in the chroma cache
             if self.skin_scraper and self.skin_scraper.cache:
                 if skin_id in self.skin_scraper.cache.chroma_id_map:

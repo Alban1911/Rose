@@ -387,7 +387,14 @@ class ChromaPanelWidget(ChromaWidgetBase):
             
             # Load chroma preview image with direct path
             chroma_id = chroma.get('id', 0)
-            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id, champion_name, skin_id)
+            
+            # Special handling for HOL chroma - use real skin ID for preview
+            preview_chroma_id = chroma_id
+            if chroma_id == 100001:  # HOL chroma fake ID
+                preview_chroma_id = 145071  # Use real skin ID for preview
+                log.debug(f"[CHROMA] Using real skin ID {preview_chroma_id} for HOL chroma preview instead of fake ID {chroma_id}")
+            
+            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, preview_chroma_id, champion_name, skin_id)
             
             circle = ChromaCircle(
                 chroma_id=chroma_id,
@@ -728,6 +735,10 @@ class ChromaPanelWidget(ChromaWidgetBase):
             if circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 99007 or (99991 <= self.skin_id <= 99999)):
                 # Elementalist Lux base skin: use form-specific image
                 self._draw_elementalist_form_circle(painter, circle, radius)
+            # Check if this is Risen Legend Kai'Sa base skin
+            elif circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 145070 or self.skin_id == 145071):
+                # Risen Legend Kai'Sa base skin: use risen.png image
+                self._draw_hol_chroma_circle(painter, circle, radius)
             else:
                 # Regular base skin: cream background with red diagonal line
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -743,6 +754,10 @@ class ChromaPanelWidget(ChromaWidgetBase):
             if 99991 <= circle.chroma_id <= 99999 or circle.chroma_id == 99007:
                 # Elementalist Lux form or base skin: use form-specific image
                 self._draw_elementalist_form_circle(painter, circle, radius)
+            # Check if this is a Risen Legend Kai'Sa HOL chroma (fake ID 100001), base skin (145070), or Immortalized Legend (145071)
+            elif circle.chroma_id == 100001 or circle.chroma_id == 145070 or circle.chroma_id == 145071:
+                # Risen Legend Kai'Sa HOL chroma, base skin, or Immortalized Legend: use HOL-specific image
+                self._draw_hol_chroma_circle(painter, circle, radius)
             else:
                 # Regular chroma: use chroma color
                 color = QColor(circle.color)
@@ -809,6 +824,54 @@ class ChromaPanelWidget(ChromaWidgetBase):
                 
         except Exception as e:
             log.error(f"[CHROMA] Error drawing Elementalist form circle: {e}")
+            # Fallback to chroma color
+            color = QColor(circle.color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+    
+    def _draw_hol_chroma_circle(self, painter, circle, radius):
+        """Draw a Risen Legend Kai'Sa HOL chroma circle with HOL-specific image"""
+        try:
+            from utils.paths import get_asset_path
+            
+            # For base skin (chroma_id = 0), base skin ID (145070), or Immortalized Legend (145071), use risen image
+            if circle.chroma_id == 0 or circle.chroma_id == 145070 or circle.chroma_id == 145071:
+                image_name = "risen.png"
+            else:
+                # For HOL chroma (chroma_id = 100001), use immortal image
+                image_name = "immortal.png"
+            
+            # Use HOL-specific image from kaisa_buttons folder
+            full_image_path = f"kaisa_buttons/{image_name}"
+            form_pixmap = QPixmap(str(get_asset_path(full_image_path)))
+            
+            if not form_pixmap.isNull():
+                # Scale the image to fit the circle
+                scaled_pixmap = form_pixmap.scaled(
+                    int(radius * 2), int(radius * 2),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                # Center the image in the circle
+                image_x = circle.x - scaled_pixmap.width() // 2
+                image_y = circle.y - scaled_pixmap.height() // 2
+                
+                # Draw the HOL image
+                painter.drawPixmap(image_x, image_y, scaled_pixmap)
+                
+                log.debug(f"[CHROMA] HOL chroma image ({full_image_path}) drawn at ({image_x}, {image_y})")
+            else:
+                # Fallback to chroma color if image not found
+                log.warning(f"[CHROMA] Failed to load HOL chroma image: {full_image_path}")
+                color = QColor(circle.color)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(color))
+                painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+                
+        except Exception as e:
+            log.error(f"[CHROMA] Error drawing HOL chroma circle: {e}")
             # Fallback to chroma color
             color = QColor(circle.color)
             painter.setPen(Qt.PenStyle.NoPen)

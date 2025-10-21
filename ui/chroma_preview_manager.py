@@ -60,6 +60,23 @@ class ChromaPreviewManager:
                     english_skin_name = base_skin_name
                     log.debug(f"[CHROMA] Using base skin name for Elementalist Lux form preview: '{base_skin_name}'")
             
+            # Special handling for Risen Legend Kai'Sa HOL chroma - use base skin name for preview paths
+            if chroma_id == 100001 or chroma_id == 145070 or chroma_id == 145071 or (champion_name.lower() == "kaisa" and skin_id in [145070, 145071]):
+                # For Risen Legend Kai'Sa HOL chroma, use the base skin name instead of the HOL chroma name
+                if champion_name.lower() == "kaisa" and ("risen" in english_skin_name.lower() or "immortalized" in english_skin_name.lower()):
+                    # Always use "Risen Legend Kai'Sa" as the base skin name for preview paths
+                    base_skin_name = "Risen Legend Kai'Sa"
+                    if champion_name not in base_skin_name:
+                        base_skin_name = f"{base_skin_name} {champion_name}"
+                    english_skin_name = base_skin_name
+                    log.debug(f"[CHROMA] Using base skin name for Risen Legend Kai'Sa HOL chroma preview: '{base_skin_name}'")
+                    
+                    # For HOL chroma (fake ID 100001), we need to use the real skin ID (145071) for the chroma preview path
+                    if chroma_id == 100001:
+                        # Override the chroma_id to use the real skin ID for preview path
+                        chroma_id = 145071
+                        log.debug(f"[CHROMA] Using real skin ID {chroma_id} for HOL chroma preview path")
+            
             # Normalize skin name: remove colons, slashes, and other special characters that might not match filesystem
             # (e.g., "PROJECT: Naafiri" becomes "PROJECT Naafiri", "K/DA" becomes "KDA")
             normalized_skin_name = english_skin_name.replace(":", "").replace("/", "")
@@ -106,6 +123,14 @@ class ChromaPreviewManager:
         Returns:
             English skin name (e.g. "Spirit Blossom Bard")
         """
+        # Special handling for Kai'Sa skins - always use "Risen Legend Kai'Sa" for preview paths
+        # This must be checked BEFORE database lookup to prevent override
+        log.debug(f"[CHROMA] Checking Kai'Sa special handling: champion='{champion_name}', skin_id={skin_id}")
+        champion_lower = champion_name.lower().replace("'", "")
+        if champion_lower == "kaisa" and skin_id in [145070, 145071]:
+            log.debug(f"[CHROMA] Special handling for Kai'Sa skin ID {skin_id} - using 'Risen Legend Kai'Sa' for preview paths")
+            return "Risen Legend Kai'Sa"
+        
         # Try to get English name from database using skin ID
         if skin_id and hasattr(self, 'db') and self.db:
             try:
@@ -113,6 +138,10 @@ class ChromaPreviewManager:
                 english_name = self.db.get_english_skin_name_by_id(skin_id)
                 if english_name:
                     log.debug(f"[CHROMA] Converted skin name via database: '{skin_name}' -> '{english_name}' (ID: {skin_id})")
+                    # Override database result for Kai'Sa skins
+                    if champion_name.lower() == "kaisa" and skin_id in [145070, 145071]:
+                        log.debug(f"[CHROMA] Overriding database result for Kai'Sa skin ID {skin_id} - using 'Risen Legend Kai'Sa'")
+                        return "Risen Legend Kai'Sa"
                     return english_name
                 else:
                     log.debug(f"[CHROMA] No English name found in database for skin ID {skin_id}")
