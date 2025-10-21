@@ -387,6 +387,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
             
             # Load chroma preview image with direct path
             chroma_id = chroma.get('id', 0)
+            
+            # Use chroma_id directly (no more fake IDs)
             preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id, champion_name, skin_id)
             
             circle = ChromaCircle(
@@ -421,7 +423,31 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # Find the index of the currently selected chroma (if provided)
         self.selected_index = 0  # Default to base
-        if selected_chroma_id is not None:
+        
+        # Special handling for Kai'Sa skins - if we're opening for Immortalized Legend (145071), 
+        # select the HOL chroma instead of the base skin
+        if skin_id == 145071:
+            # Immortalized Legend Kai'Sa is treated as a chroma selection
+            for i, circle in enumerate(self.circles):
+                if circle.chroma_id == 145071:  # HOL chroma real ID
+                    self.selected_index = i
+                    circle.is_selected = True
+                    base_circle.is_selected = False  # Unselect base
+                    log.debug(f"[CHROMA] Immortalized Legend Kai'Sa detected - selecting HOL chroma circle")
+                    break
+        
+        # Special handling for Ahri skins - if we're opening for Immortalized Legend (103086), 
+        # select the HOL chroma instead of the base skin
+        elif skin_id == 103086:
+            # Immortalized Legend Ahri is treated as a chroma selection
+            for i, circle in enumerate(self.circles):
+                if circle.chroma_id == 103086:  # HOL chroma real ID
+                    self.selected_index = i
+                    circle.is_selected = True
+                    base_circle.is_selected = False  # Unselect base
+                    log.debug(f"[CHROMA] Immortalized Legend Ahri detected - selecting HOL chroma circle")
+                    break
+        elif selected_chroma_id is not None:
             for i, circle in enumerate(self.circles):
                 if circle.chroma_id == selected_chroma_id:
                     self.selected_index = i
@@ -728,6 +754,14 @@ class ChromaPanelWidget(ChromaWidgetBase):
             if circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 99007 or (99991 <= self.skin_id <= 99999)):
                 # Elementalist Lux base skin: use form-specific image
                 self._draw_elementalist_form_circle(painter, circle, radius)
+            # Check if this is Risen Legend Kai'Sa base skin
+            elif circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 145070 or self.skin_id == 145071):
+                # Risen Legend Kai'Sa base skin: use risen.png image
+                self._draw_hol_chroma_circle(painter, circle, radius)
+            # Check if this is Risen Legend Ahri base skin
+            elif circle.chroma_id == 0 and hasattr(self, 'skin_id') and (self.skin_id == 103085 or self.skin_id == 103086):
+                # Risen Legend Ahri base skin: use risen.png image
+                self._draw_hol_chroma_circle(painter, circle, radius)
             else:
                 # Regular base skin: cream background with red diagonal line
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -743,6 +777,14 @@ class ChromaPanelWidget(ChromaWidgetBase):
             if 99991 <= circle.chroma_id <= 99999 or circle.chroma_id == 99007:
                 # Elementalist Lux form or base skin: use form-specific image
                 self._draw_elementalist_form_circle(painter, circle, radius)
+            # Check if this is a Risen Legend Kai'Sa base skin (145070) or Immortalized Legend (145071)
+            elif circle.chroma_id == 145070 or circle.chroma_id == 145071:
+                # Risen Legend Kai'Sa base skin or Immortalized Legend: use HOL-specific image
+                self._draw_hol_chroma_circle(painter, circle, radius)
+            # Check if this is a Risen Legend Ahri base skin (103085) or Immortalized Legend (103086)
+            elif circle.chroma_id == 103085 or circle.chroma_id == 103086:
+                # Risen Legend Ahri base skin or Immortalized Legend: use HOL-specific image
+                self._draw_hol_chroma_circle(painter, circle, radius)
             else:
                 # Regular chroma: use chroma color
                 color = QColor(circle.color)
@@ -809,6 +851,57 @@ class ChromaPanelWidget(ChromaWidgetBase):
                 
         except Exception as e:
             log.error(f"[CHROMA] Error drawing Elementalist form circle: {e}")
+            # Fallback to chroma color
+            color = QColor(circle.color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+    
+    def _draw_hol_chroma_circle(self, painter, circle, radius):
+        """Draw a HOL chroma circle with HOL-specific image (Kai'Sa or Ahri)"""
+        try:
+            from utils.paths import get_asset_path
+            
+            # Determine which champion and which image to use
+            if circle.chroma_id == 0 or circle.chroma_id == 145070 or circle.chroma_id == 103085:
+                # Base skins: use risen image
+                image_name = "risen.png"
+                folder_name = "kaisa_buttons" if (circle.chroma_id == 0 or circle.chroma_id == 145070) else "ahri_buttons"
+            else:
+                # Immortalized Legend skins: use immortal image
+                image_name = "immortal.png"
+                folder_name = "kaisa_buttons" if circle.chroma_id == 145071 else "ahri_buttons"
+            
+            # Use HOL-specific image from appropriate folder
+            full_image_path = f"{folder_name}/{image_name}"
+            form_pixmap = QPixmap(str(get_asset_path(full_image_path)))
+            
+            if not form_pixmap.isNull():
+                # Scale the image to fit the circle
+                scaled_pixmap = form_pixmap.scaled(
+                    int(radius * 2), int(radius * 2),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                # Center the image in the circle
+                image_x = circle.x - scaled_pixmap.width() // 2
+                image_y = circle.y - scaled_pixmap.height() // 2
+                
+                # Draw the HOL image
+                painter.drawPixmap(image_x, image_y, scaled_pixmap)
+                
+                log.debug(f"[CHROMA] HOL chroma image ({full_image_path}) drawn at ({image_x}, {image_y})")
+            else:
+                # Fallback to chroma color if image not found
+                log.warning(f"[CHROMA] Failed to load HOL chroma image: {full_image_path}")
+                color = QColor(circle.color)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(color))
+                painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+                
+        except Exception as e:
+            log.error(f"[CHROMA] Error drawing HOL chroma circle: {e}")
             # Fallback to chroma color
             color = QColor(circle.color)
             painter.setPen(Qt.PenStyle.NoPen)
