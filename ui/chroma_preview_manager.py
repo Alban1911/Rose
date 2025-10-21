@@ -49,6 +49,17 @@ class ChromaPreviewManager:
             # Convert skin name to English if needed (preview images are stored with English names)
             english_skin_name = self._convert_to_english_skin_name(champion_name, skin_name, skin_id)
             
+            # Special handling for Elementalist Lux forms - always use base skin name for preview paths
+            if 99991 <= chroma_id <= 99999 or chroma_id == 99007:
+                # For Elementalist Lux forms, use the base skin name instead of the current form name
+                if champion_name.lower() == "lux" and "elementalist" in english_skin_name.lower():
+                    # Extract the base skin name (e.g., "Elementalist Lux Dark" -> "Elementalist Lux")
+                    base_skin_name = "Elementalist Lux"
+                    if champion_name not in base_skin_name:
+                        base_skin_name = f"{base_skin_name} {champion_name}"
+                    english_skin_name = base_skin_name
+                    log.debug(f"[CHROMA] Using base skin name for Elementalist Lux form preview: '{base_skin_name}'")
+            
             # Normalize skin name: remove colons, slashes, and other special characters that might not match filesystem
             # (e.g., "PROJECT: Naafiri" becomes "PROJECT Naafiri", "K/DA" becomes "KDA")
             normalized_skin_name = english_skin_name.replace(":", "").replace("/", "")
