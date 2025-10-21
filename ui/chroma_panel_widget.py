@@ -314,25 +314,81 @@ class ChromaPanelWidget(ChromaWidgetBase):
         preview_y = self._preview_y if hasattr(self, '_preview_y') else self.preview_y
         preview_height = self.preview_height
         
-        # Button zone starts after preview and uses hard-coded button dimensions
-        button_zone_y = preview_y + preview_height
+        # Button zone starts after preview and separator line (1px)
+        button_zone_y = preview_y + preview_height + 1  # +1 for separator line
         button_zone_width = self.button_width
-        button_zone_height = self.button_height
         button_zone_x = (actual_width - button_zone_width) // 2  # Center the button zone
         
-        # Position circles in the center of the button zone
-        row_y = button_zone_y + (button_zone_height // 2)
+        # Determine layout based on chroma count (same logic as set_chromas)
+        total_chromas = len(self.circles)
+        if total_chromas <= 11:
+            # Single line (unchanged behavior)
+            num_rows = 1
+            chromas_per_row = [total_chromas]
+        elif total_chromas <= 22:
+            # Two lines: first line has 11, second line has the rest
+            num_rows = 2
+            chromas_per_row = [11, total_chromas - 11]
+        else:
+            # Three lines: first two lines have 11 each, last line has the rest
+            num_rows = 3
+            chromas_per_row = [11, 11, total_chromas - 22]
         
-        # Recalculate horizontal row positions (same logic as set_chromas)
-        num_circles = len(self.circles)
-        total_width = num_circles * self.circle_spacing
-        start_x = button_zone_x + (button_zone_width - total_width) // 2 + self.circle_spacing // 2
+        # Calculate dynamic button zone height based on number of rows
+        # Base height for single row + additional height for extra rows
+        base_button_height = self.button_height  # Original single-row height
+        extra_height_per_row = self.circle_radius * 2 + 10  # Space for circle + padding
+        button_zone_height = base_button_height + (num_rows - 1) * extra_height_per_row
         
-        # Update circle positions and radius
-        for i, circle in enumerate(self.circles):
-            circle.x = start_x + (i * self.circle_spacing)
-            circle.y = row_y
-            circle.radius = self.circle_radius  # Update radius to hardcoded value
+        # Calculate required window height and resize if needed
+        required_window_height = preview_height + 1 + button_zone_height + 4  # +1 for separator, +4 for borders
+        if required_window_height != self.window_height:
+            # Calculate height difference to adjust panel position
+            height_difference = required_window_height - self.window_height
+            
+            # Resize the window to accommodate the button zone
+            self.window_height = required_window_height
+            self.setFixedSize(self.window_width, self.window_height + self.notch_height)
+            self._update_window_mask()  # Update the window mask for the new size
+            
+            # Adjust panel Y position to account for the additional height
+            # Move the panel up by the full height difference since extra height is added at bottom
+            if height_difference > 0:
+                # Get current panel position
+                current_x, current_y = self.pos().x(), self.pos().y()
+                # Move panel up by the full height difference to keep it at the same visual position
+                new_y = current_y - height_difference
+                
+                # Reposition the panel
+                self.move(current_x, new_y)
+                log.debug(f"[CHROMA] Panel repositioned during recalculation: Y {current_y} -> {new_y} (moved up {height_difference}px)")
+        
+        # Calculate row spacing and positioning
+        row_spacing = button_zone_height // (num_rows + 1)  # Evenly distribute rows within button zone
+        start_row_y = button_zone_y + row_spacing
+        
+        # Position circles in rows
+        circle_index = 0
+        for row in range(num_rows):
+            row_chroma_count = chromas_per_row[row]
+            if row_chroma_count == 0:
+                continue
+                
+            # Calculate row Y position
+            row_y = start_row_y + (row * row_spacing)
+            
+            # Calculate total width needed for this row
+            total_width = row_chroma_count * self.circle_spacing
+            start_x = button_zone_x + (button_zone_width - total_width) // 2 + self.circle_spacing // 2
+            
+            # Position circles in this row
+            for i in range(row_chroma_count):
+                if circle_index < len(self.circles):
+                    circle = self.circles[circle_index]
+                    circle.x = start_x + (i * self.circle_spacing)
+                    circle.y = row_y
+                    circle.radius = self.circle_radius  # Update radius to hardcoded value
+                    circle_index += 1
     
     def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None, skin_id: Optional[int] = None):
         """Set the chromas to display - League horizontal style
@@ -402,24 +458,81 @@ class ChromaPanelWidget(ChromaWidgetBase):
             )
             self.circles.append(circle)
         
-        # Position circles in horizontal row, centered in button zone
+        # Position circles in multi-line layout based on chroma count
         total_chromas = len(self.circles)
-        # Button zone starts after preview and uses hard-coded button dimensions
-        button_zone_y = self.preview_y + self.preview_height
+        # Button zone starts after preview and separator line (1px)
+        button_zone_y = self.preview_y + self.preview_height + 1  # +1 for separator line
         button_zone_width = self.button_width
-        button_zone_height = self.button_height
         button_zone_x = (self.window_width - button_zone_width) // 2  # Center the button zone
         
-        # Position circles in the center of the button zone
-        row_y = button_zone_y + (button_zone_height // 2)
+        # Determine layout based on chroma count
+        if total_chromas <= 11:
+            # Single line (unchanged behavior)
+            num_rows = 1
+            chromas_per_row = [total_chromas]
+        elif total_chromas <= 22:
+            # Two lines: first line has 11, second line has the rest
+            num_rows = 2
+            chromas_per_row = [11, total_chromas - 11]
+        else:
+            # Three lines: first two lines have 11 each, last line has the rest
+            num_rows = 3
+            chromas_per_row = [11, 11, total_chromas - 22]
         
-        # Calculate total width needed for circles
-        total_width = total_chromas * self.circle_spacing
-        start_x = button_zone_x + (button_zone_width - total_width) // 2 + self.circle_spacing // 2
+        # Calculate dynamic button zone height based on number of rows
+        # Base height for single row + additional height for extra rows
+        base_button_height = self.button_height  # Original single-row height
+        extra_height_per_row = self.circle_radius * 2 + 10  # Space for circle + padding
+        button_zone_height = base_button_height + (num_rows - 1) * extra_height_per_row
         
-        for i, circle in enumerate(self.circles):
-            circle.x = start_x + (i * self.circle_spacing)
-            circle.y = row_y
+        # Calculate required window height and resize if needed
+        required_window_height = self.preview_height + 1 + button_zone_height + 4  # +1 for separator, +4 for borders
+        if required_window_height != self.window_height:
+            # Calculate height difference to adjust panel position
+            height_difference = required_window_height - self.window_height
+            
+            # Resize the window to accommodate the button zone
+            self.window_height = required_window_height
+            self.setFixedSize(self.window_width, self.window_height + self.notch_height)
+            self._update_window_mask()  # Update the window mask for the new size
+            
+            # Adjust panel Y position to account for the additional height
+            # Move the panel up by the full height difference since extra height is added at bottom
+            if height_difference > 0:
+                # Get current panel position
+                current_x, current_y = self.pos().x(), self.pos().y()
+                # Move panel up by the full height difference to keep it at the same visual position
+                new_y = current_y - height_difference
+                
+                # Reposition the panel
+                self.move(current_x, new_y)
+                log.debug(f"[CHROMA] Panel repositioned due to height increase: Y {current_y} -> {new_y} (moved up {height_difference}px)")
+        
+        # Calculate row spacing and positioning
+        row_spacing = button_zone_height // (num_rows + 1)  # Evenly distribute rows within button zone
+        start_row_y = button_zone_y + row_spacing
+        
+        # Position circles in rows
+        circle_index = 0
+        for row in range(num_rows):
+            row_chroma_count = chromas_per_row[row]
+            if row_chroma_count == 0:
+                continue
+                
+            # Calculate row Y position
+            row_y = start_row_y + (row * row_spacing)
+            
+            # Calculate total width needed for this row
+            total_width = row_chroma_count * self.circle_spacing
+            start_x = button_zone_x + (button_zone_width - total_width) // 2 + self.circle_spacing // 2
+            
+            # Position circles in this row
+            for i in range(row_chroma_count):
+                if circle_index < len(self.circles):
+                    circle = self.circles[circle_index]
+                    circle.x = start_x + (i * self.circle_spacing)
+                    circle.y = row_y
+                    circle_index += 1
         
         # Find the index of the currently selected chroma (if provided)
         self.selected_index = 0  # Default to base
@@ -612,11 +725,24 @@ class ChromaPanelWidget(ChromaWidgetBase):
             painter.fillPath(widget_path, QBrush(QColor(0, 0, 0, 255)))
         
         # LAYER 2: Draw button zone background including notch (behind all golden borders)
-        # Fill the rectangular button zone using hard-coded button dimensions
-        button_zone_y = preview_y + self.preview_height
+        # Fill the rectangular button zone using dynamic button dimensions
+        button_zone_y = preview_y + self.preview_height + 1  # +1 for separator line
         button_zone_width = self.button_width
-        button_zone_height = self.button_height
         button_zone_x = (actual_width - button_zone_width) // 2  # Center the button zone
+        
+        # Calculate dynamic button zone height based on number of rows
+        total_chromas = len(self.circles)
+        if total_chromas <= 11:
+            num_rows = 1
+        elif total_chromas <= 22:
+            num_rows = 2
+        else:
+            num_rows = 3
+        
+        # Calculate dynamic button zone height
+        base_button_height = self.button_height  # Original single-row height
+        extra_height_per_row = self.circle_radius * 2 + 10  # Space for circle + padding
+        button_zone_height = base_button_height + (num_rows - 1) * extra_height_per_row
         
         # Ensure button zone background is drawn behind borders
         painter.setPen(Qt.PenStyle.NoPen)  # No border on the background fill
