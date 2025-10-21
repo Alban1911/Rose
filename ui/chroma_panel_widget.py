@@ -745,9 +745,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         button_zone_height = base_button_height + (num_rows - 1) * extra_height_per_row
         
         # Ensure button zone background is drawn behind borders
+        # Extend the rectangle all the way down to the notch base to avoid gaps
+        panel_height = actual_height - self.notch_height
+        button_zone_rect_height = panel_height - button_zone_y
+        
         painter.setPen(Qt.PenStyle.NoPen)  # No border on the background fill
         painter.setBrush(QBrush(QColor(0, 0, 0, 255)))
-        painter.drawRect(button_zone_x, button_zone_y, button_zone_width, button_zone_height)
+        painter.drawRect(button_zone_x, button_zone_y, button_zone_width, button_zone_rect_height)
         
         # LAYER 3: Draw most golden borders (but not lower border yet)
         painter.setPen(QPen(QColor("#b78c34"), 1))
