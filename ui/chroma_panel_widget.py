@@ -388,13 +388,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
             # Load chroma preview image with direct path
             chroma_id = chroma.get('id', 0)
             
-            # Special handling for HOL chroma - use real skin ID for preview
-            preview_chroma_id = chroma_id
-            if chroma_id == 100001:  # HOL chroma fake ID
-                preview_chroma_id = 145071  # Use real skin ID for preview
-                log.debug(f"[CHROMA] Using real skin ID {preview_chroma_id} for HOL chroma preview instead of fake ID {chroma_id}")
-            
-            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, preview_chroma_id, champion_name, skin_id)
+            # Use chroma_id directly (no more fake IDs)
+            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id, champion_name, skin_id)
             
             circle = ChromaCircle(
                 chroma_id=chroma_id,
@@ -428,7 +423,19 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # Find the index of the currently selected chroma (if provided)
         self.selected_index = 0  # Default to base
-        if selected_chroma_id is not None:
+        
+        # Special handling for Kai'Sa skins - if we're opening for Immortalized Legend (145071), 
+        # select the HOL chroma instead of the base skin
+        if skin_id == 145071:
+            # Immortalized Legend Kai'Sa is treated as a chroma selection
+            for i, circle in enumerate(self.circles):
+                if circle.chroma_id == 145071:  # HOL chroma real ID
+                    self.selected_index = i
+                    circle.is_selected = True
+                    base_circle.is_selected = False  # Unselect base
+                    log.debug(f"[CHROMA] Immortalized Legend Kai'Sa detected - selecting HOL chroma circle")
+                    break
+        elif selected_chroma_id is not None:
             for i, circle in enumerate(self.circles):
                 if circle.chroma_id == selected_chroma_id:
                     self.selected_index = i
@@ -754,9 +761,9 @@ class ChromaPanelWidget(ChromaWidgetBase):
             if 99991 <= circle.chroma_id <= 99999 or circle.chroma_id == 99007:
                 # Elementalist Lux form or base skin: use form-specific image
                 self._draw_elementalist_form_circle(painter, circle, radius)
-            # Check if this is a Risen Legend Kai'Sa HOL chroma (fake ID 100001), base skin (145070), or Immortalized Legend (145071)
-            elif circle.chroma_id == 100001 or circle.chroma_id == 145070 or circle.chroma_id == 145071:
-                # Risen Legend Kai'Sa HOL chroma, base skin, or Immortalized Legend: use HOL-specific image
+            # Check if this is a Risen Legend Kai'Sa base skin (145070) or Immortalized Legend (145071)
+            elif circle.chroma_id == 145070 or circle.chroma_id == 145071:
+                # Risen Legend Kai'Sa base skin or Immortalized Legend: use HOL-specific image
                 self._draw_hol_chroma_circle(painter, circle, radius)
             else:
                 # Regular chroma: use chroma color
@@ -835,11 +842,11 @@ class ChromaPanelWidget(ChromaWidgetBase):
         try:
             from utils.paths import get_asset_path
             
-            # For base skin (chroma_id = 0), base skin ID (145070), or Immortalized Legend (145071), use risen image
-            if circle.chroma_id == 0 or circle.chroma_id == 145070 or circle.chroma_id == 145071:
+            # For base skin (chroma_id = 0) or base skin ID (145070), use risen image
+            if circle.chroma_id == 0 or circle.chroma_id == 145070:
                 image_name = "risen.png"
             else:
-                # For HOL chroma (chroma_id = 100001), use immortal image
+                # For Immortalized Legend (chroma_id = 145071), use immortal image
                 image_name = "immortal.png"
             
             # Use HOL-specific image from kaisa_buttons folder

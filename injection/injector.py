@@ -342,9 +342,9 @@ class SkinInjector:
                     log.debug(f"[inject] Expected path like: skins/.../Lux/Forms/{form_pattern}")
                     return None
             
-            # Special handling for Risen Legend Kai'Sa HOL chroma (fake ID 100001)
-            elif chroma_id == 100001:
-                log.info(f"[inject] Detected Risen Legend Kai'Sa HOL chroma fake ID: {chroma_id}")
+            # Special handling for Risen Legend Kai'Sa HOL chroma (real ID 145071)
+            elif chroma_id == 145071:
+                log.info(f"[inject] Detected Risen Legend Kai'Sa HOL chroma real ID: {chroma_id}")
                 
                 # Hardcoded path for Immortalized Legend Kai'Sa skin file
                 immortal_path = self.zips_dir / "Kai'Sa" / "Immortalized Legend KaiSa.zip"

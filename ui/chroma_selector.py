@@ -67,9 +67,9 @@ class ChromaSelector:
     def _get_hol_chromas(self):
         """Get Risen Legend Kai'Sa HOL chroma data structure (equivalent to chromas)"""
         chromas = [
-            {'id': 100001, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False, 'hol_skin_id': 145071},
+            {'id': 145071, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False},
         ]
-        log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Kai'Sa HOL chromas with fake ID (100001) -> real skin ID (145071)")
+        log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Kai'Sa HOL chromas with real skin ID (145071)")
         return chromas
     
     def _on_chroma_selected(self, chroma_id, chroma_name: str):
@@ -108,10 +108,10 @@ class ChromaSelector:
                             log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                             log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
                 
-                # Check if this is a Risen Legend Kai'Sa HOL chroma (fake ID 100001)
-                elif chroma_id == 100001:
+                # Check if this is a Risen Legend Kai'Sa HOL chroma (real ID 145071)
+                elif chroma_id == 145071:
                     # This is a HOL chroma selection
-                    log.info(f"[CHROMA] HOL chroma selected: {chroma_name} (Fake ID: {chroma_id})")
+                    log.info(f"[CHROMA] HOL chroma selected: {chroma_name} (Real ID: {chroma_id})")
                     
                     # Store the HOL skin ID for injection
                     self.state.selected_chroma_id = chroma_id
@@ -125,7 +125,7 @@ class ChromaSelector:
                         self.state.last_hovered_skin_key = hol_skin_name
                         log.debug(f"[CHROMA] HOL skin name: {hol_skin_name}")
                         log.debug(f"[CHROMA] HOL skin ID: 145071")
-                        log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
+                        log.debug(f"[CHROMA] Using real ID {chroma_id} for injection (not owned)")
                     
                 elif chroma_id == 0 or chroma_id is None:
                     # Base skin selected - reset to original skin ID and skin name

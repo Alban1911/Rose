@@ -61,7 +61,7 @@ class ChromaPreviewManager:
                     log.debug(f"[CHROMA] Using base skin name for Elementalist Lux form preview: '{base_skin_name}'")
             
             # Special handling for Risen Legend Kai'Sa HOL chroma - use base skin name for preview paths
-            if chroma_id == 100001 or chroma_id == 145070 or chroma_id == 145071 or (champion_name.lower() == "kaisa" and skin_id in [145070, 145071]):
+            if chroma_id == 145070 or chroma_id == 145071 or (champion_name.lower() == "kaisa" and skin_id in [145070, 145071]):
                 # For Risen Legend Kai'Sa HOL chroma, use the base skin name instead of the HOL chroma name
                 if champion_name.lower() == "kaisa" and ("risen" in english_skin_name.lower() or "immortalized" in english_skin_name.lower()):
                     # Always use "Risen Legend Kai'Sa" as the base skin name for preview paths
@@ -70,12 +70,6 @@ class ChromaPreviewManager:
                         base_skin_name = f"{base_skin_name} {champion_name}"
                     english_skin_name = base_skin_name
                     log.debug(f"[CHROMA] Using base skin name for Risen Legend Kai'Sa HOL chroma preview: '{base_skin_name}'")
-                    
-                    # For HOL chroma (fake ID 100001), we need to use the real skin ID (145071) for the chroma preview path
-                    if chroma_id == 100001:
-                        # Override the chroma_id to use the real skin ID for preview path
-                        chroma_id = 145071
-                        log.debug(f"[CHROMA] Using real skin ID {chroma_id} for HOL chroma preview path")
             
             # Normalize skin name: remove colons, slashes, and other special characters that might not match filesystem
             # (e.g., "PROJECT: Naafiri" becomes "PROJECT Naafiri", "K/DA" becomes "KDA")
