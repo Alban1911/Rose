@@ -201,8 +201,13 @@ class ChromaSelector:
                             if not word.isdigit():
                                 clean_words.append(word)
                             else:
-                                # Stop at the first number we encounter (base skin ID or chroma ID)
-                                break
+                                # Check if this looks like a skin/chroma ID vs year
+                                if len(word) >= 5:
+                                    # This looks like a skin ID (5+ digits) or chroma ID (6+ digits), stop here
+                                    break
+                                else:
+                                    # This might be a year (4 digits) or other short number, keep it
+                                    clean_words.append(word)
                         
                         base_skin_name = ' '.join(clean_words)
                         
