@@ -125,6 +125,13 @@ class ChromaPreviewManager:
             log.debug(f"[CHROMA] Special handling for Kai'Sa skin ID {skin_id} - using 'Risen Legend Kai'Sa' for preview paths")
             return "Risen Legend Kai'Sa"
         
+        # Special handling for Ahri skins - always use "Risen Legend Ahri" for preview paths
+        # This must be checked BEFORE database lookup to prevent override
+        log.debug(f"[CHROMA] Checking Ahri special handling: champion='{champion_name}', skin_id={skin_id}")
+        if champion_lower == "ahri" and skin_id in [103085, 103086]:
+            log.debug(f"[CHROMA] Special handling for Ahri skin ID {skin_id} - using 'Risen Legend Ahri' for preview paths")
+            return "Risen Legend Ahri"
+        
         # Try to get English name from database using skin ID
         if skin_id and hasattr(self, 'db') and self.db:
             try:
@@ -136,6 +143,10 @@ class ChromaPreviewManager:
                     if champion_name.lower() == "kaisa" and skin_id in [145070, 145071]:
                         log.debug(f"[CHROMA] Overriding database result for Kai'Sa skin ID {skin_id} - using 'Risen Legend Kai'Sa'")
                         return "Risen Legend Kai'Sa"
+                    # Override database result for Ahri skins
+                    if champion_name.lower() == "ahri" and skin_id in [103085, 103086]:
+                        log.debug(f"[CHROMA] Overriding database result for Ahri skin ID {skin_id} - using 'Risen Legend Ahri'")
+                        return "Risen Legend Ahri"
                     return english_name
                 else:
                     log.debug(f"[CHROMA] No English name found in database for skin ID {skin_id}")

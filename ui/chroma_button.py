@@ -597,10 +597,11 @@ class OpeningButton(ChromaWidgetBase):
     
     
     def _is_hol_button(self):
-        """Check if this is a HOL button (Kai'Sa skins)"""
+        """Check if this is a HOL button (Kai'Sa or Ahri skins)"""
         if self.manager and hasattr(self.manager, 'current_skin_id') and self.manager.current_skin_id:
             current_skin_id = self.manager.current_skin_id
-            return current_skin_id == 145070 or current_skin_id == 145071
+            return (current_skin_id == 145070 or current_skin_id == 145071 or  # Kai'Sa skins
+                    current_skin_id == 103085 or current_skin_id == 103086)    # Ahri skins
         return False
     
     def _draw_hol_button_only(self, painter, center, actual_size):

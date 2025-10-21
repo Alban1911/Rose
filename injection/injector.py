@@ -307,6 +307,19 @@ class SkinInjector:
             else:
                 log.warning(f"[inject] Risen Legend Kai'Sa skin file not found: {risen_path}")
                 return None
+        
+        # Special handling for Risen Legend Ahri base skin (skin_id 103085)
+        if skin_name and "Risen Legend Ahri" in skin_name and chroma_id is None:
+            log.info(f"[inject] Detected Risen Legend Ahri base skin")
+            
+            # Hardcoded path for Risen Legend Ahri base skin file
+            risen_path = self.zips_dir / "Ahri" / "Risen Legend Ahri.zip"
+            if risen_path.exists():
+                log_success(log, f"Found Risen Legend Ahri skin: {risen_path.name}", "✨")
+                return risen_path
+            else:
+                log.warning(f"[inject] Risen Legend Ahri skin file not found: {risen_path}")
+                return None
 
         # If chroma_id is provided, look in chromas subdirectory structure
         # Structure: skins/{Champion}/chromas/{SkinName}/{SkinName} {ChromaId}.zip
@@ -353,6 +366,19 @@ class SkinInjector:
                     return immortal_path
                 else:
                     log.warning(f"[inject] Immortalized Legend Kai'Sa skin file not found: {immortal_path}")
+                    return None
+            
+            # Special handling for Risen Legend Ahri HOL chroma (real ID 103086)
+            elif chroma_id == 103086:
+                log.info(f"[inject] Detected Risen Legend Ahri HOL chroma real ID: {chroma_id}")
+                
+                # Hardcoded path for Immortalized Legend Ahri skin file
+                immortal_path = self.zips_dir / "Ahri" / "Immortalized Legend Ahri.zip"
+                if immortal_path.exists():
+                    log_success(log, f"Found Immortalized Legend Ahri skin: {immortal_path.name}", "✨")
+                    return immortal_path
+                else:
+                    log.warning(f"[inject] Immortalized Legend Ahri skin file not found: {immortal_path}")
                     return None
             
             # Try to find chroma file by ID in subdirectory structure

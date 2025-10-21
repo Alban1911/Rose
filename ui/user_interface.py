@@ -202,6 +202,21 @@ class UserInterface:
                 log.debug(f"[UI] Risen Legend Kai'Sa HOL chroma detected - considered as chroma")
                 return True
             
+            # Special case: Risen Legend Ahri (skin ID 103085) has HOL chroma instead of regular chromas
+            if skin_id == 103085:
+                log.debug(f"[UI] Risen Legend Ahri detected - has HOL chroma instead of regular chromas")
+                return True
+            
+            # Special case: Immortalized Legend Ahri (skin ID 103086) is treated as a chroma of Risen Legend Ahri
+            if skin_id == 103086:
+                log.debug(f"[UI] Immortalized Legend Ahri detected - treated as chroma of Risen Legend Ahri")
+                return True
+            
+            # Special case: Risen Legend Ahri HOL chroma (fake ID 88888) is considered a chroma
+            if skin_id == 88888:
+                log.debug(f"[UI] Risen Legend Ahri HOL chroma detected - considered as chroma")
+                return True
+            
             # First, check if this skin_id is a chroma by looking it up in the chroma cache
             if self.skin_scraper and self.skin_scraper.cache:
                 if skin_id in self.skin_scraper.cache.chroma_id_map:
