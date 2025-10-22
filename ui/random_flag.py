@@ -102,24 +102,19 @@ class RandomFlag(ChromaWidgetBase):
             # Hardcoded positions and sizes for each resolution
             if window_width == 1600 and window_height == 900:
                 # 1600x900 resolution
-                flag_size = 90
-                target_x = 755
-                target_y = 640
-            elif window_width == 1280 and window_height == 720:
-                # 1280x720 resolution
-                flag_size = 72  # 90 * 0.8
-                target_x = 604  # 755 * 0.8
-                target_y = 512  # 640 * 0.8
+                flag_size = 42
+                target_x = 779
+                target_y = 702
             elif window_width == 1024 and window_height == 576:
                 # 1024x576 resolution
-                flag_size = 58  # 90 * 0.64
+                flag_size = 27  # 90 * 0.64
                 target_x = 483  # 755 * 0.64
-                target_y = 410  # 640 * 0.64
+                target_y = 462  # 640 * 0.64
             else:
-                # Fallback for other resolutions
-                flag_size = 90
-                target_x = 755
-                target_y = 640
+                # Fallback for other resolutions (use 1280x720 values)
+                flag_size = 34
+                target_x = 604
+                target_y = 564
             
             # Set static size
             self.setFixedSize(flag_size, flag_size)
