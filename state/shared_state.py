@@ -58,3 +58,8 @@ class SharedState:
     # UI Detection
     ui_last_text: Optional[str] = None  # Last detected skin name from UI
     ui_skin_id: Optional[int] = None  # Last detected skin ID from UI
+    
+    # Random skin selection
+    random_skin_name: Optional[str] = None  # Selected random skin for injection
+    random_skin_id: Optional[int] = None  # Selected random skin/chroma ID for injection
+    random_mode_active: bool = False  # Tracks if randomization is active
