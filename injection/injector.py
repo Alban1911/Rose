@@ -321,6 +321,18 @@ class SkinInjector:
                 log.warning(f"[inject] Risen Legend Ahri skin file not found: {risen_path}")
                 return None
 
+        # For base skins (no chroma_id), construct exact path
+        if chroma_id is None and skin_name:
+            # Extract champion name from skin name (last word)
+            champion_name = skin_name.split()[-1]
+            exact_path = self.zips_dir / champion_name / f"{skin_name}.zip"
+            if exact_path.exists():
+                log_success(log, f"Found base skin: {exact_path.name}", "✨")
+                return exact_path
+            else:
+                log.error(f"[inject] Base skin not found at exact path: {exact_path}")
+                return None
+
         # If chroma_id is provided, look in chromas subdirectory structure
         # Structure: skins/{Champion}/chromas/{SkinName}/{SkinName} {ChromaId}.zip
         if chroma_id is not None and skin_name:
@@ -381,83 +393,24 @@ class SkinInjector:
                     log.warning(f"[inject] Immortalized Legend Ahri skin file not found: {immortal_path}")
                     return None
             
-            # Try to find chroma file by ID in subdirectory structure
-            chroma_pattern = f"{skin_name} {chroma_id}.zip"
-            
-            # Search for chroma in subdirectories
-            chroma_files = list(self.zips_dir.rglob(f"chromas/*/{chroma_pattern}"))
-            if chroma_files:
-                log_success(log, f"Found chroma by ID: {chroma_files[0].name}", "🎨")
-                return chroma_files[0]
-            
-            # Also try without space
-            chroma_pattern_nospace = f"{skin_name}{chroma_id}.zip"
-            chroma_files = list(self.zips_dir.rglob(f"chromas/*/{chroma_pattern_nospace}"))
-            if chroma_files:
-                log_success(log, f"Found chroma by ID (no space): {chroma_files[0].name}", "🎨")
-                return chroma_files[0]
-            
-            # Try with normalized skin name
-            def _norm(s: str) -> str:
-                return "".join(ch.lower() for ch in s if ch.isalnum())
-            
-            skin_norm = _norm(skin_name)
-            
-            # Search all chroma directories for files containing the chroma ID
-            all_chroma_zips = list(self.zips_dir.rglob("chromas/*/*.zip"))
-            for zp in all_chroma_zips:
-                # Check if filename contains chroma ID
-                if str(chroma_id) in zp.stem:
-                    # Verify it's for the right skin by checking directory or filename
-                    if skin_norm in _norm(zp.parent.name) or skin_norm in _norm(zp.stem):
-                        log_success(log, f"Found chroma by ID search: {zp.name}", "🎨")
-                        return zp
-            
-            log.warning(f"[inject] Chroma file not found for '{skin_name}' with ID {chroma_id}")
-            log.debug(f"[inject] Expected path like: skins/.../chromas/{skin_name}/{skin_name} {chroma_id}.zip")
+            # Construct exact chroma path
+            champion_name = skin_name.split()[-1]
+            exact_chroma_path = self.zips_dir / champion_name / "chromas" / skin_name / f"{skin_name} {chroma_id}.zip"
+            if exact_chroma_path.exists():
+                log_success(log, f"Found chroma: {exact_chroma_path.name}", "🎨")
+                return exact_chroma_path
+            else:
+                log.error(f"[inject] Chroma not found at exact path: {exact_chroma_path}")
+                return None
 
-        def _norm(s: str) -> str:
-            return "".join(ch.lower() for ch in s if ch.isalnum())
-
-        target = zip_arg
-        target_lower = target.lower()
-        target_norm = _norm(target)
-
-        all_zips = list(self.zips_dir.rglob("*.zip"))
-
-        if not all_zips:
-            return None
-
-        # 1) exact filename (case-insensitive)
-        for zp in all_zips:
-            if zp.name.lower() == target_lower:
-                return zp
-
-        # 2) exact normalized match
-        norm_map = {zp: _norm(zp.name) for zp in all_zips}
-        exact_norm = [zp for zp, nz in norm_map.items() if nz == target_norm]
-        if len(exact_norm) == 1:
-            return exact_norm[0]
-
-        # 3) contains normalized
-        contains = [zp for zp, nz in norm_map.items() if target_norm and target_norm in nz]
-        if len(contains) == 1:
-            return contains[0]
-
-        # 4) fuzzy best match
-        try:
-            import difflib
-            best, best_score = None, 0.0
-            for zp, nz in norm_map.items():
-                score = difflib.SequenceMatcher(None, nz, target_norm).ratio()
-                if target_norm and target_norm in nz:
-                    score += 0.15
-                if score > best_score:
-                    best, best_score = zp, score
-            if best:
-                log.debug(f"[inject] Fuzzy match found: '{best.name}' (score: {best_score:.3f}) for target '{target_norm}'")
-            return best
-        except Exception:
+        # For regular skin files (no chroma_id), construct exact path
+        champion_name = zip_arg.split()[-1]
+        exact_path = self.zips_dir / champion_name / f"{zip_arg}.zip"
+        if exact_path.exists():
+            log_success(log, f"Found skin: {exact_path.name}", "✨")
+            return exact_path
+        else:
+            log.error(f"[inject] Skin not found at exact path: {exact_path}")
             return None
     
     def _clean_mods_dir(self):

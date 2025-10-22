@@ -266,8 +266,14 @@ class LoadoutTicker(threading.Thread):
                                 # Get selected chroma ID from state (already selected via wheel shown by UI detection)
                                 # For random mode, use the random skin ID instead
                                 if getattr(self.state, 'random_mode_active', False) and getattr(self.state, 'random_skin_id', None):
-                                    selected_chroma_id = self.state.random_skin_id
-                                    log.info(f"[RANDOM] Using random skin ID: {selected_chroma_id}")
+                                    random_skin_id = self.state.random_skin_id
+                                    # Check if the random skin ID is actually a chroma
+                                    if self.skin_scraper and self.skin_scraper.cache and random_skin_id in self.skin_scraper.cache.chroma_id_map:
+                                        selected_chroma_id = random_skin_id
+                                        log.info(f"[RANDOM] Using random chroma ID: {selected_chroma_id}")
+                                    else:
+                                        selected_chroma_id = None
+                                        log.info(f"[RANDOM] Using random base skin ID: {random_skin_id}")
                                 else:
                                     selected_chroma_id = self.state.selected_chroma_id
                                     if selected_chroma_id:
