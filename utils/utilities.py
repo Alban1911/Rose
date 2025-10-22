@@ -37,20 +37,28 @@ def is_owned(skin_id: int, owned_skin_ids: set) -> bool:
     return is_default_skin(skin_id) or (skin_id in owned_skin_ids)
 
 
-def is_chroma_id(skin_id: int, chroma_id_map: dict) -> bool:
+def is_chroma_id(skin_id: int, chroma_id_map: Optional[dict]) -> bool:
     """Check if a skin ID is a chroma using the chroma_id_map
     
     Args:
         skin_id: The skin ID to check
-        chroma_id_map: Dictionary mapping chroma IDs to chroma data
+        chroma_id_map: Dictionary mapping chroma IDs to chroma data (can be None)
         
     Returns:
         True if the skin ID is a chroma, False otherwise
     """
-    return skin_id in (145071, 103086, 99991, 99992, 99993, 99994, 99995, 99996, 99997, 99998, 99999) or (skin_id in chroma_id_map)
+    # Check hardcoded special chroma IDs first (always check these)
+    if skin_id in (145071, 103086, 99991, 99992, 99993, 99994, 99995, 99996, 99997, 99998, 99999):
+        return True
+    
+    # Check chroma_id_map if it's not None and not empty
+    if chroma_id_map is not None:
+        return skin_id in chroma_id_map
+    
+    return False
 
 
-def get_base_skin_id_for_chroma(chroma_id: int, chroma_id_map: dict) -> Optional[int]:
+def get_base_skin_id_for_chroma(chroma_id: int, chroma_id_map: Optional[dict]) -> Optional[int]:
     """Get the base skin ID for a given chroma ID
     
     Args:
@@ -86,9 +94,10 @@ def get_base_skin_id_for_chroma(chroma_id: int, chroma_id_map: dict) -> Optional
             return 103085  # Immortalized Legend Ahri base skin ID
         
         # Check if this chroma ID exists in the cache
-        chroma_data = chroma_id_map.get(chroma_id)
-        if chroma_data:
-            return chroma_data.get('skinId')
+        if chroma_id_map is not None:
+            chroma_data = chroma_id_map.get(chroma_id)
+            if chroma_data:
+                return chroma_data.get('skinId')
         
         return None
         
@@ -97,7 +106,7 @@ def get_base_skin_id_for_chroma(chroma_id: int, chroma_id_map: dict) -> Optional
         return None
 
 
-def is_base_skin_of_chroma_set(skin_id: int, chroma_id_map: dict) -> bool:
+def is_base_skin_of_chroma_set(skin_id: int, chroma_id_map: Optional[dict]) -> bool:
     """Check if a skin ID is the base skin of a chroma set
     
     Args:
@@ -108,9 +117,10 @@ def is_base_skin_of_chroma_set(skin_id: int, chroma_id_map: dict) -> bool:
         True if the skin is a base skin of a chroma set, False otherwise
     """
     # Check if this skin ID appears as a base skin for any chromas in the map
-    for chroma_id, chroma_data in chroma_id_map.items():
-        if chroma_data and chroma_data.get('skinId') == skin_id:
-            return True
+    if chroma_id_map is not None:
+        for chroma_id, chroma_data in chroma_id_map.items():
+            if chroma_data and chroma_data.get('skinId') == skin_id:
+                return True
     
     # Special cases that are base skins but might not be in chroma_id_map
     special_base_skins = [99007, 145070, 103085]
@@ -120,7 +130,7 @@ def is_base_skin_of_chroma_set(skin_id: int, chroma_id_map: dict) -> bool:
     return False
 
 
-def is_base_skin(skin_id: int, chroma_id_map: dict) -> bool:
+def is_base_skin(skin_id: int, chroma_id_map: Optional[dict]) -> bool:
     """Check if a skin ID is a base skin (not a chroma)
     
     Args:
@@ -133,7 +143,7 @@ def is_base_skin(skin_id: int, chroma_id_map: dict) -> bool:
     return not is_chroma_id(skin_id, chroma_id_map)
 
 
-def is_base_skin_owned(skin_id: int, owned_skin_ids: set, chroma_id_map: dict) -> bool:
+def is_base_skin_owned(skin_id: int, owned_skin_ids: set, chroma_id_map: Optional[dict]) -> bool:
     """Check if the base skin of a given skin is owned
     
     Args:
@@ -154,7 +164,7 @@ def is_base_skin_owned(skin_id: int, owned_skin_ids: set, chroma_id_map: dict) -
         return is_owned(base_skin_id, owned_skin_ids) if base_skin_id is not None else False
 
 
-def convert_to_english_skin_name(skin_id: int, localized_name: str, db=None, champion_name: str = None, chroma_id_map: dict = None) -> str:
+def convert_to_english_skin_name(skin_id: int, localized_name: str, db=None, champion_name: str = None, chroma_id_map: Optional[dict] = None) -> str:
     """Convert localized skin name to English using database
     
     Args:
