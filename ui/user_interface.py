@@ -30,11 +30,17 @@ class UserInterface:
         # UI Components (will be initialized when entering ChampSelect)
         self.chroma_ui = None
         self.unowned_frame = None
+        self.dice_button = None
+        self.random_flag = None
         
         # Current skin tracking
         self.current_skin_id = None
         self.current_skin_name = None
         self.current_champion_name = None
+        
+        # Randomization state
+        self._randomization_in_progress = False
+        self._randomization_started = False  # Prevent multiple simultaneous randomizations
         
         # Pending initialization/destruction flags
         self._pending_ui_initialization = False
@@ -65,6 +71,21 @@ class UserInterface:
             self.unowned_frame._create_components()
             self.unowned_frame.show()
             log.info("[UI] UnownedFrame created successfully")
+            
+            log.info("[UI] Creating DiceButton components...")
+            # Create DiceButton instance
+            from ui.dice_button import DiceButton
+            self.dice_button = DiceButton(state=self.state)
+            
+            # Connect dice button signals
+            self.dice_button.dice_clicked.connect(self._on_dice_clicked)
+            log.info("[UI] DiceButton created successfully")
+            
+            log.info("[UI] Creating RandomFlag components...")
+            # Create RandomFlag instance
+            from ui.random_flag import RandomFlag
+            self.random_flag = RandomFlag(state=self.state)
+            log.info("[UI] RandomFlag created successfully")
             
             self._last_unowned_skin_id = None
             # Track last base skin that showed UnownedFrame to control fade behavior
@@ -109,7 +130,7 @@ class UserInterface:
             prev_skin_id = self.current_skin_id
             prev_base_skin_id = None
             if prev_skin_id is not None:
-                prev_base_skin_id = prev_skin_id if (prev_skin_id % 1000 == 0) else self._get_base_skin_id_for_chroma(prev_skin_id)
+                prev_base_skin_id = prev_skin_id if not self._is_chroma_id(prev_skin_id) else self._get_base_skin_id_for_chroma(prev_skin_id)
 
             # Update current skin tracking
             self.current_skin_id = skin_id
@@ -124,7 +145,7 @@ class UserInterface:
             
             # Check ownership
             is_owned = skin_id in self.state.owned_skin_ids
-            is_base_skin = skin_id % 1000 == 0
+            is_base_skin = not self._is_chroma_id(skin_id)
             # Determine new base skin id for current selection
             new_base_skin_id = skin_id if is_base_skin else self._get_base_skin_id_for_chroma(skin_id)
             
@@ -161,6 +182,13 @@ class UserInterface:
             else:
                 self._hide_unowned_frame()
 
+            # Cancel randomization if skin changed and random mode is active (but not during randomization sequence)
+            if self.state.random_mode_active and not self._randomization_in_progress:
+                self._cancel_randomization()
+            
+            # Update dice button visibility
+            self._update_dice_button()
+
             # Update last base skin id after handling
             self._last_base_skin_id = new_base_skin_id if new_base_skin_id is not None else (skin_id if is_base_skin else None)
     
@@ -173,6 +201,10 @@ class UserInterface:
             log.info("[UI] Hiding all UI components")
             self._hide_chroma_ui()
             self._hide_unowned_frame()
+            if self.dice_button:
+                self.dice_button.hide_button()
+            if self.random_flag:
+                self.random_flag.hide_flag()
     
     def _skin_has_chromas(self, skin_id: int) -> bool:
         """Check if skin has chromas"""
@@ -238,16 +270,16 @@ class UserInterface:
             if not hasattr(self, 'current_skin_id') or self.current_skin_id is None:
                 return False
             
-            # Check if the current skin is a base skin (ID % 1000 == 0)
+            # Check if the current skin is a base skin
             current_base_skin_id = self.current_skin_id
-            if current_base_skin_id % 1000 != 0:
+            if self._is_chroma_id(current_base_skin_id):
                 # Current skin is already a chroma, get its base skin
                 current_base_skin_id = self._get_base_skin_id_for_chroma(current_base_skin_id)
                 if current_base_skin_id is None:
                     return False
             
             # Check if the new skin_id is a chroma of the same base skin
-            if skin_id % 1000 == 0:
+            if not self._is_chroma_id(skin_id):
                 # New skin is a base skin, not a chroma selection
                 return False
             
@@ -317,7 +349,7 @@ class UserInterface:
             try:
                 # Determine base skin ID for the current skin
                 current_base_skin_id = skin_id
-                if skin_id % 1000 != 0:
+                if self._is_chroma_id(skin_id):
                     base_id = self._get_base_skin_id_for_chroma(skin_id)
                     if base_id is not None:
                         current_base_skin_id = base_id
@@ -428,6 +460,14 @@ class UserInterface:
             if self.chroma_ui:
                 # ChromaUI components handle their own resolution checking
                 pass
+            
+            # Check DiceButton for resolution changes
+            if self.dice_button:
+                self.dice_button.check_resolution_and_update()
+            
+            # Check RandomFlag for resolution changes
+            if self.random_flag:
+                self.random_flag.check_resolution_and_update()
                 
         except Exception as e:
             log.error(f"[UI] Error checking resolution changes: {e}")
@@ -452,7 +492,10 @@ class UserInterface:
     
     def is_ui_initialized(self):
         """Check if UI components are initialized"""
-        return self.chroma_ui is not None and self.unowned_frame is not None
+        return (self.chroma_ui is not None and 
+                self.unowned_frame is not None and 
+                self.dice_button is not None and 
+                self.random_flag is not None)
     
     def request_ui_initialization(self):
         """Request UI initialization (called from any thread)"""
@@ -545,14 +588,20 @@ class UserInterface:
             # Store references to cleanup outside the lock to avoid deadlock
             chroma_ui_to_cleanup = None
             unowned_frame_to_cleanup = None
+            dice_button_to_cleanup = None
+            random_flag_to_cleanup = None
             
             if lock_acquired:
                 try:
                     log.debug("[UI] Lock acquired, storing references")
                     chroma_ui_to_cleanup = self.chroma_ui
                     unowned_frame_to_cleanup = self.unowned_frame
+                    dice_button_to_cleanup = self.dice_button
+                    random_flag_to_cleanup = self.random_flag
                     self.chroma_ui = None
                     self.unowned_frame = None
+                    self.dice_button = None
+                    self.random_flag = None
                     
                     # Also clear global instances
                     try:
@@ -572,6 +621,8 @@ class UserInterface:
                 try:
                     chroma_ui_to_cleanup = self.chroma_ui
                     unowned_frame_to_cleanup = self.unowned_frame
+                    dice_button_to_cleanup = self.dice_button
+                    random_flag_to_cleanup = self.random_flag
                     log.debug("[UI] Got references without lock")
                 except Exception as e:
                     log.warning(f"[UI] Could not get references without lock: {e}")
@@ -596,6 +647,26 @@ class UserInterface:
                     log.error(f"[UI] Error cleaning up UnownedFrame: {e}")
                     import traceback
                     log.error(f"[UI] UnownedFrame cleanup traceback: {traceback.format_exc()}")
+            
+            if dice_button_to_cleanup:
+                log.debug("[UI] Cleaning up DiceButton...")
+                try:
+                    dice_button_to_cleanup.cleanup()
+                    log.debug("[UI] DiceButton cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up DiceButton: {e}")
+                    import traceback
+                    log.error(f"[UI] DiceButton cleanup traceback: {traceback.format_exc()}")
+            
+            if random_flag_to_cleanup:
+                log.debug("[UI] Cleaning up RandomFlag...")
+                try:
+                    random_flag_to_cleanup.cleanup()
+                    log.debug("[UI] RandomFlag cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up RandomFlag: {e}")
+                    import traceback
+                    log.error(f"[UI] RandomFlag cleanup traceback: {traceback.format_exc()}")
             
             # If we couldn't get references, try to force cleanup through global instances
             if not chroma_ui_to_cleanup and not unowned_frame_to_cleanup:
@@ -632,6 +703,295 @@ class UserInterface:
             if lock_acquired:
                 self.lock.release()
     
+    def _on_dice_clicked(self, state: str):
+        """Handle dice button click events"""
+        log.info(f"[UI] Dice button clicked in {state} state")
+        if state == 'disabled':
+            self._handle_dice_click_disabled()
+        elif state == 'enabled':
+            self._handle_dice_click_enabled()
+        else:
+            log.warning(f"[UI] Unknown dice button state: {state}")
+    
+    def _handle_dice_click_disabled(self):
+        """Handle dice button click in disabled state - start randomization"""
+        # Prevent multiple simultaneous randomization attempts
+        if self._randomization_started:
+            log.debug("[UI] Randomization already in progress, ignoring click")
+            return
+            
+        log.info("[UI] Starting random skin selection")
+        self._randomization_started = True
+        
+        # Force champion's base skin first
+        champion_id = self.skin_scraper.cache.champion_id if self.skin_scraper and self.skin_scraper.cache else None
+        base_champion_skin_id = champion_id * 1000 if champion_id else None
+        
+        if self.current_skin_id == base_champion_skin_id:
+            # Already champion's base skin, proceed with randomization
+            self._start_randomization()
+        else:
+            # Need to force champion's base skin first
+            self._force_base_skin_and_randomize()
+    
+    def _handle_dice_click_enabled(self):
+        """Handle dice button click in enabled state - cancel randomization"""
+        log.info("[UI] Cancelling random skin selection")
+        self._cancel_randomization()
+    
+    def _force_base_skin_and_randomize(self):
+        """Force champion's base skin via LCU API then start randomization"""
+        if not self.state.locked_champ_id:
+            log.warning("[UI] Cannot force base skin - no locked champion")
+            return
+        
+        # Set flag to prevent cancellation during randomization
+        self._randomization_in_progress = True
+        
+        # Get champion's base skin ID (champion_id * 1000)
+        champion_id = self.state.locked_champ_id
+        base_skin_id = champion_id * 1000
+        log.info(f"[UI] Forcing champion base skin: {base_skin_id} (champion {champion_id})")
+        
+        # Force base skin via LCU (reuse existing LCU instance)
+        try:
+            # Get the existing LCU instance from the skin scraper
+            if not self.skin_scraper or not hasattr(self.skin_scraper, 'lcu'):
+                log.warning("[UI] No LCU instance available")
+                self._randomization_in_progress = False
+                return
+            
+            lcu = self.skin_scraper.lcu
+            
+            # Try to set base skin
+            if lcu.set_my_selection_skin(base_skin_id):
+                log.info(f"[UI] Forced champion base skin: {base_skin_id}")
+                # Add a delay to let UI detection process the base skin change
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(1000, self._start_randomization)
+            else:
+                log.warning("[UI] Failed to force champion base skin")
+                self._randomization_in_progress = False
+                self._randomization_started = False
+        except Exception as e:
+            log.error(f"[UI] Error forcing champion base skin: {e}")
+            self._randomization_in_progress = False
+            self._randomization_started = False
+    
+    def _start_randomization(self):
+        """Start the randomization sequence"""
+        # Switch dice to disabled state (non-interactive)
+        if self.dice_button:
+            self.dice_button.set_state('disabled')
+        
+        # Fade in random flag
+        if self.random_flag:
+            self.random_flag.show_flag()
+        
+        # Switch dice to enabled state
+        if self.dice_button:
+            self.dice_button.set_state('enabled')
+        
+        # Select random skin
+        random_selection = self._select_random_skin()
+        if random_selection:
+            random_skin_name, random_skin_id = random_selection
+            self.state.random_skin_name = random_skin_name
+            self.state.random_skin_id = random_skin_id
+            self.state.random_mode_active = True
+            log.info(f"[UI] Random skin selected: {random_skin_name} (ID: {random_skin_id})")
+        else:
+            log.warning("[UI] No random skin available")
+            self._cancel_randomization()
+        
+        # Clear the randomization flags AFTER everything is set up
+        self._randomization_in_progress = False
+        self._randomization_started = False
+    
+    def _cancel_randomization(self):
+        """Cancel randomization and reset state"""
+        # Fade out random flag
+        if self.random_flag:
+            self.random_flag.hide_flag()
+        
+        # Reset state
+        self.state.random_skin_name = None
+        self.state.random_skin_id = None
+        self.state.random_mode_active = False
+        
+        # Clear randomization flags
+        self._randomization_in_progress = False
+        self._randomization_started = False
+        
+        # Switch dice to disabled state
+        if self.dice_button:
+            self.dice_button.set_state('disabled')
+        
+        log.info("[UI] Randomization cancelled")
+    
+    def _select_random_skin(self) -> Optional[tuple]:
+        """Select a random skin from available skins (excluding base skin)
+        
+        Returns:
+            Tuple of (skin_name, skin_id) or None if no skin available
+        """
+        if not self.skin_scraper or not self.skin_scraper.cache.skins:
+            log.warning("[UI] No skins available for random selection")
+            return None
+        
+        # Filter out the champion's base skin (champion_id * 1000) and actual chromas
+        champion_id = self.skin_scraper.cache.champion_id
+        base_champion_skin_id = champion_id * 1000 if champion_id else None
+        
+        available_skins = [
+            skin for skin in self.skin_scraper.cache.skins 
+            if skin.get('skinId') != base_champion_skin_id and not self._is_chroma_id(skin.get('skinId'))
+        ]
+        
+        # Debug logging
+        log.debug(f"[UI] Champion ID: {champion_id}, Base skin ID: {base_champion_skin_id}")
+        log.debug(f"[UI] Total skins in cache: {len(self.skin_scraper.cache.skins)}")
+        log.debug(f"[UI] Available skins for random selection: {len(available_skins)}")
+        for skin in available_skins[:5]:  # Show first 5 for debugging
+            log.debug(f"[UI] Available skin: {skin.get('skinName')} (ID: {skin.get('skinId')})")
+        
+        if not available_skins:
+            log.warning("[UI] No non-base skins available for random selection")
+            return None
+        
+        # Select random skin
+        import random
+        selected_skin = random.choice(available_skins)
+        skin_id = selected_skin.get('skinId')
+        localized_skin_name = selected_skin.get('skinName', '')
+        
+        if not localized_skin_name or not skin_id:
+            log.warning("[UI] Selected skin has no name or ID")
+            return None
+        
+        # Convert localized skin name to English using database
+        english_skin_name = self._convert_to_english_skin_name(skin_id, localized_skin_name)
+        
+        # Check if this skin has chromas
+        chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
+        if chromas and len(chromas) > 0:
+            log.info(f"[UI] Skin '{english_skin_name}' has {len(chromas)} chromas, selecting random chroma")
+            
+            # Create list of all options: base skin + all chromas
+            all_options = []
+            
+            # Add base skin (the original skin without chromas)
+            all_options.append({
+                'id': skin_id,
+                'name': english_skin_name,
+                'type': 'base'
+            })
+            
+            # Add all chromas
+            for chroma in chromas:
+                localized_chroma_name = chroma.get('name', f'{english_skin_name} Chroma')
+                # Convert chroma name to English if possible
+                english_chroma_name = self._convert_to_english_chroma_name(chroma.get('id'), localized_chroma_name, english_skin_name)
+                all_options.append({
+                    'id': chroma.get('id'),
+                    'name': english_chroma_name,
+                    'type': 'chroma'
+                })
+            
+            # Select random option from base + chromas
+            selected_option = random.choice(all_options)
+            selected_name = selected_option['name']
+            selected_id = selected_option['id']
+            selected_type = selected_option['type']
+            
+            log.info(f"[UI] Random selection: {selected_type} '{selected_name}' (ID: {selected_id})")
+            return (selected_name, selected_id)
+        else:
+            # No chromas, return the base skin name and ID
+            log.info(f"[UI] Skin '{english_skin_name}' has no chromas, using base skin")
+            return (english_skin_name, skin_id)
+    
+    def _convert_to_english_skin_name(self, skin_id: int, localized_name: str) -> str:
+        """Convert localized skin name to English using database
+        
+        Args:
+            skin_id: The skin ID
+            localized_name: The localized skin name from LCU
+            
+        Returns:
+            English skin name if found, otherwise returns localized name
+        """
+        if not self.db:
+            log.debug(f"[UI] No database available for skin name conversion, using localized: '{localized_name}'")
+            return localized_name
+        
+        try:
+            english_name = self.db.get_english_skin_name_by_id(skin_id)
+            if english_name:
+                log.debug(f"[UI] Converted skin name: '{localized_name}' -> '{english_name}' (ID: {skin_id})")
+                return english_name
+            else:
+                log.debug(f"[UI] No English name found for skin ID {skin_id}, using localized: '{localized_name}'")
+                return localized_name
+        except Exception as e:
+            log.debug(f"[UI] Error converting skin name for ID {skin_id}: {e}, using localized: '{localized_name}'")
+            return localized_name
+    
+    def _is_chroma_id(self, skin_id: int) -> bool:
+        """Check if a skin ID is a chroma using the proper chroma_id_map
+        
+        Args:
+            skin_id: The skin ID to check
+            
+        Returns:
+            True if the skin ID is a chroma, False otherwise
+        """
+        if not self.skin_scraper or not self.skin_scraper.cache:
+            return False
+        
+        return skin_id in self.skin_scraper.cache.chroma_id_map
+    
+    def _convert_to_english_chroma_name(self, chroma_id: int, localized_name: str, base_skin_name: str) -> str:
+        """Convert localized chroma name to English
+        
+        Args:
+            chroma_id: The chroma ID
+            localized_name: The localized chroma name from LCU
+            base_skin_name: The English base skin name
+            
+        Returns:
+            English chroma name if possible, otherwise returns formatted name
+        """
+        # Try to get English chroma name from skin scraper's chroma cache
+        if self.skin_scraper and self.skin_scraper.cache:
+            chroma_data = self.skin_scraper.cache.chroma_id_map.get(chroma_id)
+            if chroma_data and 'name' in chroma_data:
+                english_chroma_name = chroma_data['name']
+                log.debug(f"[UI] Using English chroma name from skin scraper: '{localized_name}' -> '{english_chroma_name}' (ID: {chroma_id})")
+                return english_chroma_name
+        
+        # Fallback: use base skin name + "Chroma" or localized name
+        if not localized_name or localized_name == f'{base_skin_name} Chroma':
+            return f'{base_skin_name} Chroma'
+        
+        # If the localized name looks like a simple color description, keep it
+        # Otherwise, use the base skin name + "Chroma"
+        return localized_name if len(localized_name.split()) <= 2 else f'{base_skin_name} Chroma'
+    
+    def _update_dice_button(self):
+        """Update dice button visibility based on current context"""
+        if not self.dice_button:
+            log.debug("[UI] Dice button not initialized")
+            return
+        
+        # Show dice button if we have a skin (champion name is optional)
+        if self.current_skin_id:
+            log.debug(f"[UI] Showing dice button for skin ID: {self.current_skin_id}")
+            self.dice_button.show_button()
+        else:
+            log.debug("[UI] Hiding dice button - no current skin")
+            self.dice_button.hide_button()
+
     def cleanup(self):
         """Clean up all UI components"""
         with self.lock:
@@ -639,6 +999,10 @@ class UserInterface:
                 self.chroma_ui.cleanup()
             if self.unowned_frame:
                 self.unowned_frame.cleanup()
+            if self.dice_button:
+                self.dice_button.cleanup()
+            if self.random_flag:
+                self.random_flag.cleanup()
             log.info("[UI] All UI components cleaned up")
 
 
