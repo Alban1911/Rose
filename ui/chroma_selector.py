@@ -9,6 +9,7 @@ import threading
 from typing import Optional
 from ui.chroma_panel import get_chroma_panel
 from utils.logging import get_logger
+from utils.utilities import is_default_skin, is_owned
 from utils.validation import validate_skin_id, validate_skin_name
 
 log = get_logger()
@@ -47,6 +48,7 @@ class ChromaSelector:
             from ui.chroma_preview_manager import get_preview_manager
             preview_manager = get_preview_manager(db)
             log.debug("[CHROMA] Database passed to preview manager for cross-language lookups")
+    
     
     def _get_elementalist_forms(self):
         """Get Elementalist Lux Forms data structure (equivalent to chromas)"""
@@ -319,14 +321,13 @@ class ChromaSelector:
                 chromas = self.skin_scraper.get_chromas_for_skin(base_skin_id)
             
             # Mark ownership status on each chroma for the injection system (if chromas exist)
-            owned_skin_ids = self.state.owned_skin_ids
             owned_count = 0
             if chromas:
                 for chroma in chromas:
                     chroma_id = chroma.get('id')
-                    is_owned = chroma_id in owned_skin_ids
-                    chroma['is_owned'] = is_owned  # Add ownership flag
-                    if is_owned:
+                    is_owned_var = is_owned(chroma_id, self.state.owned_skin_ids)
+                    chroma['is_owned'] = is_owned_var  # Add ownership flag
+                    if is_owned_var:
                         owned_count += 1
             
             # Show button regardless of whether chromas exist

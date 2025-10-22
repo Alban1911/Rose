@@ -8,6 +8,7 @@ Provides access to chroma preview images from downloaded SkinPreviews repository
 from pathlib import Path
 from typing import Optional
 from utils.logging import get_logger
+from utils.utilities import convert_to_english_skin_name
 from utils.paths import get_appdata_dir
 
 log = get_logger()
@@ -47,7 +48,8 @@ class ChromaPreviewManager:
         
         try:
             # Convert skin name to English if needed (preview images are stored with English names)
-            english_skin_name = self._convert_to_english_skin_name(champion_name, skin_name, skin_id)
+            # Note: chroma_preview_manager doesn't have access to chroma_id_map, so we pass None
+            english_skin_name = convert_to_english_skin_name(skin_id, skin_name, self.db, champion_name, chroma_id_map=None) if skin_id else skin_name
             
             # Special handling for Elementalist Lux forms - always use base skin name for preview paths
             if 99991 <= chroma_id <= 99999 or chroma_id == 99007:
@@ -106,58 +108,6 @@ class ChromaPreviewManager:
             log.error(traceback.format_exc())
             return None
     
-    def _convert_to_english_skin_name(self, champion_name: str, skin_name: str, skin_id: Optional[int] = None) -> str:
-        """Convert skin name to English for preview image lookup using database
-        
-        Args:
-            champion_name: Champion name (e.g. "Bard")
-            skin_name: Skin name in current language (e.g. "Bard fleur spirituelle")
-            skin_id: Optional skin ID to help with conversion
-            
-        Returns:
-            English skin name (e.g. "Spirit Blossom Bard")
-        """
-        # Special handling for Kai'Sa skins - always use "Risen Legend Kai'Sa" for preview paths
-        # This must be checked BEFORE database lookup to prevent override
-        log.debug(f"[CHROMA] Checking Kai'Sa special handling: champion='{champion_name}', skin_id={skin_id}")
-        champion_lower = champion_name.lower().replace("'", "")
-        if champion_lower == "kaisa" and skin_id in [145070, 145071]:
-            log.debug(f"[CHROMA] Special handling for Kai'Sa skin ID {skin_id} - using 'Risen Legend Kai'Sa' for preview paths")
-            return "Risen Legend Kai'Sa"
-        
-        # Special handling for Ahri skins - always use "Risen Legend Ahri" for preview paths
-        # This must be checked BEFORE database lookup to prevent override
-        log.debug(f"[CHROMA] Checking Ahri special handling: champion='{champion_name}', skin_id={skin_id}")
-        if champion_lower == "ahri" and skin_id in [103085, 103086]:
-            log.debug(f"[CHROMA] Special handling for Ahri skin ID {skin_id} - using 'Risen Legend Ahri' for preview paths")
-            return "Risen Legend Ahri"
-        
-        # Try to get English name from database using skin ID
-        if skin_id and hasattr(self, 'db') and self.db:
-            try:
-                log.debug(f"[CHROMA] Attempting database lookup for skin ID {skin_id}")
-                english_name = self.db.get_english_skin_name_by_id(skin_id)
-                if english_name:
-                    log.debug(f"[CHROMA] Converted skin name via database: '{skin_name}' -> '{english_name}' (ID: {skin_id})")
-                    # Override database result for Kai'Sa skins
-                    if champion_name.lower() == "kaisa" and skin_id in [145070, 145071]:
-                        log.debug(f"[CHROMA] Overriding database result for Kai'Sa skin ID {skin_id} - using 'Risen Legend Kai'Sa'")
-                        return "Risen Legend Kai'Sa"
-                    # Override database result for Ahri skins
-                    if champion_name.lower() == "ahri" and skin_id in [103085, 103086]:
-                        log.debug(f"[CHROMA] Overriding database result for Ahri skin ID {skin_id} - using 'Risen Legend Ahri'")
-                        return "Risen Legend Ahri"
-                    return english_name
-                else:
-                    log.debug(f"[CHROMA] No English name found in database for skin ID {skin_id}")
-            except Exception as e:
-                log.debug(f"[CHROMA] Database lookup failed for skin ID {skin_id}: {e}")
-        else:
-            log.debug(f"[CHROMA] No database available for skin ID {skin_id} (db={hasattr(self, 'db') and self.db is not None})")
-        
-        # Fallback: return the original name if no database conversion is available
-        log.debug(f"[CHROMA] No English conversion available for '{skin_name}', using original name")
-        return skin_name
 
 
 # Global instance

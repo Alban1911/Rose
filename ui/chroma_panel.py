@@ -7,7 +7,8 @@ Chroma Panel Manager - Coordinates chroma panel and button widgets
 
 import threading
 from typing import Callable, List, Dict, Optional
-from utils.logging import get_logger, log_event, log_success, log_action
+from utils.logging import get_logger
+from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma
 from ui.chroma_button import OpeningButton
 from ui.chroma_panel_widget import ChromaPanelWidget
 from ui.chroma_click_catcher import ClickCatcherOverlay
@@ -349,23 +350,20 @@ class ChromaPanelManager:
             
             # Check ownership and trigger UnownedFrame fade if needed
             if self.state:
-                is_owned = skin_id in self.state.owned_skin_ids
-                is_base_skin = skin_id % 1000 == 0
+                is_owned_var = is_owned(skin_id, self.state.owned_skin_ids)
+                is_base_skin = is_default_skin(skin_id)
                 
-                # For chromas, check if the base skin is owned
-                base_skin_owned = False
-                if not is_base_skin:
-                    base_skin_id = self._get_base_skin_id_for_chroma(skin_id)
-                    if base_skin_id is not None:
-                        base_skin_owned = base_skin_id in self.state.owned_skin_ids
+                # Check if base skin is owned
+                chroma_id_map = {}  # Empty map since we're using special case logic in utility function
+                base_skin_owned = is_owned(skin_id, self.state.owned_skin_ids) if is_base_skin else is_owned(get_base_skin_id_for_chroma(skin_id, chroma_id_map), self.state.owned_skin_ids)
                 
                 # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
                 is_elementalist_form = 99991 <= skin_id <= 99999
                 
                 # UnownedFrame should show for:
                 # 1. Elementalist Lux forms (fake IDs 99991-99999) - always show
-                # 2. Unowned skins/chromas where the base skin is also not owned
-                should_show_unowned_frame = is_elementalist_form or (not is_owned and not is_base_skin and not base_skin_owned)
+                # 2. When the base skin is not owned
+                should_show_unowned_frame = is_elementalist_form or (not base_skin_owned)
                 
                 if should_show_unowned_frame:
                     if is_elementalist_form:
@@ -657,28 +655,7 @@ class ChromaPanelManager:
             import traceback
             log.error(f"[CHROMA] Cleanup traceback: {traceback.format_exc()}")
     
-    def _get_base_skin_id_for_chroma(self, chroma_id: int) -> Optional[int]:
-        """Get the base skin ID for a given chroma ID"""
-        try:
-            if not hasattr(self, 'state') or not self.state:
-                return None
-            
-            # Check if this is an Elementalist Lux form (fake ID)
-            if 99991 <= chroma_id <= 99999:
-                return 99007  # Elementalist Lux base skin ID
-            
-            # For regular chromas, we need to get the base skin ID from the skin scraper
-            # This is a simplified version - in practice, you might need to access the skin scraper
-            # through the state or another mechanism
-            if chroma_id % 1000 != 0:
-                # This is a chroma, calculate base skin ID
-                return (chroma_id // 1000) * 1000
-            
-            return None
-            
-        except Exception as e:
-            log.debug(f"[CHROMA] Error getting base skin ID for chroma {chroma_id}: {e}")
-            return None
+    
 
 
 # Global panel manager instance

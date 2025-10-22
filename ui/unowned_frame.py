@@ -13,6 +13,7 @@ from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
+from utils.utilities import is_default_skin, is_owned
 import config
 
 log = get_logger()
@@ -66,6 +67,7 @@ class UnownedFrame(ChromaWidgetBase):
         # Start hidden (like other UI components)
         self.opacity_effect.setOpacity(0.0)
         self.hide()
+    
     
     def _create_components(self):
         """Create the merged unowned frame component with static positioning"""
@@ -514,11 +516,11 @@ class UnownedFrame(ChromaWidgetBase):
                 return False
             
             # Check ownership and base skin status
-            is_owned = current_skin_id in self.state.owned_skin_ids
-            is_base_skin = current_skin_id % 1000 == 0
-            should_show = not is_owned and not is_base_skin
+            is_owned_var = is_owned(current_skin_id, self.state.owned_skin_ids)
+            is_base_skin = is_default_skin(current_skin_id)
+            should_show = not is_owned_var and not is_base_skin
             
-            log.debug(f"[UnownedFrame] Ownership check: skin_id={current_skin_id}, is_owned={is_owned}, is_base_skin={is_base_skin}, should_show={should_show}")
+            log.debug(f"[UnownedFrame] Ownership check: skin_id={current_skin_id}, is_owned={is_owned_var}, is_base_skin={is_base_skin}, should_show={should_show}")
             return should_show
             
         except Exception as e:

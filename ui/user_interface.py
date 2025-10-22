@@ -9,6 +9,7 @@ Manages ChromaUI and UnownedFrame as separate components
 import threading
 from typing import Optional, Callable
 from utils.logging import get_logger
+from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, convert_to_english_skin_name, convert_to_english_chroma_name
 from ui.chroma_ui import ChromaUI
 from ui.z_order_manager import get_z_order_manager
 
@@ -130,7 +131,7 @@ class UserInterface:
             prev_skin_id = self.current_skin_id
             prev_base_skin_id = None
             if prev_skin_id is not None:
-                prev_base_skin_id = prev_skin_id if not self._is_chroma_id(prev_skin_id) else self._get_base_skin_id_for_chroma(prev_skin_id)
+                prev_base_skin_id = prev_skin_id if not is_chroma_id(prev_skin_id, self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}) else get_base_skin_id_for_chroma(prev_skin_id, self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {})
 
             # Update current skin tracking
             self.current_skin_id = skin_id
@@ -144,15 +145,13 @@ class UserInterface:
             has_chromas = self._skin_has_chromas(skin_id)
             
             # Check ownership
-            is_owned = skin_id in self.state.owned_skin_ids
-            is_base_skin = not self._is_chroma_id(skin_id)
+            is_owned_var = is_owned(skin_id, self.state.owned_skin_ids)
+            is_base_skin = not is_chroma_id(skin_id, self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {})
             # Determine new base skin id for current selection
-            new_base_skin_id = skin_id if is_base_skin else self._get_base_skin_id_for_chroma(skin_id)
+            new_base_skin_id = skin_id if is_base_skin else get_base_skin_id_for_chroma(skin_id, self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {})
             
-            # For chromas, check if the base skin is owned
-            base_skin_owned = False
-            if new_base_skin_id is not None:
-                base_skin_owned = new_base_skin_id in self.state.owned_skin_ids
+            # Check if base skin is owned
+            base_skin_owned = is_owned(new_base_skin_id, self.state.owned_skin_ids) if new_base_skin_id is not None else False
             
             # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
             is_elementalist_form = 99991 <= skin_id <= 99999
@@ -164,10 +163,10 @@ class UserInterface:
             should_show_chroma_ui = has_chromas
             # Show UnownedFrame for:
             # 1. Elementalist Lux forms (fake IDs 99991-99999) - always show
-            # 2. Unowned skins/chromas where the base skin is also not owned
-            should_show_unowned_frame = is_elementalist_form or ((not is_owned) and (not is_base_skin) and (not base_skin_owned))
+            # 2. When the base skin is not owned
+            should_show_unowned_frame = is_elementalist_form or (not base_skin_owned)
             
-            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned}, is_base_skin={is_base_skin}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_chroma_selection={is_chroma_selection}")
+            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned_var}, is_base_skin={is_base_skin}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_chroma_selection={is_chroma_selection}")
             log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}, unowned_frame={should_show_unowned_frame}")
             
             # Show/hide ChromaUI based on chromas
@@ -272,19 +271,20 @@ class UserInterface:
             
             # Check if the current skin is a base skin
             current_base_skin_id = self.current_skin_id
-            if self._is_chroma_id(current_base_skin_id):
+            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+            if is_chroma_id(current_base_skin_id, chroma_id_map):
                 # Current skin is already a chroma, get its base skin
-                current_base_skin_id = self._get_base_skin_id_for_chroma(current_base_skin_id)
+                current_base_skin_id = get_base_skin_id_for_chroma(current_base_skin_id, chroma_id_map)
                 if current_base_skin_id is None:
                     return False
             
             # Check if the new skin_id is a chroma of the same base skin
-            if not self._is_chroma_id(skin_id):
+            if not is_chroma_id(skin_id, chroma_id_map):
                 # New skin is a base skin, not a chroma selection
                 return False
             
             # Get the base skin ID for the new chroma
-            new_base_skin_id = self._get_base_skin_id_for_chroma(skin_id)
+            new_base_skin_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
             if new_base_skin_id is None:
                 return False
             
@@ -300,30 +300,6 @@ class UserInterface:
             log.debug(f"[UI] Error checking chroma selection: {e}")
             return False
     
-    def _get_base_skin_id_for_chroma(self, chroma_id: int) -> Optional[int]:
-        """Get the base skin ID for a given chroma ID"""
-        try:
-            # Check if this is an Elementalist Lux form (fake ID)
-            if 99991 <= chroma_id <= 99999:
-                return 99007  # Elementalist Lux base skin ID
-            
-            # Special case: Elementalist Lux base skin (99007)
-            if chroma_id == 99007:
-                return 99007  # Elementalist Lux base skin ID
-            
-            if not self.skin_scraper or not self.skin_scraper.cache:
-                return None
-            
-            # Check if this chroma ID exists in the cache
-            chroma_data = self.skin_scraper.cache.chroma_id_map.get(chroma_id)
-            if chroma_data:
-                return chroma_data.get('skinId')
-            
-            return None
-            
-        except Exception as e:
-            log.debug(f"[UI] Error getting base skin ID for chroma {chroma_id}: {e}")
-            return None
     
     def _show_chroma_ui(self, skin_id: int, skin_name: str, champion_name: str = None):
         """Show ChromaUI for skin with chromas"""
@@ -349,8 +325,9 @@ class UserInterface:
             try:
                 # Determine base skin ID for the current skin
                 current_base_skin_id = skin_id
-                if self._is_chroma_id(skin_id):
-                    base_id = self._get_base_skin_id_for_chroma(skin_id)
+                chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+                if is_chroma_id(skin_id, chroma_id_map):
+                    base_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
                     if base_id is not None:
                         current_base_skin_id = base_id
                 # No-op on chroma swaps within the same base skin (decide after computing base id)
@@ -843,9 +820,10 @@ class UserInterface:
         champion_id = self.skin_scraper.cache.champion_id
         base_champion_skin_id = champion_id * 1000 if champion_id else None
         
+        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
         available_skins = [
             skin for skin in self.skin_scraper.cache.skins 
-            if skin.get('skinId') != base_champion_skin_id and not self._is_chroma_id(skin.get('skinId'))
+            if skin.get('skinId') != base_champion_skin_id and not is_chroma_id(skin.get('skinId'), chroma_id_map)
         ]
         
         # Debug logging
@@ -870,7 +848,8 @@ class UserInterface:
             return None
         
         # Convert localized skin name to English using database
-        english_skin_name = self._convert_to_english_skin_name(skin_id, localized_skin_name)
+        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+        english_skin_name = convert_to_english_skin_name(skin_id, localized_skin_name, self.db, chroma_id_map=chroma_id_map)
         
         # Check if this skin has chromas
         chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
@@ -891,7 +870,7 @@ class UserInterface:
             for chroma in chromas:
                 localized_chroma_name = chroma.get('name', f'{english_skin_name} Chroma')
                 # Convert chroma name to English if possible
-                english_chroma_name = self._convert_to_english_chroma_name(chroma.get('id'), localized_chroma_name, english_skin_name)
+                english_chroma_name = convert_to_english_chroma_name(chroma.get('id'), localized_chroma_name, english_skin_name, self.skin_scraper)
                 all_options.append({
                     'id': chroma.get('id'),
                     'name': english_chroma_name,
@@ -911,72 +890,8 @@ class UserInterface:
             log.info(f"[UI] Skin '{english_skin_name}' has no chromas, using base skin")
             return (english_skin_name, skin_id)
     
-    def _convert_to_english_skin_name(self, skin_id: int, localized_name: str) -> str:
-        """Convert localized skin name to English using database
-        
-        Args:
-            skin_id: The skin ID
-            localized_name: The localized skin name from LCU
-            
-        Returns:
-            English skin name if found, otherwise returns localized name
-        """
-        if not self.db:
-            log.debug(f"[UI] No database available for skin name conversion, using localized: '{localized_name}'")
-            return localized_name
-        
-        try:
-            english_name = self.db.get_english_skin_name_by_id(skin_id)
-            if english_name:
-                log.debug(f"[UI] Converted skin name: '{localized_name}' -> '{english_name}' (ID: {skin_id})")
-                return english_name
-            else:
-                log.debug(f"[UI] No English name found for skin ID {skin_id}, using localized: '{localized_name}'")
-                return localized_name
-        except Exception as e:
-            log.debug(f"[UI] Error converting skin name for ID {skin_id}: {e}, using localized: '{localized_name}'")
-            return localized_name
     
-    def _is_chroma_id(self, skin_id: int) -> bool:
-        """Check if a skin ID is a chroma using the proper chroma_id_map
-        
-        Args:
-            skin_id: The skin ID to check
-            
-        Returns:
-            True if the skin ID is a chroma, False otherwise
-        """
-        if not self.skin_scraper or not self.skin_scraper.cache:
-            return False
-        
-        return skin_id in self.skin_scraper.cache.chroma_id_map
     
-    def _convert_to_english_chroma_name(self, chroma_id: int, localized_name: str, base_skin_name: str) -> str:
-        """Convert localized chroma name to English
-        
-        Args:
-            chroma_id: The chroma ID
-            localized_name: The localized chroma name from LCU
-            base_skin_name: The English base skin name
-            
-        Returns:
-            English chroma name if possible, otherwise returns formatted name
-        """
-        # Try to get English chroma name from skin scraper's chroma cache
-        if self.skin_scraper and self.skin_scraper.cache:
-            chroma_data = self.skin_scraper.cache.chroma_id_map.get(chroma_id)
-            if chroma_data and 'name' in chroma_data:
-                english_chroma_name = chroma_data['name']
-                log.debug(f"[UI] Using English chroma name from skin scraper: '{localized_name}' -> '{english_chroma_name}' (ID: {chroma_id})")
-                return english_chroma_name
-        
-        # Fallback: use base skin name + "Chroma" or localized name
-        if not localized_name or localized_name == f'{base_skin_name} Chroma':
-            return f'{base_skin_name} Chroma'
-        
-        # If the localized name looks like a simple color description, keep it
-        # Otherwise, use the base skin name + "Chroma"
-        return localized_name if len(localized_name.split()) <= 2 else f'{base_skin_name} Chroma'
     
     def _update_dice_button(self):
         """Update dice button visibility based on current context"""
