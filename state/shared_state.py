@@ -61,4 +61,5 @@ class SharedState:
     
     # Random skin selection
     random_skin_name: Optional[str] = None  # Selected random skin for injection
+    random_skin_id: Optional[int] = None  # Selected random skin/chroma ID for injection
     random_mode_active: bool = False  # Tracks if randomization is active
