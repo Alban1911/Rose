@@ -245,17 +245,21 @@ class LoadoutTicker(threading.Thread):
                                     
                                     # Verify the change was applied
                                     if forced_successfully:
-                                        time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
-                                        verify_sess = self.lcu.session or {}  # session is a property, not a method!
-                                        verify_team = verify_sess.get("myTeam") or []
-                                        for player in verify_team:
-                                            if player.get("cellId") == my_cell:
-                                                current_skin = player.get("selectedSkinId")
-                                                if current_skin == target_skin_id:
-                                                    log.info(f"[inject] ✓ Owned skin/chroma verified: {current_skin}")
-                                                else:
-                                                    log.warning(f"[inject] Verification failed: {current_skin} != {target_skin_id}")
-                                                break
+                                        # Skip verification wait in random mode for faster injection
+                                        if not getattr(self.state, 'random_mode_active', False):
+                                            time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
+                                            verify_sess = self.lcu.session or {}  # session is a property, not a method!
+                                            verify_team = verify_sess.get("myTeam") or []
+                                            for player in verify_team:
+                                                if player.get("cellId") == my_cell:
+                                                    current_skin = player.get("selectedSkinId")
+                                                    if current_skin == target_skin_id:
+                                                        log.info(f"[inject] ✓ Owned skin/chroma verified: {current_skin}")
+                                                    else:
+                                                        log.warning(f"[inject] Verification failed: {current_skin} != {target_skin_id}")
+                                                    break
+                                        else:
+                                            log.info(f"[inject] Skipping verification wait in random mode")
                                     
                                 except Exception as e:
                                     log.warning(f"[inject] Error forcing owned skin/chroma: {e}")
@@ -349,17 +353,21 @@ class LoadoutTicker(threading.Thread):
                                             
                                             # Verify the change was applied
                                             if base_skin_set_successfully:
-                                                time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
-                                                verify_sess = self.lcu.session or {}  # session is a property, not a method!
-                                                verify_team = verify_sess.get("myTeam") or []
-                                                for player in verify_team:
-                                                    if player.get("cellId") == my_cell:
-                                                        current_skin = player.get("selectedSkinId")
-                                                        if current_skin != base_skin_id:
-                                                            log.warning(f"[inject] Base skin verification failed: {current_skin} != {base_skin_id}")
-                                                        else:
-                                                            log.info(f"[inject] ✓ Base skin verified: {current_skin}")
-                                                        break
+                                                # Skip verification wait in random mode for faster injection
+                                                if not getattr(self.state, 'random_mode_active', False):
+                                                    time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
+                                                    verify_sess = self.lcu.session or {}  # session is a property, not a method!
+                                                    verify_team = verify_sess.get("myTeam") or []
+                                                    for player in verify_team:
+                                                        if player.get("cellId") == my_cell:
+                                                            current_skin = player.get("selectedSkinId")
+                                                            if current_skin != base_skin_id:
+                                                                log.warning(f"[inject] Base skin verification failed: {current_skin} != {base_skin_id}")
+                                                            else:
+                                                                log.info(f"[inject] ✓ Base skin verified: {current_skin}")
+                                                            break
+                                                else:
+                                                    log.info(f"[inject] Skipping base skin verification wait in random mode")
                                             else:
                                                 log.warning(f"[inject] Failed to force base skin - injection may fail")
                                                 
