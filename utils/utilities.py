@@ -168,7 +168,9 @@ def convert_to_english_skin_name(skin_id: int, localized_name: str, db=None, cha
         English skin name if found, otherwise returns localized name
     """
     # Assert that this is a base skin ID, not a chroma ID
-    assert is_base_skin_of_chroma_set(skin_id, chroma_id_map), \
+    # Use is_base_skin instead of is_base_skin_of_chroma_set since a skin can be a base skin
+    # without being in the chroma_id_map (if not owned or not loaded)
+    assert is_base_skin(skin_id, chroma_id_map), \
         f"convert_to_english_skin_name called with chroma ID {skin_id}. Use convert_to_english_chroma_name for chromas."
     # Special handling for Kai'Sa skins - always use "Risen Legend Kai'Sa" for preview paths
     if champion_name and champion_name.lower().replace("'", "") == "kaisa" and skin_id in [145070, 145071]:
