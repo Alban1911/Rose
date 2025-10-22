@@ -138,7 +138,8 @@ class LoadoutTicker(threading.Thread):
                 # Check if random mode is active
                 if getattr(self.state, 'random_mode_active', False) and getattr(self.state, 'random_skin_name', None):
                     name = self.state.random_skin_name
-                    log.info(f"[RANDOM] Injecting random skin: {name}")
+                    random_skin_id = getattr(self.state, 'random_skin_id', None)
+                    log.info(f"[RANDOM] Injecting random skin: {name} (ID: {random_skin_id})")
                 else:
                     # For injection, we need the English name from the database
                     # Use the English skin name that was already processed by UI detection thread
@@ -263,12 +264,16 @@ class LoadoutTicker(threading.Thread):
                         elif self.injection_manager:
                             try:
                                 # Get selected chroma ID from state (already selected via wheel shown by UI detection)
-                                selected_chroma_id = self.state.selected_chroma_id
-                                
-                                if selected_chroma_id:
-                                    log.info(f"[inject] Using selected chroma ID: {selected_chroma_id}")
+                                # For random mode, use the random skin ID instead
+                                if getattr(self.state, 'random_mode_active', False) and getattr(self.state, 'random_skin_id', None):
+                                    selected_chroma_id = self.state.random_skin_id
+                                    log.info(f"[RANDOM] Using random skin ID: {selected_chroma_id}")
                                 else:
-                                    log.debug(f"[inject] No chroma selected, using base skin")
+                                    selected_chroma_id = self.state.selected_chroma_id
+                                    if selected_chroma_id:
+                                        log.info(f"[inject] Using selected chroma ID: {selected_chroma_id}")
+                                    else:
+                                        log.debug(f"[inject] No chroma selected, using base skin")
                                 
                                 # Force base skin selection via LCU before injecting
                                 # This ensures LCU has the correct state for injection to work properly
@@ -377,6 +382,7 @@ class LoadoutTicker(threading.Thread):
                                         # Clear random state after injection
                                         if getattr(self.state, 'random_mode_active', False):
                                             self.state.random_skin_name = None
+                                            self.state.random_skin_id = None
                                             self.state.random_mode_active = False
                                             log.info("[RANDOM] Random mode cleared after injection")
                                         

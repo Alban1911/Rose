@@ -40,6 +40,7 @@ class UserInterface:
         
         # Randomization state
         self._randomization_in_progress = False
+        self._randomization_started = False  # Prevent multiple simultaneous randomizations
         
         # Pending initialization/destruction flags
         self._pending_ui_initialization = False
@@ -714,7 +715,13 @@ class UserInterface:
     
     def _handle_dice_click_disabled(self):
         """Handle dice button click in disabled state - start randomization"""
+        # Prevent multiple simultaneous randomization attempts
+        if self._randomization_started:
+            log.debug("[UI] Randomization already in progress, ignoring click")
+            return
+            
         log.info("[UI] Starting random skin selection")
+        self._randomization_started = True
         
         # Force champion's base skin first
         if self.current_skin_id and self.current_skin_id % 1000 == 0:
@@ -762,9 +769,11 @@ class UserInterface:
             else:
                 log.warning("[UI] Failed to force champion base skin")
                 self._randomization_in_progress = False
+                self._randomization_started = False
         except Exception as e:
             log.error(f"[UI] Error forcing champion base skin: {e}")
             self._randomization_in_progress = False
+            self._randomization_started = False
     
     def _start_randomization(self):
         """Start the randomization sequence"""
@@ -781,17 +790,20 @@ class UserInterface:
             self.dice_button.set_state('enabled')
         
         # Select random skin
-        random_skin_name = self._select_random_skin()
-        if random_skin_name:
+        random_selection = self._select_random_skin()
+        if random_selection:
+            random_skin_name, random_skin_id = random_selection
             self.state.random_skin_name = random_skin_name
+            self.state.random_skin_id = random_skin_id
             self.state.random_mode_active = True
-            log.info(f"[UI] Random skin selected: {random_skin_name}")
+            log.info(f"[UI] Random skin selected: {random_skin_name} (ID: {random_skin_id})")
         else:
             log.warning("[UI] No random skin available")
             self._cancel_randomization()
         
-        # Clear the randomization in progress flag AFTER everything is set up
+        # Clear the randomization flags AFTER everything is set up
         self._randomization_in_progress = False
+        self._randomization_started = False
     
     def _cancel_randomization(self):
         """Cancel randomization and reset state"""
@@ -801,7 +813,12 @@ class UserInterface:
         
         # Reset state
         self.state.random_skin_name = None
+        self.state.random_skin_id = None
         self.state.random_mode_active = False
+        
+        # Clear randomization flags
+        self._randomization_in_progress = False
+        self._randomization_started = False
         
         # Switch dice to disabled state
         if self.dice_button:
@@ -809,8 +826,12 @@ class UserInterface:
         
         log.info("[UI] Randomization cancelled")
     
-    def _select_random_skin(self) -> Optional[str]:
-        """Select a random skin from available skins (excluding base skin)"""
+    def _select_random_skin(self) -> Optional[tuple]:
+        """Select a random skin from available skins (excluding base skin)
+        
+        Returns:
+            Tuple of (skin_name, skin_id) or None if no skin available
+        """
         if not self.skin_scraper or not self.skin_scraper.cache.skins:
             log.warning("[UI] No skins available for random selection")
             return None
@@ -828,13 +849,49 @@ class UserInterface:
         # Select random skin
         import random
         selected_skin = random.choice(available_skins)
+        skin_id = selected_skin.get('skinId')
         skin_name = selected_skin.get('skinName', '')
         
-        if not skin_name:
-            log.warning("[UI] Selected skin has no name")
+        if not skin_name or not skin_id:
+            log.warning("[UI] Selected skin has no name or ID")
             return None
         
-        return skin_name
+        # Check if this skin has chromas
+        chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
+        if chromas and len(chromas) > 0:
+            log.info(f"[UI] Skin '{skin_name}' has {len(chromas)} chromas, selecting random chroma")
+            
+            # Create list of all options: base skin + all chromas
+            all_options = []
+            
+            # Add base skin (the original skin without chromas)
+            all_options.append({
+                'id': skin_id,
+                'name': skin_name,
+                'type': 'base'
+            })
+            
+            # Add all chromas
+            for chroma in chromas:
+                chroma_name = chroma.get('name', f'{skin_name} Chroma')
+                all_options.append({
+                    'id': chroma.get('id'),
+                    'name': chroma_name,
+                    'type': 'chroma'
+                })
+            
+            # Select random option from base + chromas
+            selected_option = random.choice(all_options)
+            selected_name = selected_option['name']
+            selected_id = selected_option['id']
+            selected_type = selected_option['type']
+            
+            log.info(f"[UI] Random selection: {selected_type} '{selected_name}' (ID: {selected_id})")
+            return (selected_name, selected_id)
+        else:
+            # No chromas, return the base skin name and ID
+            log.info(f"[UI] Skin '{skin_name}' has no chromas, using base skin")
+            return (skin_name, skin_id)
     
     def _update_dice_button(self):
         """Update dice button visibility based on current context"""
