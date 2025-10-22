@@ -131,7 +131,8 @@ class UserInterface:
             prev_skin_id = self.current_skin_id
             prev_base_skin_id = None
             if prev_skin_id is not None:
-                prev_base_skin_id = prev_skin_id if not is_chroma_id(prev_skin_id, self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}) else get_base_skin_id_for_chroma(prev_skin_id, self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {})
+                prev_chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+                prev_base_skin_id = prev_skin_id if is_base_skin(prev_skin_id, prev_chroma_id_map) else get_base_skin_id_for_chroma(prev_skin_id, prev_chroma_id_map)
 
             # Update current skin tracking
             self.current_skin_id = skin_id
@@ -280,7 +281,7 @@ class UserInterface:
                     return False
             
             # Check if the new skin_id is a chroma of the same base skin
-            if not is_chroma_id(skin_id, chroma_id_map):
+            if is_base_skin(skin_id, chroma_id_map):
                 # New skin is a base skin, not a chroma selection
                 return False
             
@@ -824,7 +825,7 @@ class UserInterface:
         chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
         available_skins = [
             skin for skin in self.skin_scraper.cache.skins 
-            if skin.get('skinId') != base_champion_skin_id and not is_chroma_id(skin.get('skinId'), chroma_id_map)
+            if skin.get('skinId') != base_champion_skin_id and is_base_skin(skin.get('skinId'), chroma_id_map)
         ]
         
         # Debug logging
