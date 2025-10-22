@@ -136,8 +136,12 @@ class LoadoutTicker(threading.Thread):
                     final_label = raw or ""
 
                 # Check if random mode is active
-                if getattr(self.state, 'random_mode_active', False) and getattr(self.state, 'random_skin_name', None):
-                    name = self.state.random_skin_name
+                random_mode_active = getattr(self.state, 'random_mode_active', False)
+                random_skin_name = getattr(self.state, 'random_skin_name', None)
+                log.debug(f"[inject] Random mode check: active={random_mode_active}, name={random_skin_name}")
+                
+                if random_mode_active and random_skin_name:
+                    name = random_skin_name
                     random_skin_id = getattr(self.state, 'random_skin_id', None)
                     log.info(f"[RANDOM] Injecting random skin: {name} (ID: {random_skin_id})")
                 else:
@@ -165,6 +169,8 @@ class LoadoutTicker(threading.Thread):
                                         name = f"{core} {cname}".strip()
                         except Exception:
                             pass
+                
+                log.debug(f"[inject] Final name variable: '{name}'")
                 
                 if name:
                     # Mark that we've processed the last hovered skin for injection
