@@ -47,7 +47,7 @@ def is_chroma_id(skin_id: int, chroma_id_map: dict) -> bool:
     Returns:
         True if the skin ID is a chroma, False otherwise
     """
-    return skin_id in (99007, 145070, 145071, 103085, 103086, 99991, 99992, 99993, 99994, 99995, 99996, 99997, 99998, 99999) or (skin_id in chroma_id_map)
+    return skin_id in (145071, 103086, 99991, 99992, 99993, 99994, 99995, 99996, 99997, 99998, 99999) or (skin_id in chroma_id_map)
 
 
 def get_base_skin_id_for_chroma(chroma_id: int, chroma_id_map: dict) -> Optional[int]:
@@ -118,6 +118,40 @@ def is_base_skin_of_chroma_set(skin_id: int, chroma_id_map: dict) -> bool:
         return True
     
     return False
+
+
+def is_base_skin(skin_id: int, chroma_id_map: dict) -> bool:
+    """Check if a skin ID is a base skin (not a chroma)
+    
+    Args:
+        skin_id: The skin ID to check
+        chroma_id_map: Dictionary mapping chroma IDs to chroma data
+        
+    Returns:
+        True if the skin is a base skin, False if it's a chroma
+    """
+    return not is_chroma_id(skin_id, chroma_id_map)
+
+
+def is_base_skin_owned(skin_id: int, owned_skin_ids: set, chroma_id_map: dict) -> bool:
+    """Check if the base skin of a given skin is owned
+    
+    Args:
+        skin_id: The skin ID (can be base skin or chroma)
+        owned_skin_ids: Set of owned skin IDs from LCU
+        chroma_id_map: Dictionary mapping chroma IDs to chroma data
+        
+    Returns:
+        True if the base skin is owned, False otherwise
+    """
+    # Check if this is a base skin or a chroma
+    if is_base_skin(skin_id, chroma_id_map):
+        # This is a base skin, check if it's owned
+        return is_owned(skin_id, owned_skin_ids)
+    else:
+        # This is a chroma, get its base skin and check if that's owned
+        base_skin_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
+        return is_owned(base_skin_id, owned_skin_ids) if base_skin_id is not None else False
 
 
 def convert_to_english_skin_name(skin_id: int, localized_name: str, db=None, champion_name: str = None, chroma_id_map: dict = None) -> str:

@@ -7,8 +7,8 @@ Chroma Panel Manager - Coordinates chroma panel and button widgets
 
 import threading
 from typing import Callable, List, Dict, Optional
-from utils.logging import get_logger
-from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma
+from utils.logging import get_logger, log_event, log_action, log_success
+from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, is_base_skin_owned, is_base_skin
 from ui.chroma_button import OpeningButton
 from ui.chroma_panel_widget import ChromaPanelWidget
 from ui.chroma_click_catcher import ClickCatcherOverlay
@@ -355,7 +355,7 @@ class ChromaPanelManager:
                 
                 # Check if base skin is owned
                 chroma_id_map = {}  # Empty map since we're using special case logic in utility function
-                base_skin_owned = is_owned(skin_id, self.state.owned_skin_ids) if is_base_skin else is_owned(get_base_skin_id_for_chroma(skin_id, chroma_id_map), self.state.owned_skin_ids)
+                base_skin_owned = is_base_skin_owned(skin_id, self.state.owned_skin_ids, chroma_id_map)
                 
                 # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
                 is_elementalist_form = 99991 <= skin_id <= 99999

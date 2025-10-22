@@ -9,7 +9,7 @@ Manages ChromaUI and UnownedFrame as separate components
 import threading
 from typing import Optional, Callable
 from utils.logging import get_logger
-from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, convert_to_english_skin_name, convert_to_english_chroma_name
+from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, convert_to_english_skin_name, convert_to_english_chroma_name, is_base_skin_owned, is_base_skin
 from ui.chroma_ui import ChromaUI
 from ui.z_order_manager import get_z_order_manager
 
@@ -146,18 +146,19 @@ class UserInterface:
             
             # Check ownership
             is_owned_var = is_owned(skin_id, self.state.owned_skin_ids)
-            is_base_skin = not is_chroma_id(skin_id, self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {})
+            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+            is_base_skin_var = is_base_skin(skin_id, chroma_id_map)
             # Determine new base skin id for current selection
-            new_base_skin_id = skin_id if is_base_skin else get_base_skin_id_for_chroma(skin_id, self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {})
+            new_base_skin_id = skin_id if is_base_skin_var else get_base_skin_id_for_chroma(skin_id, chroma_id_map)
             
             # Check if base skin is owned
-            base_skin_owned = is_owned(new_base_skin_id, self.state.owned_skin_ids) if new_base_skin_id is not None else False
+            base_skin_owned = is_base_skin_owned(skin_id, self.state.owned_skin_ids, chroma_id_map)
             
             # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
             is_elementalist_form = 99991 <= skin_id <= 99999
             
             # Same-base chroma swap occurs when switching from base skin (or its chroma) to another chroma of same base
-            is_same_base_chroma = (not is_base_skin) and (prev_base_skin_id is not None) and (new_base_skin_id == prev_base_skin_id)
+            is_same_base_chroma = (not is_base_skin_var) and (prev_base_skin_id is not None) and (new_base_skin_id == prev_base_skin_id)
             
             # Determine what to show
             should_show_chroma_ui = has_chromas
@@ -166,7 +167,7 @@ class UserInterface:
             # 2. When the base skin is not owned
             should_show_unowned_frame = is_elementalist_form or (not base_skin_owned)
             
-            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned_var}, is_base_skin={is_base_skin}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_chroma_selection={is_chroma_selection}")
+            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned_var}, is_base_skin={is_base_skin_var}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_chroma_selection={is_chroma_selection}")
             log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}, unowned_frame={should_show_unowned_frame}")
             
             # Show/hide ChromaUI based on chromas
@@ -189,7 +190,7 @@ class UserInterface:
             self._update_dice_button()
 
             # Update last base skin id after handling
-            self._last_base_skin_id = new_base_skin_id if new_base_skin_id is not None else (skin_id if is_base_skin else None)
+            self._last_base_skin_id = new_base_skin_id if new_base_skin_id is not None else (skin_id if is_base_skin_var else None)
     
     def hide_all(self):
         """Hide all UI components"""
