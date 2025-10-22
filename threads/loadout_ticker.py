@@ -393,7 +393,8 @@ class LoadoutTicker(threading.Thread):
                                         success = self.injection_manager.inject_skin_immediately(
                                             name, 
                                             stop_callback=game_ended_callback,
-                                            chroma_id=selected_chroma_id
+                                            chroma_id=selected_chroma_id,
+                                            champion_name=cname
                                         )
                                         
                                         # Set flag to prevent UI detection from restarting (even if processes errored)

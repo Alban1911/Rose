@@ -280,7 +280,7 @@ class SkinInjector:
                 log.error(f"[INJECTOR] Missing tool: {exe}")
         return tools
     
-    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None) -> Path | None:
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None) -> Path | None:
         """Resolve a ZIP by name or path with fuzzy matching, supporting chroma subdirectories
         
         Args:
@@ -394,8 +394,24 @@ class SkinInjector:
                     return None
             
             # Construct exact chroma path
-            champion_name = skin_name.split()[-1]
-            exact_chroma_path = self.zips_dir / champion_name / "chromas" / skin_name / f"{skin_name} {chroma_id}.zip"
+            # Use provided champion name or extract from skin name as fallback
+            if champion_name:
+                champ_name = champion_name
+            else:
+                # Fallback: extract champion name by removing the skin ID from the end
+                # e.g., "Visions of the Fallen Garen 86050" -> "Visions of the Fallen Garen"
+                base_skin_name = skin_name
+                if skin_name and skin_name.split()[-1].isdigit():
+                    base_skin_name = ' '.join(skin_name.split()[:-1])
+                champ_name = base_skin_name.split()[-1]
+            
+            # Extract base skin name (remove skin ID if present)
+            base_skin_name = skin_name
+            if skin_name and skin_name.split()[-1].isdigit():
+                base_skin_name = ' '.join(skin_name.split()[:-1])
+            
+            log.debug(f"[inject] Chroma path construction: skin_name='{skin_name}', base_skin_name='{base_skin_name}', champ_name='{champ_name}', chroma_id={chroma_id}")
+            exact_chroma_path = self.zips_dir / champ_name / "chromas" / base_skin_name / f"{base_skin_name} {chroma_id}.zip"
             if exact_chroma_path.exists():
                 log_success(log, f"Found chroma: {exact_chroma_path.name}", "🎨")
                 return exact_chroma_path
@@ -651,7 +667,7 @@ class SkinInjector:
             log.error(f"[inject] Failed to create mkoverlay command: {e}")
             return -1
     
-    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None, chroma_id: int = None) -> bool:
+    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None, chroma_id: int = None, champion_name: str = None) -> bool:
         """Inject a single skin (with optional chroma)
         
         Args:
@@ -667,7 +683,12 @@ class SkinInjector:
         # No need for a separate GameMonitor thread
         
         # Find the skin ZIP (with chroma support)
-        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=skin_name)
+        # Extract base skin name (remove skin ID if present) for chroma path construction
+        base_skin_name = skin_name
+        if skin_name and skin_name.split()[-1].isdigit():
+            base_skin_name = ' '.join(skin_name.split()[:-1])
+        
+        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name)
         if not zp:
             log.error(f"[inject] Skin '{skin_name}' not found in {self.zips_dir}")
             avail = list(self.zips_dir.rglob('*.zip'))

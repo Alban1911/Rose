@@ -131,7 +131,7 @@ class UserInterface:
             prev_skin_id = self.current_skin_id
             prev_base_skin_id = None
             if prev_skin_id is not None:
-                prev_chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+                prev_chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
                 prev_base_skin_id = prev_skin_id if is_base_skin(prev_skin_id, prev_chroma_id_map) else get_base_skin_id_for_chroma(prev_skin_id, prev_chroma_id_map)
 
             # Update current skin tracking
@@ -147,7 +147,7 @@ class UserInterface:
             
             # Check ownership
             is_owned_var = is_owned(skin_id, self.state.owned_skin_ids)
-            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
             is_base_skin_var = is_base_skin(skin_id, chroma_id_map)
             # Determine new base skin id for current selection
             new_base_skin_id = skin_id if is_base_skin_var else get_base_skin_id_for_chroma(skin_id, chroma_id_map)
@@ -273,7 +273,7 @@ class UserInterface:
             
             # Check if the current skin is a base skin
             current_base_skin_id = self.current_skin_id
-            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
             if is_chroma_id(current_base_skin_id, chroma_id_map):
                 # Current skin is already a chroma, get its base skin
                 current_base_skin_id = get_base_skin_id_for_chroma(current_base_skin_id, chroma_id_map)
@@ -327,7 +327,7 @@ class UserInterface:
             try:
                 # Determine base skin ID for the current skin
                 current_base_skin_id = skin_id
-                chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+                chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
                 if is_chroma_id(skin_id, chroma_id_map):
                     base_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
                     if base_id is not None:
@@ -822,7 +822,7 @@ class UserInterface:
         champion_id = self.skin_scraper.cache.champion_id
         base_champion_skin_id = champion_id * 1000 if champion_id else None
         
-        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
         available_skins = [
             skin for skin in self.skin_scraper.cache.skins 
             if skin.get('skinId') != base_champion_skin_id and is_base_skin(skin.get('skinId'), chroma_id_map)
@@ -850,7 +850,7 @@ class UserInterface:
             return None
         
         # Convert localized skin name to English using database
-        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else {}
+        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
         english_skin_name = convert_to_english_skin_name(skin_id, localized_skin_name, self.db, chroma_id_map=chroma_id_map)
         
         # Check if this skin has chromas
