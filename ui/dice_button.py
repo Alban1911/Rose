@@ -101,20 +101,20 @@ class DiceButton(ChromaWidgetBase):
             # 1600x900 resolution (maximum)
             button_width = 66   
             button_height = 45
-            target_x = 1468  # Center horizontally
-            target_y = 739  # Center vertically
+            target_x = 1468
+            target_y = 739
         elif window_width == 1024 and window_height == 576:
             # 1024x576 resolution (minimum)
-            button_width = 43
+            button_width = 42
             button_height = 29
-            target_x = 932
-            target_y = 487
+            target_x = 940
+            target_y = 473
         else:
             # Fallback for other resolutions (use 1280x720 size)
-            button_width = 54
+            button_width = 53
             button_height = 36
             target_x = 1174
-            target_y = 615
+            target_y = 591
         
         # Set static size
         self.setFixedSize(button_width, button_height)
