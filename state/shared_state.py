@@ -48,6 +48,9 @@ class SharedState:
     selected_chroma_id: Optional[int] = None  # Selected chroma ID (None = base skin)
     selected_form_path: Optional[str] = None  # Selected Form file path for Elementalist Lux
     pending_chroma_selection: bool = False  # Flag to indicate chroma panel is open
+    
+    # UI state management
+    reset_skin_notification: bool = False  # Flag to reset skin notification debouncing
     chroma_panel_open: bool = False  # Flag to pause UI detection when panel is open
     
     # Game mode detection

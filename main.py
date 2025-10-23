@@ -1115,6 +1115,13 @@ def main():
                         if skin_scraper and skin_scraper.cache.is_loaded_for_champion(state.locked_champ_id):
                             champion_name = skin_scraper.cache.champion_name
                         
+                        # Check if we need to reset skin notification debouncing
+                        if state.reset_skin_notification:
+                            if hasattr(main, '_last_notified_skin_id'):
+                                delattr(main, '_last_notified_skin_id')
+                            state.reset_skin_notification = False
+                            log.debug("[MAIN] Reset skin notification debouncing for new ChampSelect")
+                        
                         # Check if this is a new skin (debouncing at main loop level)
                         if not hasattr(main, '_last_notified_skin_id') or main._last_notified_skin_id != current_skin_id:
                             # Notify UserInterface of the skin change
