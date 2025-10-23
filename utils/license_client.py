@@ -278,5 +278,9 @@ class LicenseClient:
                 "days_remaining": days_remaining,
                 "is_expired": now > expires_at
             }
-        except:
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:
+            log.debug(f"Error reading license file: {e}")
+            return None
+        except Exception as e:
+            log.debug(f"Unexpected error processing license: {e}")
             return None

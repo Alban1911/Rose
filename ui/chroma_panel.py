@@ -184,8 +184,10 @@ class ChromaPanelManager:
                                 frame_hwnd = int(self.reopen_button.unowned_frame.winId())
                                 ctypes.windll.user32.SetParent(frame_hwnd, 0)  # Un-parent
                                 log.debug("[CHROMA] UnownedFrame un-parented from League window")
-                            except:
-                                pass
+                            except (OSError, AttributeError, ValueError) as e:
+                                log.debug(f"[CHROMA] Could not un-parent UnownedFrame: {e}")
+                            except Exception as e:
+                                log.debug(f"[CHROMA] Unexpected error un-parenting UnownedFrame: {e}")
                         # Lock and OutlineGold are children of UnownedFrame, will be deleted automatically
                         self.reopen_button.unowned_frame.hide()
                         self.reopen_button.unowned_frame.deleteLater()

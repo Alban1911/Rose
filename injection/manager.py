@@ -156,8 +156,10 @@ class InjectionManager:
                     if self._suspended_game_process.status() == psutil.STATUS_STOPPED:
                         self._suspended_game_process.resume()
                         log_success(log, "Resumed suspended game on cleanup", "▶️")
-                except:
-                    pass
+                except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as e:
+                    log.debug(f"[inject] Could not resume suspended process: {e}")
+                except Exception as e:
+                    log.debug(f"[inject] Unexpected error resuming process: {e}")
                 
             self._suspended_game_process = None
     

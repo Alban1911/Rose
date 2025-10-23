@@ -12,6 +12,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QIcon
+from utils.logging import get_logger
+
+log = get_logger()
 
 
 class SimpleLicenseDialog(QDialog):
@@ -35,8 +38,10 @@ class SimpleLicenseDialog(QDialog):
             icon_path = str(get_asset_path("icon.ico"))
             if os.path.exists(icon_path):
                 self.setWindowIcon(QIcon(icon_path))
-        except:
-            pass  # Icon not critical, continue without it
+        except (OSError, FileNotFoundError, ImportError) as e:
+            log.debug(f"Could not load window icon: {e}")
+        except Exception as e:
+            log.debug(f"Unexpected error loading icon: {e}")
         
         # Main layout
         layout = QVBoxLayout(self)
