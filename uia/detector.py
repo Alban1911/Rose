@@ -4,8 +4,6 @@ UI element detection methods for League of Legends
 
 import logging
 from typing import Optional
-from pywinauto.application import Application
-import config
 from utils.normalization import levenshtein_score
 
 log = logging.getLogger(__name__)
