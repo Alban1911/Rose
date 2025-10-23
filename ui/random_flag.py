@@ -94,7 +94,8 @@ class RandomFlag(ChromaWidgetBase):
         
         # Load the flag image to get its dimensions
         try:
-            flag_pixmap = QPixmap('assets/random_flag.png')
+            from utils.paths import get_asset_path
+            flag_pixmap = QPixmap(str(get_asset_path('random_flag.png')))
             if flag_pixmap.isNull():
                 log.warning("[RandomFlag] Failed to load random_flag.png")
                 return

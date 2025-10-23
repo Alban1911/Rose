@@ -175,20 +175,23 @@ class DiceButton(ChromaWidgetBase):
     def _load_state_image(self, state: str):
         """Load the appropriate image for the given state"""
         try:
+            from utils.paths import get_asset_path
+            
             # Map state to image file
             image_files = {
-                'disabled': 'assets/dice-disabled.png',
-                'enabled': 'assets/dice-enabled.png',
-                'hover': 'assets/dice-hover.png',
-                'click': 'assets/dice-click.png'
+                'disabled': 'dice-disabled.png',
+                'enabled': 'dice-enabled.png',
+                'hover': 'dice-hover.png',
+                'click': 'dice-click.png'
             }
             
             if state not in image_files:
                 log.warning(f"[DiceButton] Unknown state: {state}")
                 return
             
-            image_path = image_files[state]
-            pixmap = QPixmap(image_path)
+            image_filename = image_files[state]
+            image_path = get_asset_path(image_filename)
+            pixmap = QPixmap(str(image_path))
             
             if pixmap.isNull():
                 log.warning(f"[DiceButton] Failed to load image: {image_path}")
