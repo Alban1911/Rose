@@ -9,90 +9,93 @@ from pathlib import Path
 from typing import Optional
 from utils.logging import get_logger
 from utils.utilities import convert_to_english_skin_name
-from utils.paths import get_appdata_dir
+from utils.paths import get_skins_dir
 
 log = get_logger()
 
 
 class ChromaPreviewManager:
-    """Manages access to chroma preview images from SkinPreviews repository"""
+    """Manages access to chroma preview images from merged lolskins database"""
     
     def __init__(self, db=None):
-        # SkinPreviews repository folder (downloaded previews)
-        self.skin_previews_dir = get_appdata_dir() / "SkinPreviews" / "chroma_previews"
+        # Merged database folder (skins + previews)
+        self.skins_dir = get_skins_dir()
         self.db = db  # Database instance for cross-language lookups
     
     def get_preview_path(self, champion_name: str, skin_name: str, chroma_id: Optional[int] = None, skin_id: Optional[int] = None) -> Optional[Path]:
-        """Get path to preview image
+        """Get path to preview image from merged database
         
         Args:
             champion_name: Champion name (e.g. "Garen")
             skin_name: Skin name (e.g. "Demacia Vice")
             chroma_id: Optional chroma ID. If None/0, returns base skin preview.
-            skin_id: Optional skin ID to help find English name for preview lookup.
+            skin_id: Optional skin ID to help find the correct directory.
         
         Returns:
             Path to preview image if it exists, None otherwise
         
         Structure:
-            - Base skin: Champion/{Skin_Name} {Champion}/{Skin_Name} {Champion}.png
-              Example: Garen/Demacia Vice Garen/Demacia Vice Garen.png
-            - Chroma: Champion/{Skin_Name} {Champion}/chromas/{ID}.png
-              Example: Garen/Demacia Vice Garen/chromas/86047.png
+            - Base skin: {champion_id}/{skin_id}/{skin_id}.png
+            - Chroma: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
         """
-        log.info(f"[CHROMA] get_preview_path called with: champion='{champion_name}', skin='{skin_name}', chroma_id={chroma_id}")
+        log.info(f"[CHROMA] get_preview_path called with: champion='{champion_name}', skin='{skin_name}', chroma_id={chroma_id}, skin_id={skin_id}")
         
-        if not self.skin_previews_dir.exists():
-            log.warning(f"[CHROMA] SkinPreviews directory does not exist: {self.skin_previews_dir}")
+        if not self.skins_dir.exists():
+            log.warning(f"[CHROMA] Skins directory does not exist: {self.skins_dir}")
             return None
         
         try:
-            # Convert skin name to English if needed (preview images are stored with English names)
-            # Note: chroma_preview_manager doesn't have access to chroma_id_map, so we pass None
-            english_skin_name = convert_to_english_skin_name(skin_id, skin_name, self.db, champion_name, chroma_id_map=None) if skin_id else skin_name
+            # We need to find the champion_id and skin_id/chroma_id from the database
+            if not self.db:
+                log.warning("[CHROMA] No database available for ID lookup")
+                return None
             
-            # Special handling for Elementalist Lux forms - always use base skin name for preview paths
-            if 99991 <= chroma_id <= 99999 or chroma_id == 99007:
-                # For Elementalist Lux forms, use the base skin name instead of the current form name
-                if champion_name.lower() == "lux" and "elementalist" in english_skin_name.lower():
-                    # Extract the base skin name (e.g., "Elementalist Lux Dark" -> "Elementalist Lux")
-                    base_skin_name = "Elementalist Lux"
-                    if champion_name not in base_skin_name:
-                        base_skin_name = f"{base_skin_name} {champion_name}"
-                    english_skin_name = base_skin_name
-                    log.debug(f"[CHROMA] Using base skin name for Elementalist Lux form preview: '{base_skin_name}'")
+            # Get champion ID from name
+            champion_id = None
+            for champ_id, champ_data in self.db.champions.items():
+                if champ_data.get('name', '').lower() == champion_name.lower():
+                    champion_id = champ_id
+                    break
             
-            # Special handling for Risen Legend Kai'Sa HOL chroma - use base skin name for preview paths
-            if chroma_id == 145070 or chroma_id == 145071 or (champion_name.lower() == "kaisa" and skin_id in [145070, 145071]):
-                # For Risen Legend Kai'Sa HOL chroma, use the base skin name instead of the HOL chroma name
-                if champion_name.lower() == "kaisa" and ("risen" in english_skin_name.lower() or "immortalized" in english_skin_name.lower()):
-                    # Always use "Risen Legend Kai'Sa" as the base skin name for preview paths
-                    base_skin_name = "Risen Legend Kai'Sa"
-                    if champion_name not in base_skin_name:
-                        base_skin_name = f"{base_skin_name} {champion_name}"
-                    english_skin_name = base_skin_name
-                    log.debug(f"[CHROMA] Using base skin name for Risen Legend Kai'Sa HOL chroma preview: '{base_skin_name}'")
+            if not champion_id:
+                log.warning(f"[CHROMA] Champion ID not found for: {champion_name}")
+                return None
             
-            # Normalize skin name: remove colons, slashes, and other special characters that might not match filesystem
-            # (e.g., "PROJECT: Naafiri" becomes "PROJECT Naafiri", "K/DA" becomes "KDA")
-            normalized_skin_name = english_skin_name.replace(":", "").replace("/", "")
-            
-            if normalized_skin_name != english_skin_name:
-                log.info(f"[CHROMA] Normalized skin name: '{english_skin_name}' -> '{normalized_skin_name}'")
-            
-            # skin_name already includes champion (e.g. "Demacia Vice Garen")
-            # Build path: Champion/{skin_name}/...
-            skin_dir = self.skin_previews_dir / champion_name / normalized_skin_name
-            log.info(f"[CHROMA] Skin directory: {skin_dir}")
+            champion_dir = self.skins_dir / str(champion_id)
+            if not champion_dir.exists():
+                log.warning(f"[CHROMA] Champion directory not found: {champion_dir}")
+                return None
             
             if chroma_id is None or chroma_id == 0:
-                # Base skin preview: {normalized_skin_name}.png
-                preview_path = skin_dir / f"{normalized_skin_name}.png"
+                # Base skin preview: {champion_id}/{skin_id}/{skin_id}.png
+                if not skin_id:
+                    log.warning("[CHROMA] No skin_id provided for base skin preview")
+                    return None
+                
+                skin_dir = champion_dir / str(skin_id)
+                if not skin_dir.exists():
+                    log.warning(f"[CHROMA] Skin directory not found: {skin_dir}")
+                    return None
+                
+                preview_path = skin_dir / f"{skin_id}.png"
                 log.info(f"[CHROMA] Looking for base skin preview at: {preview_path}")
             else:
-                # Chroma preview: chromas/{ID}.png
-                chromas_dir = skin_dir / "chromas"
-                preview_path = chromas_dir / f"{chroma_id}.png"
+                # Chroma preview: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
+                if not skin_id:
+                    log.warning("[CHROMA] No skin_id provided for chroma preview")
+                    return None
+                
+                skin_dir = champion_dir / str(skin_id)
+                if not skin_dir.exists():
+                    log.warning(f"[CHROMA] Skin directory not found: {skin_dir}")
+                    return None
+                
+                chroma_dir = skin_dir / str(chroma_id)
+                if not chroma_dir.exists():
+                    log.warning(f"[CHROMA] Chroma directory not found: {chroma_dir}")
+                    return None
+                
+                preview_path = chroma_dir / f"{chroma_id}.png"
                 log.info(f"[CHROMA] Looking for chroma preview at: {preview_path}")
             
             if preview_path.exists():

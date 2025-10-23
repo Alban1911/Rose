@@ -40,20 +40,19 @@ class AppStatus:
         
     def check_previews_downloaded(self) -> bool:
         """
-        Check if skin previews are downloaded
+        Check if skin previews are downloaded from merged database
         
         Returns:
             True if previews are downloaded, False otherwise
         """
         try:
-            from utils.paths import get_appdata_dir
-            # Check if previews directory exists and has content
-            previews_dir = get_appdata_dir() / "SkinPreviews"
-            if not previews_dir.exists():
+            skins_dir = get_skins_dir()
+            if not skins_dir.exists():
                 return False
             
-            # Check if there are preview image files
-            preview_files = list(previews_dir.rglob("*.png"))
+            # Check if there are preview image files in the merged structure
+            # Structure: {champion_id}/{skin_id}/{skin_id}.png and {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
+            preview_files = list(skins_dir.rglob("*.png"))
             return len(preview_files) > 0
         except Exception as e:
             log.debug(f"Failed to check previews directory: {e}")
@@ -61,7 +60,7 @@ class AppStatus:
     
     def check_skins_downloaded(self) -> bool:
         """
-        Check if skins are downloaded from the repository
+        Check if skins are downloaded from the repository using new merged structure
         
         Returns:
             True if skins directory exists and has content, False otherwise
@@ -78,18 +77,36 @@ class AppStatus:
             if not champion_dirs:
                 return False
             
-            # Check if at least one champion has skin files
+            # Check if at least one champion has skin files in new structure
+            # Structure: {champion_id}/{skin_id}/{skin_id}.zip and {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
             for champion_dir in champion_dirs:
-                # Check for base skins
-                if list(champion_dir.glob("*.zip")):
-                    return True
-                
-                # Check for chromas
-                chromas_dir = champion_dir / "chromas"
-                if chromas_dir.exists() and chromas_dir.is_dir():
-                    for skin_chroma_dir in chromas_dir.iterdir():
-                        if skin_chroma_dir.is_dir() and list(skin_chroma_dir.glob("*.zip")):
+                # Check for skin subdirectories
+                for skin_dir in champion_dir.iterdir():
+                    if not skin_dir.is_dir():
+                        continue
+                    
+                    # Check if this is a skin directory (numeric name)
+                    try:
+                        int(skin_dir.name)
+                        
+                        # Check for base skin zip file
+                        skin_zip = skin_dir / f"{skin_dir.name}.zip"
+                        if skin_zip.exists():
                             return True
+                        
+                        # Check for chroma zip files
+                        for chroma_dir in skin_dir.iterdir():
+                            if chroma_dir.is_dir():
+                                try:
+                                    int(chroma_dir.name)  # Check if it's a chroma directory
+                                    chroma_zip = chroma_dir / f"{chroma_dir.name}.zip"
+                                    if chroma_zip.exists():
+                                        return True
+                                except ValueError:
+                                    continue
+                    except ValueError:
+                        # Not a skin directory, skip
+                        continue
             
             return False
         except Exception as e:

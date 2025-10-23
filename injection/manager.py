@@ -56,7 +56,7 @@ class InjectionManager:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock
                     log_action(log, "Initializing injection system...", "💉")
-                    self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
+                    self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir, self.name_db)
                     self._initialized = True
                     log_success(log, "Injection system initialized successfully", "✅")
     
