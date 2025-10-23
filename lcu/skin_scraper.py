@@ -36,7 +36,7 @@ class ChampionSkinCache:
     
     def is_loaded_for_champion(self, champion_id: int) -> bool:
         """Check if cache is loaded for a specific champion"""
-        return self.champion_id == champion_id and len(self.skins) > 0
+        return self.champion_id == champion_id and bool(self.skins)
     
     def get_skin_by_id(self, skin_id: int) -> Optional[Dict]:
         """Get skin data by skin ID"""

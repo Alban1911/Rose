@@ -45,7 +45,7 @@ def find_skin_name():
             for i, control in enumerate(static_controls):
                 try:
                     text = control.window_text()
-                    if text and len(text.strip()) > 0:
+                    if text and text.strip():
                         # Look for skin name patterns (language-agnostic)
                         text_clean = text.strip()
                         
@@ -137,7 +137,7 @@ def find_skin_name():
             for elem in all_elements:
                 try:
                     text = elem.window_text()
-                    if text and len(text.strip()) > 0:
+                    if text and text.strip():
                         # Look for skin name patterns (language-agnostic)
                         text_clean = text.strip()
                         
