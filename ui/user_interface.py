@@ -38,6 +38,10 @@ class UserInterface:
         self.unowned_frame = None
         self.dice_button = None
         self.random_flag = None
+        self.click_catcher_hide = None
+        
+        # Click Catcher instances for different UI elements
+        self.click_catchers = {}  # Dictionary to store multiple click catcher instances
         
         # Current skin tracking
         self.current_skin_id = None
@@ -92,6 +96,68 @@ class UserInterface:
             from ui.random_flag import RandomFlag
             self.random_flag = RandomFlag(state=self.state)
             log.info("[UI] RandomFlag created successfully")
+            
+            log.info("[UI] Creating ClickCatcherHide components...")
+            # Create ClickCatcherHide instances for different UI elements
+            from ui.click_catcher_hide import ClickCatcherHide
+            
+            self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
+                state=self.state, x=552, y=834, width=41, height=41
+            )
+            self.click_catchers['EDIT_RUNES'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('EDIT_RUNES')
+            )
+            
+            self.click_catchers['REC_RUNES'] = ClickCatcherHide(
+                state=self.state, x=499, y=834, width=41, height=41
+            )
+            self.click_catchers['REC_RUNES'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('REC_RUNES')
+            )
+            
+            self.click_catchers['SETTINGS'] = ClickCatcherHide(
+                state=self.state, x=1518, y=2, width=33, height=33
+            )
+            self.click_catchers['SETTINGS'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('SETTINGS')
+            )
+            
+            # SUM_L - Rectangle at (859, 831) with size 46x47
+            self.click_catchers['SUM_L'] = ClickCatcherHide(
+                state=self.state, x=859, y=831, width=46, height=47, shape='rectangle'
+            )
+            self.click_catchers['SUM_L'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('SUM_L')
+            )
+            
+            # SUM_R - Rectangle at (918, 831) with size 46x47
+            self.click_catchers['SUM_R'] = ClickCatcherHide(
+                state=self.state, x=918, y=831, width=46, height=47, shape='rectangle'
+            )
+            self.click_catchers['SUM_R'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('SUM_R')
+            )
+            
+            # WARD - Rectangle at (989, 831) with size 46x47
+            self.click_catchers['WARD'] = ClickCatcherHide(
+                state=self.state, x=989, y=831, width=46, height=47, shape='rectangle'
+            )
+            self.click_catchers['WARD'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('WARD')
+            )
+            
+            # EMOTES - Rectangle at (1048, 832) with size 46x46
+            self.click_catchers['EMOTES'] = ClickCatcherHide(
+                state=self.state, x=1048, y=832, width=46, height=46, shape='rectangle'
+            )
+            self.click_catchers['EMOTES'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('EMOTES')
+            )
+            
+            # Keep the original single instance for backward compatibility
+            self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
+            
+            log.info("[UI] ClickCatcherHide instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES")
             
             self._last_unowned_skin_id = None
             # Track last base skin that showed UnownedFrame to control fade behavior
@@ -194,6 +260,9 @@ class UserInterface:
             
             # Update dice button visibility
             self._update_dice_button()
+            
+            # Show click catchers when a skin is selected (champion is locked)
+            self._show_click_catchers()
 
             # Update last base skin id after handling
             self._last_base_skin_id = new_base_skin_id if new_base_skin_id is not None else (skin_id if is_base_skin_var else None)
@@ -211,6 +280,9 @@ class UserInterface:
                 self.dice_button.hide_button()
             if self.random_flag:
                 self.random_flag.hide_flag()
+            # Hide all click catcher instances
+            for catcher in self.click_catchers.values():
+                catcher.hide_catcher()
     
     def _skin_has_chromas(self, skin_id: int) -> bool:
         """Check if skin has chromas"""
@@ -452,6 +524,10 @@ class UserInterface:
             # Check RandomFlag for resolution changes
             if self.random_flag:
                 self.random_flag.check_resolution_and_update()
+            
+            # Check ClickCatcherHide instances for resolution changes
+            for catcher in self.click_catchers.values():
+                catcher.check_resolution_and_update()
                 
         except Exception as e:
             log.error(f"[UI] Error checking resolution changes: {e}")
@@ -479,7 +555,8 @@ class UserInterface:
         return (self.chroma_ui is not None and 
                 self.unowned_frame is not None and 
                 self.dice_button is not None and 
-                self.random_flag is not None)
+                self.random_flag is not None and
+                len(self.click_catchers) > 0)
     
     def request_ui_initialization(self):
         """Request UI initialization (called from any thread)"""
@@ -583,6 +660,7 @@ class UserInterface:
             unowned_frame_to_cleanup = None
             dice_button_to_cleanup = None
             random_flag_to_cleanup = None
+            click_catchers_to_cleanup = {}
             
             if lock_acquired:
                 try:
@@ -591,10 +669,13 @@ class UserInterface:
                     unowned_frame_to_cleanup = self.unowned_frame
                     dice_button_to_cleanup = self.dice_button
                     random_flag_to_cleanup = self.random_flag
+                    click_catchers_to_cleanup = self.click_catchers.copy()
                     self.chroma_ui = None
                     self.unowned_frame = None
                     self.dice_button = None
                     self.random_flag = None
+                    self.click_catchers = {}
+                    self.click_catcher_hide = None
                     
                     # Also clear global instances
                     try:
@@ -616,12 +697,15 @@ class UserInterface:
                     unowned_frame_to_cleanup = self.unowned_frame
                     dice_button_to_cleanup = self.dice_button
                     random_flag_to_cleanup = self.random_flag
+                    click_catchers_to_cleanup = self.click_catchers.copy()
                     
                     # CRITICAL: Set components to None even without lock
                     self.chroma_ui = None
                     self.unowned_frame = None
                     self.dice_button = None
                     self.random_flag = None
+                    self.click_catchers = {}
+                    self.click_catcher_hide = None
                     
                     log.debug("[UI] Got references without lock and cleared instance variables")
                 except Exception as e:
@@ -676,6 +760,17 @@ class UserInterface:
                     log.error(f"[UI] Error cleaning up RandomFlag: {e}")
                     import traceback
                     log.error(f"[UI] RandomFlag cleanup traceback: {traceback.format_exc()}")
+            
+            if click_catchers_to_cleanup:
+                log.debug("[UI] Cleaning up ClickCatcherHide instances...")
+                for instance_name, catcher in click_catchers_to_cleanup.items():
+                    try:
+                        catcher.cleanup()
+                        log.debug(f"[UI] ClickCatcherHide '{instance_name}' cleaned up successfully")
+                    except Exception as e:
+                        log.error(f"[UI] Error cleaning up ClickCatcherHide '{instance_name}': {e}")
+                        import traceback
+                        log.error(f"[UI] ClickCatcherHide '{instance_name}' cleanup traceback: {traceback.format_exc()}")
             
             # If we couldn't get references, try to force cleanup through global instances
             if not chroma_ui_to_cleanup and not unowned_frame_to_cleanup:
@@ -858,6 +953,85 @@ class UserInterface:
         
         log.info("[UI] Randomization cancelled")
     
+    def _on_click_catcher_hide_clicked(self):
+        """Handle click detection from ClickCatcherHide (backward compatibility)"""
+        self._on_click_catcher_clicked('SETTINGS')
+    
+    def _on_click_catcher_clicked(self, instance_name: str):
+        """Handle click detection from specific ClickCatcherHide instance"""
+        log.info(f"[UI] ClickCatcherHide '{instance_name}' click detected")
+        
+        if instance_name == 'EDIT_RUNES':
+            log.info("[UI] EDIT_RUNES clicked - would trigger rune editor UI opacity change")
+            # TODO: Implement UI opacity change for rune editor
+        elif instance_name == 'REC_RUNES':
+            log.info("[UI] REC_RUNES clicked - would trigger rune recommendation UI opacity change")
+            # TODO: Implement UI opacity change for rune recommendations
+        elif instance_name == 'SETTINGS':
+            log.info("[UI] SETTINGS clicked - setting UI opacity to 0")
+            # TODO: Implement UI opacity change to 0
+        elif instance_name == 'SUM_L':
+            log.info("[UI] SUM_L clicked - would trigger summoner spell left UI opacity change")
+            # TODO: Implement UI opacity change for summoner spell left
+        elif instance_name == 'SUM_R':
+            log.info("[UI] SUM_R clicked - would trigger summoner spell right UI opacity change")
+            # TODO: Implement UI opacity change for summoner spell right
+        elif instance_name == 'WARD':
+            log.info("[UI] WARD clicked - would trigger ward UI opacity change")
+            # TODO: Implement UI opacity change for ward
+        elif instance_name == 'EMOTES':
+            log.info("[UI] EMOTES clicked - would trigger emotes UI opacity change")
+            # TODO: Implement UI opacity change for emotes
+        else:
+            log.warning(f"[UI] Unknown click catcher instance: {instance_name}")
+    
+    def show_click_catcher_hide(self, x, y, width=50, height=50):
+        """Show the ClickCatcherHide at the specified position (backward compatibility)"""
+        if self.click_catcher_hide:
+            self.click_catcher_hide.set_position(x, y, width, height)
+            self.click_catcher_hide.show_catcher()
+            log.debug(f"[UI] ClickCatcherHide shown at ({x}, {y}) size {width}x{height}")
+    
+    def hide_click_catcher_hide(self):
+        """Hide the ClickCatcherHide (backward compatibility)"""
+        if self.click_catcher_hide:
+            self.click_catcher_hide.hide_catcher()
+            log.debug("[UI] ClickCatcherHide hidden")
+    
+    def show_click_catcher(self, instance_name: str):
+        """Show a specific click catcher instance"""
+        if instance_name in self.click_catchers:
+            self.click_catchers[instance_name].show_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
+        else:
+            log.warning(f"[UI] ClickCatcher instance '{instance_name}' not found")
+    
+    def hide_click_catcher(self, instance_name: str):
+        """Hide a specific click catcher instance"""
+        if instance_name in self.click_catchers:
+            self.click_catchers[instance_name].hide_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' hidden")
+        else:
+            log.warning(f"[UI] ClickCatcher instance '{instance_name}' not found")
+    
+    def show_all_click_catchers(self):
+        """Show all click catcher instances"""
+        for instance_name, catcher in self.click_catchers.items():
+            catcher.show_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
+    
+    def hide_all_click_catchers(self):
+        """Hide all click catcher instances"""
+        for instance_name, catcher in self.click_catchers.items():
+            catcher.hide_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' hidden")
+    
+    def _show_click_catchers(self):
+        """Show all click catcher instances when a skin is selected"""
+        for instance_name, catcher in self.click_catchers.items():
+            catcher.show_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
+    
     def _select_random_skin(self) -> Optional[tuple]:
         """Select a random skin from available skins (excluding base skin)
         
@@ -969,6 +1143,8 @@ class UserInterface:
                 self.dice_button.cleanup()
             if self.random_flag:
                 self.random_flag.cleanup()
+            for catcher in self.click_catchers.values():
+                catcher.cleanup()
             log.info("[UI] All UI components cleaned up")
 
 
