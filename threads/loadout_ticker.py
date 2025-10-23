@@ -168,9 +168,18 @@ class LoadoutTicker(threading.Thread):
                     # For injection, we MUST use skin ID - no fallbacks allowed
                     skin_id = getattr(self.state, 'last_hovered_skin_id', None)
                     if skin_id:
-                        # Use skin ID in the correct format for injection
-                        name = f"skin_{skin_id}"
-                        log.debug(f"[inject] Using skin ID from state: '{name}' (ID: {skin_id})")
+                        # Use utility functions to determine if this is a base skin or chroma
+                        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+                        from utils.utilities import is_base_skin, get_base_skin_id_for_chroma
+                        
+                        if is_base_skin(skin_id, chroma_id_map):
+                            # This is a base skin - use the skin ID directly
+                            name = f"skin_{skin_id}"
+                            log.debug(f"[inject] Using base skin ID from state: '{name}' (ID: {skin_id})")
+                        else:
+                            # This is a chroma - use the chroma ID directly with chroma_ prefix
+                            name = f"chroma_{skin_id}"
+                            log.debug(f"[inject] Using chroma ID from state: '{name}' (chroma: {skin_id})")
                     else:
                         # No skin ID available - this is an error condition
                         log.error(f"[inject] No skin ID available for injection - this should not happen")
@@ -281,23 +290,8 @@ class LoadoutTicker(threading.Thread):
                         # Inject if user doesn't own the hovered skin
                         elif self.injection_manager:
                             try:
-                                # Get selected chroma ID from state (already selected via wheel shown by UI detection)
-                                # For random mode, use the random skin ID instead
-                                if getattr(self.state, 'random_mode_active', False) and getattr(self.state, 'random_skin_id', None):
-                                    random_skin_id = self.state.random_skin_id
-                                    # Check if the random skin ID is actually a chroma
-                                    if self.skin_scraper and self.skin_scraper.cache and random_skin_id in self.skin_scraper.cache.chroma_id_map:
-                                        selected_chroma_id = random_skin_id
-                                        log.info(f"[RANDOM] Using random chroma ID: {selected_chroma_id}")
-                                    else:
-                                        selected_chroma_id = None
-                                        log.info(f"[RANDOM] Using random base skin ID: {random_skin_id}")
-                                else:
-                                    selected_chroma_id = self.state.selected_chroma_id
-                                    if selected_chroma_id:
-                                        log.info(f"[inject] Using selected chroma ID: {selected_chroma_id}")
-                                    else:
-                                        log.debug(f"[inject] No chroma selected, using base skin")
+                                # Note: Chroma selection is now handled via the name format (chroma_ prefix)
+                                # No need for separate chroma_id parameter
                                 
                                 # Force base skin selection via LCU before injecting
                                 # This ensures LCU has the correct state for injection to work properly
@@ -401,7 +395,6 @@ class LoadoutTicker(threading.Thread):
                                         success = self.injection_manager.inject_skin_immediately(
                                             name, 
                                             stop_callback=game_ended_callback,
-                                            chroma_id=selected_chroma_id,
                                             champion_name=cname,
                                             champion_id=self.state.locked_champ_id
                                         )

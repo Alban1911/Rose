@@ -270,13 +270,13 @@ try:
     if getattr(sys, 'frozen', False):
         # Try multiple possible plugin paths
         possible_paths = [
-            os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt6", "plugins"),
-            os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt", "plugins"),
-            os.path.join(os.path.dirname(sys.executable), "qt6", "plugins"),
+            Path(sys.executable).parent / "PyQt6" / "Qt6" / "plugins",
+            Path(sys.executable).parent / "PyQt6" / "Qt" / "plugins",
+            Path(sys.executable).parent / "qt6" / "plugins",
         ]
         for path in possible_paths:
-            if os.path.exists(path):
-                os.environ['QT_PLUGIN_PATH'] = path
+            if path.exists():
+                os.environ['QT_PLUGIN_PATH'] = str(path)
                 break
     
     # Suppress Qt DPI warnings during import
@@ -787,9 +787,9 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
             # Set Qt platform plugin path explicitly for frozen executables
             if getattr(sys, 'frozen', False):
                 import os
-                qt_plugin_path = os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt6", "plugins")
-                if os.path.exists(qt_plugin_path):
-                    os.environ['QT_PLUGIN_PATH'] = qt_plugin_path
+                qt_plugin_path = Path(sys.executable).parent / "PyQt6" / "Qt6" / "plugins"
+                if qt_plugin_path.exists():
+                    os.environ['QT_PLUGIN_PATH'] = str(qt_plugin_path)
                     log.debug(f"Set QT_PLUGIN_PATH: {qt_plugin_path}")
             
             try:

@@ -15,7 +15,7 @@ datas = []
 
 # Assets folder - verify and add entire directory
 import os
-if os.path.exists('assets') and os.path.isdir('assets'):
+if Path('assets').exists() and Path('assets').is_dir():
     asset_files = os.listdir('assets')
     if asset_files:
         # Add entire assets folder (preserves directory structure)
@@ -27,7 +27,7 @@ else:
     print("[WARNING] Assets directory not found")
 
 # Verify and add icons directory
-if os.path.exists('icons') and os.path.isdir('icons'):
+if Path('icons').exists() and Path('icons').is_dir():
     icon_dir_files = os.listdir('icons')
     if icon_dir_files:
         datas += [('icons', 'icons')]
@@ -60,7 +60,7 @@ injection_data_files = [
 binaries = []
 missing_binaries = []
 for tool in injection_binaries:
-    if os.path.exists(tool):
+    if Path(tool).exists():
         binaries.append((tool, 'injection/tools'))
     else:
         missing_binaries.append(tool)
@@ -75,7 +75,7 @@ else:
 # Verify and add injection data files
 missing_data = []
 for tool in injection_data_files:
-    if os.path.exists(tool):
+    if Path(tool).exists():
         datas += [(tool, 'injection/tools')]
     else:
         missing_data.append(tool)
@@ -88,7 +88,7 @@ else:
     print(f"[OK] All {len(injection_data_files)} injection data files found")
 
 # Add mods_map.json
-if os.path.exists('injection/mods_map.json'):
+if Path('injection/mods_map.json').exists():
     datas += [('injection/mods_map.json', 'injection')]
 else:
     print("[WARNING] injection/mods_map.json not found")

@@ -206,7 +206,7 @@ class LicenseClient:
             (valid: bool, message: str)
         """
         # Check if license file exists
-        if not os.path.exists(self.license_file):
+        if not Path(self.license_file).exists():
             return False, "No license found. Please activate your license."
         
         try:
@@ -264,7 +264,7 @@ class LicenseClient:
         Returns:
             Dictionary with license details or None if no license
         """
-        if not os.path.exists(self.license_file):
+        if not Path(self.license_file).exists():
             return None
         
         try:

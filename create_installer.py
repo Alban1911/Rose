@@ -27,7 +27,7 @@ def create_installer():
     
     iscc_path = None
     for path in inno_setup_paths:
-        if os.path.exists(path):
+        if Path(path).exists():
             iscc_path = path
             break
     
@@ -40,7 +40,7 @@ def create_installer():
     print(f"Found Inno Setup: {iscc_path}")
     
     # Check if dist directory exists
-    if not os.path.exists("dist/LeagueUnlocked"):
+    if not Path("dist/LeagueUnlocked").exists():
         print("\nError: dist/LeagueUnlocked directory not found!")
         print("Please run 'python build_pyinstaller.py' first to create the executable.")
         return False
@@ -50,7 +50,7 @@ def create_installer():
     installer_dir.mkdir(exist_ok=True)
     
     # Check if installer script exists
-    if not os.path.exists("installer.iss"):
+    if not Path("installer.iss").exists():
         print("Error: installer.iss not found!")
         return False
     

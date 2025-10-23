@@ -34,7 +34,7 @@ def clean_previous_builds():
     dirs_to_clean = ["dist"]
     
     for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
+        if Path(dir_name).exists():
             try:
                 shutil.rmtree(dir_name)
                 print(f"[OK] Removed {dir_name}/")
@@ -42,7 +42,7 @@ def clean_previous_builds():
                 print(f"[ERROR] Failed to remove {dir_name}/: {e}")
     
     # Check if build cache exists
-    if os.path.exists("build"):
+    if Path("build").exists():
         print("[INFO] Preserved build/ folder for faster incremental builds")
     else:
         print("[INFO] No build/ cache found - this will be a full build")
@@ -50,7 +50,7 @@ def clean_previous_builds():
     # Clean injection directories
     injection_dirs = ["injection/mods", "injection/overlay", "injection/incoming_zips"]
     for dir_path in injection_dirs:
-        if os.path.exists(dir_path):
+        if Path(dir_path).exists():
             shutil.rmtree(dir_path)
             print(f"[OK] Removed {dir_path}/")
     
