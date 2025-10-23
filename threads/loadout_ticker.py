@@ -9,7 +9,7 @@ import threading
 from typing import Optional
 from lcu.client import LCU
 from state.shared_state import SharedState
-from database.name_db import NameDB
+# NameDB no longer needed - LCU provides all data
 from utils.logging import get_logger, log_action
 # Note: normalize_text removed - using simple normalization instead
 from config import (
@@ -26,8 +26,7 @@ class LoadoutTicker(threading.Thread):
     """High-frequency loadout countdown ticker"""
     
     def __init__(self, lcu: LCU, state: SharedState, hz: int, fallback_ms: int, 
-                 ticker_id: int, mode: str = "auto", db: Optional[NameDB] = None, 
-                 injection_manager=None, skin_scraper=None):
+                 ticker_id: int, mode: str = "auto", injection_manager=None, skin_scraper=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
@@ -35,7 +34,6 @@ class LoadoutTicker(threading.Thread):
         self.fallback_ms = max(0, int(fallback_ms))
         self.ticker_id = int(ticker_id)
         self.mode = mode
-        self.db = db
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
 
@@ -106,12 +104,19 @@ class LoadoutTicker(threading.Thread):
                 final_label = None
                 try:
                     champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                    cname = self.db.champ_name_by_id.get(champ_id or -1, "").strip() if self.db else ""
+                    # Get champion name from LCU skin scraper cache
+                    cname = ""
+                    if champ_id and self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(champ_id):
+                        cname = self.skin_scraper.cache.champion_name or ""
 
-                    # 1) Base: prefer skin ID (Data Dragon) → ex: "Blood Lord"
-                    if self.state.last_hovered_skin_id and self.db and self.state.last_hovered_skin_id in self.db.skin_name_by_id:
-                        base = self.db.skin_name_by_id[self.state.last_hovered_skin_id].strip()
-                    else:
+                    # 1) Base: get skin name from LCU → ex: "Blood Lord"
+                    base = ""
+                    if self.state.last_hovered_skin_id and self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(champ_id):
+                        skin_data = self.skin_scraper.cache.get_skin_by_id(self.state.last_hovered_skin_id)
+                        if skin_data:
+                            base = skin_data.get('skinName', '').strip()
+                    
+                    if not base:
                         base = (raw or "").strip()
 
                     # Normalize spaces and apostrophes (NBSP etc.)
@@ -160,7 +165,10 @@ class LoadoutTicker(threading.Thread):
                         # If UI detected text is like "Champion X Champion", normalize to "X Champion"
                         try:
                             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                            cname = (self.db.champ_name_by_id.get(champ_id or -1, "") or "").strip() if self.db else ""
+                            # Get champion name from LCU skin scraper cache
+                            cname = ""
+                            if champ_id and self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(champ_id):
+                                cname = (self.skin_scraper.cache.champion_name or "").strip()
                             if cname:
                                 low = name.strip()
                                 if low.lower().startswith(cname.lower() + " ") and low.lower().endswith(" " + cname.lower()):
@@ -304,7 +312,7 @@ class LoadoutTicker(threading.Thread):
                                         # Hide chroma border/wheel immediately when forcing base skin
                                         try:
                                             from ui.user_interface import get_user_interface
-                                            user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                                            user_interface = get_user_interface(self.state, self.skin_scraper)
                                             if user_interface.is_ui_initialized():
                                                 # Hide all UI components
                                                 user_interface.hide_all()
@@ -421,7 +429,7 @@ class LoadoutTicker(threading.Thread):
                                         # Request UI destruction after injection completes
                                         try:
                                             from ui.user_interface import get_user_interface
-                                            user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                                            user_interface = get_user_interface(self.state, self.skin_scraper)
                                             user_interface.request_ui_destruction()
                                             log_action(log, "UI destruction requested after injection completion", "🧹")
                                         except Exception as e:

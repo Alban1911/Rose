@@ -155,7 +155,7 @@ if sys.platform == "win32":
     
     _console_thread = threading.Thread(target=_console_buffer_manager, daemon=True, name="ConsoleBufferManager")
     _console_thread.start()
-from database.name_db import NameDB
+# NameDB no longer needed - LCU provides all data
 from lcu.client import LCU
 from lcu.skin_scraper import LCUSkinScraper
 from state.shared_state import SharedState
@@ -866,16 +866,8 @@ def main():
     # Initialize database with error handling
     try:
         log.info("Initializing champion name database...")
-        # Create English database for file name mapping
-        db_en = NameDB(lang="en_US")
-        log.info("✓ English database initialized for file name mapping")
-        
-        # Create local database for skin name detection (will be updated when LCU language detected)
-        db_local = NameDB(lang="en_US")  # Will be updated to actual language later
-        log.info("✓ Local database initialized (will update when LCU language detected)")
-        
-        # For backwards compatibility, use English database as primary
-        db = db_en
+        # NameDB no longer needed - LCU provides all skin and champion data
+        db = None
     except Exception as e:
         log.error("=" * 80)
         log.error("FATAL ERROR DURING DATABASE INITIALIZATION")
@@ -1069,17 +1061,17 @@ def main():
                          log_transitions=False, injection_manager=injection_manager, skin_scraper=skin_scraper, db=db)
     thread_manager.register("Phase", t_phase)
     
-    t_ui = UISkinThread(state, db_local, db_en, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
+    t_ui = UISkinThread(state, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
     thread_manager.register("UI Detection", t_ui)
     
-    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
+    t_ws = WSEventThread(lcu, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
                         fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
                         skin_scraper=skin_scraper)
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     t_lcu_monitor = LCUMonitorThread(lcu, state, None, t_ws, 
-                                      db=db_local, skin_scraper=skin_scraper, injection_manager=injection_manager,
+                                      db=None, skin_scraper=skin_scraper, injection_manager=injection_manager,
                                       disconnect_callback=on_lcu_disconnected)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
     
@@ -1118,10 +1110,10 @@ def main():
                         current_skin_id = state.last_hovered_skin_id
                         current_skin_name = state.last_hovered_skin_key
                         
-                        # Get champion name
+                        # Get champion name from LCU skin scraper cache
                         champion_name = None
-                        if db:
-                            champion_name = db.champ_name_by_id.get(state.locked_champ_id)
+                        if skin_scraper and skin_scraper.cache.is_loaded_for_champion(state.locked_champ_id):
+                            champion_name = skin_scraper.cache.champion_name
                         
                         # Check if this is a new skin (debouncing at main loop level)
                         if not hasattr(main, '_last_notified_skin_id') or main._last_notified_skin_id != current_skin_id:
@@ -1131,7 +1123,7 @@ def main():
                                 from ui.user_interface import get_user_interface
                                 user_interface = get_user_interface()
                                 if user_interface.is_ui_initialized():
-                                    user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name)
+                                    user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name, state.locked_champ_id)
                                     log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
                                     # Track the last notified skin
                                     main._last_notified_skin_id = current_skin_id

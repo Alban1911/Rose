@@ -41,12 +41,11 @@ except Exception:
 class WSEventThread(threading.Thread):
     """WebSocket event thread with WAMP + lock counter + timer"""
     
-    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, ping_interval: int = WS_PING_INTERVAL_DEFAULT, 
+    def __init__(self, lcu: LCU, state: SharedState, ping_interval: int = WS_PING_INTERVAL_DEFAULT, 
                  ping_timeout: int = WS_PING_TIMEOUT_DEFAULT, timer_hz: int = TIMER_HZ_DEFAULT, fallback_ms: int = FALLBACK_LOADOUT_MS_DEFAULT, 
                  injection_manager=None, skin_scraper=None, app_status_callback=None):
         super().__init__(daemon=True)
         self.lcu = lcu
-        self.db = db
         self.state = state
         self.ping_interval = ping_interval
         self.ping_timeout = ping_timeout
@@ -179,7 +178,7 @@ class WSEventThread(threading.Thread):
                         "Phase": phase_timer
                     })
                     if self.ticker is None or not self.ticker.is_alive():
-                        self.ticker = LoadoutTicker(self.lcu, self.state, self.timer_hz, self.fallback_ms, ticker_id=self.state.current_ticker, mode=mode, db=self.db, injection_manager=self.injection_manager, skin_scraper=self.skin_scraper)
+                        self.ticker = LoadoutTicker(self.lcu, self.state, self.timer_hz, self.fallback_ms, ticker_id=self.state.current_ticker, mode=mode, injection_manager=self.injection_manager, skin_scraper=self.skin_scraper)
                         self.ticker.start()
 
     def _handle_api_event(self, payload: dict):
@@ -217,7 +216,7 @@ class WSEventThread(threading.Thread):
                     # Request UI initialization when entering ChampSelect
                     try:
                         from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
                         user_interface.request_ui_initialization()
                         log_event(log, "UI initialization requested for ChampSelect", "🎨")
                     except Exception as e:
@@ -324,33 +323,19 @@ class WSEventThread(threading.Thread):
                         self.state.locked_champ_id is not None and
                         self.state.locked_champ_id != new_champ_id):
                         # This is a champion exchange
-                        champ_label = self.db.champ_name_by_id.get(new_champ_id, f"#{new_champ_id}")
+                        champ_label = f"#{new_champ_id}"  # Use ID since we don't have database
                         log_event(log, f"Champion exchange detected: {champ_label}", "🔄", {"From": self.last_locked_champion_id, "To": new_champ_id})
                         self._handle_champion_exchange(self.last_locked_champion_id, new_champ_id, champ_label)
                         # Update tracking
                         self.last_locked_champion_id = new_champ_id
-            
-            for cid in added:
-                ch = new_locks[cid]
-                # Readable label if available
-                champ_label = self.db.champ_name_by_id.get(int(ch), f"#{ch}")
-                log_event(log, f"Champion locked: {champ_label}", "🔒", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
-                if self.state.local_cell_id is not None and cid == int(self.state.local_cell_id):
-                    new_champ_id = int(ch)
-                    
-                    # Check for champion exchange (champion ID changed but we were already locked)
-                    if (self.last_locked_champion_id is not None and 
-                        self.last_locked_champion_id != new_champ_id and
-                        self.state.locked_champ_id is not None):
-                        # This is a champion exchange, not a new lock
-                        self._handle_champion_exchange(self.last_locked_champion_id, new_champ_id, champ_label)
                     else:
                         # This is a new champion lock (first lock or re-lock of same champion)
+                        champ_label = f"#{new_champ_id}"
                         separator = "=" * 80
                         log.info(separator)
                         log.info(f"🎮 YOUR CHAMPION LOCKED")
                         log.info(f"   📋 Champion: {champ_label}")
-                        log.info(f"   📋 ID: {ch}")
+                        log.info(f"   📋 ID: {new_champ_id}")
                         log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
                         log.info(separator)
                         self.state.locked_champ_id = new_champ_id
@@ -359,20 +344,16 @@ class WSEventThread(threading.Thread):
                         # Scrape skins for this champion from LCU
                         if self.skin_scraper:
                             try:
-                                self.skin_scraper.scrape_champion_skins(int(ch))
+                                self.skin_scraper.scrape_champion_skins(new_champ_id)
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
                         
-                        # Load English skin names for this champion from Data Dragon
-                        try:
-                            self.db.load_champion_skins_by_id(int(ch))
-                        except Exception as e:
-                            log.error(f"[lock:champ] Failed to load English skin names: {e}")
+                        # English skin names are now loaded by LCU skin scraper
                         
                         # Notify injection manager of champion lock
                         if self.injection_manager:
                             try:
-                                self.injection_manager.on_champion_locked(champ_label, ch, self.state.owned_skin_ids)
+                                self.injection_manager.on_champion_locked(champ_label, new_champ_id, self.state.owned_skin_ids)
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to notify injection manager: {e}")
                         
@@ -384,13 +365,22 @@ class WSEventThread(threading.Thread):
                                 log.debug(f"[lock:champ] Requested chroma panel creation for {champ_label}")
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
-                    
-                    # Update tracking for next comparison (for both new locks and exchanges)
-                    self.last_locked_champion_id = new_champ_id
+                        
+                        # Update tracking
+                        self.last_locked_champion_id = new_champ_id
+            
+            for cid in added:
+                ch = new_locks[cid]
+                # Use champion ID as label since we don't have database
+                champ_label = f"#{ch}"
+                log_event(log, f"Champion locked: {champ_label}", "🔒", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
+                log.debug(f"[lock_debug] Processing lock: cid={cid}, ch={ch}, local_cell_id={self.state.local_cell_id}")
+                # Champion lock processing is now handled in the exchange detection section above
+                # This loop only logs other players' champion locks
             
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)
-                champ_label = self.db.champ_name_by_id.get(int(ch), f"#{ch}")
+                champ_label = f"#{ch}"
                 log_event(log, f"Champion unlocked: {champ_label}", "🔓", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
             
             self.state.locks_by_cell = new_locks
