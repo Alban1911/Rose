@@ -21,7 +21,7 @@ log = get_logger()
 class RepoDownloader:
     """Downloads entire repository as ZIP and extracts locally"""
     
-    def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/darkseal-org/lol-skins"):
+    def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/AlbanCliquet/lolskins"):
         self.repo_url = repo_url
         # Use user data directory for skins to avoid permission issues
         self.target_dir = target_dir or get_skins_dir()
@@ -64,43 +64,39 @@ class RepoDownloader:
             return None
     
     def extract_skins_from_zip(self, zip_path: Path) -> bool:
-        """Extract only the skins folder from the repository ZIP"""
+        """Extract skins and previews from the new merged lolskins repository ZIP"""
         try:
-            log.info("Extracting skins from repository ZIP...")
+            log.info("Extracting skins and previews from merged lolskins repository ZIP...")
             
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # Find the skins folder in the ZIP
+                # Find all files in the skins/ directory
                 skins_files = []
                 zip_count = 0
-                blade_variants_count = 0
+                png_count = 0
                 
                 for file_info in zip_ref.filelist:
                     # Look for files in skins/ directory, but skip the skins directory itself
-                    if (file_info.filename.startswith('lol-skins-main/skins/') and 
-                        file_info.filename != 'lol-skins-main/skins/' and
+                    if (file_info.filename.startswith('lolskins-main/skins/') and 
+                        file_info.filename != 'lolskins-main/skins/' and
                         not file_info.filename.endswith('/')):
                         skins_files.append(file_info)
                         
-                        # Check if this is a blade variant (special weapon mods, not counted as skins)
-                        is_blade_variant = '/Blades/' in file_info.filename
-                        
-                        # Count file types for accurate reporting (only .zip files)
+                        # Count file types for accurate reporting
                         if file_info.filename.endswith('.zip'):
-                            if is_blade_variant:
-                                blade_variants_count += 1
-                            else:
-                                zip_count += 1
+                            zip_count += 1
+                        elif file_info.filename.endswith('.png'):
+                            png_count += 1
                 
                 if not skins_files:
                     log.error("No skins folder found in repository ZIP")
                     return False
                 
-                log.info(f"Found {zip_count} skin .zip files in repository")
+                log.info(f"Found {zip_count} skin .zip files and {png_count} preview .png files in repository")
                 
-                # Extract only the skins files (skip READMEs)
-                extracted_count = 0
+                # Extract all skins files (both .zip and .png)
+                extracted_zip_count = 0
+                extracted_png_count = 0
                 skipped_count = 0
-                blade_extracted_count = 0
                 
                 for file_info in skins_files:
                     try:
@@ -108,15 +104,15 @@ class RepoDownloader:
                         if file_info.is_dir():
                             continue
                         
-                        # Remove the 'lol-skins-main/' prefix from the path
-                        relative_path = file_info.filename.replace('lol-skins-main/', '')
+                        # Remove the 'lolskins-main/' prefix from the path
+                        relative_path = file_info.filename.replace('lolskins-main/', '')
                         
-                        # Check if it's a zip file
+                        # Check file type
                         is_zip = relative_path.endswith('.zip')
-                        is_blade_variant = '/Blades/' in relative_path
+                        is_png = relative_path.endswith('.png')
                         
-                        # Skip if it's not a zip file
-                        if not is_zip:
+                        # Skip if it's not a skin file
+                        if not (is_zip or is_png):
                             continue
                         
                         # Remove the 'skins/' prefix since target_dir is already the skins directory
@@ -137,23 +133,19 @@ class RepoDownloader:
                             with open(extract_path, 'wb') as target:
                                 target.write(source.read())
                         
-                        # Count by type (blade variants counted separately)
-                        if is_blade_variant:
-                            blade_extracted_count += 1
-                        else:
-                            extracted_count += 1
+                        # Count by type
+                        if is_zip:
+                            extracted_zip_count += 1
+                        elif is_png:
+                            extracted_png_count += 1
                         
                     except Exception as e:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
                 
-                log.info(f"Extracted {extracted_count} new skin files "
+                log.info(f"Extracted {extracted_zip_count} new skin .zip files and {extracted_png_count} preview .png files "
                         f"(skipped {skipped_count} existing files)")
-                if blade_extracted_count > 0:
-                    log.debug(f"Also extracted {blade_extracted_count} blade variant files (not counted as skins)")
                 
-                # Don't download previews here - will be done on-demand when champion is locked
-                
-                return extracted_count > 0
+                return (extracted_zip_count + extracted_png_count) > 0
                 
         except zipfile.BadZipFile:
             log.error("Invalid ZIP file")
@@ -218,43 +210,71 @@ class RepoDownloader:
     
     def get_detailed_stats(self) -> Dict[str, int]:
         """
-        Get detailed statistics categorizing base skins and chromas
+        Get detailed statistics categorizing base skins and chromas from new merged format
         
         Structure:
-        - Base skin: Champion/Skin Name.zip
-        - Chroma: Champion/chromas/Skin Name/Skin Name CHROMAID.zip
+        - Base skin: {champion_id}/{skin_id}/{skin_id}.zip and {skin_id}.png
+        - Chroma: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip and {chroma_id}.png
         
         Returns:
-            Dict with keys: 'total_skins', 'total_chromas', 'total_ids'
+            Dict with keys: 'total_skins', 'total_chromas', 'total_ids', 'total_previews'
         """
         if not self.target_dir.exists():
-            return {'total_skins': 0, 'total_chromas': 0, 'total_ids': 0}
+            return {'total_skins': 0, 'total_chromas': 0, 'total_ids': 0, 'total_previews': 0}
         
-        total_skins = 0  # Base skins only
-        total_chromas = 0  # Chromas only
+        total_skins = 0  # Base skins only (zip files in skin subdirectories)
+        total_chromas = 0  # Chromas only (zip files in chroma subdirectories)
+        total_previews = 0  # All preview images (png files)
         
         for champion_dir in self.target_dir.iterdir():
             if not champion_dir.is_dir():
                 continue
             
-            # Count base skins (zip files in champion root)
-            base_skins = list(champion_dir.glob("*.zip"))
-            total_skins += len(base_skins)
-            
-            # Count chromas (zip files in chromas/*/  subdirectories)
-            # Structure: Champion/chromas/SkinName/SkinName CHROMAID.zip
-            chromas_dir = champion_dir / "chromas"
-            if chromas_dir.exists() and chromas_dir.is_dir():
-                # Chromas are in subdirectories under chromas/
-                for skin_chroma_dir in chromas_dir.iterdir():
-                    if skin_chroma_dir.is_dir():
-                        chroma_files = list(skin_chroma_dir.glob("*.zip"))
-                        total_chromas += len(chroma_files)
+            # Count skins and chromas in skin subdirectories
+            # Structure: {champion_id}/{skin_id}/{skin_id}.zip and {skin_id}.png
+            for skin_dir in champion_dir.iterdir():
+                if not skin_dir.is_dir():
+                    continue
+                
+                # Check if this is a skin directory (contains only numeric name)
+                try:
+                    int(skin_dir.name)  # If this succeeds, it's a skin ID directory
+                    
+                    # Count base skin files
+                    skin_zip = skin_dir / f"{skin_dir.name}.zip"
+                    skin_png = skin_dir / f"{skin_dir.name}.png"
+                    
+                    if skin_zip.exists():
+                        total_skins += 1
+                    if skin_png.exists():
+                        total_previews += 1
+                    
+                    # Count chromas in this skin's chroma subdirectories
+                    # Structure: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip and {chroma_id}.png
+                    for chroma_dir in skin_dir.iterdir():
+                        if chroma_dir.is_dir():
+                            try:
+                                int(chroma_dir.name)  # If this succeeds, it's a chroma ID directory
+                                
+                                chroma_zip = chroma_dir / f"{chroma_dir.name}.zip"
+                                chroma_png = chroma_dir / f"{chroma_dir.name}.png"
+                                
+                                if chroma_zip.exists():
+                                    total_chromas += 1
+                                if chroma_png.exists():
+                                    total_previews += 1
+                            except ValueError:
+                                # Not a chroma directory, skip
+                                continue
+                except ValueError:
+                    # Not a skin directory, skip
+                    continue
         
         return {
             'total_skins': total_skins,
             'total_chromas': total_chromas,
-            'total_ids': total_skins + total_chromas
+            'total_ids': total_skins + total_chromas,
+            'total_previews': total_previews
         }
 
 
@@ -270,26 +290,29 @@ def download_skins_from_repo(target_dir: Path = None, force_update: bool = False
         if current_detailed['total_ids'] > 0:
             log.info(f"Found {current_detailed['total_skins']} base skins + "
                     f"{current_detailed['total_chromas']} chromas = "
-                    f"{current_detailed['total_ids']} total skin IDs")
+                    f"{current_detailed['total_ids']} total skin IDs + "
+                    f"{current_detailed['total_previews']} preview images")
         
-        # Download and extract skins (includes chroma preview download)
+        # Download and extract skins and previews from merged database
         success = downloader.download_and_extract_skins(force_update)
         
         if success:
             # Get updated detailed stats
             final_detailed = downloader.get_detailed_stats()
             new_ids = final_detailed['total_ids'] - current_detailed['total_ids']
+            new_previews = final_detailed['total_previews'] - current_detailed['total_previews']
             
-            if new_ids > 0:
-                log.info(f"Downloaded {new_ids} new skin IDs")
+            if new_ids > 0 or new_previews > 0:
+                log.info(f"Downloaded {new_ids} new skin IDs and {new_previews} new preview images")
                 log.info(f"Final totals: {final_detailed['total_skins']} base skins + "
                         f"{final_detailed['total_chromas']} chromas = "
-                        f"{final_detailed['total_ids']} total skin IDs")
+                        f"{final_detailed['total_ids']} total skin IDs + "
+                        f"{final_detailed['total_previews']} preview images")
             else:
-                log.info("No new skins to download")
+                log.info("No new skins or previews to download")
             
             # Log completion
-            log.info("✓ Repository download and chroma preview caching complete")
+            log.info("✓ Merged database download complete (skins + previews)")
         
         return success
         

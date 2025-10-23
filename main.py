@@ -966,24 +966,10 @@ def main():
                     injection_manager=injection_manager
                 )
                 
-                # Download preview images alongside skins
-                try:
-                    from utils.preview_repo_downloader import download_skin_previews
-                    log.info("Downloading skin preview images...")
-                    preview_success = download_skin_previews(force_update=args.force_update_skins)
-                    if preview_success:
-                        log.info("✓ Skin previews downloaded successfully")
-                        # Only mark if not already detected
-                        if not app_status.check_previews_downloaded():
-                            app_status.mark_previews_downloaded()
-                    else:
-                        log.warning("⚠ Skin preview download had issues (will continue)")
-                        # Still mark as downloaded even with issues (files may still exist)
-                        if not app_status.check_previews_downloaded():
-                            app_status.mark_previews_downloaded()
-                except Exception as e:
-                    log.warning(f"Failed to download skin previews: {e}")
-                    log.warning("App will continue without preview images")
+                # Preview images are now included in the merged database
+                # Mark previews as downloaded since they're included with skins
+                if not app_status.check_previews_downloaded():
+                    app_status.mark_previews_downloaded()
                 
                 separator = "=" * 80
                 if success:
