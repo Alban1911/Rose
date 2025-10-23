@@ -4,7 +4,6 @@
 LCU Skin Scraper - Scrape skins for a specific champion from LCU
 """
 
-import requests
 from typing import Optional, Dict, List, Tuple
 from utils.logging import get_logger
 from config import LCU_SKIN_SCRAPER_TIMEOUT_S, SKIN_NAME_MIN_SIMILARITY

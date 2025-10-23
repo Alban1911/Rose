@@ -4,7 +4,6 @@ Clean, classic Windows-style license activation dialog
 """
 
 import sys
-import os
 from pathlib import Path
 from typing import Optional
 from PyQt6.QtWidgets import (

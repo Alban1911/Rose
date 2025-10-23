@@ -7,7 +7,6 @@ Integrate this into your application to handle license validation
 import base64
 import hashlib
 import json
-import os
 import platform
 import sys
 import uuid

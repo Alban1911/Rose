@@ -29,7 +29,6 @@ from lcu.utils import compute_locked
 from state.shared_state import SharedState
 from threads.loadout_ticker import LoadoutTicker
 from ui.chroma_selector import get_chroma_selector
-from ui.user_interface import get_user_interface
 from utils.logging import get_logger, log_section, log_status, log_event
 
 log = get_logger()
