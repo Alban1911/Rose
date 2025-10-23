@@ -196,18 +196,30 @@ class WSEventThread(threading.Thread):
                 
                 if ph == "ChampSelect":
                     log_event(log, "Entering ChampSelect - resetting state for new game", "🎮")
+                    # Reset skin detection state
                     self.state.last_hovered_skin_key = None
                     self.state.last_hovered_skin_id = None
                     self.state.last_hovered_skin_slug = None
+                    self.state.ui_last_text = None  # Reset UI detected skin name
+                    self.state.ui_skin_id = None  # Reset UI detected skin ID
+                    # Reset LCU skin selection
                     self.state.selected_skin_id = None  # Reset LCU selected skin
                     self.state.owned_skin_ids.clear()  # Clear owned skins (will be refreshed immediately)
                     self.state.last_hover_written = False
+                    # Reset injection and countdown state
                     self.state.injection_completed = False  # Reset injection flag for new game
                     self.state.loadout_countdown_active = False  # Reset countdown state
                     # Reset champion lock state for new game
                     self.state.locked_champ_id = None
                     self.state.locked_champ_timestamp = 0.0  # Reset timestamp for new game
+                    # Reset random skin state
+                    self.state.random_skin_name = None
+                    self.state.random_skin_id = None
+                    self.state.random_mode_active = False
                     self.last_locked_champion_id = None  # Reset exchange tracking for new game
+                    
+                    # Signal main thread to reset skin notification debouncing
+                    self.state.reset_skin_notification = True
                     try: 
                         self.state.processed_action_ids.clear()
                     except Exception: 
@@ -217,6 +229,8 @@ class WSEventThread(threading.Thread):
                     try:
                         from ui.user_interface import get_user_interface
                         user_interface = get_user_interface(self.state, self.skin_scraper)
+                        # Reset skin state for new ChampSelect
+                        user_interface.reset_skin_state()
                         user_interface.request_ui_initialization()
                         log_event(log, "UI initialization requested for ChampSelect", "🎨")
                     except Exception as e:

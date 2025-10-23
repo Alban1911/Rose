@@ -47,6 +47,7 @@ class UserInterface:
         self._pending_ui_destruction = False
         self._ui_destruction_in_progress = False
         self._last_destruction_time = 0.0
+        self._force_reinitialize = False  # Flag to force UI recreation
         # Track last base skin shown (owned or unowned) to detect chroma swaps within same base
         self._last_base_skin_id = None
     
@@ -494,6 +495,12 @@ class UserInterface:
                 # Defer widget creation to main thread to avoid PyQt6 thread issues
                 self._pending_ui_initialization = True
                 self._pending_ui_destruction = False  # Cancel any pending destruction
+            elif self._force_reinitialize:
+                log.info("[UI] Force reinitializing UI for new ChampSelect")
+                # Force destruction and recreation
+                self._pending_ui_destruction = True
+                self._pending_ui_initialization = True
+                self._force_reinitialize = False
             else:
                 log.debug("[UI] UI initialization requested but already initialized or pending")
     
@@ -522,16 +529,19 @@ class UserInterface:
                     self._ui_destruction_in_progress = False
                     log.debug("[UI] Destruction flag cleared")
             
-            # Handle pending initialization only if not destroyed
-            elif self._pending_ui_initialization and not self.is_ui_initialized():
-                log.info("[UI] Processing pending UI initialization in main thread")
-                self._pending_ui_initialization = False
-                try:
-                    self._initialize_components()
-                except Exception as e:
-                    log.error(f"[UI] Failed to process pending UI initialization: {e}")
-                    # Reset the flag so we can try again later
-                    self._pending_ui_initialization = True
+            # Handle pending initialization (either new or after destruction)
+            if self._pending_ui_initialization:
+                ui_initialized = self.is_ui_initialized()
+                log.debug(f"[UI] Checking initialization: pending={self._pending_ui_initialization}, initialized={ui_initialized}")
+                if not ui_initialized:
+                    log.info("[UI] Processing pending UI initialization in main thread")
+                    self._pending_ui_initialization = False
+                    try:
+                        self._initialize_components()
+                    except Exception as e:
+                        log.error(f"[UI] Failed to process pending UI initialization: {e}")
+                        # Reset the flag so we can try again later
+                        self._pending_ui_initialization = True
     
     def request_ui_destruction(self):
         """Request UI destruction (called from any thread)"""
@@ -600,9 +610,25 @@ class UserInterface:
                     unowned_frame_to_cleanup = self.unowned_frame
                     dice_button_to_cleanup = self.dice_button
                     random_flag_to_cleanup = self.random_flag
-                    log.debug("[UI] Got references without lock")
+                    
+                    # CRITICAL: Set components to None even without lock
+                    self.chroma_ui = None
+                    self.unowned_frame = None
+                    self.dice_button = None
+                    self.random_flag = None
+                    
+                    log.debug("[UI] Got references without lock and cleared instance variables")
                 except Exception as e:
                     log.warning(f"[UI] Could not get references without lock: {e}")
+                    # Still try to clear the instance variables
+                    try:
+                        self.chroma_ui = None
+                        self.unowned_frame = None
+                        self.dice_button = None
+                        self.random_flag = None
+                        log.debug("[UI] Cleared instance variables despite error")
+                    except Exception as e2:
+                        log.error(f"[UI] Could not clear instance variables: {e2}")
             
             # Cleanup components outside the lock to avoid deadlock
             if chroma_ui_to_cleanup:
@@ -803,6 +829,26 @@ class UserInterface:
         # Switch dice to disabled state
         if self.dice_button:
             self.dice_button.set_state('disabled')
+    
+    def reset_skin_state(self):
+        """Reset all skin-related state for new ChampSelect"""
+        with self.lock:
+            # Reset current skin tracking
+            self.current_skin_id = None
+            self.current_skin_name = None
+            self.current_champion_name = None
+            
+            # Reset UI detection state
+            self.last_skin_name = None
+            self.last_skin_id = None
+            
+            # Reset randomization state
+            self._randomization_started = False
+            
+            # Force UI recreation for new ChampSelect
+            self._force_reinitialize = True
+            
+            log.debug("[UI] Skin state reset for new ChampSelect")
         
         log.info("[UI] Randomization cancelled")
     
