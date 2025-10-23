@@ -6,6 +6,7 @@ System tray manager for LeagueUnlocked
 
 import os
 import threading
+from pathlib import Path
 from typing import Optional, Callable
 import pystray
 from PIL import Image, ImageDraw
@@ -107,20 +108,20 @@ class TrayManager:
                 import sys
                 if getattr(sys, 'frozen', False):
                     # Running as compiled executable (PyInstaller)
-                    base_dir = os.path.dirname(sys.executable)
+                    base_dir = Path(sys.executable).parent
                     # Try multiple locations for PyInstaller
                     possible_paths = [
-                        os.path.join(base_dir, "icon.png"),  # Direct path
-                        os.path.join(base_dir, "_internal", "icon.png"),  # _internal folder
+                        base_dir / "icon.png",  # Direct path
+                        base_dir / "_internal" / "icon.png",  # _internal folder
                     ]
                 else:
                     # Running as Python script
-                    base_dir = os.path.dirname(os.path.dirname(__file__))
-                    possible_paths = [os.path.join(base_dir, "icon.png")]
+                    base_dir = Path(__file__).parent.parent
+                    possible_paths = [base_dir / "icon.png"]
                 
                 # Try each possible path
                 for icon_path_png in possible_paths:
-                    if os.path.exists(icon_path_png):
+                    if icon_path_png.exists():
                         log.debug(f"Loading fallback icon from: {icon_path_png}")
                         with Image.open(icon_path_png) as img:
                             img = img.convert('RGBA')

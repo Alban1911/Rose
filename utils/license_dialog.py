@@ -5,6 +5,7 @@ Clean, classic Windows-style license activation dialog
 
 import sys
 import os
+from pathlib import Path
 from typing import Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
@@ -36,7 +37,7 @@ class SimpleLicenseDialog(QDialog):
         try:
             from utils.paths import get_asset_path
             icon_path = str(get_asset_path("icon.ico"))
-            if os.path.exists(icon_path):
+            if Path(icon_path).exists():
                 self.setWindowIcon(QIcon(icon_path))
         except (OSError, FileNotFoundError, ImportError) as e:
             log.debug(f"Could not load window icon: {e}")
