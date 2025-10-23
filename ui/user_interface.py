@@ -9,7 +9,7 @@ Manages ChromaUI and UnownedFrame as separate components
 import threading
 from typing import Optional, Callable
 from utils.logging import get_logger
-from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, convert_to_english_skin_name, convert_to_english_chroma_name, is_base_skin_owned, is_base_skin
+from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, is_base_skin_owned, is_base_skin
 from ui.chroma_ui import ChromaUI
 from ui.z_order_manager import get_z_order_manager
 
@@ -847,9 +847,8 @@ class UserInterface:
             log.warning("[UI] Selected skin has no name or ID")
             return None
         
-        # Convert localized skin name to English using database
-        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
-        english_skin_name = convert_to_english_skin_name(skin_id, localized_skin_name, self.db, chroma_id_map=chroma_id_map)
+        # Use localized skin name directly from LCU (no database conversion needed)
+        english_skin_name = localized_skin_name
         
         # Check if this skin has chromas
         chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
@@ -869,8 +868,8 @@ class UserInterface:
             # Add all chromas
             for chroma in chromas:
                 localized_chroma_name = chroma.get('name', f'{english_skin_name} Chroma')
-                # Convert chroma name to English if possible
-                english_chroma_name = convert_to_english_chroma_name(chroma.get('id'), localized_chroma_name, english_skin_name, self.skin_scraper)
+                # Use localized chroma name directly from LCU
+                english_chroma_name = localized_chroma_name
                 all_options.append({
                     'id': chroma.get('id'),
                     'name': english_chroma_name,

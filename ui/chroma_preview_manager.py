@@ -8,7 +8,7 @@ Provides access to chroma preview images from downloaded SkinPreviews repository
 from pathlib import Path
 from typing import Optional
 from utils.logging import get_logger
-from utils.utilities import convert_to_english_skin_name
+# No longer using English name conversion
 from utils.paths import get_skins_dir
 
 log = get_logger()
