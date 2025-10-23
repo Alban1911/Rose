@@ -934,11 +934,13 @@ class SkinInjector:
                                     p.wait(timeout=PROCESS_TERMINATE_WAIT_S)
                                 except:
                                     p.kill()  # Force kill if terminate didn't work
-                            except:
+                            except Exception as e:
                                 try:
                                     p.kill()  # Force kill on any error
-                                except:
-                                    pass  # Process might be gone
+                                except (psutil.NoSuchProcess, psutil.AccessDenied) as kill_e:
+                                    log.debug(f"[inject] Process already gone or inaccessible: {kill_e}")
+                                except Exception as kill_e:
+                                    log.debug(f"[inject] Unexpected error force killing process: {kill_e}")
                             killed_count += 1
                     except psutil.TimeoutExpired:
                         log.debug(f"[inject] Timeout fetching cmdline for PID {proc.info['pid']}")

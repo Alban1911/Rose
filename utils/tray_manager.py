@@ -54,7 +54,12 @@ class TrayManager:
             # Try to use a font if available
             from PIL import ImageFont
             font = ImageFont.truetype("arial.ttf", TRAY_ICON_FONT_SIZE)
-        except:
+        except (OSError, FileNotFoundError, ImportError) as e:
+            log.debug(f"Could not load Arial font: {e}")
+            # Fallback to default font
+            font = ImageFont.load_default()
+        except Exception as e:
+            log.debug(f"Unexpected error loading font: {e}")
             # Fallback to default font
             font = ImageFont.load_default()
         

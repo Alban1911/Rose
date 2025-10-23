@@ -100,14 +100,14 @@ class UserInterface:
             if self.chroma_ui:
                 try:
                     self.chroma_ui.cleanup()
-                except:
-                    pass
+                except Exception as e:
+                    log.debug(f"[UI] Error cleaning up ChromaUI: {e}")
                 self.chroma_ui = None
             if self.unowned_frame:
                 try:
                     self.unowned_frame.cleanup()
-                except:
-                    pass
+                except Exception as e:
+                    log.debug(f"[UI] Error cleaning up UnownedFrame: {e}")
                 self.unowned_frame = None
             raise
     

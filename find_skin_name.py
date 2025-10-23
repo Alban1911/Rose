@@ -199,15 +199,21 @@ def find_skin_name():
                         if is_skin_candidate:
                             skin_patterns.append((text_clean, elem))
                                 
-                except:
-                    pass
+                except (AttributeError, ValueError) as e:
+                    log.debug(f"Error processing element for skin pattern: {e}")
+                except Exception as e:
+                    log.debug(f"Unexpected error processing element: {e}")
             
             log.info(f"Found {len(skin_patterns)} text elements matching skin name patterns:")
             for i, (text, elem) in enumerate(skin_patterns):
                 try:
                     rect = elem.rectangle()
                     log.info(f"Pattern {i+1:2d}: '{text}' at position {rect}")
-                except:
+                except (AttributeError, ValueError) as e:
+                    log.debug(f"Could not get rectangle for element: {e}")
+                    log.info(f"Pattern {i+1:2d}: '{text}' (position unknown)")
+                except Exception as e:
+                    log.debug(f"Unexpected error getting element position: {e}")
                     log.info(f"Pattern {i+1:2d}: '{text}' (position unknown)")
                     
         except Exception as e:
@@ -229,8 +235,10 @@ def find_skin_name():
                     if text and "M. Mundoverse" in text:
                         direct_matches.append((text, elem))
                         log.info(f"DIRECT MATCH: '{text}'")
-                except:
-                    pass
+                except (AttributeError, ValueError) as e:
+                    log.debug(f"Error getting window text for direct match: {e}")
+                except Exception as e:
+                    log.debug(f"Unexpected error in direct match search: {e}")
             
             if not direct_matches:
                 log.info("No direct matches found for 'M. Mundoverse'")

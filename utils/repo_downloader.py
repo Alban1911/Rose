@@ -187,8 +187,10 @@ class RepoDownloader:
                 try:
                     zip_path.unlink()
                     log.debug("Cleaned up temporary ZIP file")
-                except:
-                    pass
+                except (OSError, FileNotFoundError) as e:
+                    log.debug(f"Could not remove temporary ZIP file: {e}")
+                except Exception as e:
+                    log.debug(f"Unexpected error cleaning up ZIP file: {e}")
             
         except Exception as e:
             log.error(f"Failed to download and extract skins: {e}")
