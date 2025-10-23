@@ -7,7 +7,6 @@ Champion monitoring thread
 import time
 import threading
 from lcu.client import LCU
-from database.name_db import NameDB
 from state.shared_state import SharedState
 from utils.logging import get_logger
 from ui.user_interface import get_user_interface
@@ -36,7 +35,7 @@ class ChampThread(threading.Thread):
         separator = "=" * 80
         log.info(separator)
         log.info("🔄 CHAMPION EXCHANGE DETECTED (ChampThread)")
-        log.info(f"   📋 From: {self.db.champ_name_by_id.get(old_champ_id, f'Champion {old_champ_id}')} (ID: {old_champ_id})")
+        log.info(f"   📋 From: Champion {old_champ_id} (ID: {old_champ_id})")
         log.info(f"   📋 To: {new_champ_label} (ID: {new_champ_id})")
         log.info("   🔄 Resetting all state for new champion...")
         log.info(separator)
@@ -73,12 +72,7 @@ class ChampThread(threading.Thread):
             log.debug("[exchange] Reset loadout countdown state")
         
         
-        # Load English skin names for new champion from Data Dragon
-        try:
-            self.db.load_champion_skins_by_id(new_champ_id)
-            log.debug(f"[exchange] Loaded English skin names for {new_champ_label}")
-        except Exception as e:
-            log.error(f"[exchange] Failed to load English skin names: {e}")
+        # Skin names are now provided by LCU API - no need to load from Data Dragon
         
         # Notify injection manager of champion exchange
         if self.injection_manager:
@@ -117,7 +111,7 @@ class ChampThread(threading.Thread):
                     cid = None
             
             if cid and cid != self.last_hover:
-                nm = self.db.champ_name_by_id.get(cid) or f"champ_{cid}"
+                nm = f"champ_{cid}"
                 log.info(f"[hover:champ] {nm} (id={cid})")
                 self.state.hovered_champ_id = cid
                 self.last_hover = cid

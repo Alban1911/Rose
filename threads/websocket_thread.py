@@ -24,7 +24,6 @@ from config import (
     WS_PROBE_ITERATIONS, WS_PROBE_SLEEP_MS, TIMER_HZ_DEFAULT,
     FALLBACK_LOADOUT_MS_DEFAULT, INTERESTING_PHASES
 )
-from database.name_db import NameDB
 from lcu.client import LCU
 from lcu.utils import compute_locked
 from state.shared_state import SharedState
@@ -65,7 +64,7 @@ class WSEventThread(threading.Thread):
         separator = "=" * 80
         log.info(separator)
         log.info("🔄 CHAMPION EXCHANGE DETECTED")
-        log.info(f"   📋 From: {self.db.champ_name_by_id.get(old_champ_id, f'Champion {old_champ_id}')} (ID: {old_champ_id})")
+        log.info(f"   📋 From: Champion {old_champ_id} (ID: {old_champ_id})")
         log.info(f"   📋 To: {new_champ_label} (ID: {new_champ_id})")
         log.info("   🔄 Resetting all state for new champion...")
         log.info(separator)
@@ -108,12 +107,7 @@ class WSEventThread(threading.Thread):
             except Exception as e:
                 log.error(f"[exchange] Failed to scrape champion skins: {e}")
         
-        # Load English skin names for new champion from Data Dragon
-        try:
-            self.db.load_champion_skins_by_id(new_champ_id)
-            log.debug(f"[exchange] Loaded English skin names for {new_champ_label}")
-        except Exception as e:
-            log.error(f"[exchange] Failed to load English skin names: {e}")
+        # Skin names are now provided by LCU API - no need to load from Data Dragon
         
         # Notify injection manager of champion exchange
         if self.injection_manager:
@@ -280,7 +274,7 @@ class WSEventThread(threading.Thread):
             except Exception: 
                 cid = None
             if cid and cid != self.state.hovered_champ_id:
-                nm = self.db.champ_name_by_id.get(cid) or f"champ_{cid}"
+                nm = f"champ_{cid}"
                 log_status(log, "Champion hovered", f"{nm} (ID: {cid})", "👆")
                 self.state.hovered_champ_id = cid
         

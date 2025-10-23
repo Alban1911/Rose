@@ -98,8 +98,6 @@ else:
 # Hidden imports - modules PyInstaller might not detect
 hiddenimports = [
     # Core app modules
-    'database',
-    'database.name_db',
     'injection',
     'injection.injector',
     'injection.manager',

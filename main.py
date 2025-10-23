@@ -886,34 +886,8 @@ def main():
                 pass
         sys.exit(1)
     
-    # Initialize database with error handling
-    try:
-        log.info("Initializing champion name database...")
-        # NameDB no longer needed - LCU provides all skin and champion data
-        db = None
-    except Exception as e:
-        log.error("=" * 80)
-        log.error("FATAL ERROR DURING DATABASE INITIALIZATION")
-        log.error("=" * 80)
-        log.error(f"Failed to initialize database: {e}")
-        log.error(f"Error type: {type(e).__name__}")
-        import traceback
-        log.error(f"Traceback:\n{traceback.format_exc()}")
-        log.error("=" * 80)
-        
-        # Show error message to user
-        if sys.platform == "win32":
-            try:
-                # ctypes already imported at top of file
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    f"LeagueUnlocked failed to initialize database:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
-                    "LeagueUnlocked - Database Error",
-                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                )
-            except Exception:
-                pass
-        sys.exit(1)
+    # Database initialization no longer needed - LCU provides all skin and champion data
+    db = None
 
     # Initialize PyQt6 (UI will be initialized when entering ChampSelect)
     try:
@@ -937,7 +911,7 @@ def main():
     # Initialize injection manager with database (lazy initialization)
     try:
         log.info("Initializing injection manager...")
-        injection_manager = InjectionManager(name_db=db)
+        injection_manager = InjectionManager()
         log.info("✓ Injection manager initialized")
     except Exception as e:
         log.error("=" * 80)

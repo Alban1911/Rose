@@ -31,12 +31,11 @@ log = get_logger()
 class InjectionManager:
     """Manages skin injection with automatic triggering"""
     
-    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None, name_db=None):
+    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
         self.tools_dir = tools_dir
         self.mods_dir = mods_dir
         self.zips_dir = zips_dir
         self.game_dir = game_dir
-        self.name_db = name_db
         self.injector = None  # Will be initialized lazily
         self.last_skin_name = None
         self.last_injection_time = 0.0
@@ -59,7 +58,7 @@ class InjectionManager:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock
                     log_action(log, "Initializing injection system...", "💉")
-                    self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir, self.name_db)
+                    self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
                     self._initialized = True
                     log_success(log, "Injection system initialized successfully", "✅")
     

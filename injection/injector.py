@@ -37,7 +37,7 @@ log = get_logger()
 class SkinInjector:
     """CSLOL-based skin injector"""
     
-    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None, db=None):
+    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
         # Use injection folder as base if paths not provided
         # Handle both frozen (PyInstaller) and development environments
         import sys
@@ -72,7 +72,7 @@ class SkinInjector:
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
         self.zips_dir = zips_dir or get_skins_dir()
         self.game_dir = game_dir or self._detect_game_dir()
-        self.db = db  # Database for ID lookups
+        # Database no longer needed - LCU provides all data
         
         # Create directories if they don't exist
         self.mods_dir.mkdir(parents=True, exist_ok=True)
@@ -282,13 +282,13 @@ class SkinInjector:
         return tools
     
     def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Path | None:
-        """Resolve a ZIP by name or path with fuzzy matching, supporting new merged database structure
+        """Resolve a ZIP by name or path with fuzzy matching, supporting new merged structure
         
         Args:
             zip_arg: Skin name or path to search for
             chroma_id: Optional chroma ID to look for in chroma subdirectory
             skin_name: Optional base skin name for chroma lookup
-            champion_id: Optional champion ID. If provided, skips database lookup.
+            champion_id: Optional champion ID for path construction.
         """
         log.debug(f"[inject] Resolving zip for: '{zip_arg}' (chroma_id: {chroma_id}, skin_name: {skin_name})")
         cand = Path(zip_arg)
@@ -430,7 +430,7 @@ class SkinInjector:
             return None
 
         # For regular skin files (no chroma_id), we need to find by skin_id
-        # This is a simplified approach - in practice, you'd want to use the database
+        # This is a simplified approach - in practice, you'd want to use LCU data
         log.warning(f"[inject] Base skin lookup by name not fully implemented for new structure: {zip_arg}")
         return None
     
