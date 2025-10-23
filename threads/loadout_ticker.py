@@ -159,37 +159,24 @@ class LoadoutTicker(threading.Thread):
                             name = f"skin_{random_skin_id}"
                             log.info(f"[RANDOM] Injecting random skin: {random_skin_name} (ID: {random_skin_id})")
                     else:
-                        # Fallback to name-based approach if no ID
-                        name = random_skin_name
-                        log.info(f"[RANDOM] Injecting random skin: {name} (no ID available)")
+                        # No random skin ID available - this is an error condition
+                        log.error(f"[RANDOM] No random skin ID available for injection - this should not happen")
+                        log.error(f"[RANDOM] State: random_skin_id={getattr(self.state, 'random_skin_id', None)}")
+                        log.error(f"[RANDOM] State: random_skin_name={getattr(self.state, 'random_skin_name', None)}")
+                        name = None
                 else:
-                    # For injection, we need the English name from the database
-                    # Use the English skin name that was already processed by UI detection thread
-                    injection_name = getattr(self.state, 'last_hovered_skin_key', None)
-                    name = final_label if final_label else None
-                    if injection_name:
-                        name = injection_name
-                        log.debug(f"[inject] Using English name from database: '{name}'")
+                    # For injection, we MUST use skin ID - no fallbacks allowed
+                    skin_id = getattr(self.state, 'last_hovered_skin_id', None)
+                    if skin_id:
+                        # Use skin ID in the correct format for injection
+                        name = f"skin_{skin_id}"
+                        log.debug(f"[inject] Using skin ID from state: '{name}' (ID: {skin_id})")
                     else:
-                        # Fallback to UI detected text if no English name available
-                        name = getattr(self.state, 'ui_last_text', None) or name
-                        log.warning(f"[inject] No English name found, using localized: '{name}'")
-                    if name:
-                        # If UI detected text is like "Champion X Champion", normalize to "X Champion"
-                        try:
-                            champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                            # Get champion name from LCU skin scraper cache
-                            cname = ""
-                            if champ_id and self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(champ_id):
-                                cname = (self.skin_scraper.cache.champion_name or "").strip()
-                            if cname:
-                                low = name.strip()
-                                if low.lower().startswith(cname.lower() + " ") and low.lower().endswith(" " + cname.lower()):
-                                    core = low[len(cname) + 1:-(len(cname) + 1)].strip()
-                                    if core:
-                                        name = f"{core} {cname}".strip()
-                        except Exception:
-                            pass
+                        # No skin ID available - this is an error condition
+                        log.error(f"[inject] No skin ID available for injection - this should not happen")
+                        log.error(f"[inject] State: last_hovered_skin_id={getattr(self.state, 'last_hovered_skin_id', None)}")
+                        log.error(f"[inject] State: last_hovered_skin_key={getattr(self.state, 'last_hovered_skin_key', None)}")
+                        name = None
                 
                 log.debug(f"[inject] Final name variable: '{name}'")
                 
@@ -460,6 +447,14 @@ class LoadoutTicker(threading.Thread):
                             log.warning(f"[inject] no injection manager available")
                     except Exception as e:
                         log.warning(f"[loadout #{self.ticker_id}] injection setup failed: {e}")
+                else:
+                    # No skin ID available - injection cannot proceed
+                    log.error("=" * LOG_SEPARATOR_WIDTH)
+                    log.error(f"❌ INJECTION FAILED - NO SKIN ID AVAILABLE")
+                    log.error(f"   ⏱️  Loadout Timer: #{self.ticker_id}")
+                    log.error("=" * LOG_SEPARATOR_WIDTH)
+                    # Mark injection as completed to prevent retries
+                    self.state.injection_completed = True
 
             if remain_ms <= 0:
                 break
