@@ -297,6 +297,58 @@ class SkinInjector:
 
         self.zips_dir.mkdir(parents=True, exist_ok=True)
 
+        # Handle ID-based naming convention from random selection
+        if zip_arg.startswith('skin_'):
+            # Format: skin_{skin_id} - this is a base skin
+            skin_id = int(zip_arg.split('_')[1])
+            if not champion_id:
+                log.warning(f"[inject] No champion_id provided for skin ID: {skin_id}")
+                return None
+            
+            # Look for {champion_id}/{skin_id}/{skin_id}.zip
+            skin_zip_path = self.zips_dir / str(champion_id) / str(skin_id) / f"{skin_id}.zip"
+            if skin_zip_path.exists():
+                log.debug(f"[inject] Found skin ZIP: {skin_zip_path}")
+                return skin_zip_path
+            else:
+                log.warning(f"[inject] Skin ZIP not found: {skin_zip_path}")
+                return None
+        
+        elif zip_arg.startswith('chroma_'):
+            # Format: chroma_{chroma_id} - this is a chroma
+            chroma_id = int(zip_arg.split('_')[1])
+            if not champion_id:
+                log.warning(f"[inject] No champion_id provided for chroma ID: {chroma_id}")
+                return None
+            
+            # Look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
+            champion_dir = self.zips_dir / str(champion_id)
+            if not champion_dir.exists():
+                log.warning(f"[inject] Champion directory not found: {champion_dir}")
+                return None
+            
+            # Search through all skin directories for this champion to find the chroma
+            for skin_dir in champion_dir.iterdir():
+                if not skin_dir.is_dir():
+                    continue
+                
+                # Check if this is a skin directory (numeric name)
+                try:
+                    skin_id = int(skin_dir.name)
+                except ValueError:
+                    continue
+                
+                # Look for chroma in this skin's chroma directory
+                chroma_dir = skin_dir / str(chroma_id)
+                if chroma_dir.exists():
+                    chroma_zip_path = chroma_dir / f"{chroma_id}.zip"
+                    if chroma_zip_path.exists():
+                        log.debug(f"[inject] Found chroma ZIP: {chroma_zip_path}")
+                        return chroma_zip_path
+            
+            log.warning(f"[inject] Chroma ZIP not found for ID: {chroma_id}")
+            return None
+
         # For base skins (no chroma_id), we need skin_id
         if chroma_id is None and skin_name:
             if not champion_id:
@@ -620,7 +672,7 @@ class SkinInjector:
             log.error(f"[inject] Failed to create mkoverlay command: {e}")
             return -1
     
-    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None, chroma_id: int = None, champion_name: str = None) -> bool:
+    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
         """Inject a single skin (with optional chroma)
         
         Args:
@@ -641,7 +693,7 @@ class SkinInjector:
         if skin_name and skin_name.split()[-1].isdigit():
             base_skin_name = ' '.join(skin_name.split()[:-1])
         
-        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name)
+        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name, champion_id=champion_id)
         if not zp:
             log.error(f"[inject] Skin '{skin_name}' not found in {self.zips_dir}")
             avail = list(self.zips_dir.rglob('*.zip'))

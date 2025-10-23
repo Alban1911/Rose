@@ -146,9 +146,22 @@ class LoadoutTicker(threading.Thread):
                 log.debug(f"[inject] Random mode check: active={random_mode_active}, name={random_skin_name}")
                 
                 if random_mode_active and random_skin_name:
-                    name = random_skin_name
                     random_skin_id = getattr(self.state, 'random_skin_id', None)
-                    log.info(f"[RANDOM] Injecting random skin: {name} (ID: {random_skin_id})")
+                    # For random mode, use ID-based approach instead of name
+                    if random_skin_id:
+                        # Check if this is a chroma or base skin
+                        if self.skin_scraper and self.skin_scraper.cache and random_skin_id in self.skin_scraper.cache.chroma_id_map:
+                            # This is a chroma - use the chroma ID directly
+                            name = f"chroma_{random_skin_id}"
+                            log.info(f"[RANDOM] Injecting random chroma: {random_skin_name} (ID: {random_skin_id})")
+                        else:
+                            # This is a base skin - use the skin ID directly
+                            name = f"skin_{random_skin_id}"
+                            log.info(f"[RANDOM] Injecting random skin: {random_skin_name} (ID: {random_skin_id})")
+                    else:
+                        # Fallback to name-based approach if no ID
+                        name = random_skin_name
+                        log.info(f"[RANDOM] Injecting random skin: {name} (no ID available)")
                 else:
                     # For injection, we need the English name from the database
                     # Use the English skin name that was already processed by UI detection thread
@@ -402,7 +415,8 @@ class LoadoutTicker(threading.Thread):
                                             name, 
                                             stop_callback=game_ended_callback,
                                             chroma_id=selected_chroma_id,
-                                            champion_name=cname
+                                            champion_name=cname,
+                                            champion_id=self.state.locked_champ_id
                                         )
                                         
                                         # Set flag to prevent UI detection from restarting (even if processes errored)
