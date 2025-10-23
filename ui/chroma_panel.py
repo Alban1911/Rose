@@ -311,7 +311,7 @@ class ChromaPanelManager:
             
             # Check if this is Elementalist Lux base skin or form - they always have chromas
             is_elementalist_lux = skin_id == 99007 or (99991 <= skin_id <= 99999)
-            has_chromas = (chromas and len(chromas) > 0) or is_elementalist_lux
+            has_chromas = bool(chromas) or is_elementalist_lux
             
             if not self.is_initialized:
                 # Request widget creation
@@ -603,7 +603,7 @@ class ChromaPanelManager:
         """Delayed show button for smooth transition between different skins"""
         with self.lock:
             # Only show if we still have chromas for the current skin
-            if self.current_chromas and len(self.current_chromas) > 0:
+            if self.current_chromas:
                 self.pending_show_button = True
                 self.pending_hide_button = False
                 log.debug("[CHROMA] Delayed button show after skin transition")

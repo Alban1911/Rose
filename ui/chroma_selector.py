@@ -249,7 +249,7 @@ class ChromaSelector:
         try:
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
             # Show panel if there are ANY chromas (owned or unowned)
-            return chromas and len(chromas) > 0
+            return bool(chromas)
         except Exception as e:
             log.debug(f"[CHROMA] Error checking chromas for skin {skin_id}: {e}")
             return False
@@ -326,7 +326,7 @@ class ChromaSelector:
             
             # Show button regardless of whether chromas exist
             # The UnownedFrame (golden border + lock) will be shown for unowned skins
-            if chromas and len(chromas) > 0:
+            if chromas:
                 log.debug(f"[CHROMA] Updating button for {skin_name} ({len(chromas)} total chromas, {owned_count} owned, {len(chromas) - owned_count} unowned)")
             else:
                 log.debug(f"[CHROMA] Showing button for {skin_name} (no chromas - UnownedFrame only)")

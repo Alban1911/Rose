@@ -264,7 +264,7 @@ class UserInterface:
             
             # For base skins, check if they actually have chromas
             chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
-            return chromas and len(chromas) > 0
+            return bool(chromas)
         except Exception as e:
             log.debug(f"[UI] Error checking chromas for skin {skin_id}: {e}")
             return False
@@ -904,7 +904,7 @@ class UserInterface:
         
         # Check if this skin has chromas
         chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
-        if chromas and len(chromas) > 0:
+        if chromas:
             log.info(f"[UI] Skin '{english_skin_name}' has {len(chromas)} chromas, selecting random chroma")
             
             # Create list of all options: base skin + all chromas
