@@ -28,14 +28,114 @@ Features:
     - Integrates with z-order management system
 """
 
+import ctypes
+import ctypes.wintypes
+import threading
 from PyQt6.QtWidgets import QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QPainter, QColor
 from ui.chroma_base import ChromaWidgetBase
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
 
 log = get_logger()
+
+# Global registry of all click catchers for mouse monitoring
+_click_catchers = {}
+_mouse_timer = None
+_last_mouse_pos = (0, 0)
+_last_mouse_state = False
+
+
+def _get_mouse_state():
+    """Get current mouse position and left button state"""
+    try:
+        # Get mouse position
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        
+        point = POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(point))
+        
+        # Get mouse button state
+        mouse_state = ctypes.windll.user32.GetAsyncKeyState(0x01)  # VK_LBUTTON
+        button_pressed = bool(mouse_state & 0x8000)
+        
+        return (point.x, point.y), button_pressed
+    except Exception as e:
+        log.error(f"[ClickCatcherHide] Error getting mouse state: {e}")
+        return (0, 0), False
+
+
+def _check_mouse_clicks():
+    """Check for mouse clicks in click catcher areas"""
+    global _last_mouse_pos, _last_mouse_state
+    
+    try:
+        current_pos, current_state = _get_mouse_state()
+        
+        # Check for button press (transition from not pressed to pressed)
+        if current_state and not _last_mouse_state:
+            log.debug(f"[ClickCatcherHide] Mouse click detected at screen coordinates {current_pos}")
+            
+            # Check if click is in any click catcher area
+            for catcher_id, catcher_info in _click_catchers.items():
+                catcher_x, catcher_y, catcher_width, catcher_height, league_hwnd, signal_obj = catcher_info
+                
+                # Convert screen coordinates to League window coordinates
+                from utils.window_utils import get_league_window_handle, find_league_window_rect
+                league_hwnd_actual = get_league_window_handle()
+                if league_hwnd_actual == league_hwnd:
+                    window_rect = find_league_window_rect()
+                    if window_rect:
+                        window_left, window_top, window_right, window_bottom = window_rect
+                        league_x = current_pos[0] - window_left
+                        league_y = current_pos[1] - window_top
+                        
+                        log.debug(f"[ClickCatcherHide] Click at League coordinates ({league_x}, {league_y}), checking against {catcher_id} at ({catcher_x}, {catcher_y}) size {catcher_width}x{catcher_height}")
+                        
+                        # Check if click is within click catcher bounds
+                        if (catcher_x <= league_x <= catcher_x + catcher_width and 
+                            catcher_y <= league_y <= catcher_y + catcher_height):
+                            log.info(f"[ClickCatcherHide] ✓ Click detected in {catcher_id} at ({league_x}, {league_y})")
+                            # Emit signal in a thread-safe way
+                            signal_obj.emit()
+                            break
+                        else:
+                            log.debug(f"[ClickCatcherHide] Click outside {catcher_id} bounds")
+        
+        _last_mouse_pos = current_pos
+        _last_mouse_state = current_state
+    except Exception as e:
+        log.error(f"[ClickCatcherHide] Error checking mouse clicks: {e}")
+
+
+def _start_mouse_monitoring():
+    """Start mouse monitoring using a timer"""
+    global _mouse_timer
+    
+    if _mouse_timer is not None:
+        log.debug("[ClickCatcherHide] Mouse monitoring already running")
+        return  # Already running
+    
+    try:
+        # Create a QTimer for mouse monitoring
+        _mouse_timer = QTimer()
+        _mouse_timer.timeout.connect(_check_mouse_clicks)
+        _mouse_timer.start(16)  # ~60 FPS monitoring
+        log.info("[ClickCatcherHide] ✓ Mouse monitoring started")
+    except Exception as e:
+        log.error(f"[ClickCatcherHide] Exception starting mouse monitoring: {e}")
+
+
+def _stop_mouse_monitoring():
+    """Stop mouse monitoring"""
+    global _mouse_timer
+    
+    if _mouse_timer:
+        _mouse_timer.stop()
+        _mouse_timer = None
+        log.debug("[ClickCatcherHide] Mouse monitoring stopped")
 
 
 class ClickCatcherHide(ChromaWidgetBase):
@@ -64,10 +164,8 @@ class ClickCatcherHide(ChromaWidgetBase):
         self.catcher_height = height
         self.shape = shape  # 'circle' or 'rectangle'
         
-        # Create opacity effect for visual debugging (65% opacity white circle)
-        self.opacity_effect = QGraphicsOpacityEffect()
-        self.opacity_effect.setOpacity(0.65)  # 65% opacity for debugging
-        self.setGraphicsEffect(self.opacity_effect)
+        # No visual elements needed - purely virtual click catcher
+        # All click detection is handled by the global mouse hook
         
         # Track resolution for change detection
         self._current_resolution = None
@@ -75,16 +173,15 @@ class ClickCatcherHide(ChromaWidgetBase):
         # Create the click catcher component
         self._create_components()
         
-        # Start hidden
-        self.hide()
+        # Register this click catcher globally
+        self._register_click_catcher()
         
-        log.debug(f"[ClickCatcherHide] Created at ({x}, {y}) size {width}x{height}")
+        log.debug(f"[ClickCatcherHide] Virtual click catcher created at ({x}, {y}) size {width}x{height}")
     
     def _create_components(self):
-        """Create the click catcher component with precise positioning"""
-        # Get League window for positioning
+        """Create the click catcher component - now purely virtual for mouse hook detection"""
+        # Get League window for positioning reference
         from utils.window_utils import get_league_window_handle, find_league_window_rect
-        import ctypes
         
         # Get League window handle and size
         league_hwnd = get_league_window_handle()
@@ -97,78 +194,61 @@ class ClickCatcherHide(ChromaWidgetBase):
         window_width = window_right - window_left
         window_height = window_bottom - window_top
         
-        # Set exact size
-        self.setFixedSize(self.catcher_width, self.catcher_height)
-        
-        # Get widget handle and parent to League window
-        widget_hwnd = int(self.winId())
-        ctypes.windll.user32.SetParent(widget_hwnd, league_hwnd)
-        
-        # Set window style to WS_CHILD (64-bit compatible)
-        GWL_STYLE = -16
-        WS_CHILD = 0x40000000
-        WS_POPUP = 0x80000000
-        
-        if ctypes.sizeof(ctypes.c_void_p) == 8:  # 64-bit
-            SetWindowLongPtr = ctypes.windll.user32.SetWindowLongPtrW
-            SetWindowLongPtr.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_longlong]
-            SetWindowLongPtr.restype = ctypes.c_longlong
-            GetWindowLongPtr = ctypes.windll.user32.GetWindowLongPtrW
-            GetWindowLongPtr.argtypes = [ctypes.c_void_p, ctypes.c_int]
-            GetWindowLongPtr.restype = ctypes.c_longlong
-            
-            current_style = GetWindowLongPtr(widget_hwnd, GWL_STYLE)
-            new_style = (current_style & ~WS_POPUP) | WS_CHILD
-            SetWindowLongPtr(widget_hwnd, GWL_STYLE, new_style)
-        else:
-            current_style = ctypes.windll.user32.GetWindowLongW(widget_hwnd, GWL_STYLE)
-            new_style = (current_style & ~WS_POPUP) | WS_CHILD
-            ctypes.windll.user32.SetWindowLongW(widget_hwnd, GWL_STYLE, new_style)
-        
-        # Position precisely in League window client coordinates
-        # Since we're a child window, coordinates are relative to the parent's client area
-        HWND_TOP = 0
-        ctypes.windll.user32.SetWindowPos(
-            widget_hwnd, HWND_TOP, self.catcher_x, self.catcher_y, 0, 0,
-            0x0001 | 0x0004  # SWP_NOSIZE | SWP_NOZORDER
-        )
-        
         # Store resolution for change detection
         self._current_resolution = (window_width, window_height)
         
-        log.debug(f"[ClickCatcherHide] Positioned at ({self.catcher_x}, {self.catcher_y}) size {self.catcher_width}x{self.catcher_height}")
+        # No actual widget creation - this is now purely virtual
+        # The mouse hook will handle all click detection
+        log.debug(f"[ClickCatcherHide] Virtual click catcher registered at ({self.catcher_x}, {self.catcher_y}) size {self.catcher_width}x{self.catcher_height}")
     
-    def paintEvent(self, event):
-        """Paint the click catcher - white shape at 65% opacity for debugging"""
-        painter = QPainter(self)
+    def _register_click_catcher(self):
+        """Register this click catcher in the global registry"""
+        global _click_catchers
         
-        # Fill with white shape at 65% opacity for debugging
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor(255, 255, 255, 166))  # White with ~65% opacity (166/255)
-        painter.setPen(Qt.PenStyle.NoPen)
+        # Get League window handle
+        from utils.window_utils import get_league_window_handle
+        league_hwnd = get_league_window_handle()
         
-        # Draw shape based on type
-        if self.shape == 'rectangle':
-            painter.drawRect(self.rect())
-        else:  # circle
-            painter.drawEllipse(self.rect())
+        if league_hwnd:
+            # Store click catcher info: (x, y, width, height, league_hwnd, signal_object)
+            _click_catchers[id(self)] = (
+                self.catcher_x, self.catcher_y, self.catcher_width, self.catcher_height,
+                league_hwnd, self.click_detected
+            )
+            
+            log.info(f"[ClickCatcherHide] ✓ Registered click catcher {id(self)} at ({self.catcher_x}, {self.catcher_y}) size {self.catcher_width}x{self.catcher_height}")
+            log.info(f"[ClickCatcherHide] Total click catchers registered: {len(_click_catchers)}")
+            
+            # Start mouse monitoring if not already running
+            _start_mouse_monitoring()
+        else:
+            log.error("[ClickCatcherHide] ✗ Failed to get League window handle for registration")
     
-    def mousePressEvent(self, event):
-        """Handle mouse press events - emit signal when clicked"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            log.debug("[ClickCatcherHide] Click detected")
-            self.click_detected.emit()
-        event.accept()
+    def _unregister_click_catcher(self):
+        """Unregister this click catcher from the global registry"""
+        global _click_catchers
+        
+        if id(self) in _click_catchers:
+            del _click_catchers[id(self)]
+            log.debug(f"[ClickCatcherHide] Unregistered click catcher {id(self)}")
+            
+            # Stop mouse monitoring if no more click catchers
+            if not _click_catchers:
+                _stop_mouse_monitoring()
+    
+    # No paintEvent needed - purely virtual click catcher
+    # Click detection is handled by the global mouse monitoring timer
     
     def show_catcher(self):
-        """Show the click catcher"""
-        self.show()
-        log.debug("[ClickCatcherHide] Click catcher shown")
+        """Show the click catcher - now just enables detection"""
+        # Click catcher is always "active" when registered
+        log.debug("[ClickCatcherHide] Click catcher detection enabled")
     
     def hide_catcher(self):
-        """Hide the click catcher"""
-        self.hide()
-        log.debug("[ClickCatcherHide] Click catcher hidden")
+        """Hide the click catcher - now just disables detection"""
+        # Unregister to disable detection
+        self._unregister_click_catcher()
+        log.debug("[ClickCatcherHide] Click catcher detection disabled")
     
     def set_position(self, x, y, width=None, height=None):
         """Update the position and optionally size of the click catcher"""
@@ -208,9 +288,29 @@ class ClickCatcherHide(ChromaWidgetBase):
     def cleanup(self):
         """Clean up the click catcher"""
         try:
+            # Unregister from global registry
+            self._unregister_click_catcher()
+            
             # Properly destroy the PyQt6 widget
-            self.hide()
             self.deleteLater()
             log.debug("[ClickCatcherHide] Cleaned up and scheduled for deletion")
         except Exception as e:
             log.debug(f"[ClickCatcherHide] Error during cleanup: {e}")
+
+
+def test_mouse_monitoring():
+    """Test function to verify mouse monitoring is working"""
+    log.info("[ClickCatcherHide] Testing mouse monitoring functionality...")
+    
+    # Create a test click catcher
+    test_catcher = ClickCatcherHide(x=100, y=100, width=50, height=50, shape='rectangle')
+    
+    def test_click_handler():
+        log.info("[ClickCatcherHide] ✓ Test click detected!")
+    
+    test_catcher.click_detected.connect(test_click_handler)
+    
+    log.info("[ClickCatcherHide] Test click catcher created at (100, 100). Click in that area to test.")
+    log.info("[ClickCatcherHide] Click catchers registered: " + str(list(_click_catchers.keys())))
+    
+    return test_catcher
