@@ -5,7 +5,6 @@ Build script for LeagueUnlocked using PyInstaller
 Fast builds with Windows UI API support
 """
 
-import os
 import sys
 import subprocess
 import shutil

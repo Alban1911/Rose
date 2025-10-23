@@ -6,9 +6,9 @@ Chroma Panel Manager - Coordinates chroma panel and button widgets
 """
 
 import threading
-from typing import Callable, List, Dict, Optional
+from typing import Callable, List, Dict
 from utils.logging import get_logger, log_event, log_action, log_success
-from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, is_base_skin_owned, is_base_skin
+from utils.utilities import is_default_skin, is_owned, is_base_skin_owned
 from ui.chroma_button import OpeningButton
 from ui.chroma_panel_widget import ChromaPanelWidget
 from ui.chroma_click_catcher import ClickCatcherOverlay

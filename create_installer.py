@@ -4,7 +4,6 @@
 Create Windows installer for LeagueUnlocked using Inno Setup
 """
 
-import os
 import sys
 import subprocess
 import shutil

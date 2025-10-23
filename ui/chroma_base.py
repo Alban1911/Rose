@@ -7,7 +7,7 @@ Base classes and configuration for Chroma UI components
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt
 from utils.window_utils import get_league_window_handle
-from ui.z_order_manager import get_z_order_manager, ZOrderManager
+from ui.z_order_manager import get_z_order_manager
 import ctypes
 
 

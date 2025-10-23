@@ -7,7 +7,6 @@ Handles elevation and Task Scheduler registration for auto-start
 
 import sys
 import ctypes
-import os
 import subprocess
 from pathlib import Path
 from utils.logging import get_logger

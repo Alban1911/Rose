@@ -3,7 +3,6 @@ Debug utilities for UI automation
 """
 
 import logging
-from typing import Optional
 
 log = logging.getLogger(__name__)
 

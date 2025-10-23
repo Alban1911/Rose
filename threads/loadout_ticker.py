@@ -6,7 +6,6 @@ Loadout countdown ticker thread
 
 import time
 import threading
-from typing import Optional
 from lcu.client import LCU
 from state.shared_state import SharedState
 # NameDB no longer needed - LCU provides all data

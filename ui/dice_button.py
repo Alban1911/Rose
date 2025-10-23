@@ -7,13 +7,12 @@ Shows dice button with 4 states: enabled, disabled, hover, click
 """
 
 from PyQt6.QtWidgets import QLabel, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap, QMouseEvent
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
-import config
 
 log = get_logger()
 
