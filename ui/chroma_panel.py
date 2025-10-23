@@ -304,6 +304,19 @@ class ChromaPanelManager:
             self.current_champion_name = champion_name  # Store for image loading
             self.current_champion_id = champion_id  # Store champion ID for direct path
             
+            # Calculate base skin ID for preview loading (important for chromas)
+            self.current_base_skin_id = skin_id  # Default to original skin_id
+            if chromas and len(chromas) > 0:
+                # If we have chromas, the first chroma should have the base skin ID
+                first_chroma = chromas[0]
+                if 'skinId' in first_chroma:
+                    self.current_base_skin_id = first_chroma['skinId']
+                    log.debug(f"[CHROMA] Using base skin ID {self.current_base_skin_id} for previews (original skin_id: {skin_id})")
+                else:
+                    log.warning(f"[CHROMA] First chroma missing skinId field: {first_chroma}")
+            else:
+                log.debug(f"[CHROMA] No chromas found, using original skin_id {skin_id} as base skin ID")
+            
             # Queue the show/hide request regardless of initialization state
             # Strategy for skins without chromas:
             # - Show the button first to position the UnownedFrame
@@ -521,7 +534,9 @@ class ChromaPanelManager:
                         self.widget.reload_background()
                     
                     # Pass the currently selected chroma ID so wheel opens at that index
-                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id, self.current_skin_id, self.current_champion_id)
+                    # Use base skin ID for preview loading (important for chromas)
+                    base_skin_id_for_previews = getattr(self, 'current_base_skin_id', self.current_skin_id)
+                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id, base_skin_id_for_previews, self.current_champion_id)
                     # Position wheel above button
                     button_pos = self.reopen_button.pos() if self.reopen_button else None
                     self.widget.show_wheel(button_pos=button_pos)
