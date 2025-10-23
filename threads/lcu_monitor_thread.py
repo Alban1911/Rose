@@ -202,7 +202,7 @@ class LCUMonitorThread(threading.Thread):
                 
                 # Only update if not already set (avoid duplicate processing)
                 if self.state.locked_champ_id != locked_champ_id:
-                    champ_name = self.db.champ_name_by_id.get(locked_champ_id) if self.db else f"champ_{locked_champ_id}"
+                    champ_name = f"champ_{locked_champ_id}"  # Use ID since we don't have database
                     
                     log_status(log, "Initial state: Champion already locked", f"{champ_name} (ID: {locked_champ_id})", "✅")
                     
@@ -217,12 +217,7 @@ class LCUMonitorThread(threading.Thread):
                         except Exception as e:
                             log.debug(f"[init-state] Failed to scrape champion skins: {e}")
                     
-                    # Load English skin names for this champion from Data Dragon
-                    if self.db:
-                        try:
-                            self.db.load_champion_skins_by_id(locked_champ_id)
-                        except Exception as e:
-                            log.debug(f"[init-state] Failed to load English skin names: {e}")
+                    # English skin names are now loaded by LCU skin scraper
                     
                     # Notify injection manager of champion lock
                     if self.injection_manager:

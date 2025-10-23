@@ -19,10 +19,9 @@ log = get_logger()
 class UserInterface:
     """Parent class managing all UI components"""
     
-    def __init__(self, state, skin_scraper, db=None):
+    def __init__(self, state, skin_scraper):
         self.state = state
         self.skin_scraper = skin_scraper
-        self.db = db
         self.lock = threading.Lock()
         
         # Z-order management
@@ -58,8 +57,7 @@ class UserInterface:
             # Initialize ChromaUI (chroma selector + panel)
             self.chroma_ui = ChromaUI(
                 skin_scraper=self.skin_scraper,
-                state=self.state,
-                db=self.db
+                state=self.state
             )
             log.info("[UI] ChromaUI created successfully")
             
@@ -112,7 +110,7 @@ class UserInterface:
                 self.unowned_frame = None
             raise
     
-    def show_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
+    def show_skin(self, skin_id: int, skin_name: str, champion_name: str = None, champion_id: int = None):
         """Show UI for a specific skin - manages both ChromaUI and UnownedFrame"""
         if not self.is_ui_initialized():
             log.debug("[UI] Cannot show skin - UI not initialized")
@@ -173,7 +171,7 @@ class UserInterface:
             
             # Show/hide ChromaUI based on chromas
             if should_show_chroma_ui:
-                self._show_chroma_ui(skin_id, skin_name, champion_name)
+                self._show_chroma_ui(skin_id, skin_name, champion_name, champion_id)
             else:
                 self._hide_chroma_ui()
             
@@ -303,11 +301,11 @@ class UserInterface:
             return False
     
     
-    def _show_chroma_ui(self, skin_id: int, skin_name: str, champion_name: str = None):
+    def _show_chroma_ui(self, skin_id: int, skin_name: str, champion_name: str = None, champion_id: int = None):
         """Show ChromaUI for skin with chromas"""
         if self.chroma_ui:
             try:
-                self.chroma_ui.show_for_skin(skin_id, skin_name, champion_name)
+                self.chroma_ui.show_for_skin(skin_id, skin_name, champion_name, champion_id)
                 log.debug(f"[UI] ChromaUI shown for {skin_name}")
             except Exception as e:
                 log.error(f"[UI] Error showing ChromaUI: {e}")
@@ -927,17 +925,15 @@ class UserInterface:
 _user_interface = None
 
 
-def get_user_interface(state=None, skin_scraper=None, db=None) -> UserInterface:
+def get_user_interface(state=None, skin_scraper=None) -> UserInterface:
     """Get or create global user interface instance"""
     global _user_interface
     if _user_interface is None:
-        _user_interface = UserInterface(state, skin_scraper, db)
+        _user_interface = UserInterface(state, skin_scraper)
     else:
         # Update the existing instance with new parameters if they were provided
         if state is not None and _user_interface.state != state:
             _user_interface.state = state
         if skin_scraper is not None and _user_interface.skin_scraper != skin_scraper:
             _user_interface.skin_scraper = skin_scraper
-        if db is not None and _user_interface.db != db:
-            _user_interface.db = db
     return _user_interface

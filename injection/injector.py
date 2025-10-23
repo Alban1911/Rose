@@ -281,13 +281,14 @@ class SkinInjector:
                 log.error(f"[INJECTOR] Missing tool: {exe}")
         return tools
     
-    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None) -> Path | None:
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Path | None:
         """Resolve a ZIP by name or path with fuzzy matching, supporting new merged database structure
         
         Args:
             zip_arg: Skin name or path to search for
             chroma_id: Optional chroma ID to look for in chroma subdirectory
             skin_name: Optional base skin name for chroma lookup
+            champion_id: Optional champion ID. If provided, skips database lookup.
         """
         log.debug(f"[inject] Resolving zip for: '{zip_arg}' (chroma_id: {chroma_id}, skin_name: {skin_name})")
         cand = Path(zip_arg)
@@ -296,35 +297,16 @@ class SkinInjector:
 
         self.zips_dir.mkdir(parents=True, exist_ok=True)
 
-        # For base skins (no chroma_id), we need to find by skin_id
+        # For base skins (no chroma_id), we need skin_id
         if chroma_id is None and skin_name:
-            if not self.db:
-                log.warning(f"[inject] No database available for skin lookup: {skin_name}")
+            if not champion_id:
+                log.warning(f"[inject] No champion_id provided for skin lookup: {skin_name}")
                 return None
             
-            # Find skin_id from database by name
-            skin_id = None
-            for champ_id, champ_data in self.db.champions.items():
-                for skin_id_candidate, skin_data in champ_data.get('skins', {}).items():
-                    if skin_data.get('name', '').lower() == skin_name.lower():
-                        skin_id = skin_id_candidate
-                        champion_id = champ_id
-                        break
-                if skin_id:
-                    break
-            
-            if not skin_id:
-                log.warning(f"[inject] Skin not found in database: {skin_name}")
-                return None
-            
-            # Look for {champion_id}/{skin_id}/{skin_id}.zip
-            skin_path = self.zips_dir / str(champion_id) / str(skin_id) / f"{skin_id}.zip"
-            if skin_path.exists():
-                log_success(log, f"Found base skin: {skin_path.name}", "✨")
-                return skin_path
-            else:
-                log.error(f"[inject] Base skin file not found: {skin_path}")
-                return None
+            # The UIA system should have already resolved skin_name to skin_id
+            # If we're here, it means skin_id wasn't provided, which shouldn't happen
+            log.warning(f"[inject] No skin_id provided for skin '{skin_name}' - UIA should have resolved this")
+            return None
 
         # If chroma_id is provided, look in chroma subdirectory structure
         # New structure: {champion_id}/{chroma_id}/{chroma_id}.zip
@@ -359,49 +341,41 @@ class SkinInjector:
                     log.warning(f"[inject] Elementalist Lux {form_name} form file not found: {form_pattern}")
                     return None
             
-            # For regular chromas, look for {champion_id}/{chroma_id}/{chroma_id}.zip
-            if not self.db:
-                log.warning(f"[inject] No database available for chroma lookup: {chroma_id}")
-                return None
-            
-            # Find champion_id from database by chroma_id
-            champion_id = None
-            for champ_id, champ_data in self.db.champions.items():
-                for skin_id, skin_data in champ_data.get('skins', {}).items():
-                    chromas = skin_data.get('chromas', {})
-                    if str(chroma_id) in chromas:
-                        champion_id = champ_id
-                        break
-                if champion_id:
-                    break
-            
+            # For regular chromas, look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
             if not champion_id:
-                log.warning(f"[inject] Chroma {chroma_id} not found in database")
+                log.warning(f"[inject] No champion_id provided for chroma lookup: {chroma_id}")
                 return None
             
-            # Look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
-            # We need to find the skin_id for this chroma
-            skin_id = None
-            for champ_id, champ_data in self.db.champions.items():
-                for skin_id_candidate, skin_data in champ_data.get('skins', {}).items():
-                    chromas = skin_data.get('chromas', {})
-                    if str(chroma_id) in chromas:
-                        skin_id = skin_id_candidate
-                        break
-                if skin_id:
-                    break
-            
-            if not skin_id:
-                log.warning(f"[inject] Could not find skin_id for chroma {chroma_id}")
+            # For chromas, we need to find which skin they belong to
+            # Since chromas are stored under their base skin directory, we need to search
+            # through all skin directories for this champion to find the chroma
+            champion_dir = self.zips_dir / str(champion_id)
+            if not champion_dir.exists():
+                log.warning(f"[inject] Champion directory not found: {champion_dir}")
                 return None
             
-            chroma_path = self.zips_dir / str(champion_id) / str(skin_id) / str(chroma_id) / f"{chroma_id}.zip"
-            if chroma_path.exists():
-                log_success(log, f"Found chroma: {chroma_path.name}", "🎨")
-                return chroma_path
-            else:
-                log.error(f"[inject] Chroma file not found: {chroma_path}")
-                return None
+            # Search through all skin directories for this champion
+            for skin_dir in champion_dir.iterdir():
+                if not skin_dir.is_dir():
+                    continue
+                
+                # Check if this is a skin directory (numeric name)
+                try:
+                    int(skin_dir.name)  # If this succeeds, it's a skin ID directory
+                    
+                    # Check if chroma directory exists
+                    chroma_dir = skin_dir / str(chroma_id)
+                    if chroma_dir.exists():
+                        chroma_zip = chroma_dir / f"{chroma_id}.zip"
+                        if chroma_zip.exists():
+                            log_success(log, f"Found chroma: {chroma_zip.name}", "🎨")
+                            return chroma_zip
+                except ValueError:
+                    # Not a skin directory, skip
+                    continue
+            
+            log.warning(f"[inject] Chroma {chroma_id} not found in any skin directory for champion {champion_id}")
+            return None
 
         # For regular skin files (no chroma_id), we need to find by skin_id
         # This is a simplified approach - in practice, you'd want to use the database

@@ -24,18 +24,16 @@ class ChromaSelector:
     - Injection later uses the selected chroma ID
     """
     
-    def __init__(self, skin_scraper, state, db=None):
+    def __init__(self, skin_scraper, state):
         """
         Initialize chroma selector
         
         Args:
             skin_scraper: LCUSkinScraper instance to get chroma data
             state: SharedState instance to track selection
-            db: NameDB instance for cross-language lookups
         """
         self.skin_scraper = skin_scraper
         self.state = state
-        self.db = db
         self.lock = threading.Lock()
         self.current_skin_id = None  # Track which skin we're showing chromas for
         
@@ -43,11 +41,7 @@ class ChromaSelector:
         self.panel = get_chroma_panel(state=state, lcu=skin_scraper.lcu)
         self.panel.on_chroma_selected = self._on_chroma_selected
         
-        # Pass database to preview manager
-        if db:
-            from ui.chroma_preview_manager import get_preview_manager
-            preview_manager = get_preview_manager(db)
-            log.debug("[CHROMA] Database passed to preview manager for cross-language lookups")
+        # Preview manager no longer needs database - uses LCU data only
     
     
     def _get_elementalist_forms(self):
@@ -163,15 +157,12 @@ class ChromaSelector:
                     
                     # Reset skin key to just the skin name (no chroma ID)
                     if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
-                        # Get English skin name from database if available
+                        # Get English skin name from LCU skin scraper cache
                         english_skin_name = self.panel.current_skin_name
-                        if self.db and self.current_skin_id:
-                            try:
-                                db_english_name = self.db.get_english_skin_name_by_id(self.current_skin_id)
-                                if db_english_name:
-                                    english_skin_name = db_english_name
-                            except Exception:
-                                pass
+                        if self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(self.state.locked_champ_id):
+                            skin_data = self.skin_scraper.cache.get_skin_by_id(self.current_skin_id)
+                            if skin_data:
+                                english_skin_name = skin_data.get('skinName', '')
                         
                         # For base skins, use just the skin name (no chroma ID)
                         self.state.last_hovered_skin_key = english_skin_name
@@ -213,15 +204,12 @@ class ChromaSelector:
                         
                         base_skin_name = ' '.join(clean_words)
                         
-                        # Get English skin name from database if available
+                        # Get English skin name from LCU skin scraper cache
                         english_skin_name = base_skin_name
-                        if self.db and self.current_skin_id:
-                            try:
-                                db_english_name = self.db.get_english_skin_name_by_id(self.current_skin_id)
-                                if db_english_name:
-                                    english_skin_name = db_english_name
-                            except Exception:
-                                pass
+                        if self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(self.state.locked_champ_id):
+                            skin_data = self.skin_scraper.cache.get_skin_by_id(self.current_skin_id)
+                            if skin_data:
+                                english_skin_name = skin_data.get('skinName', '')
                         
                         # For chromas, append the chroma ID to the clean base skin name
                         self.state.last_hovered_skin_key = f"{english_skin_name} {chroma_id}"
@@ -260,7 +248,7 @@ class ChromaSelector:
             log.debug(f"[CHROMA] Error checking chromas for skin {skin_id}: {e}")
             return False
     
-    def show_button_for_skin(self, skin_id: int, skin_name: str, champion_name: str = None):
+    def show_button_for_skin(self, skin_id: int, skin_name: str, champion_name: str = None, champion_id: int = None):
         """
         Show button for a skin (called when UI detection finds any unowned skin or owned skin with chromas)
         
@@ -378,7 +366,7 @@ class ChromaSelector:
             
             # Show the button with chromas (or empty list if no chromas)
             try:
-                self.panel.show_button_for_skin(skin_id, skin_name, chromas or [], champion_name, is_chroma_selection)
+                self.panel.show_button_for_skin(skin_id, skin_name, chromas or [], champion_name, is_chroma_selection, champion_id)
             except Exception as e:
                 log.error(f"[CHROMA] Failed to show button: {e}")
     
@@ -404,10 +392,10 @@ class ChromaSelector:
 _chroma_selector = None
 
 
-def init_chroma_selector(skin_scraper, state, db=None):
+def init_chroma_selector(skin_scraper, state):
     """Initialize global chroma selector"""
     global _chroma_selector
-    _chroma_selector = ChromaSelector(skin_scraper, state, db)
+    _chroma_selector = ChromaSelector(skin_scraper, state)
     log.debug("[CHROMA] Chroma selector initialized")
     return _chroma_selector
 

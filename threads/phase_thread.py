@@ -59,7 +59,7 @@ class PhaseThread(threading.Thread):
                     # Request UI destruction for Lobby
                     try:
                         from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
                         user_interface.request_ui_destruction()
                         log_action(log, "UI destruction requested for Lobby", "🏠")
                     except Exception as e:
@@ -82,7 +82,7 @@ class PhaseThread(threading.Thread):
                     # Game in progress - request UI destruction
                     try:
                         from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
                         user_interface.request_ui_destruction()
                         log_action(log, "UI destruction requested for InProgress", "🎮")
                     except Exception as e:
@@ -101,7 +101,7 @@ class PhaseThread(threading.Thread):
                     # Game ended → request UI destruction and stop overlay process
                     try:
                         from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
                         user_interface.request_ui_destruction()
                         log_action(log, "UI destruction requested for EndOfGame", "🏁")
                     except Exception as e:
@@ -118,7 +118,7 @@ class PhaseThread(threading.Thread):
                     # Exit champ select or other phases → request UI destruction and reset counter/timer
                     try:
                         from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper, self.db)
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
                         user_interface.request_ui_destruction()
                         log_action(log, f"UI destruction requested for {ph}", "🔄")
                     except Exception as e:

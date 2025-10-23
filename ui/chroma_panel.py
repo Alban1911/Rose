@@ -39,6 +39,7 @@ class ChromaPanelManager:
         self.current_skin_name = None
         self.current_chromas = None
         self.current_champion_name = None  # Track champion for direct path
+        self.current_champion_id = None  # Track champion ID for direct path
         self.current_selected_chroma_id = None  # Track currently applied chroma
         self.current_chroma_color = None  # Track current chroma color for button display
         self.lock = threading.RLock()  # Use RLock for reentrant locking (prevents deadlock)
@@ -265,7 +266,7 @@ class ChromaPanelManager:
                 # self.pending_hide_button = True  # REMOVED - button stays visible
                 # self.pending_show_button = False  # REMOVED - no need to cancel show
     
-    def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None, is_chroma_selection: bool = False):
+    def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None, is_chroma_selection: bool = False, champion_id: int = None):
         """Show button for a skin (not the wheel itself)
         
         The button displays:
@@ -294,11 +295,12 @@ class ChromaPanelManager:
             elif is_chroma_selection:
                 log.debug(f"[CHROMA] Chroma selection for same base skin - preserving selection")
             
-            # Update current skin data for button (store champion name for later)
+            # Update current skin data for button (store champion name and ID for later)
             self.current_skin_id = skin_id
             self.current_skin_name = skin_name
             self.current_chromas = chromas
             self.current_champion_name = champion_name  # Store for image loading
+            self.current_champion_id = champion_id  # Store champion ID for direct path
             
             # Queue the show/hide request regardless of initialization state
             # Strategy for skins without chromas:
@@ -517,7 +519,7 @@ class ChromaPanelManager:
                         self.widget.reload_background()
                     
                     # Pass the currently selected chroma ID so wheel opens at that index
-                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id, self.current_skin_id)
+                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id, self.current_skin_id, self.current_champion_id)
                     # Position wheel above button
                     button_pos = self.reopen_button.pos() if self.reopen_button else None
                     self.widget.show_wheel(button_pos=button_pos)

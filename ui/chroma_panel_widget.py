@@ -390,7 +390,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
                     circle.radius = self.circle_radius  # Update radius to hardcoded value
                     circle_index += 1
     
-    def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None, skin_id: Optional[int] = None):
+    def set_chromas(self, skin_name: str, chromas: List[Dict], champion_name: str = None, selected_chroma_id: Optional[int] = None, skin_id: Optional[int] = None, champion_id: Optional[int] = None):
         """Set the chromas to display - League horizontal style
         
         Note: The chromas list should already be filtered to only include unowned chromas
@@ -412,7 +412,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
             base_preview_skin_id = 99007  # Always use base skin ID for Elementalist Lux base circle
             log.debug(f"[CHROMA] Elementalist Lux detected - using base skin ID {base_preview_skin_id} for base circle preview instead of {skin_id}")
         
-        base_preview = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id=0, champion_name=champion_name, skin_id=base_preview_skin_id)
+        base_preview = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id=0, champion_name=champion_name, skin_id=base_preview_skin_id, champion_id=champion_id)
         
         base_circle = ChromaCircle(
             chroma_id=0,
@@ -445,7 +445,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
             chroma_id = chroma.get('id', 0)
             
             # Use chroma_id directly (no more fake IDs)
-            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id, champion_name, skin_id)
+            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id, champion_name, skin_id, champion_id)
             
             circle = ChromaCircle(
                 chroma_id=chroma_id,
@@ -580,7 +580,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         ]
         return colors[index % len(colors)]
     
-    def _load_chroma_preview_image(self, skin_name: str, chroma_id: Optional[int], champion_name: str = None, skin_id: Optional[int] = None) -> Optional[QPixmap]:
+    def _load_chroma_preview_image(self, skin_name: str, chroma_id: Optional[int], champion_name: str = None, skin_id: Optional[int] = None, champion_id: Optional[int] = None) -> Optional[QPixmap]:
         """Load chroma preview image from SkinPreviews repository"""
         try:
             if champion_name is None:
@@ -594,10 +594,9 @@ class ChromaPanelWidget(ChromaWidgetBase):
             # Get database from chroma selector if available
             from ui.chroma_selector import get_chroma_selector
             chroma_selector = get_chroma_selector()
-            db = chroma_selector.db if chroma_selector else None
-            preview_manager = get_preview_manager(db)
+            preview_manager = get_preview_manager()
             
-            image_path = preview_manager.get_preview_path(champion_name, skin_name, chroma_id, skin_id)
+            image_path = preview_manager.get_preview_path(champion_name, skin_name, chroma_id, skin_id, champion_id)
             
             if image_path:
                 log.debug(f"[CHROMA] Loading preview: {image_path.name}")
@@ -1291,15 +1290,14 @@ class ChromaPanelWidget(ChromaWidgetBase):
                         base_skin_id = chroma_data.get('skinId')
                         log.debug(f"[CHROMA] Found base skin ID {base_skin_id} for chroma {skin_id}")
                         
-                        # Try to get the base skin name from database
-                        if chroma_selector.db:
-                            try:
-                                base_skin_name = chroma_selector.db.get_english_skin_name_by_id(base_skin_id)
+                        # Try to get the base skin name from LCU skin scraper cache
+                        if chroma_selector.skin_scraper and chroma_selector.skin_scraper.cache.is_loaded_for_champion(chroma_selector.state.locked_champ_id):
+                            skin_data = chroma_selector.skin_scraper.cache.get_skin_by_id(base_skin_id)
+                            if skin_data:
+                                base_skin_name = skin_data.get('skinName', '')
                                 if base_skin_name:
-                                    log.debug(f"[CHROMA] Using base skin name from database: '{base_skin_name}' for chroma {skin_id}")
+                                    log.debug(f"[CHROMA] Using base skin name from LCU: '{base_skin_name}' for chroma {skin_id}")
                                     return base_skin_name
-                            except Exception as e:
-                                log.debug(f"[CHROMA] Database lookup failed for base skin {base_skin_id}: {e}")
             
             # Fallback: remove any trailing chroma IDs from the skin name
             # Split by spaces and remove any words that are purely numeric (chroma IDs)

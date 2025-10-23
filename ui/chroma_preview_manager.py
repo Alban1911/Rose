@@ -20,16 +20,17 @@ class ChromaPreviewManager:
     def __init__(self, db=None):
         # Merged database folder (skins + previews)
         self.skins_dir = get_skins_dir()
-        self.db = db  # Database instance for cross-language lookups
+        self.db = db  # Kept for compatibility, not used
     
-    def get_preview_path(self, champion_name: str, skin_name: str, chroma_id: Optional[int] = None, skin_id: Optional[int] = None) -> Optional[Path]:
+    def get_preview_path(self, champion_name: str, skin_name: str, chroma_id: Optional[int] = None, skin_id: Optional[int] = None, champion_id: Optional[int] = None) -> Optional[Path]:
         """Get path to preview image from merged database
         
         Args:
-            champion_name: Champion name (e.g. "Garen")
-            skin_name: Skin name (e.g. "Demacia Vice")
+            champion_name: Champion name (for logging only)
+            skin_name: Skin name (for logging only)
             chroma_id: Optional chroma ID. If None/0, returns base skin preview.
             skin_id: Optional skin ID to help find the correct directory.
+            champion_id: Required champion ID for path construction.
         
         Returns:
             Path to preview image if it exists, None otherwise
@@ -38,27 +39,16 @@ class ChromaPreviewManager:
             - Base skin: {champion_id}/{skin_id}/{skin_id}.png
             - Chroma: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
         """
-        log.info(f"[CHROMA] get_preview_path called with: champion='{champion_name}', skin='{skin_name}', chroma_id={chroma_id}, skin_id={skin_id}")
+        log.info(f"[CHROMA] get_preview_path called with: champion='{champion_name}', skin='{skin_name}', chroma_id={chroma_id}, skin_id={skin_id}, champion_id={champion_id}")
         
         if not self.skins_dir.exists():
             log.warning(f"[CHROMA] Skins directory does not exist: {self.skins_dir}")
             return None
         
         try:
-            # We need to find the champion_id and skin_id/chroma_id from the database
-            if not self.db:
-                log.warning("[CHROMA] No database available for ID lookup")
-                return None
-            
-            # Get champion ID from name
-            champion_id = None
-            for champ_id, champ_data in self.db.champions.items():
-                if champ_data.get('name', '').lower() == champion_name.lower():
-                    champion_id = champ_id
-                    break
-            
-            if not champion_id:
-                log.warning(f"[CHROMA] Champion ID not found for: {champion_name}")
+            # Champion ID is required for path construction
+            if champion_id is None:
+                log.warning("[CHROMA] No champion_id provided - required for path construction")
                 return None
             
             champion_dir = self.skins_dir / str(champion_id)
@@ -69,7 +59,7 @@ class ChromaPreviewManager:
             if chroma_id is None or chroma_id == 0:
                 # Base skin preview: {champion_id}/{skin_id}/{skin_id}.png
                 if not skin_id:
-                    log.warning("[CHROMA] No skin_id provided for base skin preview")
+                    log.warning("[CHROMA] No skin_id provided for base skin preview - UIA should have resolved this")
                     return None
                 
                 skin_dir = champion_dir / str(skin_id)
@@ -82,7 +72,7 @@ class ChromaPreviewManager:
             else:
                 # Chroma preview: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
                 if not skin_id:
-                    log.warning("[CHROMA] No skin_id provided for chroma preview")
+                    log.warning("[CHROMA] No skin_id provided for chroma preview - UIA should have resolved this")
                     return None
                 
                 skin_dir = champion_dir / str(skin_id)
