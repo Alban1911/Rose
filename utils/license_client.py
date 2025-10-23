@@ -3,21 +3,24 @@ License Client - Example code for LeagueUnlocked app
 Integrate this into your application to handle license validation
 """
 
-import requests
+# Standard library imports
+import base64
+import hashlib
 import json
 import os
+import platform
+import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
-import platform
-import uuid
-import hashlib
-import base64
-import sys
 from typing import Optional
+
+# Third-party imports
+import requests
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.backends import default_backend
-from cryptography.exceptions import InvalidSignature
 
 class LicenseClient:
     def __init__(self, server_url: str, license_file: str = "license.dat", public_key_pem: str = None):

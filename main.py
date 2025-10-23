@@ -4,6 +4,7 @@
 Main entry point for the modularized LeagueUnlocked
 """
 
+# Standard library imports
 import argparse
 import atexit
 import contextlib
@@ -16,10 +17,24 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-# Import constants early - needed for Windows setup
+# Local imports - constants first (needed for Windows setup)
 from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S
+
+if TYPE_CHECKING:
+    from lcu.client import LCU
+    from lcu.skin_scraper import LCUSkinScraper
+    from state.shared_state import SharedState
+    from state.app_status import AppStatus
+    from threads.phase_thread import PhaseThread
+    from threads.champ_thread import ChampThread
+    from uia import UISkinThread
+    from threads.websocket_thread import WSEventThread
+    from threads.lcu_monitor_thread import LCUMonitorThread
+    from utils.tray_manager import TrayManager
+    from ui.user_interface import UserInterface
+    from injection.manager import InjectionManager
 
 
 # Fix for windowed mode - allocate console to prevent blocking operations
@@ -155,7 +170,7 @@ if sys.platform == "win32":
     
     _console_thread = threading.Thread(target=_console_buffer_manager, daemon=True, name="ConsoleBufferManager")
     _console_thread.start()
-# NameDB no longer needed - LCU provides all data
+# Local imports - core modules
 from lcu.client import LCU
 from lcu.skin_scraper import LCUSkinScraper
 from state.shared_state import SharedState
@@ -165,13 +180,19 @@ from threads.champ_thread import ChampThread
 from uia import UISkinThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
+
+# Local imports - utilities
 from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
-from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
-from ui.user_interface import get_user_interface
 from utils.thread_manager import ThreadManager, create_daemon_thread
 from utils.license_client import LicenseClient
+
+# Local imports - UI and injection
+from ui.user_interface import get_user_interface
+from injection.manager import InjectionManager
+
+# Local imports - configuration
 from config import (
     DEFAULT_DD_LANG,
     DEFAULT_VERBOSE,
@@ -243,10 +264,10 @@ QApplication = None
 QTimer = None
 Qt = None
 
+# Third-party imports - PyQt6
 try:
     # Set Qt plugin path for frozen executables BEFORE import
     if getattr(sys, 'frozen', False):
-        import os
         # Try multiple possible plugin paths
         possible_paths = [
             os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt6", "plugins"),
@@ -580,8 +601,10 @@ KwIDAQAB
                             f"Success!\n\n{activation_message}\n\nLeagueUnlocked will now start."
                         )
                         root.destroy()
-                    except:
+                    except (ImportError, AttributeError, RuntimeError) as e:
+                        # Fallback to console output if tkinter fails
                         print(f"License activated: {activation_message}")
+                        log.debug(f"Tkinter dialog failed: {e}")
                 
                 # Update valid status and message
                 valid = True
@@ -1258,9 +1281,10 @@ Log location: Check %LOCALAPPDATA%\\LeagueUnlocked\\logs\\
         try:
             log = get_logger()
             log.error(error_msg)
-        except:
+        except (AttributeError, RuntimeError, OSError) as e:
             # If logging fails, print to stderr
             print(error_msg, file=sys.stderr)
+            print(f"Logging system error: {e}", file=sys.stderr)
         
         # Show error dialog on Windows
         if sys.platform == "win32":

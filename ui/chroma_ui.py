@@ -6,9 +6,12 @@ ChromaUI - UI component for chroma selection
 Manages chroma selector and panel for skins with chromas
 """
 
+# Standard library imports
 import threading
-from utils.logging import get_logger
+
+# Local imports
 from ui.chroma_selector import ChromaSelector
+from utils.logging import get_logger
 
 log = get_logger()
 

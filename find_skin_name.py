@@ -117,8 +117,9 @@ def find_skin_name():
                 try:
                     rect = control.rectangle()
                     log.info(f"Candidate {i+1:2d}: '{text}' at position {rect}")
-                except:
+                except (AttributeError, RuntimeError) as e:
                     log.info(f"Candidate {i+1:2d}: '{text}' (position unknown)")
+                    log.debug(f"Could not get rectangle for control: {e}")
             
         except Exception as e:
             log.error(f"Error in Method 1: {e}")

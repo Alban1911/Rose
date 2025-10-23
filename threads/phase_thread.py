@@ -4,14 +4,17 @@
 Phase monitoring thread
 """
 
-import time
+# Standard library imports
 import threading
+import time
+
+# Local imports
+from config import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT
 from lcu.client import LCU
 from state.shared_state import SharedState
-from utils.logging import get_logger, log_status, log_action
-from ui.user_interface import get_user_interface
 from ui.chroma_selector import get_chroma_selector
-from config import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT
+from ui.user_interface import get_user_interface
+from utils.logging import get_logger, log_status, log_action
 
 log = get_logger()
 

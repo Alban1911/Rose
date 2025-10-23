@@ -6,7 +6,10 @@ Utilities - Shared utility functions used throughout the application
 Contains common functions that are used across multiple modules
 """
 
+# Standard library imports
 from typing import Optional
+
+# Local imports
 from utils.logging import get_logger
 
 log = get_logger()

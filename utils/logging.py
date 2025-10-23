@@ -4,17 +4,22 @@
 Logging configuration and utilities
 """
 
+# Standard library imports
 import os
-import sys
-import time
-import logging
-import urllib3
-import threading
 import queue
 import re
+import sys
+import threading
+import time
 from datetime import datetime
-from urllib3.exceptions import InsecureRequestWarning
 from pathlib import Path
+
+# Third-party imports
+import logging
+import urllib3
+from urllib3.exceptions import InsecureRequestWarning
+
+# Local imports
 from config import (
     LOG_MAX_FILES_DEFAULT, LOG_MAX_TOTAL_SIZE_MB_DEFAULT,
     LOG_FILE_PATTERN, LOG_TIMESTAMP_FORMAT, LOG_SEPARATOR_WIDTH,

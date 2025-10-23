@@ -5,12 +5,18 @@ Chroma Selection Integration - New Workflow
 Shows chroma wheel immediately when skin is detected (not during injection)
 """
 
+# Standard library imports
 import threading
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+# Local imports
 from ui.chroma_panel import get_chroma_panel
 from utils.logging import get_logger
 from utils.utilities import is_default_skin, is_owned
 from utils.validation import validate_skin_id, validate_skin_name
+
+if TYPE_CHECKING:
+    from state.shared_state import SharedState
 
 log = get_logger()
 

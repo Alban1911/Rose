@@ -5,13 +5,13 @@ Injection Manager
 Manages the injection process and coordinates with UI detection system
 """
 
-import time
+# Standard library imports
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
-from .injector import SkinInjector
-from utils.logging import get_logger, log_section, log_event, log_success, log_action
+# Local imports
 from config import (
     INJECTION_THRESHOLD_SECONDS,
     PERSISTENT_MONITOR_CHECK_INTERVAL_S,
@@ -21,6 +21,9 @@ from config import (
     PERSISTENT_MONITOR_AUTO_RESUME_S,
     INJECTION_LOCK_TIMEOUT_S
 )
+from utils.logging import get_logger, log_section, log_event, log_success, log_action
+
+from .injector import SkinInjector
 
 log = get_logger()
 

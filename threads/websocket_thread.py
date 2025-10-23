@@ -4,38 +4,39 @@
 WebSocket event thread
 """
 
-import os
-import json
-import time
-import ssl
+# Standard library imports
 import base64
-import threading
+import json
 import logging
+import os
+import ssl
+import threading
+import time
 import traceback
 from typing import Optional
-from lcu.client import LCU
-from lcu.utils import compute_locked
-from database.name_db import NameDB
-from state.shared_state import SharedState
-from threads.loadout_ticker import LoadoutTicker
-from utils.logging import get_logger, log_section, log_status, log_event
-from ui.user_interface import get_user_interface
-from ui.chroma_selector import get_chroma_selector
+
+# Third-party imports
+import websocket  # websocket-client
+
+# Local imports
 from config import (
     WS_PING_INTERVAL_DEFAULT, WS_PING_TIMEOUT_DEFAULT, WS_RECONNECT_DELAY,
     WS_PROBE_ITERATIONS, WS_PROBE_SLEEP_MS, TIMER_HZ_DEFAULT,
     FALLBACK_LOADOUT_MS_DEFAULT, INTERESTING_PHASES
 )
+from database.name_db import NameDB
+from lcu.client import LCU
+from lcu.utils import compute_locked
+from state.shared_state import SharedState
+from threads.loadout_ticker import LoadoutTicker
+from ui.chroma_selector import get_chroma_selector
+from ui.user_interface import get_user_interface
+from utils.logging import get_logger, log_section, log_status, log_event
 
 log = get_logger()
 
-# Optional WebSocket import
-try:
-    import websocket  # websocket-client  # pyright: ignore[reportMissingImports]
-    # Disable websocket ping logs
-    logging.getLogger("websocket").setLevel(logging.WARNING)
-except Exception:
-    websocket = None
+# Disable websocket ping logs
+logging.getLogger("websocket").setLevel(logging.WARNING)
 
 
 class WSEventThread(threading.Thread):

@@ -4,17 +4,20 @@
 League Client API client
 """
 
+# Standard library imports
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List
 
+# Third-party imports
 import psutil
 import requests
 
-from dataclasses import dataclass
-from utils.logging import get_logger, log_section, log_success
+# Local imports
 from config import LCU_API_TIMEOUT_S
+from utils.logging import get_logger, log_section, log_success
 
 log = get_logger()
 

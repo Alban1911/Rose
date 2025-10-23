@@ -932,8 +932,9 @@ class SkinInjector:
                                 # Give it a brief moment, then force kill if needed
                                 try:
                                     p.wait(timeout=PROCESS_TERMINATE_WAIT_S)
-                                except:
+                                except (psutil.TimeoutExpired, psutil.NoSuchProcess) as wait_e:
                                     p.kill()  # Force kill if terminate didn't work
+                                    log.debug(f"Process wait timeout or process gone, force killing: {wait_e}")
                             except Exception as e:
                                 try:
                                     p.kill()  # Force kill on any error

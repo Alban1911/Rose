@@ -6,9 +6,12 @@ Centralized Z-Order Management System
 Replaces creation order dependency with explicit z-level management
 """
 
+# Standard library imports
 import ctypes
 import threading
 from typing import Dict, Optional, Set
+
+# Local imports
 from utils.logging import get_logger
 
 log = get_logger()

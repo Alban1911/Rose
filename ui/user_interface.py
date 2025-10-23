@@ -6,12 +6,18 @@ User Interface Manager - Parent class for all UI components
 Manages ChromaUI and UnownedFrame as separate components
 """
 
+# Standard library imports
 import threading
 from typing import Optional, Callable
-from utils.logging import get_logger
-from utils.utilities import is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, is_base_skin_owned, is_base_skin
+
+# Local imports
 from ui.chroma_ui import ChromaUI
 from ui.z_order_manager import get_z_order_manager
+from utils.logging import get_logger
+from utils.utilities import (
+    is_default_skin, is_owned, is_chroma_id, get_base_skin_id_for_chroma, 
+    is_base_skin_owned, is_base_skin
+)
 
 log = get_logger()
 

@@ -5,12 +5,15 @@ Thread Manager - Modern threading patterns for application threads
 Provides controlled startup, shutdown, and lifecycle management
 """
 
+# Standard library imports
 import threading
 import time
-from typing import List, Tuple, Optional, Callable
 from dataclasses import dataclass
-from utils.logging import get_logger, log_success, log_action
+from typing import List, Tuple, Optional, Callable
+
+# Local imports
 from config import THREAD_JOIN_TIMEOUT_S
+from utils.logging import get_logger, log_success, log_action
 
 log = get_logger()
 
