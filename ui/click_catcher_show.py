@@ -68,8 +68,8 @@ class ClickCatcherShow(ClickCatcher):
         try:
             # Determine delay based on catcher name
             if self.catcher_name == 'CLOSE_SUM':
-                delay_ms = 240
-                log.info("[ClickCatcherShow] Click detected - waiting 240ms before triggering show UI action (CLOSE_SUM)")
+                delay_ms = 250
+                log.info("[ClickCatcherShow] Click detected - waiting 250ms before triggering show UI action (CLOSE_SUM)")
             else:
                 delay_ms = 100
                 log.info("[ClickCatcherShow] Click detected - waiting 100ms before triggering show UI action")
