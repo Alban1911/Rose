@@ -101,54 +101,55 @@ class UserInterface:
             # Create ClickCatcherHide instances for different UI elements
             from ui.click_catcher_hide import ClickCatcherHide
             
+            # Create click catchers with resolution-based positioning
             self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
-                state=self.state, x=552, y=834, width=41, height=41
+                state=self.state, catcher_name='EDIT_RUNES', shape='circle'
             )
             self.click_catchers['EDIT_RUNES'].click_detected.connect(
                 lambda: self._on_click_catcher_clicked('EDIT_RUNES')
             )
             
             self.click_catchers['REC_RUNES'] = ClickCatcherHide(
-                state=self.state, x=499, y=834, width=41, height=41
+                state=self.state, catcher_name='REC_RUNES', shape='circle'
             )
             self.click_catchers['REC_RUNES'].click_detected.connect(
                 lambda: self._on_click_catcher_clicked('REC_RUNES')
             )
             
             self.click_catchers['SETTINGS'] = ClickCatcherHide(
-                state=self.state, x=1518, y=2, width=33, height=33
+                state=self.state, catcher_name='SETTINGS', shape='circle'
             )
             self.click_catchers['SETTINGS'].click_detected.connect(
                 lambda: self._on_click_catcher_clicked('SETTINGS')
             )
             
-            # SUM_L - Rectangle at (859, 831) with size 46x47
+            # SUM_L - Rectangle
             self.click_catchers['SUM_L'] = ClickCatcherHide(
-                state=self.state, x=859, y=831, width=46, height=47, shape='rectangle'
+                state=self.state, catcher_name='SUM_L', shape='rectangle'
             )
             self.click_catchers['SUM_L'].click_detected.connect(
                 lambda: self._on_click_catcher_clicked('SUM_L')
             )
             
-            # SUM_R - Rectangle at (918, 831) with size 46x47
+            # SUM_R - Rectangle
             self.click_catchers['SUM_R'] = ClickCatcherHide(
-                state=self.state, x=918, y=831, width=46, height=47, shape='rectangle'
+                state=self.state, catcher_name='SUM_R', shape='rectangle'
             )
             self.click_catchers['SUM_R'].click_detected.connect(
                 lambda: self._on_click_catcher_clicked('SUM_R')
             )
             
-            # WARD - Rectangle at (989, 831) with size 46x47
+            # WARD - Rectangle
             self.click_catchers['WARD'] = ClickCatcherHide(
-                state=self.state, x=989, y=831, width=46, height=47, shape='rectangle'
+                state=self.state, catcher_name='WARD', shape='rectangle'
             )
             self.click_catchers['WARD'].click_detected.connect(
                 lambda: self._on_click_catcher_clicked('WARD')
             )
             
-            # EMOTES - Rectangle at (1048, 832) with size 46x46
+            # EMOTES - Rectangle
             self.click_catchers['EMOTES'] = ClickCatcherHide(
-                state=self.state, x=1048, y=832, width=46, height=46, shape='rectangle'
+                state=self.state, catcher_name='EMOTES', shape='rectangle'
             )
             self.click_catchers['EMOTES'].click_detected.connect(
                 lambda: self._on_click_catcher_clicked('EMOTES')
@@ -526,8 +527,115 @@ class UserInterface:
                 self.random_flag.check_resolution_and_update()
             
             # Check ClickCatcherHide instances for resolution changes
-            for catcher in self.click_catchers.values():
-                catcher.check_resolution_and_update()
+            # Destroy and recreate click catchers when resolution changes
+            if self.click_catchers:
+                # Get current resolution
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                
+                if current_resolution:
+                    # Check if any click catcher has a different resolution
+                    resolution_changed = False
+                    for catcher in self.click_catchers.values():
+                        if (hasattr(catcher, '_current_resolution') and 
+                            catcher._current_resolution is not None and 
+                            catcher._current_resolution != current_resolution):
+                            resolution_changed = True
+                            break
+                    
+                    if resolution_changed:
+                        log.info(f"[UI] Click catchers resolution changed, destroying and recreating all click catchers")
+                        
+                        # Store current skin state for recreation
+                        current_skin_id = self.current_skin_id
+                        current_skin_name = self.current_skin_name
+                        current_champion_name = self.current_champion_name
+                        
+                        # Destroy all click catchers
+                        for catcher_name, catcher in self.click_catchers.items():
+                            try:
+                                catcher.cleanup()
+                                log.debug(f"[UI] ClickCatcher '{catcher_name}' destroyed")
+                            except Exception as e:
+                                log.error(f"[UI] Error destroying ClickCatcher '{catcher_name}': {e}")
+                        
+                        # Clear the click catchers dictionary
+                        self.click_catchers = {}
+                        self.click_catcher_hide = None
+                        
+                        # Small delay to ensure cleanup
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+                        
+                        # Recreate all click catchers with new resolution
+                        from ui.click_catcher_hide import ClickCatcherHide
+                        
+                        # Create click catchers with resolution-based positioning
+                        self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
+                            state=self.state, catcher_name='EDIT_RUNES', shape='circle'
+                        )
+                        self.click_catchers['EDIT_RUNES'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('EDIT_RUNES')
+                        )
+                        
+                        self.click_catchers['REC_RUNES'] = ClickCatcherHide(
+                            state=self.state, catcher_name='REC_RUNES', shape='circle'
+                        )
+                        self.click_catchers['REC_RUNES'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('REC_RUNES')
+                        )
+                        
+                        self.click_catchers['SETTINGS'] = ClickCatcherHide(
+                            state=self.state, catcher_name='SETTINGS', shape='circle'
+                        )
+                        self.click_catchers['SETTINGS'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('SETTINGS')
+                        )
+                        
+                        # SUM_L - Rectangle
+                        self.click_catchers['SUM_L'] = ClickCatcherHide(
+                            state=self.state, catcher_name='SUM_L', shape='rectangle'
+                        )
+                        self.click_catchers['SUM_L'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('SUM_L')
+                        )
+                        
+                        # SUM_R - Rectangle
+                        self.click_catchers['SUM_R'] = ClickCatcherHide(
+                            state=self.state, catcher_name='SUM_R', shape='rectangle'
+                        )
+                        self.click_catchers['SUM_R'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('SUM_R')
+                        )
+                        
+                        # WARD - Rectangle
+                        self.click_catchers['WARD'] = ClickCatcherHide(
+                            state=self.state, catcher_name='WARD', shape='rectangle'
+                        )
+                        self.click_catchers['WARD'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('WARD')
+                        )
+                        
+                        # EMOTES - Rectangle
+                        self.click_catchers['EMOTES'] = ClickCatcherHide(
+                            state=self.state, catcher_name='EMOTES', shape='rectangle'
+                        )
+                        self.click_catchers['EMOTES'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('EMOTES')
+                        )
+                        
+                        # Restore backward compatibility
+                        self.click_catcher_hide = self.click_catchers['SETTINGS']
+                        
+                        log.info("[UI] Click catchers recreated with new resolution")
+                        
+                        # Show click catchers if we have a current skin
+                        if current_skin_id:
+                            self._show_click_catchers()
+                    else:
+                        # No resolution change, just update normally
+                        for catcher in self.click_catchers.values():
+                            catcher.check_resolution_and_update()
                 
         except Exception as e:
             log.error(f"[UI] Error checking resolution changes: {e}")

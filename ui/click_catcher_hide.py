@@ -29,14 +29,11 @@ Features:
 """
 
 import ctypes
-import ctypes.wintypes
-import threading
-from PyQt6.QtWidgets import QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QPainter, QColor
+from PyQt6.QtCore import pyqtSignal, QTimer
 from ui.chroma_base import ChromaWidgetBase
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
+from utils.resolution_utils import get_click_catcher_config, get_current_resolution, is_supported_resolution
 
 log = get_logger()
 
@@ -147,7 +144,7 @@ class ClickCatcherHide(ChromaWidgetBase):
     # Signal emitted when click is detected
     click_detected = pyqtSignal()
     
-    def __init__(self, state=None, x=0, y=0, width=50, height=50, shape='circle'):
+    def __init__(self, state=None, x=0, y=0, width=50, height=50, shape='circle', catcher_name=None):
         # Initialize with explicit z-level for click catchers
         super().__init__(
             z_level=ZOrderManager.Z_LEVELS['CLICK_CATCHER'],
@@ -157,7 +154,10 @@ class ClickCatcherHide(ChromaWidgetBase):
         # Store reference to shared state
         self.state = state
         
-        # Position and size for the click catcher
+        # Store catcher name for resolution-based positioning
+        self.catcher_name = catcher_name
+        
+        # Position and size for the click catcher (will be set by resolution config)
         self.catcher_x = x
         self.catcher_y = y
         self.catcher_width = width
@@ -176,7 +176,7 @@ class ClickCatcherHide(ChromaWidgetBase):
         # Register this click catcher globally
         self._register_click_catcher()
         
-        log.debug(f"[ClickCatcherHide] Virtual click catcher created at ({x}, {y}) size {width}x{height}")
+        log.debug(f"[ClickCatcherHide] Virtual click catcher created at ({self.catcher_x}, {self.catcher_y}) size {self.catcher_width}x{self.catcher_height}")
     
     def _create_components(self):
         """Create the click catcher component - now purely virtual for mouse hook detection"""
@@ -196,6 +196,22 @@ class ClickCatcherHide(ChromaWidgetBase):
         
         # Store resolution for change detection
         self._current_resolution = (window_width, window_height)
+        
+        # Update position and size based on current resolution if catcher_name is provided
+        if self.catcher_name:
+            current_resolution = get_current_resolution()
+            if current_resolution and is_supported_resolution(current_resolution):
+                config = get_click_catcher_config(current_resolution, self.catcher_name)
+                if config:
+                    self.catcher_x = config['x']
+                    self.catcher_y = config['y']
+                    self.catcher_width = config['width']
+                    self.catcher_height = config['height']
+                    log.debug(f"[ClickCatcherHide] Updated {self.catcher_name} position for resolution {current_resolution}: ({self.catcher_x}, {self.catcher_y}) size {self.catcher_width}x{self.catcher_height}")
+                else:
+                    log.warning(f"[ClickCatcherHide] No config found for {self.catcher_name} at resolution {current_resolution}")
+            else:
+                log.warning(f"[ClickCatcherHide] Unsupported resolution: {current_resolution}")
         
         # No actual widget creation - this is now purely virtual
         # The mouse hook will handle all click detection
@@ -279,6 +295,25 @@ class ClickCatcherHide(ChromaWidgetBase):
             
             if self._current_resolution != current_resolution:
                 log.info(f"[ClickCatcherHide] Resolution changed from {self._current_resolution} to {current_resolution}, recreating components")
+                
+                # Update position and size based on new resolution if catcher_name is provided
+                if self.catcher_name:
+                    if is_supported_resolution(current_resolution):
+                        config = get_click_catcher_config(current_resolution, self.catcher_name)
+                        if config:
+                            self.catcher_x = config['x']
+                            self.catcher_y = config['y']
+                            self.catcher_width = config['width']
+                            self.catcher_height = config['height']
+                            log.info(f"[ClickCatcherHide] Updated {self.catcher_name} position for new resolution {current_resolution}: ({self.catcher_x}, {self.catcher_y}) size {self.catcher_width}x{self.catcher_height}")
+                        else:
+                            log.warning(f"[ClickCatcherHide] No config found for {self.catcher_name} at resolution {current_resolution}")
+                    else:
+                        log.warning(f"[ClickCatcherHide] Unsupported resolution: {current_resolution}")
+                
+                # Update stored resolution
+                self._current_resolution = current_resolution
+                
                 # Recreate components with new resolution
                 self._create_components()
                 
