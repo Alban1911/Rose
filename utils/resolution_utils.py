@@ -27,7 +27,13 @@ CLICK_CATCHER_CONFIGS = {
         "SUM_L": {"x": 859, "y": 831, "width": 46, "height": 47},
         "SUM_R": {"x": 918, "y": 831, "width": 46, "height": 47},
         "WARD": {"x": 989, "y": 831, "width": 46, "height": 47},
-        "EMOTES": {"x": 1048, "y": 832, "width": 46, "height": 46}
+        "EMOTES": {"x": 1048, "y": 832, "width": 46, "height": 46},
+        "SHOW_UI": {"x": 738, "y": 776, "width": 125, "height": 40},
+        "CLOSE_EMOTES": {"x": 1467, "y": 73, "width": 40, "height": 40},
+        "CLOSE_RUNES_X": {"x": 1443, "y": 80, "width": 40, "height": 40},
+        "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 138, "height": 900},
+        "CLOSE_RUNES_R": {"x": 1462, "y": 0, "width": 138, "height": 900},
+        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1600, "height": 100}
     },
     "1280x720": {
         "EDIT_RUNES": {"x": 441, "y": 667, "width": 34, "height": 34},
@@ -36,7 +42,13 @@ CLICK_CATCHER_CONFIGS = {
         "SUM_L": {"x": 687, "y": 664, "width": 37, "height": 38},
         "SUM_R": {"x": 734, "y": 664, "width": 37, "height": 38},
         "WARD": {"x": 791, "y": 664, "width": 37, "height": 38},
-        "EMOTES": {"x": 838, "y": 665, "width": 37, "height": 37}
+        "EMOTES": {"x": 838, "y": 665, "width": 37, "height": 37},
+        "SHOW_UI": {"x": 590, "y": 620, "width": 101, "height": 33},
+        "CLOSE_EMOTES": {"x": 1173, "y": 58, "width": 33, "height": 33},
+        "CLOSE_RUNES_X": {"x": 1154, "y": 64, "width": 33, "height": 33},
+        "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 111, "height": 720},
+        "CLOSE_RUNES_R": {"x": 1169, "y": 0, "width": 111, "height": 720},
+        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1280, "height": 80}
     },
     "1024x576": {
         "EDIT_RUNES": {"x": 353, "y": 533, "width": 27, "height": 27},
@@ -45,7 +57,13 @@ CLICK_CATCHER_CONFIGS = {
         "SUM_L": {"x": 549, "y": 531, "width": 30, "height": 31},
         "SUM_R": {"x": 587, "y": 531, "width": 30, "height": 31},
         "WARD": {"x": 633, "y": 531, "width": 30, "height": 31},
-        "EMOTES": {"x": 670, "y": 532, "width": 30, "height": 30}
+        "EMOTES": {"x": 670, "y": 532, "width": 30, "height": 30},
+        "SHOW_UI": {"x": 472, "y": 496, "width": 81, "height": 26},
+        "CLOSE_EMOTES": {"x": 939, "y": 46, "width": 26, "height": 26},
+        "CLOSE_RUNES_X": {"x": 923, "y": 51, "width": 26, "height": 26},
+        "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 88, "height": 576},
+        "CLOSE_RUNES_R": {"x": 935, "y": 0, "width": 88, "height": 576},
+        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1024, "height": 64}
     }
 }
 

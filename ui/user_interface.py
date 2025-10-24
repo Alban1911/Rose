@@ -100,6 +100,7 @@ class UserInterface:
             log.info("[UI] Creating ClickCatcherHide components...")
             # Create ClickCatcherHide instances for different UI elements
             from ui.click_catcher_hide import ClickCatcherHide
+            from ui.click_catcher_show import ClickCatcherShow
             
             # Create click catchers with resolution-based positioning
             self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
@@ -155,10 +156,58 @@ class UserInterface:
                 lambda: self._on_click_catcher_clicked('EMOTES')
             )
             
+            # CLOSE_SETTINGS - Rectangle (ClickCatcherShow for closing settings)
+            self.click_catchers['CLOSE_SETTINGS'] = ClickCatcherShow(
+                state=self.state, catcher_name='CLOSE_SETTINGS', shape='rectangle'
+            )
+            self.click_catchers['CLOSE_SETTINGS'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('CLOSE_SETTINGS')
+            )
+            
+            # CLOSE_EMOTES - Circle (ClickCatcherShow for closing emotes)
+            self.click_catchers['CLOSE_EMOTES'] = ClickCatcherShow(
+                state=self.state, catcher_name='CLOSE_EMOTES', shape='circle'
+            )
+            self.click_catchers['CLOSE_EMOTES'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('CLOSE_EMOTES')
+            )
+            
+            # CLOSE_RUNES_X - Circle (ClickCatcherShow for closing runes)
+            self.click_catchers['CLOSE_RUNES_X'] = ClickCatcherShow(
+                state=self.state, catcher_name='CLOSE_RUNES_X', shape='circle'
+            )
+            self.click_catchers['CLOSE_RUNES_X'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('CLOSE_RUNES_X')
+            )
+            
+            # CLOSE_RUNES_L - Rectangle (ClickCatcherShow for closing runes left side)
+            self.click_catchers['CLOSE_RUNES_L'] = ClickCatcherShow(
+                state=self.state, catcher_name='CLOSE_RUNES_L', shape='rectangle'
+            )
+            self.click_catchers['CLOSE_RUNES_L'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('CLOSE_RUNES_L')
+            )
+            
+            # CLOSE_RUNES_R - Rectangle (ClickCatcherShow for closing runes right side)
+            self.click_catchers['CLOSE_RUNES_R'] = ClickCatcherShow(
+                state=self.state, catcher_name='CLOSE_RUNES_R', shape='rectangle'
+            )
+            self.click_catchers['CLOSE_RUNES_R'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('CLOSE_RUNES_R')
+            )
+            
+            # CLOSE_RUNES_TOP - Rectangle (ClickCatcherShow for closing runes top)
+            self.click_catchers['CLOSE_RUNES_TOP'] = ClickCatcherShow(
+                state=self.state, catcher_name='CLOSE_RUNES_TOP', shape='rectangle'
+            )
+            self.click_catchers['CLOSE_RUNES_TOP'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('CLOSE_RUNES_TOP')
+            )
+            
             # Keep the original single instance for backward compatibility
             self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
             
-            log.info("[UI] ClickCatcherHide instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES")
+            log.info("[UI] ClickCatcher instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, SHOW_UI, CLOSE_EMOTES, CLOSE_RUNES_X, CLOSE_RUNES_L, CLOSE_RUNES_R, CLOSE_RUNES_TOP")
             
             self._last_unowned_skin_id = None
             # Track last base skin that showed UnownedFrame to control fade behavior
@@ -569,6 +618,7 @@ class UserInterface:
                         
                         # Recreate all click catchers with new resolution
                         from ui.click_catcher_hide import ClickCatcherHide
+                        from ui.click_catcher_show import ClickCatcherShow
                         
                         # Create click catchers with resolution-based positioning
                         self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
@@ -622,6 +672,54 @@ class UserInterface:
                         )
                         self.click_catchers['EMOTES'].click_detected.connect(
                             lambda: self._on_click_catcher_clicked('EMOTES')
+                        )
+                        
+                        # CLOSE_SETTINGS - Rectangle (ClickCatcherShow for showing UI elements)
+                        self.click_catchers['EXIT_SETTINGS'] = ClickCatcherShow(
+                            state=self.state, catcher_name='EXIT_SETTINGS', shape='rectangle'
+                        )
+                        self.click_catchers['EXIT_SETTINGS'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('EXIT_SETTINGS')
+                        )
+                        
+                        # CLOSE_EMOTES - Circle (ClickCatcherShow for closing emotes)
+                        self.click_catchers['CLOSE_EMOTES'] = ClickCatcherShow(
+                            state=self.state, catcher_name='CLOSE_EMOTES', shape='circle'
+                        )
+                        self.click_catchers['CLOSE_EMOTES'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('CLOSE_EMOTES')
+                        )
+                        
+                        # CLOSE_RUNES_X - Circle (ClickCatcherShow for closing runes)
+                        self.click_catchers['CLOSE_RUNES_X'] = ClickCatcherShow(
+                            state=self.state, catcher_name='CLOSE_RUNES_X', shape='circle'
+                        )
+                        self.click_catchers['CLOSE_RUNES_X'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('CLOSE_RUNES_X')
+                        )
+                        
+                        # CLOSE_RUNES_L - Rectangle (ClickCatcherShow for closing runes left side)
+                        self.click_catchers['CLOSE_RUNES_L'] = ClickCatcherShow(
+                            state=self.state, catcher_name='CLOSE_RUNES_L', shape='rectangle'
+                        )
+                        self.click_catchers['CLOSE_RUNES_L'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('CLOSE_RUNES_L')
+                        )
+                        
+                        # CLOSE_RUNES_R - Rectangle (ClickCatcherShow for closing runes right side)
+                        self.click_catchers['CLOSE_RUNES_R'] = ClickCatcherShow(
+                            state=self.state, catcher_name='CLOSE_RUNES_R', shape='rectangle'
+                        )
+                        self.click_catchers['CLOSE_RUNES_R'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('CLOSE_RUNES_R')
+                        )
+                        
+                        # CLOSE_RUNES_TOP - Rectangle (ClickCatcherShow for closing runes top)
+                        self.click_catchers['CLOSE_RUNES_TOP'] = ClickCatcherShow(
+                            state=self.state, catcher_name='CLOSE_RUNES_TOP', shape='rectangle'
+                        )
+                        self.click_catchers['CLOSE_RUNES_TOP'].click_detected.connect(
+                            lambda: self._on_click_catcher_clicked('CLOSE_RUNES_TOP')
                         )
                         
                         # Restore backward compatibility
@@ -1145,6 +1243,83 @@ class UserInterface:
             
         except Exception as e:
             log.error(f"[UI] Error hiding UI elements: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def _show_all_ui_elements(self):
+        """Show all UI elements when click catchers are triggered"""
+        try:
+            log.info("[UI] Showing all UI elements due to click catcher trigger")
+            
+            # Show ChromaUI
+            if self.chroma_ui:
+                try:
+                    self.chroma_ui.show()
+                    log.debug("[UI] ChromaUI shown")
+                except Exception as e:
+                    log.error(f"[UI] Error showing ChromaUI: {e}")
+            
+            # Show UnownedFrame if it should be visible
+            if self.unowned_frame:
+                try:
+                    # Check if UnownedFrame should be shown based on current skin
+                    if self.current_skin_id:
+                        from utils.utilities import is_owned, is_base_skin, is_base_skin_owned
+                        is_owned_var = is_owned(self.current_skin_id, self.state.owned_skin_ids)
+                        is_base_skin_var = is_base_skin(self.current_skin_id)
+                        
+                        # Check if base skin is owned
+                        chroma_id_map = {}
+                        base_skin_owned = is_base_skin_owned(self.current_skin_id, self.state.owned_skin_ids, chroma_id_map)
+                        
+                        # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
+                        is_elementalist_form = 99991 <= self.current_skin_id <= 99999
+                        
+                        # UnownedFrame should show for:
+                        # 1. Elementalist Lux forms (fake IDs 99991-99999) - always show
+                        # 2. When the base skin is not owned
+                        should_show_unowned_frame = is_elementalist_form or (not base_skin_owned)
+                        
+                        if should_show_unowned_frame:
+                            self.unowned_frame.show()
+                            log.debug("[UI] UnownedFrame shown")
+                        else:
+                            log.debug("[UI] UnownedFrame not needed for current skin")
+                    else:
+                        log.debug("[UI] No current skin - UnownedFrame not shown")
+                except Exception as e:
+                    log.error(f"[UI] Error showing UnownedFrame: {e}")
+            
+            # Show DiceButton if we have a current skin
+            if self.dice_button and self.current_skin_id:
+                try:
+                    self.dice_button.show_button()
+                    log.debug("[UI] DiceButton shown")
+                except Exception as e:
+                    log.error(f"[UI] Error showing DiceButton: {e}")
+            
+            # Show RandomFlag if it should be visible
+            if self.random_flag:
+                try:
+                    # RandomFlag visibility logic would go here if needed
+                    # For now, just show it if it exists
+                    self.random_flag.show_flag()
+                    log.debug("[UI] RandomFlag shown")
+                except Exception as e:
+                    log.error(f"[UI] Error showing RandomFlag: {e}")
+            
+            # Show all click catchers
+            for catcher_name, catcher in self.click_catchers.items():
+                try:
+                    catcher.show_catcher()
+                    log.debug(f"[UI] ClickCatcher '{catcher_name}' shown")
+                except Exception as e:
+                    log.error(f"[UI] Error showing ClickCatcher '{catcher_name}': {e}")
+            
+            log.info("[UI] All UI elements shown")
+            
+        except Exception as e:
+            log.error(f"[UI] Error showing UI elements: {e}")
             import traceback
             log.error(f"[UI] Traceback: {traceback.format_exc()}")
     
