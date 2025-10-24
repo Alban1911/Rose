@@ -195,10 +195,18 @@ class UserInterface:
                 lambda: self._on_click_catcher_clicked('EMOTES')
             )
             
+            # MESSAGE - Rectangle
+            self.click_catchers['MESSAGE'] = ClickCatcherHide(
+                state=self.state, catcher_name='MESSAGE', shape='rectangle'
+            )
+            self.click_catchers['MESSAGE'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('MESSAGE')
+            )
+            
             # Keep the original single instance for backward compatibility
             self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
             
-            log.info("[UI] ClickCatcherHide instances created successfully for FINALIZATION: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES")
+            log.info("[UI] ClickCatcherHide instances created successfully for FINALIZATION: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE")
             
         except Exception as e:
             log.error(f"[UI] Failed to create ClickCatcherHide instances for FINALIZATION: {e}")
@@ -1130,12 +1138,19 @@ class UserInterface:
         elif instance_name == 'WARD':
             log.info("[UI] WARD clicked - hiding UI elements")
             self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
         elif instance_name == 'EMOTES':
             log.info("[UI] EMOTES clicked - hiding UI elements")
             self._hide_all_ui_elements()
             # Create corresponding ClickCatcherShow instances
             self._create_show_instances_for_panel(instance_name)
-        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X', 'CLOSE_SUM']:
+        elif instance_name == 'MESSAGE':
+            log.info("[UI] MESSAGE clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X', 'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L']:
             log.info(f"[UI] {instance_name} clicked - showing UI elements")
             self._show_all_ui_elements()
             # Destroy all ClickCatcherShow instances after showing UI elements
@@ -1220,6 +1235,33 @@ class UserInterface:
                 )
                 log.info("[UI] Created CLOSE_SUM show instance for SUM_R")
                 
+            elif panel_name == 'WARD':
+                # WARD creates CLOSE_WARD
+                self.click_catchers['CLOSE_WARD'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_WARD', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_WARD'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_WARD')
+                )
+                log.info("[UI] Created CLOSE_WARD show instance")
+                
+            elif panel_name == 'MESSAGE':
+                # MESSAGE creates CLOSE_MESSAGE_R and CLOSE_MESSAGE_L
+                self.click_catchers['CLOSE_MESSAGE_R'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_MESSAGE_R', shape='circle'
+                )
+                self.click_catchers['CLOSE_MESSAGE_R'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_R')
+                )
+                
+                self.click_catchers['CLOSE_MESSAGE_L'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_MESSAGE_L', shape='circle'
+                )
+                self.click_catchers['CLOSE_MESSAGE_L'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_L')
+                )
+                log.info("[UI] Created CLOSE_MESSAGE_R and CLOSE_MESSAGE_L show instances")
+                
         except Exception as e:
             log.error(f"[UI] Error creating show instances for {panel_name}: {e}")
             import traceback
@@ -1232,7 +1274,7 @@ class UserInterface:
             show_instance_names = [
                 'CLOSE_SETTINGS', 'CLOSE_EMOTES', 
                 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X',
-                'CLOSE_SUM'
+                'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L'
             ]
             
             # Destroy all show instances
