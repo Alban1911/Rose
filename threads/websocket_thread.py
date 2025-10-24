@@ -246,8 +246,20 @@ class WSEventThread(threading.Thread):
                         log.warning(f"[WS] Error fetching owned skins: {e}")
                     
                     log.debug("[WS] State reset complete - ready for new champion select")
-                        
                 
+                elif ph == "FINALIZATION":
+                    # FINALIZATION phase - create ClickCatcherHide instances and start skin name lookup
+                    log_event(log, "Entering FINALIZATION phase - creating ClickCatcherHide instances", "🎯")
+                    
+                    # Create ClickCatcherHide instances during FINALIZATION
+                    try:
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
+                        user_interface.create_click_catchers_for_finalization()
+                        log_event(log, "ClickCatcherHide instances created for FINALIZATION", "🎨")
+                    except Exception as e:
+                        log.warning(f"Failed to create ClickCatcherHide instances for FINALIZATION: {e}")
+                        
                 elif ph == "InProgress":
                     # Game starting → log last skin
                     if self.state.last_hovered_skin_key:

@@ -52,7 +52,7 @@ class LoadoutTicker(threading.Thread):
         last_poll = 0.0
         last_bucket = None
         
-        while (not self.state.stop) and (self.state.phase == "ChampSelect") and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id):
+        while (not self.state.stop) and (self.state.phase in ["ChampSelect", "FINALIZATION"]) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id):
             now = time.monotonic()
             
             # Periodic LCU resync
@@ -62,6 +62,22 @@ class LoadoutTicker(threading.Thread):
                 t = (sess.get("timer") or {})
                 phase = str((t.get("phase") or "")).upper()
                 left_ms = int(t.get("adjustedTimeLeftInPhase") or 0)
+                
+                # Check if phase changed to FINALIZATION and trigger phase handler
+                if phase == "FINALIZATION" and self.state.phase != "FINALIZATION":
+                    log.info(f"[loadout] Phase transition detected: {self.state.phase} → FINALIZATION")
+                    self.state.phase = "FINALIZATION"
+                    
+                    # Trigger FINALIZATION phase handler in main thread
+                    try:
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
+                        # Defer to main thread to avoid PyQt6 thread issues
+                        user_interface._pending_click_catcher_creation = True
+                        log.info("[loadout] ClickCatcherHide creation deferred to main thread for FINALIZATION")
+                    except Exception as e:
+                        log.warning(f"[loadout] Failed to defer ClickCatcherHide creation for FINALIZATION: {e}")
+                
                 if phase == "FINALIZATION" and left_ms > 0:
                     cand_deadline = time.monotonic() + (left_ms / 1000.0)
                     if cand_deadline < deadline:

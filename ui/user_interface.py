@@ -47,6 +47,15 @@ class UserInterface:
         self.current_skin_id = None
         self.current_skin_name = None
         self.current_champion_name = None
+        self.current_champion_id = None
+        
+        # Track UI element visibility state before hiding
+        self._ui_visibility_state = {
+            'chroma_ui_visible': False,
+            'unowned_frame_visible': False,
+            'dice_button_visible': False,
+            'random_flag_visible': False
+        }
         
         # Randomization state
         self._randomization_in_progress = False
@@ -58,6 +67,7 @@ class UserInterface:
         self._ui_destruction_in_progress = False
         self._last_destruction_time = 0.0
         self._force_reinitialize = False  # Flag to force UI recreation
+        self._pending_click_catcher_creation = False  # Flag for ClickCatcher creation during FINALIZATION
         # Track last base skin shown (owned or unowned) to detect chroma swaps within same base
         self._last_base_skin_id = None
     
@@ -97,7 +107,37 @@ class UserInterface:
             self.random_flag = RandomFlag(state=self.state)
             log.info("[UI] RandomFlag created successfully")
             
-            log.info("[UI] Creating ClickCatcherHide components...")
+            # ClickCatcherHide instances will be created during FINALIZATION phase
+            log.info("[UI] ClickCatcherHide components will be created during FINALIZATION phase")
+            
+            self._last_unowned_skin_id = None
+            # Track last base skin that showed UnownedFrame to control fade behavior
+            self._last_unowned_base_skin_id = None
+            log.info("[UI] All UI components initialized successfully")
+            
+        except Exception as e:
+            log.error(f"[UI] Failed to initialize UI components: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+            # Clean up any partially created components
+            if self.chroma_ui:
+                try:
+                    self.chroma_ui.cleanup()
+                except Exception as e:
+                    log.debug(f"[UI] Error cleaning up ChromaUI: {e}")
+                self.chroma_ui = None
+            if self.unowned_frame:
+                try:
+                    self.unowned_frame.cleanup()
+                except Exception as e:
+                    log.debug(f"[UI] Error cleaning up UnownedFrame: {e}")
+                self.unowned_frame = None
+            raise
+    
+    def create_click_catchers_for_finalization(self):
+        """Create ClickCatcherHide instances during FINALIZATION phase"""
+        try:
+            log.info("[UI] Creating ClickCatcherHide components for FINALIZATION phase...")
             # Create ClickCatcherHide instances for different UI elements
             from ui.click_catcher_hide import ClickCatcherHide
             
@@ -155,36 +195,15 @@ class UserInterface:
                 lambda: self._on_click_catcher_clicked('EMOTES')
             )
             
-            # CLOSE_SETTINGS - Rectangle (ClickCatcherShow for closing settings)
-            
             # Keep the original single instance for backward compatibility
             self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
             
-            log.info("[UI] ClickCatcher instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES")
-            
-            self._last_unowned_skin_id = None
-            # Track last base skin that showed UnownedFrame to control fade behavior
-            self._last_unowned_base_skin_id = None
-            log.info("[UI] All UI components initialized successfully")
+            log.info("[UI] ClickCatcherHide instances created successfully for FINALIZATION: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES")
             
         except Exception as e:
-            log.error(f"[UI] Failed to initialize UI components: {e}")
+            log.error(f"[UI] Failed to create ClickCatcherHide instances for FINALIZATION: {e}")
             import traceback
             log.error(f"[UI] Traceback: {traceback.format_exc()}")
-            # Clean up any partially created components
-            if self.chroma_ui:
-                try:
-                    self.chroma_ui.cleanup()
-                except Exception as e:
-                    log.debug(f"[UI] Error cleaning up ChromaUI: {e}")
-                self.chroma_ui = None
-            if self.unowned_frame:
-                try:
-                    self.unowned_frame.cleanup()
-                except Exception as e:
-                    log.debug(f"[UI] Error cleaning up UnownedFrame: {e}")
-                self.unowned_frame = None
-            raise
     
     def show_skin(self, skin_id: int, skin_name: str, champion_name: str = None, champion_id: int = None):
         """Show UI for a specific skin - manages both ChromaUI and UnownedFrame"""
@@ -736,6 +755,17 @@ class UserInterface:
                         log.error(f"[UI] Failed to process pending UI initialization: {e}")
                         # Reset the flag so we can try again later
                         self._pending_ui_initialization = True
+            
+            # Handle pending ClickCatcher creation during FINALIZATION
+            if self._pending_click_catcher_creation:
+                log.info("[UI] Processing pending ClickCatcher creation for FINALIZATION in main thread")
+                self._pending_click_catcher_creation = False
+                try:
+                    self.create_click_catchers_for_finalization()
+                except Exception as e:
+                    log.error(f"[UI] Failed to process pending ClickCatcher creation: {e}")
+                    import traceback
+                    log.error(f"[UI] Traceback: {traceback.format_exc()}")
     
     def request_ui_destruction(self):
         """Request UI destruction (called from any thread)"""
@@ -1174,6 +1204,20 @@ class UserInterface:
         try:
             log.info("[UI] Hiding all UI elements instantly due to click catcher trigger")
             
+            # Track visibility state before hiding
+            chroma_ui_visible = False
+            if self.chroma_ui and self.chroma_ui.chroma_selector and self.chroma_ui.chroma_selector.panel:
+                # Check if the reopen button is visible (this indicates ChromaUI is active)
+                chroma_ui_visible = (self.chroma_ui.chroma_selector.panel.reopen_button and 
+                                   self.chroma_ui.chroma_selector.panel.reopen_button.isVisible())
+            
+            self._ui_visibility_state['chroma_ui_visible'] = chroma_ui_visible
+            self._ui_visibility_state['unowned_frame_visible'] = self.unowned_frame and self.unowned_frame.isVisible()
+            self._ui_visibility_state['dice_button_visible'] = self.dice_button and hasattr(self.dice_button, 'is_visible') and self.dice_button.is_visible
+            self._ui_visibility_state['random_flag_visible'] = self.random_flag and self.random_flag.isVisible()
+            
+            log.debug(f"[UI] Visibility state before hiding: {self._ui_visibility_state}")
+            
             # Hide ChromaUI instantly
             if self.chroma_ui:
                 try:
@@ -1225,66 +1269,55 @@ class UserInterface:
             log.error(f"[UI] Traceback: {traceback.format_exc()}")
     
     def _show_all_ui_elements(self):
-        """Show all UI elements when click catchers are triggered"""
+        """Show UI elements that were previously visible before hiding"""
         try:
-            log.info("[UI] Showing all UI elements due to click catcher trigger")
+            log.info("[UI] Showing previously visible UI elements due to click catcher trigger")
+            log.debug(f"[UI] Restoring visibility state: {self._ui_visibility_state}")
             
-            # Show ChromaUI
-            if self.chroma_ui:
+            # Show ChromaUI only if it was previously visible
+            if self._ui_visibility_state['chroma_ui_visible'] and self.chroma_ui and self.current_skin_id and self.current_skin_name:
                 try:
-                    self.chroma_ui.show()
-                    log.debug("[UI] ChromaUI shown")
+                    self.chroma_ui.show_for_skin(
+                        self.current_skin_id, 
+                        self.current_skin_name, 
+                        self.current_champion_name,
+                        self.current_champion_id
+                    )
+                    log.debug("[UI] ChromaUI shown (was previously visible)")
                 except Exception as e:
                     log.error(f"[UI] Error showing ChromaUI: {e}")
+            else:
+                log.debug("[UI] ChromaUI not shown (was not previously visible)")
             
-            # Show UnownedFrame if it should be visible
-            if self.unowned_frame:
+            # Show UnownedFrame only if it was previously visible
+            if self._ui_visibility_state['unowned_frame_visible'] and self.unowned_frame:
                 try:
-                    # Check if UnownedFrame should be shown based on current skin
-                    if self.current_skin_id:
-                        from utils.utilities import is_owned, is_base_skin, is_base_skin_owned
-                        is_owned_var = is_owned(self.current_skin_id, self.state.owned_skin_ids)
-                        is_base_skin_var = is_base_skin(self.current_skin_id)
-                        
-                        # Check if base skin is owned
-                        chroma_id_map = {}
-                        base_skin_owned = is_base_skin_owned(self.current_skin_id, self.state.owned_skin_ids, chroma_id_map)
-                        
-                        # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
-                        is_elementalist_form = 99991 <= self.current_skin_id <= 99999
-                        
-                        # UnownedFrame should show for:
-                        # 1. Elementalist Lux forms (fake IDs 99991-99999) - always show
-                        # 2. When the base skin is not owned
-                        should_show_unowned_frame = is_elementalist_form or (not base_skin_owned)
-                        
-                        if should_show_unowned_frame:
-                            self.unowned_frame.show()
-                            log.debug("[UI] UnownedFrame shown")
-                        else:
-                            log.debug("[UI] UnownedFrame not needed for current skin")
-                    else:
-                        log.debug("[UI] No current skin - UnownedFrame not shown")
+                    self.unowned_frame._do_fade_in()
+                    log.debug("[UI] UnownedFrame shown (was previously visible)")
                 except Exception as e:
                     log.error(f"[UI] Error showing UnownedFrame: {e}")
+            else:
+                log.debug("[UI] UnownedFrame not shown (was not previously visible)")
             
-            # Show DiceButton if we have a current skin
-            if self.dice_button and self.current_skin_id:
+            # Show DiceButton only if it was previously visible
+            if self._ui_visibility_state['dice_button_visible'] and self.dice_button:
                 try:
                     self.dice_button.show_button()
-                    log.debug("[UI] DiceButton shown")
+                    log.debug("[UI] DiceButton shown (was previously visible)")
                 except Exception as e:
                     log.error(f"[UI] Error showing DiceButton: {e}")
+            else:
+                log.debug("[UI] DiceButton not shown (was not previously visible)")
             
-            # Show RandomFlag if it should be visible
-            if self.random_flag:
+            # Show RandomFlag only if it was previously visible
+            if self._ui_visibility_state['random_flag_visible'] and self.random_flag:
                 try:
-                    # RandomFlag visibility logic would go here if needed
-                    # For now, just show it if it exists
                     self.random_flag.show_flag()
-                    log.debug("[UI] RandomFlag shown")
+                    log.debug("[UI] RandomFlag shown (was previously visible)")
                 except Exception as e:
                     log.error(f"[UI] Error showing RandomFlag: {e}")
+            else:
+                log.debug("[UI] RandomFlag not shown (was not previously visible)")
             
             # Show all click catchers
             for catcher_name, catcher in self.click_catchers.items():

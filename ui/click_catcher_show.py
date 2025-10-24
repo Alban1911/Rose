@@ -105,6 +105,13 @@ class ClickCatcherShow(ClickCatcher):
                     except Exception as e:
                         log.error(f"[ClickCatcherShow] Error destroying {instance_name}: {e}")
             
+            # Also destroy this instance
+            try:
+                self.cleanup()
+                log.debug("[ClickCatcherShow] Destroyed self")
+            except Exception as e:
+                log.error(f"[ClickCatcherShow] Error destroying self: {e}")
+            
             log.info("[ClickCatcherShow] ✓ All show instances destroyed")
                 
         except Exception as e:

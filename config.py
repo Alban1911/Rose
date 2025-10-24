@@ -411,6 +411,7 @@ INTERESTING_PHASES = {
     "Matchmaking", 
     "ReadyCheck",
     "ChampSelect",
+    "FINALIZATION",
     "GameStart",
     "InProgress",
     "EndOfGame"

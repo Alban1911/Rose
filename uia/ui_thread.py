@@ -124,21 +124,15 @@ class UISkinThread(threading.Thread):
     
     def _should_connect(self) -> bool:
         """Check if we should establish PyWinAuto connection"""
-        return self.shared_state.phase == "ChampSelect"
+        return self.shared_state.phase in ["ChampSelect", "FINALIZATION"]
     
     def _should_run_detection(self) -> bool:
         """Check if we should run detection based on current state"""
-        if self.shared_state.phase != "ChampSelect" or self.shared_state.locked_champ_id is None:
+        # Only run skin name detection during FINALIZATION phase
+        if self.shared_state.phase != "FINALIZATION":
             return False
         
-        # Check if enough time has passed since champion lock
-        if self.shared_state.locked_champ_timestamp > 0:
-            import time
-            from config import UIA_DELAY_MS
-            elapsed_ms = (time.time() - self.shared_state.locked_champ_timestamp) * 1000
-            return elapsed_ms >= UIA_DELAY_MS
-        
-        return False
+        return True
     
     
     
