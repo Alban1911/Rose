@@ -1391,8 +1391,13 @@ class UserInterface:
             # Show UnownedFrame only if it was previously visible
             if self._ui_visibility_state['unowned_frame_visible'] and self.unowned_frame:
                 try:
-                    self.unowned_frame._do_fade_in()
-                    log.debug("[UI] UnownedFrame shown (was previously visible)")
+                    # Show UnownedFrame without fade in when triggered by ClickCatcherShow
+                    if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
+                        self.unowned_frame.opacity_effect.setOpacity(1.0)
+                    self.unowned_frame.show()
+                    if hasattr(self.unowned_frame, 'unowned_frame_image') and self.unowned_frame.unowned_frame_image:
+                        self.unowned_frame.unowned_frame_image.show()
+                    log.debug("[UI] UnownedFrame shown without fade (ClickCatcherShow trigger)")
                 except Exception as e:
                     log.error(f"[UI] Error showing UnownedFrame: {e}")
             else:

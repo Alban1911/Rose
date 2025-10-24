@@ -29,6 +29,7 @@ Features:
 
 from ui.click_catcher import ClickCatcher
 from utils.logging import get_logger
+import time
 
 log = get_logger()
 
@@ -65,7 +66,10 @@ class ClickCatcherShow(ClickCatcher):
         Triggers the show UI action and destroys all show instances
         """
         try:
-            log.info("[ClickCatcherShow] Click detected - triggering show UI action")
+            log.info("[ClickCatcherShow] Click detected - waiting 20ms before triggering show UI action")
+            
+            # Wait before asking UI to show elements
+            time.sleep(0.1)  # 100ms delay
             
             # Trigger the show UI action through the shared state
             if self.state and hasattr(self.state, 'ui') and self.state.ui:
