@@ -66,10 +66,16 @@ class ClickCatcherShow(ClickCatcher):
         Triggers the show UI action and destroys all show instances
         """
         try:
-            log.info("[ClickCatcherShow] Click detected - waiting 20ms before triggering show UI action")
+            # Determine delay based on catcher name
+            if self.catcher_name == 'CLOSE_SUM':
+                delay_ms = 240
+                log.info("[ClickCatcherShow] Click detected - waiting 240ms before triggering show UI action (CLOSE_SUM)")
+            else:
+                delay_ms = 100
+                log.info("[ClickCatcherShow] Click detected - waiting 100ms before triggering show UI action")
             
             # Wait before asking UI to show elements
-            time.sleep(0.1)  # 100ms delay
+            time.sleep(delay_ms / 1000.0)  # Convert ms to seconds
             
             # Trigger the show UI action through the shared state
             if self.state and hasattr(self.state, 'ui') and self.state.ui:
