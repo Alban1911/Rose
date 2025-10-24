@@ -30,17 +30,20 @@ CLICK_CATCHER_CONFIGS = {
         "EMOTES": {"x": 1048, "y": 832, "width": 46, "height": 46},
         "MESSAGE": {"x": 1431, "y": 834, "width": 48, "height": 40},
         "ABILITIES": {"x": 663, "y": 769, "width": 277, "height": 40},
+        "QUESTS": {"x": 1479, "y": 834, "width": 47, "height": 40},
         "CLOSE_SETTINGS": {"x": 738, "y": 776, "width": 125, "height": 40},
         "CLOSE_EMOTES": {"x": 1467, "y": 73, "width": 40, "height": 40},
         "CLOSE_WARD": {"x": 0, "y": 0, "width": 1600, "height": 900},
         "CLOSE_MESSAGE_R": {"x": 1367, "y": 428, "width": 33, "height": 33},
         "CLOSE_MESSAGE_L": {"x": 961, "y": 440, "width": 33, "height": 33},
+        "CLOSE_MESSAGE_M": {"x": 1431, "y": 834, "width": 48, "height": 40},
         "CLOSE_RUNES_X": {"x": 1443, "y": 80, "width": 40, "height": 40},
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 138, "height": 900},
         "CLOSE_RUNES_R": {"x": 1462, "y": 0, "width": 138, "height": 900},
         "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1600, "height": 100},
         "CLOSE_SUM": {"x": 0, "y": 0, "width": 1600, "height": 900},
-        "CLOSE_ABILITIES": {"x": 738, "y": 769, "width": 127, "height": 40}
+        "CLOSE_ABILITIES": {"x": 738, "y": 769, "width": 127, "height": 40},
+        "CLOSE_QUESTS": {"x": 1362, "y": 111, "width": 30, "height": 30}
     },
     "1280x720": {
         "EDIT_RUNES": {"x": 441, "y": 667, "width": 34, "height": 34},
@@ -52,17 +55,20 @@ CLICK_CATCHER_CONFIGS = {
         "EMOTES": {"x": 838, "y": 665, "width": 37, "height": 37},
         "MESSAGE": {"x": 1144, "y": 667, "width": 39, "height": 32},
         "ABILITIES": {"x": 530, "y": 615, "width": 222, "height": 32},
+        "QUESTS": {"x": 1183, "y": 667, "width": 38, "height": 32},
         "CLOSE_SETTINGS": {"x": 590, "y": 620, "width": 101, "height": 33},
         "CLOSE_EMOTES": {"x": 1173, "y": 58, "width": 33, "height": 33},
         "CLOSE_WARD": {"x": 0, "y": 0, "width": 1280, "height": 720},
         "CLOSE_MESSAGE_R": {"x": 1093, "y": 342, "width": 27, "height": 27},
         "CLOSE_MESSAGE_L": {"x": 768, "y": 352, "width": 27, "height": 27},
+        "CLOSE_MESSAGE_M": {"x": 1144, "y": 667, "width": 39, "height": 32},
         "CLOSE_RUNES_X": {"x": 1154, "y": 64, "width": 33, "height": 33},
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 111, "height": 720},
         "CLOSE_RUNES_R": {"x": 1169, "y": 0, "width": 111, "height": 720},
         "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1280, "height": 80},
         "CLOSE_SUM": {"x": 0, "y": 0, "width": 1280, "height": 720},
-        "CLOSE_ABILITIES": {"x": 590, "y": 615, "width": 102, "height": 32}
+        "CLOSE_ABILITIES": {"x": 590, "y": 615, "width": 102, "height": 32},
+        "CLOSE_QUESTS": {"x": 1089, "y": 88, "width": 25, "height": 25}
     },
     "1024x576": {
         "EDIT_RUNES": {"x": 353, "y": 533, "width": 27, "height": 27},
@@ -74,17 +80,20 @@ CLICK_CATCHER_CONFIGS = {
         "EMOTES": {"x": 670, "y": 532, "width": 30, "height": 30},
         "MESSAGE": {"x": 915, "y": 533, "width": 31, "height": 26},
         "ABILITIES": {"x": 424, "y": 492, "width": 178, "height": 26},
+        "QUESTS": {"x": 946, "y": 533, "width": 30, "height": 26},
         "CLOSE_SETTINGS": {"x": 472, "y": 496, "width": 81, "height": 26},
         "CLOSE_EMOTES": {"x": 939, "y": 46, "width": 26, "height": 26},
         "CLOSE_WARD": {"x": 0, "y": 0, "width": 1024, "height": 576},
         "CLOSE_MESSAGE_R": {"x": 874, "y": 273, "width": 22, "height": 22},
         "CLOSE_MESSAGE_L": {"x": 615, "y": 281, "width": 22, "height": 22},
+        "CLOSE_MESSAGE_M": {"x": 915, "y": 533, "width": 31, "height": 26},
         "CLOSE_RUNES_X": {"x": 923, "y": 51, "width": 26, "height": 26},
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 88, "height": 576},
         "CLOSE_RUNES_R": {"x": 935, "y": 0, "width": 88, "height": 576},
         "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1024, "height": 64},
         "CLOSE_SUM": {"x": 0, "y": 0, "width": 1024, "height": 576},
-        "CLOSE_ABILITIES": {"x": 472, "y": 492, "width": 82, "height": 26}
+        "CLOSE_ABILITIES": {"x": 472, "y": 492, "width": 82, "height": 26},
+        "CLOSE_QUESTS": {"x": 871, "y": 71, "width": 20, "height": 20}
     }
 }
 
