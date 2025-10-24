@@ -211,10 +211,18 @@ class UserInterface:
                 lambda: self._on_click_catcher_clicked('ABILITIES')
             )
             
+            # QUESTS - Rectangle
+            self.click_catchers['QUESTS'] = ClickCatcherHide(
+                state=self.state, catcher_name='QUESTS', shape='rectangle'
+            )
+            self.click_catchers['QUESTS'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('QUESTS')
+            )
+            
             # Keep the original single instance for backward compatibility
             self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
             
-            log.info("[UI] ClickCatcherHide instances created successfully for FINALIZATION: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE, ABILITIES")
+            log.info("[UI] ClickCatcherHide instances created successfully for FINALIZATION: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE, ABILITIES, QUESTS")
             
         except Exception as e:
             log.error(f"[UI] Failed to create ClickCatcherHide instances for FINALIZATION: {e}")
@@ -1163,7 +1171,12 @@ class UserInterface:
             self._hide_all_ui_elements()
             # Create corresponding ClickCatcherShow instances
             self._create_show_instances_for_panel(instance_name)
-        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X', 'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L', 'CLOSE_ABILITIES']:
+        elif instance_name == 'QUESTS':
+            log.info("[UI] QUESTS clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X', 'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L', 'CLOSE_MESSAGE_M', 'CLOSE_ABILITIES', 'CLOSE_QUESTS']:
             log.info(f"[UI] {instance_name} clicked - showing UI elements")
             self._show_all_ui_elements()
             # Destroy all ClickCatcherShow instances after showing UI elements
@@ -1259,7 +1272,7 @@ class UserInterface:
                 log.info("[UI] Created CLOSE_WARD show instance")
                 
             elif panel_name == 'MESSAGE':
-                # MESSAGE creates CLOSE_MESSAGE_R and CLOSE_MESSAGE_L
+                # MESSAGE creates CLOSE_MESSAGE_R, CLOSE_MESSAGE_L, and CLOSE_MESSAGE_M
                 self.click_catchers['CLOSE_MESSAGE_R'] = ClickCatcherShow(
                     state=self.state, catcher_name='CLOSE_MESSAGE_R', shape='circle'
                 )
@@ -1273,7 +1286,14 @@ class UserInterface:
                 self.click_catchers['CLOSE_MESSAGE_L'].click_detected.connect(
                     lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_L')
                 )
-                log.info("[UI] Created CLOSE_MESSAGE_R and CLOSE_MESSAGE_L show instances")
+                
+                self.click_catchers['CLOSE_MESSAGE_M'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_MESSAGE_M', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_MESSAGE_M'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_M')
+                )
+                log.info("[UI] Created CLOSE_MESSAGE_R, CLOSE_MESSAGE_L, and CLOSE_MESSAGE_M show instances")
                 
             elif panel_name == 'ABILITIES':
                 # ABILITIES creates CLOSE_ABILITIES
@@ -1284,6 +1304,16 @@ class UserInterface:
                     lambda: self._on_click_catcher_clicked('CLOSE_ABILITIES')
                 )
                 log.info("[UI] Created CLOSE_ABILITIES show instance")
+                
+            elif panel_name == 'QUESTS':
+                # QUESTS creates CLOSE_QUESTS
+                self.click_catchers['CLOSE_QUESTS'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_QUESTS', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_QUESTS'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_QUESTS')
+                )
+                log.info("[UI] Created CLOSE_QUESTS show instance")
                 
         except Exception as e:
             log.error(f"[UI] Error creating show instances for {panel_name}: {e}")
@@ -1297,7 +1327,7 @@ class UserInterface:
             show_instance_names = [
                 'CLOSE_SETTINGS', 'CLOSE_EMOTES', 
                 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X',
-                'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L', 'CLOSE_ABILITIES'
+                'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L', 'CLOSE_MESSAGE_M', 'CLOSE_ABILITIES', 'CLOSE_QUESTS'
             ]
             
             # Destroy all show instances
