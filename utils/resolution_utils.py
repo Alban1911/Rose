@@ -29,6 +29,7 @@ CLICK_CATCHER_CONFIGS = {
         "WARD": {"x": 989, "y": 831, "width": 46, "height": 47},
         "EMOTES": {"x": 1048, "y": 832, "width": 46, "height": 46},
         "MESSAGE": {"x": 1431, "y": 834, "width": 48, "height": 40},
+        "ABILITIES": {"x": 663, "y": 769, "width": 277, "height": 40},
         "CLOSE_SETTINGS": {"x": 738, "y": 776, "width": 125, "height": 40},
         "CLOSE_EMOTES": {"x": 1467, "y": 73, "width": 40, "height": 40},
         "CLOSE_WARD": {"x": 0, "y": 0, "width": 1600, "height": 900},
@@ -38,7 +39,8 @@ CLICK_CATCHER_CONFIGS = {
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 138, "height": 900},
         "CLOSE_RUNES_R": {"x": 1462, "y": 0, "width": 138, "height": 900},
         "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1600, "height": 100},
-        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1600, "height": 900}
+        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1600, "height": 900},
+        "CLOSE_ABILITIES": {"x": 738, "y": 769, "width": 127, "height": 40}
     },
     "1280x720": {
         "EDIT_RUNES": {"x": 441, "y": 667, "width": 34, "height": 34},
@@ -49,6 +51,7 @@ CLICK_CATCHER_CONFIGS = {
         "WARD": {"x": 791, "y": 664, "width": 37, "height": 38},
         "EMOTES": {"x": 838, "y": 665, "width": 37, "height": 37},
         "MESSAGE": {"x": 1144, "y": 667, "width": 39, "height": 32},
+        "ABILITIES": {"x": 530, "y": 615, "width": 222, "height": 32},
         "CLOSE_SETTINGS": {"x": 590, "y": 620, "width": 101, "height": 33},
         "CLOSE_EMOTES": {"x": 1173, "y": 58, "width": 33, "height": 33},
         "CLOSE_WARD": {"x": 0, "y": 0, "width": 1280, "height": 720},
@@ -58,7 +61,8 @@ CLICK_CATCHER_CONFIGS = {
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 111, "height": 720},
         "CLOSE_RUNES_R": {"x": 1169, "y": 0, "width": 111, "height": 720},
         "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1280, "height": 80},
-        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1280, "height": 720}
+        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1280, "height": 720},
+        "CLOSE_ABILITIES": {"x": 590, "y": 615, "width": 102, "height": 32}
     },
     "1024x576": {
         "EDIT_RUNES": {"x": 353, "y": 533, "width": 27, "height": 27},
@@ -69,6 +73,7 @@ CLICK_CATCHER_CONFIGS = {
         "WARD": {"x": 633, "y": 531, "width": 30, "height": 31},
         "EMOTES": {"x": 670, "y": 532, "width": 30, "height": 30},
         "MESSAGE": {"x": 915, "y": 533, "width": 31, "height": 26},
+        "ABILITIES": {"x": 424, "y": 492, "width": 178, "height": 26},
         "CLOSE_SETTINGS": {"x": 472, "y": 496, "width": 81, "height": 26},
         "CLOSE_EMOTES": {"x": 939, "y": 46, "width": 26, "height": 26},
         "CLOSE_WARD": {"x": 0, "y": 0, "width": 1024, "height": 576},
@@ -78,7 +83,8 @@ CLICK_CATCHER_CONFIGS = {
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 88, "height": 576},
         "CLOSE_RUNES_R": {"x": 935, "y": 0, "width": 88, "height": 576},
         "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1024, "height": 64},
-        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1024, "height": 576}
+        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1024, "height": 576},
+        "CLOSE_ABILITIES": {"x": 472, "y": 492, "width": 82, "height": 26}
     }
 }
 
