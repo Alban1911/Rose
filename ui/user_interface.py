@@ -1070,28 +1070,83 @@ class UserInterface:
         log.info(f"[UI] ClickCatcherHide '{instance_name}' click detected")
         
         if instance_name == 'EDIT_RUNES':
-            log.info("[UI] EDIT_RUNES clicked - would trigger rune editor UI opacity change")
-            # TODO: Implement UI opacity change for rune editor
+            log.info("[UI] EDIT_RUNES clicked - hiding UI elements")
+            self._hide_all_ui_elements()
         elif instance_name == 'REC_RUNES':
-            log.info("[UI] REC_RUNES clicked - would trigger rune recommendation UI opacity change")
-            # TODO: Implement UI opacity change for rune recommendations
+            log.info("[UI] REC_RUNES clicked - hiding UI elements")
+            self._hide_all_ui_elements()
         elif instance_name == 'SETTINGS':
-            log.info("[UI] SETTINGS clicked - setting UI opacity to 0")
-            # TODO: Implement UI opacity change to 0
+            log.info("[UI] SETTINGS clicked - hiding UI elements")
+            self._hide_all_ui_elements()
         elif instance_name == 'SUM_L':
-            log.info("[UI] SUM_L clicked - would trigger summoner spell left UI opacity change")
-            # TODO: Implement UI opacity change for summoner spell left
+            log.info("[UI] SUM_L clicked - hiding UI elements")
+            self._hide_all_ui_elements()
         elif instance_name == 'SUM_R':
-            log.info("[UI] SUM_R clicked - would trigger summoner spell right UI opacity change")
-            # TODO: Implement UI opacity change for summoner spell right
+            log.info("[UI] SUM_R clicked - hiding UI elements")
+            self._hide_all_ui_elements()
         elif instance_name == 'WARD':
-            log.info("[UI] WARD clicked - would trigger ward UI opacity change")
-            # TODO: Implement UI opacity change for ward
+            log.info("[UI] WARD clicked - hiding UI elements")
+            self._hide_all_ui_elements()
         elif instance_name == 'EMOTES':
-            log.info("[UI] EMOTES clicked - would trigger emotes UI opacity change")
-            # TODO: Implement UI opacity change for emotes
+            log.info("[UI] EMOTES clicked - hiding UI elements")
+            self._hide_all_ui_elements()
         else:
             log.warning(f"[UI] Unknown click catcher instance: {instance_name}")
+    
+    def _hide_all_ui_elements(self):
+        """Hide all UI elements instantly when click catchers are triggered"""
+        try:
+            log.info("[UI] Hiding all UI elements instantly due to click catcher trigger")
+            
+            # Hide ChromaUI instantly
+            if self.chroma_ui:
+                try:
+                    self.chroma_ui.hide()
+                    log.debug("[UI] ChromaUI hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding ChromaUI: {e}")
+            
+            # Hide UnownedFrame instantly (no fade)
+            if self.unowned_frame:
+                try:
+                    # Set opacity to 0 instantly instead of fade_out()
+                    if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
+                        self.unowned_frame.opacity_effect.setOpacity(0.0)
+                    self.unowned_frame.hide()
+                    log.debug("[UI] UnownedFrame hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding UnownedFrame: {e}")
+            
+            # Hide DiceButton instantly
+            if self.dice_button:
+                try:
+                    self.dice_button.hide_button()
+                    log.debug("[UI] DiceButton hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding DiceButton: {e}")
+            
+            # Hide RandomFlag instantly
+            if self.random_flag:
+                try:
+                    self.random_flag.hide_flag()
+                    log.debug("[UI] RandomFlag hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding RandomFlag: {e}")
+            
+            # Hide all click catchers instantly
+            for catcher_name, catcher in self.click_catchers.items():
+                try:
+                    catcher.hide_catcher()
+                    log.debug(f"[UI] ClickCatcher '{catcher_name}' hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding ClickCatcher '{catcher_name}': {e}")
+            
+            log.info("[UI] All UI elements hidden instantly")
+            
+        except Exception as e:
+            log.error(f"[UI] Error hiding UI elements: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
     
     def show_click_catcher_hide(self, x, y, width=50, height=50):
         """Show the ClickCatcherHide at the specified position (backward compatibility)"""
