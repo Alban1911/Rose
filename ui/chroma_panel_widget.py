@@ -430,7 +430,7 @@ class ChromaPanelWidget(ChromaWidgetBase):
         for i, chroma in enumerate(chromas):
             # Get color from chroma data
             colors = chroma.get('colors', [])
-            color = colors[0] if colors else self._get_default_color(i)
+            color = colors[1] if len(colors) > 1 else (colors[0] if colors else self._get_default_color(i))
             if not color.startswith('#'):
                 color = f"#{color}"
             
