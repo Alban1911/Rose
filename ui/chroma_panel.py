@@ -229,7 +229,9 @@ class ChromaPanelManager:
                         if chroma.get('id') == chroma_id:
                             colors = chroma.get('colors', [])
                             if colors:
-                                chroma_color = colors[0] if not colors[0].startswith('#') else colors[0][1:]
+                                # Use second color if available, otherwise fall back to first color
+                                selected_color = colors[1] if len(colors) > 1 else colors[0]
+                                chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
                                 if not chroma_color.startswith('#'):
                                     chroma_color = f"#{chroma_color}"
                             break
