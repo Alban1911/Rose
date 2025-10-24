@@ -256,8 +256,9 @@ class ClickCatcher(ChromaWidgetBase):
     # Click detection is handled by the global mouse monitoring timer
     
     def show_catcher(self):
-        """Show the click catcher - now just enables detection"""
-        # Click catcher is always "active" when registered
+        """Show the click catcher - re-register for detection"""
+        # Re-register the click catcher to enable detection
+        self._register_click_catcher()
         log.debug("[ClickCatcher] Click catcher detection enabled")
     
     def hide_catcher(self):
