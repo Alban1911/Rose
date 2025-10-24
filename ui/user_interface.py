@@ -100,7 +100,6 @@ class UserInterface:
             log.info("[UI] Creating ClickCatcherHide components...")
             # Create ClickCatcherHide instances for different UI elements
             from ui.click_catcher_hide import ClickCatcherHide
-            from ui.click_catcher_show import ClickCatcherShow
             
             # Create click catchers with resolution-based positioning
             self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
@@ -157,57 +156,11 @@ class UserInterface:
             )
             
             # CLOSE_SETTINGS - Rectangle (ClickCatcherShow for closing settings)
-            self.click_catchers['CLOSE_SETTINGS'] = ClickCatcherShow(
-                state=self.state, catcher_name='CLOSE_SETTINGS', shape='rectangle'
-            )
-            self.click_catchers['CLOSE_SETTINGS'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('CLOSE_SETTINGS')
-            )
-            
-            # CLOSE_EMOTES - Circle (ClickCatcherShow for closing emotes)
-            self.click_catchers['CLOSE_EMOTES'] = ClickCatcherShow(
-                state=self.state, catcher_name='CLOSE_EMOTES', shape='circle'
-            )
-            self.click_catchers['CLOSE_EMOTES'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('CLOSE_EMOTES')
-            )
-            
-            # CLOSE_RUNES_X - Circle (ClickCatcherShow for closing runes)
-            self.click_catchers['CLOSE_RUNES_X'] = ClickCatcherShow(
-                state=self.state, catcher_name='CLOSE_RUNES_X', shape='circle'
-            )
-            self.click_catchers['CLOSE_RUNES_X'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('CLOSE_RUNES_X')
-            )
-            
-            # CLOSE_RUNES_L - Rectangle (ClickCatcherShow for closing runes left side)
-            self.click_catchers['CLOSE_RUNES_L'] = ClickCatcherShow(
-                state=self.state, catcher_name='CLOSE_RUNES_L', shape='rectangle'
-            )
-            self.click_catchers['CLOSE_RUNES_L'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('CLOSE_RUNES_L')
-            )
-            
-            # CLOSE_RUNES_R - Rectangle (ClickCatcherShow for closing runes right side)
-            self.click_catchers['CLOSE_RUNES_R'] = ClickCatcherShow(
-                state=self.state, catcher_name='CLOSE_RUNES_R', shape='rectangle'
-            )
-            self.click_catchers['CLOSE_RUNES_R'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('CLOSE_RUNES_R')
-            )
-            
-            # CLOSE_RUNES_TOP - Rectangle (ClickCatcherShow for closing runes top)
-            self.click_catchers['CLOSE_RUNES_TOP'] = ClickCatcherShow(
-                state=self.state, catcher_name='CLOSE_RUNES_TOP', shape='rectangle'
-            )
-            self.click_catchers['CLOSE_RUNES_TOP'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('CLOSE_RUNES_TOP')
-            )
             
             # Keep the original single instance for backward compatibility
             self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
             
-            log.info("[UI] ClickCatcher instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, SHOW_UI, CLOSE_EMOTES, CLOSE_RUNES_X, CLOSE_RUNES_L, CLOSE_RUNES_R, CLOSE_RUNES_TOP")
+            log.info("[UI] ClickCatcher instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES")
             
             self._last_unowned_skin_id = None
             # Track last base skin that showed UnownedFrame to control fade behavior
@@ -618,7 +571,6 @@ class UserInterface:
                         
                         # Recreate all click catchers with new resolution
                         from ui.click_catcher_hide import ClickCatcherHide
-                        from ui.click_catcher_show import ClickCatcherShow
                         
                         # Create click catchers with resolution-based positioning
                         self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
@@ -674,53 +626,6 @@ class UserInterface:
                             lambda: self._on_click_catcher_clicked('EMOTES')
                         )
                         
-                        # CLOSE_SETTINGS - Rectangle (ClickCatcherShow for showing UI elements)
-                        self.click_catchers['EXIT_SETTINGS'] = ClickCatcherShow(
-                            state=self.state, catcher_name='EXIT_SETTINGS', shape='rectangle'
-                        )
-                        self.click_catchers['EXIT_SETTINGS'].click_detected.connect(
-                            lambda: self._on_click_catcher_clicked('EXIT_SETTINGS')
-                        )
-                        
-                        # CLOSE_EMOTES - Circle (ClickCatcherShow for closing emotes)
-                        self.click_catchers['CLOSE_EMOTES'] = ClickCatcherShow(
-                            state=self.state, catcher_name='CLOSE_EMOTES', shape='circle'
-                        )
-                        self.click_catchers['CLOSE_EMOTES'].click_detected.connect(
-                            lambda: self._on_click_catcher_clicked('CLOSE_EMOTES')
-                        )
-                        
-                        # CLOSE_RUNES_X - Circle (ClickCatcherShow for closing runes)
-                        self.click_catchers['CLOSE_RUNES_X'] = ClickCatcherShow(
-                            state=self.state, catcher_name='CLOSE_RUNES_X', shape='circle'
-                        )
-                        self.click_catchers['CLOSE_RUNES_X'].click_detected.connect(
-                            lambda: self._on_click_catcher_clicked('CLOSE_RUNES_X')
-                        )
-                        
-                        # CLOSE_RUNES_L - Rectangle (ClickCatcherShow for closing runes left side)
-                        self.click_catchers['CLOSE_RUNES_L'] = ClickCatcherShow(
-                            state=self.state, catcher_name='CLOSE_RUNES_L', shape='rectangle'
-                        )
-                        self.click_catchers['CLOSE_RUNES_L'].click_detected.connect(
-                            lambda: self._on_click_catcher_clicked('CLOSE_RUNES_L')
-                        )
-                        
-                        # CLOSE_RUNES_R - Rectangle (ClickCatcherShow for closing runes right side)
-                        self.click_catchers['CLOSE_RUNES_R'] = ClickCatcherShow(
-                            state=self.state, catcher_name='CLOSE_RUNES_R', shape='rectangle'
-                        )
-                        self.click_catchers['CLOSE_RUNES_R'].click_detected.connect(
-                            lambda: self._on_click_catcher_clicked('CLOSE_RUNES_R')
-                        )
-                        
-                        # CLOSE_RUNES_TOP - Rectangle (ClickCatcherShow for closing runes top)
-                        self.click_catchers['CLOSE_RUNES_TOP'] = ClickCatcherShow(
-                            state=self.state, catcher_name='CLOSE_RUNES_TOP', shape='rectangle'
-                        )
-                        self.click_catchers['CLOSE_RUNES_TOP'].click_detected.connect(
-                            lambda: self._on_click_catcher_clicked('CLOSE_RUNES_TOP')
-                        )
                         
                         # Restore backward compatibility
                         self.click_catcher_hide = self.click_catchers['SETTINGS']
@@ -1170,12 +1075,18 @@ class UserInterface:
         if instance_name == 'EDIT_RUNES':
             log.info("[UI] EDIT_RUNES clicked - hiding UI elements")
             self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
         elif instance_name == 'REC_RUNES':
             log.info("[UI] REC_RUNES clicked - hiding UI elements")
             self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
         elif instance_name == 'SETTINGS':
             log.info("[UI] SETTINGS clicked - hiding UI elements")
             self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
         elif instance_name == 'SUM_L':
             log.info("[UI] SUM_L clicked - hiding UI elements")
             self._hide_all_ui_elements()
@@ -1188,8 +1099,75 @@ class UserInterface:
         elif instance_name == 'EMOTES':
             log.info("[UI] EMOTES clicked - hiding UI elements")
             self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X']:
+            log.info(f"[UI] {instance_name} clicked - showing UI elements")
+            self._show_all_ui_elements()
         else:
             log.warning(f"[UI] Unknown click catcher instance: {instance_name}")
+    
+    def _create_show_instances_for_panel(self, panel_name: str):
+        """Create corresponding ClickCatcherShow instances based on the panel name"""
+        try:
+            from ui.click_catcher_show import ClickCatcherShow
+            
+            # Create show instances based on the panel name
+            if panel_name == 'SETTINGS':
+                # SETTINGS creates CLOSE_SETTINGS
+                self.click_catchers['CLOSE_SETTINGS'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_SETTINGS', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_SETTINGS'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_SETTINGS')
+                )
+                log.info("[UI] Created CLOSE_SETTINGS show instance")
+                
+            elif panel_name == 'EMOTES':
+                # EMOTES creates CLOSE_EMOTES
+                self.click_catchers['CLOSE_EMOTES'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_EMOTES', shape='circle'
+                )
+                self.click_catchers['CLOSE_EMOTES'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_EMOTES')
+                )
+                log.info("[UI] Created CLOSE_EMOTES show instance")
+                
+            elif panel_name in ['EDIT_RUNES', 'REC_RUNES']:
+                # RUNES creates CLOSE_RUNES_TOP, CLOSE_RUNES_L, CLOSE_RUNES_R, CLOSE_RUNES_X
+                self.click_catchers['CLOSE_RUNES_TOP'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_RUNES_TOP', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_RUNES_TOP'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_TOP')
+                )
+                
+                self.click_catchers['CLOSE_RUNES_L'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_RUNES_L', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_RUNES_L'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_L')
+                )
+                
+                self.click_catchers['CLOSE_RUNES_R'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_RUNES_R', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_RUNES_R'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_R')
+                )
+                
+                self.click_catchers['CLOSE_RUNES_X'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_RUNES_X', shape='circle'
+                )
+                self.click_catchers['CLOSE_RUNES_X'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_X')
+                )
+                log.info("[UI] Created CLOSE_RUNES show instances (TOP, L, R, X)")
+                
+        except Exception as e:
+            log.error(f"[UI] Error creating show instances for {panel_name}: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
     
     def _hide_all_ui_elements(self):
         """Hide all UI elements instantly when click catchers are triggered"""

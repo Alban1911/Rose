@@ -60,7 +60,7 @@ class ClickCatcherShow(ClickCatcher):
     def on_click_detected(self):
         """
         Called when a click is detected in the click catcher area
-        Triggers the show UI action
+        Triggers the show UI action and destroys all show instances
         """
         try:
             log.info("[ClickCatcherShow] Click detected - triggering show UI action")
@@ -69,11 +69,46 @@ class ClickCatcherShow(ClickCatcher):
             if self.state and hasattr(self.state, 'ui') and self.state.ui:
                 self.state.ui._show_all_ui_elements()
                 log.info("[ClickCatcherShow] ✓ UI elements shown successfully")
+                
+                # Destroy all show instances (including this one)
+                self._destroy_all_show_instances()
             else:
                 log.warning("[ClickCatcherShow] No UI state available to show elements")
                 
         except Exception as e:
             log.error(f"[ClickCatcherShow] Error in show action: {e}")
+            import traceback
+            log.error(f"[ClickCatcherShow] Traceback: {traceback.format_exc()}")
+    
+    def _destroy_all_show_instances(self):
+        """Destroy all ClickCatcherShow instances"""
+        try:
+            if not self.state or not hasattr(self.state, 'ui') or not self.state.ui:
+                log.warning("[ClickCatcherShow] No UI state available to destroy show instances")
+                return
+            
+            ui = self.state.ui
+            
+            # List of all possible show instance names
+            show_instance_names = [
+                'CLOSE_SETTINGS', 'CLOSE_EMOTES', 
+                'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X'
+            ]
+            
+            # Destroy all show instances
+            for instance_name in show_instance_names:
+                if instance_name in ui.click_catchers:
+                    try:
+                        ui.click_catchers[instance_name].cleanup()
+                        del ui.click_catchers[instance_name]
+                        log.debug(f"[ClickCatcherShow] Destroyed {instance_name} show instance")
+                    except Exception as e:
+                        log.error(f"[ClickCatcherShow] Error destroying {instance_name}: {e}")
+            
+            log.info("[ClickCatcherShow] ✓ All show instances destroyed")
+                
+        except Exception as e:
+            log.error(f"[ClickCatcherShow] Error destroying show instances: {e}")
             import traceback
             log.error(f"[ClickCatcherShow] Traceback: {traceback.format_exc()}")
 

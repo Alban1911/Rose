@@ -60,7 +60,7 @@ class ClickCatcherHide(ClickCatcher):
     def on_click_detected(self):
         """
         Called when a click is detected in the click catcher area
-        Triggers the hide UI action
+        Triggers the hide UI action (show instances will be created by UserInterface)
         """
         try:
             log.info("[ClickCatcherHide] Click detected - triggering hide UI action")
