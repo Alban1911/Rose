@@ -96,7 +96,9 @@ def _check_mouse_clicks():
                             catcher_y <= league_y <= catcher_y + catcher_height):
                             log.info(f"[ClickCatcher] ✓ Click detected in {catcher_id} at ({league_x}, {league_y})")
                             # Emit signal in a thread-safe way
+                            log.info(f"[ClickCatcher] Emitting signal for {catcher_id}")
                             signal_obj.emit()
+                            log.info(f"[ClickCatcher] Signal emitted for {catcher_id}")
                             break
                         else:
                             log.debug(f"[ClickCatcher] Click outside {catcher_id} bounds")

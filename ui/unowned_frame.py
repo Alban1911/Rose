@@ -284,12 +284,18 @@ class UnownedFrame(ChromaWidgetBase):
         """Actually perform fade in (called in main thread)"""
         try:
             log.info("[UnownedFrame] Fading in")
-            self._start_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS)
+            
+            # Show the widget first at 0 opacity to prevent flash
             self.show()
+            if hasattr(self, 'opacity_effect') and self.opacity_effect:
+                self.opacity_effect.setOpacity(0.0)
             
             # Also show the QLabel when fading in
             if hasattr(self, 'unowned_frame_image') and self.unowned_frame_image:
                 self.unowned_frame_image.show()
+            
+            # Start fade animation from 0 to 1
+            self._start_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS)
             
             # Ensure proper z-order after showing (with small delay to ensure widget is fully shown)
             from PyQt6.QtCore import QTimer

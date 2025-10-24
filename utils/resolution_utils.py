@@ -33,7 +33,8 @@ CLICK_CATCHER_CONFIGS = {
         "CLOSE_RUNES_X": {"x": 1443, "y": 80, "width": 40, "height": 40},
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 138, "height": 900},
         "CLOSE_RUNES_R": {"x": 1462, "y": 0, "width": 138, "height": 900},
-        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1600, "height": 100}
+        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1600, "height": 100},
+        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1600, "height": 900}
     },
     "1280x720": {
         "EDIT_RUNES": {"x": 441, "y": 667, "width": 34, "height": 34},
@@ -48,7 +49,8 @@ CLICK_CATCHER_CONFIGS = {
         "CLOSE_RUNES_X": {"x": 1154, "y": 64, "width": 33, "height": 33},
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 111, "height": 720},
         "CLOSE_RUNES_R": {"x": 1169, "y": 0, "width": 111, "height": 720},
-        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1280, "height": 80}
+        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1280, "height": 80},
+        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1280, "height": 720}
     },
     "1024x576": {
         "EDIT_RUNES": {"x": 353, "y": 533, "width": 27, "height": 27},
@@ -63,7 +65,8 @@ CLICK_CATCHER_CONFIGS = {
         "CLOSE_RUNES_X": {"x": 923, "y": 51, "width": 26, "height": 26},
         "CLOSE_RUNES_L": {"x": 0, "y": 0, "width": 88, "height": 576},
         "CLOSE_RUNES_R": {"x": 935, "y": 0, "width": 88, "height": 576},
-        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1024, "height": 64}
+        "CLOSE_RUNES_TOP": {"x": 0, "y": 0, "width": 1024, "height": 64},
+        "CLOSE_SUM": {"x": 0, "y": 0, "width": 1024, "height": 576}
     }
 }
 

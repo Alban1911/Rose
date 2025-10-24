@@ -1120,9 +1120,13 @@ class UserInterface:
         elif instance_name == 'SUM_L':
             log.info("[UI] SUM_L clicked - hiding UI elements")
             self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
         elif instance_name == 'SUM_R':
             log.info("[UI] SUM_R clicked - hiding UI elements")
             self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
         elif instance_name == 'WARD':
             log.info("[UI] WARD clicked - hiding UI elements")
             self._hide_all_ui_elements()
@@ -1131,9 +1135,11 @@ class UserInterface:
             self._hide_all_ui_elements()
             # Create corresponding ClickCatcherShow instances
             self._create_show_instances_for_panel(instance_name)
-        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X']:
+        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X', 'CLOSE_SUM']:
             log.info(f"[UI] {instance_name} clicked - showing UI elements")
             self._show_all_ui_elements()
+            # Destroy all ClickCatcherShow instances after showing UI elements
+            self._destroy_all_show_instances()
         else:
             log.warning(f"[UI] Unknown click catcher instance: {instance_name}")
     
@@ -1194,8 +1200,59 @@ class UserInterface:
                 )
                 log.info("[UI] Created CLOSE_RUNES show instances (TOP, L, R, X)")
                 
+            elif panel_name == 'SUM_L':
+                # SUM_L creates CLOSE_SUM
+                self.click_catchers['CLOSE_SUM'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_SUM', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_SUM'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_SUM')
+                )
+                log.info("[UI] Created CLOSE_SUM show instance for SUM_L")
+                
+            elif panel_name == 'SUM_R':
+                # SUM_R creates CLOSE_SUM
+                self.click_catchers['CLOSE_SUM'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_SUM', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_SUM'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_SUM')
+                )
+                log.info("[UI] Created CLOSE_SUM show instance for SUM_R")
+                
         except Exception as e:
             log.error(f"[UI] Error creating show instances for {panel_name}: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def _destroy_all_show_instances(self):
+        """Destroy all ClickCatcherShow instances"""
+        try:
+            # List of all possible show instance names
+            show_instance_names = [
+                'CLOSE_SETTINGS', 'CLOSE_EMOTES', 
+                'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X',
+                'CLOSE_SUM'
+            ]
+            
+            # Destroy all show instances
+            log.info(f"[UI] Starting to destroy show instances. Current click_catchers: {list(self.click_catchers.keys())}")
+            for instance_name in show_instance_names:
+                if instance_name in self.click_catchers:
+                    try:
+                        log.info(f"[UI] Destroying {instance_name} show instance")
+                        self.click_catchers[instance_name].cleanup()
+                        del self.click_catchers[instance_name]
+                        log.info(f"[UI] Successfully destroyed {instance_name} show instance")
+                    except Exception as e:
+                        log.error(f"[UI] Error destroying {instance_name}: {e}")
+                else:
+                    log.debug(f"[UI] {instance_name} not found in click_catchers")
+            
+            log.info("[UI] ✓ All show instances destroyed")
+                
+        except Exception as e:
+            log.error(f"[UI] Error destroying show instances: {e}")
             import traceback
             log.error(f"[UI] Traceback: {traceback.format_exc()}")
     
