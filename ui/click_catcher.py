@@ -42,6 +42,15 @@ _click_catchers = {}
 _mouse_timer = None
 _last_mouse_pos = (0, 0)
 _last_mouse_state = False
+_click_down_in_area = {}  # Track if mouse was pressed down in a catcher area (catcher_id -> bool)
+
+# Click catchers that require click+release (not just down)
+_REQUIRE_CLICK_AND_RELEASE = {
+    'EMOTES', 'SUM_L', 'SUM_R', 'WARD', 'ABILITIES', 'SETTINGS', 'REC_RUNES', 'EDIT_RUNES',
+    'CLOSE_RUNES_X', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_TOP', 'CLOSE_EMOTES', 
+    'CLOSE_SETTINGS', 'CLOSE_QUESTS', 'CLOSE_ABILITIES', 'CLOSE_MESSAGE_L', 'CLOSE_MESSAGE_R',
+    'CLOSE_SUM', 'CLOSE_WARD'
+}
 
 
 def _get_mouse_state():
@@ -66,17 +75,20 @@ def _get_mouse_state():
 
 def _check_mouse_clicks():
     """Check for mouse clicks in click catcher areas"""
-    global _last_mouse_pos, _last_mouse_state
+    global _last_mouse_pos, _last_mouse_state, _click_down_in_area
     
     try:
         current_pos, current_state = _get_mouse_state()
         
         # Check for button press (transition from not pressed to pressed)
         if current_state and not _last_mouse_state:
-            log.debug(f"[ClickCatcher] Mouse click detected at screen coordinates {current_pos}")
+            log.debug(f"[ClickCatcher] Mouse DOWN detected at screen coordinates {current_pos}")
             
-            # Check if click is in any click catcher area
+            # Check if mouse down is in any click catcher area
             for catcher_id, catcher_info in _click_catchers.items():
+                # Check if this catcher requires click+release
+                requires_release = catcher_id in _REQUIRE_CLICK_AND_RELEASE
+                
                 catcher_x, catcher_y, catcher_width, catcher_height, league_hwnd, signal_obj = catcher_info
                 
                 # Convert screen coordinates to League window coordinates
@@ -89,19 +101,60 @@ def _check_mouse_clicks():
                         league_x = current_pos[0] - window_left
                         league_y = current_pos[1] - window_top
                         
-                        log.debug(f"[ClickCatcher] Click at League coordinates ({league_x}, {league_y}), checking against {catcher_id} at ({catcher_x}, {catcher_y}) size {catcher_width}x{catcher_height}")
+                        log.debug(f"[ClickCatcher] Mouse down at League coordinates ({league_x}, {league_y}), checking against {catcher_id} at ({catcher_x}, {catcher_y}) size {catcher_width}x{catcher_height}")
                         
-                        # Check if click is within click catcher bounds
+                        # Check if mouse down is within click catcher bounds
                         if (catcher_x <= league_x <= catcher_x + catcher_width and 
                             catcher_y <= league_y <= catcher_y + catcher_height):
-                            log.info(f"[ClickCatcher] ✓ Click detected in {catcher_id} at ({league_x}, {league_y})")
-                            # Emit signal in a thread-safe way
-                            log.info(f"[ClickCatcher] Emitting signal for {catcher_id}")
-                            signal_obj.emit()
-                            log.info(f"[ClickCatcher] Signal emitted for {catcher_id}")
+                            
+                            if requires_release:
+                                log.debug(f"[ClickCatcher] Mouse DOWN in {catcher_id} at ({league_x}, {league_y}) - waiting for release")
+                                # Mark that mouse was pressed down in this area
+                                _click_down_in_area[catcher_id] = True
+                            else:
+                                log.info(f"[ClickCatcher] ✓ Click detected in {catcher_id} at ({league_x}, {league_y})")
+                                # Emit signal immediately for catchers that don't require release
+                                log.info(f"[ClickCatcher] Emitting signal for {catcher_id}")
+                                signal_obj.emit()
+                                log.info(f"[ClickCatcher] Signal emitted for {catcher_id}")
                             break
-                        else:
-                            log.debug(f"[ClickCatcher] Click outside {catcher_id} bounds")
+        
+        # Check for button release (transition from pressed to not pressed)
+        elif not current_state and _last_mouse_state:
+            log.debug(f"[ClickCatcher] Mouse RELEASE detected at screen coordinates {current_pos}")
+            
+            # Check if release is in a click catcher area where we previously detected a down
+            for catcher_id, catcher_info in _click_catchers.items():
+                # Only trigger if mouse was previously pressed down in this area
+                if catcher_id in _click_down_in_area and _click_down_in_area[catcher_id]:
+                    catcher_x, catcher_y, catcher_width, catcher_height, league_hwnd, signal_obj = catcher_info
+                    
+                    # Convert screen coordinates to League window coordinates
+                    from utils.window_utils import get_league_window_handle, find_league_window_rect
+                    league_hwnd_actual = get_league_window_handle()
+                    if league_hwnd_actual == league_hwnd:
+                        window_rect = find_league_window_rect()
+                        if window_rect:
+                            window_left, window_top, window_right, window_bottom = window_rect
+                            league_x = current_pos[0] - window_left
+                            league_y = current_pos[1] - window_top
+                            
+                            log.debug(f"[ClickCatcher] Mouse release at League coordinates ({league_x}, {league_y}), checking against {catcher_id}")
+                            
+                            # Check if release is also within click catcher bounds
+                            if (catcher_x <= league_x <= catcher_x + catcher_width and 
+                                catcher_y <= league_y <= catcher_y + catcher_height):
+                                log.info(f"[ClickCatcher] ✓ Full click (down+release) detected in {catcher_id} at ({league_x}, {league_y})")
+                                # Emit signal in a thread-safe way
+                                log.info(f"[ClickCatcher] Emitting signal for {catcher_id}")
+                                signal_obj.emit()
+                                log.info(f"[ClickCatcher] Signal emitted for {catcher_id}")
+                            else:
+                                log.debug(f"[ClickCatcher] Mouse released outside {catcher_id} bounds - no action")
+                            
+                            # Clear the tracking flag for this catcher (whether we emitted or not)
+                            del _click_down_in_area[catcher_id]
+                            break
         
         _last_mouse_pos = current_pos
         _last_mouse_state = current_state
@@ -233,13 +286,14 @@ class ClickCatcher(ChromaWidgetBase):
         league_hwnd = get_league_window_handle()
         
         if league_hwnd:
-            # Store click catcher info: (x, y, width, height, league_hwnd, signal_object)
-            _click_catchers[id(self)] = (
+            # Store click catcher info: (catcher_name, x, y, width, height, league_hwnd, signal_object)
+            catcher_key = self.catcher_name if self.catcher_name else id(self)
+            _click_catchers[catcher_key] = (
                 self.catcher_x, self.catcher_y, self.catcher_width, self.catcher_height,
                 league_hwnd, self.click_detected
             )
             
-            log.info(f"[ClickCatcher] ✓ Registered click catcher {id(self)} at ({self.catcher_x}, {self.catcher_y}) size {self.catcher_width}x{self.catcher_height}")
+            log.info(f"[ClickCatcher] ✓ Registered click catcher {catcher_key} at ({self.catcher_x}, {self.catcher_y}) size {self.catcher_width}x{self.catcher_height}")
             log.info(f"[ClickCatcher] Total click catchers registered: {len(_click_catchers)}")
             
             # Start mouse monitoring if not already running
@@ -249,11 +303,16 @@ class ClickCatcher(ChromaWidgetBase):
     
     def _unregister_click_catcher(self):
         """Unregister this click catcher from the global registry"""
-        global _click_catchers
+        global _click_catchers, _click_down_in_area
         
-        if id(self) in _click_catchers:
-            del _click_catchers[id(self)]
-            log.debug(f"[ClickCatcher] Unregistered click catcher {id(self)}")
+        catcher_key = self.catcher_name if self.catcher_name else id(self)
+        if catcher_key in _click_catchers:
+            del _click_catchers[catcher_key]
+            log.debug(f"[ClickCatcher] Unregistered click catcher {catcher_key}")
+            
+            # Clear any pending click-down tracking for this catcher
+            if catcher_key in _click_down_in_area:
+                del _click_down_in_area[catcher_key]
             
             # Stop mouse monitoring if no more click catchers
             if not _click_catchers:
