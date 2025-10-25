@@ -28,9 +28,9 @@ class ZOrderManager:
         'LEAGUE_WINDOW': 0,        # Base League window
         'UNOWNED_FRAME': 100,      # Golden border + lock icon (behind interactive elements)
         'DICE_BUTTON': 150,        # Dice button for random skin selection
-        'RANDOM_FLAG': 175,        # Random flag indicator (above dice button)
         'CHROMA_BUTTON': 200,      # Circular chroma button (above unowned frame)
-        'CHROMA_PANEL': 300,       # Chroma selection panel (above button)
+        'RANDOM_FLAG': 250,        # Random flag indicator (above chroma button)
+        'CHROMA_PANEL': 300,       # Chroma selection panel (above flag)
         'CLICK_CATCHER': 400,      # Invisible overlay for click detection (topmost)
     }
     
@@ -189,6 +189,38 @@ class ZOrderManager:
                         
             except Exception as e:
                 log.debug(f"[Z-ORDER] Error forcing chroma button above unowned frame: {e}")
+            
+            # After applying z-order, force RandomFlag to be on top of ChromaButton
+            try:
+                random_flag_widget = None
+                chroma_button_widget = None
+                
+                for widget_name, widget in sorted_widgets:
+                    if widget_name == 'random_flag' and hasattr(widget, 'winId') and widget.isVisible():
+                        random_flag_widget = widget
+                    elif widget_name == 'chroma_button' and hasattr(widget, 'winId') and widget.isVisible():
+                        chroma_button_widget = widget
+                
+                if random_flag_widget and chroma_button_widget:
+                    # Force RandomFlag to be above ChromaButton
+                    random_flag_hwnd = int(random_flag_widget.winId())
+                    chroma_hwnd = int(chroma_button_widget.winId())
+                    
+                    # Place RandomFlag above ChromaButton
+                    result = ctypes.windll.user32.SetWindowPos(
+                        random_flag_hwnd,
+                        chroma_hwnd,  # Place RandomFlag above ChromaButton
+                        0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+                    )
+                    
+                    if result:
+                        log.debug("[Z-ORDER] Forced RandomFlag above ChromaButton")
+                    else:
+                        log.warning("[Z-ORDER] Failed to force RandomFlag above ChromaButton")
+                        
+            except Exception as e:
+                log.debug(f"[Z-ORDER] Error forcing RandomFlag above ChromaButton: {e}")
             
             # Only log z-order application occasionally to reduce spam
             import time
