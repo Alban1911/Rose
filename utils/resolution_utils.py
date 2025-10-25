@@ -8,8 +8,6 @@ Supports 3 resolutions: 1600x900, 1280x720, 1024x576
 
 from typing import Dict, Tuple, Optional
 from utils.logging import get_logger
-import json
-import os
 
 log = get_logger()
 
@@ -20,73 +18,109 @@ RESOLUTIONS = {
     (1024, 576): "1024x576"
 }
 
-# Language-specific ABILITIES and CLOSE_ABILITIES configurations (1600x900 base)
-LANGUAGE_CONFIGS = {}
-
-def load_language_configs():
-    """Load language-specific configurations from resolutions_languages.txt"""
-    global LANGUAGE_CONFIGS
-    
-    try:
-        # Get the directory of this file
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        # Go up one level to reach the project root
-        project_root = os.path.dirname(current_dir)
-        config_file = os.path.join(project_root, "resolutions_languages.txt")
-        
-        if not os.path.exists(config_file):
-            log.warning(f"[ResolutionUtils] Language config file not found: {config_file}")
-            return
-        
-        with open(config_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        # Skip header line
-        for line in lines[1:]:
-            line = line.strip()
-            if not line:
-                continue
-                
-            # Find the first comma to get language
-            first_comma = line.find(',')
-            if first_comma == -1:
-                continue
-                
-            language = line[:first_comma].strip()
-            remaining = line[first_comma + 1:].strip()
-            
-            # Find the second comma to separate the two JSON objects
-            # Look for the pattern: }, {
-            second_comma = remaining.find('}, {')
-            if second_comma == -1:
-                continue
-                
-            abilities_str = remaining[:second_comma + 1].strip()  # Include the }
-            close_abilities_str = remaining[second_comma + 2:].strip()  # Skip the }, part
-            
-            # Debug logging
-            log.debug(f"[ResolutionUtils] Parsing language {language}: abilities='{abilities_str}', close_abilities='{close_abilities_str}'")
-            
-            try:
-                abilities = json.loads(abilities_str)
-                close_abilities = json.loads(close_abilities_str)
-                
-                LANGUAGE_CONFIGS[language] = {
-                    "ABILITIES": abilities,
-                    "CLOSE_ABILITIES": close_abilities
-                }
-                
-            except json.JSONDecodeError as e:
-                log.warning(f"[ResolutionUtils] Failed to parse language config for {language}: {e}")
-                continue
-        
-        log.info(f"[ResolutionUtils] Loaded language configs for {len(LANGUAGE_CONFIGS)} languages")
-        
-    except Exception as e:
-        log.error(f"[ResolutionUtils] Error loading language configs: {e}")
-
-# Load language configurations on module import
-load_language_configs()
+# Language-specific ABILITIES and CLOSE_ABILITIES configurations for all resolutions
+LANGUAGE_CONFIGS = {
+    "fr": {
+        "1600x900": {"ABILITIES": {"x": 663, "width": 277}, "CLOSE_ABILITIES": {"x": 738, "width": 127}},
+        "1280x720": {"ABILITIES": {"x": 530, "width": 221}, "CLOSE_ABILITIES": {"x": 590, "width": 101}},
+        "1024x576": {"ABILITIES": {"x": 424, "width": 177}, "CLOSE_ABILITIES": {"x": 472, "width": 81}}
+    },
+    "ar": {
+        "1600x900": {"ABILITIES": {"x": 720, "width": 163}, "CLOSE_ABILITIES": {"x": 753, "width": 96}},
+        "1280x720": {"ABILITIES": {"x": 576, "width": 130}, "CLOSE_ABILITIES": {"x": 602, "width": 76}},
+        "1024x576": {"ABILITIES": {"x": 460, "width": 104}, "CLOSE_ABILITIES": {"x": 481, "width": 61}}
+    },
+    "id": {
+        "1600x900": {"ABILITIES": {"x": 707, "width": 188}, "CLOSE_ABILITIES": {"x": 733, "width": 136}},
+        "1280x720": {"ABILITIES": {"x": 565, "width": 150}, "CLOSE_ABILITIES": {"x": 586, "width": 108}},
+        "1024x576": {"ABILITIES": {"x": 452, "width": 120}, "CLOSE_ABILITIES": {"x": 468, "width": 86}}
+    },
+    "cs": {
+        "1600x900": {"ABILITIES": {"x": 665, "width": 273}, "CLOSE_ABILITIES": {"x": 753, "width": 97}},
+        "1280x720": {"ABILITIES": {"x": 532, "width": 218}, "CLOSE_ABILITIES": {"x": 602, "width": 77}},
+        "1024x576": {"ABILITIES": {"x": 425, "width": 174}, "CLOSE_ABILITIES": {"x": 481, "width": 62}}
+    },
+    "de": {
+        "1600x900": {"ABILITIES": {"x": 666, "width": 270}, "CLOSE_ABILITIES": {"x": 737, "width": 128}},
+        "1280x720": {"ABILITIES": {"x": 532, "width": 216}, "CLOSE_ABILITIES": {"x": 589, "width": 102}},
+        "1024x576": {"ABILITIES": {"x": 426, "width": 172}, "CLOSE_ABILITIES": {"x": 471, "width": 81}}
+    },
+    "el": {
+        "1600x900": {"ABILITIES": {"x": 682, "width": 239}, "CLOSE_ABILITIES": {"x": 727, "width": 148}},
+        "1280x720": {"ABILITIES": {"x": 545, "width": 191}, "CLOSE_ABILITIES": {"x": 581, "width": 118}},
+        "1024x576": {"ABILITIES": {"x": 436, "width": 152}, "CLOSE_ABILITIES": {"x": 464, "width": 94}}
+    },
+    "en": {
+        "1600x900": {"ABILITIES": {"x": 702, "width": 198}, "CLOSE_ABILITIES": {"x": 738, "width": 126}},
+        "1280x720": {"ABILITIES": {"x": 561, "width": 158}, "CLOSE_ABILITIES": {"x": 590, "width": 100}},
+        "1024x576": {"ABILITIES": {"x": 449, "width": 126}, "CLOSE_ABILITIES": {"x": 472, "width": 80}}
+    },
+    "es": {
+        "1600x900": {"ABILITIES": {"x": 691, "width": 221}, "CLOSE_ABILITIES": {"x": 739, "width": 124}},
+        "1280x720": {"ABILITIES": {"x": 552, "width": 176}, "CLOSE_ABILITIES": {"x": 591, "width": 99}},
+        "1024x576": {"ABILITIES": {"x": 441, "width": 141}, "CLOSE_ABILITIES": {"x": 472, "width": 79}}
+    },
+    "hu": {
+        "1600x900": {"ABILITIES": {"x": 644, "width": 315}, "CLOSE_ABILITIES": {"x": 739, "width": 124}},
+        "1280x720": {"ABILITIES": {"x": 515, "width": 252}, "CLOSE_ABILITIES": {"x": 591, "width": 99}},
+        "1024x576": {"ABILITIES": {"x": 412, "width": 201}, "CLOSE_ABILITIES": {"x": 472, "width": 79}}
+    },
+    "it": {
+        "1600x900": {"ABILITIES": {"x": 679, "width": 245}, "CLOSE_ABILITIES": {"x": 730, "width": 142}},
+        "1280x720": {"ABILITIES": {"x": 543, "width": 196}, "CLOSE_ABILITIES": {"x": 584, "width": 113}},
+        "1024x576": {"ABILITIES": {"x": 434, "width": 156}, "CLOSE_ABILITIES": {"x": 467, "width": 90}}
+    },
+    "ja": {
+        "1600x900": {"ABILITIES": {"x": 720, "width": 162}, "CLOSE_ABILITIES": {"x": 758, "width": 87}},
+        "1280x720": {"ABILITIES": {"x": 576, "width": 129}, "CLOSE_ABILITIES": {"x": 606, "width": 69}},
+        "1024x576": {"ABILITIES": {"x": 460, "width": 103}, "CLOSE_ABILITIES": {"x": 485, "width": 55}}
+    },
+    "ko": {
+        "1600x900": {"ABILITIES": {"x": 739, "width": 124}, "CLOSE_ABILITIES": {"x": 742, "width": 119}},
+        "1280x720": {"ABILITIES": {"x": 591, "width": 99}, "CLOSE_ABILITIES": {"x": 593, "width": 95}},
+        "1024x576": {"ABILITIES": {"x": 472, "width": 79}, "CLOSE_ABILITIES": {"x": 474, "width": 76}}
+    },
+    "pl": {
+        "1600x900": {"ABILITIES": {"x": 654, "width": 294}, "CLOSE_ABILITIES": {"x": 734, "width": 134}},
+        "1280x720": {"ABILITIES": {"x": 523, "width": 235}, "CLOSE_ABILITIES": {"x": 587, "width": 107}},
+        "1024x576": {"ABILITIES": {"x": 418, "width": 188}, "CLOSE_ABILITIES": {"x": 469, "width": 85}}
+    },
+    "pt": {
+        "1600x900": {"ABILITIES": {"x": 678, "width": 246}, "CLOSE_ABILITIES": {"x": 739, "width": 124}},
+        "1280x720": {"ABILITIES": {"x": 542, "width": 196}, "CLOSE_ABILITIES": {"x": 591, "width": 99}},
+        "1024x576": {"ABILITIES": {"x": 433, "width": 157}, "CLOSE_ABILITIES": {"x": 472, "width": 79}}
+    },
+    "ro": {
+        "1600x900": {"ABILITIES": {"x": 695, "width": 213}, "CLOSE_ABILITIES": {"x": 730, "width": 143}},
+        "1280x720": {"ABILITIES": {"x": 556, "width": 170}, "CLOSE_ABILITIES": {"x": 584, "width": 114}},
+        "1024x576": {"ABILITIES": {"x": 444, "width": 136}, "CLOSE_ABILITIES": {"x": 467, "width": 91}}
+    },
+    "ru": {
+        "1600x900": {"ABILITIES": {"x": 667, "width": 268}, "CLOSE_ABILITIES": {"x": 742, "width": 119}},
+        "1280x720": {"ABILITIES": {"x": 533, "width": 214}, "CLOSE_ABILITIES": {"x": 593, "width": 95}},
+        "1024x576": {"ABILITIES": {"x": 426, "width": 171}, "CLOSE_ABILITIES": {"x": 474, "width": 76}}
+    },
+    "th": {
+        "1600x900": {"ABILITIES": {"x": 753, "width": 96}, "CLOSE_ABILITIES": {"x": 741, "width": 121}},
+        "1280x720": {"ABILITIES": {"x": 602, "width": 76}, "CLOSE_ABILITIES": {"x": 592, "width": 96}},
+        "1024x576": {"ABILITIES": {"x": 481, "width": 61}, "CLOSE_ABILITIES": {"x": 473, "width": 77}}
+    },
+    "tr": {
+        "1600x900": {"ABILITIES": {"x": 679, "width": 244}, "CLOSE_ABILITIES": {"x": 758, "width": 87}},
+        "1280x720": {"ABILITIES": {"x": 543, "width": 195}, "CLOSE_ABILITIES": {"x": 606, "width": 69}},
+        "1024x576": {"ABILITIES": {"x": 434, "width": 156}, "CLOSE_ABILITIES": {"x": 485, "width": 55}}
+    },
+    "vi": {
+        "1600x900": {"ABILITIES": {"x": 710, "width": 183}, "CLOSE_ABILITIES": {"x": 732, "width": 139}},
+        "1280x720": {"ABILITIES": {"x": 568, "width": 146}, "CLOSE_ABILITIES": {"x": 585, "width": 111}},
+        "1024x576": {"ABILITIES": {"x": 454, "width": 117}, "CLOSE_ABILITIES": {"x": 468, "width": 88}}
+    },
+    "zh": {
+        "1600x900": {"ABILITIES": {"x": 739, "width": 125}, "CLOSE_ABILITIES": {"x": 757, "width": 88}},
+        "1280x720": {"ABILITIES": {"x": 591, "width": 100}, "CLOSE_ABILITIES": {"x": 605, "width": 70}},
+        "1024x576": {"ABILITIES": {"x": 472, "width": 80}, "CLOSE_ABILITIES": {"x": 484, "width": 56}}
+    }
+}
 
 # Click catcher positions and sizes for each resolution (Summoner's Rift)
 CLICK_CATCHER_CONFIGS = {
@@ -385,49 +419,40 @@ def get_language_specific_coordinates(language: str, resolution: Tuple[int, int]
         log.debug(f"[ResolutionUtils] Language {language} not found in configs, using default")
         return None
     
-    if element not in LANGUAGE_CONFIGS[language]:
-        log.debug(f"[ResolutionUtils] Element {element} not found for language {language}")
-        return None
-    
-    # Get base coordinates for 1600x900
-    base_config = LANGUAGE_CONFIGS[language][element]
-    base_x = base_config["x"]
-    base_width = base_config["width"]
-    
-    # Calculate scaling factors based on resolution
-    if resolution == (1600, 900):
-        # Use base coordinates directly
-        scale_factor = 1.0
-    elif resolution == (1280, 720):
-        # Scale from 1600x900 to 1280x720
-        scale_factor = 1280 / 1600
-    elif resolution == (1024, 576):
-        # Scale from 1600x900 to 1024x576
-        scale_factor = 1024 / 1600
-    else:
+    # Get resolution string
+    resolution_str = RESOLUTIONS.get(resolution)
+    if not resolution_str:
         log.warning(f"[ResolutionUtils] Unsupported resolution for language coordinates: {resolution}")
         return None
     
-    # Calculate scaled coordinates
-    scaled_x = int(base_x * scale_factor)
-    scaled_width = int(base_width * scale_factor)
+    if resolution_str not in LANGUAGE_CONFIGS[language]:
+        log.debug(f"[ResolutionUtils] Resolution {resolution_str} not found for language {language}")
+        return None
+    
+    if element not in LANGUAGE_CONFIGS[language][resolution_str]:
+        log.debug(f"[ResolutionUtils] Element {element} not found for language {language} at resolution {resolution_str}")
+        return None
+    
+    # Get language-specific coordinates for this resolution
+    lang_config = LANGUAGE_CONFIGS[language][resolution_str][element]
+    lang_x = lang_config["x"]
+    lang_width = lang_config["width"]
     
     # Y coordinates and height are the same for all languages (only x and width vary)
     # Get these from the base resolution config
-    resolution_str = RESOLUTIONS.get(resolution)
-    if not resolution_str or resolution_str not in CLICK_CATCHER_CONFIGS:
-        log.warning(f"[ResolutionUtils] No base config found for resolution {resolution}")
+    if resolution_str not in CLICK_CATCHER_CONFIGS:
+        log.warning(f"[ResolutionUtils] No base config found for resolution {resolution_str}")
         return None
     
     base_element_config = CLICK_CATCHER_CONFIGS[resolution_str].get(element)
     if not base_element_config:
-        log.warning(f"[ResolutionUtils] No base config found for element {element} at resolution {resolution}")
+        log.warning(f"[ResolutionUtils] No base config found for element {element} at resolution {resolution_str}")
         return None
     
     return {
-        "x": scaled_x,
+        "x": lang_x,
         "y": base_element_config["y"],
-        "width": scaled_width,
+        "width": lang_width,
         "height": base_element_config["height"]
     }
 
