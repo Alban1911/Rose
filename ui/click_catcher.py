@@ -203,7 +203,12 @@ class ClickCatcher(ChromaWidgetBase):
         if self.catcher_name:
             current_resolution = get_current_resolution()
             if current_resolution and is_supported_resolution(current_resolution):
-                config = get_click_catcher_config(current_resolution, self.catcher_name)
+                # Get map_id from state if available
+                map_id = None
+                if self.state and hasattr(self.state, 'current_map_id'):
+                    map_id = self.state.current_map_id
+                
+                config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id)
                 if config:
                     self.catcher_x = config['x']
                     self.catcher_y = config['y']
@@ -302,7 +307,12 @@ class ClickCatcher(ChromaWidgetBase):
                 # Update position and size based on new resolution if catcher_name is provided
                 if self.catcher_name:
                     if is_supported_resolution(current_resolution):
-                        config = get_click_catcher_config(current_resolution, self.catcher_name)
+                        # Get map_id from state if available
+                        map_id = None
+                        if self.state and hasattr(self.state, 'current_map_id'):
+                            map_id = self.state.current_map_id
+                        
+                        config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id)
                         if config:
                             self.catcher_x = config['x']
                             self.catcher_y = config['y']

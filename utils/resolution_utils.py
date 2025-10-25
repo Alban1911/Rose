@@ -18,7 +18,7 @@ RESOLUTIONS = {
     (1024, 576): "1024x576"
 }
 
-# Click catcher positions and sizes for each resolution
+# Click catcher positions and sizes for each resolution (Summoner's Rift)
 CLICK_CATCHER_CONFIGS = {
     "1600x900": {
         "EDIT_RUNES": {"x": 552, "y": 834, "width": 41, "height": 41},
@@ -97,6 +97,31 @@ CLICK_CATCHER_CONFIGS = {
     }
 }
 
+# Click catcher positions for Howling Abyss (ARAM) - only x values differ
+CLICK_CATCHER_CONFIGS_ARAM = {
+    "1600x900": {
+        "EDIT_RUNES": {"x": 560, "y": 834, "width": 41, "height": 41},
+        "REC_RUNES": {"x": 507, "y": 834, "width": 41, "height": 41},
+        "SUM_R": {"x": 924, "y": 831, "width": 46, "height": 47},
+        "SUM_L": {"x": 865, "y": 831, "width": 46, "height": 47},
+        "EMOTES": {"x": 1045, "y": 832, "width": 46, "height": 46}
+    },
+    "1280x720": {
+        "EDIT_RUNES": {"x": 448, "y": 667, "width": 34, "height": 34},
+        "REC_RUNES": {"x": 406, "y": 667, "width": 34, "height": 34},
+        "SUM_R": {"x": 739, "y": 664, "width": 37, "height": 38},
+        "SUM_L": {"x": 692, "y": 664, "width": 37, "height": 38},
+        "EMOTES": {"x": 836, "y": 665, "width": 37, "height": 37}
+    },
+    "1024x576": {
+        "EDIT_RUNES": {"x": 358, "y": 533, "width": 27, "height": 27},
+        "REC_RUNES": {"x": 324, "y": 533, "width": 27, "height": 27},
+        "SUM_R": {"x": 591, "y": 531, "width": 30, "height": 31},
+        "SUM_L": {"x": 553, "y": 531, "width": 30, "height": 31},
+        "EMOTES": {"x": 669, "y": 532, "width": 30, "height": 30}
+    }
+}
+
 
 def get_resolution_key(resolution: Tuple[int, int]) -> Optional[str]:
     """
@@ -113,13 +138,14 @@ def get_resolution_key(resolution: Tuple[int, int]) -> Optional[str]:
     return None
 
 
-def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str) -> Optional[Dict[str, int]]:
+def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map_id: Optional[int] = None) -> Optional[Dict[str, int]]:
     """
     Get click catcher configuration for a specific resolution and catcher name
     
     Args:
         resolution: (width, height) tuple
         catcher_name: Name of the click catcher (e.g., 'EDIT_RUNES', 'SETTINGS')
+        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, None = use default)
         
     Returns:
         Dictionary with x, y, width, height or None if not found
@@ -129,6 +155,15 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str) -> 
         log.warning(f"[ResolutionUtils] Unsupported resolution: {resolution}")
         return None
     
+    # Check if this catcher has ARAM-specific config
+    is_aram = map_id == 12
+    
+    if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
+        if catcher_name in CLICK_CATCHER_CONFIGS_ARAM[resolution_key]:
+            log.debug(f"[ResolutionUtils] Using ARAM config for {catcher_name} at {resolution_key}")
+            return CLICK_CATCHER_CONFIGS_ARAM[resolution_key][catcher_name].copy()
+    
+    # Fall back to default (Summoner's Rift) config
     if resolution_key not in CLICK_CATCHER_CONFIGS:
         log.warning(f"[ResolutionUtils] No config found for resolution: {resolution_key}")
         return None
@@ -140,12 +175,13 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str) -> 
     return CLICK_CATCHER_CONFIGS[resolution_key][catcher_name].copy()
 
 
-def get_all_click_catcher_configs(resolution: Tuple[int, int]) -> Optional[Dict[str, Dict[str, int]]]:
+def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[int] = None) -> Optional[Dict[str, Dict[str, int]]]:
     """
     Get all click catcher configurations for a specific resolution
     
     Args:
         resolution: (width, height) tuple
+        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, None = use default)
         
     Returns:
         Dictionary of all catcher configs or None if resolution not supported
@@ -154,6 +190,19 @@ def get_all_click_catcher_configs(resolution: Tuple[int, int]) -> Optional[Dict[
     if not resolution_key:
         log.warning(f"[ResolutionUtils] Unsupported resolution: {resolution}")
         return None
+    
+    # Check if we should use ARAM config
+    is_aram = map_id == 12
+    
+    if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
+        # Start with default config and overlay ARAM-specific values
+        result = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
+        
+        # Override with ARAM-specific configs where they exist
+        for name, config in CLICK_CATCHER_CONFIGS_ARAM[resolution_key].items():
+            result[name] = config.copy()
+        
+        return result
     
     if resolution_key not in CLICK_CATCHER_CONFIGS:
         log.warning(f"[ResolutionUtils] No config found for resolution: {resolution_key}")
@@ -200,17 +249,18 @@ def get_current_resolution() -> Optional[Tuple[int, int]]:
         return None
 
 
-def log_resolution_info(resolution: Tuple[int, int]):
+def log_resolution_info(resolution: Tuple[int, int], map_id: Optional[int] = None):
     """
     Log information about the current resolution and available click catchers
     
     Args:
         resolution: (width, height) tuple
+        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, None = use default)
     """
     resolution_key = get_resolution_key(resolution)
     if resolution_key:
         log.info(f"[ResolutionUtils] Current resolution: {resolution_key}")
-        configs = get_all_click_catcher_configs(resolution)
+        configs = get_all_click_catcher_configs(resolution, map_id=map_id)
         if configs:
             log.info(f"[ResolutionUtils] Available click catchers for {resolution_key}:")
             for name, config in configs.items():
