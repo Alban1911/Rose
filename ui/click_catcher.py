@@ -261,7 +261,12 @@ class ClickCatcher(ChromaWidgetBase):
                 if self.state and hasattr(self.state, 'current_map_id'):
                     map_id = self.state.current_map_id
                 
-                config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id)
+                # Get language from state if available
+                language = None
+                if self.state and hasattr(self.state, 'current_language'):
+                    language = self.state.current_language
+                
+                config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id, language=language)
                 if config:
                     self.catcher_x = config['x']
                     self.catcher_y = config['y']
@@ -371,7 +376,12 @@ class ClickCatcher(ChromaWidgetBase):
                         if self.state and hasattr(self.state, 'current_map_id'):
                             map_id = self.state.current_map_id
                         
-                        config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id)
+                        # Get language from state if available
+                        language = None
+                        if self.state and hasattr(self.state, 'current_language'):
+                            language = self.state.current_language
+                        
+                        config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id, language=language)
                         if config:
                             self.catcher_x = config['x']
                             self.catcher_y = config['y']

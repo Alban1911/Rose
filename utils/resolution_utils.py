@@ -8,6 +8,8 @@ Supports 3 resolutions: 1600x900, 1280x720, 1024x576
 
 from typing import Dict, Tuple, Optional
 from utils.logging import get_logger
+import json
+import os
 
 log = get_logger()
 
@@ -17,6 +19,74 @@ RESOLUTIONS = {
     (1280, 720): "1280x720", 
     (1024, 576): "1024x576"
 }
+
+# Language-specific ABILITIES and CLOSE_ABILITIES configurations (1600x900 base)
+LANGUAGE_CONFIGS = {}
+
+def load_language_configs():
+    """Load language-specific configurations from resolutions_languages.txt"""
+    global LANGUAGE_CONFIGS
+    
+    try:
+        # Get the directory of this file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up one level to reach the project root
+        project_root = os.path.dirname(current_dir)
+        config_file = os.path.join(project_root, "resolutions_languages.txt")
+        
+        if not os.path.exists(config_file):
+            log.warning(f"[ResolutionUtils] Language config file not found: {config_file}")
+            return
+        
+        with open(config_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Skip header line
+        for line in lines[1:]:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Find the first comma to get language
+            first_comma = line.find(',')
+            if first_comma == -1:
+                continue
+                
+            language = line[:first_comma].strip()
+            remaining = line[first_comma + 1:].strip()
+            
+            # Find the second comma to separate the two JSON objects
+            # Look for the pattern: }, {
+            second_comma = remaining.find('}, {')
+            if second_comma == -1:
+                continue
+                
+            abilities_str = remaining[:second_comma + 1].strip()  # Include the }
+            close_abilities_str = remaining[second_comma + 2:].strip()  # Skip the }, part
+            
+            # Debug logging
+            log.debug(f"[ResolutionUtils] Parsing language {language}: abilities='{abilities_str}', close_abilities='{close_abilities_str}'")
+            
+            try:
+                abilities = json.loads(abilities_str)
+                close_abilities = json.loads(close_abilities_str)
+                
+                LANGUAGE_CONFIGS[language] = {
+                    "ABILITIES": abilities,
+                    "CLOSE_ABILITIES": close_abilities
+                }
+                
+            except json.JSONDecodeError as e:
+                log.warning(f"[ResolutionUtils] Failed to parse language config for {language}: {e}")
+                continue
+        
+        log.info(f"[ResolutionUtils] Loaded language configs for {len(LANGUAGE_CONFIGS)} languages")
+        
+    except Exception as e:
+        log.error(f"[ResolutionUtils] Error loading language configs: {e}")
+
+# Load language configurations on module import
+load_language_configs()
 
 # Click catcher positions and sizes for each resolution (Summoner's Rift)
 CLICK_CATCHER_CONFIGS = {
@@ -157,7 +227,7 @@ def get_resolution_key(resolution: Tuple[int, int]) -> Optional[str]:
     return None
 
 
-def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map_id: Optional[int] = None) -> Optional[Dict[str, int]]:
+def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map_id: Optional[int] = None, language: Optional[str] = None) -> Optional[Dict[str, int]]:
     """
     Get click catcher configuration for a specific resolution and catcher name
     
@@ -165,6 +235,7 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
         resolution: (width, height) tuple
         catcher_name: Name of the click catcher (e.g., 'EDIT_RUNES', 'SETTINGS')
         map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
+        language: Optional language code for language-specific coordinates (e.g., 'en', 'fr', 'de')
         
     Returns:
         Dictionary with x, y, width, height or None if not found
@@ -173,6 +244,15 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
     if not resolution_key:
         log.warning(f"[ResolutionUtils] Unsupported resolution: {resolution}")
         return None
+    
+    # Check for language-specific coordinates for ABILITIES and CLOSE_ABILITIES
+    if language and catcher_name in ['ABILITIES', 'CLOSE_ABILITIES']:
+        language_coords = get_language_specific_coordinates(language, resolution, catcher_name)
+        if language_coords:
+            log.debug(f"[ResolutionUtils] Using language-specific config for {catcher_name} at {resolution_key} with language {language}")
+            return language_coords
+        else:
+            log.debug(f"[ResolutionUtils] No language-specific config found for {catcher_name} with language {language}, falling back to default")
     
     # Check if this catcher has gamemode-specific config
     is_aram = map_id == 12
@@ -287,6 +367,69 @@ def get_current_resolution() -> Optional[Tuple[int, int]]:
     except Exception as e:
         log.error(f"[ResolutionUtils] Error getting current resolution: {e}")
         return None
+
+
+def get_language_specific_coordinates(language: str, resolution: Tuple[int, int], element: str) -> Optional[Dict[str, int]]:
+    """
+    Get language-specific coordinates for ABILITIES or CLOSE_ABILITIES elements
+    
+    Args:
+        language: Language code (e.g., 'en', 'fr', 'de')
+        resolution: Resolution tuple (width, height)
+        element: Element name ('ABILITIES' or 'CLOSE_ABILITIES')
+    
+    Returns:
+        Dictionary with x, y, width, height or None if not found
+    """
+    if language not in LANGUAGE_CONFIGS:
+        log.debug(f"[ResolutionUtils] Language {language} not found in configs, using default")
+        return None
+    
+    if element not in LANGUAGE_CONFIGS[language]:
+        log.debug(f"[ResolutionUtils] Element {element} not found for language {language}")
+        return None
+    
+    # Get base coordinates for 1600x900
+    base_config = LANGUAGE_CONFIGS[language][element]
+    base_x = base_config["x"]
+    base_width = base_config["width"]
+    
+    # Calculate scaling factors based on resolution
+    if resolution == (1600, 900):
+        # Use base coordinates directly
+        scale_factor = 1.0
+    elif resolution == (1280, 720):
+        # Scale from 1600x900 to 1280x720
+        scale_factor = 1280 / 1600
+    elif resolution == (1024, 576):
+        # Scale from 1600x900 to 1024x576
+        scale_factor = 1024 / 1600
+    else:
+        log.warning(f"[ResolutionUtils] Unsupported resolution for language coordinates: {resolution}")
+        return None
+    
+    # Calculate scaled coordinates
+    scaled_x = int(base_x * scale_factor)
+    scaled_width = int(base_width * scale_factor)
+    
+    # Y coordinates and height are the same for all languages (only x and width vary)
+    # Get these from the base resolution config
+    resolution_str = RESOLUTIONS.get(resolution)
+    if not resolution_str or resolution_str not in CLICK_CATCHER_CONFIGS:
+        log.warning(f"[ResolutionUtils] No base config found for resolution {resolution}")
+        return None
+    
+    base_element_config = CLICK_CATCHER_CONFIGS[resolution_str].get(element)
+    if not base_element_config:
+        log.warning(f"[ResolutionUtils] No base config found for element {element} at resolution {resolution}")
+        return None
+    
+    return {
+        "x": scaled_x,
+        "y": base_element_config["y"],
+        "width": scaled_width,
+        "height": base_element_config["height"]
+    }
 
 
 def log_resolution_info(resolution: Tuple[int, int], map_id: Optional[int] = None):

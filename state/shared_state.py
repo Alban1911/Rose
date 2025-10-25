@@ -52,7 +52,10 @@ class SharedState:
     
     # UI state management
     reset_skin_notification: bool = False  # Flag to reset skin notification debouncing
-    chroma_panel_open: bool = False  # Flag to pause UI detection when panel is open
+    chroma_panel_open: bool = False
+    
+    # Language detection
+    current_language: Optional[str] = None  # Current client language (e.g., 'en', 'fr', 'de')
     
     # Game mode detection
     current_game_mode: Optional[str] = None  # Current game mode (ARAM, CLASSIC, etc.)

@@ -1067,7 +1067,18 @@ def main():
                         skin_scraper=skin_scraper)
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
-    t_lcu_monitor = LCUMonitorThread(lcu, state, None, t_ws, 
+    # Language callback to update shared state
+    def on_language_detected(language: str):
+        """Callback when language is detected from LCU"""
+        if language:
+            # Extract language code from locale (e.g., 'en_US' -> 'en')
+            language_code = language.split('_')[0] if '_' in language else language
+            state.current_language = language_code
+            log.info(f"[Main] Language detected and set: {language_code} (from {language})")
+        else:
+            log.warning("[Main] Language detection returned None")
+    
+    t_lcu_monitor = LCUMonitorThread(lcu, state, on_language_detected, t_ws, 
                                       db=None, skin_scraper=skin_scraper, injection_manager=injection_manager,
                                       disconnect_callback=on_lcu_disconnected)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
