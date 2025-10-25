@@ -427,6 +427,12 @@ class ChromaPanelWidget(ChromaWidgetBase):
         self.circles.append(base_circle)
         
         # Add chroma circles
+        # For Elementalist Lux forms, use base skin ID for chroma preview loading
+        preview_skin_id = skin_id
+        if (99991 <= skin_id <= 99999) or skin_id == 99007:
+            preview_skin_id = 99007  # Always use base skin ID for chroma previews
+            log.debug(f"[CHROMA] Using base skin ID {preview_skin_id} for chroma previews instead of form ID {skin_id}")
+        
         for i, chroma in enumerate(chromas):
             # Get color from chroma data
             colors = chroma.get('colors', [])
@@ -444,8 +450,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
             # Load chroma preview image with direct path
             chroma_id = chroma.get('id', 0)
             
-            # Use chroma_id directly (no more fake IDs)
-            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id, champion_name, skin_id, champion_id)
+            # Use base skin ID for Elementalist Lux form previews
+            preview_image = self._load_chroma_preview_image(base_skin_name_for_previews, chroma_id, champion_name, preview_skin_id, champion_id)
             
             circle = ChromaCircle(
                 chroma_id=chroma_id,
