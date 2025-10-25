@@ -4,13 +4,15 @@
 Repository Downloader
 Downloads the entire repository as a ZIP file and extracts it locally
 Much more efficient than individual API calls
+Supports incremental updates by tracking repository changes
 """
 
+import json
 import zipfile
 import tempfile
 import requests
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Set
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
@@ -19,7 +21,7 @@ log = get_logger()
 
 
 class RepoDownloader:
-    """Downloads entire repository as ZIP and extracts locally"""
+    """Downloads entire repository as ZIP and extracts locally with incremental updates"""
     
     def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/AlbanCliquet/lolskins"):
         self.repo_url = repo_url
@@ -27,8 +29,153 @@ class RepoDownloader:
         self.target_dir = target_dir or get_skins_dir()
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': APP_USER_AGENT
+            'User-Agent': APP_USER_AGENT,
+            'Accept': 'application/vnd.github.v3+json'
         })
+        
+        # State tracking for incremental updates
+        self.state_file = self.target_dir / '.repo_state.json'
+        self.api_base = "https://api.github.com/repos/AlbanCliquet/lolskins"
+    
+    def get_repo_state(self) -> Dict:
+        """Get current repository state from GitHub API"""
+        try:
+            # Get the latest commit info
+            response = self.session.get(f"{self.api_base}/commits/main")
+            response.raise_for_status()
+            commit_data = response.json()
+            
+            return {
+                'last_commit_sha': commit_data['sha'],
+                'last_commit_date': commit_data['commit']['committer']['date'],
+                'last_checked': None  # Will be set when we save state
+            }
+        except requests.RequestException as e:
+            log.error(f"Failed to get repository state: {e}")
+            return {}
+    
+    def load_local_state(self) -> Dict:
+        """Load local state from state file"""
+        if not self.state_file.exists():
+            return {}
+        
+        try:
+            with open(self.state_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            log.warning(f"Failed to load local state: {e}")
+            return {}
+    
+    def save_local_state(self, state: Dict):
+        """Save local state to state file"""
+        try:
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+        except IOError as e:
+            log.warning(f"Failed to save local state: {e}")
+    
+    def has_repository_changed(self) -> bool:
+        """Check if repository has changed since last update"""
+        local_state = self.load_local_state()
+        if not local_state:
+            log.info("No local state found, repository will be downloaded")
+            return True
+        
+        current_state = self.get_repo_state()
+        if not current_state:
+            log.warning("Failed to get current repository state, assuming no changes")
+            return False
+        
+        # Compare commit SHAs
+        local_sha = local_state.get('last_commit_sha')
+        current_sha = current_state.get('last_commit_sha')
+        
+        if local_sha != current_sha:
+            log.info(f"Repository changed: {local_sha[:8] if local_sha else 'None'} -> {current_sha[:8] if current_sha else 'None'}")
+            return True
+        
+        log.info("Repository unchanged, skipping download")
+        return False
+    
+    def get_changed_files(self, since_commit: str) -> List[Dict]:
+        """Get list of files that changed since a specific commit"""
+        try:
+            # Get commits since the specified commit
+            response = self.session.get(f"{self.api_base}/compare/{since_commit}...main")
+            response.raise_for_status()
+            compare_data = response.json()
+            
+            changed_files = []
+            for file_info in compare_data.get('files', []):
+                # Only include files in the skins/ directory
+                if file_info['filename'].startswith('skins/'):
+                    # Get download URL using the file's SHA
+                    download_url = None
+                    if file_info.get('sha'):
+                        download_url = f"{self.api_base}/contents/{file_info['filename']}?ref=main"
+                    
+                    changed_files.append({
+                        'filename': file_info['filename'],
+                        'status': file_info['status'],  # 'added', 'modified', 'removed'
+                        'sha': file_info.get('sha'),
+                        'download_url': download_url
+                    })
+            
+            return changed_files
+        except requests.RequestException as e:
+            log.error(f"Failed to get changed files: {e}")
+            return []
+    
+    def download_individual_file(self, file_info: Dict) -> bool:
+        """Download a single file from GitHub"""
+        if not file_info.get('download_url'):
+            log.warning(f"No download URL for {file_info['filename']}")
+            return False
+        
+        try:
+            # Calculate local path
+            relative_path = file_info['filename'].replace('skins/', '')
+            local_path = self.target_dir / relative_path
+            
+            # Handle file removal
+            if file_info['status'] == 'removed':
+                if local_path.exists():
+                    local_path.unlink()
+                    log.info(f"Removed {local_path}")
+                return True
+            
+            # Create directory if needed
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # First, get the file contents from GitHub API
+            response = self.session.get(file_info['download_url'])
+            response.raise_for_status()
+            file_data = response.json()
+            
+            # Check if we got the expected response structure
+            if 'download_url' not in file_data:
+                log.error(f"Unexpected response format for {file_info['filename']}")
+                return False
+            
+            # Download the actual file content
+            download_response = self.session.get(file_data['download_url'], stream=True, timeout=SKIN_DOWNLOAD_STREAM_TIMEOUT_S)
+            download_response.raise_for_status()
+            
+            with open(local_path, 'wb') as f:
+                for chunk in download_response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            log.info(f"Downloaded {file_info['filename']}")
+            return True
+            
+        except requests.RequestException as e:
+            log.error(f"Failed to download {file_info['filename']}: {e}")
+            return False
+        except Exception as e:
+            log.error(f"Error saving {file_info['filename']}: {e}")
+            return False
         
     def download_repo_zip(self) -> Optional[Path]:
         """Download the entire repository as a ZIP file"""
@@ -154,6 +301,82 @@ class RepoDownloader:
             log.error(f"Error extracting skins: {e}")
             return False
     
+    def download_incremental_updates(self, force_update: bool = False) -> bool:
+        """Download only changed files since last update"""
+        try:
+            # Check if repository has changed
+            if not force_update and not self.has_repository_changed():
+                return True
+            
+            local_state = self.load_local_state()
+            current_state = self.get_repo_state()
+            
+            if not current_state:
+                log.error("Failed to get current repository state")
+                return False
+            
+            # If no local state, check if we have existing skins
+            if not local_state:
+                existing_skins = list(self.target_dir.rglob("*.zip"))
+                if existing_skins:
+                    log.info(f"No local state found, but found {len(existing_skins)} existing skins")
+                    log.info("Creating state file and checking for updates...")
+                    # Create a minimal state and try incremental update
+                    # We'll use the current commit as the "last known" state
+                    current_state['last_checked'] = current_state['last_commit_date']
+                    self.save_local_state(current_state)
+                    # Now check for changes since current commit (should be none)
+                    changed_files = self.get_changed_files(current_state['last_commit_sha'])
+                    if not changed_files:
+                        log.info("No changes found since current commit")
+                        return True
+                    else:
+                        log.info(f"Found {len(changed_files)} changed files, downloading...")
+                        # Download changed files
+                        success_count = 0
+                        for file_info in changed_files:
+                            if self.download_individual_file(file_info):
+                                success_count += 1
+                        log.info(f"Downloaded {success_count}/{len(changed_files)} changed files")
+                        return success_count > 0
+                else:
+                    log.info("No local state and no existing skins found, performing full download")
+                    return self.download_and_extract_skins(force_update=True)
+            
+            # Get changed files since last update
+            last_commit = local_state.get('last_commit_sha')
+            if not last_commit:
+                log.info("No previous commit found, performing full download")
+                return self.download_and_extract_skins(force_update=True)
+            
+            changed_files = self.get_changed_files(last_commit)
+            if not changed_files:
+                log.info("No skin files changed")
+                # Update state even if no changes
+                current_state['last_checked'] = current_state['last_commit_date']
+                self.save_local_state(current_state)
+                return True
+            
+            log.info(f"Found {len(changed_files)} changed files")
+            
+            # Download changed files
+            success_count = 0
+            for file_info in changed_files:
+                if self.download_individual_file(file_info):
+                    success_count += 1
+            
+            log.info(f"Downloaded {success_count}/{len(changed_files)} changed files")
+            
+            # Update local state
+            current_state['last_checked'] = current_state['last_commit_date']
+            self.save_local_state(current_state)
+            
+            return success_count > 0
+            
+        except Exception as e:
+            log.error(f"Failed to download incremental updates: {e}")
+            return False
+    
     def download_and_extract_skins(self, force_update: bool = False) -> bool:
         """Download repository and extract skins in one operation"""
         try:
@@ -180,6 +403,14 @@ class RepoDownloader:
             try:
                 # Extract skins from ZIP
                 success = self.extract_skins_from_zip(zip_path)
+                
+                # Save state after successful full download
+                if success:
+                    current_state = self.get_repo_state()
+                    if current_state:
+                        current_state['last_checked'] = current_state['last_commit_date']
+                        self.save_local_state(current_state)
+                
                 return success
                 
             finally:
@@ -280,8 +511,8 @@ class RepoDownloader:
         }
 
 
-def download_skins_from_repo(target_dir: Path = None, force_update: bool = False, tray_manager=None) -> bool:
-    """Download all skins from repository in one operation"""
+def download_skins_from_repo(target_dir: Path = None, force_update: bool = False, tray_manager=None, use_incremental: bool = True) -> bool:
+    """Download skins from repository with optional incremental updates"""
     try:
         # Note: tray_manager status is already set by caller (download_skins_on_startup)
         downloader = RepoDownloader(target_dir)
@@ -295,8 +526,13 @@ def download_skins_from_repo(target_dir: Path = None, force_update: bool = False
                     f"{current_detailed['total_ids']} total skin IDs + "
                     f"{current_detailed['total_previews']} preview images")
         
-        # Download and extract skins and previews from merged database
-        success = downloader.download_and_extract_skins(force_update)
+        # Choose download method based on preferences
+        if use_incremental and not force_update:
+            log.info("Using incremental update mode")
+            success = downloader.download_incremental_updates(force_update)
+        else:
+            log.info("Using full download mode")
+            success = downloader.download_and_extract_skins(force_update)
         
         if success:
             # Get updated detailed stats
@@ -314,7 +550,8 @@ def download_skins_from_repo(target_dir: Path = None, force_update: bool = False
                 log.info("No new skins or previews to download")
             
             # Log completion
-            log.info("✓ Merged database download complete (skins + previews)")
+            update_type = "incremental" if use_incremental and not force_update else "full"
+            log.info(f"✓ {update_type.title()} database download complete (skins + previews)")
         
         return success
         
