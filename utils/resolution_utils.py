@@ -122,6 +122,25 @@ CLICK_CATCHER_CONFIGS_ARAM = {
     }
 }
 
+# Click catcher positions for Arena (Map ID 22) - no REC_RUNES, EDIT_RUNES, or WARD
+CLICK_CATCHER_CONFIGS_ARENA = {
+    "1600x900": {
+        "SUM_L": {"x": 715, "y": 831, "width": 46, "height": 47},
+        "SUM_R": {"x": 774, "y": 831, "width": 46, "height": 47},
+        "EMOTES": {"x": 849, "y": 832, "width": 46, "height": 46}
+    },
+    "1280x720": {
+        "SUM_L": {"x": 572, "y": 664, "width": 37, "height": 38},
+        "SUM_R": {"x": 619, "y": 664, "width": 37, "height": 38},
+        "EMOTES": {"x": 679, "y": 665, "width": 37, "height": 37}
+    },
+    "1024x576": {
+        "SUM_L": {"x": 457, "y": 531, "width": 30, "height": 31},
+        "SUM_R": {"x": 495, "y": 531, "width": 30, "height": 31},
+        "EMOTES": {"x": 543, "y": 532, "width": 30, "height": 30}
+    }
+}
+
 
 def get_resolution_key(resolution: Tuple[int, int]) -> Optional[str]:
     """
@@ -145,7 +164,7 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
     Args:
         resolution: (width, height) tuple
         catcher_name: Name of the click catcher (e.g., 'EDIT_RUNES', 'SETTINGS')
-        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, None = use default)
+        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
         
     Returns:
         Dictionary with x, y, width, height or None if not found
@@ -155,9 +174,17 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
         log.warning(f"[ResolutionUtils] Unsupported resolution: {resolution}")
         return None
     
-    # Check if this catcher has ARAM-specific config
+    # Check if this catcher has gamemode-specific config
     is_aram = map_id == 12
+    is_arena = map_id == 22
     
+    # Check Arena config first
+    if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
+        if catcher_name in CLICK_CATCHER_CONFIGS_ARENA[resolution_key]:
+            log.debug(f"[ResolutionUtils] Using Arena config for {catcher_name} at {resolution_key}")
+            return CLICK_CATCHER_CONFIGS_ARENA[resolution_key][catcher_name].copy()
+    
+    # Check ARAM config
     if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
         if catcher_name in CLICK_CATCHER_CONFIGS_ARAM[resolution_key]:
             log.debug(f"[ResolutionUtils] Using ARAM config for {catcher_name} at {resolution_key}")
@@ -181,7 +208,7 @@ def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[
     
     Args:
         resolution: (width, height) tuple
-        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, None = use default)
+        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
         
     Returns:
         Dictionary of all catcher configs or None if resolution not supported
@@ -191,9 +218,22 @@ def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[
         log.warning(f"[ResolutionUtils] Unsupported resolution: {resolution}")
         return None
     
-    # Check if we should use ARAM config
+    # Check if we should use gamemode-specific config
     is_aram = map_id == 12
+    is_arena = map_id == 22
     
+    # Check Arena config
+    if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
+        # Start with default config and overlay Arena-specific values
+        result = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
+        
+        # Override with Arena-specific configs where they exist
+        for name, config in CLICK_CATCHER_CONFIGS_ARENA[resolution_key].items():
+            result[name] = config.copy()
+        
+        return result
+    
+    # Check ARAM config
     if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
         # Start with default config and overlay ARAM-specific values
         result = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
@@ -255,7 +295,7 @@ def log_resolution_info(resolution: Tuple[int, int], map_id: Optional[int] = Non
     
     Args:
         resolution: (width, height) tuple
-        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, None = use default)
+        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
     """
     resolution_key = get_resolution_key(resolution)
     if resolution_key:
