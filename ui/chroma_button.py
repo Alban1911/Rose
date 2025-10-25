@@ -561,8 +561,8 @@ class OpeningButton(ChromaWidgetBase):
             log.debug(f"[CHROMA] Button position before show: ({self.x()}, {self.y()}) size: {self.width()}x{self.height()}")
             
             self.show()
-            self.raise_()
-            self.bring_to_front()
+            # Don't call raise_() or bring_to_front() - z-order is managed by ZOrderManager
+            # This allows RandomFlag (higher z-level) to properly appear above ChromaButton
             
             # Debug: Check position after showing
             log.debug(f"[CHROMA] Button position after show: ({self.x()}, {self.y()}) size: {self.width()}x{self.height()}")

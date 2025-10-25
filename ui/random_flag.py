@@ -178,13 +178,33 @@ class RandomFlag(ChromaWidgetBase):
         if not self.is_visible:
             self.is_visible = True
             self.show()
+            # Ensure proper z-order after showing (with delay to ensure widget is fully shown)
+            from PyQt6.QtCore import QTimer
+            def delayed_zorder_refresh():
+                log.debug("[RandomFlag] Applying delayed z-order refresh after show")
+                self.refresh_z_order()
+                # Force RandomFlag to come to front to ensure it's above ChromaButton
+                try:
+                    from ui.z_order_manager import get_z_order_manager
+                    z_manager = get_z_order_manager()
+                    z_manager.bring_to_front('random_flag')
+                    log.debug("[RandomFlag] Forced RandomFlag to front")
+                except Exception as e:
+                    log.debug(f"[RandomFlag] Error bringing RandomFlag to front: {e}")
+            QTimer.singleShot(50, delayed_zorder_refresh)
             self.fade_in_requested.emit()
     
     def hide_flag(self):
-        """Hide the random flag with fade out"""
+        """Hide the random flag instantly (no fade)"""
         if self.is_visible:
             self.is_visible = False
-            self.fade_out_requested.emit()
+            # Stop any ongoing fade animation
+            if self.fade_timer:
+                self.fade_timer.stop()
+                self.fade_timer = None
+            # Set opacity to 0 instantly and hide
+            self.opacity_effect.setOpacity(0.0)
+            self.hide()
     
     def _do_fade_in(self):
         """Fade in animation (reused from UnownedFrame)"""

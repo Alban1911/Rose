@@ -543,16 +543,14 @@ class ChromaPanelManager:
                     button_pos = self.reopen_button.pos() if self.reopen_button else None
                     self.widget.show_wheel(button_pos=button_pos)
                     self.widget.setVisible(True)
-                    self.widget.raise_()  # Panel on top
-                    self.widget.bring_to_front()  # Ensure proper z-order
+                    # Don't call raise_() or bring_to_front() - z-order is managed by ZOrderManager
+                    # The panel has the highest z-level (300) so it will naturally be on top
                     
                     # Position is handled by _position_panel_absolutely() in setup_ui()
                     # No need to call _update_position() since we use absolute positioning
                     
-                    # Ensure button is also on top
-                    if self.reopen_button:
-                        self.reopen_button.raise_()
-                        self.reopen_button.bring_to_front()
+                    # Don't call raise_() or bring_to_front() on button - z-order is managed by ZOrderManager
+                    # This allows RandomFlag (higher z-level) to properly appear above ChromaButton
                     
                     log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
                     
@@ -602,10 +600,9 @@ class ChromaPanelManager:
             if self.pending_show_button:
                 self.pending_show_button = False
                 if self.reopen_button:
-                    # Add a small delay for initial show to ensure League window is ready
-                    from PyQt6.QtCore import QTimer
-                    QTimer.singleShot(25, self.reopen_button.show_for_chromas)
-                    log.debug("[CHROMA] Button show scheduled for chromas")
+                    # Show immediately - no delay needed (widget is already initialized)
+                    self.reopen_button.show_for_chromas()
+                    log.debug("[CHROMA] Button shown for chromas")
             
             # Process reopen button hide request
             if self.pending_hide_button:
