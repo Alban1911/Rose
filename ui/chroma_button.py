@@ -482,11 +482,11 @@ class OpeningButton(ChromaWidgetBase):
         if was_hovered != self.is_hovered:
             self.update()
             # Ensure z-order is maintained after visual update
-            # This prevents the button from going behind UnownedFrame during fade-in
+            # Use force=True to bypass refresh interval and ensure immediate z-order fix
             try:
                 from ui.z_order_manager import get_z_order_manager
                 z_manager = get_z_order_manager()
-                z_manager.refresh_z_order()
+                z_manager.refresh_z_order(force=True)
             except Exception:
                 pass  # Don't fail if z-order refresh fails
         
@@ -505,7 +505,7 @@ class OpeningButton(ChromaWidgetBase):
             try:
                 from ui.z_order_manager import get_z_order_manager
                 z_manager = get_z_order_manager()
-                z_manager.refresh_z_order()
+                z_manager.refresh_z_order(force=True)
             except Exception:
                 pass
         # Cursor remains as hand pointer since widget has it set
@@ -520,7 +520,7 @@ class OpeningButton(ChromaWidgetBase):
                 try:
                     from ui.z_order_manager import get_z_order_manager
                     z_manager = get_z_order_manager()
-                    z_manager.refresh_z_order()
+                    z_manager.refresh_z_order(force=True)
                 except Exception:
                     pass
         except RuntimeError as e:
@@ -536,7 +536,7 @@ class OpeningButton(ChromaWidgetBase):
             try:
                 from ui.z_order_manager import get_z_order_manager
                 z_manager = get_z_order_manager()
-                z_manager.refresh_z_order()
+                z_manager.refresh_z_order(force=True)
             except Exception:
                 pass
         except RuntimeError as e:
