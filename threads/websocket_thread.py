@@ -560,6 +560,9 @@ class WSEventThread(threading.Thread):
                 log.info("[WS] ARAM mode detected - chroma panel will use ARAM background")
             elif map_id == 11 or game_mode == "CLASSIC":
                 log.info("[WS] Summoner's Rift mode detected - chroma panel will use SR background")
+            elif game_mode == "SWIFTPLAY":
+                log.info("[WS] Swiftplay mode detected - will trigger early skin detection in lobby")
+                log.info("[WS] Swiftplay mode: Champion selection and skin detection will happen in lobby phase")
             else:
                 log.info(f"[WS] Unknown game mode ({game_mode}, Map ID: {map_id}) - defaulting to SR background")
                 
