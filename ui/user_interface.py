@@ -715,6 +715,13 @@ class UserInterface:
     
     def is_ui_initialized(self):
         """Check if UI components are initialized"""
+        # In Swiftplay mode, click_catchers are not created, so skip that check
+        if self.state and self.state.is_swiftplay_mode:
+            return (self.chroma_ui is not None and 
+                    self.unowned_frame is not None and 
+                    self.dice_button is not None and 
+                    self.random_flag is not None)
+        # Regular mode requires click catchers
         return (self.chroma_ui is not None and 
                 self.unowned_frame is not None and 
                 self.dice_button is not None and 
