@@ -1114,7 +1114,22 @@ def main():
             if qt_app:
                 try:
                     # Check for skin changes and notify UI (modular architecture)
-                    if state.last_hovered_skin_id and state.locked_champ_id:
+                    # For Swiftplay mode, use ui_skin_id and calculate champion_id from skin_id
+                    # For regular mode, use last_hovered_skin_id and locked_champ_id
+                    if state.is_swiftplay_mode and state.ui_skin_id:
+                        current_skin_id = state.ui_skin_id
+                        current_skin_name = state.ui_last_text or f"Skin {current_skin_id}"
+                        # Calculate champion ID from skin ID for Swiftplay
+                        from utils.utilities import get_champion_id_from_skin_id
+                        champion_id = get_champion_id_from_skin_id(current_skin_id)
+                        champion_name = None
+                        # Load champion data if not already loaded
+                        if skin_scraper:
+                            if not skin_scraper.cache.is_loaded_for_champion(champion_id):
+                                skin_scraper.scrape_champion_skins(champion_id)
+                            if skin_scraper.cache.is_loaded_for_champion(champion_id):
+                                champion_name = skin_scraper.cache.champion_name
+                    elif state.last_hovered_skin_id and state.locked_champ_id:
                         current_skin_id = state.last_hovered_skin_id
                         current_skin_name = state.last_hovered_skin_key
                         
@@ -1122,7 +1137,30 @@ def main():
                         champion_name = None
                         if skin_scraper and skin_scraper.cache.is_loaded_for_champion(state.locked_champ_id):
                             champion_name = skin_scraper.cache.champion_name
-                        
+                    else:
+                        current_skin_id = None
+                        champion_id = None
+                        champion_name = None
+                        current_skin_name = None
+                    
+                    # Check if UI should be hidden in Swiftplay mode when detection is lost
+                    if state.is_swiftplay_mode and state.ui_skin_id is None:
+                        # Use a flag to avoid spamming hide() calls
+                        if not hasattr(main, '_swiftplay_ui_hidden'):
+                            try:
+                                from ui.user_interface import get_user_interface
+                                user_interface = get_user_interface()
+                                if user_interface.is_ui_initialized():
+                                    if user_interface.chroma_ui:
+                                        user_interface.chroma_ui.hide()
+                                    if user_interface.unowned_frame:
+                                        user_interface.unowned_frame.hide()
+                                    main._swiftplay_ui_hidden = True
+                                    log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode")
+                            except Exception as e:
+                                log.debug(f"[MAIN] Error hiding UI: {e}")
+                    
+                    if current_skin_id:
                         # Check if we need to reset skin notification debouncing
                         if state.reset_skin_notification:
                             if hasattr(main, '_last_notified_skin_id'):
@@ -1131,19 +1169,33 @@ def main():
                             log.debug("[MAIN] Reset skin notification debouncing for new ChampSelect")
                         
                         # Check if this is a new skin (debouncing at main loop level)
-                        if not hasattr(main, '_last_notified_skin_id') or main._last_notified_skin_id != current_skin_id:
+                        last_notified = getattr(main, '_last_notified_skin_id', None)
+                        should_notify = (last_notified is None or last_notified != current_skin_id)
+                        
+                        if should_notify:
                             # Notify UserInterface of the skin change
                             try:
                                 # Get the user interface that was already initialized
                                 from ui.user_interface import get_user_interface
                                 user_interface = get_user_interface()
                                 if user_interface.is_ui_initialized():
-                                    user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name, state.locked_champ_id)
+                                    # Use the correct champion_id (either from Swiftplay or regular mode)
+                                    champ_id_for_ui = champion_id if state.is_swiftplay_mode else state.locked_champ_id
+                                    user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name, champ_id_for_ui)
                                     log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
                                     # Track the last notified skin
                                     main._last_notified_skin_id = current_skin_id
+                                    # Reset hide flag since we're showing a skin
+                                    if hasattr(main, '_swiftplay_ui_hidden'):
+                                        delattr(main, '_swiftplay_ui_hidden')
+                                        log.debug("[MAIN] Reset UI hide flag - skin detected")
+                                else:
+                                    # Only log once per skin to avoid spam
+                                    if not hasattr(main, '_ui_not_initialized_logged') or main._ui_not_initialized_logged != current_skin_id:
+                                        log.debug(f"[MAIN] UI not initialized yet - skipping skin notification for {current_skin_id}")
+                                        main._ui_not_initialized_logged = current_skin_id
                             except Exception as e:
-                                log.debug(f"[MAIN] Failed to notify UI: {e}")
+                                log.error(f"[MAIN] Failed to notify UI: {e}")
                     
                     # Process pending UI initialization and requests
                     from ui.user_interface import get_user_interface

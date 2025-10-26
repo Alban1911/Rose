@@ -190,6 +190,22 @@ def _stop_mouse_monitoring():
         log.debug("[ClickCatcher] Mouse monitoring stopped")
 
 
+def cleanup_all_click_catchers():
+    """Clean up all click catchers globally (used for Swiftplay mode)"""
+    global _click_catchers, _click_down_in_area
+    
+    log.info("[ClickCatcher] Cleaning up all click catchers globally")
+    
+    # Clear all click catchers
+    _click_catchers.clear()
+    _click_down_in_area.clear()
+    
+    # Stop mouse monitoring
+    _stop_mouse_monitoring()
+    
+    log.info("[ClickCatcher] All click catchers cleaned up globally")
+
+
 class ClickCatcher(ChromaWidgetBase):
     """
     Abstract base class for invisible click catchers that detect clicks on specific UI elements
@@ -285,6 +301,11 @@ class ClickCatcher(ChromaWidgetBase):
     def _register_click_catcher(self):
         """Register this click catcher in the global registry"""
         global _click_catchers
+        
+        # Skip registration in Swiftplay mode
+        if self.state and hasattr(self.state, 'is_swiftplay_mode') and self.state.is_swiftplay_mode:
+            log.debug(f"[ClickCatcher] Skipping registration - Swiftplay mode detected")
+            return
         
         # Get League window handle
         from utils.window_utils import get_league_window_handle

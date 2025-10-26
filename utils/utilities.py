@@ -15,6 +15,18 @@ from utils.logging import get_logger
 log = get_logger()
 
 
+def get_champion_id_from_skin_id(skin_id: int) -> int:
+    """Get champion ID from a skin ID
+    
+    Args:
+        skin_id: The skin ID
+        
+    Returns:
+        The champion ID (skin_id // 1000)
+    """
+    return skin_id // 1000
+
+
 def is_default_skin(skin_id: int) -> bool:
     """Check if a skin ID is the champion's default skin
     

@@ -105,6 +105,13 @@ class ChromaSelector:
                         # Update the skin ID to the fake ID so injection system treats it as unowned
                         self.state.last_hovered_skin_id = chroma_id
                         
+                        # Update Swiftplay tracking dictionary if in Swiftplay mode
+                        if self.state.is_swiftplay_mode:
+                            # For Elementalist Lux forms, use the base skin ID (99007) for tracking
+                            champion_id = 99  # Lux champion ID
+                            self.state.swiftplay_skin_tracking[champion_id] = chroma_id  # Store the fake form ID
+                            log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> Elementalist form {chroma_id}")
+                        
                         # Update the skin name to include the Form name for injection
                         if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                             base_skin_name = self.panel.current_skin_name
@@ -124,6 +131,13 @@ class ChromaSelector:
                     self.state.selected_chroma_id = chroma_id
                     self.state.last_hovered_skin_id = 145071  # Immortalized Legend Kai'Sa skin ID
                     
+                    # Update Swiftplay tracking dictionary if in Swiftplay mode
+                    if self.state.is_swiftplay_mode:
+                        from utils.utilities import get_champion_id_from_skin_id
+                        champion_id = get_champion_id_from_skin_id(145071)  # Get champion ID from Kai'Sa skin
+                        self.state.swiftplay_skin_tracking[champion_id] = chroma_id  # Store the chroma ID
+                        log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> HOL chroma {chroma_id}")
+                    
                     # Update the skin name to include the HOL chroma name for injection
                     if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                         base_skin_name = self.panel.current_skin_name
@@ -142,6 +156,13 @@ class ChromaSelector:
                     # Store the HOL skin ID for injection
                     self.state.selected_chroma_id = chroma_id
                     self.state.last_hovered_skin_id = 103086  # Immortalized Legend Ahri skin ID
+                    
+                    # Update Swiftplay tracking dictionary if in Swiftplay mode
+                    if self.state.is_swiftplay_mode:
+                        from utils.utilities import get_champion_id_from_skin_id
+                        champion_id = get_champion_id_from_skin_id(103086)  # Get champion ID from Ahri skin
+                        self.state.swiftplay_skin_tracking[champion_id] = chroma_id  # Store the chroma ID
+                        log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> HOL chroma {chroma_id}")
                     
                     # Update the skin name to include the HOL chroma name for injection
                     if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
@@ -171,6 +192,13 @@ class ChromaSelector:
                         self.state.last_hovered_skin_key = english_skin_name
                         log.debug(f"[CHROMA] Reset last_hovered_skin_key to: {self.state.last_hovered_skin_key}")
                     
+                    # Update Swiftplay tracking dictionary if in Swiftplay mode
+                    if self.state.is_swiftplay_mode and self.current_skin_id:
+                        from utils.utilities import get_champion_id_from_skin_id
+                        champion_id = get_champion_id_from_skin_id(self.current_skin_id)
+                        self.state.swiftplay_skin_tracking[champion_id] = self.current_skin_id
+                        log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> base skin {self.current_skin_id}")
+                    
                     log.info(f"[CHROMA] Reset to base skin ID: {self.current_skin_id}")
                 else:
                     # Regular chroma selected - update skin ID to chroma ID
@@ -180,6 +208,13 @@ class ChromaSelector:
                     # UPDATE: Change the hovered skin ID to the chroma ID
                     # This way injection will use the chroma ID
                     self.state.last_hovered_skin_id = chroma_id
+                    
+                    # Update Swiftplay tracking dictionary if in Swiftplay mode
+                    if self.state.is_swiftplay_mode:
+                        from utils.utilities import get_champion_id_from_skin_id
+                        champion_id = get_champion_id_from_skin_id(chroma_id)
+                        self.state.swiftplay_skin_tracking[champion_id] = chroma_id
+                        log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> skin {chroma_id}")
                     
                     # Also update the skin key to include chroma ID for injection path
                     # Format: "{base_skin_name} {chroma_id}" for injection system

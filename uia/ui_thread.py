@@ -5,12 +5,16 @@ Main UI thread for skin name detection
 import time
 import threading
 import logging
-from typing import Optional
+import json
+from typing import Optional, Dict
+from pathlib import Path
 
 from .connection import UIConnection
 from .detector import UIDetector
 from .debug import UIDebugger
 from config import UIA_DELAY_MS
+from utils.paths import get_user_data_dir
+from utils.utilities import get_champion_id_from_skin_id
 
 
 log = logging.getLogger(__name__)
@@ -46,11 +50,16 @@ class UISkinThread(threading.Thread):
         self.detection_attempts = 0
         self.max_detection_attempts = 50  # Try for ~5 seconds at 0.1s interval
         self.detection_backoff_delay = 0.5  # Wait longer between attempts after failures
+        
+        # Skin ID mapping cache for Swiftplay
+        self.skin_id_mapping: Dict[str, int] = {}
+        self.skin_mapping_loaded = False
     
     def run(self):
         """Main thread loop"""
         self.running = True
         log.info("UI Detection: Thread started")
+        
         
         while self.running and not self.stop_event.is_set():
             try:
@@ -77,25 +86,62 @@ class UISkinThread(threading.Thread):
                 if self._should_run_detection() and self.connection.is_connected():
                     if not self.detection_available:
                         self.detection_available = True
-                        log.info(f"UI Detection: Starting - champion locked in ChampSelect ({UIA_DELAY_MS}ms delay)")
+                        if self.shared_state.is_swiftplay_mode:
+                            log.info(f"UI Detection: Starting - Swiftplay mode detected in lobby")
+                        else:
+                            log.info(f"UI Detection: Starting - champion locked in ChampSelect ({UIA_DELAY_MS}ms delay)")
                     
                     # Find skin name element if not found yet
                     if self.skin_name_element is None:
                         self.skin_name_element = self._find_skin_element_with_retry()
-                    
-                    # Get skin name if element is available
-                    if self.skin_name_element:
+                        
+                        # If in Swiftplay mode and no element found, wait 50ms for cosmetics text to appear
+                        if (self.skin_name_element is None and 
+                            self.shared_state.is_swiftplay_mode and 
+                            self.shared_state.phase == "Lobby"):
+                            log.debug("UI Detection: Waiting 50ms for cosmetics text to appear...")
+                            self.stop_event.wait(0.05)  # 50ms delay
+                    else:
                         # Validate that the cached element is still valid
                         if not self._is_element_still_valid():
-                            log.debug("UI Detection: Cached element is no longer valid, clearing cache")
+                            log.debug("UI Detection: Cached element is no longer valid, clearing cache and resetting retry")
                             self.skin_name_element = None
                             self.last_skin_name = None
                             self.last_skin_id = None
-                        else:
-                            skin_name = self._get_skin_name()
-                            if skin_name and skin_name != self.last_skin_name:
-                                # The detector already validated this is a valid skin name
-                                self._process_skin_name(skin_name)
+                            # Reset detection attempts so we can retry finding the element
+                            self.detection_attempts = 0
+                            # Also clear the detector's cached element
+                            if self.detector:
+                                self.detector._clear_cache()
+                            
+                            # Hide UI when losing track of skin
+                            self.shared_state.ui_skin_id = None
+                            self.shared_state.ui_last_text = None
+                            
+                            # Try to find the element again immediately (especially important for Swiftplay)
+                            self.skin_name_element = self._find_skin_element_with_retry()
+                    
+                    # Get skin name if element is available
+                    if self.skin_name_element:
+                        skin_name = self._get_skin_name()
+                        # In Swiftplay, if we can't get skin name (panel closed), clear and retry
+                        if not skin_name:
+                            if self.shared_state.is_swiftplay_mode:
+                                log.debug("UI Detection: Cannot get skin name (panel may be closed), clearing and retrying...")
+                                self.skin_name_element = None
+                                self.last_skin_name = None
+                                self.detection_attempts = 0
+                                if self.detector:
+                                    self.detector._clear_cache()
+                                
+                                # Hide UI when panel is closed
+                                self.shared_state.ui_skin_id = None
+                                self.shared_state.ui_last_text = None
+                        elif skin_name != self.last_skin_name:
+                            if self.shared_state.is_swiftplay_mode:
+                                log.info(f"UI Detection: Swiftplay skin name detected: '{skin_name}'")
+                            # The detector already validated this is a valid skin name
+                            self._process_skin_name(skin_name)
                 else:
                     if self.detection_available:
                         log.info("UI Detection: Stopped - waiting for champion lock")
@@ -124,11 +170,18 @@ class UISkinThread(threading.Thread):
     
     def _should_connect(self) -> bool:
         """Check if we should establish PyWinAuto connection"""
+        # For Swiftplay, also connect in Lobby phase
+        if self.shared_state.phase == "Lobby" and self.shared_state.is_swiftplay_mode:
+            return True
         return self.shared_state.phase in ["ChampSelect", "FINALIZATION"]
     
     def _should_run_detection(self) -> bool:
         """Check if we should run detection based on current state"""
-        # Only run skin name detection during FINALIZATION phase
+        # For Swiftplay, run detection in Lobby phase
+        if self.shared_state.phase == "Lobby" and self.shared_state.is_swiftplay_mode:
+            return True
+        
+        # For regular modes, only run skin name detection during FINALIZATION phase
         if self.shared_state.phase != "FINALIZATION":
             return False
         
@@ -155,6 +208,122 @@ class UISkinThread(threading.Thread):
             # Update shared state
             self.shared_state.ui_last_text = skin_name
             
+            # For Swiftplay mode, try to match skin to the correct champion
+            if self.shared_state.is_swiftplay_mode:
+                self._process_swiftplay_skin_name(skin_name)
+            else:
+                # Regular mode processing
+                self._process_regular_skin_name(skin_name)
+            
+            self.last_skin_name = skin_name
+            
+        except Exception as e:
+            log.error(f"Error processing skin name: {e}")
+    
+    def _load_skin_id_mapping(self) -> bool:
+        """Load skin ID mapping from JSON file based on current language"""
+        try:
+            # Get language code from shared state
+            language = self.shared_state.current_language
+            if not language:
+                log.warning("UI Detection: No language detected, cannot load skin mapping")
+                return False
+            
+            # Construct path to skin mapping file
+            user_data_dir = get_user_data_dir()
+            mapping_path = user_data_dir / "skinid_mapping" / language / "skin_ids.json"
+            
+            if not mapping_path.exists():
+                log.warning(f"UI Detection: Skin mapping file not found: {mapping_path}")
+                return False
+            
+            # Load the JSON file
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                mapping_data = json.load(f)
+            
+            # Convert to name -> skin_id mapping (reverse the dict)
+            # The JSON has structure: {skin_id: skin_name}
+            # If multiple skins have the same normalized name, store the first one found
+            self.skin_id_mapping = {}
+            for skin_id_str, skin_name in mapping_data.items():
+                try:
+                    skin_id = int(skin_id_str)
+                    # Store as normalized name -> skin_id for easier lookup
+                    normalized_name = skin_name.strip().lower()
+                    # Only store if not already present (keep first occurrence)
+                    if normalized_name not in self.skin_id_mapping:
+                        self.skin_id_mapping[normalized_name] = skin_id
+                except (ValueError, TypeError):
+                    continue
+            
+            log.info(f"UI Detection: Loaded {len(self.skin_id_mapping)} skin mappings for language '{language}'")
+            self.skin_mapping_loaded = True
+            return True
+            
+        except Exception as e:
+            log.error(f"Error loading skin ID mapping: {e}")
+            return False
+    
+    def _find_skin_id_by_name(self, skin_name: str) -> Optional[int]:
+        """Find skin ID by name in the loaded mapping - returns FIRST match found"""
+        try:
+            if not self.skin_mapping_loaded:
+                if not self._load_skin_id_mapping():
+                    return None
+            
+            normalized_name = skin_name.strip().lower()
+            
+            # First try exact match (normalized)
+            if normalized_name in self.skin_id_mapping:
+                skin_id = self.skin_id_mapping[normalized_name]
+                log.debug(f"UI Detection: Exact match found: '{skin_name}' -> ID {skin_id}")
+                return skin_id
+            
+            # Try fuzzy matching - return the FIRST match found
+            # Search through the mapping and return immediately on first match
+            for mapped_name, skin_id in self.skin_id_mapping.items():
+                # Check if detected name is contained in mapped name or vice versa
+                if normalized_name in mapped_name or mapped_name in normalized_name:
+                    log.debug(f"UI Detection: Fuzzy match found: '{skin_name}' -> '{mapped_name}' (ID: {skin_id})")
+                    return skin_id  # Return FIRST match
+            
+            log.debug(f"UI Detection: No skin ID found for '{skin_name}'")
+            return None
+            
+        except Exception as e:
+            log.error(f"Error finding skin ID by name: {e}")
+            return None
+    
+    def _process_swiftplay_skin_name(self, skin_name: str):
+        """Process skin name for Swiftplay mode - lookup skin ID and store in dictionary"""
+        try:
+            log.info(f"UI Detection: Swiftplay skin name detected: '{skin_name}'")
+            
+            # Find skin ID from the mapping
+            skin_id = self._find_skin_id_by_name(skin_name)
+            if not skin_id:
+                log.warning(f"UI Detection: Could not find skin ID for '{skin_name}'")
+                return
+            
+            # Calculate champion ID from skin ID
+            champion_id = get_champion_id_from_skin_id(skin_id)
+            
+            # Store in dictionary (replacing any previous value for this champion)
+            self.shared_state.swiftplay_skin_tracking[champion_id] = skin_id
+            
+            # Update UI state - this is the last detected skin for UI display
+            self.shared_state.ui_skin_id = skin_id
+            self.shared_state.last_hovered_skin_id = skin_id
+            
+            log.info(f"UI Detection: Mapped skin '{skin_name}' -> Champion {champion_id}, Skin {skin_id}")
+            log.debug(f"UI Detection: Current skin tracking: {self.shared_state.swiftplay_skin_tracking}")
+            
+        except Exception as e:
+            log.error(f"Error processing Swiftplay skin name: {e}")
+    
+    def _process_regular_skin_name(self, skin_name: str):
+        """Process skin name for regular mode"""
+        try:
             # Try to find skin ID using local database
             skin_id = self._find_skin_id(skin_name)
             if skin_id:
@@ -182,11 +351,51 @@ class UISkinThread(threading.Thread):
                 
                 # The main thread will detect this state change and notify chroma UI
             
-            self.last_skin_name = skin_name
             self.last_skin_id = skin_id
             
         except Exception as e:
-            log.error(f"Error processing skin name: {e}")
+            log.error(f"Error processing regular skin name: {e}")
+    
+    
+    
+    def _is_skin_name_match(self, detected_text: str, skin_name: str) -> bool:
+        """Check if detected text matches a skin name"""
+        try:
+            # Normalize both strings for comparison
+            detected_normalized = detected_text.lower().strip()
+            skin_normalized = skin_name.lower().strip()
+            
+            log.debug(f"Comparing: '{detected_normalized}' vs '{skin_normalized}'")
+            
+            # Exact match
+            if detected_normalized == skin_normalized:
+                log.debug("Exact match found!")
+                return True
+            
+            # Check if detected text contains skin name or vice versa
+            if detected_normalized in skin_normalized or skin_normalized in detected_normalized:
+                log.debug("Substring match found!")
+                return True
+            
+            # Check for partial matches (useful for localized names)
+            detected_words = set(detected_normalized.split())
+            skin_words = set(skin_normalized.split())
+            
+            # If more than half the words match, consider it a match
+            if len(detected_words) > 0 and len(skin_words) > 0:
+                common_words = detected_words.intersection(skin_words)
+                match_ratio = len(common_words) / min(len(detected_words), len(skin_words))
+                log.debug(f"Word match ratio: {match_ratio} (common: {common_words})")
+                if match_ratio >= 0.5:  # 50% word match
+                    log.debug("Word match found!")
+                    return True
+            
+            log.debug("No match found")
+            return False
+            
+        except Exception as e:
+            log.debug(f"Error checking skin name match: {e}")
+            return False
     
     
     def _is_element_still_valid(self) -> bool:
