@@ -425,45 +425,90 @@ class PhaseThread(threading.Thread):
                 log.warning("[phase] No tracked skins - cannot trigger injection")
                 return
             
-            # Inject all tracked skins using skin IDs directly
-            injection_count = 0
+            # Log what will be injected
+            total_skins = len(self.state.swiftplay_skin_tracking)
+            log.info(f"[phase] Will inject {total_skins} skin(s) from tracking dictionary")
+            
+            # Extract all skins to mods directory, then inject them all together
+            from utils.utilities import is_base_skin
+            from pathlib import Path
+            import zipfile
+            import shutil
+            
+            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+            
+            # Ensure injector is initialized
+            if not self.injection_manager:
+                log.error("[phase] Injection manager not available")
+                return
+            
+            self.injection_manager._ensure_initialized()
+            
+            if not self.injection_manager.injector:
+                log.error("[phase] Injector not initialized")
+                return
+            
+            # Clean mods directory first
+            self.injection_manager.injector._clean_mods_dir()
+            self.injection_manager.injector._clean_overlay_dir()
+            
+            # Extract all skin ZIPs to mods directory
+            extracted_mods = []
             for champion_id, skin_id in self.state.swiftplay_skin_tracking.items():
                 try:
                     # Determine if this is a base skin or chroma
-                    from utils.utilities import is_base_skin
-                    chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
-                    
                     if is_base_skin(skin_id, chroma_id_map):
-                        # Base skin - use format "skin_{skin_id}"
                         injection_name = f"skin_{skin_id}"
                     else:
-                        # Chroma - use format "chroma_{skin_id}"
                         injection_name = f"chroma_{skin_id}"
                     
-                    # Inject using the injection manager
-                    if self.injection_manager:
-                        log.info(f"[phase] Injecting {injection_name} for champion {champion_id}")
-                        success = self.injection_manager.inject_skin_immediately(
-                            skin_name=injection_name,
-                            champion_id=champion_id
-                        )
-                        if success:
-                            injection_count += 1
-                            log.info(f"[phase] ✓ Successfully injected {injection_name} for champion {champion_id}")
-                        else:
-                            log.warning(f"[phase] ✗ Failed to inject {injection_name} for champion {champion_id}")
-                    else:
-                        log.warning(f"[phase] Injection manager not available")
-                        continue  # Continue to next skin instead of breaking
-                        
+                    # Find the skin ZIP file
+                    zip_path = self.injection_manager.injector._resolve_zip(
+                        injection_name, 
+                        chroma_id=None, 
+                        skin_name=injection_name, 
+                        champion_name=None, 
+                        champion_id=champion_id
+                    )
+                    
+                    if not zip_path or not zip_path.exists():
+                        log.warning(f"[phase] Skin ZIP not found: {injection_name}")
+                        continue
+                    
+                    # Extract to mods directory
+                    mod_folder = self.injection_manager.injector._extract_zip_to_mod(zip_path)
+                    if mod_folder:
+                        extracted_mods.append(mod_folder.name)
+                        log.info(f"[phase] Extracted {injection_name} to mods directory")
+                    
                 except Exception as e:
-                    log.warning(f"[phase] Error injecting skin for champion {champion_id}: {e}")
-                    continue
+                    log.error(f"[phase] Error extracting skin {skin_id}: {e}")
+                    import traceback
+                    log.debug(f"[phase] Traceback: {traceback.format_exc()}")
             
-            if injection_count > 0:
-                log.info(f"[phase] ✓ Swiftplay injection completed - {injection_count}/{len(self.state.swiftplay_skin_tracking)} skins injected")
-            else:
-                log.warning(f"[phase] ✗ No skins were successfully injected")
+            if not extracted_mods:
+                log.warning("[phase] No skins extracted - cannot inject")
+                return
+            
+            # Inject all mods together
+            log.info(f"[phase] Injecting {len(extracted_mods)} mod(s) together: {', '.join(extracted_mods)}")
+            try:
+                result = self.injection_manager.injector._mk_run_overlay(
+                    extracted_mods, 
+                    timeout=60, 
+                    stop_callback=None, 
+                    injection_manager=self.injection_manager
+                )
+                
+                if result == 0:
+                    log.info(f"[phase] ✓ Successfully injected {len(extracted_mods)} skin(s) for Swiftplay")
+                else:
+                    log.warning(f"[phase] ✗ Injection completed with non-zero exit code: {result}")
+                    
+            except Exception as e:
+                log.error(f"[phase] Error during injection: {e}")
+                import traceback
+                log.debug(f"[phase] Traceback: {traceback.format_exc()}")
                 
         except Exception as e:
             log.warning(f"[phase] Error triggering Swiftplay injection: {e}")
