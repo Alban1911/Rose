@@ -114,6 +114,8 @@ class ClickCatcherOverlay(QWidget):
                 )
                 
                 # Refresh z-order to ensure proper layering
+                # IMPORTANT: This must happen AFTER all widgets (including chroma_panel) are shown
+                # to ensure proper z-order stacking
                 self._z_manager.refresh_z_order()
                 
                 log.debug(f"[CHROMA] Click catcher overlay parented ({league_width}x{league_height})")

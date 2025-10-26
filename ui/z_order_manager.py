@@ -122,12 +122,23 @@ class ZOrderManager:
             SWP_NOSIZE = 0x0001
             SWP_NOACTIVATE = 0x0010
             
-            # Apply z-order in sequence: lowest z-level first, then higher levels
-            # Start from HWND_TOP so our first widget is brought above League's child controls
-            # Then place each subsequent widget above the previous one
-            previous_hwnd = HWND_TOP
+            # Apply z-order: process widgets in ORDER (lowest z-level first)
+            # Build a chain by placing each widget AFTER the previous one using the previous widget's HWND
+            # This ensures: unowned_frame(100) < chroma_button(200) < random_flag(250) < chroma_panel(300) < click_catcher(400)
             
+            # Debug: Log the processing order
             for widget_name, widget in sorted_widgets:
+                log.debug(f"[Z-ORDER] Will process {widget_name} (level {self._z_levels[widget_name]})")
+            
+            # CORRECT APPROACH: Process in FORWARD order (lowest first), place each at HWND_TOP
+            # Why: When you place at HWND_TOP, each new widget goes ABOVE the previous ones
+            # So processing frame(100) → button(200) → panel(300) results in:
+            # - frame placed first at top (then gets pushed down)
+            # - button placed at top (above frame)
+            # - panel placed at top (above button)
+            # Final visual: frame < button < panel ✓
+            
+            for widget_name, widget in sorted_widgets:  # Process LOWEST to HIGHEST z-level
                 try:
                     if not hasattr(widget, 'winId') or not widget.isVisible():
                         continue
@@ -135,103 +146,48 @@ class ZOrderManager:
                     widget_hwnd = int(widget.winId())
                     z_level = self._z_levels[widget_name]
                     
-                    # Place each widget above the previous one
-                    # This creates the proper stacking order: lowest z-level at bottom, highest at top
+                    # Place each widget at HWND_TOP in order from lowest to highest z-level
+                    # This ensures lowest z-level is first (gets pushed to bottom)
+                    # and highest z-level is last (stays on top)
                     result = ctypes.windll.user32.SetWindowPos(
                         widget_hwnd,
-                        previous_hwnd,  # Place above the previous widget
+                        HWND_TOP,  # Place at top
                         0, 0, 0, 0,
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
                     )
                     
                     # Debug logging for z-order application
-                    if widget_name in ['unowned_frame', 'chroma_button']:
+                    if widget_name in ['unowned_frame', 'chroma_button', 'chroma_panel']:
                         log.debug(f"[Z-ORDER] Applied z-order to {widget_name} (level {z_level}) - result: {bool(result)}")
                     
                     if not result:
                         # Only log failures, not successes to reduce spam
                         log.warning(f"[Z-ORDER] Failed to set z-order for {widget_name}")
                     
-                    # Update previous_hwnd for next iteration
-                    previous_hwnd = widget_hwnd
-                    
                 except Exception as e:
                     log.debug(f"[Z-ORDER] Error setting z-order for {widget_name}: {e}")
             
-            # After applying z-order, force the chroma button to be on top of unowned frame
-            try:
-                chroma_button_widget = None
-                unowned_frame_widget = None
-                
-                for widget_name, widget in sorted_widgets:
-                    if widget_name == 'chroma_button' and hasattr(widget, 'winId') and widget.isVisible():
-                        chroma_button_widget = widget
-                    elif widget_name == 'unowned_frame' and hasattr(widget, 'winId') and widget.isVisible():
-                        unowned_frame_widget = widget
-                
-                if chroma_button_widget and unowned_frame_widget:
-                    # Force chroma button to be above unowned frame
-                    chroma_hwnd = int(chroma_button_widget.winId())
-                    unowned_hwnd = int(unowned_frame_widget.winId())
-                    
-                    # Place chroma button above unowned frame
-                    result = ctypes.windll.user32.SetWindowPos(
-                        chroma_hwnd,
-                        unowned_hwnd,  # Place chroma button above unowned frame
-                        0, 0, 0, 0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-                    )
-                    
-                    if result:
-                        log.debug("[Z-ORDER] Forced chroma button above unowned frame")
-                    else:
-                        log.warning("[Z-ORDER] Failed to force chroma button above unowned frame")
-                        
-            except Exception as e:
-                log.debug(f"[Z-ORDER] Error forcing chroma button above unowned frame: {e}")
+            # No need for special "force" operations - the main loop already applies proper z-order
+            # The sorted_widgets are processed in ascending z-level order, which naturally creates
+            # the correct stacking: unowned_frame(100) < chroma_button(200) < random_flag(250) < chroma_panel(300)
             
-            # After applying z-order, force RandomFlag to be on top of ChromaButton
-            try:
-                random_flag_widget = None
-                chroma_button_widget = None
-                
-                for widget_name, widget in sorted_widgets:
-                    if widget_name == 'random_flag' and hasattr(widget, 'winId') and widget.isVisible():
-                        random_flag_widget = widget
-                    elif widget_name == 'chroma_button' and hasattr(widget, 'winId') and widget.isVisible():
-                        chroma_button_widget = widget
-                
-                if random_flag_widget and chroma_button_widget:
-                    # Force RandomFlag to be above ChromaButton
-                    random_flag_hwnd = int(random_flag_widget.winId())
-                    chroma_hwnd = int(chroma_button_widget.winId())
-                    
-                    # Place RandomFlag above ChromaButton
-                    result = ctypes.windll.user32.SetWindowPos(
-                        random_flag_hwnd,
-                        chroma_hwnd,  # Place RandomFlag above ChromaButton
-                        0, 0, 0, 0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-                    )
-                    
-                    if result:
-                        log.debug("[Z-ORDER] Forced RandomFlag above ChromaButton")
-                    else:
-                        log.warning("[Z-ORDER] Failed to force RandomFlag above ChromaButton")
-                        
-            except Exception as e:
-                log.debug(f"[Z-ORDER] Error forcing RandomFlag above ChromaButton: {e}")
-            
-            # Only log z-order application occasionally to reduce spam
+            # Log the final widget order for debugging
             import time
             current_time = time.time()
             if not hasattr(self, '_last_apply_log_time'):
                 self._last_apply_log_time = 0
             
-            if current_time - self._last_apply_log_time >= 5.0:  # Log at most once per 5 seconds
+            if current_time - self._last_apply_log_time >= 1.0:  # Log at most once per second
                 self._last_apply_log_time = current_time
                 widget_order = [f"{name}({self._z_levels[name]})" for name, _ in sorted_widgets]
                 log.debug(f"[Z-ORDER] Applied z-order to {len(sorted_widgets)} widgets: {widget_order}")
+                
+                # Log which widgets are visible
+                visible_widgets = []
+                for name, widget in sorted_widgets:
+                    if hasattr(widget, 'winId') and widget.isVisible():
+                        visible_widgets.append(f"{name}({self._z_levels[name]})")
+                log.debug(f"[Z-ORDER] Visible widgets: {visible_widgets}")
             
         except Exception as e:
             log.error(f"[Z-ORDER] Error applying z-order: {e}")

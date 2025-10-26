@@ -638,7 +638,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
         # Show window
         self.show()
         self.raise_()
-        self.bring_to_front()
+        # Don't call bring_to_front() - it brings widget to absolute top (HWND_TOP)
+        # The z-order manager handles proper stacking with ChromaPanel at z-level 300 (topmost)
         
         # Force a repaint
         self.update()

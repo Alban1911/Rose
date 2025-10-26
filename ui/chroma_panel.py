@@ -545,6 +545,7 @@ class ChromaPanelManager:
                     self.widget.setVisible(True)
                     # Don't call raise_() or bring_to_front() - z-order is managed by ZOrderManager
                     # The panel has the highest z-level (300) so it will naturally be on top
+                    # NO z-order refresh needed - panel widget is already registered with correct z-level
                     
                     # Position is handled by _position_panel_absolutely() in setup_ui()
                     # No need to call _update_position() since we use absolute positioning

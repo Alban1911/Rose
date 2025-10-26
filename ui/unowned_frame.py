@@ -324,14 +324,8 @@ class UnownedFrame(ChromaWidgetBase):
             def delayed_zorder_refresh():
                 log.debug("[UnownedFrame] Applying delayed z-order refresh after fade-in")
                 self.refresh_z_order()
-                # Also force the chroma button to come to front to ensure it's above the unowned frame
-                try:
-                    from ui.z_order_manager import get_z_order_manager
-                    z_manager = get_z_order_manager()
-                    z_manager.bring_to_front('chroma_button')
-                    log.debug("[UnownedFrame] Forced chroma button to front after unowned frame fade-in")
-                except Exception as e:
-                    log.debug(f"[UnownedFrame] Error bringing chroma button to front: {e}")
+                # Don't call bring_to_front() here - it brings the widget to absolute top, breaking hierarchy
+                # The z-order manager already handles the proper stacking: UnownedFrame(100) < Button(200) < RandomFlag(250) < Panel(300)
             QTimer.singleShot(50, delayed_zorder_refresh)  # Increased delay to 50ms
             
             # Debug: Check if widget is visible and positioned correctly

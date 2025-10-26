@@ -183,14 +183,8 @@ class RandomFlag(ChromaWidgetBase):
             def delayed_zorder_refresh():
                 log.debug("[RandomFlag] Applying delayed z-order refresh after show")
                 self.refresh_z_order()
-                # Force RandomFlag to come to front to ensure it's above ChromaButton
-                try:
-                    from ui.z_order_manager import get_z_order_manager
-                    z_manager = get_z_order_manager()
-                    z_manager.bring_to_front('random_flag')
-                    log.debug("[RandomFlag] Forced RandomFlag to front")
-                except Exception as e:
-                    log.debug(f"[RandomFlag] Error bringing RandomFlag to front: {e}")
+                # Don't call bring_to_front() here - it brings the widget to absolute top, breaking hierarchy
+                # The z-order manager already handles RandomFlag(250) appearing above ChromaButton(200)
             QTimer.singleShot(50, delayed_zorder_refresh)
             self.fade_in_requested.emit()
     
