@@ -113,18 +113,18 @@ class PhaseThread(threading.Thread):
                             self._injection_triggered = True
                 
                 elif ph == "ChampSelect":
-                    # State reset happens in WebSocket thread for faster response
-                    # Force immediate check for locked champion when entering ChampSelect
-                    # This helps UI detection restart immediately if champion is already locked
-                    self.state.locked_champ_id = None  # Reset first
-                    self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
-                        
+                    # For Swiftplay mode, run overlay injection on ChampSelect instead of GameStart
+                    if self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
+                        log.info("[phase] ChampSelect in Swiftplay mode - running overlay injection")
+                        self._run_swiftplay_overlay()
+                    else:
+                        # Normal ChampSelect handling - state reset happens in WebSocket thread for faster response
+                        # Force immediate check for locked champion when entering ChampSelect
+                        # This helps UI detection restart immediately if champion is already locked
+                        self.state.locked_champ_id = None  # Reset first
+                        self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                     
                 elif ph == "GameStart":
-                    # Game starting - trigger overlay injection if we have extracted mods (Swiftplay)
-                    if self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
-                        self._run_swiftplay_overlay()
-                    
                     # Don't destroy UI yet, let injection complete first
                     # UI will be destroyed when injection completes or when InProgress phase is reached
                     log_action(log, "GameStart detected - UI will be destroyed after injection", "🚀")
