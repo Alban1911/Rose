@@ -457,15 +457,18 @@ class PhaseThread(threading.Thread):
             for champion_id, skin_id in self.state.swiftplay_skin_tracking.items():
                 try:
                     # Determine if this is a base skin or chroma
-                    if is_base_skin(skin_id, chroma_id_map):
+                    is_base = is_base_skin(skin_id, chroma_id_map)
+                    if is_base:
                         injection_name = f"skin_{skin_id}"
+                        chroma_id_param = None
                     else:
                         injection_name = f"chroma_{skin_id}"
+                        chroma_id_param = skin_id  # Pass chroma_id for chroma resolution
                     
                     # Find the skin ZIP file
                     zip_path = self.injection_manager.injector._resolve_zip(
                         injection_name, 
-                        chroma_id=None, 
+                        chroma_id=chroma_id_param, 
                         skin_name=injection_name, 
                         champion_name=None, 
                         champion_id=champion_id
