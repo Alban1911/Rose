@@ -1190,7 +1190,10 @@ def main():
                                         delattr(main, '_swiftplay_ui_hidden')
                                         log.debug("[MAIN] Reset UI hide flag - skin detected")
                                 else:
-                                    log.debug(f"[MAIN] UI not initialized yet")
+                                    # Only log once per skin to avoid spam
+                                    if not hasattr(main, '_ui_not_initialized_logged') or main._ui_not_initialized_logged != current_skin_id:
+                                        log.debug(f"[MAIN] UI not initialized yet - skipping skin notification for {current_skin_id}")
+                                        main._ui_not_initialized_logged = current_skin_id
                             except Exception as e:
                                 log.error(f"[MAIN] Failed to notify UI: {e}")
                     

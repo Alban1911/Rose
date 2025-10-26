@@ -1373,8 +1373,6 @@ class UserInterface:
     def _hide_all_ui_elements(self):
         """Hide all UI elements instantly when click catchers are triggered"""
         try:
-            log.info("[UI] Hiding all UI elements instantly due to click catcher trigger")
-            
             # Track visibility state before hiding
             chroma_ui_visible = False
             if self.chroma_ui and self.chroma_ui.chroma_selector and self.chroma_ui.chroma_selector.panel:
@@ -1388,6 +1386,18 @@ class UserInterface:
             self._ui_visibility_state['random_flag_visible'] = self.random_flag and self.random_flag.isVisible()
             
             log.debug(f"[UI] Visibility state before hiding: {self._ui_visibility_state}")
+            
+            # Check if any UI is actually visible - if not, skip hiding (prevents premature hiding)
+            has_visible_ui = (chroma_ui_visible or 
+                             (self.unowned_frame and self.unowned_frame.isVisible()) or
+                             (self.dice_button and hasattr(self.dice_button, 'is_visible') and self.dice_button.is_visible) or
+                             (self.random_flag and self.random_flag.isVisible()))
+            
+            if not has_visible_ui:
+                log.debug("[UI] No UI elements visible - skipping hide action")
+                return
+            
+            log.info("[UI] Hiding all UI elements instantly due to click catcher trigger")
             
             # Hide ChromaUI instantly
             if self.chroma_ui:
