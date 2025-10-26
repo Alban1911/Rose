@@ -78,18 +78,18 @@ class OpeningButton(ChromaWidgetBase):
         if is_swiftplay:
             # Swiftplay mode - different button positions
             if window_width == 1600 and window_height == 900:
-                button_x = 1047 - (self.button_size // 2)
-                button_y = 750 - (self.button_size // 2)
+                button_x = 1041
+                button_y = 743
             elif window_width == 1280 and window_height == 720:
-                button_x = 837 - (self.button_size // 2)
-                button_y = 600 - (self.button_size // 2)
+                button_x = 833
+                button_y = 596
             elif window_width == 1024 and window_height == 576:
-                button_x = 670 - (self.button_size // 2)
-                button_y = 480 - (self.button_size // 2)
+                button_x = 664
+                button_y = 473
             else:
-                # Fallback to 1600x900 Swiftplay values
-                button_x = 1047 - (self.button_size // 2)
-                button_y = 750 - (self.button_size // 2)
+                # Fallback to 1280*720 Swiftplay values
+                button_x = 831
+                button_y = 593
         else:
             # Regular mode - Button should be at center X, 80.35% down from top (same as anchor point)
             if window_width == 1600 and window_height == 900:
