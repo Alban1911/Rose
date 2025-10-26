@@ -113,6 +113,11 @@ class UISkinThread(threading.Thread):
                             # Also clear the detector's cached element
                             if self.detector:
                                 self.detector._clear_cache()
+                            
+                            # Hide UI when losing track of skin
+                            self.shared_state.ui_skin_id = None
+                            self.shared_state.ui_last_text = None
+                            
                             # Try to find the element again immediately (especially important for Swiftplay)
                             self.skin_name_element = self._find_skin_element_with_retry()
                     
@@ -128,6 +133,10 @@ class UISkinThread(threading.Thread):
                                 self.detection_attempts = 0
                                 if self.detector:
                                     self.detector._clear_cache()
+                                
+                                # Hide UI when panel is closed
+                                self.shared_state.ui_skin_id = None
+                                self.shared_state.ui_last_text = None
                         elif skin_name != self.last_skin_name:
                             if self.shared_state.is_swiftplay_mode:
                                 log.info(f"UI Detection: Swiftplay skin name detected: '{skin_name}'")

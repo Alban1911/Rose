@@ -1168,10 +1168,29 @@ def main():
                                     log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
                                     # Track the last notified skin
                                     main._last_notified_skin_id = current_skin_id
+                                    # Reset hide flag since we're showing a skin
+                                    if hasattr(main, '_swiftplay_ui_hidden'):
+                                        delattr(main, '_swiftplay_ui_hidden')
                                 else:
                                     log.debug(f"[MAIN] UI not initialized yet")
                             except Exception as e:
                                 log.error(f"[MAIN] Failed to notify UI: {e}")
+                    else:
+                        # No skin ID - hide UI when detection is lost (Swiftplay only)
+                        if state.is_swiftplay_mode and state.ui_skin_id is None:
+                            # Use a flag to avoid spamming hide() calls
+                            if not hasattr(main, '_swiftplay_ui_hidden'):
+                                try:
+                                    from ui.user_interface import get_user_interface
+                                    user_interface = get_user_interface()
+                                    if user_interface.is_ui_initialized():
+                                        if user_interface.chroma_ui:
+                                            user_interface.chroma_ui.hide()
+                                        if user_interface.unowned_frame:
+                                            user_interface.unowned_frame.hide()
+                                        main._swiftplay_ui_hidden = True
+                                except Exception:
+                                    pass
                     
                     # Process pending UI initialization and requests
                     from ui.user_interface import get_user_interface
