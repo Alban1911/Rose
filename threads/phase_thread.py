@@ -223,6 +223,16 @@ class PhaseThread(threading.Thread):
             # Clean up any existing ClickCatchers for Swiftplay mode
             self._cleanup_click_catchers_for_swiftplay()
             
+            # Initialize UI for Swiftplay mode (no ClickCatchers, but UI components needed)
+            try:
+                from ui.user_interface import get_user_interface
+                user_interface = get_user_interface(self.state, self.skin_scraper)
+                if not user_interface.is_ui_initialized():
+                    log.info("[phase] Initializing UI components for Swiftplay mode")
+                    user_interface._pending_ui_initialization = True
+            except Exception as e:
+                log.warning(f"[phase] Failed to initialize UI for Swiftplay: {e}")
+            
             # Start continuous monitoring for Swiftplay lobby changes
             self._start_swiftplay_monitoring()
             
@@ -444,7 +454,7 @@ class PhaseThread(threading.Thread):
                             log.warning(f"[phase] ✗ Failed to inject {injection_name} for champion {champion_id}")
                     else:
                         log.warning(f"[phase] Injection manager not available")
-                        break
+                        continue  # Continue to next skin instead of breaking
                         
                 except Exception as e:
                     log.warning(f"[phase] Error injecting skin for champion {champion_id}: {e}")
