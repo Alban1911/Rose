@@ -604,6 +604,17 @@ class ChromaPanelManager:
                     # Show immediately - no delay needed (widget is already initialized)
                     self.reopen_button.show_for_chromas()
                     log.debug("[CHROMA] Button shown for chromas")
+                    
+                    # Refresh z-order after a small delay to ensure button is fully visible
+                    from PyQt6.QtCore import QTimer
+                    def delayed_zorder_refresh():
+                        try:
+                            from ui.z_order_manager import get_z_order_manager
+                            z_manager = get_z_order_manager()
+                            z_manager.refresh_z_order(force=True)
+                        except Exception as e:
+                            log.debug(f"[CHROMA] Error refreshing z-order after showing button: {e}")
+                    QTimer.singleShot(10, delayed_zorder_refresh)
             
             # Process reopen button hide request
             if self.pending_hide_button:
