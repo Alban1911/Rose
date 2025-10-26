@@ -114,6 +114,7 @@ class PhaseThread(threading.Thread):
                 
                 elif ph == "ChampSelect":
                     # For Swiftplay mode, run overlay injection on ChampSelect instead of GameStart
+                    log.debug(f"[phase] ChampSelect detected - is_swiftplay_mode={self.state.is_swiftplay_mode}, extracted_mods={len(self.state.swiftplay_extracted_mods)}")
                     if self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
                         log.info("[phase] ChampSelect in Swiftplay mode - running overlay injection")
                         self._run_swiftplay_overlay()
@@ -165,25 +166,43 @@ class PhaseThread(threading.Thread):
                         except Exception as e:
                             log.warning(f"[phase] Failed to stop overlay process: {e}")
                     
+                    # Reset Swiftplay flag after game ends
+                    self.state.is_swiftplay_mode = False
+                    self.state.swiftplay_extracted_mods = []
+                    
+                elif ph == "ReadyCheck":
+                    # ReadyCheck phase - preserve Swiftplay state, don't reset
+                    if not self.state.is_swiftplay_mode:
+                        # Normal ReadyCheck handling
+                        try:
+                            from ui.user_interface import get_user_interface
+                            user_interface = get_user_interface(self.state, self.skin_scraper)
+                            user_interface.request_ui_destruction()
+                            log_action(log, f"UI destruction requested for {ph}", "🔄")
+                        except Exception as e:
+                            log.warning(f"[phase] Failed to request UI destruction for {ph}: {e}")
+                    
                 else:
                     # Exit champ select or other phases → request UI destruction and reset counter/timer
-                    try:
-                        from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper)
-                        user_interface.request_ui_destruction()
-                        log_action(log, f"UI destruction requested for {ph}", "🔄")
-                    except Exception as e:
-                        log.warning(f"[phase] Failed to request UI destruction for {ph}: {e}")
-                    
-                    self.state.hovered_champ_id = None
-                    self.state.locked_champ_id = None  # Reset locked champion
-                    self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
-                    self.state.players_visible = 0
-                    self.state.locks_by_cell.clear()
-                    self.state.all_locked_announced = False
-                    self.state.loadout_countdown_active = False
-                    self.state.last_hover_written = False
-                    self.state.is_swiftplay_mode = False  # Reset Swiftplay flag
+                    # Skip reset for Swiftplay mode (handled separately)
+                    if not self.state.is_swiftplay_mode:
+                        try:
+                            from ui.user_interface import get_user_interface
+                            user_interface = get_user_interface(self.state, self.skin_scraper)
+                            user_interface.request_ui_destruction()
+                            log_action(log, f"UI destruction requested for {ph}", "🔄")
+                        except Exception as e:
+                            log.warning(f"[phase] Failed to request UI destruction for {ph}: {e}")
+                        
+                        self.state.hovered_champ_id = None
+                        self.state.locked_champ_id = None  # Reset locked champion
+                        self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
+                        self.state.players_visible = 0
+                        self.state.locks_by_cell.clear()
+                        self.state.all_locked_announced = False
+                        self.state.loadout_countdown_active = False
+                        self.state.last_hover_written = False
+                        self.state.is_swiftplay_mode = False  # Reset Swiftplay flag
                 
                 self.last_phase = ph
             time.sleep(self.interval)
