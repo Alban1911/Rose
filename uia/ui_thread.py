@@ -181,11 +181,17 @@ class UISkinThread(threading.Thread):
         if self.shared_state.phase == "Lobby" and self.shared_state.is_swiftplay_mode:
             return True
         
-        # For regular modes, only run skin name detection during FINALIZATION phase
-        if self.shared_state.phase != "FINALIZATION":
-            return False
+        # For regular modes, run detection in ChampSelect after champion is locked
+        # (moved from FINALIZATION to ChampSelect for earlier detection)
+        if self.shared_state.phase == "ChampSelect":
+            # Only run if champion is locked
+            return self.shared_state.locked_champ_id is not None
         
-        return True
+        # Also allow FINALIZATION phase for backwards compatibility
+        if self.shared_state.phase == "FINALIZATION":
+            return True
+        
+        return False
     
     
     
