@@ -1143,6 +1143,23 @@ def main():
                         champion_name = None
                         current_skin_name = None
                     
+                    # Check if UI should be hidden in Swiftplay mode when detection is lost
+                    if state.is_swiftplay_mode and state.ui_skin_id is None:
+                        # Use a flag to avoid spamming hide() calls
+                        if not hasattr(main, '_swiftplay_ui_hidden'):
+                            try:
+                                from ui.user_interface import get_user_interface
+                                user_interface = get_user_interface()
+                                if user_interface.is_ui_initialized():
+                                    if user_interface.chroma_ui:
+                                        user_interface.chroma_ui.hide()
+                                    if user_interface.unowned_frame:
+                                        user_interface.unowned_frame.hide()
+                                    main._swiftplay_ui_hidden = True
+                                    log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode")
+                            except Exception as e:
+                                log.debug(f"[MAIN] Error hiding UI: {e}")
+                    
                     if current_skin_id:
                         # Check if we need to reset skin notification debouncing
                         if state.reset_skin_notification:
@@ -1171,26 +1188,11 @@ def main():
                                     # Reset hide flag since we're showing a skin
                                     if hasattr(main, '_swiftplay_ui_hidden'):
                                         delattr(main, '_swiftplay_ui_hidden')
+                                        log.debug("[MAIN] Reset UI hide flag - skin detected")
                                 else:
                                     log.debug(f"[MAIN] UI not initialized yet")
                             except Exception as e:
                                 log.error(f"[MAIN] Failed to notify UI: {e}")
-                    else:
-                        # No skin ID - hide UI when detection is lost (Swiftplay only)
-                        if state.is_swiftplay_mode and state.ui_skin_id is None:
-                            # Use a flag to avoid spamming hide() calls
-                            if not hasattr(main, '_swiftplay_ui_hidden'):
-                                try:
-                                    from ui.user_interface import get_user_interface
-                                    user_interface = get_user_interface()
-                                    if user_interface.is_ui_initialized():
-                                        if user_interface.chroma_ui:
-                                            user_interface.chroma_ui.hide()
-                                        if user_interface.unowned_frame:
-                                            user_interface.unowned_frame.hide()
-                                        main._swiftplay_ui_hidden = True
-                                except Exception:
-                                    pass
                     
                     # Process pending UI initialization and requests
                     from ui.user_interface import get_user_interface
