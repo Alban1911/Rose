@@ -614,6 +614,14 @@ class OpeningButton(ChromaWidgetBase):
             # Don't call raise_() or bring_to_front() - z-order is managed by ZOrderManager
             # This allows RandomFlag (higher z-level) to properly appear above ChromaButton
             
+            # Refresh z-order after showing to ensure button is above UnownedFrame
+            try:
+                from ui.z_order_manager import get_z_order_manager
+                z_manager = get_z_order_manager()
+                z_manager.refresh_z_order(force=True)
+            except Exception:
+                pass  # Don't fail if z-order refresh fails
+            
             # Debug: Check position after showing
             log.debug(f"[CHROMA] Button position after show: ({self.x()}, {self.y()}) size: {self.width()}x{self.height()}")
         except RuntimeError:
@@ -630,8 +638,19 @@ class OpeningButton(ChromaWidgetBase):
     def show_for_chromas(self):
         """Show button when skin has chromas - instant"""
         try:
+            # Check if already shown
+            is_already_visible = self.isVisible()
             self.show_instantly()
             log.debug("[CHROMA] Button shown for chromas")
+            
+            # If it was already visible, trigger z-order refresh to ensure it stays on top
+            if is_already_visible:
+                try:
+                    from ui.z_order_manager import get_z_order_manager
+                    z_manager = get_z_order_manager()
+                    z_manager.refresh_z_order(force=True)
+                except Exception:
+                    pass  # Don't fail if z-order refresh fails
         except RuntimeError:
             pass
     

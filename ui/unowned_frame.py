@@ -319,14 +319,8 @@ class UnownedFrame(ChromaWidgetBase):
             # Start fade animation from 0 to 1
             self._start_fade(1.0, config.CHROMA_FADE_IN_DURATION_MS)
             
-            # Ensure proper z-order after showing (with small delay to ensure widget is fully shown)
-            from PyQt6.QtCore import QTimer
-            def delayed_zorder_refresh():
-                log.debug("[UnownedFrame] Applying delayed z-order refresh after fade-in")
-                self.refresh_z_order()
-                # Don't call bring_to_front() here - it brings the widget to absolute top, breaking hierarchy
-                # The z-order manager already handles the proper stacking: UnownedFrame(100) < Button(200) < RandomFlag(250) < Panel(300)
-            QTimer.singleShot(50, delayed_zorder_refresh)  # Increased delay to 50ms
+            # Z-order is managed centrally - no need to refresh here
+            # The z-order manager maintains proper stacking: UnownedFrame(100) < Button(200) < RandomFlag(250) < Panel(300)
             
             # Debug: Check if widget is visible and positioned correctly
             log.debug(f"[UnownedFrame] After show - visible: {self.isVisible()}, size: {self.size().width()}x{self.size().height()}, pos: ({self.x()}, {self.y()})")
@@ -392,7 +386,14 @@ class UnownedFrame(ChromaWidgetBase):
                     # Also hide the QLabel when fully transparent
                     if hasattr(self, 'unowned_frame_image') and self.unowned_frame_image:
                         self.unowned_frame_image.hide()
-                # Z-order is managed centrally - no manual adjustment needed
+                else:
+                    # Fade in complete - ensure z-order is correct (UnownedFrame should stay below ChromaButton)
+                    try:
+                        from ui.z_order_manager import get_z_order_manager
+                        z_manager = get_z_order_manager()
+                        z_manager.refresh_z_order(force=True)
+                    except Exception:
+                        pass  # Don't fail if z-order refresh fails
                 
                 log.debug(f"[UnownedFrame] Fade complete: opacity={self.fade_target_opacity:.2f}")
                 return
@@ -409,7 +410,14 @@ class UnownedFrame(ChromaWidgetBase):
             current_opacity = self.fade_start_opacity + (self.fade_target_opacity - self.fade_start_opacity) * eased_progress
             self.opacity_effect.setOpacity(current_opacity)
             
-            # Z-order is managed centrally - no manual adjustments needed during fade
+            # On first frame of fade-in, ensure z-order is correct so frame stays below button
+            if self.fade_current_step == 1 and self.fade_target_opacity > self.fade_start_opacity:
+                try:
+                    from ui.z_order_manager import get_z_order_manager
+                    z_manager = get_z_order_manager()
+                    z_manager.refresh_z_order(force=True)
+                except Exception:
+                    pass  # Don't fail if z-order refresh fails
             
             self.fade_current_step += 1
             
