@@ -91,34 +91,56 @@ class UnownedFrame(ChromaWidgetBase):
         window_width = window_right - window_left
         window_height = window_bottom - window_top
         
+        # Check if we're in Swiftplay mode
+        is_swiftplay = False
+        if self.state and hasattr(self.state, 'is_swiftplay_mode'):
+            is_swiftplay = self.state.is_swiftplay_mode
+        
         # Hardcoded positions for each resolution (no scaling)
+        # Swiftplay mode uses different positions than regular ChampSelect
         if window_width == 1600 and window_height == 900:
             # 1600x900 resolution
             frame_width = 148
             frame_height = 84
-            target_x = 726
-            target_y = 642
+            if is_swiftplay:
+                target_x = 990
+                target_y = 684
+            else:
+                target_x = 726
+                target_y = 642
         elif window_width == 1280 and window_height == 720:
             # 1280x720 resolution
             frame_width = 118
             frame_height = 67
-            target_x = 581
-            target_y = 513
+            if is_swiftplay:
+                target_x = 792
+                target_y = 548
+            else:
+                target_x = 581
+                target_y = 513
         elif window_width == 1024 and window_height == 576:
             # 1024x576 resolution
             frame_width = 95
             frame_height = 54
-            target_x = 465
-            target_y = 411
+            if is_swiftplay:
+                target_x = 633
+                target_y = 439
+            else:
+                target_x = 465
+                target_y = 411
         else:
             # Unsupported resolution - use default 1600x900 values
             log.warning(f"[UnownedFrame] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
             frame_width = 148
             frame_height = 84
-            target_x = 726
-            target_y = 642
+            if is_swiftplay:
+                target_x = 990
+                target_y = 684
+            else:
+                target_x = 726
+                target_y = 642
         
-        log.debug(f"[UnownedFrame] Hardcoded positioning: window={window_width}x{window_height}, frame={frame_width}x{frame_height}, pos=({target_x}, {target_y})")
+        log.debug(f"[UnownedFrame] Hardcoded positioning: window={window_width}x{window_height}, frame={frame_width}x{frame_height}, pos=({target_x}, {target_y}), swiftplay={is_swiftplay}")
         
         # Set static size
         self.setFixedSize(frame_width, frame_height)

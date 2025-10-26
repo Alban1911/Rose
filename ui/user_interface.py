@@ -92,14 +92,18 @@ class UserInterface:
             self.unowned_frame.show()
             log.info("[UI] UnownedFrame created successfully")
             
-            log.info("[UI] Creating DiceButton components...")
-            # Create DiceButton instance
-            from ui.dice_button import DiceButton
-            self.dice_button = DiceButton(state=self.state)
-            
-            # Connect dice button signals
-            self.dice_button.dice_clicked.connect(self._on_dice_clicked)
-            log.info("[UI] DiceButton created successfully")
+            # Skip DiceButton in Swiftplay mode
+            if not self.state.is_swiftplay_mode:
+                log.info("[UI] Creating DiceButton components...")
+                # Create DiceButton instance
+                from ui.dice_button import DiceButton
+                self.dice_button = DiceButton(state=self.state)
+                
+                # Connect dice button signals
+                self.dice_button.dice_clicked.connect(self._on_dice_clicked)
+                log.info("[UI] DiceButton created successfully")
+            else:
+                log.info("[UI] Skipping DiceButton creation in Swiftplay mode")
             
             log.info("[UI] Creating RandomFlag components...")
             # Create RandomFlag instance
@@ -715,13 +719,12 @@ class UserInterface:
     
     def is_ui_initialized(self):
         """Check if UI components are initialized"""
-        # In Swiftplay mode, click_catchers are not created, so skip that check
+        # In Swiftplay mode, click_catchers and dice_button are not created, so skip those checks
         if self.state and self.state.is_swiftplay_mode:
             return (self.chroma_ui is not None and 
                     self.unowned_frame is not None and 
-                    self.dice_button is not None and 
                     self.random_flag is not None)
-        # Regular mode requires click catchers
+        # Regular mode requires click catchers and dice button
         return (self.chroma_ui is not None and 
                 self.unowned_frame is not None and 
                 self.dice_button is not None and 
@@ -1650,6 +1653,10 @@ class UserInterface:
     
     def _update_dice_button(self):
         """Update dice button visibility based on current context"""
+        # Skip dice button in Swiftplay mode
+        if self.state.is_swiftplay_mode:
+            return
+        
         if not self.dice_button:
             log.debug("[UI] Dice button not initialized")
             return
