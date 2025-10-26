@@ -211,9 +211,9 @@ class RepoDownloader:
             return None
     
     def extract_skins_from_zip(self, zip_path: Path) -> bool:
-        """Extract skins and previews from the new merged lolskins repository ZIP"""
+        """Extract skins, previews, and skin_id mappings from the new merged lolskins repository ZIP"""
         try:
-            log.info("Extracting skins and previews from merged lolskins repository ZIP...")
+            log.info("Extracting skins, previews, and skin_id mappings from merged lolskins repository ZIP...")
             
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 # Find all files in the skins/ directory
@@ -234,11 +234,26 @@ class RepoDownloader:
                         elif file_info.filename.endswith('.png'):
                             png_count += 1
                 
+                # Find all files in the resources/skinid_mapping/ directory
+                mapping_files = []
+                json_count = 0
+                
+                for file_info in zip_ref.filelist:
+                    # Look for files in resources/skinid_mapping/ directory
+                    if (file_info.filename.startswith('lolskins-main/resources/skinid_mapping/') and 
+                        file_info.filename != 'lolskins-main/resources/skinid_mapping/' and
+                        not file_info.filename.endswith('/')):
+                        mapping_files.append(file_info)
+                        
+                        # Count JSON files
+                        if file_info.filename.endswith('.json'):
+                            json_count += 1
+                
                 if not skins_files:
                     log.error("No skins folder found in repository ZIP")
                     return False
                 
-                log.info(f"Found {zip_count} skin .zip files and {png_count} preview .png files in repository")
+                log.info(f"Found {zip_count} skin .zip files, {png_count} preview .png files, and {json_count} skin ID mapping files in repository")
                 
                 # Extract all skins files (both .zip and .png)
                 extracted_zip_count = 0
@@ -289,10 +304,51 @@ class RepoDownloader:
                     except Exception as e:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
                 
-                log.info(f"Extracted {extracted_zip_count} new skin .zip files and {extracted_png_count} preview .png files "
-                        f"(skipped {skipped_count} existing files)")
+                # Extract skin ID mapping files to user data directory
+                extracted_json_count = 0
+                skipped_json_count = 0
                 
-                return (extracted_zip_count + extracted_png_count) > 0
+                if mapping_files:
+                    from utils.paths import get_user_data_dir
+                    mapping_target_dir = get_user_data_dir() / "skinid_mapping"
+                    
+                    for file_info in mapping_files:
+                        try:
+                            # Skip directories
+                            if file_info.is_dir():
+                                continue
+                            
+                            # Remove the 'lolskins-main/' prefix from the path
+                            relative_path = file_info.filename.replace('lolskins-main/', '')
+                            
+                            # Remove the 'resources/skinid_mapping/' prefix since target_dir is the mapping directory
+                            if relative_path.startswith('resources/skinid_mapping/'):
+                                relative_path = relative_path.replace('resources/skinid_mapping/', '', 1)
+                            
+                            # Extract to mapping target directory
+                            extract_path = mapping_target_dir / relative_path
+                            extract_path.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            # Skip if file already exists
+                            if extract_path.exists():
+                                skipped_json_count += 1
+                                continue
+                            
+                            # Extract the file
+                            with zip_ref.open(file_info) as source:
+                                with open(extract_path, 'wb') as target:
+                                    target.write(source.read())
+                            
+                            extracted_json_count += 1
+                            
+                        except Exception as e:
+                            log.warning(f"Failed to extract {file_info.filename}: {e}")
+                
+                log.info(f"Extracted {extracted_zip_count} new skin .zip files, {extracted_png_count} preview .png files, "
+                        f"and {extracted_json_count} skin ID mapping files (skipped {skipped_count} existing skin files, "
+                        f"{skipped_json_count} existing mapping files)")
+                
+                return (extracted_zip_count + extracted_png_count + extracted_json_count) > 0
                 
         except zipfile.BadZipFile:
             log.error("Invalid ZIP file")
