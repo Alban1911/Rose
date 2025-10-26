@@ -69,24 +69,45 @@ class OpeningButton(ChromaWidgetBase):
         self.setFixedSize(self.button_size, self.button_size)
         
         # Position button directly relative to League window using absolute coordinates
-        # Button should be at center X, 80.35% down from top (same as anchor point)
+        # Check if we're in Swiftplay mode for different positioning
+        is_swiftplay = False
+        if self.manager and self.manager.state:
+            is_swiftplay = self.manager.state.is_swiftplay_mode
+        
         window_width, window_height = current_resolution
-        if window_width == 1600 and window_height == 900:
-            # 1600x900 resolution (reference)
-            button_x = 800 - (self.button_size // 2)  # Center horizontally
-            button_y = 723 - (self.button_size // 2)  # 80.35% down from top
-        elif window_width == 1280 and window_height == 720:
-            # 1280x720 resolution (scale factor 0.8)
-            button_x = 640 - (self.button_size // 2)  # Center horizontally
-            button_y = 578 - (self.button_size // 2)  # 80.35% down from top
-        elif window_width == 1024 and window_height == 576:
-            # 1024x576 resolution (scale factor 0.64)
-            button_x = 512 - (self.button_size // 2)  # Center horizontally
-            button_y = 463 - (self.button_size // 2)  # 80.35% down from top
+        if is_swiftplay:
+            # Swiftplay mode - different button positions
+            if window_width == 1600 and window_height == 900:
+                button_x = 1047 - (self.button_size // 2)
+                button_y = 750 - (self.button_size // 2)
+            elif window_width == 1280 and window_height == 720:
+                button_x = 837 - (self.button_size // 2)
+                button_y = 600 - (self.button_size // 2)
+            elif window_width == 1024 and window_height == 576:
+                button_x = 670 - (self.button_size // 2)
+                button_y = 480 - (self.button_size // 2)
+            else:
+                # Fallback to 1600x900 Swiftplay values
+                button_x = 1047 - (self.button_size // 2)
+                button_y = 750 - (self.button_size // 2)
         else:
-            # Unsupported resolution - use default 1600x900 values
-            button_x = 800 - (self.button_size // 2)
-            button_y = 723 - (self.button_size // 2)
+            # Regular mode - Button should be at center X, 80.35% down from top (same as anchor point)
+            if window_width == 1600 and window_height == 900:
+                # 1600x900 resolution (reference)
+                button_x = 800 - (self.button_size // 2)  # Center horizontally
+                button_y = 723 - (self.button_size // 2)  # 80.35% down from top
+            elif window_width == 1280 and window_height == 720:
+                # 1280x720 resolution (scale factor 0.8)
+                button_x = 640 - (self.button_size // 2)  # Center horizontally
+                button_y = 578 - (self.button_size // 2)  # 80.35% down from top
+            elif window_width == 1024 and window_height == 576:
+                # 1024x576 resolution (scale factor 0.64)
+                button_x = 512 - (self.button_size // 2)  # Center horizontally
+                button_y = 463 - (self.button_size // 2)  # 80.35% down from top
+            else:
+                # Unsupported resolution - use default 1600x900 values
+                button_x = 800 - (self.button_size // 2)
+                button_y = 723 - (self.button_size // 2)
         
         # Position button absolutely in League window
         self._position_button_absolutely(button_x, button_y)
