@@ -234,13 +234,16 @@ class UISkinThread(threading.Thread):
             
             # Convert to name -> skin_id mapping (reverse the dict)
             # The JSON has structure: {skin_id: skin_name}
+            # If multiple skins have the same normalized name, store the first one found
             self.skin_id_mapping = {}
             for skin_id_str, skin_name in mapping_data.items():
                 try:
                     skin_id = int(skin_id_str)
                     # Store as normalized name -> skin_id for easier lookup
                     normalized_name = skin_name.strip().lower()
-                    self.skin_id_mapping[normalized_name] = skin_id
+                    # Only store if not already present (keep first occurrence)
+                    if normalized_name not in self.skin_id_mapping:
+                        self.skin_id_mapping[normalized_name] = skin_id
                 except (ValueError, TypeError):
                     continue
             
@@ -253,22 +256,27 @@ class UISkinThread(threading.Thread):
             return False
     
     def _find_skin_id_by_name(self, skin_name: str) -> Optional[int]:
-        """Find skin ID by name in the loaded mapping"""
+        """Find skin ID by name in the loaded mapping - returns FIRST match found"""
         try:
             if not self.skin_mapping_loaded:
                 if not self._load_skin_id_mapping():
                     return None
             
-            # Try exact match first (normalized)
             normalized_name = skin_name.strip().lower()
-            if normalized_name in self.skin_id_mapping:
-                return self.skin_id_mapping[normalized_name]
             
-            # Try fuzzy matching - look for skin name that contains or is contained in the detected name
+            # First try exact match (normalized)
+            if normalized_name in self.skin_id_mapping:
+                skin_id = self.skin_id_mapping[normalized_name]
+                log.debug(f"UI Detection: Exact match found: '{skin_name}' -> ID {skin_id}")
+                return skin_id
+            
+            # Try fuzzy matching - return the FIRST match found
+            # Search through the mapping and return immediately on first match
             for mapped_name, skin_id in self.skin_id_mapping.items():
+                # Check if detected name is contained in mapped name or vice versa
                 if normalized_name in mapped_name or mapped_name in normalized_name:
                     log.debug(f"UI Detection: Fuzzy match found: '{skin_name}' -> '{mapped_name}' (ID: {skin_id})")
-                    return skin_id
+                    return skin_id  # Return FIRST match
             
             log.debug(f"UI Detection: No skin ID found for '{skin_name}'")
             return None

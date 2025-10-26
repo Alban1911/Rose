@@ -33,6 +33,10 @@ class PhaseThread(threading.Thread):
         self.skin_scraper = skin_scraper
         self.db = db
         self.last_phase = None
+        
+        # Swiftplay injection tracking
+        self._injection_triggered = False
+        self._last_matchmaking_state = None
 
     def run(self):
         """Main thread loop"""
@@ -97,6 +101,16 @@ class PhaseThread(threading.Thread):
                             log_action(log, "UI destruction requested for Lobby", "🏠")
                         except Exception as e:
                             log.warning(f"[phase] Failed to request UI destruction for Lobby: {e}")
+                
+                elif ph == "Matchmaking":
+                    # Matchmaking phase - for Swiftplay, trigger injection
+                    if self.state.is_swiftplay_mode:
+                        log.info("[phase] Matchmaking phase detected in Swiftplay mode - triggering injection")
+                        self._monitor_swiftplay_matchmaking()
+                        # Also trigger immediately in case we missed the state change
+                        if not self._injection_triggered:
+                            self._trigger_swiftplay_injection()
+                            self._injection_triggered = True
                 
                 elif ph == "ChampSelect":
                     # State reset happens in WebSocket thread for faster response
