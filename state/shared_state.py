@@ -60,6 +60,7 @@ class SharedState:
     # Game mode detection
     current_game_mode: Optional[str] = None  # Current game mode (ARAM, CLASSIC, SWIFT_PLAY, etc.)
     current_map_id: Optional[int] = None  # Current map ID (12 = ARAM, 11 = SR)
+    current_queue_id: Optional[int] = None  # Current queue ID (2400 = ARAM, etc.)
     chroma_panel_skin_name: Optional[str] = None  # Base skin name when panel was opened (to avoid re-detecting same skin)
     is_swiftplay_mode: bool = False  # Flag to indicate if we're in Swiftplay mode
     

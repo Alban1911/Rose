@@ -261,7 +261,7 @@ def get_resolution_key(resolution: Tuple[int, int]) -> Optional[str]:
     return None
 
 
-def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map_id: Optional[int] = None, language: Optional[str] = None) -> Optional[Dict[str, int]]:
+def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map_id: Optional[int] = None, language: Optional[str] = None, queue_id: Optional[int] = None) -> Optional[Dict[str, int]]:
     """
     Get click catcher configuration for a specific resolution and catcher name
     
@@ -270,6 +270,7 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
         catcher_name: Name of the click catcher (e.g., 'EDIT_RUNES', 'SETTINGS')
         map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
         language: Optional language code for language-specific coordinates (e.g., 'en', 'fr', 'de')
+        queue_id: Optional queue ID (2400 = ARAM, etc.)
         
     Returns:
         Dictionary with x, y, width, height or None if not found
@@ -289,7 +290,8 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
             log.debug(f"[ResolutionUtils] No language-specific config found for {catcher_name} with language {language}, falling back to default")
     
     # Check if this catcher has gamemode-specific config
-    is_aram = map_id == 12
+    # Check by queue_id first (2400 = ARAM), then by map_id
+    is_aram = (queue_id == 2400) or (map_id == 12)
     is_arena = map_id == 22
     
     # Check Arena config first
@@ -301,7 +303,7 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
     # Check ARAM config
     if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
         if catcher_name in CLICK_CATCHER_CONFIGS_ARAM[resolution_key]:
-            log.debug(f"[ResolutionUtils] Using ARAM config for {catcher_name} at {resolution_key}")
+            log.debug(f"[ResolutionUtils] Using ARAM config for {catcher_name} at {resolution_key} (queue_id={queue_id}, map_id={map_id})")
             return CLICK_CATCHER_CONFIGS_ARAM[resolution_key][catcher_name].copy()
     
     # Fall back to default (Summoner's Rift) config
@@ -316,13 +318,14 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
     return CLICK_CATCHER_CONFIGS[resolution_key][catcher_name].copy()
 
 
-def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[int] = None) -> Optional[Dict[str, Dict[str, int]]]:
+def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[int] = None, queue_id: Optional[int] = None) -> Optional[Dict[str, Dict[str, int]]]:
     """
     Get all click catcher configurations for a specific resolution
     
     Args:
         resolution: (width, height) tuple
         map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
+        queue_id: Optional queue ID (2400 = ARAM, etc.)
         
     Returns:
         Dictionary of all catcher configs or None if resolution not supported
@@ -333,7 +336,8 @@ def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[
         return None
     
     # Check if we should use gamemode-specific config
-    is_aram = map_id == 12
+    # Check by queue_id first (2400 = ARAM), then by map_id
+    is_aram = (queue_id == 2400) or (map_id == 12)
     is_arena = map_id == 22
     
     # Check Arena config

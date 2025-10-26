@@ -545,18 +545,35 @@ class WSEventThread(threading.Thread):
             # Extract game mode and map ID from the correct location
             game_mode = None
             map_id = None
+            queue_id = None
             
-            # Check gameData.queue (the correct location based on the session data)
+            # Try multiple locations for queue ID
+            # First try: gameData.queue.queueId
             if "gameData" in session:
                 game_data = session.get("gameData", {})
                 if "queue" in game_data:
                     queue = game_data.get("queue", {})
                     game_mode = queue.get("gameMode")
                     map_id = queue.get("mapId")
+                    queue_id = queue.get("queueId")
+            
+            # Second try: session.queueId
+            if queue_id is None:
+                queue_id = session.get("queueId")
+            
+            # Third try: Check champ select session
+            if queue_id is None:
+                champ_session = self.lcu.get("/lol-champ-select/v1/session")
+                if champ_session and isinstance(champ_session, dict):
+                    queue_id = champ_session.get("queueId")
             
             # Store in shared state
             self.state.current_game_mode = game_mode
             self.state.current_map_id = map_id
+            self.state.current_queue_id = queue_id
+            
+            # Log queue ID when entering ChampSelect
+            log.info(f"[WS] Queue ID: {queue_id}")
             
             # Log the detection result
             if map_id == 12 or game_mode == "ARAM":

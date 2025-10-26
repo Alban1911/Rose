@@ -141,11 +141,14 @@ class ChromaPanelWidget(ChromaWidgetBase):
             if self.manager and self.manager.state:
                 map_id = self.manager.state.current_map_id
                 game_mode = self.manager.state.current_game_mode
+                queue_id = self.manager.state.current_queue_id
                 
-                log.info(f"[CHROMA] Using stored game mode: {game_mode} (Map ID: {map_id})")
+                log.info(f"[CHROMA] Using stored game mode: {game_mode} (Map ID: {map_id}, Queue ID: {queue_id})")
                 
-                # Check if we're in ARAM mode
-                if map_id == 12 or game_mode == "ARAM":
+                # Check if we're in ARAM mode (check by queue_id first, then by map_id/game_mode)
+                is_aram = (queue_id == 2400) or (map_id == 12) or (game_mode == "ARAM")
+                
+                if is_aram:
                     log.info("[CHROMA] ARAM mode detected - using ARAM background")
                     return "champ-select-flyout-background-aram.png"
                 else:

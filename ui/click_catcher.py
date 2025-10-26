@@ -272,17 +272,20 @@ class ClickCatcher(ChromaWidgetBase):
         if self.catcher_name:
             current_resolution = get_current_resolution()
             if current_resolution and is_supported_resolution(current_resolution):
-                # Get map_id from state if available
+                # Get map_id and queue_id from state if available
                 map_id = None
+                queue_id = None
                 if self.state and hasattr(self.state, 'current_map_id'):
                     map_id = self.state.current_map_id
+                if self.state and hasattr(self.state, 'current_queue_id'):
+                    queue_id = self.state.current_queue_id
                 
                 # Get language from state if available
                 language = None
                 if self.state and hasattr(self.state, 'current_language'):
                     language = self.state.current_language
                 
-                config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id, language=language)
+                config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id, language=language, queue_id=queue_id)
                 if config:
                     self.catcher_x = config['x']
                     self.catcher_y = config['y']
@@ -392,17 +395,20 @@ class ClickCatcher(ChromaWidgetBase):
                 # Update position and size based on new resolution if catcher_name is provided
                 if self.catcher_name:
                     if is_supported_resolution(current_resolution):
-                        # Get map_id from state if available
+                        # Get map_id and queue_id from state if available
                         map_id = None
+                        queue_id = None
                         if self.state and hasattr(self.state, 'current_map_id'):
                             map_id = self.state.current_map_id
+                        if self.state and hasattr(self.state, 'current_queue_id'):
+                            queue_id = self.state.current_queue_id
                         
                         # Get language from state if available
                         language = None
                         if self.state and hasattr(self.state, 'current_language'):
                             language = self.state.current_language
                         
-                        config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id, language=language)
+                        config = get_click_catcher_config(current_resolution, self.catcher_name, map_id=map_id, language=language, queue_id=queue_id)
                         if config:
                             self.catcher_x = config['x']
                             self.catcher_y = config['y']
