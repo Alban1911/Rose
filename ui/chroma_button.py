@@ -481,6 +481,14 @@ class OpeningButton(ChromaWidgetBase):
         
         if was_hovered != self.is_hovered:
             self.update()
+            # Ensure z-order is maintained after visual update
+            # This prevents the button from going behind UnownedFrame during fade-in
+            try:
+                from ui.z_order_manager import get_z_order_manager
+                z_manager = get_z_order_manager()
+                z_manager.refresh_z_order()
+            except Exception:
+                pass  # Don't fail if z-order refresh fails
         
         # Cursor changes to pointer in the extended clickable area (30% bigger than transparent ring)
         if dist <= clickable_radius:
@@ -493,6 +501,13 @@ class OpeningButton(ChromaWidgetBase):
         if self.is_hovered:
             self.is_hovered = False
             self.update()
+            # Ensure z-order is maintained after visual update
+            try:
+                from ui.z_order_manager import get_z_order_manager
+                z_manager = get_z_order_manager()
+                z_manager.refresh_z_order()
+            except Exception:
+                pass
         # Cursor remains as hand pointer since widget has it set
     
     def set_wheel_open(self, is_open: bool):
@@ -501,6 +516,13 @@ class OpeningButton(ChromaWidgetBase):
             if self.panel_is_open != is_open:
                 self.panel_is_open = is_open
                 self.update()
+                # Ensure z-order is maintained after visual update
+                try:
+                    from ui.z_order_manager import get_z_order_manager
+                    z_manager = get_z_order_manager()
+                    z_manager.refresh_z_order()
+                except Exception:
+                    pass
         except RuntimeError as e:
             # Widget may have been deleted
             pass
@@ -510,6 +532,13 @@ class OpeningButton(ChromaWidgetBase):
         try:
             self.current_chroma_color = color
             self.update()
+            # Ensure z-order is maintained after visual update
+            try:
+                from ui.z_order_manager import get_z_order_manager
+                z_manager = get_z_order_manager()
+                z_manager.refresh_z_order()
+            except Exception:
+                pass
         except RuntimeError as e:
             # Widget may have been deleted
             pass
