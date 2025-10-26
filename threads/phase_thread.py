@@ -121,7 +121,11 @@ class PhaseThread(threading.Thread):
                         
                     
                 elif ph == "GameStart":
-                    # Game starting - don't destroy UI yet, let injection complete first
+                    # Game starting - trigger overlay injection if we have extracted mods (Swiftplay)
+                    if self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
+                        self._run_swiftplay_overlay()
+                    
+                    # Don't destroy UI yet, let injection complete first
                     # UI will be destroyed when injection completes or when InProgress phase is reached
                     log_action(log, "GameStart detected - UI will be destroyed after injection", "🚀")
                 
@@ -493,8 +497,38 @@ class PhaseThread(threading.Thread):
                 log.warning("[phase] No skins extracted - cannot inject")
                 return
             
-            # Inject all mods together
-            log.info(f"[phase] Injecting {len(extracted_mods)} mod(s) together: {', '.join(extracted_mods)}")
+            # Store extracted mods for later injection on GameStart
+            self.state.swiftplay_extracted_mods = extracted_mods
+            log.info(f"[phase] Extracted {len(extracted_mods)} mod(s) - will inject on GameStart: {', '.join(extracted_mods)}")
+            
+            # Don't run overlay yet - wait for GameStart phase
+                
+        except Exception as e:
+            log.warning(f"[phase] Error extracting Swiftplay skins: {e}")
+            import traceback
+            log.debug(f"[phase] Traceback: {traceback.format_exc()}")
+    
+    def _run_swiftplay_overlay(self):
+        """Run overlay injection for Swiftplay mode with previously extracted mods"""
+        try:
+            if not self.state.swiftplay_extracted_mods:
+                log.warning("[phase] No extracted mods available for overlay injection")
+                return
+            
+            # Ensure injector is initialized
+            if not self.injection_manager:
+                log.error("[phase] Injection manager not available")
+                return
+            
+            self.injection_manager._ensure_initialized()
+            
+            if not self.injection_manager.injector:
+                log.error("[phase] Injector not initialized")
+                return
+            
+            extracted_mods = self.state.swiftplay_extracted_mods
+            log.info(f"[phase] Running overlay injection for {len(extracted_mods)} mod(s): {', '.join(extracted_mods)}")
+            
             try:
                 result = self.injection_manager.injector._mk_run_overlay(
                     extracted_mods, 
@@ -509,12 +543,17 @@ class PhaseThread(threading.Thread):
                     log.warning(f"[phase] ✗ Injection completed with non-zero exit code: {result}")
                     
             except Exception as e:
-                log.error(f"[phase] Error during injection: {e}")
+                log.error(f"[phase] Error during overlay injection: {e}")
                 import traceback
                 log.debug(f"[phase] Traceback: {traceback.format_exc()}")
+            
+            # Clear extracted mods after injection
+            self.state.swiftplay_extracted_mods = []
                 
         except Exception as e:
-            log.warning(f"[phase] Error triggering Swiftplay injection: {e}")
+            log.warning(f"[phase] Error running Swiftplay overlay: {e}")
+            import traceback
+            log.debug(f"[phase] Traceback: {traceback.format_exc()}")
     
     
     def _detect_swiftplay_in_lobby(self):

@@ -65,6 +65,7 @@ class SharedState:
     
     # Swiftplay skin tracking - maps champion ID to last detected skin ID
     swiftplay_skin_tracking: dict = field(default_factory=dict)  # {champion_id: skin_id}
+    swiftplay_extracted_mods: list = field(default_factory=list)  # List of extracted mod folder names for Swiftplay injection
     
     # UI Detection
     ui_last_text: Optional[str] = None  # Last detected skin name from UI
