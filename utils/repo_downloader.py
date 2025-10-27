@@ -38,7 +38,8 @@ class RepoDownloader:
         self.api_base = "https://api.github.com/repos/AlbanCliquet/lolskins"
     
     def get_repo_state(self) -> Dict:
-        """Get current repository state from GitHub API"""
+        """Get current repository state from GitHub API
+        Returns Dict with 'rate_limited' key set to True if rate limited"""
         try:
             # Get the latest commit info
             response = self.session.get(f"{self.api_base}/commits/main")
@@ -50,6 +51,14 @@ class RepoDownloader:
                 'last_commit_date': commit_data['commit']['committer']['date'],
                 'last_checked': None  # Will be set when we save state
             }
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code in (403, 429):
+                log.warning(f"GitHub API rate limit exceeded: {e}")
+                log.info("Will skip incremental check and use ZIP download to avoid rate limits")
+                return {'rate_limited': True}
+            else:
+                log.error(f"Failed to get repository state: {e}")
+                return {}
         except requests.RequestException as e:
             log.error(f"Failed to get repository state: {e}")
             return {}
@@ -97,6 +106,11 @@ class RepoDownloader:
             log.warning("Failed to get current repository state, assuming no changes")
             return False
         
+        # Check if rate limited - if so, force update via ZIP
+        if current_state.get('rate_limited'):
+            log.info("Rate limited detected, will force ZIP download")
+            return True
+        
         # Compare commit SHAs
         local_sha = local_state.get('last_commit_sha')
         current_sha = current_state.get('last_commit_sha')
@@ -110,7 +124,7 @@ class RepoDownloader:
     
     def get_changed_files(self, since_commit: str) -> Tuple[List[Dict], Optional[requests.Response]]:
         """Get list of files that changed since a specific commit
-        Returns: (changed_files_list, response_object)"""
+        Returns: (changed_files_list, response_object or rate_limited marker)"""
         try:
             # Get commits since the specified commit
             response = self.session.get(f"{self.api_base}/compare/{since_commit}...main")
@@ -134,6 +148,14 @@ class RepoDownloader:
                     })
             
             return changed_files, response
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code in (403, 429):
+                log.warning(f"GitHub API rate limit exceeded while getting changed files: {e}")
+                log.info("Will use ZIP download to avoid rate limits")
+                return [], {'rate_limited': True}
+            else:
+                log.error(f"Failed to get changed files: {e}")
+                return [], None
         except requests.RequestException as e:
             log.error(f"Failed to get changed files: {e}")
             return [], None
@@ -389,6 +411,11 @@ class RepoDownloader:
             if not current_state:
                 log.error("Failed to get current repository state")
                 return False
+            
+            # If rate limited, skip incremental and use ZIP download
+            if current_state.get('rate_limited'):
+                log.warning("Rate limited, skipping incremental update and using ZIP download")
+                return self.download_and_extract_skins(force_update=True)
             
             # If no local state, check if we have existing skins
             if not local_state:
