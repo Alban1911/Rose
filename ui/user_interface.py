@@ -150,6 +150,24 @@ class UserInterface:
     
     def create_click_catchers(self):
         """Create ClickCatcherHide instances when champion is locked (if not already created)"""
+        from PyQt6.QtCore import QThread, QTimer
+        from PyQt6.QtWidgets import QApplication
+        
+        # Check if we're on the main thread
+        app = QApplication.instance()
+        if app is None:
+            log.error("[UI] No QApplication instance found - cannot create click catchers")
+            return
+        
+        current_thread = QThread.currentThread()
+        main_thread = app.thread()
+        
+        # If not on main thread, defer to main thread
+        if current_thread != main_thread:
+            log.debug("[UI] Deferring click catcher creation to main thread")
+            QTimer.singleShot(0, self.create_click_catchers)
+            return
+        
         # Show ClickBlocker when champion is locked to prevent accidental clicks
         # Do this FIRST before any early returns
         self._try_show_click_blocker()

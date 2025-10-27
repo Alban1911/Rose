@@ -29,7 +29,8 @@ Features:
 """
 
 import ctypes
-from PyQt6.QtCore import pyqtSignal, QTimer
+from PyQt6.QtCore import pyqtSignal, QTimer, QThread
+from PyQt6.QtWidgets import QApplication
 from ui.chroma_base import ChromaWidgetBase
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
@@ -40,6 +41,7 @@ log = get_logger()
 # Global registry of all click catchers for mouse monitoring
 _click_catchers = {}
 _mouse_timer = None
+_mouse_timer_pending = False  # Track if timer creation is already pending
 _last_mouse_pos = (0, 0)
 _last_mouse_state = False
 _click_down_in_area = {}  # Track if mouse was pressed down in a catcher area (catcher_id -> bool)
@@ -163,31 +165,55 @@ def _check_mouse_clicks():
 
 
 def _start_mouse_monitoring():
-    """Start mouse monitoring using a timer"""
-    global _mouse_timer
+    """Start mouse monitoring using a timer - must be called from main thread"""
+    global _mouse_timer, _mouse_timer_pending
     
     if _mouse_timer is not None:
         log.debug("[ClickCatcher] Mouse monitoring already running")
         return  # Already running
     
     try:
-        # Create a QTimer for mouse monitoring
+        # Check if we're on the main Qt thread
+        current_thread = QThread.currentThread()
+        app = QApplication.instance()
+        
+        if app is None:
+            log.error("[ClickCatcher] No QApplication instance found - cannot create timer")
+            return
+        
+        main_thread = app.thread()
+        
+        # If not on main thread, defer to main thread
+        if current_thread != main_thread:
+            # Prevent multiple deferrals
+            if _mouse_timer_pending:
+                log.debug("[ClickCatcher] Timer creation already pending, skipping")
+                return
+            log.debug("[ClickCatcher] Deferring timer creation to main thread")
+            _mouse_timer_pending = True
+            QTimer.singleShot(0, _start_mouse_monitoring)
+            return
+        
+        # Create a QTimer for mouse monitoring (now on main thread)
         _mouse_timer = QTimer()
         _mouse_timer.timeout.connect(_check_mouse_clicks)
         _mouse_timer.start(16)  # ~60 FPS monitoring
+        _mouse_timer_pending = False  # Clear pending flag
         log.info("[ClickCatcher] ✓ Mouse monitoring started")
     except Exception as e:
+        _mouse_timer_pending = False  # Clear pending flag on error
         log.error(f"[ClickCatcher] Exception starting mouse monitoring: {e}")
 
 
 def _stop_mouse_monitoring():
     """Stop mouse monitoring"""
-    global _mouse_timer
+    global _mouse_timer, _mouse_timer_pending
     
     if _mouse_timer:
         _mouse_timer.stop()
         _mouse_timer = None
-        log.debug("[ClickCatcher] Mouse monitoring stopped")
+    _mouse_timer_pending = False
+    log.debug("[ClickCatcher] Mouse monitoring stopped")
 
 
 def cleanup_all_click_catchers():
