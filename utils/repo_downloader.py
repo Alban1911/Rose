@@ -12,7 +12,7 @@ import zipfile
 import tempfile
 import requests
 from pathlib import Path
-from typing import Optional, Dict, List, Set
+from typing import Optional, Dict, List, Set, Tuple
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
@@ -53,6 +53,16 @@ class RepoDownloader:
         except requests.RequestException as e:
             log.error(f"Failed to get repository state: {e}")
             return {}
+    
+    def get_remaining_api_calls(self, response: requests.Response) -> int:
+        """Get remaining API calls from GitHub response headers"""
+        try:
+            remaining = int(response.headers.get('X-RateLimit-Remaining', '0'))
+            limit = int(response.headers.get('X-RateLimit-Limit', '60'))
+            log.debug(f"GitHub API rate limit: {remaining}/{limit} remaining")
+            return remaining
+        except (ValueError, AttributeError):
+            return 0
     
     def load_local_state(self) -> Dict:
         """Load local state from state file"""
@@ -98,8 +108,9 @@ class RepoDownloader:
         log.info("Repository unchanged, skipping download")
         return False
     
-    def get_changed_files(self, since_commit: str) -> List[Dict]:
-        """Get list of files that changed since a specific commit"""
+    def get_changed_files(self, since_commit: str) -> Tuple[List[Dict], Optional[requests.Response]]:
+        """Get list of files that changed since a specific commit
+        Returns: (changed_files_list, response_object)"""
         try:
             # Get commits since the specified commit
             response = self.session.get(f"{self.api_base}/compare/{since_commit}...main")
@@ -122,16 +133,17 @@ class RepoDownloader:
                         'download_url': download_url
                     })
             
-            return changed_files
+            return changed_files, response
         except requests.RequestException as e:
             log.error(f"Failed to get changed files: {e}")
-            return []
+            return [], None
     
-    def download_individual_file(self, file_info: Dict) -> bool:
-        """Download a single file from GitHub"""
+    def download_individual_file(self, file_info: Dict) -> Tuple[bool, Optional[str]]:
+        """Download a single file from GitHub
+        Returns: (success, error_type) where error_type can be 'rate_limit', 'network', or None"""
         if not file_info.get('download_url'):
             log.warning(f"No download URL for {file_info['filename']}")
-            return False
+            return False, None
         
         try:
             # Calculate local path
@@ -143,7 +155,7 @@ class RepoDownloader:
                 if local_path.exists():
                     local_path.unlink()
                     log.info(f"Removed {local_path}")
-                return True
+                return True, None
             
             # Create directory if needed
             local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,7 +168,7 @@ class RepoDownloader:
             # Check if we got the expected response structure
             if 'download_url' not in file_data:
                 log.error(f"Unexpected response format for {file_info['filename']}")
-                return False
+                return False, None
             
             # Download the actual file content
             download_response = self.session.get(file_data['download_url'], stream=True, timeout=SKIN_DOWNLOAD_STREAM_TIMEOUT_S)
@@ -168,14 +180,21 @@ class RepoDownloader:
                         f.write(chunk)
             
             log.info(f"Downloaded {file_info['filename']}")
-            return True
+            return True, None
             
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code == 429:
+                log.warning(f"Rate limit hit while downloading {file_info['filename']}")
+                return False, 'rate_limit'
+            else:
+                log.error(f"Failed to download {file_info['filename']}: {e}")
+                return False, 'network'
         except requests.RequestException as e:
             log.error(f"Failed to download {file_info['filename']}: {e}")
-            return False
+            return False, 'network'
         except Exception as e:
             log.error(f"Error saving {file_info['filename']}: {e}")
-            return False
+            return False, None
         
     def download_repo_zip(self) -> Optional[Path]:
         """Download the entire repository as a ZIP file"""
@@ -382,17 +401,37 @@ class RepoDownloader:
                     current_state['last_checked'] = current_state['last_commit_date']
                     self.save_local_state(current_state)
                     # Now check for changes since current commit (should be none)
-                    changed_files = self.get_changed_files(current_state['last_commit_sha'])
+                    changed_files, response = self.get_changed_files(current_state['last_commit_sha'])
                     if not changed_files:
                         log.info("No changes found since current commit")
                         return True
                     else:
-                        log.info(f"Found {len(changed_files)} changed files, downloading...")
+                        log.info(f"Found {len(changed_files)} changed files")
+                        # Check if we have enough API calls remaining
+                        if response:
+                            remaining_calls = self.get_remaining_api_calls(response)
+                            # Need at least 2 API calls per file (get file info + download)
+                            estimated_calls = len(changed_files) * 2
+                            if remaining_calls < estimated_calls + 10:  # 10 calls buffer
+                                log.warning(f"Not enough API calls remaining ({remaining_calls}), falling back to ZIP download")
+                                return self.download_and_extract_skins(force_update=True)
+                        
                         # Download changed files
                         success_count = 0
+                        rate_limit_hit = False
                         for file_info in changed_files:
-                            if self.download_individual_file(file_info):
+                            success, error_type = self.download_individual_file(file_info)
+                            if success:
                                 success_count += 1
+                            elif error_type == 'rate_limit':
+                                rate_limit_hit = True
+                                log.warning("Rate limit hit during download, falling back to ZIP download")
+                                break
+                        
+                        if rate_limit_hit:
+                            log.info("Switching to ZIP download due to rate limit")
+                            return self.download_and_extract_skins(force_update=True)
+                        
                         log.info(f"Downloaded {success_count}/{len(changed_files)} changed files")
                         return success_count > 0
                 else:
@@ -405,7 +444,7 @@ class RepoDownloader:
                 log.info("No previous commit found, performing full download")
                 return self.download_and_extract_skins(force_update=True)
             
-            changed_files = self.get_changed_files(last_commit)
+            changed_files, response = self.get_changed_files(last_commit)
             if not changed_files:
                 log.info("No skin files changed")
                 # Update state even if no changes
@@ -415,11 +454,31 @@ class RepoDownloader:
             
             log.info(f"Found {len(changed_files)} changed files")
             
+            # Check if we have enough API calls remaining
+            if response:
+                remaining_calls = self.get_remaining_api_calls(response)
+                # Need at least 2 API calls per file (get file info + download)
+                estimated_calls = len(changed_files) * 2
+                log.info(f"Remaining API calls: {remaining_calls}, estimated needed: {estimated_calls}")
+                if remaining_calls < estimated_calls + 10:  # 10 calls buffer
+                    log.warning(f"Not enough API calls remaining ({remaining_calls}), falling back to ZIP download")
+                    return self.download_and_extract_skins(force_update=True)
+            
             # Download changed files
             success_count = 0
+            rate_limit_hit = False
             for file_info in changed_files:
-                if self.download_individual_file(file_info):
+                success, error_type = self.download_individual_file(file_info)
+                if success:
                     success_count += 1
+                elif error_type == 'rate_limit':
+                    rate_limit_hit = True
+                    log.warning("Rate limit hit during download, falling back to ZIP download")
+                    break
+            
+            if rate_limit_hit:
+                log.info("Switching to ZIP download due to rate limit")
+                return self.download_and_extract_skins(force_update=True)
             
             log.info(f"Downloaded {success_count}/{len(changed_files)} changed files")
             
