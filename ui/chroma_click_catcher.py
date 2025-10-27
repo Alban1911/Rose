@@ -27,7 +27,7 @@ class ClickCatcherOverlay(QWidget):
         
         # Register with z-order manager for proper layering
         self._z_manager = get_z_order_manager()
-        self._z_manager.register_widget(self, 'click_catcher', ZOrderManager.Z_LEVELS['CLICK_CATCHER'])
+        self._z_manager.register_widget(self, 'chroma_click_catcher', ZOrderManager.Z_LEVELS['CHROMA_CLICK_CATCHER'])
         
         log.debug(f"[CHROMA] Creating click catcher overlay")
         
@@ -131,7 +131,7 @@ class ClickCatcherOverlay(QWidget):
         painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
     
     def mousePressEvent(self, event):
-        """Handle click on overlay - close panel"""
+        """Handle click on overlay - close panel if not handled by chroma panel above"""
         if event.button() == Qt.MouseButton.LeftButton:
             log.debug("[CHROMA] Click caught on overlay, closing panel")
             if self.on_click_callback:
@@ -140,6 +140,6 @@ class ClickCatcherOverlay(QWidget):
     
     def cleanup(self):
         """Clean up click catcher and unregister from z-order manager"""
-        self._z_manager.unregister_widget('click_catcher')
+        self._z_manager.unregister_widget('chroma_click_catcher')
         self.hide()
 

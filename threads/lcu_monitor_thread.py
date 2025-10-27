@@ -226,6 +226,16 @@ class LCUMonitorThread(threading.Thread):
                         except Exception as e:
                             log.debug(f"[init-state] Failed to notify injection manager: {e}")
                     
+                    # Create ClickCatchers on champion lock (when not in Swiftplay)
+                    from ui.user_interface import get_user_interface
+                    user_interface = get_user_interface(self.state, self.skin_scraper)
+                    if user_interface:
+                        try:
+                            user_interface.create_click_catchers()
+                            log.debug(f"[init-state] Requested ClickCatcher creation for {champ_name}")
+                        except Exception as e:
+                            log.debug(f"[init-state] Failed to create ClickCatchers: {e}")
+                    
                     log.info(f"[init-state] App will start after initialization (champion: {champ_name})")
         except Exception as e:
             log.debug(f"Error checking initial champion state: {e}")

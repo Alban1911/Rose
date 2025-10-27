@@ -524,7 +524,7 @@ class ChromaPanelManager:
                             )
                             log.debug("[CHROMA] Click catcher overlay created")
                     
-                    # Show click catcher FIRST (at bottom of z-order)
+                    # Show click catcher (at z-level 275, below panel at 300)
                     if self.click_catcher:
                         self.click_catcher.show()
                         self.click_catcher.raise_()  # Make it visible

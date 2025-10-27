@@ -124,6 +124,18 @@ class WSEventThread(threading.Thread):
             except Exception as e:
                 log.error(f"[exchange] Failed to request chroma panel creation: {e}")
         
+        # Create ClickCatchers on champion exchange (when not in Swiftplay)
+        from ui.user_interface import get_user_interface
+        user_interface = get_user_interface(self.state, self.skin_scraper)
+        if user_interface:
+            try:
+                # Clear existing click catchers first
+                user_interface.click_catchers.clear()
+                user_interface.create_click_catchers()
+                log.debug(f"[exchange] Requested ClickCatcher creation for {new_champ_label}")
+            except Exception as e:
+                log.error(f"[exchange] Failed to create ClickCatchers: {e}")
+        
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
     def _maybe_start_timer(self, sess: dict):
@@ -388,6 +400,16 @@ class WSEventThread(threading.Thread):
                                 log.debug(f"[lock:champ] Requested chroma panel creation for {champ_label}")
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
+                        
+                        # Create ClickCatchers on champion lock (when not in Swiftplay)
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
+                        if user_interface:
+                            try:
+                                user_interface.create_click_catchers()
+                                log.debug(f"[lock:champ] Requested ClickCatcher creation for {champ_label}")
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
                         
                         # Update tracking
                         self.last_locked_champion_id = new_champ_id
