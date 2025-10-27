@@ -89,6 +89,10 @@ class WSEventThread(threading.Thread):
             except Exception as e:
                 log.error(f"[exchange] Failed to clear UIA cache: {e}")
         
+        # Trigger UI hiding in main thread by setting flag
+        self.state.champion_exchange_triggered = True
+        log.debug("[exchange] Champion exchange flag set - main thread will hide UI")
+        
         # Scrape skins for new champion from LCU
         if self.skin_scraper:
             try:
@@ -200,6 +204,7 @@ class WSEventThread(threading.Thread):
                         self.state.random_skin_id = None
                         self.state.random_mode_active = False
                         self.last_locked_champion_id = None  # Reset exchange tracking for new game
+                        self.state.champion_exchange_triggered = False  # Reset champion exchange flag
                         
                         # Signal main thread to reset skin notification debouncing
                         self.state.reset_skin_notification = True

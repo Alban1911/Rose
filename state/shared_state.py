@@ -79,3 +79,6 @@ class SharedState:
     
     # Thread references for cross-thread access
     ui_skin_thread = None  # Reference to UISkinThread instance
+    
+    # Champion exchange detection
+    champion_exchange_triggered = False  # Flag to hide UI during champion exchange
