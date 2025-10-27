@@ -417,52 +417,63 @@ class RepoDownloader:
                 log.warning("Rate limited, skipping incremental update and using ZIP download")
                 return self.download_and_extract_skins(force_update=True)
             
-            # If no local state, check if we have existing skins
+            # If no local state, check if we have existing skins or mappings
             if not local_state:
                 existing_skins = list(self.target_dir.rglob("*.zip"))
-                if existing_skins:
-                    log.info(f"No local state found, but found {len(existing_skins)} existing skins")
-                    log.info("Creating state file and checking for updates...")
-                    # Create a minimal state and try incremental update
-                    # We'll use the current commit as the "last known" state
-                    current_state['last_checked'] = current_state['last_commit_date']
-                    self.save_local_state(current_state)
-                    # Now check for changes since current commit (should be none)
-                    changed_files, response = self.get_changed_files(current_state['last_commit_sha'])
-                    if not changed_files:
-                        log.info("No changes found since current commit")
-                        return True
-                    else:
-                        log.info(f"Found {len(changed_files)} changed files")
-                        # Check if we have enough API calls remaining
-                        if response:
-                            remaining_calls = self.get_remaining_api_calls(response)
-                            # Need at least 2 API calls per file (get file info + download)
-                            estimated_calls = len(changed_files) * 2
-                            if remaining_calls < estimated_calls + 10:  # 10 calls buffer
-                                log.warning(f"Not enough API calls remaining ({remaining_calls}), falling back to ZIP download")
-                                return self.download_and_extract_skins(force_update=True)
-                        
-                        # Download changed files
-                        success_count = 0
-                        rate_limit_hit = False
-                        for file_info in changed_files:
-                            success, error_type = self.download_individual_file(file_info)
-                            if success:
-                                success_count += 1
-                            elif error_type == 'rate_limit':
-                                rate_limit_hit = True
-                                log.warning("Rate limit hit during download, falling back to ZIP download")
-                                break
-                        
-                        if rate_limit_hit:
-                            log.info("Switching to ZIP download due to rate limit")
-                            return self.download_and_extract_skins(force_update=True)
-                        
-                        log.info(f"Downloaded {success_count}/{len(changed_files)} changed files")
-                        return success_count > 0
+                existing_previews = list(self.target_dir.rglob("*.png"))
+                
+                # Check if skinid_mapping exists
+                from utils.paths import get_user_data_dir
+                mapping_dir = get_user_data_dir() / "skinid_mapping"
+                existing_mappings = list(mapping_dir.rglob("*.json")) if mapping_dir.exists() else []
+                
+                if existing_skins or existing_previews or existing_mappings:
+                    log.warning(f"No state file found but found existing files:")
+                    log.warning(f"  - {len(existing_skins)} skin .zip files")
+                    log.warning(f"  - {len(existing_previews)} preview .png files")
+                    log.warning(f"  - {len(existing_mappings)} skin ID mapping files")
+                    log.info("Cannot track commits without state file - deleting all files and performing full ZIP download")
+                    
+                    # Delete all existing skins and previews
+                    for file_path in existing_skins + existing_previews:
+                        try:
+                            file_path.unlink()
+                        except Exception as e:
+                            log.warning(f"Failed to delete {file_path}: {e}")
+                    
+                    # Delete all existing mappings
+                    for mapping_file in existing_mappings:
+                        try:
+                            mapping_file.unlink()
+                        except Exception as e:
+                            log.warning(f"Failed to delete {mapping_file}: {e}")
+                    
+                    # Also delete empty directories
+                    for dir_path in list(self.target_dir.rglob("*")):
+                        if dir_path.is_dir() and not any(dir_path.iterdir()):
+                            try:
+                                dir_path.rmdir()
+                            except Exception:
+                                pass
+                    
+                    if mapping_dir.exists():
+                        for dir_path in list(mapping_dir.rglob("*")):
+                            if dir_path.is_dir() and not any(dir_path.iterdir()):
+                                try:
+                                    dir_path.rmdir()
+                                except Exception:
+                                    pass
+                        # Try to remove the mapping dir itself if empty
+                        try:
+                            if not any(mapping_dir.iterdir()):
+                                mapping_dir.rmdir()
+                        except Exception:
+                            pass
+                    
+                    # Now do full download
+                    return self.download_and_extract_skins(force_update=True)
                 else:
-                    log.info("No local state and no existing skins found, performing full download")
+                    log.info("No local state and no existing files found, performing full download")
                     return self.download_and_extract_skins(force_update=True)
             
             # Get changed files since last update
