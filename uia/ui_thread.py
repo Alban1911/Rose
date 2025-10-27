@@ -168,6 +168,22 @@ class UISkinThread(threading.Thread):
         self.connection.disconnect()
         log.info("UI Detection: Stop requested")
     
+    def clear_cache(self):
+        """Clear all cached elements and state - called during champion exchange"""
+        log.info("UI Detection: Clearing all UIA cache")
+        self.skin_name_element = None
+        self.last_skin_name = None
+        self.last_skin_id = None
+        self.detection_attempts = 0
+        
+        # Also clear the detector's cached element
+        if self.detector:
+            self.detector._clear_cache()
+        
+        # Clear shared state UI detection variables
+        self.shared_state.ui_skin_id = None
+        self.shared_state.ui_last_text = None
+    
     def _should_connect(self) -> bool:
         """Check if we should establish PyWinAuto connection"""
         # For Swiftplay, also connect in Lobby phase

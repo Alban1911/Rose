@@ -81,22 +81,13 @@ class WSEventThread(threading.Thread):
         self.state.locked_champ_id = new_champ_id
         self.state.locked_champ_timestamp = time.time()
         
-        # Clear owned skins cache (will be refreshed for new champion)
-        self.state.owned_skin_ids.clear()
-        
-        # Destroy chroma panel
-        chroma_selector = get_chroma_selector()
-        if chroma_selector and chroma_selector.panel:
+        # Clear UIA cache to detect new champion's skin
+        if self.state.ui_skin_thread:
             try:
-                chroma_selector.panel.request_destroy()
-                log.debug("[exchange] Chroma panel destroy requested")
+                self.state.ui_skin_thread.clear_cache()
+                log.debug("[exchange] UIA cache cleared")
             except Exception as e:
-                log.debug(f"[exchange] Error destroying chroma panel: {e}")
-        
-        # Reset loadout countdown if active
-        if self.state.loadout_countdown_active:
-            self.state.loadout_countdown_active = False
-            log.debug("[exchange] Reset loadout countdown state")
+                log.error(f"[exchange] Failed to clear UIA cache: {e}")
         
         # Scrape skins for new champion from LCU
         if self.skin_scraper:
@@ -115,26 +106,6 @@ class WSEventThread(threading.Thread):
                 log.debug(f"[exchange] Notified injection manager of {new_champ_label}")
             except Exception as e:
                 log.error(f"[exchange] Failed to notify injection manager: {e}")
-        
-        # Create chroma panel widgets for new champion
-        if chroma_selector:
-            try:
-                chroma_selector.panel.request_create()
-                log.debug(f"[exchange] Requested chroma panel creation for {new_champ_label}")
-            except Exception as e:
-                log.error(f"[exchange] Failed to request chroma panel creation: {e}")
-        
-        # Create ClickCatchers on champion exchange (when not in Swiftplay)
-        from ui.user_interface import get_user_interface
-        user_interface = get_user_interface(self.state, self.skin_scraper)
-        if user_interface:
-            try:
-                # Clear existing click catchers first
-                user_interface.click_catchers.clear()
-                user_interface.create_click_catchers()
-                log.debug(f"[exchange] Requested ClickCatcher creation for {new_champ_label}")
-            except Exception as e:
-                log.error(f"[exchange] Failed to create ClickCatchers: {e}")
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
