@@ -112,6 +112,14 @@ class ThreadManager:
         with self.lock:
             return [m.name for m in self.threads if m.thread.is_alive()]
     
+    def get_thread(self, name: str) -> Optional[threading.Thread]:
+        """Get a thread instance by name"""
+        with self.lock:
+            for managed in self.threads:
+                if managed.name == name:
+                    return managed.thread
+        return None
+    
     def wait_for_all(self, timeout: Optional[float] = None) -> bool:
         """
         Wait for all threads to complete

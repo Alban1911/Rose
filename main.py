@@ -1059,6 +1059,7 @@ def main():
     thread_manager.register("Phase", t_phase)
     
     t_ui = UISkinThread(state, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
+    state.ui_skin_thread = t_ui  # Store reference for access during champion exchange
     thread_manager.register("UI Detection", t_ui)
     
     t_ws = WSEventThread(lcu, state, ping_interval=args.ws_ping, 

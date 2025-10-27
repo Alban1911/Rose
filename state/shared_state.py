@@ -76,3 +76,6 @@ class SharedState:
     random_skin_name: Optional[str] = None  # Selected random skin for injection
     random_skin_id: Optional[int] = None  # Selected random skin/chroma ID for injection
     random_mode_active: bool = False  # Tracks if randomization is active
+    
+    # Thread references for cross-thread access
+    ui_skin_thread = None  # Reference to UISkinThread instance
