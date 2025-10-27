@@ -837,17 +837,18 @@ class UserInterface:
                 log.warning(f"[UI] UI initialization requested but in cooldown period - {remaining_time:.2f}s remaining")
                 return
             
-            if not self.is_ui_initialized() and not self._pending_ui_initialization:
-                log.info("[UI] UI initialization requested for ChampSelect")
-                # Defer widget creation to main thread to avoid PyQt6 thread issues
-                self._pending_ui_initialization = True
-                self._pending_ui_destruction = False  # Cancel any pending destruction
-            elif self._force_reinitialize:
+            # Check for force reinitialize FIRST (before other checks)
+            if self._force_reinitialize:
                 log.info("[UI] Force reinitializing UI for new ChampSelect")
                 # Force destruction and recreation
                 self._pending_ui_destruction = True
                 self._pending_ui_initialization = True
                 self._force_reinitialize = False
+            elif not self.is_ui_initialized() and not self._pending_ui_initialization:
+                log.info("[UI] UI initialization requested for ChampSelect")
+                # Defer widget creation to main thread to avoid PyQt6 thread issues
+                self._pending_ui_initialization = True
+                self._pending_ui_destruction = False  # Cancel any pending destruction
             else:
                 log.debug("[UI] UI initialization requested but already initialized or pending")
     

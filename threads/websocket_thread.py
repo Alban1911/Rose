@@ -201,6 +201,9 @@ class WSEventThread(threading.Thread):
                 self.state.phase = ph
                 
                 if ph == "ChampSelect":
+                    # Detect game mode FIRST to get accurate is_swiftplay_mode flag
+                    self._detect_game_mode()
+                    
                     if self.state.is_swiftplay_mode:
                         log.debug("[WS] ChampSelect in Swiftplay mode - skipping normal reset")
                     else:
@@ -240,13 +243,12 @@ class WSEventThread(threading.Thread):
                             user_interface = get_user_interface(self.state, self.skin_scraper)
                             # Reset skin state for new ChampSelect
                             user_interface.reset_skin_state()
+                            # Force UI reinitialization to rebuild for current game mode and resolution
+                            user_interface._force_reinitialize = True
                             user_interface.request_ui_initialization()
-                            log_event(log, "UI initialization requested for ChampSelect", "🎨")
+                            log_event(log, "UI reinitialization requested for ChampSelect", "🎨")
                         except Exception as e:
                             log.warning(f"Failed to request UI initialization for ChampSelect: {e}")
-                    
-                    # Detect game mode once when entering champion select
-                    self._detect_game_mode()
                     
                     # Load owned skins immediately when entering ChampSelect
                     try:
@@ -593,6 +595,14 @@ class WSEventThread(threading.Thread):
             self.state.current_game_mode = game_mode
             self.state.current_map_id = map_id
             self.state.current_queue_id = queue_id
+            
+            # Update is_swiftplay_mode flag based on detected game mode
+            # This ensures the flag is correct when entering ChampSelect
+            old_swiftplay_mode = self.state.is_swiftplay_mode
+            self.state.is_swiftplay_mode = (game_mode == "SWIFTPLAY")
+            
+            if old_swiftplay_mode != self.state.is_swiftplay_mode:
+                log.info(f"[WS] Swiftplay mode flag updated: {old_swiftplay_mode} → {self.state.is_swiftplay_mode}")
             
             # Log queue ID when entering ChampSelect
             log.info(f"[WS] Queue ID: {queue_id}")
