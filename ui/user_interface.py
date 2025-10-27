@@ -39,6 +39,7 @@ class UserInterface:
         self.dice_button = None
         self.random_flag = None
         self.click_catcher_hide = None
+        self.click_blocker = None  # Block clicks during skin detection
         
         # Click Catcher instances for different UI elements
         self.click_catchers = {}  # Dictionary to store multiple click catcher instances
@@ -111,6 +112,15 @@ class UserInterface:
             self.random_flag = RandomFlag(state=self.state)
             log.info("[UI] RandomFlag created successfully")
             
+            # Create ClickBlocker (only in regular mode, not Swiftplay)
+            if not self.state.is_swiftplay_mode:
+                log.info("[UI] Creating ClickBlocker components...")
+                from ui.click_blocker import ClickBlocker
+                self.click_blocker = ClickBlocker(state=self.state)
+                log.info(f"[UI] ClickBlocker created successfully - self.click_blocker = {self.click_blocker}, is None: {self.click_blocker is None}")
+            else:
+                log.info("[UI] Skipping ClickBlocker creation in Swiftplay mode")
+            
             # ClickCatcherHide instances will be created during FINALIZATION phase
             log.info("[UI] ClickCatcherHide components will be created during FINALIZATION phase")
             
@@ -140,6 +150,10 @@ class UserInterface:
     
     def create_click_catchers(self):
         """Create ClickCatcherHide instances when champion is locked (if not already created)"""
+        # Show ClickBlocker when champion is locked to prevent accidental clicks
+        # Do this FIRST before any early returns
+        self._try_show_click_blocker()
+        
         try:
             # Skip ClickCatcher creation in Swiftplay mode
             if self.state.is_swiftplay_mode:
@@ -243,6 +257,46 @@ class UserInterface:
             import traceback
             log.error(f"[UI] Traceback: {traceback.format_exc()}")
     
+    def _try_show_click_blocker(self):
+        """Try to show ClickBlocker (can be called from any thread)"""
+        log.info(f"[UI] Attempting to show ClickBlocker - click_blocker exists: {self.click_blocker is not None}")
+        if self.click_blocker:
+            try:
+                from PyQt6.QtCore import QTimer
+                log.info("[UI] Scheduling click_blocker.show_instantly() on main thread")
+                QTimer.singleShot(0, self._show_click_blocker_on_main_thread)
+                log.info("[UI] ClickBlocker show scheduled on main thread")
+            except Exception as e:
+                log.warning(f"[UI] Failed to schedule ClickBlocker show: {e}")
+                import traceback
+                log.warning(f"[UI] Traceback: {traceback.format_exc()}")
+        else:
+            log.warning("[UI] ClickBlocker is None - cannot show")
+    
+    def _show_click_blocker_on_main_thread(self):
+        """Show ClickBlocker on main thread (called via QTimer.singleShot)"""
+        try:
+            log.info("[UI] _show_click_blocker_on_main_thread called")
+            if self.click_blocker:
+                log.info("[UI] Calling click_blocker.show_instantly()")
+                self.click_blocker.show_instantly()
+                log.info("[UI] ClickBlocker shown - blocking clicks during skin detection")
+            else:
+                log.warning("[UI] ClickBlocker is None in main thread callback")
+        except Exception as e:
+            log.error(f"[UI] Failed to show ClickBlocker on main thread: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def _hide_click_blocker_with_delay(self):
+        """Hide ClickBlocker after delay (called via QTimer.singleShot)"""
+        if self.click_blocker:
+            try:
+                self.click_blocker.hide_instantly()
+                log.info("[UI] ClickBlocker hidden - ChromaButton should now be visible")
+            except Exception as e:
+                log.warning(f"[UI] Failed to hide ClickBlocker: {e}")
+    
     def create_click_catchers_for_finalization(self):
         """Create ClickCatcherHide instances during FINALIZATION phase (deprecated - now created on lock)"""
         # Delegates to create_click_catchers to avoid duplicate creation
@@ -262,6 +316,15 @@ class UserInterface:
                 return
             
             log.info(f"[UI] Showing skin: {skin_name} (ID: {skin_id})")
+            
+            # Hide ClickBlocker when UIA finds the skin name (with 200ms delay to let ChromaButton fully appear)
+            if self.click_blocker and self.click_blocker.isVisible():
+                try:
+                    from PyQt6.QtCore import QTimer
+                    log.info("[UI] ClickBlocker will be hidden in 200ms to let ChromaButton appear first")
+                    QTimer.singleShot(200, self._hide_click_blocker_with_delay)
+                except Exception as e:
+                    log.warning(f"[UI] Failed to schedule ClickBlocker hide: {e}")
             
             # Capture previous base skin before updating current
             prev_skin_id = self.current_skin_id
@@ -1700,6 +1763,11 @@ class UserInterface:
                 self.dice_button.cleanup()
             if self.random_flag:
                 self.random_flag.cleanup()
+            if self.click_blocker:
+                try:
+                    self.click_blocker.cleanup()
+                except Exception as e:
+                    log.warning(f"[UI] Error cleaning up ClickBlocker: {e}")
             for catcher in self.click_catchers.values():
                 catcher.cleanup()
             log.info("[UI] All UI components cleaned up")
