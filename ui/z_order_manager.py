@@ -30,8 +30,9 @@ class ZOrderManager:
         'DICE_BUTTON': 150,        # Dice button for random skin selection
         'CHROMA_BUTTON': 200,      # Circular chroma button (above unowned frame)
         'RANDOM_FLAG': 250,        # Random flag indicator (above chroma button)
-        'CHROMA_PANEL': 300,       # Chroma selection panel (above flag)
-        'CLICK_CATCHER': 400,      # Invisible overlay for click detection (topmost)
+        'CHROMA_CLICK_CATCHER': 275, # Invisible overlay for chroma panel (above other UI, below panel)
+        'CHROMA_PANEL': 300,       # Chroma selection panel (topmost for user interaction)
+        'CLICK_CATCHER': 400,      # Invisible overlay for hiding UI elements (topmost for detection)
     }
     
     def __init__(self):

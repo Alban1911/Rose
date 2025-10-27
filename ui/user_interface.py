@@ -138,15 +138,20 @@ class UserInterface:
                 self.unowned_frame = None
             raise
     
-    def create_click_catchers_for_finalization(self):
-        """Create ClickCatcherHide instances during FINALIZATION phase"""
+    def create_click_catchers(self):
+        """Create ClickCatcherHide instances when champion is locked (if not already created)"""
         try:
             # Skip ClickCatcher creation in Swiftplay mode
             if self.state.is_swiftplay_mode:
                 log.info("[UI] Skipping ClickCatcher creation - Swiftplay mode detected")
                 return
             
-            log.info("[UI] Creating ClickCatcherHide components for FINALIZATION phase...")
+            # Check if click catchers already exist
+            if self.click_catchers:
+                log.debug("[UI] ClickCatchers already exist, skipping creation")
+                return
+            
+            log.info("[UI] Creating ClickCatcherHide components...")
             # Create ClickCatcherHide instances for different UI elements
             from ui.click_catcher_hide import ClickCatcherHide
             
@@ -231,12 +236,17 @@ class UserInterface:
             # Keep the original single instance for backward compatibility
             self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
             
-            log.info("[UI] ClickCatcherHide instances created successfully for FINALIZATION: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE, ABILITIES, QUESTS")
+            log.info("[UI] ClickCatcherHide instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE, ABILITIES, QUESTS")
             
         except Exception as e:
-            log.error(f"[UI] Failed to create ClickCatcherHide instances for FINALIZATION: {e}")
+            log.error(f"[UI] Failed to create ClickCatcherHide instances: {e}")
             import traceback
             log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def create_click_catchers_for_finalization(self):
+        """Create ClickCatcherHide instances during FINALIZATION phase (deprecated - now created on lock)"""
+        # Delegates to create_click_catchers to avoid duplicate creation
+        self.create_click_catchers()
     
     def show_skin(self, skin_id: int, skin_name: str, champion_name: str = None, champion_id: int = None):
         """Show UI for a specific skin - manages both ChromaUI and UnownedFrame"""

@@ -82,12 +82,25 @@ class ChampThread(threading.Thread):
                 log.error(f"[exchange] Failed to notify injection manager: {e}")
         
         # Create chroma panel widgets for new champion
+        chroma_selector = get_chroma_selector()
         if chroma_selector:
             try:
                 chroma_selector.panel.request_create()
                 log.debug(f"[exchange] Requested chroma panel creation for {new_champ_label}")
             except Exception as e:
                 log.error(f"[exchange] Failed to request chroma panel creation: {e}")
+        
+        # Create ClickCatchers on champion exchange (when not in Swiftplay)
+        from ui.user_interface import get_user_interface
+        user_interface = get_user_interface(self.state, self.skin_scraper)
+        if user_interface:
+            try:
+                # Clear existing click catchers first
+                user_interface.click_catchers.clear()
+                user_interface.create_click_catchers()
+                log.debug(f"[exchange] Requested ClickCatcher creation for {new_champ_label}")
+            except Exception as e:
+                log.error(f"[exchange] Failed to create ClickCatchers: {e}")
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
@@ -159,6 +172,16 @@ class ChampThread(threading.Thread):
                                 log.debug(f"[lock:champ] Requested chroma panel creation for {nm}")
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
+                        
+                        # Create ClickCatchers on champion lock (when not in Swiftplay)
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
+                        if user_interface:
+                            try:
+                                user_interface.create_click_catchers()
+                                log.debug(f"[lock:champ] Requested ClickCatcher creation for {nm}")
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
                     
                     # Always update the state, even for the same champion
                     self.state.locked_champ_id = locked
