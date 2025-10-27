@@ -1207,6 +1207,29 @@ def main():
                         log.debug("[MAIN] Processing pending UI operations")
                     user_interface.process_pending_operations()
                     
+                    # Handle champion exchange - hide UI elements (must be done in main thread)
+                    if state.champion_exchange_triggered:
+                        try:
+                            state.champion_exchange_triggered = False  # Reset flag
+                            if user_interface.is_ui_initialized():
+                                log.info("[MAIN] Champion exchange detected - hiding UI elements")
+                                
+                                # Hide UnownedFrame by setting opacity to 0
+                                if user_interface.unowned_frame and hasattr(user_interface.unowned_frame, 'opacity_effect'):
+                                    user_interface.unowned_frame.opacity_effect.setOpacity(0.0)
+                                    log.debug("[exchange] UnownedFrame hidden")
+                                
+                                # Hide Chroma Opening Button by hiding it
+                                if (user_interface.chroma_ui and 
+                                    user_interface.chroma_ui.chroma_selector and 
+                                    user_interface.chroma_ui.chroma_selector.panel and
+                                    user_interface.chroma_ui.chroma_selector.panel.reopen_button):
+                                    button = user_interface.chroma_ui.chroma_selector.panel.reopen_button
+                                    button.hide()
+                                    log.debug("[exchange] Chroma Opening Button hidden")
+                        except Exception as e:
+                            log.error(f"[MAIN] Failed to hide UI during champion exchange: {e}")
+                    
                     if user_interface.is_ui_initialized() and user_interface.chroma_ui and user_interface.chroma_ui.chroma_selector and user_interface.chroma_ui.chroma_selector.panel:
                         chroma_start = time.time()
                         user_interface.chroma_ui.chroma_selector.panel.process_pending()

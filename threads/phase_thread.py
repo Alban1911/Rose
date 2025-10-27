@@ -124,6 +124,7 @@ class PhaseThread(threading.Thread):
                         # This helps UI detection restart immediately if champion is already locked
                         self.state.locked_champ_id = None  # Reset first
                         self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
+                        self.state.champion_exchange_triggered = False  # Reset champion exchange flag
                     
                 elif ph == "GameStart":
                     # Don't destroy UI yet, let injection complete first

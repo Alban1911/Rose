@@ -60,6 +60,10 @@ class ChampThread(threading.Thread):
             except Exception as e:
                 log.error(f"[exchange] Failed to clear UIA cache: {e}")
         
+        # Trigger UI hiding in main thread by setting flag
+        self.state.champion_exchange_triggered = True
+        log.debug("[exchange] Champion exchange flag set - main thread will hide UI")
+        
         # Skin names are now provided by LCU API - no need to load from Data Dragon
         
         # Notify injection manager of champion exchange
