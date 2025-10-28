@@ -430,6 +430,17 @@ class UserInterface:
             for catcher in self.click_catchers.values():
                 catcher.hide_catcher()
     
+    def _schedule_hide_all_on_main_thread(self):
+        """Schedule hide_all() to run on the main thread to avoid PyQt6 thread issues"""
+        try:
+            # Use QTimer.singleShot to schedule on main thread
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self.hide_all)
+            log.debug("[UI] hide_all() scheduled on main thread")
+        except Exception as e:
+            log.warning(f"[UI] Failed to schedule hide_all on main thread: {e}")
+            # No fallback - avoid direct call that could cause thread issues
+    
     def _skin_has_chromas(self, skin_id: int) -> bool:
         """Check if skin has chromas"""
         try:
