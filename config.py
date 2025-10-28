@@ -265,27 +265,9 @@ CHROMA_PANEL_CONFIGS = {
         'panel_y': 141,            # 222 * (576/900) = 142.08 ≈ 142
     }
 }
-# DEPRECATED - All values now hard-coded in CHROMA_PANEL_CONFIGS
-CHROMA_PANEL_WINDOW_WIDTH_RATIO = 0.305556       # 275px at 900p (deprecated)
-CHROMA_PANEL_WINDOW_HEIGHT_RATIO = 0.384444      # 346px at 900p (deprecated)
-CHROMA_PANEL_CIRCLE_SPACING_RATIO = 0.023333     # 21px at 900p (deprecated)
-CHROMA_PANEL_BUTTON_SIZE_RATIO = 0.045           # 36px at 900p (deprecated)
-
-# DEPRECATED - All positioning now hard-coded in CHROMA_PANEL_CONFIGS
-CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO = 0.022222 # 20px at 900p (deprecated)
-CHROMA_PANEL_PREVIEW_X_RATIO = 0.002222          # 2px at 900p (deprecated)
-CHROMA_PANEL_PREVIEW_Y_RATIO = 0.002222          # 2px at 900p (deprecated)
-CHROMA_PANEL_ROW_Y_OFFSET_RATIO = 0.028889       # 26px at 900p (deprecated)
 
 # Chroma panel button visual effects (not scaled)
 CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
-CHROMA_PANEL_CONICAL_START_ANGLE = -65           # Start angle for rainbow gradient (degrees)
-
-# Chroma panel button dimensions - DEPRECATED (now hard-coded as fixed values)
-CHROMA_PANEL_GOLD_BORDER_PX_RATIO = 0.002        # Deprecated - now fixed at 2px
-CHROMA_PANEL_DARK_BORDER_PX_RATIO = 0.002222     # Deprecated - now fixed at 3px
-CHROMA_PANEL_GRADIENT_RING_PX_RATIO = 0.0062     # Deprecated - now fixed at 4px
-CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO = 0.006  # Deprecated - now fixed at 2.5px
 
 # Legacy constants for backward compatibility (at reference resolution)
 CHROMA_PANEL_PREVIEW_WIDTH = 380
