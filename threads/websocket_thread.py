@@ -531,15 +531,25 @@ class WSEventThread(threading.Thread):
     
     def _detect_game_mode(self):
         """Detect game mode once when entering champion select"""
+        
+        # CRITICAL: Reset swiftplay flag to False first, then set to True only if actually detected
+        # This prevents the flag from persisting between games if detection fails
+        old_swiftplay_mode = self.state.is_swiftplay_mode
+        self.state.is_swiftplay_mode = False  # Default to non-swiftplay mode
+        
         try:
             if not self.lcu.ok:
-                log.info("[WS] LCU not connected - cannot detect game mode")
+                log.info("[WS] LCU not connected - cannot detect game mode, defaulting to non-swiftplay")
+                if old_swiftplay_mode:
+                    log.info(f"[WS] Swiftplay mode flag reset: {old_swiftplay_mode} → False")
                 return
             
             # Get game session data
             session = self.lcu.get("/lol-gameflow/v1/session")
             if not session:
-                log.info("[WS] No game session data available")
+                log.info("[WS] No game session data available, defaulting to non-swiftplay")
+                if old_swiftplay_mode:
+                    log.info(f"[WS] Swiftplay mode flag reset: {old_swiftplay_mode} → False")
                 return
             
             # Extract game mode and map ID from the correct location
@@ -574,7 +584,6 @@ class WSEventThread(threading.Thread):
             
             # Update is_swiftplay_mode flag based on detected game mode
             # This ensures the flag is correct when entering ChampSelect
-            old_swiftplay_mode = self.state.is_swiftplay_mode
             self.state.is_swiftplay_mode = (game_mode == "SWIFTPLAY")
             
             if old_swiftplay_mode != self.state.is_swiftplay_mode:
@@ -597,6 +606,7 @@ class WSEventThread(threading.Thread):
         except Exception as e:
             log.warning(f"[WS] Error detecting game mode: {e}")
             log.warning(f"[WS] Traceback: {traceback.format_exc()}")
+            # Ensure swiftplay flag is still False after error (it was already set at method start)
     
     def stop(self):
         """Stop the WebSocket thread gracefully"""
