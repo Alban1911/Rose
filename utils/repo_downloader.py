@@ -251,7 +251,7 @@ class RepoDownloader:
             log.error(f"Error downloading repository: {e}")
             return None
     
-    def extract_skins_from_zip(self, zip_path: Path) -> bool:
+    def extract_skins_from_zip(self, zip_path: Path, overwrite_existing: bool = False) -> bool:
         """Extract skins, previews, and skin_id mappings from the new merged lolskins repository ZIP"""
         try:
             log.info("Extracting skins, previews, and skin_id mappings from merged lolskins repository ZIP...")
@@ -326,8 +326,8 @@ class RepoDownloader:
                         extract_path = self.target_dir / relative_path
                         extract_path.parent.mkdir(parents=True, exist_ok=True)
                         
-                        # Skip if file already exists
-                        if extract_path.exists():
+                        # Skip if file already exists (unless we're overwriting)
+                        if extract_path.exists() and not overwrite_existing:
                             skipped_count += 1
                             continue
                         
@@ -370,8 +370,8 @@ class RepoDownloader:
                             extract_path = mapping_target_dir / relative_path
                             extract_path.parent.mkdir(parents=True, exist_ok=True)
                             
-                            # Skip if file already exists
-                            if extract_path.exists():
+                            # Skip if file already exists (unless we're overwriting)
+                            if extract_path.exists() and not overwrite_existing:
                                 skipped_json_count += 1
                                 continue
                             
@@ -555,7 +555,7 @@ class RepoDownloader:
             
             try:
                 # Extract skins from ZIP
-                success = self.extract_skins_from_zip(zip_path)
+                success = self.extract_skins_from_zip(zip_path, overwrite_existing=force_update)
                 
                 # Save state after successful full download
                 if success:
