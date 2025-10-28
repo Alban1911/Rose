@@ -67,7 +67,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # Use hard-coded values from ScaledChromaValues
         from ui.chroma_scaling import get_scaled_chroma_values
-        scaled_values = get_scaled_chroma_values(current_resolution)
+        
+        # Check if we're in Swiftplay mode
+        is_swiftplay = False
+        if self.manager and self.manager.state and hasattr(self.manager.state, 'is_swiftplay_mode'):
+            is_swiftplay = self.manager.state.is_swiftplay_mode
+        
+        scaled_values = get_scaled_chroma_values(current_resolution, is_swiftplay=is_swiftplay)
         
         self.preview_width = scaled_values.preview_width
         self.preview_height = scaled_values.preview_height
@@ -186,7 +192,13 @@ class ChromaPanelWidget(ChromaWidgetBase):
         
         # Get scaled values for current resolution
         from ui.chroma_scaling import get_scaled_chroma_values
-        scaled_values = get_scaled_chroma_values(self._current_resolution)
+        
+        # Check if we're in Swiftplay mode
+        is_swiftplay = False
+        if self.manager and self.manager.state and hasattr(self.manager.state, 'is_swiftplay_mode'):
+            is_swiftplay = self.manager.state.is_swiftplay_mode
+        
+        scaled_values = get_scaled_chroma_values(self._current_resolution, is_swiftplay=is_swiftplay)
         
         # Get panel position from scaled values (config-based)
         panel_x = scaled_values.panel_x  # X position from left edge of League window

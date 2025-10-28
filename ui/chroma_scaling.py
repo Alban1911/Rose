@@ -37,18 +37,20 @@ class ScaledChromaValues:
     Uses fixed pixel values for three supported resolutions
     """
     
-    def __init__(self, resolution: Optional[Tuple[int, int]] = None):
+    def __init__(self, resolution: Optional[Tuple[int, int]] = None, is_swiftplay: bool = False):
         """
         Initialize with detected or specified resolution
         
         Args:
             resolution: (width, height) or None to auto-detect
+            is_swiftplay: Whether to use Swiftplay mode positioning
         """
         if resolution is None:
             resolution = get_league_resolution()
         
         self.resolution = resolution
         self.width, self.height = resolution
+        self.is_swiftplay = is_swiftplay
         
         # Load hard-coded values for this resolution
         self._load_hardcoded_values()
@@ -73,8 +75,14 @@ class ScaledChromaValues:
             self.preview_x = config_values['preview_x']
             self.preview_y = config_values['preview_y']
             self.row_y_offset = config_values['row_y_offset']
-            self.panel_x = config_values['panel_x']
-            self.panel_y = config_values['panel_y']
+            
+            # Use Swiftplay-specific panel positions if in Swiftplay mode
+            if self.is_swiftplay:
+                self.panel_x = config_values['swiftplay_panel_x']
+                self.panel_y = config_values['swiftplay_panel_y']
+            else:
+                self.panel_x = config_values['panel_x']
+                self.panel_y = config_values['panel_y']
         else:
             # Fallback to 1600x900 values for unsupported resolutions
             fallback_config = config.CHROMA_PANEL_CONFIGS[(1600, 900)]
@@ -91,8 +99,14 @@ class ScaledChromaValues:
             self.preview_x = fallback_config['preview_x']
             self.preview_y = fallback_config['preview_y']
             self.row_y_offset = fallback_config['row_y_offset']
-            self.panel_x = fallback_config['panel_x']
-            self.panel_y = fallback_config['panel_y']
+            
+            # Use Swiftplay-specific panel positions if in Swiftplay mode
+            if self.is_swiftplay:
+                self.panel_x = fallback_config['swiftplay_panel_x']
+                self.panel_y = fallback_config['swiftplay_panel_y']
+            else:
+                self.panel_x = fallback_config['panel_x']
+                self.panel_y = fallback_config['panel_y']
         
         # Button visual dimensions (fixed values)
         # Increase gold border by 1px for maximum resolution (1600x900)
@@ -111,20 +125,21 @@ class ScaledChromaValues:
         return f"ScaledChromaValues({self.width}x{self.height}, hardcoded=True)"
 
 
-def get_scaled_chroma_values(resolution: Optional[Tuple[int, int]] = None, force_reload: bool = False) -> ScaledChromaValues:
+def get_scaled_chroma_values(resolution: Optional[Tuple[int, int]] = None, force_reload: bool = False, is_swiftplay: bool = False) -> ScaledChromaValues:
     """
     Get hard-coded chroma values for the specified resolution
     
     Args:
         resolution: (width, height) or None to auto-detect
         force_reload: Ignored (kept for compatibility)
+        is_swiftplay: Whether to use Swiftplay mode positioning
         
     Returns:
         ScaledChromaValues instance with hard-coded values for the resolution
     """
     # Always return a new instance with hard-coded values
     # No caching needed since values are now hard-coded
-    return ScaledChromaValues(resolution)
+    return ScaledChromaValues(resolution, is_swiftplay)
 
 
 # DEPRECATED - Scale factor no longer used with hard-coded values
