@@ -41,7 +41,8 @@ class ChromaPanelManager:
         self.current_champion_name = None  # Track champion for direct path
         self.current_champion_id = None  # Track champion ID for direct path
         self.current_selected_chroma_id = None  # Track currently applied chroma
-        self.current_chroma_color = None  # Track current chroma color for button display
+        self.current_chroma_color = None  # Track current chroma color for button display (backward compatibility)
+        self.current_chroma_colors = None  # Track both chroma colors for split-circle design
         self.lock = threading.RLock()  # Use RLock for reentrant locking (prevents deadlock)
         self._rebuilding = False  # Flag to prevent infinite rebuild loops
         self.pending_initial_unowned_fade = False  # Flag to trigger initial UnownedFrame fade after creation
@@ -222,24 +223,46 @@ class ChromaPanelManager:
             
             # Update button color to match selected chroma
             if self.reopen_button:
-                # Find the selected chroma's color from current_chromas
-                chroma_color = None
+                # Find the selected chroma's colors from current_chromas
+                chroma_colors = None
+                chroma_color = None  # Keep for backward compatibility
                 if chroma_id != 0 and self.current_chromas:
                     for chroma in self.current_chromas:
                         if chroma.get('id') == chroma_id:
                             colors = chroma.get('colors', [])
                             if colors:
-                                # Use second color if available, otherwise fall back to first color
-                                selected_color = colors[1] if len(colors) > 1 else colors[0]
-                                chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
-                                if not chroma_color.startswith('#'):
-                                    chroma_color = f"#{chroma_color}"
+                                if len(colors) >= 2:
+                                    # Check if both colors are identical
+                                    first_color = colors[0] if not colors[0].startswith('#') else colors[0][1:]
+                                    second_color = colors[1] if not colors[1].startswith('#') else colors[1][1:]
+                                    
+                                    if first_color == second_color:
+                                        # Both colors are the same - use solid circle
+                                        selected_color = colors[0]
+                                        chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
+                                        if not chroma_color.startswith('#'):
+                                            chroma_color = f"#{chroma_color}"
+                                    else:
+                                        # Colors are different - use split-circle design
+                                        chroma_colors = [colors[0], colors[1]]
+                                        # Ensure colors have # prefix
+                                        chroma_colors = [color if color.startswith('#') else f"#{color}" for color in chroma_colors]
+                                elif len(colors) == 1:
+                                    # Use single color for solid circle
+                                    selected_color = colors[0]
+                                    chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
+                                    if not chroma_color.startswith('#'):
+                                        chroma_color = f"#{chroma_color}"
                             break
                 
-                # Set button color (None = rainbow for base skin)
-                self.current_chroma_color = chroma_color  # Save for rebuilds
-                self.reopen_button.set_chroma_color(chroma_color)
-                log.debug(f"[CHROMA] Button color updated to: {chroma_color if chroma_color else 'rainbow'}")
+                # Set button colors (None = rainbow for base skin)
+                self.current_chroma_color = chroma_color  # Save for rebuilds (backward compatibility)
+                self.current_chroma_colors = chroma_colors  # Save both colors for rebuilds
+                if chroma_colors:
+                    self.reopen_button.set_chroma_color(colors=chroma_colors)
+                else:
+                    self.reopen_button.set_chroma_color(chroma_color)
+                log.debug(f"[CHROMA] Button colors updated to: {chroma_colors if chroma_colors else chroma_color if chroma_color else 'rainbow'}")
             
             self.pending_update_button_state = False  # Wheel will be hidden, so button should be unhovered
             log_event(log, f"Chroma selected: {chroma_name}" if chroma_id != 0 else "Base skin selected", "✨")
@@ -291,6 +314,7 @@ class ChromaPanelManager:
                 self.pending_hide = True
                 self.current_selected_chroma_id = None  # Reset selection for new skin
                 self.current_chroma_color = None  # Reset chroma color
+                self.current_chroma_colors = None  # Reset chroma colors
                 self.pending_update_button_state = False  # Reset button state when switching skins
                 
                 # Reset button to rainbow (only if button exists)
@@ -465,10 +489,14 @@ class ChromaPanelManager:
                     log.info("[CHROMA] Creating new widgets with updated resolution...")
                     self._create_widgets()
                     
-                    # Restore chroma color on button after rebuild
-                    if self.reopen_button and self.current_chroma_color:
-                        self.reopen_button.set_chroma_color(self.current_chroma_color)
-                        log.debug(f"[CHROMA] Button color restored after rebuild: {self.current_chroma_color}")
+                    # Restore chroma colors on button after rebuild
+                    if self.reopen_button:
+                        if self.current_chroma_colors:
+                            self.reopen_button.set_chroma_color(colors=self.current_chroma_colors)
+                            log.debug(f"[CHROMA] Button colors restored after rebuild: {self.current_chroma_colors}")
+                        elif self.current_chroma_color:
+                            self.reopen_button.set_chroma_color(self.current_chroma_color)
+                            log.debug(f"[CHROMA] Button color restored after rebuild: {self.current_chroma_color}")
                     
                     # Restore UnownedFrame opacity after rebuild (only for button's UnownedFrame)
                     if self.reopen_button and hasattr(self.reopen_button, 'unowned_frame_opacity_effect'):
@@ -645,6 +673,7 @@ class ChromaPanelManager:
             self.pending_hide_button = True
             self.pending_update_button_state = False  # Reset button state when hiding
             self.current_chroma_color = None  # Reset color when hiding
+            self.current_chroma_colors = None  # Reset colors when hiding
             
             # Reset button to rainbow
             if self.reopen_button:

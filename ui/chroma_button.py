@@ -8,7 +8,7 @@ Chroma Opening Button - Small circular button to open the chroma panel
 import math
 from typing import Callable
 from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QPixmap
+from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QPixmap, QPainterPath
 from ui.chroma_base import ChromaWidgetBase
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
@@ -31,6 +31,7 @@ class OpeningButton(ChromaWidgetBase):
         self.is_hiding = False  # Flag to prevent painting during hide
         self.panel_is_open = False  # Flag to show button as hovered when panel is open
         self.current_chroma_color = None  # Current selected chroma color (None = show rainbow)
+        self.current_chroma_colors = None  # Both colors for split-circle design (None = show rainbow)
         
         # No fade animations - instant show/hide
         
@@ -276,6 +277,17 @@ class OpeningButton(ChromaWidgetBase):
         if form_image_path:
             # Use form-specific image for Elementalist Lux
             self._draw_form_image(painter, center, gradient_outer_radius, should_darken, form_image_path)
+        elif self.current_chroma_colors:
+            try:
+                # Create a split-circle design with both colors
+                self._draw_split_chroma_button(painter, center, gradient_outer_radius, should_darken)
+                
+                log.debug(f"[CHROMA] Split-circle button drawn with colors: {self.current_chroma_colors}")
+                
+            except Exception as e:
+                log.error(f"[CHROMA] Error drawing split-circle button: {e}")
+                # Fallback to rainbow image if split-circle fails
+                self._draw_rainbow_image(painter, center, gradient_outer_radius, should_darken)
         elif self.current_chroma_color:
             try:
                 # Create a colored disk with the selected chroma color
@@ -527,10 +539,36 @@ class OpeningButton(ChromaWidgetBase):
             # Widget may have been deleted
             pass
     
-    def set_chroma_color(self, color: str = None):
-        """Set the chroma color to display (None = show rainbow gradient)"""
+    def set_chroma_color(self, color: str = None, colors: list = None):
+        """Set the chroma color(s) to display (None = show rainbow gradient)
+        
+        Args:
+            color: Single color string (legacy support)
+            colors: List of two colors for split-circle design
+        """
         try:
-            self.current_chroma_color = color
+            if colors and len(colors) >= 2:
+                # Check if both colors are identical
+                first_color = colors[0] if not colors[0].startswith('#') else colors[0][1:]
+                second_color = colors[1] if not colors[1].startswith('#') else colors[1][1:]
+                
+                if first_color == second_color:
+                    # Both colors are the same - use solid circle
+                    self.current_chroma_color = colors[0]
+                    self.current_chroma_colors = None  # Clear both colors
+                else:
+                    # Colors are different - use split-circle design
+                    self.current_chroma_colors = colors
+                    self.current_chroma_color = None  # Clear single color
+            elif colors and len(colors) == 1:
+                # Use single color for solid circle
+                self.current_chroma_color = colors[0]
+                self.current_chroma_colors = None  # Clear both colors
+            else:
+                # Use single color (legacy behavior)
+                self.current_chroma_color = color
+                self.current_chroma_colors = None  # Clear both colors
+            
             self.update()
             # Ensure z-order is maintained after visual update
             try:
@@ -746,6 +784,97 @@ class OpeningButton(ChromaWidgetBase):
                 
         except Exception as e:
             log.error(f"[CHROMA] Error drawing HOL button: {e}")
+    
+    def _draw_split_chroma_button(self, painter, center, gradient_outer_radius, should_darken):
+        """Draw a split-circle button with two half-circles"""
+        try:
+            if not self.current_chroma_colors or len(self.current_chroma_colors) < 2:
+                log.warning("[CHROMA] Not enough colors for split-circle design")
+                return
+            
+            # Get both colors
+            first_color = self.current_chroma_colors[0]
+            second_color = self.current_chroma_colors[1]
+            
+            # Ensure colors have # prefix
+            if not first_color.startswith('#'):
+                first_color = f"#{first_color}"
+            if not second_color.startswith('#'):
+                second_color = f"#{second_color}"
+            
+            # Check if both colors are identical
+            if first_color == second_color:
+                # Both colors are the same - draw solid circle
+                color = QColor(first_color)
+                
+                # Apply darkening effect if hovered
+                if should_darken:
+                    color = color.darker(150)  # 150% darker
+                
+                # Use adjusted radius to match chroma panel sizing
+                adjusted_radius = gradient_outer_radius - 1
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(color))
+                painter.drawEllipse(
+                    center - adjusted_radius, 
+                    center - adjusted_radius,
+                    adjusted_radius * 2, 
+                    adjusted_radius * 2
+                )
+                
+                log.debug(f"[CHROMA] Solid button drawn with identical colors: {first_color}")
+                return
+            
+            # Colors are different - use split-circle design
+            # Create QColor objects
+            color1 = QColor(first_color)
+            color2 = QColor(second_color)
+            
+            # Apply darkening effect if hovered
+            if should_darken:
+                color1 = color1.darker(150)  # 150% darker
+                color2 = color2.darker(150)  # 150% darker
+            
+            # Draw the button with split design
+            painter.setPen(Qt.PenStyle.NoPen)
+            
+            # Create a clipping path for the circle (subtract 1 to match chroma panel sizing)
+            circle_path = QPainterPath()
+            adjusted_radius = gradient_outer_radius - 1
+            circle_path.addEllipse(center - adjusted_radius, center - adjusted_radius,
+                                 adjusted_radius * 2, adjusted_radius * 2)
+            painter.setClipPath(circle_path)
+            
+            # Draw top-left half circle (first color)
+            top_left_path = QPainterPath()
+            top_left_path.moveTo(center, center)  # Center
+            top_left_path.arcTo(center - adjusted_radius, center - adjusted_radius,
+                              adjusted_radius * 2, adjusted_radius * 2,
+                              45, 180)  # Start at 45 degrees, sweep 180 degrees
+            top_left_path.closeSubpath()
+            
+            painter.setBrush(QBrush(color1))
+            painter.drawPath(top_left_path)
+            
+            # Draw bottom-right half circle (second color)
+            bottom_right_path = QPainterPath()
+            bottom_right_path.moveTo(center, center)  # Center
+            bottom_right_path.arcTo(center - adjusted_radius, center - adjusted_radius,
+                                   adjusted_radius * 2, adjusted_radius * 2,
+                                   225, 180)  # Start at 225 degrees, sweep 180 degrees
+            bottom_right_path.closeSubpath()
+            
+            painter.setBrush(QBrush(color2))
+            painter.drawPath(bottom_right_path)
+            
+            # Remove clipping
+            painter.setClipping(False)
+            
+            log.debug(f"[CHROMA] Split button drawn with colors: {first_color} (top-left) and {second_color} (bottom-right)")
+            
+        except Exception as e:
+            log.error(f"[CHROMA] Error drawing split chroma button: {e}")
+            raise
     
     def showEvent(self, event):
         """Reset hiding flag when button is shown"""

@@ -411,6 +411,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
         Note: The chromas list should already be filtered to only include unowned chromas
         by the ChromaSelector before being passed to this method.
         """
+        # Store chromas for access in drawing methods
+        self.chromas = chromas
         self.skin_name = skin_name
         self.skin_id = skin_id  # Store skin_id for Elementalist Lux detection
         self.circles = []
@@ -937,11 +939,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
                 # Risen Legend Ahri base skin or Immortalized Legend: use HOL-specific image
                 self._draw_hol_chroma_circle(painter, circle, radius)
             else:
-                # Regular chroma: use chroma color
-                color = QColor(circle.color)
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(color))
-                painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+                # Regular chroma: use split-circle design with two half-circles
+                self._draw_split_chroma_circle(painter, circle, radius)
         
         # Draw hover border (thin golden ring) - drawn in first pass
         if circle.is_hovered and not is_selected:
@@ -1054,6 +1053,117 @@ class ChromaPanelWidget(ChromaWidgetBase):
         except Exception as e:
             log.error(f"[CHROMA] Error drawing HOL chroma circle: {e}")
             # Fallback to chroma color
+            color = QColor(circle.color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+    
+    def _draw_split_chroma_circle(self, painter: QPainter, circle: ChromaCircle, radius: int):
+        """Draw a chroma circle with split design - top-left half circle with first color, bottom-right half circle with second color"""
+        try:
+            # Get both colors from the chroma data
+            # We need to access the original chroma data to get both colors
+            # The circle.color currently only contains the second color
+            # We need to find the original chroma data
+            
+            # Find the chroma data from the circles list or from the manager
+            chroma_data = None
+            if hasattr(self, 'chromas') and self.chromas:
+                for chroma in self.chromas:
+                    if chroma.get('id') == circle.chroma_id:
+                        chroma_data = chroma
+                        break
+            
+            if chroma_data and 'colors' in chroma_data:
+                colors = chroma_data['colors']
+                if len(colors) >= 2:
+                    # Get both colors for split-circle design
+                    first_color = colors[0]
+                    second_color = colors[1]
+                    
+                    # Ensure colors have # prefix
+                    if not first_color.startswith('#'):
+                        first_color = f"#{first_color}"
+                    if not second_color.startswith('#'):
+                        second_color = f"#{second_color}"
+                    
+                    # Check if both colors are identical
+                    if first_color == second_color:
+                        # Both colors are the same - use solid circle
+                        color = QColor(first_color)
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.setBrush(QBrush(color))
+                        painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+                        
+                        log.debug(f"[CHROMA] Solid circle drawn with identical colors: {first_color}")
+                        return
+                    else:
+                        # Colors are different - use split-circle design
+                        # Create QColor objects
+                        color1 = QColor(first_color)
+                        color2 = QColor(second_color)
+                        
+                        # Draw the circle with split design
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        
+                        # Create a clipping path for the circle
+                        circle_path = QPainterPath()
+                        circle_path.addEllipse(circle.x - radius + 1, circle.y - radius + 1, (radius - 1) * 2, (radius - 1) * 2)
+                        painter.setClipPath(circle_path)
+                        
+                        # Draw top-left half circle (first color)
+                        # Create a path for the top-left semicircle
+                        top_left_path = QPainterPath()
+                        top_left_path.moveTo(circle.x, circle.y)  # Center
+                        top_left_path.arcTo(circle.x - radius + 1, circle.y - radius + 1, 
+                                          (radius - 1) * 2, (radius - 1) * 2, 
+                                          45, 180)  # Start at 45 degrees, sweep 180 degrees
+                        top_left_path.closeSubpath()
+                        
+                        painter.setBrush(QBrush(color1))
+                        painter.drawPath(top_left_path)
+                        
+                        # Draw bottom-right half circle (second color)
+                        # Create a path for the bottom-right semicircle
+                        bottom_right_path = QPainterPath()
+                        bottom_right_path.moveTo(circle.x, circle.y)  # Center
+                        bottom_right_path.arcTo(circle.x - radius + 1, circle.y - radius + 1, 
+                                               (radius - 1) * 2, (radius - 1) * 2, 
+                                               225, 180)  # Start at 225 degrees, sweep 180 degrees
+                        bottom_right_path.closeSubpath()
+                        
+                        painter.setBrush(QBrush(color2))
+                        painter.drawPath(bottom_right_path)
+                        
+                        # Remove clipping
+                        painter.setClipping(False)
+                        
+                        log.debug(f"[CHROMA] Split circle drawn with colors: {first_color} (top-left) and {second_color} (bottom-right)")
+                        return
+                elif len(colors) == 1:
+                    # Single color - use solid circle
+                    single_color = colors[0]
+                    if not single_color.startswith('#'):
+                        single_color = f"#{single_color}"
+                    
+                    color = QColor(single_color)
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QBrush(color))
+                    painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+                    
+                    log.debug(f"[CHROMA] Solid circle drawn with color: {single_color}")
+                    return
+            
+            # Fallback: if we can't get both colors, use the single color
+            log.warning(f"[CHROMA] Could not get both colors for chroma {circle.chroma_id}, falling back to single color")
+            color = QColor(circle.color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(QPoint(circle.x, circle.y), radius - 1, radius - 1)
+            
+        except Exception as e:
+            log.error(f"[CHROMA] Error drawing split chroma circle: {e}")
+            # Fallback to single color
             color = QColor(circle.color)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(color))
