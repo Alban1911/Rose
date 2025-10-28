@@ -52,7 +52,8 @@ class LoadoutTicker(threading.Thread):
         last_poll = 0.0
         last_bucket = None
         
-        while (not self.state.stop) and (self.state.phase in ["ChampSelect", "FINALIZATION"]) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id):
+        # Continue loop if injection is not completed yet (even if phase changed to GameStart/InProgress)
+        while (not self.state.stop) and (self.state.phase in ["ChampSelect", "FINALIZATION", "GameStart", "InProgress"]) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id) and not self.state.injection_completed:
             now = time.monotonic()
             
             # Periodic LCU resync
@@ -314,27 +315,58 @@ class LoadoutTicker(threading.Thread):
                                 if champ_id:
                                     base_skin_id = champ_id * 1000
                                     
-                                    # Only force base skin if current selection is not already base skin
-                                    if lcu_skin_id is None or lcu_skin_id != base_skin_id:
-                                        log.info(f"[inject] Forcing base skin (skinId={base_skin_id}, was {lcu_skin_id})")
+                                    # Read the ACTUAL current selection from LCU session (not state variable)
+                                    # This handles cases where user selected an owned skin then hovered over an unowned skin
+                                    actual_lcu_skin_id = None
+                                    try:
+                                        sess = self.lcu.session or {}
+                                        my_team = sess.get("myTeam") or []
+                                        my_cell = self.state.local_cell_id
+                                        for player in my_team:
+                                            if player.get("cellId") == my_cell:
+                                                actual_lcu_skin_id = player.get("selectedSkinId")
+                                                if actual_lcu_skin_id is not None:
+                                                    actual_lcu_skin_id = int(actual_lcu_skin_id)
+                                                break
+                                    except Exception as e:
+                                        log.debug(f"[inject] Failed to read actual LCU skin ID: {e}")
+                                    
+                                    # Only force base skin if current ACTUAL selection is not already base skin
+                                    if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
+                                        log.info(f"[inject] Forcing base skin (skinId={base_skin_id}, was {actual_lcu_skin_id})")
                                         
                                         # Hide chroma border/wheel immediately when forcing base skin
+                                        log.debug(f"[inject] About to hide UI components")
                                         try:
+                                            log.debug(f"[inject] Importing user_interface")
                                             from ui.user_interface import get_user_interface
+                                            log.debug(f"[inject] Getting user interface instance")
                                             user_interface = get_user_interface(self.state, self.skin_scraper)
+                                            log.debug(f"[inject] Checking if UI is initialized: {user_interface.is_ui_initialized()}")
                                             if user_interface.is_ui_initialized():
-                                                # Hide all UI components
-                                                user_interface.hide_all()
+                                                log.debug(f"[inject] Scheduling hide_all() on main thread")
+                                                # Schedule UI hiding on main thread to avoid PyQt6 thread issues
+                                                user_interface._schedule_hide_all_on_main_thread()
+                                                log.debug(f"[inject] hide_all() scheduled")
                                                 
-                                                log.info("[inject] UI hidden - base skin forced for injection")
+                                                log.info("[inject] UI hiding scheduled - base skin forced for injection")
+                                            else:
+                                                log.debug(f"[inject] UI not initialized, skipping hide")
                                         except Exception as e:
-                                            log.debug(f"[inject] Failed to hide chroma UI: {e}")
+                                            log.warning(f"[inject] Failed to schedule UI hide: {e}")
+                                            import traceback
+                                            log.warning(f"[inject] UI hide traceback: {traceback.format_exc()}")
+                                        
+                                        log.debug(f"[inject] UI hiding block completed")
                                         
                                         base_skin_set_successfully = False
                                         
+                                        log.debug(f"[inject] Starting base skin forcing process")
+                                        log.debug(f"[inject] LCU ok: {self.lcu.ok}, phase: {self.state.phase}")
                                         # Find the user's action ID to update
                                         try:
                                             sess = self.lcu.session or {}  # session is a property, not a method!
+                                            log.debug(f"[inject] Got LCU session, actions: {sess.get('actions')}")
                                             actions = sess.get("actions") or []
                                             my_cell = self.state.local_cell_id
                                             
@@ -390,7 +422,10 @@ class LoadoutTicker(threading.Thread):
                                                 
                                         except Exception as e:
                                             log.error(f"[inject] ✗ Error forcing base skin: {e}")
+                                            import traceback
+                                            log.error(f"[inject] Traceback: {traceback.format_exc()}")
                                 
+                                log.debug(f"[inject] Base skin forcing block completed, continuing to injection")
                                 # Track if we've been in InProgress phase
                                 has_been_in_progress = False
                                 
@@ -407,6 +442,11 @@ class LoadoutTicker(threading.Thread):
                                 
                                 def run_injection():
                                     try:
+                                        # Check if LCU is still valid before starting injection
+                                        if not self.lcu.ok:
+                                            log.warning(f"[inject] LCU not available, skipping injection")
+                                            return
+                                        
                                         success = self.injection_manager.inject_skin_immediately(
                                             name, 
                                             stop_callback=game_ended_callback,
@@ -449,6 +489,16 @@ class LoadoutTicker(threading.Thread):
                                 
                                 injection_thread = threading.Thread(target=run_injection, daemon=True, name="InjectionThread")
                                 injection_thread.start()
+                                
+                                # Set a timeout to prevent hanging if injection takes too long
+                                def timeout_injection():
+                                    time.sleep(10)  # 10 second timeout
+                                    if injection_thread.is_alive():
+                                        log.warning(f"[inject] Injection thread timeout - forcing completion")
+                                        self.state.injection_completed = True
+                                
+                                timeout_thread = threading.Thread(target=timeout_injection, daemon=True, name="InjectionTimeout")
+                                timeout_thread.start()
                             except Exception as e:
                                 log.error(f"[inject] injection error: {e}")
                         else:
