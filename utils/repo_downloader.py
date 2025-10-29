@@ -23,7 +23,7 @@ log = get_logger()
 class RepoDownloader:
     """Downloads entire repository as ZIP and extracts locally with incremental updates"""
     
-    def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/AlbanCliquet/lolskins"):
+    def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/AlbanCliquet/LeagueSkins"):
         self.repo_url = repo_url
         # Use user data directory for skins to avoid permission issues
         self.target_dir = target_dir or get_skins_dir()
@@ -35,7 +35,7 @@ class RepoDownloader:
         
         # State tracking for incremental updates
         self.state_file = self.target_dir / '.repo_state.json'
-        self.api_base = "https://api.github.com/repos/AlbanCliquet/lolskins"
+        self.api_base = "https://api.github.com/repos/AlbanCliquet/LeagueSkins"
     
     def get_repo_state(self) -> Dict:
         """Get current repository state from GitHub API
@@ -252,9 +252,9 @@ class RepoDownloader:
             return None
     
     def extract_skins_from_zip(self, zip_path: Path, overwrite_existing: bool = False) -> bool:
-        """Extract skins, previews, and skin_id mappings from the new merged lolskins repository ZIP"""
+        """Extract skins, previews, and skin_id mappings from the new merged LeagueSkins repository ZIP"""
         try:
-            log.info("Extracting skins, previews, and skin_id mappings from merged lolskins repository ZIP...")
+            log.info("Extracting skins, previews, and skin_id mappings from merged LeagueSkins repository ZIP...")
             
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 # Find all files in the skins/ directory
@@ -264,8 +264,8 @@ class RepoDownloader:
                 
                 for file_info in zip_ref.filelist:
                     # Look for files in skins/ directory, but skip the skins directory itself
-                    if (file_info.filename.startswith('lolskins-main/skins/') and 
-                        file_info.filename != 'lolskins-main/skins/' and
+                    if (file_info.filename.startswith('LeagueSkins-main/skins/') and 
+                        file_info.filename != 'LeagueSkins-main/skins/' and
                         not file_info.filename.endswith('/')):
                         skins_files.append(file_info)
                         
@@ -281,8 +281,8 @@ class RepoDownloader:
                 
                 for file_info in zip_ref.filelist:
                     # Look for files in resources/skinid_mapping/ directory
-                    if (file_info.filename.startswith('lolskins-main/resources/skinid_mapping/') and 
-                        file_info.filename != 'lolskins-main/resources/skinid_mapping/' and
+                    if (file_info.filename.startswith('LeagueSkins-main/resources/skinid_mapping/') and 
+                        file_info.filename != 'LeagueSkins-main/resources/skinid_mapping/' and
                         not file_info.filename.endswith('/')):
                         mapping_files.append(file_info)
                         
@@ -307,8 +307,8 @@ class RepoDownloader:
                         if file_info.is_dir():
                             continue
                         
-                        # Remove the 'lolskins-main/' prefix from the path
-                        relative_path = file_info.filename.replace('lolskins-main/', '')
+                        # Remove the 'LeagueSkins-main/' prefix from the path
+                        relative_path = file_info.filename.replace('LeagueSkins-main/', '')
                         
                         # Check file type
                         is_zip = relative_path.endswith('.zip')
@@ -359,8 +359,8 @@ class RepoDownloader:
                             if file_info.is_dir():
                                 continue
                             
-                            # Remove the 'lolskins-main/' prefix from the path
-                            relative_path = file_info.filename.replace('lolskins-main/', '')
+                            # Remove the 'LeagueSkins-main/' prefix from the path
+                            relative_path = file_info.filename.replace('LeagueSkins-main/', '')
                             
                             # Remove the 'resources/skinid_mapping/' prefix since target_dir is the mapping directory
                             if relative_path.startswith('resources/skinid_mapping/'):
