@@ -245,6 +245,28 @@ CLICK_CATCHER_CONFIGS_ARENA = {
     }
 }
 
+# Click catcher positions for ARAM: Mayhem (Queue ID 2400) - no REC_RUNES, no EDIT_RUNES
+CLICK_CATCHER_CONFIGS_MAYHEM = {
+    "1600x900": {
+        "SUM_L": {"x": 692, "y": 831, "width": 46, "height": 47},
+        "SUM_R": {"x": 751, "y": 831, "width": 46, "height": 47},
+        "WARD": {"x": 816, "y": 831, "width": 46, "height": 47},
+        "EMOTES": {"x": 872, "y": 832, "width": 46, "height": 46}
+    },
+    "1280x720": {
+        "SUM_L": {"x": 553, "y": 664, "width": 37, "height": 38},
+        "SUM_R": {"x": 600, "y": 664, "width": 37, "height": 38},
+        "WARD": {"x": 652, "y": 664, "width": 37, "height": 38},
+        "EMOTES": {"x": 697, "y": 665, "width": 37, "height": 37}
+    },
+    "1024x576": {
+        "SUM_L": {"x": 442, "y": 531, "width": 30, "height": 31},
+        "SUM_R": {"x": 480, "y": 531, "width": 30, "height": 31},
+        "WARD": {"x": 522, "y": 531, "width": 30, "height": 31},
+        "EMOTES": {"x": 558, "y": 532, "width": 30, "height": 30}
+    }
+}
+
 
 def get_resolution_key(resolution: Tuple[int, int]) -> Optional[str]:
     """
@@ -270,7 +292,7 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
         catcher_name: Name of the click catcher (e.g., 'EDIT_RUNES', 'SETTINGS')
         map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
         language: Optional language code for language-specific coordinates (e.g., 'en', 'fr', 'de')
-        queue_id: Optional queue ID (2400 = ARAM, etc.)
+        queue_id: Optional queue ID (2400 = ARAM: Mayhem, etc.)
         
     Returns:
         Dictionary with x, y, width, height or None if not found
@@ -290,20 +312,33 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
             log.debug(f"[ResolutionUtils] No language-specific config found for {catcher_name} with language {language}, falling back to default")
     
     # Check if this catcher has gamemode-specific config
-    # Check by queue_id first (2400 = ARAM), then by map_id
-    is_aram = (queue_id == 2400) or (map_id == 12)
+    # Check for ARAM: Mayhem (queue_id 2400) first, then Arena, then ARAM
+    is_mayhem = queue_id == 2400
+    is_aram = (map_id == 12) and not is_mayhem  # ARAM but not Mayhem
     is_arena = map_id == 22
     
-    # Check Arena config first
+    # Check ARAM: Mayhem config first (queue_id 2400)
+    if is_mayhem:
+        # Mayhem doesn't have REC_RUNES or EDIT_RUNES, so return None if requested
+        if catcher_name in ["REC_RUNES", "EDIT_RUNES"]:
+            log.debug(f"[ResolutionUtils] {catcher_name} not available in ARAM: Mayhem mode")
+            return None
+        # For Mayhem-specific catchers, use Mayhem config
+        if resolution_key in CLICK_CATCHER_CONFIGS_MAYHEM:
+            if catcher_name in CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key]:
+                log.debug(f"[ResolutionUtils] Using ARAM: Mayhem config for {catcher_name} at {resolution_key}")
+                return CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key][catcher_name].copy()
+    
+    # Check Arena config
     if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
         if catcher_name in CLICK_CATCHER_CONFIGS_ARENA[resolution_key]:
             log.debug(f"[ResolutionUtils] Using Arena config for {catcher_name} at {resolution_key}")
             return CLICK_CATCHER_CONFIGS_ARENA[resolution_key][catcher_name].copy()
     
-    # Check ARAM config
+    # Check ARAM config (standard ARAM, not Mayhem)
     if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
         if catcher_name in CLICK_CATCHER_CONFIGS_ARAM[resolution_key]:
-            log.debug(f"[ResolutionUtils] Using ARAM config for {catcher_name} at {resolution_key} (queue_id={queue_id}, map_id={map_id})")
+            log.debug(f"[ResolutionUtils] Using ARAM config for {catcher_name} at {resolution_key} (map_id={map_id})")
             return CLICK_CATCHER_CONFIGS_ARAM[resolution_key][catcher_name].copy()
     
     # Fall back to default (Summoner's Rift) config
@@ -325,7 +360,7 @@ def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[
     Args:
         resolution: (width, height) tuple
         map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
-        queue_id: Optional queue ID (2400 = ARAM, etc.)
+        queue_id: Optional queue ID (2400 = ARAM: Mayhem, etc.)
         
     Returns:
         Dictionary of all catcher configs or None if resolution not supported
@@ -336,9 +371,25 @@ def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[
         return None
     
     # Check if we should use gamemode-specific config
-    # Check by queue_id first (2400 = ARAM), then by map_id
-    is_aram = (queue_id == 2400) or (map_id == 12)
+    # Check for ARAM: Mayhem (queue_id 2400) first, then Arena, then ARAM
+    is_mayhem = queue_id == 2400
+    is_aram = (map_id == 12) and not is_mayhem  # ARAM but not Mayhem
     is_arena = map_id == 22
+    
+    # Check ARAM: Mayhem config first (queue_id 2400)
+    if is_mayhem and resolution_key in CLICK_CATCHER_CONFIGS_MAYHEM:
+        # Start with default config and overlay Mayhem-specific values
+        result = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
+        
+        # Remove REC_RUNES and EDIT_RUNES for Mayhem (they don't exist)
+        result.pop("REC_RUNES", None)
+        result.pop("EDIT_RUNES", None)
+        
+        # Override with Mayhem-specific configs where they exist
+        for name, config in CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key].items():
+            result[name] = config.copy()
+        
+        return result
     
     # Check Arena config
     if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
@@ -351,7 +402,7 @@ def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[
         
         return result
     
-    # Check ARAM config
+    # Check ARAM config (standard ARAM, not Mayhem)
     if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
         # Start with default config and overlay ARAM-specific values
         result = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}

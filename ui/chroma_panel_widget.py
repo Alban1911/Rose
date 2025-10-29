@@ -151,8 +151,8 @@ class ChromaPanelWidget(ChromaWidgetBase):
                 
                 log.info(f"[CHROMA] Using stored game mode: {game_mode} (Map ID: {map_id}, Queue ID: {queue_id})")
                 
-                # Check if we're in ARAM mode (check by queue_id first, then by map_id/game_mode)
-                is_aram = (queue_id == 2400) or (map_id == 12) or (game_mode == "ARAM")
+                # Check if we're in ARAM mode (check by map_id/game_mode, but exclude queue_id 2400 which is ARAM: Mayhem)
+                is_aram = (map_id == 12) or (game_mode == "ARAM")
                 
                 if is_aram:
                     log.info("[CHROMA] ARAM mode detected - using ARAM background")
