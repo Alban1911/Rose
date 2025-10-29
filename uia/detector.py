@@ -354,11 +354,11 @@ class UIDetector:
             if not scraped_skins:
                 return False
             
-            log.debug(f"UI Detection: Checking '{text}' against {len(scraped_skins)} scraped skins for champion {champ_id}")
+            log.debug(f"[UIA] Checking '{text}' against {len(scraped_skins)} scraped skins for champion {champ_id}")
             
             # Log all scraped skin names for debugging
             scraped_names = [skin_data.get('skinName', '') for skin_data in scraped_skins if skin_data.get('skinName')]
-            log.info(f"UI Detection: Available scraped skin names: {scraped_names}")
+            log.info(f"[UIA] Available scraped skin names: {scraped_names}")
             
             # Check if any skin name matches with high similarity (0.95 threshold)
             for skin_data in scraped_skins:
@@ -366,12 +366,12 @@ class UIDetector:
                 if skin_name_from_scraper:
                     similarity = levenshtein_score(text, skin_name_from_scraper)
                     if similarity >= 0.95:
-                        log.info(f"UI Detection: '{text}' matches scraped skin '{skin_name_from_scraper}' with similarity {similarity:.3f}")
+                        log.info(f"[UIA] '{text}' matches scraped skin '{skin_name_from_scraper}' with similarity {similarity:.3f}")
                         return True
                     else:
-                        log.info(f"UI Detection: '{text}' vs '{skin_name_from_scraper}' similarity: {similarity:.3f}")
+                        log.info(f"[UIA] '{text}' vs '{skin_name_from_scraper}' similarity: {similarity:.3f}")
             
-            log.debug(f"UI Detection: '{text}' does not match any scraped skin for champion {champ_id}")
+            log.debug(f"[UIA] '{text}' does not match any scraped skin for champion {champ_id}")
             return False
             
         except Exception as e:
