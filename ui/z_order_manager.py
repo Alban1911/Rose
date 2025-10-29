@@ -27,8 +27,8 @@ class ZOrderManager:
     Z_LEVELS = {
         'LEAGUE_WINDOW': 0,        # Base League window
         'UNOWNED_FRAME': 100,      # Golden border + lock icon (behind interactive elements)
-        'DICE_BUTTON': 150,        # Dice button for random skin selection
-        'CHROMA_BUTTON': 200,      # Circular chroma button (above unowned frame)
+        'CHROMA_BUTTON': 150,      # Circular chroma button (above unowned frame)
+        'DICE_BUTTON': 200,        # Dice button for random skin selection (above chroma button)
         'RANDOM_FLAG': 250,        # Random flag indicator (above chroma button)
         'CHROMA_CLICK_CATCHER': 275, # Invisible overlay for chroma panel (above other UI, below panel)
         'CHROMA_PANEL': 300,       # Chroma selection panel (topmost for user interaction)
