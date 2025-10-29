@@ -1060,7 +1060,7 @@ def main():
     
     t_ui = UISkinThread(state, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
     state.ui_skin_thread = t_ui  # Store reference for access during champion exchange
-    thread_manager.register("UI Detection", t_ui)
+    thread_manager.register("UIA Detection", t_ui)
     
     t_ws = WSEventThread(lcu, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
@@ -1087,7 +1087,7 @@ def main():
     # Start all threads
     thread_manager.start_all()
 
-    log.info("System ready - UI Detection active only in Champion Select")
+    log.info("System ready - UIA Detection active only in Champion Select")
 
     last_phase = None
     last_loop_time = time.time()

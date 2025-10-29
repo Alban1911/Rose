@@ -47,10 +47,25 @@ class PhaseThread(threading.Thread):
                 log.debug(f"LCU refresh failed in phase thread: {e}")
             
             ph = self.lcu.phase if self.lcu.ok else None
-            if ph is not None and ph != self.last_phase:
-                if self.log_transitions and ph in self.INTERESTING:
+            # If phase is unknown (None), skip handling to avoid spurious UI destruction
+            if ph is None:
+                time.sleep(self.interval)
+                continue
+            if ph != self.last_phase:
+                # Log phase transition whenever LCU phase changes (ph != last_phase)
+                # This ensures we always log phase transitions, even if websocket thread already set state.phase
+                if ph is not None and self.log_transitions and ph in self.INTERESTING:
                     log_status(log, "Phase", ph, "🎯")
-                self.state.phase = ph
+                
+                # Don't overwrite OwnChampionLocked phase (set by websocket thread on champion lock)
+                if self.state.phase == "OwnChampionLocked":
+                    # Allow transition to FINALIZATION (for loadout ticker) or GameStart/InProgress
+                    # The websocket thread handles the transition, but if phase polling sees FINALIZATION, allow it
+                    if ph == "FINALIZATION":
+                        self.state.phase = ph
+                    # Otherwise, let websocket thread handle the transition
+                elif ph is not None:
+                    self.state.phase = ph
                 
                 if ph == "Lobby":
                     # Force game mode detection in lobby phase
@@ -126,6 +141,17 @@ class PhaseThread(threading.Thread):
                         self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                         self.state.champion_exchange_triggered = False  # Reset champion exchange flag
                     
+                    # Backup UI initialization if websocket thread didn't handle it
+                    # This ensures UI is created even if websocket event was missed or already processed
+                    try:
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
+                        if not user_interface.is_ui_initialized() and not user_interface._pending_ui_initialization:
+                            log.info("[phase] ChampSelect detected - requesting UI initialization (backup)")
+                            user_interface.request_ui_initialization()
+                    except Exception as e:
+                        log.warning(f"[phase] Failed to request UI initialization in ChampSelect: {e}")
+                    
                 elif ph == "GameStart":
                     # Don't destroy UI yet, let injection complete first
                     # UI will be destroyed when injection completes or when InProgress phase is reached
@@ -186,7 +212,7 @@ class PhaseThread(threading.Thread):
                 else:
                     # Exit champ select or other phases → request UI destruction and reset counter/timer
                     # Skip reset for Swiftplay mode (handled separately)
-                    if not self.state.is_swiftplay_mode:
+                    if not self.state.is_swiftplay_mode and ph is not None and self.state.phase != "OwnChampionLocked":
                         try:
                             from ui.user_interface import get_user_interface
                             user_interface = get_user_interface(self.state, self.skin_scraper)

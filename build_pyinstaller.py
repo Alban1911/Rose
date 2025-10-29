@@ -157,7 +157,7 @@ def main():
         print(f"  start.bat")
         
         print(f"\nIMPORTANT: Check the log file after running!")
-        print(f"  Look for: 'UI Detection: Thread ready' message")
+        print(f"  Look for: 'UIA Detection: Thread ready' message")
         print(f"  If you see that, Windows UI API is working!")
     else:
         print("[ERROR] Executable not found!")

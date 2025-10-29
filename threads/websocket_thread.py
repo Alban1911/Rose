@@ -124,6 +124,13 @@ class WSEventThread(threading.Thread):
         # ONLY start timer on FINALIZATION phase (final countdown before game start)
         # This prevents starting too early when all champions are locked but bans are still in progress
         if phase_timer == "FINALIZATION":
+            # Update phase to FINALIZATION if we're currently in OwnChampionLocked or ChampSelect
+            # This ensures the phase transition happens even if the websocket event doesn't fire
+            if self.state.phase in ["OwnChampionLocked", "ChampSelect"]:
+                if self.state.phase != "FINALIZATION":
+                    log_status(log, "Phase", "FINALIZATION", "🎯")
+                    self.state.phase = "FINALIZATION"
+            
             # If timer value is not ready yet, probe a few times to give LCU time to publish it
             if left_ms <= 0:
                 # Small 0.5s window to let LCU publish a non-zero timer
@@ -171,9 +178,17 @@ class WSEventThread(threading.Thread):
         if uri == "/lol-gameflow/v1/gameflow-phase":
             ph = payload.get("data")
             if isinstance(ph, str) and ph != self.state.phase:
-                if ph in INTERESTING_PHASES:
-                    log_status(log, "Phase", ph, "🎯")
-                self.state.phase = ph
+                # Don't overwrite OwnChampionLocked phase - it's a custom phase set when our champion locks
+                if self.state.phase == "OwnChampionLocked":
+                    # Allow transition to FINALIZATION (for loadout ticker) or GameStart/InProgress, or back to ChampSelect
+                    if ph in ["FINALIZATION", "GameStart", "InProgress", "ChampSelect"]:
+                        if ph in INTERESTING_PHASES:
+                            log_status(log, "Phase", ph, "🎯")
+                        self.state.phase = ph
+                elif ph is not None:
+                    if ph in INTERESTING_PHASES:
+                        log_status(log, "Phase", ph, "🎯")
+                    self.state.phase = ph
                 
                 if ph == "ChampSelect":
                     # Detect game mode FIRST to get accurate is_swiftplay_mode flag
@@ -241,17 +256,8 @@ class WSEventThread(threading.Thread):
                     log.debug("[WS] State reset complete - ready for new champion select")
                 
                 elif ph == "FINALIZATION":
-                    # FINALIZATION phase - create ClickCatcherHide instances and start skin name lookup
-                    log_event(log, "Entering FINALIZATION phase - creating ClickCatcherHide instances", "🎯")
-                    
-                    # Create ClickCatcherHide instances during FINALIZATION
-                    try:
-                        from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper)
-                        user_interface.create_click_catchers_for_finalization()
-                        log_event(log, "ClickCatcherHide instances created for FINALIZATION", "🎨")
-                    except Exception as e:
-                        log.warning(f"Failed to create ClickCatcherHide instances for FINALIZATION: {e}")
+                    # FINALIZATION phase - ClickCatcherHide creation now handled in OwnChampionLocked
+                    log_event(log, "Entering FINALIZATION phase", "🎯")
                         
                 elif ph == "InProgress":
                     # Game starting → log last skin
@@ -353,6 +359,10 @@ class WSEventThread(threading.Thread):
                         log.info(separator)
                         self.state.locked_champ_id = new_champ_id
                         self.state.locked_champ_timestamp = time.time()  # Record lock time
+                        
+                        # Trigger OwnChampionLocked phase - set phase state
+                        log_status(log, "Phase", "OwnChampionLocked", "🎯")
+                        self.state.phase = "OwnChampionLocked"
                         
                         # Scrape skins for this champion from LCU
                         if self.skin_scraper:

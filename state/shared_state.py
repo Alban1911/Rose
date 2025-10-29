@@ -60,7 +60,7 @@ class SharedState:
     # Game mode detection
     current_game_mode: Optional[str] = None  # Current game mode (ARAM, CLASSIC, SWIFT_PLAY, etc.)
     current_map_id: Optional[int] = None  # Current map ID (12 = ARAM, 11 = SR)
-    current_queue_id: Optional[int] = None  # Current queue ID (2400 = ARAM, etc.)
+    current_queue_id: Optional[int] = None  # Current queue ID (2400 = ARAM: Mayhem, etc.)
     chroma_panel_skin_name: Optional[str] = None  # Base skin name when panel was opened (to avoid re-detecting same skin)
     is_swiftplay_mode: bool = False  # Flag to indicate if we're in Swiftplay mode
     
@@ -68,7 +68,7 @@ class SharedState:
     swiftplay_skin_tracking: dict = field(default_factory=dict)  # {champion_id: skin_id}
     swiftplay_extracted_mods: list = field(default_factory=list)  # List of extracted mod folder names for Swiftplay injection
     
-    # UI Detection
+    # UIA Detection
     ui_last_text: Optional[str] = None  # Last detected skin name from UI
     ui_skin_id: Optional[int] = None  # Last detected skin ID from UI
     

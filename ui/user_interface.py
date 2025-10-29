@@ -69,6 +69,7 @@ class UserInterface:
         self._last_destruction_time = 0.0
         self._force_reinitialize = False  # Flag to force UI recreation
         self._pending_click_catcher_creation = False  # Flag for ClickCatcher creation during FINALIZATION
+        self._pending_click_catcher_creation_own_locked = False  # Flag for ClickCatcher creation during OwnChampionLocked
         # Track last base skin shown (owned or unowned) to detect chroma swaps within same base
         self._last_base_skin_id = None
     
@@ -121,8 +122,8 @@ class UserInterface:
             else:
                 log.info("[UI] Skipping ClickBlocker creation in Swiftplay mode")
             
-            # ClickCatcherHide instances will be created during FINALIZATION phase
-            log.info("[UI] ClickCatcherHide components will be created during FINALIZATION phase")
+            # ClickCatcherHide instances will be created during OwnChampionLocked phase
+            log.info("[UI] ClickCatcherHide components will be created during OwnChampionLocked phase")
             
             self._last_unowned_skin_id = None
             # Track last base skin that showed UnownedFrame to control fade behavior
@@ -150,7 +151,8 @@ class UserInterface:
     
     def create_click_catchers(self):
         """Create ClickCatcherHide instances when champion is locked (if not already created)"""
-        from PyQt6.QtCore import QThread, QTimer
+        log.debug("[UI] create_click_catchers() entry")
+        from PyQt6.QtCore import QThread
         from PyQt6.QtWidgets import QApplication
         
         # Check if we're on the main thread
@@ -162,11 +164,14 @@ class UserInterface:
         current_thread = QThread.currentThread()
         main_thread = app.thread()
         
-        # If not on main thread, defer to main thread
+        # If not on main thread, set pending flag for main thread processing
         if current_thread != main_thread:
-            log.debug("[UI] Deferring click catcher creation to main thread")
-            QTimer.singleShot(0, self.create_click_catchers)
+            log.debug("[UI] Deferring click catcher creation to main thread via pending operations")
+            with self.lock:
+                self._pending_click_catcher_creation_own_locked = True
             return
+        
+        log.debug(f"[UI] create_click_catchers executing on main thread - is_swiftplay={getattr(self.state, 'is_swiftplay_mode', False)}, click_catchers_exists={bool(self.click_catchers)}, click_catchers_count={len(self.click_catchers) if hasattr(self, 'click_catchers') and self.click_catchers else 0}")
         
         # Show ClickBlocker when champion is locked to prevent accidental clicks
         # Do this FIRST before any early returns
@@ -180,7 +185,7 @@ class UserInterface:
             
             # Check if click catchers already exist
             if self.click_catchers:
-                log.debug("[UI] ClickCatchers already exist, skipping creation")
+                log.debug(f"[UI] ClickCatchers already exist ({len(self.click_catchers)} catchers), skipping creation")
                 return
             
             log.info("[UI] Creating ClickCatcherHide components...")
@@ -268,12 +273,14 @@ class UserInterface:
             # Keep the original single instance for backward compatibility
             self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
             
-            log.info("[UI] ClickCatcherHide instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE, ABILITIES, QUESTS")
+            log.info(f"[UI] ClickCatcherHide instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE, ABILITIES, QUESTS (total: {len(self.click_catchers)})")
             
         except Exception as e:
             log.error(f"[UI] Failed to create ClickCatcherHide instances: {e}")
             import traceback
             log.error(f"[UI] Traceback: {traceback.format_exc()}")
+        finally:
+            log.debug(f"[UI] create_click_catchers completed - click_catchers count: {len(self.click_catchers) if self.click_catchers else 0}")
     
     def _try_show_click_blocker(self):
         """Try to show ClickBlocker (can be called from any thread)"""
@@ -912,6 +919,17 @@ class UserInterface:
                     log.error(f"[UI] Failed to process pending ClickCatcher creation: {e}")
                     import traceback
                     log.error(f"[UI] Traceback: {traceback.format_exc()}")
+            
+            # Handle pending ClickCatcher creation during OwnChampionLocked
+            if self._pending_click_catcher_creation_own_locked:
+                log.info("[UI] Processing pending ClickCatcher creation for OwnChampionLocked in main thread")
+                self._pending_click_catcher_creation_own_locked = False
+                try:
+                    self.create_click_catchers()
+                except Exception as e:
+                    log.error(f"[UI] Failed to process pending ClickCatcher creation for OwnChampionLocked: {e}")
+                    import traceback
+                    log.error(f"[UI] Traceback: {traceback.format_exc()}")
     
     def request_ui_destruction(self):
         """Request UI destruction (called from any thread)"""
@@ -925,7 +943,11 @@ class UserInterface:
     
     def has_pending_operations(self):
         """Check if there are pending UI operations"""
-        return self._pending_ui_initialization or self._pending_ui_destruction
+        with self.lock:
+            return (self._pending_ui_destruction or 
+                    self._pending_ui_initialization or 
+                    self._pending_click_catcher_creation or
+                    self._pending_click_catcher_creation_own_locked)
     
     def destroy_ui(self):
         """Destroy UI components (must be called from main thread)"""
