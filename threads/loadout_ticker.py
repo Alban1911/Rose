@@ -69,15 +69,8 @@ class LoadoutTicker(threading.Thread):
                     log.info(f"[loadout] Phase transition detected: {self.state.phase} → FINALIZATION")
                     self.state.phase = "FINALIZATION"
                     
-                    # Trigger FINALIZATION phase handler in main thread
-                    try:
-                        from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper)
-                        # Defer to main thread to avoid PyQt6 thread issues
-                        user_interface._pending_click_catcher_creation = True
-                        log.info("[loadout] ClickCatcherHide creation deferred to main thread for FINALIZATION")
-                    except Exception as e:
-                        log.warning(f"[loadout] Failed to defer ClickCatcherHide creation for FINALIZATION: {e}")
+                    # ClickCatcherHide creation is now handled in OwnChampionLocked phase
+                    # No need to create them again in FINALIZATION
                 
                 if phase == "FINALIZATION" and left_ms > 0:
                     cand_deadline = time.monotonic() + (left_ms / 1000.0)

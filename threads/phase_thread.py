@@ -47,10 +47,24 @@ class PhaseThread(threading.Thread):
                 log.debug(f"LCU refresh failed in phase thread: {e}")
             
             ph = self.lcu.phase if self.lcu.ok else None
-            if ph is not None and ph != self.last_phase:
-                if self.log_transitions and ph in self.INTERESTING:
-                    log_status(log, "Phase", ph, "🎯")
-                self.state.phase = ph
+            # If phase is unknown (None), skip handling to avoid spurious UI destruction
+            if ph is None:
+                time.sleep(self.interval)
+                continue
+            if ph != self.last_phase:
+                # Don't overwrite OwnChampionLocked phase (set by websocket thread on champion lock)
+                if self.state.phase == "OwnChampionLocked":
+                    # Allow transition to FINALIZATION (for loadout ticker) or GameStart/InProgress
+                    # The websocket thread handles the transition, but if phase polling sees FINALIZATION, allow it
+                    if ph == "FINALIZATION":
+                        if self.log_transitions and ph in self.INTERESTING:
+                            log_status(log, "Phase", ph, "🎯")
+                        self.state.phase = ph
+                    # Otherwise, let websocket thread handle the transition
+                elif ph is not None:
+                    if self.log_transitions and ph in self.INTERESTING:
+                        log_status(log, "Phase", ph, "🎯")
+                    self.state.phase = ph
                 
                 if ph == "Lobby":
                     # Force game mode detection in lobby phase
@@ -186,7 +200,7 @@ class PhaseThread(threading.Thread):
                 else:
                     # Exit champ select or other phases → request UI destruction and reset counter/timer
                     # Skip reset for Swiftplay mode (handled separately)
-                    if not self.state.is_swiftplay_mode:
+                    if not self.state.is_swiftplay_mode and ph is not None and self.state.phase != "OwnChampionLocked":
                         try:
                             from ui.user_interface import get_user_interface
                             user_interface = get_user_interface(self.state, self.skin_scraper)
