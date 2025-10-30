@@ -208,21 +208,27 @@ CLICK_CATCHER_CONFIGS_ARAM = {
         "REC_RUNES": {"x": 507, "y": 834, "width": 41, "height": 41},
         "SUM_R": {"x": 924, "y": 831, "width": 46, "height": 47},
         "SUM_L": {"x": 865, "y": 831, "width": 46, "height": 47},
-        "EMOTES": {"x": 1045, "y": 832, "width": 46, "height": 46}
+        "EMOTES": {"x": 1045, "y": 832, "width": 46, "height": 46},
+        "MESSAGE": {"x": 1431, "y": 834, "width": 48, "height": 40},
+        "ABILITIES": {"x": 663, "y": 769, "width": 277, "height": 40}
     },
     "1280x720": {
         "EDIT_RUNES": {"x": 448, "y": 667, "width": 34, "height": 34},
         "REC_RUNES": {"x": 406, "y": 667, "width": 34, "height": 34},
         "SUM_R": {"x": 739, "y": 664, "width": 37, "height": 38},
         "SUM_L": {"x": 692, "y": 664, "width": 37, "height": 38},
-        "EMOTES": {"x": 836, "y": 665, "width": 37, "height": 37}
+        "EMOTES": {"x": 836, "y": 665, "width": 37, "height": 37},
+        "MESSAGE": {"x": 1144, "y": 667, "width": 39, "height": 32},
+        "ABILITIES": {"x": 530, "y": 615, "width": 222, "height": 32}
     },
     "1024x576": {
         "EDIT_RUNES": {"x": 358, "y": 533, "width": 27, "height": 27},
         "REC_RUNES": {"x": 324, "y": 533, "width": 27, "height": 27},
         "SUM_R": {"x": 591, "y": 531, "width": 30, "height": 31},
         "SUM_L": {"x": 553, "y": 531, "width": 30, "height": 31},
-        "EMOTES": {"x": 669, "y": 532, "width": 30, "height": 30}
+        "EMOTES": {"x": 669, "y": 532, "width": 30, "height": 30},
+        "MESSAGE": {"x": 915, "y": 533, "width": 31, "height": 26},
+        "ABILITIES": {"x": 424, "y": 492, "width": 178, "height": 26}
     }
 }
 
