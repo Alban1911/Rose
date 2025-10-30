@@ -83,17 +83,17 @@ class HistoricFlag(ChromaWidgetBase):
                 return
 
             if window_width == 1600 and window_height == 900:
-                flag_size = 36
-                target_x = 800 - (flag_size // 2)
-                target_y = 723 - (flag_size // 2)
+                flag_size = 32
+                target_x = 851
+                target_y = 634
             elif window_width == 1024 and window_height == 576:
-                flag_size = 24
-                target_x = 512 - (flag_size // 2)
-                target_y = 463 - (flag_size // 2)
+                flag_size = 20
+                target_x = 544
+                target_y = 406
             else:
                 flag_size = 26
-                target_x = 640 - (flag_size // 2)
-                target_y = 578 - (flag_size // 2)
+                target_x = 680
+                target_y = 507
 
             self.setFixedSize(flag_size, flag_size)
             self.setGeometry(self.x(), self.y(), flag_size, flag_size)
@@ -157,17 +157,17 @@ class HistoricFlag(ChromaWidgetBase):
             window_width = window_right - window_left
             window_height = window_bottom - window_top
             if window_width == 1600 and window_height == 900:
-                flag_size = 36
-                target_x = 800 - (flag_size // 2)
-                target_y = 723 - (flag_size // 2)
+                flag_size = 32
+                target_x = 851
+                target_y = 634
             elif window_width == 1024 and window_height == 576:
-                flag_size = 24
-                target_x = 512 - (flag_size // 2)
-                target_y = 463 - (flag_size // 2)
+                flag_size = 20
+                target_x = 544
+                target_y = 406
             else:
                 flag_size = 26
-                target_x = 640 - (flag_size // 2)
-                target_y = 578 - (flag_size // 2)
+                target_x = 680
+                target_y = 507
             widget_hwnd = int(self.winId())
             HWND_TOP = 0
             ctypes.windll.user32.SetWindowPos(
