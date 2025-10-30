@@ -240,6 +240,24 @@ class RandomFlag(ChromaWidgetBase):
             self.opacity_effect.setOpacity(0.0)
             self.hide()
     
+    def show_flag_instantly(self):
+        """Show the random flag instantly without fade, preserving state"""
+        if not self.is_visible:
+            self.is_visible = True
+            # Stop any ongoing fade animation
+            if self.fade_timer:
+                self.fade_timer.stop()
+                self.fade_timer = None
+            # Set opacity to 1.0 instantly
+            self.opacity_effect.setOpacity(1.0)
+            self.show()
+            # Ensure proper z-order after showing
+            from PyQt6.QtCore import QTimer
+            def delayed_zorder_refresh():
+                log.debug("[RandomFlag] Applying delayed z-order refresh after instant show")
+                self.refresh_z_order()
+            QTimer.singleShot(50, delayed_zorder_refresh)
+    
     def _do_fade_in(self):
         """Fade in animation (reused from UnownedFrame)"""
         if self.fade_timer:

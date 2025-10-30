@@ -289,10 +289,34 @@ class DiceButton(ChromaWidgetBase):
             log.debug("[DiceButton] Button already visible")
     
     def hide_button(self):
-        """Hide the dice button with fade out"""
+        """Hide the dice button instantly (no fade)"""
         if self.is_visible:
             self.is_visible = False
-            self.fade_out_requested.emit()
+            # Stop any ongoing fade animation
+            if self.fade_timer:
+                self.fade_timer.stop()
+                self.fade_timer = None
+            # Set opacity to 0 instantly and hide
+            if hasattr(self, 'opacity_effect') and self.opacity_effect:
+                self.opacity_effect.setOpacity(0.0)
+            self.hide()
+    
+    def show_button_instantly(self):
+        """Show the dice button instantly without fade, preserving state"""
+        log.debug(f"[DiceButton] show_button_instantly called, is_visible: {self.is_visible}")
+        if not self.is_visible:
+            self.is_visible = True
+            # Stop any ongoing fade animation
+            if self.fade_timer:
+                self.fade_timer.stop()
+                self.fade_timer = None
+            # Set opacity to 1.0 instantly
+            if hasattr(self, 'opacity_effect') and self.opacity_effect:
+                self.opacity_effect.setOpacity(1.0)
+            self.show()
+            log.debug("[DiceButton] Button shown instantly")
+        else:
+            log.debug("[DiceButton] Button already visible")
     
     def _do_fade_in(self):
         """Fade in animation (reused from UnownedFrame)"""

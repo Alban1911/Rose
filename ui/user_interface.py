@@ -1845,8 +1845,8 @@ class UserInterface:
             # Show DiceButton only if it was previously visible
             if self._ui_visibility_state['dice_button_visible'] and self.dice_button:
                 try:
-                    self.dice_button.show_button()
-                    log.debug("[UI] DiceButton shown (was previously visible)")
+                    self.dice_button.show_button_instantly()
+                    log.debug("[UI] DiceButton shown instantly (was previously visible)")
                 except Exception as e:
                     log.error(f"[UI] Error showing DiceButton: {e}")
             else:
@@ -1855,8 +1855,8 @@ class UserInterface:
             # Show RandomFlag only if it was previously visible
             if self._ui_visibility_state['random_flag_visible'] and self.random_flag:
                 try:
-                    self.random_flag.show_flag()
-                    log.debug("[UI] RandomFlag shown (was previously visible)")
+                    self.random_flag.show_flag_instantly()
+                    log.debug("[UI] RandomFlag shown instantly (was previously visible)")
                 except Exception as e:
                     log.error(f"[UI] Error showing RandomFlag: {e}")
             else:
@@ -1865,18 +1865,8 @@ class UserInterface:
             # Show HistoricFlag only if it was previously visible
             if self._ui_visibility_state.get('historic_flag_visible') and self.historic_flag:
                 try:
-                    self.historic_flag.show_flag()
-                    log.debug("[UI] HistoricFlag shown (was previously visible)")
-                except Exception as e:
-                    log.error(f"[UI] Error showing HistoricFlag: {e}")
-            else:
-                log.debug("[UI] HistoricFlag not shown (was not previously visible)")
-            
-            # Show HistoricFlag only if it was previously visible
-            if self._ui_visibility_state.get('historic_flag_visible') and self.historic_flag:
-                try:
-                    self.historic_flag.show_flag()
-                    log.debug("[UI] HistoricFlag shown (was previously visible)")
+                    self.historic_flag.show_flag_instantly()
+                    log.debug("[UI] HistoricFlag shown instantly (was previously visible)")
                 except Exception as e:
                     log.error(f"[UI] Error showing HistoricFlag: {e}")
             else:
