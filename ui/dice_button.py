@@ -3,7 +3,8 @@
 
 """
 DiceButton - UI component for random skin selection
-Shows dice button with 4 states: enabled, disabled, hover, click
+States simplified to two visuals: disabled and enabled.
+Hover, pressed, and enabled all use the enabled visual.
 """
 
 from PyQt6.QtWidgets import QLabel, QGraphicsOpacityEffect
@@ -62,8 +63,11 @@ class DiceButton(ChromaWidgetBase):
         self.fade_current_step = 0
         
         # Button state
-        self.current_state = 'disabled'  # 'disabled', 'enabled', 'hover', 'click'
+        self.current_state = 'disabled'  # 'disabled' or 'enabled'
         self.is_visible = False
+
+        # Track press state to emit on release
+        self._pressed_inside = False
         
         # Connect signals for thread-safe operations
         self.fade_in_requested.connect(self._do_fade_in)
@@ -177,18 +181,21 @@ class DiceButton(ChromaWidgetBase):
             from utils.paths import get_asset_path
             
             # Map state to image file
+            # Only two visuals remain; map any transient states to 'enabled'
+            visual_state = state
+            if state in ('hover', 'click'):
+                visual_state = 'enabled'
+
             image_files = {
                 'disabled': 'dice-disabled.png',
-                'enabled': 'dice-enabled.png',
-                'hover': 'dice-hover.png',
-                'click': 'dice-click.png'
+                'enabled': 'dice-enabled.png'
             }
             
-            if state not in image_files:
+            if visual_state not in image_files:
                 log.warning(f"[DiceButton] Unknown state: {state}")
                 return
             
-            image_filename = image_files[state]
+            image_filename = image_files[visual_state]
             image_path = get_asset_path(image_filename)
             pixmap = QPixmap(str(image_path))
             
@@ -197,7 +204,9 @@ class DiceButton(ChromaWidgetBase):
                 return
             
             self.dice_image.setPixmap(pixmap)
-            self.current_state = state
+            # Only update the logical state for base states
+            if state in ('enabled', 'disabled'):
+                self.current_state = state
             
         except Exception as e:
             log.error(f"[DiceButton] Error loading state image {state}: {e}")
@@ -272,45 +281,41 @@ class DiceButton(ChromaWidgetBase):
         self.fade_current_step += 1
     
     def mousePressEvent(self, event: QMouseEvent):
-        """Handle mouse press events"""
+        """Handle mouse press events (no visual change; act on release)"""
         log.debug(f"[DiceButton] Mouse press event received: {event.button()}")
         if event.button() == Qt.MouseButton.LeftButton:
-            # Store the current state before changing to click
-            base_state = self.current_state
-            log.debug(f"[DiceButton] Base state: {base_state}")
-            
-            # Set click state temporarily
-            self.set_state('click')
-            
-            # Emit signal with the base state (disabled or enabled)
-            log.debug(f"[DiceButton] Emitting signal with state: {base_state}")
-            self.dice_clicked.emit(base_state)
-            
-            # Reset to appropriate state after a short delay
-            QTimer.singleShot(100, self._reset_click_state)
+            # Track if press started inside the button
+            self._pressed_inside = self.rect().contains(event.position().toPoint())
     
     def mouseMoveEvent(self, event: QMouseEvent):
-        """Handle mouse move events for hover state"""
-        log.debug(f"[DiceButton] Mouse move event received, current state: {self.current_state}")
+        """Show enabled visual on hover without changing logical state."""
+        if self.rect().contains(event.position().toPoint()):
+            # Show hover visual mapped to enabled
+            if self.current_state in ['disabled', 'enabled']:
+                self._load_state_image('hover')
+
+    def enterEvent(self, event):
+        """Ensure enabled visual appears immediately on hover enter."""
         if self.current_state in ['disabled', 'enabled']:
-            log.debug("[DiceButton] Setting hover state")
-            self.set_state('hover')
+            self._load_state_image('hover')
     
     def leaveEvent(self, event):
-        """Handle mouse leave events"""
-        if self.current_state == 'hover':
-            # Reset to base state
-            if self.state and hasattr(self.state, 'random_mode_active') and self.state.random_mode_active:
-                self.set_state('enabled')
-            else:
-                self.set_state('disabled')
-    
-    def _reset_click_state(self):
-        """Reset from click state to appropriate base state"""
+        """Restore visual to the logical base state when cursor leaves."""
         if self.state and hasattr(self.state, 'random_mode_active') and self.state.random_mode_active:
-            self.set_state('enabled')
+            self._load_state_image('enabled')
         else:
-            self.set_state('disabled')
+            self._load_state_image('disabled')
+    
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        """Emit click on release if press started inside the button."""
+        log.debug(f"[DiceButton] Mouse release event received: {event.button()}")
+        if event.button() == Qt.MouseButton.LeftButton:
+            released_inside = self.rect().contains(event.position().toPoint())
+            if self._pressed_inside and released_inside:
+                base_state = self.current_state
+                log.debug(f"[DiceButton] Emitting signal on release with state: {base_state}")
+                self.dice_clicked.emit(base_state)
+        self._pressed_inside = False
     
     def check_resolution_and_update(self):
         """Check for resolution changes and update positioning"""
