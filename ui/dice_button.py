@@ -9,7 +9,7 @@ Hover, pressed, and enabled all use the enabled visual.
 
 from PyQt6.QtWidgets import QLabel, QGraphicsOpacityEffect
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QPixmap, QMouseEvent
+from PyQt6.QtGui import QPixmap, QMouseEvent, QCursor
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
@@ -385,6 +385,8 @@ class DiceButton(ChromaWidgetBase):
         """Ensure enabled visual appears immediately on hover enter."""
         if self.current_state in ['disabled', 'enabled']:
             self._load_state_image('hover')
+        # Set cursor to hand on hover
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
     
     def leaveEvent(self, event):
         """Restore visual to the logical base state when cursor leaves."""
@@ -392,6 +394,8 @@ class DiceButton(ChromaWidgetBase):
             self._load_state_image('enabled')
         else:
             self._load_state_image('disabled')
+        # Reset cursor to default
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
     
     def mouseReleaseEvent(self, event: QMouseEvent):
         """Emit click on release if press started inside the button."""
