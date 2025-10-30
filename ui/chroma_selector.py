@@ -255,6 +255,26 @@ class ChromaSelector:
                     
                     log.info(f"[CHROMA] Updated last_hovered_skin_id from {self.current_skin_id} to {chroma_id}")
                 
+                # Disable HistoricMode if active and chroma/skin is selected (not base skin)
+                try:
+                    if self.state.historic_mode_active and self.state.locked_champ_id is not None and self.state.last_hovered_skin_id is not None:
+                        base_skin_id = self.state.locked_champ_id * 1000
+                        # Check if the selected skin/chroma is not the base skin
+                        selected_skin_id = self.state.last_hovered_skin_id
+                        if selected_skin_id != base_skin_id:
+                            self.state.historic_mode_active = False
+                            self.state.historic_skin_id = None
+                            log.info(f"[HISTORIC] Historic mode DISABLED due to chroma selection (selectedId={selected_skin_id} vs baseId={base_skin_id})")
+                            # Hide the historic flag
+                            try:
+                                from ui.user_interface import get_user_interface
+                                ui = get_user_interface(self.state, self.skin_scraper)
+                                ui.hide_historic_flag()
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                
                 self.state.pending_chroma_selection = False
         except Exception as e:
             log.error(f"[CHROMA] Error in selection callback: {e}")
