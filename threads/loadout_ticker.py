@@ -154,7 +154,17 @@ class LoadoutTicker(threading.Thread):
                 random_skin_name = getattr(self.state, 'random_skin_name', None)
                 log.debug(f"[inject] Random mode check: active={random_mode_active}, name={random_skin_name}")
                 
-                if random_mode_active and random_skin_name:
+                # Historic mode override: if active, prefer historic last skin
+                if getattr(self.state, 'historic_mode_active', False) and getattr(self.state, 'historic_skin_id', None):
+                    hist_id = int(self.state.historic_skin_id)
+                    chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+                    if chroma_id_map and hist_id in chroma_id_map:
+                        name = f"chroma_{hist_id}"
+                        log.info(f"[HISTORIC] Using historic chroma ID for injection: {hist_id}")
+                    else:
+                        name = f"skin_{hist_id}"
+                        log.info(f"[HISTORIC] Using historic skin ID for injection: {hist_id}")
+                elif random_mode_active and random_skin_name:
                     random_skin_id = getattr(self.state, 'random_skin_id', None)
                     # For random mode, use ID-based approach instead of name
                     if random_skin_id:
@@ -433,6 +443,9 @@ class LoadoutTicker(threading.Thread):
                                 # Inject skin in a separate thread to avoid blocking the ticker
                                 log.info(f"[inject] Starting injection: {name}")
                                 
+                                # Capture champion ID now to avoid it becoming None later (phase changes)
+                                champ_id_for_history = self.state.locked_champ_id
+
                                 def run_injection():
                                     try:
                                         # Check if LCU is still valid before starting injection
@@ -458,6 +471,22 @@ class LoadoutTicker(threading.Thread):
                                             log.info("[RANDOM] Random mode cleared after injection")
                                         
                                         if success:
+                                            # Persist historic on real injection of unowned skin
+                                            try:
+                                                # Parse injected ID from name (skin_1234 or chroma_5678)
+                                                injected_id = None
+                                                if isinstance(name, str) and '_' in name:
+                                                    parts = name.split('_', 1)
+                                                    if len(parts) == 2 and parts[1].isdigit():
+                                                        injected_id = int(parts[1])
+                                                champ_id = champ_id_for_history
+                                                # Only record when we actually injected (unowned path)
+                                                if champ_id is not None and injected_id is not None:
+                                                    from utils.historic import write_historic_entry
+                                                    write_historic_entry(int(champ_id), int(injected_id))
+                                                    log.info(f"[HISTORIC] Stored last injected ID {injected_id} for champion {champ_id}")
+                                            except Exception as e:
+                                                log.debug(f"[HISTORIC] Failed to store historic entry: {e}")
                                             log.info("=" * LOG_SEPARATOR_WIDTH)
                                             log.info(f"✅ INJECTION COMPLETED >>> {name.upper()} <<<")
                                             log.info(f"   ⚠️  Verify in-game - timing determines if skin appears")

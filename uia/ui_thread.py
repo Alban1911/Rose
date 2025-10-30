@@ -351,6 +351,30 @@ class UISkinThread(threading.Thread):
                 self.shared_state.ui_skin_id = skin_id
                 # Also set last_hovered_skin_id for injection pipeline
                 self.shared_state.last_hovered_skin_id = skin_id
+
+                # Historic mode trigger: on first detection if it's base skin
+                try:
+                    champ_id = self.shared_state.locked_champ_id
+                    if champ_id and not self.shared_state.historic_first_detection_done:
+                        base_skin_id = champ_id * 1000
+                        if skin_id == base_skin_id:
+                            from utils.historic import get_historic_skin_for_champion
+                            historic_skin = get_historic_skin_for_champion(champ_id)
+                            if historic_skin is not None:
+                                self.shared_state.historic_mode_active = True
+                                self.shared_state.historic_skin_id = int(historic_skin)
+                                log.info(f"[HISTORIC] Historic mode ACTIVATED for champ {champ_id} → id {self.shared_state.historic_skin_id}")
+                                # Show HistoricFlag
+                                try:
+                                    from ui.user_interface import get_user_interface
+                                    ui = get_user_interface(self.shared_state, self.skin_scraper)
+                                    ui.show_historic_flag()
+                                except Exception:
+                                    pass
+                            # Mark first detection handled regardless
+                            self.shared_state.historic_first_detection_done = True
+                except Exception:
+                    pass
                 
                 # Get English skin name from LCU skin scraper cache
                 english_skin_name = None
@@ -372,6 +396,19 @@ class UISkinThread(threading.Thread):
                 # The main thread will detect this state change and notify chroma UI
             
             self.last_skin_id = skin_id
+            
+            # Disable HistoricMode if active and skin is no longer base
+            try:
+                if self.shared_state.historic_mode_active and self.shared_state.locked_champ_id is not None and skin_id is not None:
+                    if skin_id != self.shared_state.locked_champ_id * 1000:
+                        self.shared_state.historic_mode_active = False
+                        self.shared_state.historic_skin_id = None
+                        log.info(f"[HISTORIC] Historic mode DISABLED due to skin change (skinId={skin_id})")
+                        from ui.user_interface import get_user_interface
+                        ui = get_user_interface(self.shared_state, self.skin_scraper)
+                        ui.hide_historic_flag()
+            except Exception:
+                pass
             
         except Exception as e:
             log.error(f"Error processing regular skin name: {e}")

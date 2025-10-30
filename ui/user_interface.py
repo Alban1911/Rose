@@ -38,6 +38,7 @@ class UserInterface:
         self.unowned_frame = None
         self.dice_button = None
         self.random_flag = None
+        self.historic_flag = None
         self.click_catcher_hide = None
         self.click_blocker = None  # Block clicks during skin detection
         
@@ -55,7 +56,8 @@ class UserInterface:
             'chroma_ui_visible': False,
             'unowned_frame_visible': False,
             'dice_button_visible': False,
-            'random_flag_visible': False
+            'random_flag_visible': False,
+            'historic_flag_visible': False
         }
         
         # Randomization state
@@ -70,6 +72,9 @@ class UserInterface:
         self._force_reinitialize = False  # Flag to force UI recreation
         self._pending_click_catcher_creation = False  # Flag for ClickCatcher creation during FINALIZATION
         self._pending_click_catcher_creation_own_locked = False  # Flag for ClickCatcher creation during OwnChampionLocked
+        # HistoricFlag pending ops (thread-safe requests)
+        self._pending_show_historic_flag = False
+        self._pending_hide_historic_flag = False
         # Track last base skin shown (owned or unowned) to detect chroma swaps within same base
         self._last_base_skin_id = None
     
@@ -796,6 +801,49 @@ class UserInterface:
                             QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
                         except Exception:
                             pass
+
+            # HistoricFlag: destroy and recreate on resolution change
+            if self.historic_flag:
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                if current_resolution and hasattr(self.historic_flag, '_current_resolution'):
+                    if (self.historic_flag._current_resolution is not None and \
+                        current_resolution != self.historic_flag._current_resolution):
+                        log.info(f"[UI] HistoricFlag resolution changed from {self.historic_flag._current_resolution} to {current_resolution}, destroying and recreating")
+                        was_visible = getattr(self.historic_flag, 'is_visible', False)
+
+                        try:
+                            self.historic_flag.hide()
+                            self.historic_flag.deleteLater()
+                        except Exception:
+                            pass
+                        self.historic_flag = None
+
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+
+                        from ui.historic_flag import HistoricFlag
+                        self.historic_flag = HistoricFlag(state=self.state)
+
+                        if was_visible:
+                            self.historic_flag.show_flag()
+                        else:
+                            self.historic_flag.hide_flag()
+
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            QTimer.singleShot(50, self.historic_flag.ensure_position)
+                        except Exception:
+                            pass
+
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            from ui.z_order_manager import get_z_order_manager
+                            z_manager = get_z_order_manager()
+                            z_manager.refresh_z_order(force=True)
+                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
+                        except Exception:
+                            pass
                     elif self.random_flag._current_resolution is None:
                         self.random_flag._current_resolution = current_resolution
             
@@ -1040,6 +1088,32 @@ class UserInterface:
                     log.error(f"[UI] Failed to process pending ClickCatcher creation for OwnChampionLocked: {e}")
                     import traceback
                     log.error(f"[UI] Traceback: {traceback.format_exc()}")
+
+            # Handle pending HistoricFlag show/hide
+            if self._pending_hide_historic_flag:
+                self._pending_hide_historic_flag = False
+                try:
+                    if self.historic_flag:
+                        log.info("[HISTORIC] Processing pending hide HistoricFlag in main thread")
+                        self.historic_flag.hide_flag()
+                except Exception as e:
+                    log.error(f"[UI] Error hiding HistoricFlag in pending ops: {e}")
+            if self._pending_show_historic_flag:
+                self._pending_show_historic_flag = False
+                try:
+                    if not self.historic_flag:
+                        from ui.historic_flag import HistoricFlag
+                        self.historic_flag = HistoricFlag(state=self.state)
+                    log.info("[HISTORIC] Processing pending show HistoricFlag in main thread")
+                    self.historic_flag.show_flag()
+                    # Ensure position and z-order
+                    try:
+                        from PyQt6.QtCore import QTimer
+                        QTimer.singleShot(50, self.historic_flag.ensure_position)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    log.error(f"[UI] Error showing HistoricFlag in pending ops: {e}")
     
     def request_ui_destruction(self):
         """Request UI destruction (called from any thread)"""
@@ -1079,6 +1153,7 @@ class UserInterface:
             unowned_frame_to_cleanup = None
             dice_button_to_cleanup = None
             random_flag_to_cleanup = None
+            historic_flag_to_cleanup = None
             click_catchers_to_cleanup = {}
             
             if lock_acquired:
@@ -1088,11 +1163,13 @@ class UserInterface:
                     unowned_frame_to_cleanup = self.unowned_frame
                     dice_button_to_cleanup = self.dice_button
                     random_flag_to_cleanup = self.random_flag
+                    historic_flag_to_cleanup = self.historic_flag
                     click_catchers_to_cleanup = self.click_catchers.copy()
                     self.chroma_ui = None
                     self.unowned_frame = None
                     self.dice_button = None
                     self.random_flag = None
+                    self.historic_flag = None
                     self.click_catchers = {}
                     self.click_catcher_hide = None
                     
@@ -1116,6 +1193,7 @@ class UserInterface:
                     unowned_frame_to_cleanup = self.unowned_frame
                     dice_button_to_cleanup = self.dice_button
                     random_flag_to_cleanup = self.random_flag
+                    historic_flag_to_cleanup = self.historic_flag
                     click_catchers_to_cleanup = self.click_catchers.copy()
                     
                     # CRITICAL: Set components to None even without lock
@@ -1123,6 +1201,7 @@ class UserInterface:
                     self.unowned_frame = None
                     self.dice_button = None
                     self.random_flag = None
+                    self.historic_flag = None
                     self.click_catchers = {}
                     self.click_catcher_hide = None
                     
@@ -1135,6 +1214,7 @@ class UserInterface:
                         self.unowned_frame = None
                         self.dice_button = None
                         self.random_flag = None
+                        self.historic_flag = None
                         log.debug("[UI] Cleared instance variables despite error")
                     except Exception as e2:
                         log.error(f"[UI] Could not clear instance variables: {e2}")
@@ -1179,6 +1259,16 @@ class UserInterface:
                     log.error(f"[UI] Error cleaning up RandomFlag: {e}")
                     import traceback
                     log.error(f"[UI] RandomFlag cleanup traceback: {traceback.format_exc()}")
+            
+            if historic_flag_to_cleanup:
+                log.debug("[UI] Cleaning up HistoricFlag...")
+                try:
+                    historic_flag_to_cleanup.cleanup()
+                    log.debug("[UI] HistoricFlag cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up HistoricFlag: {e}")
+                    import traceback
+                    log.error(f"[UI] HistoricFlag cleanup traceback: {traceback.format_exc()}")
             
             if click_catchers_to_cleanup:
                 log.debug("[UI] Cleaning up ClickCatcherHide instances...")
@@ -1261,6 +1351,19 @@ class UserInterface:
         """Handle dice button click in enabled state - cancel randomization"""
         log.info("[UI] Cancelling random skin selection")
         self._cancel_randomization()
+
+    # Historic flag helpers (called from other threads via get_user_interface)
+    def show_historic_flag(self):
+        # Thread-safe: mark pending for main thread
+        with self.lock:
+            log.info("[HISTORIC] Request to show HistoricFlag (deferred to main thread)")
+            self._pending_show_historic_flag = True
+
+    def hide_historic_flag(self):
+        # Thread-safe: mark pending for main thread
+        with self.lock:
+            log.info("[HISTORIC] Request to hide HistoricFlag (deferred to main thread)")
+            self._pending_hide_historic_flag = True
     
     def _force_base_skin_and_randomize(self):
         """Force champion's base skin via LCU API then start randomization"""
@@ -1306,6 +1409,16 @@ class UserInterface:
         # Switch dice to disabled state (non-interactive)
         if self.dice_button:
             self.dice_button.set_state('disabled')
+        
+        # Disable HistoricMode if active
+        try:
+            if getattr(self.state, 'historic_mode_active', False):
+                self.state.historic_mode_active = False
+                self.state.historic_skin_id = None
+                log.info("[HISTORIC] Historic mode DISABLED due to RandomMode activation")
+                self.hide_historic_flag()
+        except Exception:
+            pass
         
         # Fade in random flag
         if self.random_flag:
@@ -1626,7 +1739,8 @@ class UserInterface:
             has_visible_ui = (chroma_ui_visible or 
                              (self.unowned_frame and self.unowned_frame.isVisible()) or
                              (self.dice_button and hasattr(self.dice_button, 'is_visible') and self.dice_button.is_visible) or
-                             (self.random_flag and self.random_flag.isVisible()))
+                             (self.random_flag and self.random_flag.isVisible()) or
+                             (self.historic_flag and self.historic_flag.isVisible()))
             
             if not has_visible_ui:
                 log.debug("[UI] No UI elements visible - skipping hide action")
@@ -1668,6 +1782,13 @@ class UserInterface:
                     log.debug("[UI] RandomFlag hidden instantly")
                 except Exception as e:
                     log.error(f"[UI] Error hiding RandomFlag: {e}")
+            # Hide HistoricFlag instantly
+            if self.historic_flag:
+                try:
+                    self.historic_flag.hide_flag()
+                    log.debug("[UI] HistoricFlag hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding HistoricFlag: {e}")
             
             # Hide all click catchers instantly
             for catcher_name, catcher in self.click_catchers.items():
@@ -1739,6 +1860,26 @@ class UserInterface:
                     log.error(f"[UI] Error showing RandomFlag: {e}")
             else:
                 log.debug("[UI] RandomFlag not shown (was not previously visible)")
+
+            # Show HistoricFlag only if it was previously visible
+            if self._ui_visibility_state.get('historic_flag_visible') and self.historic_flag:
+                try:
+                    self.historic_flag.show_flag()
+                    log.debug("[UI] HistoricFlag shown (was previously visible)")
+                except Exception as e:
+                    log.error(f"[UI] Error showing HistoricFlag: {e}")
+            else:
+                log.debug("[UI] HistoricFlag not shown (was not previously visible)")
+            
+            # Show HistoricFlag only if it was previously visible
+            if self._ui_visibility_state.get('historic_flag_visible') and self.historic_flag:
+                try:
+                    self.historic_flag.show_flag()
+                    log.debug("[UI] HistoricFlag shown (was previously visible)")
+                except Exception as e:
+                    log.error(f"[UI] Error showing HistoricFlag: {e}")
+            else:
+                log.debug("[UI] HistoricFlag not shown (was not previously visible)")
             
             # Show all click catchers (skip in Swiftplay mode)
             if not self.state.is_swiftplay_mode:
