@@ -247,7 +247,7 @@ class RandomFlag(ChromaWidgetBase):
         
         self.fade_target_opacity = 1.0
         self.fade_start_opacity = self.opacity_effect.opacity()
-        self.fade_steps = 20  # 20 steps for smooth animation
+        self.fade_steps = 10  # 10 steps for smooth animation
         self.fade_current_step = 0
         
         self.fade_timer = QTimer()
@@ -261,7 +261,7 @@ class RandomFlag(ChromaWidgetBase):
         
         self.fade_target_opacity = 0.0
         self.fade_start_opacity = self.opacity_effect.opacity()
-        self.fade_steps = 20  # 20 steps for smooth animation
+        self.fade_steps = 10  # 10 steps for smooth animation
         self.fade_current_step = 0
         
         self.fade_timer = QTimer()
