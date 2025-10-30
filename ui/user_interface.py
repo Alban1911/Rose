@@ -634,10 +634,12 @@ class UserInterface:
                         current_resolution != self.unowned_frame._current_resolution):
                         log.info(f"[UI] UnownedFrame resolution changed from {self.unowned_frame._current_resolution} to {current_resolution}, destroying and recreating")
                         
-                        # Save current state
+                        # Save current state (visibility + opacity)
+                        was_visible = False
                         current_opacity = 0.0
                         if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
                             current_opacity = self.unowned_frame.opacity_effect.opacity()
+                            was_visible = current_opacity > 0.0 or self.unowned_frame.isVisible()
                         
                         # Completely destroy the old UnownedFrame
                         self.unowned_frame.hide()
@@ -654,20 +656,26 @@ class UserInterface:
                         
                         # Ensure the initial UnownedFrame is properly positioned (same as initialization)
                         self.unowned_frame._create_components()
-                        self.unowned_frame.show()
-                        
-                        # Use the same logic as skin swaps to show the UnownedFrame
-                        if self.unowned_frame.opacity_effect:
-                            # Check if current skin should show UnownedFrame
-                            should_show = self.unowned_frame._should_show_for_current_skin()
-                            if should_show:
-                                # Use the same method that works during skin swaps
-                                log.info("[UI] UnownedFrame recreated with new resolution, using skin swap logic to show unowned skin")
-                                self._show_unowned_frame(self.current_skin_id, self.current_skin_name, self.current_champion_name)
+                        # Restore prior visibility/opacity strictly (preserve state across rebuild)
+                        if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
+                            if was_visible:
+                                self.unowned_frame.opacity_effect.setOpacity(1.0)
+                                self.unowned_frame.show()
+                                try:
+                                    if hasattr(self.unowned_frame, 'unowned_frame_image') and self.unowned_frame.unowned_frame_image:
+                                        self.unowned_frame.unowned_frame_image.show()
+                                except Exception:
+                                    pass
+                                log.info("[UI] UnownedFrame recreated - restored to visible state")
                             else:
-                                # If current skin is owned or base, keep it hidden
                                 self.unowned_frame.opacity_effect.setOpacity(0.0)
-                                log.info("[UI] UnownedFrame recreated with new resolution, set opacity to 0.0 for owned/base skin")
+                                self.unowned_frame.hide()
+                                try:
+                                    if hasattr(self.unowned_frame, 'unowned_frame_image') and self.unowned_frame.unowned_frame_image:
+                                        self.unowned_frame.unowned_frame_image.hide()
+                                except Exception:
+                                    pass
+                                log.info("[UI] UnownedFrame recreated - restored to hidden state")
                         
                         # Ensure proper z-order
                         self.unowned_frame.refresh_z_order()
