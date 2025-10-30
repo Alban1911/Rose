@@ -160,7 +160,7 @@ def build_all():
     
     print("\nNext Steps:")
     print("  • For development/testing:")
-    print("    Run: dist\\LeagueUnlocked\\start.bat")
+    print("    Run: dist\\LeagueUnlocked\\LeagueUnlocked.exe")
     print()
     print("  • For distribution:")
     print(f"    Share: {installer_path if installer_path else 'installer/LeagueUnlocked_Setup.exe'}")

@@ -89,24 +89,6 @@ def organize_output():
         print("[ERROR] Build output not found!")
         return False
     
-    # Create launcher
-    launcher_content = '''@echo off
-echo Starting LeagueUnlocked...
-echo.
-"%~dp0LeagueUnlocked.exe" --verbose
-if errorlevel 1 (
-    echo.
-    echo Application encountered an error.
-    pause
-)
-'''
-    launcher_path = dist_folder / "start.bat"
-    try:
-        launcher_path.write_text(launcher_content)
-        print(f"[OK] Created launcher: {launcher_path}")
-    except Exception as e:
-        print(f"[WARNING] Could not create launcher: {e}")
-    
     return True
 
 
@@ -154,7 +136,7 @@ def main():
         
         print(f"\nTo test:")
         print(f"  cd dist\\LeagueUnlocked")
-        print(f"  start.bat")
+        print(f"  LeagueUnlocked.exe")
         
         print(f"\nIMPORTANT: Check the log file after running!")
         print(f"  Look for: 'UIA Detection: Thread ready' message")
