@@ -211,6 +211,7 @@ class WSEventThread(threading.Thread):
                         # Reset injection and countdown state
                         self.state.injection_completed = False  # Reset injection flag for new game
                         self.state.loadout_countdown_active = False  # Reset countdown state
+                        self.ticker = None  # Clear ticker reference to ensure new timer can start
                         # Reset champion lock state for new game
                         self.state.locked_champ_id = None
                         self.state.locked_champ_timestamp = 0.0  # Reset timestamp for new game
@@ -280,6 +281,7 @@ class WSEventThread(threading.Thread):
                     self.state.locks_by_cell.clear()
                     self.state.all_locked_announced = False
                     self.state.loadout_countdown_active = False
+                    self.ticker = None  # Clear ticker reference to ensure new timer can start
         
         elif uri == "/lol-champ-select/v1/hovered-champion-id":
             cid = payload.get("data")
