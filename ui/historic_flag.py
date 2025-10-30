@@ -207,15 +207,15 @@ class HistoricFlag(ChromaWidgetBase):
             if self.fade_timer:
                 self.fade_timer.stop()
                 self.fade_timer = None
-            # Set opacity to 1.0 instantly
-            self.opacity_effect.setOpacity(1.0)
-            self.show()
-            # Ensure proper z-order after showing
-            from PyQt6.QtCore import QTimer
-            def delayed_zorder_refresh():
-                log.debug("[HistoricFlag] Applying delayed z-order refresh after instant show")
-                self.refresh_z_order()
-            QTimer.singleShot(50, delayed_zorder_refresh)
+        # Always set opacity to 1.0 instantly (even if already visible)
+        self.opacity_effect.setOpacity(1.0)
+        self.show()
+        # Ensure proper z-order after showing
+        from PyQt6.QtCore import QTimer
+        def delayed_zorder_refresh():
+            log.debug("[HistoricFlag] Applying delayed z-order refresh after instant show")
+            self.refresh_z_order()
+        QTimer.singleShot(50, delayed_zorder_refresh)
 
     def _do_fade_in(self):
         if self.fade_timer:
@@ -243,6 +243,10 @@ class HistoricFlag(ChromaWidgetBase):
         if self.fade_current_step >= self.fade_steps:
             self.fade_timer.stop()
             self.fade_timer = None
+            
+            # Set final opacity to target
+            self.opacity_effect.setOpacity(self.fade_target_opacity)
+            
             if self.fade_target_opacity == 0.0:
                 self.hide()
             return

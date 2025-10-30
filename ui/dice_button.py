@@ -310,13 +310,11 @@ class DiceButton(ChromaWidgetBase):
             if self.fade_timer:
                 self.fade_timer.stop()
                 self.fade_timer = None
-            # Set opacity to 1.0 instantly
-            if hasattr(self, 'opacity_effect') and self.opacity_effect:
-                self.opacity_effect.setOpacity(1.0)
-            self.show()
-            log.debug("[DiceButton] Button shown instantly")
-        else:
-            log.debug("[DiceButton] Button already visible")
+        # Always set opacity to 1.0 instantly (even if already visible)
+        if hasattr(self, 'opacity_effect') and self.opacity_effect:
+            self.opacity_effect.setOpacity(1.0)
+        self.show()
+        log.debug("[DiceButton] Button shown instantly")
     
     def _do_fade_in(self):
         """Fade in animation (reused from UnownedFrame)"""
@@ -351,6 +349,10 @@ class DiceButton(ChromaWidgetBase):
         if self.fade_current_step >= self.fade_steps:
             self.fade_timer.stop()
             self.fade_timer = None
+            
+            # Set final opacity to target
+            if hasattr(self, 'opacity_effect') and self.opacity_effect:
+                self.opacity_effect.setOpacity(self.fade_target_opacity)
             
             # Hide widget when fade out is complete
             if self.fade_target_opacity == 0.0:
