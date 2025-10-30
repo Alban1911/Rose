@@ -452,6 +452,9 @@ class ClickCatcher(ChromaWidgetBase):
                 # Recreate components with new resolution
                 self._create_components()
                 
+                # Re-register to update the global registry with new position/size
+                self._register_click_catcher()
+                
         except Exception as e:
             log.error(f"[ClickCatcher] Error checking resolution: {e}")
     

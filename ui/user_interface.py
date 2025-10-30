@@ -949,6 +949,29 @@ class UserInterface:
                                 lambda: self._on_click_catcher_clicked('EMOTES')
                             )
                             
+                            # MESSAGE - Rectangle
+                            self.click_catchers['MESSAGE'] = ClickCatcherHide(
+                                state=self.state, catcher_name='MESSAGE', shape='rectangle'
+                            )
+                            self.click_catchers['MESSAGE'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('MESSAGE')
+                            )
+                            
+                            # ABILITIES - Rectangle
+                            self.click_catchers['ABILITIES'] = ClickCatcherHide(
+                                state=self.state, catcher_name='ABILITIES', shape='rectangle'
+                            )
+                            self.click_catchers['ABILITIES'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('ABILITIES')
+                            )
+                            
+                            # QUESTS - Rectangle
+                            self.click_catchers['QUESTS'] = ClickCatcherHide(
+                                state=self.state, catcher_name='QUESTS', shape='rectangle'
+                            )
+                            self.click_catchers['QUESTS'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('QUESTS')
+                            )
                             
                             # Restore backward compatibility
                             self.click_catcher_hide = self.click_catchers['SETTINGS']
