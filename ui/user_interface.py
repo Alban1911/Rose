@@ -1732,6 +1732,7 @@ class UserInterface:
             self._ui_visibility_state['unowned_frame_visible'] = self.unowned_frame and self.unowned_frame.isVisible()
             self._ui_visibility_state['dice_button_visible'] = self.dice_button and hasattr(self.dice_button, 'is_visible') and self.dice_button.is_visible
             self._ui_visibility_state['random_flag_visible'] = self.random_flag and self.random_flag.isVisible()
+            self._ui_visibility_state['historic_flag_visible'] = self.historic_flag and self.historic_flag.isVisible()
             
             log.debug(f"[UI] Visibility state before hiding: {self._ui_visibility_state}")
             
