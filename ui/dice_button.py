@@ -189,6 +189,42 @@ class DiceButton(ChromaWidgetBase):
             self.is_visible = False
 
         log.debug(f"[DiceButton] Created at ({target_x}, {target_y}) size {button_width}x{button_height}")
+
+    def ensure_position(self):
+        """Re-apply absolute positioning after parenting/show to avoid (0,0) jumps."""
+        try:
+            from utils.window_utils import get_league_window_handle, find_league_window_rect
+            import ctypes
+            league_hwnd = get_league_window_handle()
+            window_rect = find_league_window_rect()
+            if not league_hwnd or not window_rect:
+                return
+            window_left, window_top, window_right, window_bottom = window_rect
+            window_width = window_right - window_left
+            window_height = window_bottom - window_top
+            if window_width == 1600 and window_height == 900:
+                button_width = 46
+                button_height = 27
+                target_x = 800 - (button_width // 2)
+                target_y = 754 - (button_height // 2)
+            elif window_width == 1024 and window_height == 576:
+                button_width = 28
+                button_height = 18
+                target_x = 512 - (button_width // 2)
+                target_y = 483 - (button_height // 2)
+            else:
+                button_width = 38
+                button_height = 23
+                target_x = 640 - (button_width // 2)
+                target_y = 602 - (button_height // 2)
+            widget_hwnd = int(self.winId())
+            HWND_TOP = 0
+            ctypes.windll.user32.SetWindowPos(
+                widget_hwnd, HWND_TOP, target_x, target_y, 0, 0,
+                0x0001 | 0x0004  # SWP_NOSIZE | SWP_NOZORDER
+            )
+        except Exception as e:
+            log.debug(f"[DiceButton] ensure_position error: {e}")
     
     def _load_state_image(self, state: str):
         """Load the appropriate image for the given state"""
@@ -218,6 +254,16 @@ class DiceButton(ChromaWidgetBase):
                 log.warning(f"[DiceButton] Failed to load image: {image_path}")
                 return
             
+            # Scale pixmap to current label size for crisp visuals after rebuild
+            target_w = self.dice_image.width()
+            target_h = self.dice_image.height()
+            if target_w > 0 and target_h > 0:
+                pixmap = pixmap.scaled(
+                    target_w,
+                    target_h,
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
             self.dice_image.setPixmap(pixmap)
             # Only update the logical state for base states
             if state in ('enabled', 'disabled'):

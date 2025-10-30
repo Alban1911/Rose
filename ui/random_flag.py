@@ -71,9 +71,6 @@ class RandomFlag(ChromaWidgetBase):
     
     def _create_components(self):
         """Create the random flag component with static positioning"""
-        # Preserve visibility across rebuilds
-        prev_visible = getattr(self, 'is_visible', False)
-
         # Clear existing components if they exist (for rebuilds)
         if hasattr(self, 'flag_image') and self.flag_image:
             self.flag_image.deleteLater()
@@ -166,21 +163,55 @@ class RandomFlag(ChromaWidgetBase):
             self.flag_image.setGeometry(0, 0, flag_size, flag_size)
             self.flag_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.flag_image.setScaledContents(True)
-            self.flag_image.setPixmap(flag_pixmap)
+            # Scale pixmap to label size for correct rendering after rebuild
+            scaled = flag_pixmap.scaled(
+                flag_size,
+                flag_size,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.flag_image.setPixmap(scaled)
             
             # Store resolution for change detection
             self._current_resolution = (window_width, window_height)
             
-            # Restore visibility
-            if prev_visible:
-                self.show_flag()
-            else:
-                self.hide_flag()
-
             log.debug(f"[RandomFlag] Created at ({target_x}, {target_y}) size {flag_size}x{flag_size}")
             
         except Exception as e:
             log.error(f"[RandomFlag] Error creating components: {e}")
+
+    def ensure_position(self):
+        """Re-apply absolute positioning after parenting/show to avoid (0,0) jumps."""
+        try:
+            from utils.window_utils import get_league_window_handle, find_league_window_rect
+            import ctypes
+            league_hwnd = get_league_window_handle()
+            window_rect = find_league_window_rect()
+            if not league_hwnd or not window_rect:
+                return
+            window_left, window_top, window_right, window_bottom = window_rect
+            window_width = window_right - window_left
+            window_height = window_bottom - window_top
+            if window_width == 1600 and window_height == 900:
+                flag_size = 36
+                target_x = 800 - (flag_size // 2)
+                target_y = 723 - (flag_size // 2)
+            elif window_width == 1024 and window_height == 576:
+                flag_size = 24
+                target_x = 512 - (flag_size // 2)
+                target_y = 463 - (flag_size // 2)
+            else:
+                flag_size = 26
+                target_x = 640 - (flag_size // 2)
+                target_y = 578 - (flag_size // 2)
+            widget_hwnd = int(self.winId())
+            HWND_TOP = 0
+            ctypes.windll.user32.SetWindowPos(
+                widget_hwnd, HWND_TOP, target_x, target_y, 0, 0,
+                0x0001 | 0x0004  # SWP_NOSIZE | SWP_NOZORDER
+            )
+        except Exception as e:
+            log.debug(f"[RandomFlag] ensure_position error: {e}")
     
     def show_flag(self):
         """Show the random flag with fade in"""
