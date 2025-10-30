@@ -681,13 +681,115 @@ class UserInterface:
                 # ChromaUI components handle their own resolution checking
                 pass
             
-            # Check DiceButton for resolution changes
-            if self.dice_button:
-                self.dice_button.check_resolution_and_update()
-            
-            # Check RandomFlag for resolution changes
+            # DiceButton: destroy and recreate on resolution change (like UnownedFrame)
+            if self.dice_button and not self.state.is_swiftplay_mode:
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                if current_resolution and hasattr(self.dice_button, '_current_resolution'):
+                    if (self.dice_button._current_resolution is not None and 
+                        current_resolution != self.dice_button._current_resolution):
+                        log.info(f"[UI] DiceButton resolution changed from {self.dice_button._current_resolution} to {current_resolution}, destroying and recreating")
+                        # Preserve state and visibility
+                        prev_state = getattr(self.dice_button, 'current_state', 'disabled')
+                        was_visible = getattr(self.dice_button, 'is_visible', False)
+
+                        # Destroy
+                        try:
+                            self.dice_button.hide()
+                            self.dice_button.deleteLater()
+                        except Exception:
+                            pass
+                        self.dice_button = None
+
+                        # Process events to ensure deletion
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+
+                        # Recreate fresh widget and reconnect signals
+                        from ui.dice_button import DiceButton
+                        self.dice_button = DiceButton(state=self.state)
+                        self.dice_button.dice_clicked.connect(self._on_dice_clicked)
+
+                        # Restore logical state and visibility
+                        if prev_state == 'enabled':
+                            self.dice_button.set_state('enabled')
+                        else:
+                            self.dice_button.set_state('disabled')
+                        if was_visible:
+                            self.dice_button.show_button()
+                        else:
+                            self.dice_button.hide_button()
+
+                        # Re-apply absolute positioning shortly after show
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            QTimer.singleShot(50, self.dice_button.ensure_position)
+                        except Exception:
+                            pass
+
+                        # Ensure correct z-order after recreation
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            from ui.z_order_manager import get_z_order_manager
+                            z_manager = get_z_order_manager()
+                            # Do an immediate refresh and a delayed one to be safe
+                            z_manager.refresh_z_order(force=True)
+                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
+                        except Exception:
+                            pass
+                    elif self.dice_button._current_resolution is None:
+                        self.dice_button._current_resolution = current_resolution
+
+            # RandomFlag: destroy and recreate on resolution change
             if self.random_flag:
-                self.random_flag.check_resolution_and_update()
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                if current_resolution and hasattr(self.random_flag, '_current_resolution'):
+                    if (self.random_flag._current_resolution is not None and 
+                        current_resolution != self.random_flag._current_resolution):
+                        log.info(f"[UI] RandomFlag resolution changed from {self.random_flag._current_resolution} to {current_resolution}, destroying and recreating")
+                        was_visible = getattr(self.random_flag, 'is_visible', False)
+
+                        # Destroy
+                        try:
+                            self.random_flag.hide()
+                            self.random_flag.deleteLater()
+                        except Exception:
+                            pass
+                        self.random_flag = None
+
+                        # Process events
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+
+                        # Recreate
+                        from ui.random_flag import RandomFlag
+                        self.random_flag = RandomFlag(state=self.state)
+
+                        # Restore visibility
+                        if was_visible:
+                            self.random_flag.show_flag()
+                        else:
+                            self.random_flag.hide_flag()
+
+                        # Re-apply absolute positioning shortly after show
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            QTimer.singleShot(50, self.random_flag.ensure_position)
+                        except Exception:
+                            pass
+
+                        # Ensure correct z-order after recreation
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            from ui.z_order_manager import get_z_order_manager
+                            z_manager = get_z_order_manager()
+                            z_manager.refresh_z_order(force=True)
+                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
+                        except Exception:
+                            pass
+                    elif self.random_flag._current_resolution is None:
+                        self.random_flag._current_resolution = current_resolution
             
             # Check ClickCatcherHide instances for resolution changes
             # Destroy and recreate click catchers when resolution changes
