@@ -71,6 +71,9 @@ class RandomFlag(ChromaWidgetBase):
     
     def _create_components(self):
         """Create the random flag component with static positioning"""
+        # Preserve visibility across rebuilds
+        prev_visible = getattr(self, 'is_visible', False)
+
         # Clear existing components if they exist (for rebuilds)
         if hasattr(self, 'flag_image') and self.flag_image:
             self.flag_image.deleteLater()
@@ -168,6 +171,12 @@ class RandomFlag(ChromaWidgetBase):
             # Store resolution for change detection
             self._current_resolution = (window_width, window_height)
             
+            # Restore visibility
+            if prev_visible:
+                self.show_flag()
+            else:
+                self.hide_flag()
+
             log.debug(f"[RandomFlag] Created at ({target_x}, {target_y}) size {flag_size}x{flag_size}")
             
         except Exception as e:

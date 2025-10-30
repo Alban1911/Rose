@@ -79,6 +79,10 @@ class DiceButton(ChromaWidgetBase):
     
     def _create_components(self):
         """Create the dice button component with static positioning"""
+        # Preserve current state and visibility across rebuilds
+        prev_state = getattr(self, 'current_state', 'disabled')
+        prev_visible = getattr(self, 'is_visible', False)
+
         # Clear existing components if they exist (for rebuilds)
         if hasattr(self, 'dice_image') and self.dice_image:
             self.dice_image.deleteLater()
@@ -167,12 +171,23 @@ class DiceButton(ChromaWidgetBase):
         self.dice_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.dice_image.setScaledContents(True)
         
-        # Load initial state (disabled)
-        self._load_state_image('disabled')
+        # Load visual according to preserved logical state
+        if prev_state in ('enabled',):
+            self._load_state_image('enabled')
+        else:
+            self._load_state_image('disabled')
         
         # Store resolution for change detection
         self._current_resolution = (window_width, window_height)
         
+        # Restore visibility
+        if prev_visible:
+            self.show()
+            self.is_visible = True
+        else:
+            self.hide()
+            self.is_visible = False
+
         log.debug(f"[DiceButton] Created at ({target_x}, {target_y}) size {button_width}x{button_height}")
     
     def _load_state_image(self, state: str):
