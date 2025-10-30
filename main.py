@@ -255,8 +255,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 # Set Qt environment variables BEFORE anything else
 os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
-# Tell Qt to not print DPI warnings
-os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false'
+# Tell Qt to not print DPI warnings and suppress QWindowsContext COM errors
+os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false;qt.qpa.windows.debug=false'
 
 # Import PyQt6 for chroma wheel
 PYQT6_AVAILABLE = False
@@ -709,6 +709,23 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     # Clean up old log files on startup
     from utils.logging import cleanup_logs
     cleanup_logs(max_files=args.log_max_files, max_total_size_mb=args.log_max_total_size_mb)
+    
+    # Check if running as frozen executable (PyInstaller)
+    is_frozen = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+    
+    # Force production mode in frozen builds (disable dev/verbose/debug)
+    if is_frozen:
+        original_dev = args.dev
+        original_verbose = args.verbose
+        original_debug = args.debug
+        
+        args.dev = False
+        args.verbose = False
+        args.debug = False
+        
+        # Log if flags were overridden
+        if original_dev or original_verbose or original_debug:
+            print("[WARNING] Development flags disabled in frozen build (--dev, --verbose, --debug ignored)")
     
     # Determine log mode based on flags
     if args.debug:

@@ -5,6 +5,7 @@ Logging configuration and utilities
 """
 
 # Standard library imports
+import base64
 import os
 import queue
 import re
@@ -17,6 +18,10 @@ from pathlib import Path
 # Third-party imports
 import logging
 import urllib3
+from cryptography.fernet import Fernet
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from urllib3.exceptions import InsecureRequestWarning
 
 # Local imports
@@ -44,6 +49,77 @@ _CURRENT_LOG_MODE = 'customer'
 def get_log_mode() -> str:
     """Get the current logging mode"""
     return _CURRENT_LOG_MODE
+
+
+def _get_encryption_key() -> bytes:
+    """Get the encryption key from key file, environment variable, or generate from a fixed password"""
+    # Priority 1: Try to get key from key file (most secure)
+    key_file = Path(__file__).parent.parent / "log_encryption_key.txt"
+    if key_file.exists():
+        try:
+            with open(key_file, 'r') as f:
+                key_str = f.read().strip()
+            if key_str:
+                password = key_str.encode()
+            else:
+                # Empty file, fall through to default
+                password = None
+        except Exception:
+            # Could not read key file, fall through to default
+            password = None
+    else:
+        password = None
+    
+    # Priority 2: Try to get key from environment variable
+    if password is None:
+        key_str = os.environ.get('LEAGUE_UNLOCKED_LOG_KEY')
+        if key_str:
+            password = key_str.encode()
+    
+    # Priority 3: Default key derived from a fixed password (developer only)
+    if password is None:
+        password = b'LeagueUnlocked2024LogEncryptionDefaultKey'
+    
+    # Derive a 32-byte key using PBKDF2
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b'league_unlocked_logs_salt',
+        iterations=100000,
+        backend=default_backend()
+    )
+    key = kdf.derive(password)
+    
+    # Fernet expects a URL-safe base64-encoded 32-byte key
+    return base64.urlsafe_b64encode(key)
+
+
+class EncryptedFileHandler(logging.FileHandler):
+    """File handler that encrypts log content using AES"""
+    
+    def __init__(self, filename, mode='a', encoding='utf-8', delay=False, errors=None):
+        # Store encoding BEFORE calling parent __init__ (which may overwrite it for binary mode)
+        self._encoding = encoding if encoding else 'utf-8'
+        # Open file in binary mode for encryption
+        logging.FileHandler.__init__(self, filename, mode='ab', delay=delay, errors=errors)
+        # Get encryption key and create Fernet cipher
+        key = _get_encryption_key()
+        self.cipher = Fernet(key)
+    
+    def emit(self, record):
+        """Write encrypted log to file"""
+        try:
+            msg = self.format(record)
+            # Use our stored encoding attribute
+            encoding = getattr(self, '_encoding', 'utf-8')
+            # Encrypt the message (Fernet already includes the message in the token)
+            encrypted_msg = self.cipher.encrypt(msg.encode(encoding))
+            # Write encrypted bytes (no need to add newline as each log is on its own line)
+            self.stream.write(encrypted_msg)
+            self.stream.write(b'\n')  # Add newline for readability when decrypting
+            self.flush()
+        except Exception:
+            self.handleError(record)
 
 
 class SanitizingFilter(logging.Filter):
@@ -92,6 +168,10 @@ class SanitizingFilter(logging.Filter):
         '[ws] WebSocket',
         'LCU lockfile',
         '  - VERIFIED actual position:',
+        
+        # Qt/QWindowsContext messages (harmless COM warnings)
+        'QWindowsContext:',
+        'OleInitialize()',
         
         # Initialization messages (verbose/debug only)
         'Initializing ',
@@ -247,14 +327,14 @@ class SanitizingFilter(logging.Filter):
         Filter log records. Returns False to suppress, True to allow.
         Modifies record.msg to sanitize sensitive information.
         """
+        # Get message string for prefix checking
+        msg_str = str(record.getMessage())
+        
         # Customer mode: Clean, user-friendly logs
         if self.log_mode == 'customer':
             # Only show INFO and above in customer mode
             if record.levelno < logging.INFO:
                 return False
-            
-            # Suppress technical details in customer mode
-            msg_str = str(record.getMessage())
             
             # Suppress separator lines (lines that are just "=" repeated)
             if msg_str.strip() and all(c == '=' for c in msg_str.strip()):
@@ -278,6 +358,11 @@ class SanitizingFilter(logging.Filter):
         
         # Always sanitize paths, PIDs, ports in production mode (regardless of log level)
         if self.production_mode:
+            # Also suppress Qt warnings in production mode
+            for prefix in self.SUPPRESS_PREFIXES:
+                if msg_str.startswith(prefix):
+                    return False
+            
             sanitized = record.msg
             if isinstance(sanitized, str):
                 for pattern, replacement in self.PATTERNS:
@@ -301,11 +386,16 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
     """
     # Store the log mode globally
     global _CURRENT_LOG_MODE
-    _CURRENT_LOG_MODE = log_mode
     
     # Determine production mode
     if production_mode is None:
         production_mode = PRODUCTION_MODE
+    
+    # In production mode, always use verbose mode for full logging
+    if production_mode:
+        _CURRENT_LOG_MODE = 'verbose'
+    else:
+        _CURRENT_LOG_MODE = log_mode
     # Handle windowed mode where stdout/stderr might be None or redirected to devnull
     if sys.stdout is not None and not hasattr(sys.stdout, 'name') or sys.stdout.name != os.devnull:
         try:
@@ -441,16 +531,20 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
         # Create a unique log file for this session with timestamp
         # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
         timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
-        log_file = logs_dir / f"leagueunlocked_{timestamp}.log"
         
-        # Setup file handler (no rotation needed since each session has its own file)
-        file_handler = logging.FileHandler(
-            log_file, 
-            encoding='utf-8'
-        )
+        # In production mode, use encrypted logs with .log.enc extension
+        if production_mode:
+            log_file = logs_dir / f"leagueunlocked_{timestamp}.log.enc"
+            file_handler = EncryptedFileHandler(log_file, encoding='utf-8')
+        else:
+            log_file = logs_dir / f"leagueunlocked_{timestamp}.log"
+            file_handler = logging.FileHandler(log_file, encoding='utf-8')
         
         # File formatter based on log mode
-        if log_mode == 'customer':
+        # In production mode, always use verbose format
+        if production_mode:
+            file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
+        elif log_mode == 'customer':
             # Clean format for customer logs
             file_fmt = "%(_when)s | %(message)s"
         elif log_mode == 'verbose':
@@ -468,15 +562,19 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
         file_handler.setFormatter(_FileFmt(file_fmt))
         
         # File handler logging level based on mode
-        if log_mode == 'debug':
+        # In production mode, always use verbose level (DEBUG+)
+        if production_mode:
+            file_handler.setLevel(logging.DEBUG)  # Show DEBUG and above in production
+        elif log_mode == 'debug':
             file_handler.setLevel(TRACE)  # Show everything including TRACE
         elif log_mode == 'verbose':
             file_handler.setLevel(logging.DEBUG)  # Show DEBUG and above
         else:  # customer mode
             file_handler.setLevel(logging.INFO)  # Show INFO and above
         
-        # Add sanitizing filter to file handler
-        file_handler.addFilter(SanitizingFilter(production_mode, log_mode))
+        # Only add sanitizing filter in development mode (not in production)
+        if not production_mode:
+            file_handler.addFilter(SanitizingFilter(production_mode, log_mode))
         
     except Exception as e:
         # If file logging fails, continue without it
@@ -485,33 +583,39 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
     
     root = logging.getLogger()
     root.handlers.clear()
-    root.addHandler(h)
+    
+    # Only add console handler in development mode
+    # In production mode, suppress all console output
+    if not production_mode:
+        root.addHandler(h)
+        # Console handler level based on log mode
+        if log_mode == 'debug':
+            h.setLevel(TRACE)  # Show everything including TRACE
+        elif log_mode == 'verbose':
+            h.setLevel(logging.DEBUG)  # Show DEBUG and above
+        else:  # customer mode
+            h.setLevel(logging.INFO)  # Show INFO and above (clean output)
+        
+        # Add sanitizing filter to console handler
+        h.addFilter(SanitizingFilter(production_mode, log_mode))
+    
+    # Always add file handler
     if file_handler:
         root.addHandler(file_handler)
-    
-    # Console handler level based on log mode
-    if log_mode == 'debug':
-        h.setLevel(TRACE)  # Show everything including TRACE
-    elif log_mode == 'verbose':
-        h.setLevel(logging.DEBUG)  # Show DEBUG and above
-    else:  # customer mode
-        h.setLevel(logging.INFO)  # Show INFO and above (clean output)
-    
-    # Add sanitizing filter to console handler
-    h.addFilter(SanitizingFilter(production_mode, log_mode))
     
     # Root logger must be at TRACE to allow all handlers to receive all messages
     # This is critical - if root is at INFO, DEBUG/TRACE messages never reach handlers
     root.setLevel(TRACE)
     
     # Add a console print to ensure output is visible (only if we have stdout and it's not redirected)
-    if sys.stdout is not None and not (hasattr(sys.stdout, 'name') and sys.stdout.name == os.devnull):
+    # Skip in production mode as we have no console handler
+    if not production_mode and sys.stdout is not None and not (hasattr(sys.stdout, 'name') and sys.stdout.name == os.devnull):
         try:
             # Use logging instead of direct print to avoid blocking
             logger = logging.getLogger("startup")
             
             # Show startup message based on log mode
-            if log_mode == 'customer':
+            if _CURRENT_LOG_MODE == 'customer':
                 # Clean startup for customer mode
                 logger.info(f"✅ LeagueUnlocked Started (Log: {log_file.name})")
             else:
@@ -521,10 +625,10 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
                 logger.info("=" * LOG_SEPARATOR_WIDTH)
                 
                 # Log mode information
-                if log_mode == 'debug':
+                if _CURRENT_LOG_MODE == 'debug':
                     logger.info("Debug mode: ON (ultra-detailed logs with function traces)")
                     logger.debug(f"Log file location: {log_file.absolute()}")
-                elif log_mode == 'verbose':
+                elif _CURRENT_LOG_MODE == 'verbose':
                     logger.info("Verbose mode: ON (developer logs with technical details)")
                     logger.debug(f"Log file location: {log_file.absolute()}")
                     
@@ -539,6 +643,11 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
     
     # Disable SSL warnings for LCU (self-signed cert)
     urllib3.disable_warnings(InsecureRequestWarning)
+    
+    # Suppress Qt/QWindowsContext messages (COM errors, etc.) in production mode
+    if production_mode:
+        logging.getLogger("Qt").setLevel(logging.CRITICAL)
+        logging.getLogger("QWindowsContext").setLevel(logging.CRITICAL)
 
 
 def get_logger(name: str = "tracer") -> logging.Logger:

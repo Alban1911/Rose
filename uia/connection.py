@@ -18,7 +18,7 @@ class UIConnection:
     def connect(self) -> bool:
         """Connect to League of Legends window"""
         try:
-            log.debug("Initializing PyWinAuto connection to League of Legends...")
+            log.debug("[DETECT_DETAILS] Initializing connection to League of Legends...")
             app = Application(backend="uia").connect(title="League of Legends")
             self.league_window = app.window(title="League of Legends")
             self.connected = True

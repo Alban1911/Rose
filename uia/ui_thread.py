@@ -58,24 +58,24 @@ class UISkinThread(threading.Thread):
     def run(self):
         """Main thread loop"""
         self.running = True
-        log.info("[UIA] Thread started")
+        log.info("[DETECT_DETAILS] Thread started")
         
         
         while self.running and not self.stop_event.is_set():
             try:
-                # Handle PyWinAuto connection (connect when entering ChampSelect)
+                # Handle [DETECT_DETAILS] connection (connect when entering ChampSelect)
                 if self._should_connect():
                     if not self.connection.is_connected():
                         if self.connection.connect():
                             self.detector = UIDetector(self.connection.league_window, self.skin_scraper, self.shared_state)
                             self.debugger = UIDebugger(self.connection.league_window)
-                            log.info("[UIA] PyWinAuto connected in ChampSelect phase")
+                            log.info("[DETECT_DETAILS] Connected in ChampSelect phase")
                 else:
                     if self.connection.is_connected():
                         self.connection.disconnect()
                         self.detector = None
                         self.debugger = None
-                        log.info("[UIA] PyWinAuto disconnected - left ChampSelect phase")
+                        log.info("[DETECT_DETAILS] Disconnected - left ChampSelect phase")
                         self.detection_available = False
                         self.skin_name_element = None
                         self.last_skin_name = None
@@ -87,9 +87,9 @@ class UISkinThread(threading.Thread):
                     if not self.detection_available:
                         self.detection_available = True
                         if self.shared_state.is_swiftplay_mode:
-                            log.info(f"[UIA] Starting - Swiftplay mode detected in lobby")
+                            log.info(f"[DETECT_DETAILS] Starting - Swiftplay mode detected in lobby")
                         else:
-                            log.info(f"[UIA] Starting - champion locked in ChampSelect ({UIA_DELAY_MS}ms delay)")
+                            log.info(f"[DETECT_DETAILS] Starting - champion locked in ChampSelect ({UIA_DELAY_MS}ms delay)")
                     
                     # Find skin name element if not found yet
                     if self.skin_name_element is None:
@@ -99,12 +99,12 @@ class UISkinThread(threading.Thread):
                         if (self.skin_name_element is None and 
                             self.shared_state.is_swiftplay_mode and 
                             self.shared_state.phase == "Lobby"):
-                            log.debug("[UIA] Waiting 50ms for cosmetics text to appear...")
+                            log.debug("[DETECT_DETAILS] Waiting 50ms for cosmetics text to appear...")
                             self.stop_event.wait(0.05)  # 50ms delay
                     else:
                         # Validate that the cached element is still valid
                         if not self._is_element_still_valid():
-                            log.debug("[UIA] Cached element is no longer valid, clearing cache and resetting retry")
+                            log.debug("[DETECT_DETAILS] Cached element is no longer valid, clearing cache and resetting retry")
                             self.skin_name_element = None
                             self.last_skin_name = None
                             self.last_skin_id = None
@@ -127,7 +127,7 @@ class UISkinThread(threading.Thread):
                         # In Swiftplay, if we can't get skin name (panel closed), clear and retry
                         if not skin_name:
                             if self.shared_state.is_swiftplay_mode:
-                                log.debug("[UIA] Cannot get skin name (panel may be closed), clearing and retrying...")
+                                log.debug("[DETECT_DETAILS] Cannot get skin name (panel may be closed), clearing and retrying...")
                                 self.skin_name_element = None
                                 self.last_skin_name = None
                                 self.detection_attempts = 0
@@ -139,12 +139,12 @@ class UISkinThread(threading.Thread):
                                 self.shared_state.ui_last_text = None
                         elif skin_name != self.last_skin_name:
                             if self.shared_state.is_swiftplay_mode:
-                                log.info(f"[UIA] Swiftplay skin name detected: '{skin_name}'")
+                                log.info(f"[DETECT_DETAILS] Swiftplay skin name detected: '{skin_name}'")
                             # The detector already validated this is a valid skin name
                             self._process_skin_name(skin_name)
                 else:
                     if self.detection_available:
-                        log.info("[UIA] Stopped - waiting for champion lock")
+                        log.info("[DETECT_DETAILS] Stopped - waiting for champion lock")
                         self.detection_available = False
                         self.skin_name_element = None
                         self.last_skin_name = None
@@ -156,21 +156,21 @@ class UISkinThread(threading.Thread):
                 self.stop_event.wait(self.interval)
                 
             except Exception as e:
-                log.error(f"[UIA] Error in main loop - {e}")
+                log.error(f"[DETECT_DETAILS] Error in main loop - {e}")
                 time.sleep(1)
         
-        log.info("[UIA] Thread stopped")
+        log.info("[DETECT_DETAILS] Thread stopped")
     
     def stop(self):
         """Stop the thread"""
         self.running = False
         self.stop_event.set()
         self.connection.disconnect()
-        log.info("[UIA] Stop requested")
+        log.info("[DETECT_DETAILS] Stop requested")
     
     def clear_cache(self):
         """Clear all cached elements and state - called during champion exchange"""
-        log.info("[UIA] Clearing all UIA cache")
+        log.info("[DETECT_DETAILS] Clearing all UIA cache")
         self.skin_name_element = None
         self.last_skin_name = None
         self.last_skin_id = None
@@ -185,7 +185,7 @@ class UISkinThread(threading.Thread):
         self.shared_state.ui_last_text = None
     
     def _should_connect(self) -> bool:
-        """Check if we should establish PyWinAuto connection"""
+        """Check if we should establish [DETECT_DETAILS] connection"""
         # For Swiftplay, also connect in Lobby phase
         if self.shared_state.phase == "Lobby" and self.shared_state.is_swiftplay_mode:
             return True
@@ -223,7 +223,7 @@ class UISkinThread(threading.Thread):
     def _process_skin_name(self, skin_name: str):
         """Process detected skin name"""
         try:
-            log.info(f"[UIA] Found skin name - '{skin_name}'")
+            log.info(f"[DETECT_DETAILS] Found skin name - '{skin_name}'")
             
             # Update shared state
             self.shared_state.ui_last_text = skin_name
@@ -246,7 +246,7 @@ class UISkinThread(threading.Thread):
             # Get language code from shared state
             language = self.shared_state.current_language
             if not language:
-                log.warning("[UIA] No language detected, cannot load skin mapping")
+                log.warning("[DETECT_DETAILS] No language detected, cannot load skin mapping")
                 return False
             
             # Construct path to skin mapping file
@@ -254,7 +254,7 @@ class UISkinThread(threading.Thread):
             mapping_path = user_data_dir / "skinid_mapping" / language / "skin_ids.json"
             
             if not mapping_path.exists():
-                log.warning(f"[UIA] Skin mapping file not found: {mapping_path}")
+                log.warning(f"[DETECT_DETAILS] Skin mapping file not found: {mapping_path}")
                 return False
             
             # Load the JSON file
@@ -276,7 +276,7 @@ class UISkinThread(threading.Thread):
                 except (ValueError, TypeError):
                     continue
             
-            log.info(f"[UIA] Loaded {len(self.skin_id_mapping)} skin mappings for language '{language}'")
+            log.info(f"[DETECT_DETAILS] Loaded {len(self.skin_id_mapping)} skin mappings for language '{language}'")
             self.skin_mapping_loaded = True
             return True
             
@@ -296,7 +296,7 @@ class UISkinThread(threading.Thread):
             # First try exact match (normalized)
             if normalized_name in self.skin_id_mapping:
                 skin_id = self.skin_id_mapping[normalized_name]
-                log.debug(f"[UIA] Exact match found: '{skin_name}' -> ID {skin_id}")
+                log.debug(f"[DETECT_DETAILS] Exact match found: '{skin_name}' -> ID {skin_id}")
                 return skin_id
             
             # Try fuzzy matching - return the FIRST match found
@@ -304,10 +304,10 @@ class UISkinThread(threading.Thread):
             for mapped_name, skin_id in self.skin_id_mapping.items():
                 # Check if detected name is contained in mapped name or vice versa
                 if normalized_name in mapped_name or mapped_name in normalized_name:
-                    log.debug(f"[UIA] Fuzzy match found: '{skin_name}' -> '{mapped_name}' (ID: {skin_id})")
+                    log.debug(f"[DETECT_DETAILS] Fuzzy match found: '{skin_name}' -> '{mapped_name}' (ID: {skin_id})")
                     return skin_id  # Return FIRST match
             
-            log.debug(f"[UIA] No skin ID found for '{skin_name}'")
+            log.debug(f"[DETECT_DETAILS] No skin ID found for '{skin_name}'")
             return None
             
         except Exception as e:
@@ -317,12 +317,12 @@ class UISkinThread(threading.Thread):
     def _process_swiftplay_skin_name(self, skin_name: str):
         """Process skin name for Swiftplay mode - lookup skin ID and store in dictionary"""
         try:
-            log.info(f"[UIA] Swiftplay skin name detected: '{skin_name}'")
+            log.info(f"[DETECT_DETAILS] Swiftplay skin name detected: '{skin_name}'")
             
             # Find skin ID from the mapping
             skin_id = self._find_skin_id_by_name(skin_name)
             if not skin_id:
-                log.warning(f"[UIA] Could not find skin ID for '{skin_name}'")
+                log.warning(f"[DETECT_DETAILS] Could not find skin ID for '{skin_name}'")
                 return
             
             # Calculate champion ID from skin ID
@@ -335,8 +335,8 @@ class UISkinThread(threading.Thread):
             self.shared_state.ui_skin_id = skin_id
             self.shared_state.last_hovered_skin_id = skin_id
             
-            log.info(f"[UIA] Mapped skin '{skin_name}' -> Champion {champion_id}, Skin {skin_id}")
-            log.debug(f"[UIA] Current skin tracking: {self.shared_state.swiftplay_skin_tracking}")
+            log.info(f"[DETECT_DETAILS] Mapped skin '{skin_name}' -> Champion {champion_id}, Skin {skin_id}")
+            log.debug(f"[DETECT_DETAILS] Current skin tracking: {self.shared_state.swiftplay_skin_tracking}")
             
         except Exception as e:
             log.error(f"Error processing Swiftplay skin name: {e}")
@@ -382,14 +382,14 @@ class UISkinThread(threading.Thread):
                     skin_data = self.skin_scraper.cache.get_skin_by_id(skin_id)
                     if skin_data:
                         english_skin_name = skin_data.get('skinName', '').strip()
-                        log.debug(f"[UIA] Found English name '{english_skin_name}' for skin ID {skin_id}")
+                        log.debug(f"[DETECT_DETAILS] Found English name '{english_skin_name}' for skin ID {skin_id}")
                 
                 if not english_skin_name:
-                    log.warning(f"[UIA] Skin ID {skin_id} not found in LCU data, using localized name '{skin_name}'")
+                    log.warning(f"[DETECT_DETAILS] Skin ID {skin_id} not found in LCU data, using localized name '{skin_name}'")
                 
                 # Set skin key for injection (use English name from database)
                 self.shared_state.last_hovered_skin_key = english_skin_name or skin_name
-                log.info(f"[UIA] Mapped skin name to ID - {skin_id} (using: {self.shared_state.last_hovered_skin_key})")
+                log.info(f"[DETECT_DETAILS] Mapped skin name to ID - {skin_id} (using: {self.shared_state.last_hovered_skin_key})")
             else:
                 log.debug(f"[UI] No skin ID found for '{skin_name}'")
                 
@@ -485,12 +485,12 @@ class UISkinThread(threading.Thread):
         if element:
             # Success! Reset attempts
             self.detection_attempts = 0
-            log.info(f"[UIA] Found skin element after {self.detection_attempts} attempts")
+            log.info(f"[DETECT_DETAILS] Found skin element after {self.detection_attempts} attempts")
             return element
         else:
             # Failed, use backoff delay
             if self.detection_attempts > 10:  # After 1 second of trying
-                log.debug(f"[UIA] Attempt {self.detection_attempts}/{self.max_detection_attempts} - League may still be loading")
+                log.debug(f"[DETECT_DETAILS] Attempt {self.detection_attempts}/{self.max_detection_attempts} - League may still be loading")
                 # Use longer delay for subsequent attempts
                 self.stop_event.wait(self.detection_backoff_delay)
             return None
@@ -520,7 +520,7 @@ class UISkinThread(threading.Thread):
             result = self.skin_scraper.find_skin_by_text(skin_name)
             if result:
                 skin_id, matched_name, similarity = result
-                log.info(f"[UIA] LCU match found - '{skin_name}' -> '{matched_name}' (ID: {skin_id}, similarity: {similarity:.2f})")
+                log.info(f"[DETECT_DETAILS] LCU match found - '{skin_name}' -> '{matched_name}' (ID: {skin_id}, similarity: {similarity:.2f})")
                 return skin_id
             
             log.debug(f"[UI] No skin ID found for '{skin_name}' in LCU data")

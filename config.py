@@ -387,8 +387,8 @@ WINDOWS_DPI_AWARENESS_SYSTEM = 1         # PROCESS_SYSTEM_DPI_AWARE
 # Lock file name
 LOCK_FILE_NAME = "leagueunlocked.lock"
 
-# Log file pattern
-LOG_FILE_PATTERN = "leagueunlocked_*.log"
+# Log file pattern (handles both .log and .log.enc files)
+LOG_FILE_PATTERN = "leagueunlocked_*.log*"
 LOG_TIMESTAMP_FORMAT = "%d-%m-%Y_%H-%M-%S"  # European format, Windows-compatible
 
 
