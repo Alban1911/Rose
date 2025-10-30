@@ -4,7 +4,7 @@
 #define MyAppName "LeagueUnlocked"
 #define MyAppVersion "Beta"
 #define MyAppVersionInfo "0.1.0.0"
-#define MyAppPublisher "League Unlocked Team"
+#define MyAppPublisher "LeagueUnlocked Team"
 #define MyAppURL "https://github.com/AlbanCliquet/LeagueUnlocked"
 #define MyAppExeName "LeagueUnlocked.exe"
 #define MyAppDescription "Automated League of Legends skin changer with Windows UI API detection"
