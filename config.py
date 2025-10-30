@@ -9,7 +9,7 @@ All arbitrary values are centralized here for easy tracking and modification
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "alpha"                    # Application version
+APP_VERSION = "Beta"                      # Application version
 APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 # Production mode - controls logging verbosity and sensitive data exposure
