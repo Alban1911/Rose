@@ -132,6 +132,7 @@ hiddenimports = [
     'ui.chroma_ui',
     'ui.dice_button',
     'ui.random_flag',
+    'ui.historic_flag',
     'ui.unowned_frame',
     'ui.user_interface',
     'ui.z_order_manager',
@@ -150,6 +151,7 @@ hiddenimports = [
     'utils.thread_manager',
     'utils.tray_manager',
     'utils.utilities',
+    'utils.historic',
     'utils.validation',
     'utils.window_utils',
     
