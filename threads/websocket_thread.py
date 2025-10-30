@@ -218,6 +218,10 @@ class WSEventThread(threading.Thread):
                         self.state.random_skin_name = None
                         self.state.random_skin_id = None
                         self.state.random_mode_active = False
+                        # Reset historic mode state
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        self.state.historic_first_detection_done = False
                         self.last_locked_champion_id = None  # Reset exchange tracking for new game
                         self.state.champion_exchange_triggered = False  # Reset champion exchange flag
                         
@@ -359,6 +363,10 @@ class WSEventThread(threading.Thread):
                         log.info(separator)
                         self.state.locked_champ_id = new_champ_id
                         self.state.locked_champ_timestamp = time.time()  # Record lock time
+                        # Reset historic detection state for this champion
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        self.state.historic_first_detection_done = False
                         
                         # Trigger OwnChampionLocked phase - set phase state
                         log_status(log, "Phase", "OwnChampionLocked", "🎯")

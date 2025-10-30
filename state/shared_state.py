@@ -76,6 +76,11 @@ class SharedState:
     random_skin_name: Optional[str] = None  # Selected random skin for injection
     random_skin_id: Optional[int] = None  # Selected random skin/chroma ID for injection
     random_mode_active: bool = False  # Tracks if randomization is active
+
+    # Historic mode (remember last injected unowned skin per champion)
+    historic_mode_active: bool = False  # Tracks if HistoricMode is active
+    historic_skin_id: Optional[int] = None  # Skin/chroma ID to use for HistoricMode
+    historic_first_detection_done: bool = False  # Whether first skin detection happened for current champ
     
     # Thread references for cross-thread access
     ui_skin_thread = None  # Reference to UISkinThread instance
