@@ -666,6 +666,8 @@ class ChromaPanelManager:
         """Request to hide the chroma panel (thread-safe)"""
         with self.lock:
             self.pending_hide = True
+            # Ensure button visual state resets when panel is closed via click-catcher or programmatically
+            self.pending_update_button_state = False
     
     def hide_reopen_button(self):
         """Request to hide the reopen button (thread-safe)"""
