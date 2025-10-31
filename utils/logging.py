@@ -6,6 +6,7 @@ Logging configuration and utilities
 
 # Standard library imports
 import base64
+import json
 import os
 import queue
 import re
@@ -20,7 +21,8 @@ import logging
 import urllib3
 from cryptography.fernet import Fernet
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from urllib3.exceptions import InsecureRequestWarning
 
@@ -117,6 +119,71 @@ class EncryptedFileHandler(logging.FileHandler):
             # Write encrypted bytes (no need to add newline as each log is on its own line)
             self.stream.write(encrypted_msg)
             self.stream.write(b'\n')  # Add newline for readability when decrypting
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
+class RSAHybridEncryptedFileHandler(logging.FileHandler):
+    """File handler that encrypts logs using RSA-hybrid (RSA-OAEP + Fernet).
+
+    - A random Fernet key is generated per session (per log file)
+    - The Fernet key is encrypted with the licensing RSA public key
+    - A header line is written: {"v":"rsa1","ek":"<b64_rsa_encrypted_key>"}
+    - Each log record line contains a Fernet token (base64 ASCII) only
+    """
+
+    def __init__(self, filename, mode='a', encoding='utf-8', delay=False, errors=None):
+        # Store encoding BEFORE calling parent __init__ (which may overwrite it for binary mode)
+        self._encoding = encoding if encoding else 'utf-8'
+        # Open file in binary mode for encryption
+        logging.FileHandler.__init__(self, filename, mode='ab', delay=delay, errors=errors)
+
+        # Load RSA public key used for hybrid encryption
+        try:
+            from .public_key import PUBLIC_KEY
+            public_key = serialization.load_pem_public_key(
+                PUBLIC_KEY.encode('ascii'),
+                backend=default_backend()
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load RSA public key for log encryption: {e}")
+
+        # Generate per-session Fernet key and cipher
+        fernet_key: bytes = Fernet.generate_key()
+        self._fernet_key = fernet_key
+        self._cipher = Fernet(fernet_key)
+
+        # Encrypt the Fernet key with RSA-OAEP (SHA256)
+        try:
+            encrypted_key_bytes = public_key.encrypt(
+                fernet_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+            ek_b64 = base64.urlsafe_b64encode(encrypted_key_bytes).decode('ascii')
+        except Exception as e:
+            raise RuntimeError(f"Failed to encrypt session key for log encryption: {e}")
+
+        # Write header line with version and encrypted key
+        header_obj = {"v": "rsa1", "ek": ek_b64}
+        header_line = json.dumps(header_obj, separators=(",", ":")).encode('utf-8')
+        self.stream.write(header_line)
+        self.stream.write(b"\n")
+        self.flush()
+
+    def emit(self, record):
+        """Write encrypted log to file using per-session Fernet cipher"""
+        try:
+            msg = self.format(record)
+            encoding = getattr(self, '_encoding', 'utf-8')
+            token_bytes = self._cipher.encrypt(msg.encode(encoding))
+            # Fernet tokens are already base64-encoded ASCII bytes
+            self.stream.write(token_bytes)
+            self.stream.write(b"\n")
             self.flush()
         except Exception:
             self.handleError(record)
@@ -532,10 +599,10 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
         # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
         timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
         
-        # In production mode, use encrypted logs with .log.enc extension
+        # In production mode, use RSA-hybrid encrypted logs with .log.enc extension
         if production_mode:
             log_file = logs_dir / f"leagueunlocked_{timestamp}.log.enc"
-            file_handler = EncryptedFileHandler(log_file, encoding='utf-8')
+            file_handler = RSAHybridEncryptedFileHandler(log_file, encoding='utf-8')
         else:
             log_file = logs_dir / f"leagueunlocked_{timestamp}.log"
             file_handler = logging.FileHandler(log_file, encoding='utf-8')

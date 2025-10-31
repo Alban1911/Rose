@@ -1,118 +1,125 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Decrypt encrypted log files from LeagueUnlocked
+Decrypt RSA-hybrid encrypted log files from LeagueUnlocked.
+
+Format written by the app in production mode:
+  1st line: {"v":"rsa1","ek":"<b64_rsa_oaep_encrypted_fernet_key>"}
+  next lines: Fernet tokens (base64 ASCII)
+
+Private key source:
+  - private_key.pem next to this script (repo root)
+
+Use legacy_decrypt_log.py for legacy (pre-RSA) logs.
 """
 
 import base64
-import os
+import json
 import sys
 from pathlib import Path
+
 from cryptography.fernet import Fernet
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 
 
-def get_encryption_key():
-    """Get the encryption key from key file, environment variable, or generate from a fixed password"""
-    # Priority 1: Try to get key from key file (most secure)
-    key_file = Path(__file__).parent / "log_encryption_key.txt"
-    if key_file.exists():
+def _load_private_key_from_file(private_key_path: Path):
+    with open(private_key_path, 'rb') as f:
+        pem_data = f.read()
+    try:
+        return serialization.load_pem_private_key(pem_data, password=None, backend=default_backend())
+    except TypeError:
         try:
-            with open(key_file, 'r') as f:
-                key_str = f.read().strip()
-            if key_str:
-                password = key_str.encode()
-            else:
-                # Empty file, fall through to default
-                password = None
-        except Exception:
-            # Could not read key file, fall through to default
-            password = None
-    else:
-        password = None
-    
-    # Priority 2: Try to get key from environment variable
-    if password is None:
-        key_str = os.environ.get('LEAGUE_UNLOCKED_LOG_KEY')
-        if key_str:
-            password = key_str.encode()
-    
-    # Priority 3: Default key derived from a fixed password (developer only)
-    if password is None:
-        password = b'LeagueUnlocked2024LogEncryptionDefaultKey'
-    
-    # Derive a 32-byte key using PBKDF2
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=b'league_unlocked_logs_salt',
-        iterations=100000,
-        backend=default_backend()
-    )
-    key = kdf.derive(password)
-    
-    # Fernet expects a URL-safe base64-encoded 32-byte key
-    return base64.urlsafe_b64encode(key)
-
+            print("Enter private key passphrase:", end=" ", flush=True)
+            passphrase = sys.stdin.readline().rstrip("\n").encode('utf-8')
+            return serialization.load_pem_private_key(pem_data, password=passphrase, backend=default_backend())
+        except Exception as e:
+            raise RuntimeError(f"Failed to load password-protected private key: {e}")
 
 def decrypt_log_file(input_file: Path, output_file: Path):
-    """Decrypt an encrypted log file"""
+    """Decrypt an RSA-hybrid encrypted log file using the provided RSA private key."""
+    with open(input_file, 'rb') as f:
+        lines = [ln.rstrip(b"\n") for ln in f.readlines()]
+
+    if not lines:
+        raise RuntimeError("Log file is empty")
+
+    # Parse header
     try:
-        # Get encryption key and create Fernet cipher
-        key = get_encryption_key()
-        cipher = Fernet(key)
-        
-        # Read encrypted content
-        with open(input_file, 'rb') as f:
-            encrypted_lines = f.readlines()
-        
-        # Decrypt each line
-        decrypted_content = []
-        for encrypted_line in encrypted_lines:
-            # Remove newline from encrypted line
-            encrypted_line = encrypted_line.strip()
-            if encrypted_line:
-                try:
-                    decrypted_line = cipher.decrypt(encrypted_line)
-                    decrypted_content.append(decrypted_line.decode('utf-8'))
-                except Exception as e:
-                    print(f"Warning: Could not decrypt line: {e}")
-                    decrypted_content.append(f"[DECRYPTION_ERROR: {e}]")
-        
-        # Write decrypted content
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(decrypted_content))
-        
-        print(f"Successfully decrypted {input_file.name} to {output_file.name}")
-        return True
-        
-    except Exception as e:
-        print(f"Error decrypting log file: {e}")
-        return False
+        header_obj = json.loads(lines[0].decode('utf-8'))
+    except Exception:
+        raise RuntimeError(
+            "Unrecognized log format: missing RSA header. Use legacy_decrypt_log.py for legacy logs."
+        )
+
+    if not isinstance(header_obj, dict) or header_obj.get("v") != "rsa1" or "ek" not in header_obj:
+        raise RuntimeError(
+            "Unsupported header format. Expected RSA-hybrid header with v='rsa1' and 'ek'."
+        )
+
+    # Load RSA private key from ./private_key.pem only
+    default_key_path = Path(__file__).resolve().parent / "private_key.pem"
+    if not default_key_path.exists():
+        raise RuntimeError("private_key.pem not found next to decrypt_log.py")
+    private_key = _load_private_key_from_file(default_key_path)
+
+    # Decrypt Fernet key
+    ek_bytes = base64.urlsafe_b64decode(header_obj["ek"].encode('ascii'))
+    fernet_key = private_key.decrypt(
+        ek_bytes,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None,
+        ),
+    )
+    cipher = Fernet(fernet_key)
+
+    # Decrypt remaining lines
+    decrypted_lines: list[str] = []
+    for token_line in lines[1:]:
+        if not token_line:
+            decrypted_lines.append("")
+            continue
+        try:
+            if token_line.startswith(b"{"):
+                obj = json.loads(token_line.decode('utf-8'))
+                token_b64 = obj.get("ct", "")
+                token_bytes = token_b64.encode('ascii')
+            else:
+                token_bytes = token_line
+            plaintext = cipher.decrypt(token_bytes).decode('utf-8')
+            decrypted_lines.append(plaintext)
+        except Exception as e:
+            decrypted_lines.append(f"[DECRYPTION_ERROR: {e}]")
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("\n".join(decrypted_lines))
+
+    print(f"Successfully decrypted {input_file.name} to {output_file.name}")
+    return True
 
 
 def main():
     """Main entry point"""
     if len(sys.argv) < 2:
         print("Usage: python decrypt_log.py <encrypted_log_file> [output_file]")
-        print("\nExample:")
-        print("  python decrypt_log.py logs/leagueunlocked_30-10-2025_16-55-53.log.enc")
-        print("  python decrypt_log.py logs/leagueunlocked_30-10-2025_16-55-53.log.enc decrypted.log")
+        print("       Looks for ./private_key.pem automatically")
         sys.exit(1)
     
     input_file = Path(sys.argv[1])
-    
+    output_file: Path | None = None
+
     if not input_file.exists():
         print(f"Error: File not found: {input_file}")
         sys.exit(1)
-    
-    # Generate output filename if not provided
+
+    # Optional output path
     if len(sys.argv) >= 3:
         output_file = Path(sys.argv[2])
-    else:
-        # Remove .enc extension
+
+    if output_file is None:
         output_file = input_file.with_suffix('').with_suffix('.log')
     
     decrypt_log_file(input_file, output_file)
@@ -120,4 +127,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
