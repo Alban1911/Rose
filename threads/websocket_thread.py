@@ -81,6 +81,21 @@ class WSEventThread(threading.Thread):
         self.state.locked_champ_id = new_champ_id
         self.state.locked_champ_timestamp = time.time()
         
+        # Reset HistoricMode state so it restarts for the new champion
+        try:
+            self.state.historic_mode_active = False
+            self.state.historic_skin_id = None
+            self.state.historic_first_detection_done = False
+            # Hide Historic flag if it was visible
+            try:
+                from ui.user_interface import get_user_interface
+                ui = get_user_interface(self.state, self.skin_scraper)
+                ui.hide_historic_flag()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         # Clear UIA cache to detect new champion's skin
         if self.state.ui_skin_thread:
             try:
