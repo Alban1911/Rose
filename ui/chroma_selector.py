@@ -66,7 +66,7 @@ class ChromaSelector:
     def _get_hol_chromas(self):
         """Get Risen Legend Kai'Sa HOL chroma data structure (equivalent to chromas)"""
         chromas = [
-            {'id': 145071, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False},
+            {'id': 145071, 'skinId': 145070, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False},
         ]
         log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Kai'Sa HOL chromas with real skin ID (145071)")
         return chromas
@@ -74,7 +74,7 @@ class ChromaSelector:
     def _get_ahri_hol_chromas(self):
         """Get Risen Legend Ahri HOL chroma data structure (equivalent to chromas)"""
         chromas = [
-            {'id': 103086, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False},
+            {'id': 103086, 'skinId': 103085, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False},
         ]
         log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Ahri HOL chromas with real skin ID (103086)")
         return chromas
