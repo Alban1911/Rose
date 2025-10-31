@@ -525,20 +525,8 @@ def check_license():
     """Check and validate license on startup"""
     print("[LICENSE] Starting license check...")
     
-    # Public key for RSA signature verification
-    # IMPORTANT: Generate your RSA key pair with: python admin/generate_rsa_keys.py
-    # Keep the PRIVATE key on your license server (signs licenses)
-    # Embed the PUBLIC key here (verifies signatures - safe to distribute)
-    PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyj7erheikXvLYHdFwaXe
-Wb4qgKV905LY9HIkyktUhV4Ug4eqyGFLdr08AngYWOt+QzQh99i5g4yc0YUIaciV
-visAZ73iIkFSIKiYPAVGGMNpPq1MSUuwbFrzkxGYELcxPBbT7t4vogqHMcRohDkH
-1NGtj/usR9jpz9nz7sFvBp3a1eWzHfQKBuFDxqgxCvSncVDurpAmkUnpo8G2Ub0q
-/erYDNcwBBsnsAlOcRHv1KJHEglT88Dk4/kHA8Hy+VAEd0MX2MrzR16+Byg0FiKL
-fieNg1P+o4K9h+uGootvciDlJzEcRUAqCSbjEs8vghtxGs3HI4E0ApP102UqEail
-KwIDAQAB
------END PUBLIC KEY-----"""
-    # TODO: Replace with your actual public key from generate_rsa_keys.py
+    # Load public key used for RSA verification and log encryption
+    from utils.public_key import PUBLIC_KEY
     
     print("[LICENSE] Initializing license client...")
     # Initialize license client
