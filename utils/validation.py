@@ -5,6 +5,7 @@ Input validation utilities
 Provides decorators and functions for validating inputs
 """
 
+# Standard library imports
 from functools import wraps
 from typing import Any, Callable
 
@@ -92,7 +93,7 @@ def require_non_empty_list(value: Any, name: str = "list") -> None:
     """
     if not isinstance(value, list):
         raise TypeError(f"{name} must be a list, got {type(value).__name__}")
-    if len(value) == 0:
+    if not value:
         raise ValueError(f"{name} cannot be empty")
 
 

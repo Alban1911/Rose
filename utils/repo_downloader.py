@@ -4,16 +4,15 @@
 Repository Downloader
 Downloads the entire repository as a ZIP file and extracts it locally
 Much more efficient than individual API calls
+Supports incremental updates by tracking repository changes
 """
 
-import os
-import re
+import json
 import zipfile
 import tempfile
 import requests
 from pathlib import Path
-from typing import Optional, Dict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional, Dict, List, Set, Tuple
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
@@ -22,16 +21,202 @@ log = get_logger()
 
 
 class RepoDownloader:
-    """Downloads entire repository as ZIP and extracts locally"""
+    """Downloads entire repository as ZIP and extracts locally with incremental updates"""
     
-    def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/darkseal-org/lol-skins"):
+    def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/AlbanCliquet/LeagueSkins"):
         self.repo_url = repo_url
         # Use user data directory for skins to avoid permission issues
         self.target_dir = target_dir or get_skins_dir()
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': APP_USER_AGENT
+            'User-Agent': APP_USER_AGENT,
+            'Accept': 'application/vnd.github.v3+json'
         })
+        
+        # State tracking for incremental updates
+        self.state_file = self.target_dir / '.repo_state.json'
+        self.api_base = "https://api.github.com/repos/AlbanCliquet/LeagueSkins"
+    
+    def get_repo_state(self) -> Dict:
+        """Get current repository state from GitHub API
+        Returns Dict with 'rate_limited' key set to True if rate limited"""
+        try:
+            # Get the latest commit info
+            response = self.session.get(f"{self.api_base}/commits/main")
+            response.raise_for_status()
+            commit_data = response.json()
+            
+            return {
+                'last_commit_sha': commit_data['sha'],
+                'last_commit_date': commit_data['commit']['committer']['date'],
+                'last_checked': None  # Will be set when we save state
+            }
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code in (403, 429):
+                log.warning(f"GitHub API rate limit exceeded: {e}")
+                log.info("Will skip incremental check and use ZIP download to avoid rate limits")
+                return {'rate_limited': True}
+            else:
+                log.error(f"Failed to get repository state: {e}")
+                return {}
+        except requests.RequestException as e:
+            log.error(f"Failed to get repository state: {e}")
+            return {}
+    
+    def get_remaining_api_calls(self, response: requests.Response) -> int:
+        """Get remaining API calls from GitHub response headers"""
+        try:
+            remaining = int(response.headers.get('X-RateLimit-Remaining', '0'))
+            limit = int(response.headers.get('X-RateLimit-Limit', '60'))
+            log.debug(f"GitHub API rate limit: {remaining}/{limit} remaining")
+            return remaining
+        except (ValueError, AttributeError):
+            return 0
+    
+    def load_local_state(self) -> Dict:
+        """Load local state from state file"""
+        if not self.state_file.exists():
+            return {}
+        
+        try:
+            with open(self.state_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            log.warning(f"Failed to load local state: {e}")
+            return {}
+    
+    def save_local_state(self, state: Dict):
+        """Save local state to state file"""
+        try:
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+        except IOError as e:
+            log.warning(f"Failed to save local state: {e}")
+    
+    def has_repository_changed(self) -> bool:
+        """Check if repository has changed since last update"""
+        local_state = self.load_local_state()
+        if not local_state:
+            log.info("No local state found, repository will be downloaded")
+            return True
+        
+        current_state = self.get_repo_state()
+        if not current_state:
+            log.warning("Failed to get current repository state, assuming no changes")
+            return False
+        
+        # Check if rate limited - if so, force update via ZIP
+        if current_state.get('rate_limited'):
+            log.info("Rate limited detected, will force ZIP download")
+            return True
+        
+        # Compare commit SHAs
+        local_sha = local_state.get('last_commit_sha')
+        current_sha = current_state.get('last_commit_sha')
+        
+        if local_sha != current_sha:
+            log.info(f"Repository changed: {local_sha[:8] if local_sha else 'None'} -> {current_sha[:8] if current_sha else 'None'}")
+            return True
+        
+        log.info("Repository unchanged, skipping download")
+        return False
+    
+    def get_changed_files(self, since_commit: str) -> Tuple[List[Dict], Optional[requests.Response]]:
+        """Get list of files that changed since a specific commit
+        Returns: (changed_files_list, response_object or rate_limited marker)"""
+        try:
+            # Get commits since the specified commit
+            response = self.session.get(f"{self.api_base}/compare/{since_commit}...main")
+            response.raise_for_status()
+            compare_data = response.json()
+            
+            changed_files = []
+            for file_info in compare_data.get('files', []):
+                # Only include files in the skins/ directory
+                if file_info['filename'].startswith('skins/'):
+                    # Get download URL using the file's SHA
+                    download_url = None
+                    if file_info.get('sha'):
+                        download_url = f"{self.api_base}/contents/{file_info['filename']}?ref=main"
+                    
+                    changed_files.append({
+                        'filename': file_info['filename'],
+                        'status': file_info['status'],  # 'added', 'modified', 'removed'
+                        'sha': file_info.get('sha'),
+                        'download_url': download_url
+                    })
+            
+            return changed_files, response
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code in (403, 429):
+                log.warning(f"GitHub API rate limit exceeded while getting changed files: {e}")
+                log.info("Will use ZIP download to avoid rate limits")
+                return [], {'rate_limited': True}
+            else:
+                log.error(f"Failed to get changed files: {e}")
+                return [], None
+        except requests.RequestException as e:
+            log.error(f"Failed to get changed files: {e}")
+            return [], None
+    
+    def download_individual_file(self, file_info: Dict) -> Tuple[bool, Optional[str]]:
+        """Download a single file from GitHub
+        Returns: (success, error_type) where error_type can be 'rate_limit', 'network', or None"""
+        if not file_info.get('download_url'):
+            log.warning(f"No download URL for {file_info['filename']}")
+            return False, None
+        
+        try:
+            # Calculate local path
+            relative_path = file_info['filename'].replace('skins/', '')
+            local_path = self.target_dir / relative_path
+            
+            # Handle file removal
+            if file_info['status'] == 'removed':
+                if local_path.exists():
+                    local_path.unlink()
+                    log.info(f"Removed {local_path}")
+                return True, None
+            
+            # Create directory if needed
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # First, get the file contents from GitHub API
+            response = self.session.get(file_info['download_url'])
+            response.raise_for_status()
+            file_data = response.json()
+            
+            # Check if we got the expected response structure
+            if 'download_url' not in file_data:
+                log.error(f"Unexpected response format for {file_info['filename']}")
+                return False, None
+            
+            # Download the actual file content
+            download_response = self.session.get(file_data['download_url'], stream=True, timeout=SKIN_DOWNLOAD_STREAM_TIMEOUT_S)
+            download_response.raise_for_status()
+            
+            with open(local_path, 'wb') as f:
+                for chunk in download_response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            log.info(f"Downloaded {file_info['filename']}")
+            return True, None
+            
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code == 429:
+                log.warning(f"Rate limit hit while downloading {file_info['filename']}")
+                return False, 'rate_limit'
+            else:
+                log.error(f"Failed to download {file_info['filename']}: {e}")
+                return False, 'network'
+        except requests.RequestException as e:
+            log.error(f"Failed to download {file_info['filename']}: {e}")
+            return False, 'network'
+        except Exception as e:
+            log.error(f"Error saving {file_info['filename']}: {e}")
+            return False, None
         
     def download_repo_zip(self) -> Optional[Path]:
         """Download the entire repository as a ZIP file"""
@@ -66,44 +251,55 @@ class RepoDownloader:
             log.error(f"Error downloading repository: {e}")
             return None
     
-    def extract_skins_from_zip(self, zip_path: Path) -> bool:
-        """Extract only the skins folder from the repository ZIP"""
+    def extract_skins_from_zip(self, zip_path: Path, overwrite_existing: bool = False) -> bool:
+        """Extract skins, previews, and skin_id mappings from the new merged LeagueSkins repository ZIP"""
         try:
-            log.info("Extracting skins from repository ZIP...")
+            log.info("Extracting skins, previews, and skin_id mappings from merged LeagueSkins repository ZIP...")
             
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # Find the skins folder in the ZIP
+                # Find all files in the skins/ directory
                 skins_files = []
                 zip_count = 0
-                blade_variants_count = 0
+                png_count = 0
                 
                 for file_info in zip_ref.filelist:
                     # Look for files in skins/ directory, but skip the skins directory itself
-                    if (file_info.filename.startswith('lol-skins-main/skins/') and 
-                        file_info.filename != 'lol-skins-main/skins/' and
+                    if (file_info.filename.startswith('LeagueSkins-main/skins/') and 
+                        file_info.filename != 'LeagueSkins-main/skins/' and
                         not file_info.filename.endswith('/')):
                         skins_files.append(file_info)
                         
-                        # Check if this is a blade variant (special weapon mods, not counted as skins)
-                        is_blade_variant = '/Blades/' in file_info.filename
-                        
-                        # Count file types for accurate reporting (only .zip files)
+                        # Count file types for accurate reporting
                         if file_info.filename.endswith('.zip'):
-                            if is_blade_variant:
-                                blade_variants_count += 1
-                            else:
-                                zip_count += 1
+                            zip_count += 1
+                        elif file_info.filename.endswith('.png'):
+                            png_count += 1
+                
+                # Find all files in the resources/skinid_mapping/ directory
+                mapping_files = []
+                json_count = 0
+                
+                for file_info in zip_ref.filelist:
+                    # Look for files in resources/skinid_mapping/ directory
+                    if (file_info.filename.startswith('LeagueSkins-main/resources/skinid_mapping/') and 
+                        file_info.filename != 'LeagueSkins-main/resources/skinid_mapping/' and
+                        not file_info.filename.endswith('/')):
+                        mapping_files.append(file_info)
+                        
+                        # Count JSON files
+                        if file_info.filename.endswith('.json'):
+                            json_count += 1
                 
                 if not skins_files:
                     log.error("No skins folder found in repository ZIP")
                     return False
                 
-                log.info(f"Found {zip_count} skin .zip files in repository")
+                log.info(f"Found {zip_count} skin .zip files, {png_count} preview .png files, and {json_count} skin ID mapping files in repository")
                 
-                # Extract only the skins files (skip READMEs)
-                extracted_count = 0
+                # Extract all skins files (both .zip and .png)
+                extracted_zip_count = 0
+                extracted_png_count = 0
                 skipped_count = 0
-                blade_extracted_count = 0
                 
                 for file_info in skins_files:
                     try:
@@ -111,15 +307,15 @@ class RepoDownloader:
                         if file_info.is_dir():
                             continue
                         
-                        # Remove the 'lol-skins-main/' prefix from the path
-                        relative_path = file_info.filename.replace('lol-skins-main/', '')
+                        # Remove the 'LeagueSkins-main/' prefix from the path
+                        relative_path = file_info.filename.replace('LeagueSkins-main/', '')
                         
-                        # Check if it's a zip file
+                        # Check file type
                         is_zip = relative_path.endswith('.zip')
-                        is_blade_variant = '/Blades/' in relative_path
+                        is_png = relative_path.endswith('.png')
                         
-                        # Skip if it's not a zip file
-                        if not is_zip:
+                        # Skip if it's not a skin file
+                        if not (is_zip or is_png):
                             continue
                         
                         # Remove the 'skins/' prefix since target_dir is already the skins directory
@@ -130,8 +326,8 @@ class RepoDownloader:
                         extract_path = self.target_dir / relative_path
                         extract_path.parent.mkdir(parents=True, exist_ok=True)
                         
-                        # Skip if file already exists
-                        if extract_path.exists():
+                        # Skip if file already exists (unless we're overwriting)
+                        if extract_path.exists() and not overwrite_existing:
                             skipped_count += 1
                             continue
                         
@@ -140,29 +336,198 @@ class RepoDownloader:
                             with open(extract_path, 'wb') as target:
                                 target.write(source.read())
                         
-                        # Count by type (blade variants counted separately)
-                        if is_blade_variant:
-                            blade_extracted_count += 1
-                        else:
-                            extracted_count += 1
+                        # Count by type
+                        if is_zip:
+                            extracted_zip_count += 1
+                        elif is_png:
+                            extracted_png_count += 1
                         
                     except Exception as e:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
                 
-                log.info(f"Extracted {extracted_count} new skin files "
-                        f"(skipped {skipped_count} existing files)")
-                if blade_extracted_count > 0:
-                    log.debug(f"Also extracted {blade_extracted_count} blade variant files (not counted as skins)")
+                # Extract skin ID mapping files to user data directory
+                extracted_json_count = 0
+                skipped_json_count = 0
                 
-                # Don't download previews here - will be done on-demand when champion is locked
+                if mapping_files:
+                    from utils.paths import get_user_data_dir
+                    mapping_target_dir = get_user_data_dir() / "skinid_mapping"
+                    
+                    for file_info in mapping_files:
+                        try:
+                            # Skip directories
+                            if file_info.is_dir():
+                                continue
+                            
+                            # Remove the 'LeagueSkins-main/' prefix from the path
+                            relative_path = file_info.filename.replace('LeagueSkins-main/', '')
+                            
+                            # Remove the 'resources/skinid_mapping/' prefix since target_dir is the mapping directory
+                            if relative_path.startswith('resources/skinid_mapping/'):
+                                relative_path = relative_path.replace('resources/skinid_mapping/', '', 1)
+                            
+                            # Extract to mapping target directory
+                            extract_path = mapping_target_dir / relative_path
+                            extract_path.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            # Skip if file already exists (unless we're overwriting)
+                            if extract_path.exists() and not overwrite_existing:
+                                skipped_json_count += 1
+                                continue
+                            
+                            # Extract the file
+                            with zip_ref.open(file_info) as source:
+                                with open(extract_path, 'wb') as target:
+                                    target.write(source.read())
+                            
+                            extracted_json_count += 1
+                            
+                        except Exception as e:
+                            log.warning(f"Failed to extract {file_info.filename}: {e}")
                 
-                return extracted_count > 0
+                log.info(f"Extracted {extracted_zip_count} new skin .zip files, {extracted_png_count} preview .png files, "
+                        f"and {extracted_json_count} skin ID mapping files (skipped {skipped_count} existing skin files, "
+                        f"{skipped_json_count} existing mapping files)")
+                
+                return (extracted_zip_count + extracted_png_count + extracted_json_count) > 0
                 
         except zipfile.BadZipFile:
             log.error("Invalid ZIP file")
             return False
         except Exception as e:
             log.error(f"Error extracting skins: {e}")
+            return False
+    
+    def download_incremental_updates(self, force_update: bool = False) -> bool:
+        """Download only changed files since last update"""
+        try:
+            # Check if repository has changed
+            if not force_update and not self.has_repository_changed():
+                return True
+            
+            local_state = self.load_local_state()
+            current_state = self.get_repo_state()
+            
+            if not current_state:
+                log.error("Failed to get current repository state")
+                return False
+            
+            # If rate limited, skip incremental and use ZIP download
+            if current_state.get('rate_limited'):
+                log.warning("Rate limited, skipping incremental update and using ZIP download")
+                return self.download_and_extract_skins(force_update=True)
+            
+            # If no local state, check if we have existing skins or mappings
+            if not local_state:
+                existing_skins = list(self.target_dir.rglob("*.zip"))
+                existing_previews = list(self.target_dir.rglob("*.png"))
+                
+                # Check if skinid_mapping exists
+                from utils.paths import get_user_data_dir
+                mapping_dir = get_user_data_dir() / "skinid_mapping"
+                existing_mappings = list(mapping_dir.rglob("*.json")) if mapping_dir.exists() else []
+                
+                if existing_skins or existing_previews or existing_mappings:
+                    log.warning(f"No state file found but found existing files:")
+                    log.warning(f"  - {len(existing_skins)} skin .zip files")
+                    log.warning(f"  - {len(existing_previews)} preview .png files")
+                    log.warning(f"  - {len(existing_mappings)} skin ID mapping files")
+                    log.info("Cannot track commits without state file - deleting all files and performing full ZIP download")
+                    
+                    # Delete all existing skins and previews
+                    for file_path in existing_skins + existing_previews:
+                        try:
+                            file_path.unlink()
+                        except Exception as e:
+                            log.warning(f"Failed to delete {file_path}: {e}")
+                    
+                    # Delete all existing mappings
+                    for mapping_file in existing_mappings:
+                        try:
+                            mapping_file.unlink()
+                        except Exception as e:
+                            log.warning(f"Failed to delete {mapping_file}: {e}")
+                    
+                    # Also delete empty directories
+                    for dir_path in list(self.target_dir.rglob("*")):
+                        if dir_path.is_dir() and not any(dir_path.iterdir()):
+                            try:
+                                dir_path.rmdir()
+                            except Exception:
+                                pass
+                    
+                    if mapping_dir.exists():
+                        for dir_path in list(mapping_dir.rglob("*")):
+                            if dir_path.is_dir() and not any(dir_path.iterdir()):
+                                try:
+                                    dir_path.rmdir()
+                                except Exception:
+                                    pass
+                        # Try to remove the mapping dir itself if empty
+                        try:
+                            if not any(mapping_dir.iterdir()):
+                                mapping_dir.rmdir()
+                        except Exception:
+                            pass
+                    
+                    # Now do full download
+                    return self.download_and_extract_skins(force_update=True)
+                else:
+                    log.info("No local state and no existing files found, performing full download")
+                    return self.download_and_extract_skins(force_update=True)
+            
+            # Get changed files since last update
+            last_commit = local_state.get('last_commit_sha')
+            if not last_commit:
+                log.info("No previous commit found, performing full download")
+                return self.download_and_extract_skins(force_update=True)
+            
+            changed_files, response = self.get_changed_files(last_commit)
+            if not changed_files:
+                log.info("No skin files changed")
+                # Update state even if no changes
+                current_state['last_checked'] = current_state['last_commit_date']
+                self.save_local_state(current_state)
+                return True
+            
+            log.info(f"Found {len(changed_files)} changed files")
+            
+            # Check if we have enough API calls remaining
+            if response:
+                remaining_calls = self.get_remaining_api_calls(response)
+                # Need at least 2 API calls per file (get file info + download)
+                estimated_calls = len(changed_files) * 2
+                log.info(f"Remaining API calls: {remaining_calls}, estimated needed: {estimated_calls}")
+                if remaining_calls < estimated_calls + 10:  # 10 calls buffer
+                    log.warning(f"Not enough API calls remaining ({remaining_calls}), falling back to ZIP download")
+                    return self.download_and_extract_skins(force_update=True)
+            
+            # Download changed files
+            success_count = 0
+            rate_limit_hit = False
+            for file_info in changed_files:
+                success, error_type = self.download_individual_file(file_info)
+                if success:
+                    success_count += 1
+                elif error_type == 'rate_limit':
+                    rate_limit_hit = True
+                    log.warning("Rate limit hit during download, falling back to ZIP download")
+                    break
+            
+            if rate_limit_hit:
+                log.info("Switching to ZIP download due to rate limit")
+                return self.download_and_extract_skins(force_update=True)
+            
+            log.info(f"Downloaded {success_count}/{len(changed_files)} changed files")
+            
+            # Update local state
+            current_state['last_checked'] = current_state['last_commit_date']
+            self.save_local_state(current_state)
+            
+            return success_count > 0
+            
+        except Exception as e:
+            log.error(f"Failed to download incremental updates: {e}")
             return False
     
     def download_and_extract_skins(self, force_update: bool = False) -> bool:
@@ -190,7 +555,15 @@ class RepoDownloader:
             
             try:
                 # Extract skins from ZIP
-                success = self.extract_skins_from_zip(zip_path)
+                success = self.extract_skins_from_zip(zip_path, overwrite_existing=force_update)
+                
+                # Save state after successful full download
+                if success:
+                    current_state = self.get_repo_state()
+                    if current_state:
+                        current_state['last_checked'] = current_state['last_commit_date']
+                        self.save_local_state(current_state)
+                
                 return success
                 
             finally:
@@ -198,8 +571,10 @@ class RepoDownloader:
                 try:
                     zip_path.unlink()
                     log.debug("Cleaned up temporary ZIP file")
-                except:
-                    pass
+                except (OSError, FileNotFoundError) as e:
+                    log.debug(f"Could not remove temporary ZIP file: {e}")
+                except Exception as e:
+                    log.debug(f"Unexpected error cleaning up ZIP file: {e}")
             
         except Exception as e:
             log.error(f"Failed to download and extract skins: {e}")
@@ -221,48 +596,76 @@ class RepoDownloader:
     
     def get_detailed_stats(self) -> Dict[str, int]:
         """
-        Get detailed statistics categorizing base skins and chromas
+        Get detailed statistics categorizing base skins and chromas from new merged format
         
         Structure:
-        - Base skin: Champion/Skin Name.zip
-        - Chroma: Champion/chromas/Skin Name/Skin Name CHROMAID.zip
+        - Base skin: {champion_id}/{skin_id}/{skin_id}.zip and {skin_id}.png
+        - Chroma: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip and {chroma_id}.png
         
         Returns:
-            Dict with keys: 'total_skins', 'total_chromas', 'total_ids'
+            Dict with keys: 'total_skins', 'total_chromas', 'total_ids', 'total_previews'
         """
         if not self.target_dir.exists():
-            return {'total_skins': 0, 'total_chromas': 0, 'total_ids': 0}
+            return {'total_skins': 0, 'total_chromas': 0, 'total_ids': 0, 'total_previews': 0}
         
-        total_skins = 0  # Base skins only
-        total_chromas = 0  # Chromas only
+        total_skins = 0  # Base skins only (zip files in skin subdirectories)
+        total_chromas = 0  # Chromas only (zip files in chroma subdirectories)
+        total_previews = 0  # All preview images (png files)
         
         for champion_dir in self.target_dir.iterdir():
             if not champion_dir.is_dir():
                 continue
             
-            # Count base skins (zip files in champion root)
-            base_skins = list(champion_dir.glob("*.zip"))
-            total_skins += len(base_skins)
-            
-            # Count chromas (zip files in chromas/*/  subdirectories)
-            # Structure: Champion/chromas/SkinName/SkinName CHROMAID.zip
-            chromas_dir = champion_dir / "chromas"
-            if chromas_dir.exists() and chromas_dir.is_dir():
-                # Chromas are in subdirectories under chromas/
-                for skin_chroma_dir in chromas_dir.iterdir():
-                    if skin_chroma_dir.is_dir():
-                        chroma_files = list(skin_chroma_dir.glob("*.zip"))
-                        total_chromas += len(chroma_files)
+            # Count skins and chromas in skin subdirectories
+            # Structure: {champion_id}/{skin_id}/{skin_id}.zip and {skin_id}.png
+            for skin_dir in champion_dir.iterdir():
+                if not skin_dir.is_dir():
+                    continue
+                
+                # Check if this is a skin directory (contains only numeric name)
+                try:
+                    int(skin_dir.name)  # If this succeeds, it's a skin ID directory
+                    
+                    # Count base skin files
+                    skin_zip = skin_dir / f"{skin_dir.name}.zip"
+                    skin_png = skin_dir / f"{skin_dir.name}.png"
+                    
+                    if skin_zip.exists():
+                        total_skins += 1
+                    if skin_png.exists():
+                        total_previews += 1
+                    
+                    # Count chromas in this skin's chroma subdirectories
+                    # Structure: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip and {chroma_id}.png
+                    for chroma_dir in skin_dir.iterdir():
+                        if chroma_dir.is_dir():
+                            try:
+                                int(chroma_dir.name)  # If this succeeds, it's a chroma ID directory
+                                
+                                chroma_zip = chroma_dir / f"{chroma_dir.name}.zip"
+                                chroma_png = chroma_dir / f"{chroma_dir.name}.png"
+                                
+                                if chroma_zip.exists():
+                                    total_chromas += 1
+                                if chroma_png.exists():
+                                    total_previews += 1
+                            except ValueError:
+                                # Not a chroma directory, skip
+                                continue
+                except ValueError:
+                    # Not a skin directory, skip
+                    continue
         
         return {
             'total_skins': total_skins,
             'total_chromas': total_chromas,
-            'total_ids': total_skins + total_chromas
+            'total_ids': total_skins + total_chromas,
+            'total_previews': total_previews
         }
 
 
-def download_skins_from_repo(target_dir: Path = None, force_update: bool = False, tray_manager=None) -> bool:
-    """Download all skins from repository in one operation"""
+def download_skins_from_repo(target_dir: Path = None, force_update: bool = False, tray_manager=None, use_incremental: bool = True) -> bool:
+    """Download skins from repository with optional incremental updates"""
     try:
         # Note: tray_manager status is already set by caller (download_skins_on_startup)
         downloader = RepoDownloader(target_dir)
@@ -273,26 +676,35 @@ def download_skins_from_repo(target_dir: Path = None, force_update: bool = False
         if current_detailed['total_ids'] > 0:
             log.info(f"Found {current_detailed['total_skins']} base skins + "
                     f"{current_detailed['total_chromas']} chromas = "
-                    f"{current_detailed['total_ids']} total skin IDs")
+                    f"{current_detailed['total_ids']} total skin IDs + "
+                    f"{current_detailed['total_previews']} preview images")
         
-        # Download and extract skins (includes chroma preview download)
-        success = downloader.download_and_extract_skins(force_update)
+        # Choose download method based on preferences
+        if use_incremental and not force_update:
+            log.info("Using incremental update mode")
+            success = downloader.download_incremental_updates(force_update)
+        else:
+            log.info("Using full download mode")
+            success = downloader.download_and_extract_skins(force_update)
         
         if success:
             # Get updated detailed stats
             final_detailed = downloader.get_detailed_stats()
             new_ids = final_detailed['total_ids'] - current_detailed['total_ids']
+            new_previews = final_detailed['total_previews'] - current_detailed['total_previews']
             
-            if new_ids > 0:
-                log.info(f"Downloaded {new_ids} new skin IDs")
+            if new_ids > 0 or new_previews > 0:
+                log.info(f"Downloaded {new_ids} new skin IDs and {new_previews} new preview images")
                 log.info(f"Final totals: {final_detailed['total_skins']} base skins + "
                         f"{final_detailed['total_chromas']} chromas = "
-                        f"{final_detailed['total_ids']} total skin IDs")
+                        f"{final_detailed['total_ids']} total skin IDs + "
+                        f"{final_detailed['total_previews']} preview images")
             else:
-                log.info("No new skins to download")
+                log.info("No new skins or previews to download")
             
             # Log completion
-            log.info("✓ Repository download and chroma preview caching complete")
+            update_type = "incremental" if use_incremental and not force_update else "full"
+            log.info(f"✓ {update_type.title()} database download complete (skins + previews)")
         
         return success
         

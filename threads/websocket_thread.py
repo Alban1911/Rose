@@ -4,47 +4,47 @@
 WebSocket event thread
 """
 
-import os
-import json
-import time
-import ssl
+# Standard library imports
 import base64
+import json
+import logging
+import os
+import ssl
 import threading
+import time
+import traceback
 from typing import Optional
-from lcu.client import LCU
-from lcu.utils import compute_locked
-from database.name_db import NameDB
-from state.shared_state import SharedState
-from threads.loadout_ticker import LoadoutTicker
-from utils.logging import get_logger, log_section, log_status, log_event
-from utils.chroma_selector import get_chroma_selector
+
+# Third-party imports
+import websocket  # websocket-client
+
+# Local imports
 from config import (
     WS_PING_INTERVAL_DEFAULT, WS_PING_TIMEOUT_DEFAULT, WS_RECONNECT_DELAY,
     WS_PROBE_ITERATIONS, WS_PROBE_SLEEP_MS, TIMER_HZ_DEFAULT,
     FALLBACK_LOADOUT_MS_DEFAULT, INTERESTING_PHASES
 )
+from lcu.client import LCU
+from lcu.utils import compute_locked
+from state.shared_state import SharedState
+from threads.loadout_ticker import LoadoutTicker
+from ui.chroma_selector import get_chroma_selector
+from utils.logging import get_logger, log_section, log_status, log_event
 
 log = get_logger()
 
-# Optional WebSocket import
-try:
-    import websocket  # websocket-client  # pyright: ignore[reportMissingImports]
-    # Disable websocket ping logs
-    import logging
-    logging.getLogger("websocket").setLevel(logging.WARNING)
-except Exception:
-    websocket = None
+# Disable websocket ping logs
+logging.getLogger("websocket").setLevel(logging.WARNING)
 
 
 class WSEventThread(threading.Thread):
     """WebSocket event thread with WAMP + lock counter + timer"""
     
-    def __init__(self, lcu: LCU, db: NameDB, state: SharedState, ping_interval: int = WS_PING_INTERVAL_DEFAULT, 
+    def __init__(self, lcu: LCU, state: SharedState, ping_interval: int = WS_PING_INTERVAL_DEFAULT, 
                  ping_timeout: int = WS_PING_TIMEOUT_DEFAULT, timer_hz: int = TIMER_HZ_DEFAULT, fallback_ms: int = FALLBACK_LOADOUT_MS_DEFAULT, 
-                 injection_manager=None, skin_scraper=None, ocr_init_callback=None):
+                 injection_manager=None, skin_scraper=None, app_status_callback=None):
         super().__init__(daemon=True)
         self.lcu = lcu
-        self.db = db
         self.state = state
         self.ping_interval = ping_interval
         self.ping_timeout = ping_timeout
@@ -54,7 +54,7 @@ class WSEventThread(threading.Thread):
         self.fallback_ms = fallback_ms
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
-        self.ocr_init_callback = ocr_init_callback  # Callback to initialize OCR when WebSocket connects
+        self.app_status_callback = app_status_callback
         self.ticker: Optional[LoadoutTicker] = None
         self.last_locked_champion_id = None  # Track previously locked champion for exchange detection
 
@@ -63,12 +63,12 @@ class WSEventThread(threading.Thread):
         separator = "=" * 80
         log.info(separator)
         log.info("🔄 CHAMPION EXCHANGE DETECTED")
-        log.info(f"   📋 From: {self.db.champ_name_by_id.get(old_champ_id, f'Champion {old_champ_id}')} (ID: {old_champ_id})")
+        log.info(f"   📋 From: Champion {old_champ_id} (ID: {old_champ_id})")
         log.info(f"   📋 To: {new_champ_label} (ID: {new_champ_id})")
         log.info("   🔄 Resetting all state for new champion...")
         log.info(separator)
         
-        # Reset OCR state
+        # Reset skin state
         self.state.last_hovered_skin_key = None
         self.state.last_hovered_skin_id = None
         self.state.last_hovered_skin_slug = None
@@ -81,22 +81,32 @@ class WSEventThread(threading.Thread):
         self.state.locked_champ_id = new_champ_id
         self.state.locked_champ_timestamp = time.time()
         
-        # Clear owned skins cache (will be refreshed for new champion)
-        self.state.owned_skin_ids.clear()
-        
-        # Destroy chroma panel
-        chroma_selector = get_chroma_selector()
-        if chroma_selector and chroma_selector.panel:
+        # Reset HistoricMode state so it restarts for the new champion
+        try:
+            self.state.historic_mode_active = False
+            self.state.historic_skin_id = None
+            self.state.historic_first_detection_done = False
+            # Hide Historic flag if it was visible
             try:
-                chroma_selector.panel.request_destroy()
-                log.debug("[exchange] Chroma panel destroy requested")
+                from ui.user_interface import get_user_interface
+                ui = get_user_interface(self.state, self.skin_scraper)
+                ui.hide_historic_flag()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Clear UIA cache to detect new champion's skin
+        if self.state.ui_skin_thread:
+            try:
+                self.state.ui_skin_thread.clear_cache()
+                log.debug("[exchange] UIA cache cleared")
             except Exception as e:
-                log.debug(f"[exchange] Error destroying chroma panel: {e}")
+                log.error(f"[exchange] Failed to clear UIA cache: {e}")
         
-        # Reset loadout countdown if active
-        if self.state.loadout_countdown_active:
-            self.state.loadout_countdown_active = False
-            log.debug("[exchange] Reset loadout countdown state")
+        # Trigger UI hiding in main thread by setting flag
+        self.state.champion_exchange_triggered = True
+        log.debug("[exchange] Champion exchange flag set - main thread will hide UI")
         
         # Scrape skins for new champion from LCU
         if self.skin_scraper:
@@ -106,12 +116,7 @@ class WSEventThread(threading.Thread):
             except Exception as e:
                 log.error(f"[exchange] Failed to scrape champion skins: {e}")
         
-        # Load English skin names for new champion from Data Dragon
-        try:
-            self.db.load_champion_skins_by_id(new_champ_id)
-            log.debug(f"[exchange] Loaded English skin names for {new_champ_label}")
-        except Exception as e:
-            log.error(f"[exchange] Failed to load English skin names: {e}")
+        # Skin names are now provided by LCU API - no need to load from Data Dragon
         
         # Notify injection manager of champion exchange
         if self.injection_manager:
@@ -120,14 +125,15 @@ class WSEventThread(threading.Thread):
                 log.debug(f"[exchange] Notified injection manager of {new_champ_label}")
             except Exception as e:
                 log.error(f"[exchange] Failed to notify injection manager: {e}")
-        
-        # Create chroma panel widgets for new champion
-        if chroma_selector:
-            try:
-                chroma_selector.panel.request_create()
-                log.debug(f"[exchange] Requested chroma panel creation for {new_champ_label}")
-            except Exception as e:
-                log.error(f"[exchange] Failed to request chroma panel creation: {e}")
+
+        # Show ClickBlocker during local champion exchange to prevent accidental clicks
+        try:
+            from ui.user_interface import get_user_interface
+            ui = get_user_interface(self.state, self.skin_scraper)
+            if ui:
+                ui._try_show_click_blocker()
+        except Exception:
+            pass
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
@@ -142,6 +148,13 @@ class WSEventThread(threading.Thread):
         # ONLY start timer on FINALIZATION phase (final countdown before game start)
         # This prevents starting too early when all champions are locked but bans are still in progress
         if phase_timer == "FINALIZATION":
+            # Update phase to FINALIZATION if we're currently in OwnChampionLocked or ChampSelect
+            # This ensures the phase transition happens even if the websocket event doesn't fire
+            if self.state.phase in ["OwnChampionLocked", "ChampSelect"]:
+                if self.state.phase != "FINALIZATION":
+                    log_status(log, "Phase", "FINALIZATION", "🎯")
+                    self.state.phase = "FINALIZATION"
+            
             # If timer value is not ready yet, probe a few times to give LCU time to publish it
             if left_ms <= 0:
                 # Small 0.5s window to let LCU publish a non-zero timer
@@ -177,7 +190,7 @@ class WSEventThread(threading.Thread):
                         "Phase": phase_timer
                     })
                     if self.ticker is None or not self.ticker.is_alive():
-                        self.ticker = LoadoutTicker(self.lcu, self.state, self.timer_hz, self.fallback_ms, ticker_id=self.state.current_ticker, mode=mode, db=self.db, injection_manager=self.injection_manager)
+                        self.ticker = LoadoutTicker(self.lcu, self.state, self.timer_hz, self.fallback_ms, ticker_id=self.state.current_ticker, mode=mode, injection_manager=self.injection_manager, skin_scraper=self.skin_scraper)
                         self.ticker.start()
 
     def _handle_api_event(self, payload: dict):
@@ -189,29 +202,92 @@ class WSEventThread(threading.Thread):
         if uri == "/lol-gameflow/v1/gameflow-phase":
             ph = payload.get("data")
             if isinstance(ph, str) and ph != self.state.phase:
-                if ph in INTERESTING_PHASES:
-                    log_status(log, "Phase", ph, "🎯")
-                self.state.phase = ph
+                # Don't overwrite OwnChampionLocked phase - it's a custom phase set when our champion locks
+                if self.state.phase == "OwnChampionLocked":
+                    # Allow transition to FINALIZATION (for loadout ticker) or GameStart/InProgress, or back to ChampSelect
+                    if ph in ["FINALIZATION", "GameStart", "InProgress", "ChampSelect"]:
+                        if ph in INTERESTING_PHASES:
+                            log_status(log, "Phase", ph, "🎯")
+                        self.state.phase = ph
+                elif ph is not None:
+                    if ph in INTERESTING_PHASES:
+                        log_status(log, "Phase", ph, "🎯")
+                    self.state.phase = ph
                 
                 if ph == "ChampSelect":
-                    log_event(log, "Entering ChampSelect - resetting state for new game", "🎮")
-                    self.state.last_hovered_skin_key = None
-                    self.state.last_hovered_skin_id = None
-                    self.state.last_hovered_skin_slug = None
-                    self.state.selected_skin_id = None  # Reset LCU selected skin
-                    self.state.owned_skin_ids.clear()  # Clear owned skins (will be refreshed on champion lock)
-                    self.state.last_hover_written = False
-                    self.state.injection_completed = False  # Reset injection flag for new game
-                    self.state.loadout_countdown_active = False  # Reset countdown state
-                    self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
-                    self.last_locked_champion_id = None  # Reset exchange tracking for new game
-                    try: 
-                        self.state.processed_action_ids.clear()
-                    except Exception: 
-                        self.state.processed_action_ids = set()
-                    log.debug("[WS] State reset complete - ready for new champion select")
+                    # Detect game mode FIRST to get accurate is_swiftplay_mode flag
+                    self._detect_game_mode()
+                    
+                    if self.state.is_swiftplay_mode:
+                        log.debug("[WS] ChampSelect in Swiftplay mode - skipping normal reset")
+                    else:
+                        log_event(log, "Entering ChampSelect - resetting state for new game", "🎮")
+                        # Reset skin detection state
+                        self.state.last_hovered_skin_key = None
+                        self.state.last_hovered_skin_id = None
+                        self.state.last_hovered_skin_slug = None
+                        self.state.ui_last_text = None  # Reset UI detected skin name
+                        self.state.ui_skin_id = None  # Reset UI detected skin ID
+                        # Reset LCU skin selection
+                        self.state.selected_skin_id = None  # Reset LCU selected skin
+                        self.state.owned_skin_ids.clear()  # Clear owned skins (will be refreshed immediately)
+                        self.state.last_hover_written = False
+                        # Reset injection and countdown state
+                        self.state.injection_completed = False  # Reset injection flag for new game
+                        self.state.loadout_countdown_active = False  # Reset countdown state
+                        self.ticker = None  # Clear ticker reference to ensure new timer can start
+                        # Reset champion lock state for new game
+                        self.state.locked_champ_id = None
+                        self.state.locked_champ_timestamp = 0.0  # Reset timestamp for new game
+                        # Reset random skin state
+                        self.state.random_skin_name = None
+                        self.state.random_skin_id = None
+                        self.state.random_mode_active = False
+                        # Reset historic mode state
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        self.state.historic_first_detection_done = False
+                        self.last_locked_champion_id = None  # Reset exchange tracking for new game
+                        self.state.champion_exchange_triggered = False  # Reset champion exchange flag
                         
+                        # Signal main thread to reset skin notification debouncing
+                        self.state.reset_skin_notification = True
+                        try: 
+                            self.state.processed_action_ids.clear()
+                        except Exception: 
+                            self.state.processed_action_ids = set()
+                        
+                        # Request UI initialization when entering ChampSelect
+                        try:
+                            from ui.user_interface import get_user_interface
+                            user_interface = get_user_interface(self.state, self.skin_scraper)
+                            # Reset skin state for new ChampSelect
+                            user_interface.reset_skin_state()
+                            # Force UI reinitialization to rebuild for current game mode and resolution
+                            user_interface._force_reinitialize = True
+                            user_interface.request_ui_initialization()
+                            log_event(log, "UI reinitialization requested for ChampSelect", "🎨")
+                        except Exception as e:
+                            log.warning(f"Failed to request UI initialization for ChampSelect: {e}")
+                    
+                    # Load owned skins immediately when entering ChampSelect
+                    try:
+                        owned_skins = self.lcu.owned_skins()
+                        log.debug(f"[WS] Raw owned skins response: {owned_skins}")
+                        if owned_skins and isinstance(owned_skins, list):
+                            self.state.owned_skin_ids = set(owned_skins)
+                            log.info(f"[WS] Loaded {len(self.state.owned_skin_ids)} owned skins from inventory")
+                        else:
+                            log.warning(f"[WS] Failed to fetch owned skins from LCU - no data returned (response: {owned_skins})")
+                    except Exception as e:
+                        log.warning(f"[WS] Error fetching owned skins: {e}")
+                    
+                    log.debug("[WS] State reset complete - ready for new champion select")
                 
+                elif ph == "FINALIZATION":
+                    # FINALIZATION phase - ClickCatcherHide creation now handled in OwnChampionLocked
+                    log_event(log, "Entering FINALIZATION phase", "🎯")
+                        
                 elif ph == "InProgress":
                     # Game starting → log last skin
                     if self.state.last_hovered_skin_key:
@@ -229,6 +305,7 @@ class WSEventThread(threading.Thread):
                     self.state.locks_by_cell.clear()
                     self.state.all_locked_announced = False
                     self.state.loadout_countdown_active = False
+                    self.ticker = None  # Clear ticker reference to ensure new timer can start
         
         elif uri == "/lol-champ-select/v1/hovered-champion-id":
             cid = payload.get("data")
@@ -237,7 +314,7 @@ class WSEventThread(threading.Thread):
             except Exception: 
                 cid = None
             if cid and cid != self.state.hovered_champ_id:
-                nm = self.db.champ_name_by_id.get(cid) or f"champ_{cid}"
+                nm = f"champ_{cid}"
                 log_status(log, "Champion hovered", f"{nm} (ID: {cid})", "👆")
                 self.state.hovered_champ_id = cid
         
@@ -295,55 +372,45 @@ class WSEventThread(threading.Thread):
                         self.state.locked_champ_id is not None and
                         self.state.locked_champ_id != new_champ_id):
                         # This is a champion exchange
-                        champ_label = self.db.champ_name_by_id.get(new_champ_id, f"#{new_champ_id}")
+                        champ_label = f"#{new_champ_id}"  # Use ID since we don't have database
                         log_event(log, f"Champion exchange detected: {champ_label}", "🔄", {"From": self.last_locked_champion_id, "To": new_champ_id})
                         self._handle_champion_exchange(self.last_locked_champion_id, new_champ_id, champ_label)
                         # Update tracking
                         self.last_locked_champion_id = new_champ_id
-            
-            for cid in added:
-                ch = new_locks[cid]
-                # Readable label if available
-                champ_label = self.db.champ_name_by_id.get(int(ch), f"#{ch}")
-                log_event(log, f"Champion locked: {champ_label}", "🔒", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
-                if self.state.local_cell_id is not None and cid == int(self.state.local_cell_id):
-                    new_champ_id = int(ch)
-                    
-                    # Check for champion exchange (champion ID changed but we were already locked)
-                    if (self.last_locked_champion_id is not None and 
-                        self.last_locked_champion_id != new_champ_id and
-                        self.state.locked_champ_id is not None):
-                        # This is a champion exchange, not a new lock
-                        self._handle_champion_exchange(self.last_locked_champion_id, new_champ_id, champ_label)
                     else:
                         # This is a new champion lock (first lock or re-lock of same champion)
+                        champ_label = f"#{new_champ_id}"
                         separator = "=" * 80
                         log.info(separator)
                         log.info(f"🎮 YOUR CHAMPION LOCKED")
                         log.info(f"   📋 Champion: {champ_label}")
-                        log.info(f"   📋 ID: {ch}")
+                        log.info(f"   📋 ID: {new_champ_id}")
                         log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
                         log.info(separator)
                         self.state.locked_champ_id = new_champ_id
-                        self.state.locked_champ_timestamp = time.time()  # Record lock time for OCR delay
+                        self.state.locked_champ_timestamp = time.time()  # Record lock time
+                        # Reset historic detection state for this champion
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        self.state.historic_first_detection_done = False
+                        
+                        # Trigger OwnChampionLocked phase - set phase state
+                        log_status(log, "Phase", "OwnChampionLocked", "🎯")
+                        self.state.phase = "OwnChampionLocked"
                         
                         # Scrape skins for this champion from LCU
                         if self.skin_scraper:
                             try:
-                                self.skin_scraper.scrape_champion_skins(int(ch))
+                                self.skin_scraper.scrape_champion_skins(new_champ_id)
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
                         
-                        # Load English skin names for this champion from Data Dragon
-                        try:
-                            self.db.load_champion_skins_by_id(int(ch))
-                        except Exception as e:
-                            log.error(f"[lock:champ] Failed to load English skin names: {e}")
+                        # English skin names are now loaded by LCU skin scraper
                         
                         # Notify injection manager of champion lock
                         if self.injection_manager:
                             try:
-                                self.injection_manager.on_champion_locked(champ_label, ch, self.state.owned_skin_ids)
+                                self.injection_manager.on_champion_locked(champ_label, new_champ_id, self.state.owned_skin_ids)
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to notify injection manager: {e}")
                         
@@ -355,13 +422,32 @@ class WSEventThread(threading.Thread):
                                 log.debug(f"[lock:champ] Requested chroma panel creation for {champ_label}")
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
-                    
-                    # Update tracking for next comparison (for both new locks and exchanges)
-                    self.last_locked_champion_id = new_champ_id
+                        
+                        # Create ClickCatchers on champion lock (when not in Swiftplay)
+                        from ui.user_interface import get_user_interface
+                        user_interface = get_user_interface(self.state, self.skin_scraper)
+                        if user_interface:
+                            try:
+                                user_interface.create_click_catchers()
+                                log.debug(f"[lock:champ] Requested ClickCatcher creation for {champ_label}")
+                            except Exception as e:
+                                log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
+                        
+                        # Update tracking
+                        self.last_locked_champion_id = new_champ_id
+            
+            for cid in added:
+                ch = new_locks[cid]
+                # Use champion ID as label since we don't have database
+                champ_label = f"#{ch}"
+                log_event(log, f"Champion locked: {champ_label}", "🔒", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
+                log.debug(f"[lock_debug] Processing lock: cid={cid}, ch={ch}, local_cell_id={self.state.local_cell_id}")
+                # Champion lock processing is now handled in the exchange detection section above
+                # This loop only logs other players' champion locks
             
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)
-                champ_label = self.db.champ_name_by_id.get(int(ch), f"#{ch}")
+                champ_label = f"#{ch}"
                 log_event(log, f"Champion unlocked: {champ_label}", "🔓", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
             
             self.state.locks_by_cell = new_locks
@@ -389,21 +475,15 @@ class WSEventThread(threading.Thread):
         # Mark WebSocket as connected
         self.is_connected = True
         
+        # Update app status to reflect LCU connection
+        if self.app_status_callback:
+            self.app_status_callback()
+        
         try: 
             ws.send('[5,"OnJsonApiEvent"]')
         except Exception as e: 
             log.debug(f"WebSocket: Subscribe error: {e}")
         
-        # Initialize OCR when WebSocket connects (for proper language detection)
-        if self.ocr_init_callback and self.lcu.ok:
-            try:
-                lcu_lang = self.lcu.client_language
-                if lcu_lang:
-                    self.ocr_init_callback(lcu_lang)
-                else:
-                    log.debug("WebSocket connected but LCU language not yet available")
-            except Exception as e:
-                log.debug(f"Failed to get LCU language for OCR initialization: {e}")
 
     def _on_message(self, ws, msg):
         """WebSocket message received"""
@@ -433,6 +513,10 @@ class WSEventThread(threading.Thread):
         
         # Mark WebSocket as disconnected
         self.is_connected = False
+        
+        # Update app status to reflect LCU disconnection
+        if self.app_status_callback:
+            self.app_status_callback()
 
     def run(self):
         """Main WebSocket loop"""
@@ -488,6 +572,85 @@ class WSEventThread(threading.Thread):
                 log.debug("[ws] WebSocket closed on thread exit")
             except Exception:
                 pass
+    
+    def _detect_game_mode(self):
+        """Detect game mode once when entering champion select"""
+        
+        # CRITICAL: Reset swiftplay flag to False first, then set to True only if actually detected
+        # This prevents the flag from persisting between games if detection fails
+        old_swiftplay_mode = self.state.is_swiftplay_mode
+        self.state.is_swiftplay_mode = False  # Default to non-swiftplay mode
+        
+        try:
+            if not self.lcu.ok:
+                log.info("[WS] LCU not connected - cannot detect game mode, defaulting to non-swiftplay")
+                if old_swiftplay_mode:
+                    log.info(f"[WS] Swiftplay mode flag reset: {old_swiftplay_mode} → False")
+                return
+            
+            # Get game session data
+            session = self.lcu.get("/lol-gameflow/v1/session")
+            if not session:
+                log.info("[WS] No game session data available, defaulting to non-swiftplay")
+                if old_swiftplay_mode:
+                    log.info(f"[WS] Swiftplay mode flag reset: {old_swiftplay_mode} → False")
+                return
+            
+            # Extract game mode and map ID from the correct location
+            game_mode = None
+            map_id = None
+            queue_id = None
+            
+            # Try multiple locations for queue ID
+            # First try: gameData.queue.queueId
+            if "gameData" in session:
+                game_data = session.get("gameData", {})
+                if "queue" in game_data:
+                    queue = game_data.get("queue", {})
+                    game_mode = queue.get("gameMode")
+                    map_id = queue.get("mapId")
+                    queue_id = queue.get("queueId")
+            
+            # Second try: session.queueId
+            if queue_id is None:
+                queue_id = session.get("queueId")
+            
+            # Third try: Check champ select session
+            if queue_id is None:
+                champ_session = self.lcu.get("/lol-champ-select/v1/session")
+                if champ_session and isinstance(champ_session, dict):
+                    queue_id = champ_session.get("queueId")
+            
+            # Store in shared state
+            self.state.current_game_mode = game_mode
+            self.state.current_map_id = map_id
+            self.state.current_queue_id = queue_id
+            
+            # Update is_swiftplay_mode flag based on detected game mode
+            # This ensures the flag is correct when entering ChampSelect
+            self.state.is_swiftplay_mode = (game_mode == "SWIFTPLAY")
+            
+            if old_swiftplay_mode != self.state.is_swiftplay_mode:
+                log.info(f"[WS] Swiftplay mode flag updated: {old_swiftplay_mode} → {self.state.is_swiftplay_mode}")
+            
+            # Log queue ID when entering ChampSelect
+            log.info(f"[WS] Queue ID: {queue_id}")
+            
+            # Log the detection result
+            if map_id == 12 or game_mode == "ARAM":
+                log.info("[WS] ARAM mode detected - chroma panel will use ARAM background")
+            elif map_id == 11 or game_mode == "CLASSIC":
+                log.info("[WS] Summoner's Rift mode detected - chroma panel will use SR background")
+            elif game_mode == "SWIFTPLAY":
+                log.info("[WS] Swiftplay mode detected - will trigger early skin detection in lobby")
+                log.info("[WS] Swiftplay mode: Champion selection and skin detection will happen in lobby phase")
+            else:
+                log.info(f"[WS] Unknown game mode ({game_mode}, Map ID: {map_id}) - defaulting to SR background")
+                
+        except Exception as e:
+            log.warning(f"[WS] Error detecting game mode: {e}")
+            log.warning(f"[WS] Traceback: {traceback.format_exc()}")
+            # Ensure swiftplay flag is still False after error (it was already set at method start)
     
     def stop(self):
         """Stop the WebSocket thread gracefully"""

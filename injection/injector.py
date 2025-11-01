@@ -72,6 +72,7 @@ class SkinInjector:
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
         self.zips_dir = zips_dir or get_skins_dir()
         self.game_dir = game_dir or self._detect_game_dir()
+        # Database no longer needed - LCU provides all data
         
         # Create directories if they don't exist
         self.mods_dir.mkdir(parents=True, exist_ok=True)
@@ -280,99 +281,208 @@ class SkinInjector:
                 log.error(f"[INJECTOR] Missing tool: {exe}")
         return tools
     
-    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None) -> Path | None:
-        """Resolve a ZIP by name or path with fuzzy matching, supporting chroma subdirectories
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Path | None:
+        """Resolve a ZIP by name or path with fuzzy matching, supporting new merged structure
         
         Args:
             zip_arg: Skin name or path to search for
-            chroma_id: Optional chroma ID to look for in chromas subdirectory
+            chroma_id: Optional chroma ID to look for in chroma subdirectory
             skin_name: Optional base skin name for chroma lookup
+            champion_id: Optional champion ID for path construction.
         """
+        log.debug(f"[inject] Resolving zip for: '{zip_arg}' (chroma_id: {chroma_id}, skin_name: {skin_name})")
         cand = Path(zip_arg)
         if cand.exists():
             return cand
 
         self.zips_dir.mkdir(parents=True, exist_ok=True)
 
-        # If chroma_id is provided, look in chromas subdirectory structure
-        # Structure: skins/{Champion}/chromas/{SkinName}/{SkinName} {ChromaId}.zip
-        if chroma_id is not None and skin_name:
-            # Try to find chroma file by ID in subdirectory structure
-            chroma_pattern = f"{skin_name} {chroma_id}.zip"
+        # Handle ID-based naming convention from random selection
+        if zip_arg.startswith('skin_'):
+            # Format: skin_{skin_id} - check if this is actually a chroma
+            skin_id = int(zip_arg.split('_')[1])
+            if not champion_id:
+                log.warning(f"[inject] No champion_id provided for skin ID: {skin_id}")
+                return None
             
-            # Search for chroma in subdirectories
-            chroma_files = list(self.zips_dir.rglob(f"chromas/*/{chroma_pattern}"))
-            if chroma_files:
-                log_success(log, f"Found chroma by ID: {chroma_files[0].name}", "🎨")
-                return chroma_files[0]
+            # If chroma_id is provided, this is actually a chroma (Swiftplay case)
+            if chroma_id is not None:
+                # Look for chroma: {champion_id}/{base_skin_id}/{chroma_id}/{chroma_id}.zip
+                champion_dir = self.zips_dir / str(champion_id)
+                if not champion_dir.exists():
+                    log.warning(f"[inject] Champion directory not found: {champion_dir}")
+                    return None
+                
+                # Search through all skin directories for this champion to find the chroma
+                for skin_dir in champion_dir.iterdir():
+                    if not skin_dir.is_dir():
+                        continue
+                    
+                    try:
+                        base_skin_id = int(skin_dir.name)
+                    except ValueError:
+                        continue
+                    
+                    # Look for chroma in this skin's chroma directory
+                    chroma_dir = skin_dir / str(chroma_id)
+                    if chroma_dir.exists():
+                        chroma_zip_path = chroma_dir / f"{chroma_id}.zip"
+                        if chroma_zip_path.exists():
+                            log.debug(f"[inject] Found chroma ZIP: {chroma_zip_path}")
+                            return chroma_zip_path
+                
+                log.warning(f"[inject] Chroma ZIP not found for ID: {chroma_id}")
+                return None
             
-            # Also try without space
-            chroma_pattern_nospace = f"{skin_name}{chroma_id}.zip"
-            chroma_files = list(self.zips_dir.rglob(f"chromas/*/{chroma_pattern_nospace}"))
-            if chroma_files:
-                log_success(log, f"Found chroma by ID (no space): {chroma_files[0].name}", "🎨")
-                return chroma_files[0]
+            # This is a base skin - Look for {champion_id}/{skin_id}/{skin_id}.zip
+            skin_zip_path = self.zips_dir / str(champion_id) / str(skin_id) / f"{skin_id}.zip"
+            if skin_zip_path.exists():
+                log.debug(f"[inject] Found skin ZIP: {skin_zip_path}")
+                return skin_zip_path
+            else:
+                # Not found as base skin - might be a chroma that was incorrectly labeled as skin_
+                # Try searching for it as a chroma in any base skin directory
+                log.debug(f"[inject] Base skin not found, checking if {skin_id} is a chroma...")
+                champion_dir = self.zips_dir / str(champion_id)
+                if champion_dir.exists():
+                    for skin_dir in champion_dir.iterdir():
+                        if not skin_dir.is_dir():
+                            continue
+                        try:
+                            base_skin_id = int(skin_dir.name)
+                        except ValueError:
+                            continue
+                        
+                        # Look for chroma in this skin's chroma directory
+                        chroma_dir = skin_dir / str(skin_id)
+                        if chroma_dir.exists():
+                            chroma_zip_path = chroma_dir / f"{skin_id}.zip"
+                            if chroma_zip_path.exists():
+                                log.debug(f"[inject] Found chroma ZIP (mislabeled as skin_): {chroma_zip_path}")
+                                return chroma_zip_path
+                
+                log.warning(f"[inject] Skin ZIP not found: {skin_zip_path}")
+                return None
+        
+        elif zip_arg.startswith('chroma_'):
+            # Format: chroma_{chroma_id} - this is a chroma
+            chroma_id = int(zip_arg.split('_')[1])
+            if not champion_id:
+                log.warning(f"[inject] No champion_id provided for chroma ID: {chroma_id}")
+                return None
             
-            # Try with normalized skin name
-            def _norm(s: str) -> str:
-                return "".join(ch.lower() for ch in s if ch.isalnum())
+            # Look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
+            champion_dir = self.zips_dir / str(champion_id)
+            if not champion_dir.exists():
+                log.warning(f"[inject] Champion directory not found: {champion_dir}")
+                return None
             
-            skin_norm = _norm(skin_name)
+            # Search through all skin directories for this champion to find the chroma
+            for skin_dir in champion_dir.iterdir():
+                if not skin_dir.is_dir():
+                    continue
+                
+                # Check if this is a skin directory (numeric name)
+                try:
+                    skin_id = int(skin_dir.name)
+                except ValueError:
+                    continue
+                
+                # Look for chroma in this skin's chroma directory
+                chroma_dir = skin_dir / str(chroma_id)
+                if chroma_dir.exists():
+                    chroma_zip_path = chroma_dir / f"{chroma_id}.zip"
+                    if chroma_zip_path.exists():
+                        log.debug(f"[inject] Found chroma ZIP: {chroma_zip_path}")
+                        return chroma_zip_path
             
-            # Search all chroma directories for files containing the chroma ID
-            all_chroma_zips = list(self.zips_dir.rglob("chromas/*/*.zip"))
-            for zp in all_chroma_zips:
-                # Check if filename contains chroma ID
-                if str(chroma_id) in zp.stem:
-                    # Verify it's for the right skin by checking directory or filename
-                    if skin_norm in _norm(zp.parent.name) or skin_norm in _norm(zp.stem):
-                        log_success(log, f"Found chroma by ID search: {zp.name}", "🎨")
-                        return zp
-            
-            log.warning(f"[inject] Chroma file not found for '{skin_name}' with ID {chroma_id}")
-            log.debug(f"[inject] Expected path like: skins/.../chromas/{skin_name}/{skin_name} {chroma_id}.zip")
-
-        def _norm(s: str) -> str:
-            return "".join(ch.lower() for ch in s if ch.isalnum())
-
-        target = zip_arg
-        target_lower = target.lower()
-        target_norm = _norm(target)
-
-        all_zips = list(self.zips_dir.rglob("*.zip"))
-
-        if not all_zips:
+            log.warning(f"[inject] Chroma ZIP not found for ID: {chroma_id}")
             return None
 
-        # 1) exact filename (case-insensitive)
-        for zp in all_zips:
-            if zp.name.lower() == target_lower:
-                return zp
-
-        # 2) exact normalized match
-        norm_map = {zp: _norm(zp.name) for zp in all_zips}
-        exact_norm = [zp for zp, nz in norm_map.items() if nz == target_norm]
-        if len(exact_norm) == 1:
-            return exact_norm[0]
-
-        # 3) contains normalized
-        contains = [zp for zp, nz in norm_map.items() if target_norm and target_norm in nz]
-        if len(contains) == 1:
-            return contains[0]
-
-        # 4) fuzzy best match
-        try:
-            import difflib
-            best, best_score = None, 0.0
-            for zp, nz in norm_map.items():
-                score = difflib.SequenceMatcher(None, nz, target_norm).ratio()
-                if target_norm and target_norm in nz:
-                    score += 0.15
-                if score > best_score:
-                    best, best_score = zp, score
-            return best
-        except Exception:
+        # For base skins (no chroma_id), we need skin_id
+        if chroma_id is None and skin_name:
+            if not champion_id:
+                log.warning(f"[inject] No champion_id provided for skin lookup: {skin_name}")
+                return None
+            
+            # The UIA system should have already resolved skin_name to skin_id
+            # If we're here, it means skin_id wasn't provided, which shouldn't happen
+            log.warning(f"[inject] No skin_id provided for skin '{skin_name}' - UIA should have resolved this")
             return None
+
+        # If chroma_id is provided, look in chroma subdirectory structure
+        # New structure: {champion_id}/{chroma_id}/{chroma_id}.zip
+        if chroma_id is not None:
+            # Special handling for Elementalist Lux forms (fake IDs 99991-99999)
+            if 99991 <= chroma_id <= 99999:
+                log.info(f"[inject] Detected Elementalist Lux form fake ID: {chroma_id}")
+                
+                # Map fake IDs to form names
+                form_names = {
+                    99991: 'Air',
+                    99992: 'Dark', 
+                    99993: 'Ice',
+                    99994: 'Magma',
+                    99995: 'Mystic',
+                    99996: 'Nature',
+                    99997: 'Storm',
+                    99998: 'Water',
+                    99999: 'Fire'
+                }
+                
+                form_name = form_names.get(chroma_id, 'Unknown')
+                log.info(f"[inject] Looking for Elementalist Lux {form_name} form")
+                
+                # Look for the form file in the Lux directory
+                form_pattern = f"Lux Elementalist {form_name}.zip"
+                form_files = list(self.zips_dir.rglob(f"**/{form_pattern}"))
+                if form_files:
+                    log_success(log, f"Found Elementalist Lux {form_name} form: {form_files[0].name}", "✨")
+                    return form_files[0]
+                else:
+                    log.warning(f"[inject] Elementalist Lux {form_name} form file not found: {form_pattern}")
+                    return None
+            
+            # For regular chromas, look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
+            if not champion_id:
+                log.warning(f"[inject] No champion_id provided for chroma lookup: {chroma_id}")
+                return None
+            
+            # For chromas, we need to find which skin they belong to
+            # Since chromas are stored under their base skin directory, we need to search
+            # through all skin directories for this champion to find the chroma
+            champion_dir = self.zips_dir / str(champion_id)
+            if not champion_dir.exists():
+                log.warning(f"[inject] Champion directory not found: {champion_dir}")
+                return None
+            
+            # Search through all skin directories for this champion
+            for skin_dir in champion_dir.iterdir():
+                if not skin_dir.is_dir():
+                    continue
+                
+                # Check if this is a skin directory (numeric name)
+                try:
+                    int(skin_dir.name)  # If this succeeds, it's a skin ID directory
+                    
+                    # Check if chroma directory exists
+                    chroma_dir = skin_dir / str(chroma_id)
+                    if chroma_dir.exists():
+                        chroma_zip = chroma_dir / f"{chroma_id}.zip"
+                        if chroma_zip.exists():
+                            log_success(log, f"Found chroma: {chroma_zip.name}", "🎨")
+                            return chroma_zip
+                except ValueError:
+                    # Not a skin directory, skip
+                    continue
+            
+            log.warning(f"[inject] Chroma {chroma_id} not found in any skin directory for champion {champion_id}")
+            return None
+
+        # For regular skin files (no chroma_id), we need to find by skin_id
+        # This is a simplified approach - in practice, you'd want to use LCU data
+        log.warning(f"[inject] Base skin lookup by name not fully implemented for new structure: {zip_arg}")
+        return None
     
     def _clean_mods_dir(self):
         """Clean the mods directory"""
@@ -612,7 +722,7 @@ class SkinInjector:
             log.error(f"[inject] Failed to create mkoverlay command: {e}")
             return -1
     
-    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None, chroma_id: int = None) -> bool:
+    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
         """Inject a single skin (with optional chroma)
         
         Args:
@@ -628,7 +738,12 @@ class SkinInjector:
         # No need for a separate GameMonitor thread
         
         # Find the skin ZIP (with chroma support)
-        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=skin_name)
+        # Extract base skin name (remove skin ID if present) for chroma path construction
+        base_skin_name = skin_name
+        if skin_name and skin_name.split()[-1].isdigit():
+            base_skin_name = ' '.join(skin_name.split()[:-1])
+        
+        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name, champion_id=champion_id)
         if not zp:
             log.error(f"[inject] Skin '{skin_name}' not found in {self.zips_dir}")
             avail = list(self.zips_dir.rglob('*.zip'))
@@ -867,13 +982,16 @@ class SkinInjector:
                                 # Give it a brief moment, then force kill if needed
                                 try:
                                     p.wait(timeout=PROCESS_TERMINATE_WAIT_S)
-                                except:
+                                except (psutil.TimeoutExpired, psutil.NoSuchProcess) as wait_e:
                                     p.kill()  # Force kill if terminate didn't work
-                            except:
+                                    log.debug(f"Process wait timeout or process gone, force killing: {wait_e}")
+                            except Exception as e:
                                 try:
                                     p.kill()  # Force kill on any error
-                                except:
-                                    pass  # Process might be gone
+                                except (psutil.NoSuchProcess, psutil.AccessDenied) as kill_e:
+                                    log.debug(f"[inject] Process already gone or inaccessible: {kill_e}")
+                                except Exception as kill_e:
+                                    log.debug(f"[inject] Unexpected error force killing process: {kill_e}")
                             killed_count += 1
                     except psutil.TimeoutExpired:
                         log.debug(f"[inject] Timeout fetching cmdline for PID {proc.info['pid']}")

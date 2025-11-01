@@ -4,8 +4,8 @@
 System tray manager for LeagueUnlocked
 """
 
-import os
 import threading
+from pathlib import Path
 from typing import Optional, Callable
 import pystray
 from PIL import Image, ImageDraw
@@ -35,7 +35,6 @@ class TrayManager:
         self.tray_thread = None
         self._stop_event = threading.Event()
         self._locked_icon_image = None
-        self._golden_locked_icon_image = None
         self._unlocked_icon_image = None
         self._base_icon_image = None  # Current base icon (locked or unlocked)
         
@@ -55,7 +54,12 @@ class TrayManager:
             # Try to use a font if available
             from PIL import ImageFont
             font = ImageFont.truetype("arial.ttf", TRAY_ICON_FONT_SIZE)
-        except:
+        except (OSError, FileNotFoundError, ImportError) as e:
+            log.debug(f"Could not load Arial font: {e}")
+            # Fallback to default font
+            font = ImageFont.load_default()
+        except Exception as e:
+            log.debug(f"Unexpected error loading font: {e}")
             # Fallback to default font
             font = ImageFont.load_default()
         
@@ -71,75 +75,57 @@ class TrayManager:
             icon_name: Name of the icon file (e.g., "locked_tray.png", "golden_unlocked_tray.png")
         """
         try:
-            # Handle both frozen (PyInstaller) and development environments
-            import sys
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable (PyInstaller)
-                # In onedir mode, data files are in _internal folder
-                base_dir = os.path.dirname(sys.executable)
-                # Try multiple locations for PyInstaller
-                possible_paths = [
-                    os.path.join(base_dir, "icons", icon_name),  # Direct path
-                    os.path.join(base_dir, "_internal", "icons", icon_name),  # _internal folder
-                ]
+            # Use proper icon path resolution for PyInstaller compatibility
+            from utils.paths import get_icon_path
+            icon_path = get_icon_path(icon_name)
+            
+            if icon_path.exists():
+                log.debug(f"Loading tray icon from: {icon_path}")
+                with Image.open(icon_path) as img:
+                    # Convert to RGBA and resize to 128x128 (doubled from 64x64)
+                    img = img.convert('RGBA')
+                    img = img.resize((128, 128), Image.Resampling.LANCZOS)
+                    return img.copy()  # Return a copy to avoid issues with closed files
             else:
-                # Running as Python script
-                base_dir = os.path.dirname(os.path.dirname(__file__))
-                possible_paths = [os.path.join(base_dir, "icons", icon_name)]
-            
-            # Try each possible path
-            for icon_path in possible_paths:
-                if os.path.exists(icon_path):
-                    log.debug(f"Loading tray icon from: {icon_path}")
-                    with Image.open(icon_path) as img:
-                        # Convert to RGBA and resize to 128x128 (doubled from 64x64)
-                        img = img.convert('RGBA')
-                        img = img.resize((128, 128), Image.Resampling.LANCZOS)
-                        return img.copy()  # Return a copy to avoid issues with closed files
-            
-            log.warning(f"Icon '{icon_name}' not found in any expected location")
+                log.warning(f"Icon '{icon_name}' not found at: {icon_path}")
         except Exception as e:
             log.error(f"Failed to load icon '{icon_name}': {e}")
         return None
     
     def _load_icons(self):
-        """Load locked, golden locked, and unlocked icons"""
+        """Load locked and unlocked icons"""
         # Load locked icon
         self._locked_icon_image = self._load_icon_from_file("tray_locked.png")
-        
-        # Load golden locked icon
-        self._golden_locked_icon_image = self._load_icon_from_file("tray_golden_locked.png")
         
         # Load golden unlocked icon
         self._unlocked_icon_image = self._load_icon_from_file("tray_golden_unlocked.png")
         
         # Fallback to icon.png if none exist
-        if not self._locked_icon_image and not self._golden_locked_icon_image and not self._unlocked_icon_image:
+        if not self._locked_icon_image and not self._unlocked_icon_image:
             try:
                 # Handle both frozen (PyInstaller) and development environments
                 import sys
                 if getattr(sys, 'frozen', False):
                     # Running as compiled executable (PyInstaller)
-                    base_dir = os.path.dirname(sys.executable)
+                    base_dir = Path(sys.executable).parent
                     # Try multiple locations for PyInstaller
                     possible_paths = [
-                        os.path.join(base_dir, "icon.png"),  # Direct path
-                        os.path.join(base_dir, "_internal", "icon.png"),  # _internal folder
+                        base_dir / "icon.png",  # Direct path
+                        base_dir / "_internal" / "icon.png",  # _internal folder
                     ]
                 else:
                     # Running as Python script
-                    base_dir = os.path.dirname(os.path.dirname(__file__))
-                    possible_paths = [os.path.join(base_dir, "icon.png")]
+                    base_dir = Path(__file__).parent.parent
+                    possible_paths = [base_dir / "icon.png"]
                 
                 # Try each possible path
                 for icon_path_png in possible_paths:
-                    if os.path.exists(icon_path_png):
+                    if icon_path_png.exists():
                         log.debug(f"Loading fallback icon from: {icon_path_png}")
                         with Image.open(icon_path_png) as img:
                             img = img.convert('RGBA')
                             img = img.resize((128, 128), Image.Resampling.LANCZOS)
                             self._locked_icon_image = img.copy()
-                            self._golden_locked_icon_image = img.copy()
                             self._unlocked_icon_image = img.copy()
                         break
             except Exception as e:
@@ -362,7 +348,7 @@ class TrayManager:
         Update the tray icon to show the specified status
         
         Args:
-            status: "locked", "golden_locked", or "unlocked"
+            status: "locked" or "unlocked"
         """
         # Wait for tray icon to be ready (up to 5 seconds)
         max_wait = TRAY_READY_MAX_WAIT_S
@@ -382,11 +368,6 @@ class TrayManager:
                 if self._locked_icon_image:
                     self.icon.icon = self._locked_icon_image
                     log.info("Locked icon shown")
-            elif status == "golden_locked":
-                # Show golden locked icon
-                if self._golden_locked_icon_image:
-                    self.icon.icon = self._golden_locked_icon_image
-                    log.info("Golden locked icon shown")
             elif status == "unlocked":
                 # Show golden unlocked icon
                 if self._unlocked_icon_image:
