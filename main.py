@@ -1226,6 +1226,12 @@ def main():
                                     button = user_interface.chroma_ui.chroma_selector.panel.reopen_button
                                     button.hide()
                                     log.debug("[exchange] Chroma Opening Button hidden")
+
+                                # Ensure ClickBlocker is visible during exchange (create if missing)
+                                try:
+                                    user_interface._show_click_blocker_on_main_thread()
+                                except Exception:
+                                    pass
                         except Exception as e:
                             log.error(f"[MAIN] Failed to hide UI during champion exchange: {e}")
                     

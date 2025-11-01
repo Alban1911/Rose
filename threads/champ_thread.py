@@ -88,6 +88,15 @@ class ChampThread(threading.Thread):
                 log.debug(f"[exchange] Notified injection manager of {new_champ_label}")
             except Exception as e:
                 log.error(f"[exchange] Failed to notify injection manager: {e}")
+
+        # Show ClickBlocker during local champion exchange to prevent accidental clicks
+        try:
+            from ui.user_interface import get_user_interface
+            ui = get_user_interface(self.state, self.skin_scraper)
+            if ui:
+                ui._try_show_click_blocker()
+        except Exception:
+            pass
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 

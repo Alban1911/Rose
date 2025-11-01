@@ -178,9 +178,7 @@ class UserInterface:
         
         log.debug(f"[UI] create_click_catchers executing on main thread - is_swiftplay={getattr(self.state, 'is_swiftplay_mode', False)}, click_catchers_exists={bool(self.click_catchers)}, click_catchers_count={len(self.click_catchers) if hasattr(self, 'click_catchers') and self.click_catchers else 0}")
         
-        # Show ClickBlocker when champion is locked to prevent accidental clicks
-        # Do this FIRST before any early returns
-        self._try_show_click_blocker()
+        # Only show ClickBlocker if we're actually going to create click catchers
         
         try:
             # Skip ClickCatcher creation in Swiftplay mode
@@ -193,6 +191,9 @@ class UserInterface:
                 log.debug(f"[UI] ClickCatchers already exist ({len(self.click_catchers)} catchers), skipping creation")
                 return
             
+            # Show ClickBlocker right before creating catchers to avoid accidental clicks
+            self._try_show_click_blocker()
+
             log.info("[UI] Creating ClickCatcherHide components...")
             # Create ClickCatcherHide instances for different UI elements
             from ui.click_catcher_hide import ClickCatcherHide
@@ -307,6 +308,14 @@ class UserInterface:
         """Show ClickBlocker on main thread (called via QTimer.singleShot)"""
         try:
             log.info("[UI] _show_click_blocker_on_main_thread called")
+            if self.click_blocker is None and not getattr(self.state, 'is_swiftplay_mode', False):
+                try:
+                    log.info("[UI] ClickBlocker missing - creating on main thread")
+                    from ui.click_blocker import ClickBlocker
+                    self.click_blocker = ClickBlocker(state=self.state)
+                    log.info(f"[UI] ClickBlocker created successfully - self.click_blocker = {self.click_blocker}, is None: {self.click_blocker is None}")
+                except Exception as ce:
+                    log.warning(f"[UI] Failed to create ClickBlocker on main thread: {ce}")
             if self.click_blocker:
                 log.info("[UI] Calling click_blocker.show_instantly()")
                 self.click_blocker.show_instantly()
