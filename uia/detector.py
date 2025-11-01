@@ -252,16 +252,16 @@ class UIDetector:
     def _find_by_element_path(self) -> Optional[object]:
         """Find skin name using element path navigation"""
         try:
-            log.info("[DETECT_DETAILS] " + "=" * 80)
-            log.info("[DETECT_DETAILS] SEARCHING FOR SKIN NAME ELEMENT USING PATH NAVIGATION")
-            log.info("[DETECT_DETAILS] " + "=" * 80)
+            log.info("[UIA] " + "=" * 80)
+            log.info("[UIA] SEARCHING FOR SKIN NAME ELEMENT USING PATH NAVIGATION")
+            log.info("[UIA] " + "=" * 80)
             
             # Get all Text controls (role 41) in the League window
             text_elements = self.league_window.descendants(control_type="Text")
-            log.info(f"[DETECT_DETAILS] Found {len(text_elements)} Text elements")
+            log.info(f"[UIA] Found {len(text_elements)} Text elements")
             
             # Find the element right after the second 'YOUR TEAM'S BANS'
-            log.info("[DETECT_DETAILS] Searching for element after second 'YOUR TEAM'S BANS' equivalent (depends on the language)...")
+            log.info("[UIA] Searching for element after second 'YOUR TEAM'S BANS' equivalent (depends on the language)...")
             
             your_teams_bans_count = 0
             chosen_candidate = None
@@ -272,14 +272,14 @@ class UIDetector:
                     text = element.window_text().upper()
                     if text in your_teams_bans_text:
                         your_teams_bans_count += 1
-                        log.info(f"[DETECT_DETAILS] Found {text} #{your_teams_bans_count} at index {i}")
+                        log.info(f"[UIA] Found {text} #{your_teams_bans_count} at index {i}")
                         
                         # If this is the second occurrence, the next element should be the skin name
                         if your_teams_bans_count == 2:
                             if i + 1 < len(text_elements):
                                 chosen_candidate = text_elements[i + 1]
                                 chosen_index = i + 1
-                                log.info(f"[DETECT_DETAILS] Found second {text} at index {i}, taking next element at index {i + 1}")
+                                log.info(f"[UIA] Found second {text} at index {i}, taking next element at index {i + 1}")
                                 break
                             else:
                                 log.warning(f"Second {text} found but no element follows it")
@@ -291,7 +291,7 @@ class UIDetector:
             if chosen_candidate:
                 try:
                     skin_name = chosen_candidate.window_text()
-                    log.info(f"[DETECT_DETAILS] ✓ Found skin name element: '{skin_name}' (candidate #{chosen_index})")
+                    log.info(f"[UIA] ✓ Found skin name element: '{skin_name}' (candidate #{chosen_index})")
                     return chosen_candidate
                 except Exception as e:
                     log.error(f"Error getting skin name from chosen candidate: {e}")
@@ -354,11 +354,11 @@ class UIDetector:
             if not scraped_skins:
                 return False
             
-            log.debug(f"[DETECT_DETAILS] Checking '{text}' against {len(scraped_skins)} scraped skins for champion {champ_id}")
+            log.debug(f"[UIA] Checking '{text}' against {len(scraped_skins)} scraped skins for champion {champ_id}")
             
             # Log all scraped skin names for debugging
             scraped_names = [skin_data.get('skinName', '') for skin_data in scraped_skins if skin_data.get('skinName')]
-            log.info(f"[DETECT_DETAILS] Available scraped skin names: {scraped_names}")
+            log.info(f"[UIA] Available scraped skin names: {scraped_names}")
             
             # Check if any skin name matches with high similarity (0.95 threshold)
             for skin_data in scraped_skins:
@@ -366,12 +366,12 @@ class UIDetector:
                 if skin_name_from_scraper:
                     similarity = levenshtein_score(text, skin_name_from_scraper)
                     if similarity >= 0.95:
-                        log.info(f"[DETECT_DETAILS] '{text}' matches scraped skin '{skin_name_from_scraper}' with similarity {similarity:.3f}")
+                        log.info(f"[UIA] '{text}' matches scraped skin '{skin_name_from_scraper}' with similarity {similarity:.3f}")
                         return True
                     else:
-                        log.info(f"[DETECT_DETAILS] '{text}' vs '{skin_name_from_scraper}' similarity: {similarity:.3f}")
+                        log.info(f"[UIA] '{text}' vs '{skin_name_from_scraper}' similarity: {similarity:.3f}")
             
-            log.debug(f"[DETECT_DETAILS] '{text}' does not match any scraped skin for champion {champ_id}")
+            log.debug(f"[UIA] '{text}' does not match any scraped skin for champion {champ_id}")
             return False
             
         except Exception as e:
