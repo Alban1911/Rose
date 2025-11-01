@@ -128,21 +128,28 @@ class LCUMonitorThread(threading.Thread):
         self.last_language_check = time.time()
         
         try:
+            log.info("[LCU] 🔍 Detecting client language...")
             new_language = self.lcu.client_language
             if new_language:
                 if new_language != self.last_language:
-                    log.info(f"Language detected after reconnection: {new_language}")
+                    log.info(f"[LCU] 🌍 Language detected: {new_language}")
                 else:
-                    log.info(f"Language confirmed after reconnection: {new_language}")
+                    log.info(f"[LCU] 🌍 Language confirmed: {new_language}")
                 
-                # Always call callback on reconnection to ensure OCR is reinitialized
+                # Update database language if available
+                if self.db:
+                    log.info(f"[LCU] 📥 Updating database for language: {new_language}")
+                    self.db.update_language(new_language)
+                
+                # Always call callback on reconnection to ensure UI detection is reinitialized
                 self.last_language = new_language
                 self.language_initialized = True
-                self.language_callback(new_language)
+                if self.language_callback:
+                    self.language_callback(new_language)
             else:
-                log.warning("Failed to get LCU language - client returned None")
+                log.warning("[LCU] ❌ Failed to get LCU language - client returned None")
         except Exception as e:
-            log.warning(f"Failed to get LCU language: {e}")
+            log.warning(f"[LCU] ❌ Failed to get LCU language: {e}")
     
     def _check_language_change(self):
         """Periodically check if language has changed"""
@@ -151,17 +158,24 @@ class LCUMonitorThread(threading.Thread):
         try:
             current_language = self.lcu.client_language
             if current_language and current_language != self.last_language:
-                log.info(f"Language changed during session: {self.last_language} → {current_language}")
+                log.info(f"[LCU] 🌍 Language changed during session: {self.last_language} → {current_language}")
+                
+                # Update database language if available
+                if self.db:
+                    log.info(f"[LCU] 📥 Updating database for language change: {current_language}")
+                    self.db.update_language(current_language)
+                
                 self.last_language = current_language
-                self.language_callback(current_language)
+                if self.language_callback:
+                    self.language_callback(current_language)
         except Exception as e:
-            log.debug(f"Error checking language change: {e}")
+            log.debug(f"[LCU] Error checking language change: {e}")
     
     def _check_initial_champion_state(self):
         """Check if we're already in ChampSelect with a locked champion (Issue #29)
         
         This handles the case where the app is launched after the user has already
-        locked in a champion. Without this check, OCR would never start.
+        locked in a champion.
         """
         try:
             # Only check if we're in ChampSelect
@@ -188,7 +202,7 @@ class LCUMonitorThread(threading.Thread):
                 
                 # Only update if not already set (avoid duplicate processing)
                 if self.state.locked_champ_id != locked_champ_id:
-                    champ_name = self.db.champ_name_by_id.get(locked_champ_id) if self.db else f"champ_{locked_champ_id}"
+                    champ_name = f"champ_{locked_champ_id}"  # Use ID since we don't have database
                     
                     log_status(log, "Initial state: Champion already locked", f"{champ_name} (ID: {locked_champ_id})", "✅")
                     
@@ -203,12 +217,7 @@ class LCUMonitorThread(threading.Thread):
                         except Exception as e:
                             log.debug(f"[init-state] Failed to scrape champion skins: {e}")
                     
-                    # Load English skin names for this champion from Data Dragon
-                    if self.db:
-                        try:
-                            self.db.load_champion_skins_by_id(locked_champ_id)
-                        except Exception as e:
-                            log.debug(f"[init-state] Failed to load English skin names: {e}")
+                    # English skin names are now loaded by LCU skin scraper
                     
                     # Notify injection manager of champion lock
                     if self.injection_manager:
@@ -217,7 +226,17 @@ class LCUMonitorThread(threading.Thread):
                         except Exception as e:
                             log.debug(f"[init-state] Failed to notify injection manager: {e}")
                     
-                    log.info(f"[init-state] OCR will start after app initialization (champion: {champ_name})")
+                    # Create ClickCatchers on champion lock (when not in Swiftplay)
+                    from ui.user_interface import get_user_interface
+                    user_interface = get_user_interface(self.state, self.skin_scraper)
+                    if user_interface:
+                        try:
+                            user_interface.create_click_catchers()
+                            log.debug(f"[init-state] Requested ClickCatcher creation for {champ_name}")
+                        except Exception as e:
+                            log.debug(f"[init-state] Failed to create ClickCatchers: {e}")
+                    
+                    log.info(f"[init-state] App will start after initialization (champion: {champ_name})")
         except Exception as e:
             log.debug(f"Error checking initial champion state: {e}")
     

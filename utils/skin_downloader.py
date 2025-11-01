@@ -5,14 +5,10 @@ Skin Downloader
 Automatically downloads skins from the GitHub repository
 """
 
-import os
-import json
 import time
 import requests
-import zipfile
 from pathlib import Path
 from typing import List, Dict, Optional
-from urllib.parse import urljoin, urlparse
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 from config import (
@@ -254,63 +250,17 @@ class SkinDownloader:
 
 def download_skins_on_startup(target_dir: Path = None, force_update: bool = False, 
                             max_champions: Optional[int] = None, tray_manager=None, injection_manager=None) -> bool:
-    """Convenience function to download skins at startup - tries multiple methods"""
+    """Download skins using repository ZIP download (most efficient method)"""
     try:
         # Note: Tray status is now managed by AppStatus class in main.py
         # This function just downloads and returns success/failure
         
-        # Method 1: Try repository ZIP download (most efficient)
-        try:
-            from utils.repo_downloader import download_skins_from_repo
-            log.info("Using repository ZIP downloader (most efficient)...")
-            result = download_skins_from_repo(target_dir, force_update, tray_manager)
-            if injection_manager:
-                injection_manager.initialize_when_ready()
-            return result
-        except ImportError:
-            log.debug("Repository downloader not available")
-        
-        # Method 2: Try smart downloader (with proper rate limiting)
-        try:
-            from utils.smart_skin_downloader import download_skins_smart
-            log.info("Using smart skin downloader with rate limiting...")
-            result = download_skins_smart(target_dir, force_update, max_champions, tray_manager)
-            if injection_manager:
-                injection_manager.initialize_when_ready()
-            return result
-        except ImportError:
-            log.debug("Smart downloader not available")
-        
-        # Method 3: Fallback to original downloader
-        log.warning("Using basic downloader (may hit rate limits)")
-        downloader = SkinDownloader(target_dir)
-        
-        # Get current detailed stats
-        current_detailed = downloader.get_detailed_stats()
-        
-        if current_detailed['total_ids'] > 0:
-            log.info(f"Found {current_detailed['total_skins']} base skins + "
-                    f"{current_detailed['total_chromas']} chromas = "
-                    f"{current_detailed['total_ids']} total skin IDs")
-        
-        # Download skins
-        results = downloader.download_all_skins(force_update, max_champions)
-        
-        # Report final results with detailed stats
-        final_detailed = downloader.get_detailed_stats()
-        new_ids = final_detailed['total_ids'] - current_detailed['total_ids']
-        
-        if new_ids > 0:
-            log.info(f"Downloaded {new_ids} new skin IDs")
-            log.info(f"Final totals: {final_detailed['total_skins']} base skins + "
-                    f"{final_detailed['total_chromas']} chromas = "
-                    f"{final_detailed['total_ids']} total skin IDs")
-        else:
-            log.info("No new skins to download")
-        
+        from utils.repo_downloader import download_skins_from_repo
+        log.info("Downloading skins from repository ZIP...")
+        result = download_skins_from_repo(target_dir, force_update, tray_manager)
         if injection_manager:
             injection_manager.initialize_when_ready()
-        return True
+        return result
         
     except Exception as e:
         log.error(f"Failed to download skins: {e}")

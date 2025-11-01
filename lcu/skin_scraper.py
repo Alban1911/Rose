@@ -4,7 +4,6 @@
 LCU Skin Scraper - Scrape skins for a specific champion from LCU
 """
 
-import requests
 from typing import Optional, Dict, List, Tuple
 from utils.logging import get_logger
 from config import LCU_SKIN_SCRAPER_TIMEOUT_S, SKIN_NAME_MIN_SIMILARITY
@@ -22,7 +21,7 @@ class ChampionSkinCache:
         self.skin_id_map = {}  # skinId -> skin data
         self.skin_name_map = {}  # skinName -> skin data
         self.chroma_id_map = {}  # chromaId -> chroma data (for quick lookup)
-        self.chroma_variant_names = {}  # chromaId -> variant name from CDragon
+        # No longer using external data sources - LCU provides all needed data
     
     def clear(self):
         """Clear the cache"""
@@ -32,11 +31,11 @@ class ChampionSkinCache:
         self.skin_id_map = {}
         self.skin_name_map = {}
         self.chroma_id_map = {}
-        self.chroma_variant_names = {}
+        # No longer using external data sources
     
     def is_loaded_for_champion(self, champion_id: int) -> bool:
         """Check if cache is loaded for a specific champion"""
-        return self.champion_id == champion_id and len(self.skins) > 0
+        return self.champion_id == champion_id and bool(self.skins)
     
     def get_skin_by_id(self, skin_id: int) -> Optional[Dict]:
         """Get skin data by skin ID"""
@@ -64,56 +63,7 @@ class LCUSkinScraper:
         self.lcu = lcu_client
         self.cache = ChampionSkinCache()
     
-    def fetch_all_chroma_names_from_cdragon(self, champion_id: int) -> Dict[int, str]:
-        """Fetch ALL chroma names for a champion in one API call
-        
-        Args:
-            champion_id: Champion ID
-            
-        Returns:
-            Dict mapping chroma_id -> variant_name (e.g. {86015: "Amethyst"})
-        """
-        try:
-            # CommunityDragon champion endpoint - gets ALL skins and chromas at once
-            url = f"https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champions/{champion_id}.json"
-            response = requests.get(url, timeout=LCU_SKIN_SCRAPER_TIMEOUT_S)
-            
-            if response.status_code != 200:
-                return {}
-            
-            data = response.json()
-            chroma_name_map = {}
-            
-            # Parse all skins and their chromas
-            for skin in data.get('skins', []):
-                skin_name = skin.get('name', 'Unknown')
-                for chroma in skin.get('chromas', []):
-                    chroma_id = chroma.get('id')
-                    full_name = chroma.get('name')
-                    
-                    if chroma_id and full_name:
-                        # Extract last word as variant name
-                        variant_name = full_name.split()[-1]
-                        chroma_name_map[chroma_id] = variant_name
-                        
-                        # Debug: Log if variant name is same as champion name (likely missing variant)
-                        if variant_name == data.get('name', ''):
-                            log.debug(f"[CDragon] {chroma_id} ({skin_name}): full='{full_name}' -> variant='{variant_name}' (SAME AS CHAMP)")
-            
-            if chroma_name_map:
-                log.info(f"[CDragon] Fetched {len(chroma_name_map)} chroma names for champion {champion_id}")
-                # Log a few samples
-                sample_ids = list(chroma_name_map.keys())[:3]
-                for cid in sample_ids:
-                    log.debug(f"[CDragon] Sample: {cid} -> '{chroma_name_map[cid]}'")
-            else:
-                log.warning(f"[CDragon] No chroma names found for champion {champion_id}")
-            
-            return chroma_name_map
-            
-        except Exception as e:
-            log.debug(f"[CDragon] Failed to fetch chroma names for champion {champion_id}: {e}")
-            return {}
+    # No longer fetching external data - LCU provides all needed information
     
     def scrape_champion_skins(self, champion_id: int, force_refresh: bool = False) -> bool:
         """Scrape all skins for a specific champion from LCU
@@ -161,15 +111,20 @@ class LCUSkinScraper:
         self.cache.champion_id = champion_id
         self.cache.champion_name = champ_data.get('name', f'Champion{champion_id}')
         
+        # Using only LCU data - no external sources needed
+        
         # Extract skins
         raw_skins = champ_data.get('skins', [])
         
         for skin in raw_skins:
             skin_id = skin.get('id')
-            skin_name = skin.get('name', '')
+            localized_skin_name = skin.get('name', '')
             
-            if skin_id is None or not skin_name:
+            if skin_id is None or not localized_skin_name:
                 continue
+            
+            # Use localized skin name directly from LCU
+            english_skin_name = localized_skin_name
             
             # Extract detailed chroma information
             raw_chromas = skin.get('chromas', [])
@@ -177,10 +132,13 @@ class LCUSkinScraper:
             
             for chroma in raw_chromas:
                 chroma_id = chroma.get('id')
-                chroma_name = chroma.get('name', '')
+                localized_chroma_name = chroma.get('name', '')
                 
                 if chroma_id is None:
                     continue
+                
+                # Use localized chroma name directly from LCU
+                chroma_name = localized_chroma_name
                 
                 # Extract color palette from chroma
                 colors = chroma.get('colors', [])
@@ -200,7 +158,7 @@ class LCUSkinScraper:
             skin_data = {
                 'skinId': skin_id,
                 'championId': champion_id,
-                'skinName': skin_name,
+                'skinName': english_skin_name,  # Use English skin name
                 'isBase': skin.get('isBase', False),
                 'chromas': len(raw_chromas),
                 'chromaDetails': chroma_details,  # Full chroma data
@@ -209,7 +167,7 @@ class LCUSkinScraper:
             
             self.cache.skins.append(skin_data)
             self.cache.skin_id_map[skin_id] = skin_data
-            self.cache.skin_name_map[skin_name] = skin_data
+            self.cache.skin_name_map[english_skin_name] = skin_data
         
         log.info(f"[LCU-SCRAPER] ✓ Scraped {len(self.cache.skins)} skins for {self.cache.champion_name} (ID: {champion_id})")
         
@@ -221,11 +179,13 @@ class LCUSkinScraper:
         
         return True
     
+    # No longer converting to English - using LCU localized names directly
+    
     def find_skin_by_text(self, text: str, use_levenshtein: bool = True) -> Optional[Tuple[int, str, float]]:
-        """Find best matching skin by OCR text using Levenshtein distance
+        """Find best matching skin by text using Levenshtein distance
         
         Args:
-            text: OCR text to match
+            text: Text to match
             use_levenshtein: If True, use Levenshtein distance for fuzzy matching
             
         Returns:
@@ -312,14 +272,5 @@ class LCUSkinScraper:
         """
         return self.cache.chroma_id_map.get(chroma_id)
     
-    def get_chroma_variant_name(self, chroma_id: int) -> Optional[str]:
-        """Get chroma variant name from cached CommunityDragon data
-        
-        Args:
-            chroma_id: Chroma ID to look up
-            
-        Returns:
-            Variant name (e.g. "Amethyst", "Ruby") or None
-        """
-        return self.cache.chroma_variant_names.get(chroma_id)
+    # No longer using external data for chroma names
 

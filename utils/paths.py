@@ -95,7 +95,7 @@ def get_asset_path(asset_name: str) -> Path:
     Works in both development and frozen (PyInstaller) environments.
     
     Args:
-        asset_name: Name of the asset file (e.g., "champ-select-flyout-background.jpg")
+        asset_name: Name of the asset file (e.g., "champ-select-flyout-background-sr.jpg")
         
     Returns:
         Path to the asset file
@@ -114,6 +114,33 @@ def get_asset_path(asset_name: str) -> Path:
         # Running as script
         app_dir = get_app_dir()
         return app_dir / "assets" / asset_name
+
+
+def get_icon_path(icon_name: str) -> Path:
+    """
+    Get the path to an icon file in the icons directory.
+    Works in both development and frozen (PyInstaller) environments.
+    
+    Args:
+        icon_name: Name of the icon file (e.g., "tray_locked.png")
+        
+    Returns:
+        Path to the icon file
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable
+        # PyInstaller extracts data files to _MEIPASS (onefile) or _internal (onedir)
+        if hasattr(sys, '_MEIPASS'):
+            # One-file mode: use _MEIPASS
+            base_path = Path(sys._MEIPASS)
+        else:
+            # One-dir mode: use _internal folder
+            base_path = Path(sys.executable).parent / "_internal"
+        return base_path / "icons" / icon_name
+    else:
+        # Running as script
+        app_dir = get_app_dir()
+        return app_dir / "icons" / icon_name
 
 
 def ensure_write_permissions(path: Path) -> bool:

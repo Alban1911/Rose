@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
 PyInstaller spec file for LeagueUnlocked
-Builds a standalone executable with EasyOCR support
+Builds a standalone executable with Windows UI API support
 """
 
 import sys
@@ -15,7 +15,7 @@ datas = []
 
 # Assets folder - verify and add entire directory
 import os
-if os.path.exists('assets') and os.path.isdir('assets'):
+if Path('assets').exists() and Path('assets').is_dir():
     asset_files = os.listdir('assets')
     if asset_files:
         # Add entire assets folder (preserves directory structure)
@@ -27,7 +27,7 @@ else:
     print("[WARNING] Assets directory not found")
 
 # Verify and add icons directory
-if os.path.exists('icons') and os.path.isdir('icons'):
+if Path('icons').exists() and Path('icons').is_dir():
     icon_dir_files = os.listdir('icons')
     if icon_dir_files:
         datas += [('icons', 'icons')]
@@ -60,7 +60,7 @@ injection_data_files = [
 binaries = []
 missing_binaries = []
 for tool in injection_binaries:
-    if os.path.exists(tool):
+    if Path(tool).exists():
         binaries.append((tool, 'injection/tools'))
     else:
         missing_binaries.append(tool)
@@ -75,7 +75,7 @@ else:
 # Verify and add injection data files
 missing_data = []
 for tool in injection_data_files:
-    if os.path.exists(tool):
+    if Path(tool).exists():
         datas += [(tool, 'injection/tools')]
     else:
         missing_data.append(tool)
@@ -88,32 +88,16 @@ else:
     print(f"[OK] All {len(injection_data_files)} injection data files found")
 
 # Add mods_map.json
-if os.path.exists('injection/mods_map.json'):
+if Path('injection/mods_map.json').exists():
     datas += [('injection/mods_map.json', 'injection')]
 else:
     print("[WARNING] injection/mods_map.json not found")
 
-# Collect EasyOCR data files (character files, configs, etc.)
-try:
-    easyocr_datas = collect_data_files('easyocr')
-    datas += easyocr_datas
-    print(f"[OK] Collected {len(easyocr_datas)} EasyOCR data files")
-except Exception as e:
-    print(f"Warning: Could not collect EasyOCR data files: {e}")
-
-# Collect PyTorch data files
-try:
-    torch_datas = collect_data_files('torch')
-    datas += torch_datas
-    print(f"[OK] Collected {len(torch_datas)} PyTorch data files")
-except Exception as e:
-    print(f"Warning: Could not collect PyTorch data files: {e}")
+# uiautomation removed - using custom uia module instead
 
 # Hidden imports - modules PyInstaller might not detect
 hiddenimports = [
     # Core app modules
-    'database',
-    'database.name_db',
     'injection',
     'injection.injector',
     'injection.manager',
@@ -122,9 +106,6 @@ hiddenimports = [
     'lcu.skin_scraper',
     'lcu.types',
     'lcu.utils',
-    'ocr',
-    'ocr.backend',
-    'ocr.image_processing',
     'state',
     'state.app_status',
     'state.shared_state',
@@ -132,56 +113,47 @@ hiddenimports = [
     'threads.champ_thread',
     'threads.lcu_monitor_thread',
     'threads.loadout_ticker',
-    'threads.ocr_thread',
     'threads.phase_thread',
     'threads.websocket_thread',
     'utils',
     'utils.admin_utils',
-    'utils.chroma_base',
-    'utils.chroma_button',
-    'utils.chroma_click_catcher',
-    'utils.chroma_panel',
-    'utils.chroma_panel_widget',
-    'utils.chroma_preview_manager',
-    'utils.chroma_scaling',
-    'utils.chroma_selector',
-    'utils.config_hot_reload',
+    'ui.chroma_base',
+    'ui.chroma_button',
+    'ui.chroma_click_catcher',
+    'ui.click_blocker',
+    'ui.click_catcher',
+    'ui.click_catcher_hide',
+    'ui.click_catcher_show',
+    'ui.chroma_panel',
+    'ui.chroma_panel_widget',
+    'ui.chroma_preview_manager',
+    'ui.chroma_scaling',
+    'ui.chroma_selector',
+    'ui.chroma_ui',
+    'ui.dice_button',
+    'ui.random_flag',
+    'ui.historic_flag',
+    'ui.unowned_frame',
+    'ui.user_interface',
+    'ui.z_order_manager',
+    'uia',
+    'uia.connection',
+    'uia.debug',
+    'uia.detector',
+    'uia.ui_thread',
     'utils.license_client',
     'utils.logging',
     'utils.normalization',
     'utils.paths',
-    'utils.preview_repo_downloader',
     'utils.repo_downloader',
     'utils.skin_downloader',
     'utils.smart_skin_downloader',
     'utils.thread_manager',
     'utils.tray_manager',
+    'utils.utilities',
+    'utils.historic',
     'utils.validation',
     'utils.window_utils',
-    
-    # EasyOCR and all its submodules
-    'easyocr',
-    'easyocr.config',
-    'easyocr.craft',
-    'easyocr.craft_utils',
-    'easyocr.detection',
-    'easyocr.detection_db',
-    'easyocr.easyocr',
-    'easyocr.recognition',
-    'easyocr.utils',
-    'easyocr.imgproc',
-    'easyocr.model',
-    'easyocr.model.model',
-    'easyocr.model.modules',
-    'easyocr.model.vgg_model',
-    
-    # PyTorch
-    'torch',
-    'torch._C',
-    'torch.nn',
-    'torch.nn.functional',
-    'torchvision',
-    'torchvision.models',
     
     # PyQt6
     'PyQt6',
@@ -189,18 +161,11 @@ hiddenimports = [
     'PyQt6.QtGui',
     'PyQt6.QtWidgets',
     
-    # Computer vision
-    'cv2',
+    # Image processing (PIL only)
     'PIL',
     'PIL.Image',
     'PIL.ImageDraw',
     'PIL.ImageFont',
-    
-    # Scientific computing
-    'numpy',
-    'scipy',
-    'scipy.ndimage',
-    'scipy.stats',
     
     # Networking
     'requests',
@@ -217,22 +182,8 @@ hiddenimports = [
     
     # Other dependencies
     'psutil',
-    'yaml',
-    'packaging',
+    'pywinauto',
 ]
-
-# Collect all submodules for complex packages
-try:
-    hiddenimports += collect_submodules('easyocr')
-    print("[OK] Collected EasyOCR submodules")
-except Exception as e:
-    print(f"Warning: Could not collect EasyOCR submodules: {e}")
-
-try:
-    hiddenimports += collect_submodules('torch')
-    print("[OK] Collected PyTorch submodules")
-except Exception as e:
-    print(f"Warning: Could not collect PyTorch submodules: {e}")
 
 # Exclusions - modules we don't need (reduces size and build time)
 excludes = [
@@ -246,6 +197,14 @@ excludes = [
     'PyQt5',  # Exclude PyQt5 to avoid conflict with PyQt6
     'PySide2',
     'PySide6',
+    # Exclude removed packages
+    'easyocr',
+    'torch',
+    'torchvision',
+    'cv2',
+    'numpy',
+    'scipy',
+    'mss',
     # Exclude heavy data science packages we don't use
     'pandas',
     'pyarrow',

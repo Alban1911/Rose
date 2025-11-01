@@ -4,6 +4,7 @@
 Main entry point for the modularized LeagueUnlocked
 """
 
+# Standard library imports
 import argparse
 import atexit
 import contextlib
@@ -11,16 +12,29 @@ import ctypes
 import io
 import logging
 import os
-import shutil
 import signal
 import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-# Import constants early - needed for Windows setup
+# Local imports - constants first (needed for Windows setup)
 from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S
+
+if TYPE_CHECKING:
+    from lcu.client import LCU
+    from lcu.skin_scraper import LCUSkinScraper
+    from state.shared_state import SharedState
+    from state.app_status import AppStatus
+    from threads.phase_thread import PhaseThread
+    from threads.champ_thread import ChampThread
+    from uia import UISkinThread
+    from threads.websocket_thread import WSEventThread
+    from threads.lcu_monitor_thread import LCUMonitorThread
+    from utils.tray_manager import TrayManager
+    from ui.user_interface import UserInterface
+    from injection.manager import InjectionManager
 
 
 # Fix for windowed mode - allocate console to prevent blocking operations
@@ -156,25 +170,50 @@ if sys.platform == "win32":
     
     _console_thread = threading.Thread(target=_console_buffer_manager, daemon=True, name="ConsoleBufferManager")
     _console_thread.start()
-from ocr.backend import OCR
-from database.name_db import NameDB
+# Local imports - core modules
 from lcu.client import LCU
 from lcu.skin_scraper import LCUSkinScraper
 from state.shared_state import SharedState
 from state.app_status import AppStatus
 from threads.phase_thread import PhaseThread
 from threads.champ_thread import ChampThread
-from threads.ocr_thread import OCRSkinThread
+from uia import UISkinThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
+
+# Local imports - utilities
 from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
-from injection.manager import InjectionManager
 from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
-from utils.chroma_selector import init_chroma_selector
 from utils.thread_manager import ThreadManager, create_daemon_thread
 from utils.license_client import LicenseClient
-from config import *  # Import all other constants
+
+# Local imports - UI and injection
+from ui.user_interface import get_user_interface
+from injection.manager import InjectionManager
+
+# Local imports - configuration
+from config import (
+    DEFAULT_DD_LANG,
+    DEFAULT_VERBOSE,
+    PHASE_HZ_DEFAULT,
+    WS_PING_INTERVAL_DEFAULT,
+    TIMER_HZ_DEFAULT,
+    FALLBACK_LOADOUT_MS_DEFAULT,
+    SKIN_THRESHOLD_MS_DEFAULT,
+    DEFAULT_DOWNLOAD_SKINS,
+    DEFAULT_FORCE_UPDATE_SKINS,
+    TRAY_INIT_SLEEP_S,
+    MAIN_LOOP_FORCE_QUIT_TIMEOUT_S,
+    PHASE_POLL_INTERVAL_DEFAULT,
+    WS_PING_TIMEOUT_DEFAULT,
+    CHROMA_PANEL_PROCESSING_THRESHOLD_S,
+    QT_EVENT_PROCESSING_THRESHOLD_S,
+    MAIN_LOOP_SLEEP,
+    THREAD_JOIN_TIMEOUT_S,
+    THREAD_FORCE_EXIT_TIMEOUT_S,
+    MAIN_LOOP_STALL_THRESHOLD_S,
+)
 
 class AppState:
     """Application state to replace global variables"""
@@ -214,8 +253,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 # Set Qt environment variables BEFORE anything else
 os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
-# Tell Qt to not print DPI warnings
-os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false'
+# Tell Qt to not print DPI warnings and suppress QWindowsContext COM errors
+os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false;qt.qpa.windows.debug=false'
 
 # Import PyQt6 for chroma wheel
 PYQT6_AVAILABLE = False
@@ -223,19 +262,19 @@ QApplication = None
 QTimer = None
 Qt = None
 
+# Third-party imports - PyQt6
 try:
     # Set Qt plugin path for frozen executables BEFORE import
     if getattr(sys, 'frozen', False):
-        import os
         # Try multiple possible plugin paths
         possible_paths = [
-            os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt6", "plugins"),
-            os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt", "plugins"),
-            os.path.join(os.path.dirname(sys.executable), "qt6", "plugins"),
+            Path(sys.executable).parent / "PyQt6" / "Qt6" / "plugins",
+            Path(sys.executable).parent / "PyQt6" / "Qt" / "plugins",
+            Path(sys.executable).parent / "qt6" / "plugins",
         ]
         for path in possible_paths:
-            if os.path.exists(path):
-                os.environ['QT_PLUGIN_PATH'] = path
+            if path.exists():
+                os.environ['QT_PLUGIN_PATH'] = str(path)
                 break
     
     # Suppress Qt DPI warnings during import
@@ -484,20 +523,8 @@ def check_license():
     """Check and validate license on startup"""
     print("[LICENSE] Starting license check...")
     
-    # Public key for RSA signature verification
-    # IMPORTANT: Generate your RSA key pair with: python admin/generate_rsa_keys.py
-    # Keep the PRIVATE key on your license server (signs licenses)
-    # Embed the PUBLIC key here (verifies signatures - safe to distribute)
-    PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyj7erheikXvLYHdFwaXe
-Wb4qgKV905LY9HIkyktUhV4Ug4eqyGFLdr08AngYWOt+QzQh99i5g4yc0YUIaciV
-visAZ73iIkFSIKiYPAVGGMNpPq1MSUuwbFrzkxGYELcxPBbT7t4vogqHMcRohDkH
-1NGtj/usR9jpz9nz7sFvBp3a1eWzHfQKBuFDxqgxCvSncVDurpAmkUnpo8G2Ub0q
-/erYDNcwBBsnsAlOcRHv1KJHEglT88Dk4/kHA8Hy+VAEd0MX2MrzR16+Byg0FiKL
-fieNg1P+o4K9h+uGootvciDlJzEcRUAqCSbjEs8vghtxGs3HI4E0ApP102UqEail
-KwIDAQAB
------END PUBLIC KEY-----"""
-    # TODO: Replace with your actual public key from generate_rsa_keys.py
+    # Load public key used for RSA verification and log encryption
+    from utils.public_key import PUBLIC_KEY
     
     print("[LICENSE] Initializing license client...")
     # Initialize license client
@@ -560,8 +587,10 @@ KwIDAQAB
                             f"Success!\n\n{activation_message}\n\nLeagueUnlocked will now start."
                         )
                         root.destroy()
-                    except:
+                    except (ImportError, AttributeError, RuntimeError) as e:
+                        # Fallback to console output if tkinter fails
                         print(f"License activated: {activation_message}")
+                        log.debug(f"Tkinter dialog failed: {e}")
                 
                 # Update valid status and message
                 valid = True
@@ -603,62 +632,13 @@ KwIDAQAB
     return True
 
 
-def get_ocr_language(lcu_lang: str, manual_lang: str = None) -> str:
-    """Get OCR language based on LCU language or manual setting"""
-    if manual_lang and manual_lang != "auto":
-        return manual_lang
-    
-    return OCR_LANG_MAP.get(lcu_lang, "eng")  # Default to English
-
-
-def validate_ocr_language(lang: str) -> bool:
-    """Validate that OCR language is available for EasyOCR
-    
-    Note: EasyOCR will automatically download models for supported languages,
-    so we just check if the language code is valid.
-    """
-    if not lang or lang == "auto":
-        return True
-    
-    # EasyOCR supported languages (through our mapping in backend.py)
-    supported_langs = [
-        "eng", "rus", "kor", "chi_sim", "chi_tra", "jpn", "ara",
-        "fra", "deu", "spa", "por", "ita", "pol", "ron", "hun",
-        "tur", "tha", "vie", "ell"
-    ]
-    
-    # Check if all parts of combined languages are supported
-    parts = lang.split('+')
-    for part in parts:
-        if part not in supported_langs:
-            return False
-    
-    return True
 
 
 def setup_arguments() -> argparse.Namespace:
     """Parse and return command line arguments"""
     ap = argparse.ArgumentParser(
-        description="Combined LCU + OCR Tracer (ChampSelect) — ROI lock + burst OCR + locks/timer fixes"
+        description="LeagueUnlocked - Windows UI API skin detection"
     )
-    
-    # OCR arguments
-    ap.add_argument("--tessdata", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
-    ap.add_argument("--psm", type=int, default=DEFAULT_TESSERACT_PSM, 
-                   help="[DEPRECATED] Not used with EasyOCR (kept for compatibility)")
-    ap.add_argument("--min-conf", type=float, default=OCR_MIN_CONFIDENCE_DEFAULT)
-    ap.add_argument("--lang", type=str, default=DEFAULT_OCR_LANG, 
-                   help="OCR lang (EasyOCR): 'auto', 'fra', 'kor', 'chi_sim', 'ell', etc.")
-    ap.add_argument("--tesseract-exe", type=str, default=None, help="[DEPRECATED] Not used with EasyOCR")
-    ap.add_argument("--debug-ocr", action="store_true", default=DEFAULT_DEBUG_OCR, 
-                   help="Save OCR images to debug folder")
-    ap.add_argument("--no-debug-ocr", action="store_false", dest="debug_ocr", 
-                   help="Disable OCR debug image saving")
-    
-    # Capture arguments
-    ap.add_argument("--capture", choices=["window", "screen"], default=DEFAULT_CAPTURE_MODE)
-    ap.add_argument("--monitor", choices=["all", "primary"], default=DEFAULT_MONITOR)
-    ap.add_argument("--window-hint", type=str, default=DEFAULT_WINDOW_HINT)
     
     # Database arguments
     ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, 
@@ -671,15 +651,6 @@ def setup_arguments() -> argparse.Namespace:
                    help="Enable ultra-detailed debug logging (includes function traces and variable dumps)")
     ap.add_argument("--lockfile", type=str, default=None)
     
-    # OCR performance arguments
-    ap.add_argument("--burst-hz", type=float, default=OCR_BURST_HZ_DEFAULT)
-    ap.add_argument("--idle-hz", type=float, default=OCR_IDLE_HZ_DEFAULT, 
-                   help="periodic re-emission (0=off)")
-    ap.add_argument("--diff-threshold", type=float, default=OCR_DIFF_THRESHOLD_DEFAULT)
-    ap.add_argument("--burst-ms", type=int, default=OCR_BURST_MS_DEFAULT)
-    ap.add_argument("--min-ocr-interval", type=float, default=OCR_MIN_INTERVAL)
-    ap.add_argument("--second-shot-ms", type=int, default=OCR_SECOND_SHOT_MS_DEFAULT)
-    ap.add_argument("--roi-lock-s", type=float, default=OCR_ROI_LOCK_DURATION)
     
     # Threading arguments
     ap.add_argument("--phase-hz", type=float, default=PHASE_HZ_DEFAULT)
@@ -695,13 +666,6 @@ def setup_arguments() -> argparse.Namespace:
     ap.add_argument("--inject-batch", type=str, default="", 
                    help="Batch to execute right after skin write (leave empty to disable)")
     
-    # Multi-language arguments (DEPRECATED - now using LCU scraper)
-    ap.add_argument("--multilang", action="store_true", default=False, 
-                   help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
-    ap.add_argument("--no-multilang", action="store_false", dest="multilang", 
-                   help="[DEPRECATED] Multi-language support now automatic via LCU scraper")
-    ap.add_argument("--language", type=str, default=DEFAULT_OCR_LANG, 
-                   help="[DEPRECATED] Language is now auto-detected from LCU")
     
     # Skin download arguments
     ap.add_argument("--download-skins", action="store_true", default=DEFAULT_DOWNLOAD_SKINS, 
@@ -713,16 +677,12 @@ def setup_arguments() -> argparse.Namespace:
     ap.add_argument("--max-champions", type=int, default=None, 
                    help="Limit number of champions to download skins for (for testing)")
     
-    # Log management arguments
-    ap.add_argument("--log-max-files", type=int, default=LOG_MAX_FILES_DEFAULT, 
-                   help=f"Maximum number of log files to keep (default: {LOG_MAX_FILES_DEFAULT})")
-    ap.add_argument("--log-max-total-size-mb", type=int, default=LOG_MAX_TOTAL_SIZE_MB_DEFAULT, 
-                   help=f"Maximum total size of all log files in MB (default: {LOG_MAX_TOTAL_SIZE_MB_DEFAULT}MB)")
+    # Log management arguments (none - retention managed by age in utils.logging)
     
     # Development arguments
     ap.add_argument("--dev", action="store_true", default=False,
                    help="Development mode - disable log sanitization (shows full paths, ports, PIDs)")
-
+    
     return ap.parse_args()
 
 
@@ -730,7 +690,24 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     """Setup logging and clean up old logs and debug folders"""
     # Clean up old log files on startup
     from utils.logging import cleanup_logs
-    cleanup_logs(max_files=args.log_max_files, max_total_size_mb=args.log_max_total_size_mb)
+    cleanup_logs()
+    
+    # Check if running as frozen executable (PyInstaller)
+    is_frozen = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+    
+    # Force production mode in frozen builds (disable dev/verbose/debug)
+    if is_frozen:
+        original_dev = args.dev
+        original_verbose = args.verbose
+        original_debug = args.debug
+        
+        args.dev = False
+        args.verbose = False
+        args.debug = False
+        
+        # Log if flags were overridden
+        if original_dev or original_verbose or original_debug:
+            print("[WARNING] Development flags disabled in frozen build (--dev, --verbose, --debug ignored)")
     
     # Determine log mode based on flags
     if args.debug:
@@ -761,19 +738,9 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
         # Detailed startup for verbose/debug
         log_section(log, "LeagueUnlocked Starting", "🚀", {
             "Verbose Mode": "Enabled" if args.verbose else "Disabled",
-            "Download Skins": "Enabled" if args.download_skins else "Disabled",
-            "OCR Debug": "Enabled" if args.debug_ocr else "Disabled"
+            "Download Skins": "Enabled" if args.download_skins else "Disabled"
         })
     
-    # Clean up OCR debug folder on startup (only if debug mode is enabled)
-    if args.debug_ocr:
-        ocr_debug_dir = Path(__file__).resolve().parent / "ocr_debug"
-        if ocr_debug_dir.exists():
-            try:
-                shutil.rmtree(ocr_debug_dir)
-                log_success(log, f"Cleared OCR debug folder: {ocr_debug_dir}", "🧹")
-            except (OSError, PermissionError) as e:
-                log.warning(f"Failed to clear OCR debug folder: {e}")
 
 
 def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
@@ -800,7 +767,7 @@ def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
         return None
 
 
-def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optional[AppStatus] = None):
+def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_status: Optional[AppStatus] = None, lcu=None):
     """Initialize PyQt6 and chroma selector"""
     qt_app = None
     chroma_selector = None
@@ -819,9 +786,9 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optio
             # Set Qt platform plugin path explicitly for frozen executables
             if getattr(sys, 'frozen', False):
                 import os
-                qt_plugin_path = os.path.join(os.path.dirname(sys.executable), "PyQt6", "Qt6", "plugins")
-                if os.path.exists(qt_plugin_path):
-                    os.environ['QT_PLUGIN_PATH'] = qt_plugin_path
+                qt_plugin_path = Path(sys.executable).parent / "PyQt6" / "Qt6" / "plugins"
+                if qt_plugin_path.exists():
+                    os.environ['QT_PLUGIN_PATH'] = str(qt_plugin_path)
                     log.debug(f"Set QT_PLUGIN_PATH: {qt_plugin_path}")
             
             try:
@@ -836,21 +803,8 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, app_status: Optio
             qt_app = existing_app
             log_success(log, "Using existing QApplication instance for chroma panel", "🎨")
         
-        # Initialize chroma selector (widgets will be created on champion lock)
-        try:
-            log.debug("Initializing chroma selector...")
-            chroma_selector = init_chroma_selector(skin_scraper, state)
-            log_success(log, "Chroma selector initialized (panel widgets will be created on champion lock)", "🌈")
-            
-            # Update app status
-            if app_status:
-                app_status.mark_chroma_initialized()
-        except Exception as e:
-            log.warning(f"Failed to initialize chroma panel: {e}")
-            log.warning("Chroma selection will be disabled, but app will continue")
-            import traceback
-            log.debug(f"Chroma init traceback: {traceback.format_exc()}")
-            chroma_selector = None
+        # UI will be initialized when entering ChampSelect phase
+        chroma_selector = None
             
     except Exception as e:
         log.warning(f"Failed to initialize PyQt6: {e}")
@@ -891,13 +845,14 @@ def main():
     log_success(log, "App status manager initialized", "📊")
     
     # Check initial status (will show locked until all components are ready)
-    app_status.update_status()
+    app_status.update_status(force=True)
     
     # Initialize core components with error handling
     try:
         log.info("Initializing LCU client...")
         lcu = LCU(args.lockfile)
         log.info("✓ LCU client initialized")
+        
         
         log.info("Initializing skin scraper...")
         skin_scraper = LCUSkinScraper(lcu)
@@ -930,60 +885,32 @@ def main():
                 pass
         sys.exit(1)
     
-    # Initialize PyQt6 and chroma selector
+    # Database initialization no longer needed - LCU provides all skin and champion data
+    db = None
+
+    # Initialize PyQt6 (UI will be initialized when entering ChampSelect)
     try:
-        log.info("Initializing PyQt6 and chroma selector...")
-        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, app_status)
-        log.info("✓ PyQt6 and chroma selector initialized")
+        log.info("Initializing PyQt6...")
+        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status, lcu)
+        log.info("✓ PyQt6 initialized (UI will be created when entering ChampSelect)")
     except Exception as e:
         log.error("=" * 80)
-        log.error("ERROR DURING PYQT6/CHROMA INITIALIZATION")
+        log.error("ERROR DURING PYQT6 INITIALIZATION")
         log.error("=" * 80)
-        log.error(f"Failed to initialize PyQt6/chroma selector: {e}")
+        log.error(f"Failed to initialize PyQt6: {e}")
         log.error(f"Error type: {type(e).__name__}")
         import traceback
         log.error(f"Traceback:\n{traceback.format_exc()}")
         log.error("=" * 80)
-        log.warning("Continuing without chroma selector...")
+        log.warning("Continuing without PyQt6...")
         qt_app = None
         chroma_selector = None
     
-    # OCR will be initialized when WebSocket connects (for proper language detection)
-    ocr = None
-    
-    # Initialize database with error handling
-    try:
-        log.info("Initializing champion name database...")
-        db = NameDB(lang=args.dd_lang)
-        log.info("✓ Champion name database initialized")
-    except Exception as e:
-        log.error("=" * 80)
-        log.error("FATAL ERROR DURING DATABASE INITIALIZATION")
-        log.error("=" * 80)
-        log.error(f"Failed to initialize database: {e}")
-        log.error(f"Error type: {type(e).__name__}")
-        import traceback
-        log.error(f"Traceback:\n{traceback.format_exc()}")
-        log.error("=" * 80)
-        
-        # Show error message to user
-        if sys.platform == "win32":
-            try:
-                # ctypes already imported at top of file
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    f"LeagueUnlocked failed to initialize database:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
-                    "LeagueUnlocked - Database Error",
-                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                )
-            except Exception:
-                pass
-        sys.exit(1)
     
     # Initialize injection manager with database (lazy initialization)
     try:
         log.info("Initializing injection manager...")
-        injection_manager = InjectionManager(name_db=db)
+        injection_manager = InjectionManager()
         log.info("✓ Injection manager initialized")
     except Exception as e:
         log.error("=" * 80)
@@ -1027,18 +954,10 @@ def main():
                     injection_manager=injection_manager
                 )
                 
-                # Download preview images alongside skins
-                try:
-                    from utils.preview_repo_downloader import download_skin_previews
-                    log.info("Downloading skin preview images...")
-                    preview_success = download_skin_previews(force_update=args.force_update_skins)
-                    if preview_success:
-                        log.info("✓ Skin previews downloaded successfully")
-                    else:
-                        log.warning("⚠ Skin preview download had issues (will continue)")
-                except Exception as e:
-                    log.warning(f"Failed to download skin previews: {e}")
-                    log.warning("App will continue without preview images")
+                # Preview images are now included in the merged database
+                # Mark previews as downloaded since they're included with skins
+                if not app_status.check_previews_downloaded():
+                    app_status.mark_previews_downloaded()
                 
                 separator = "=" * 80
                 if success:
@@ -1046,15 +965,21 @@ def main():
                     log.info("✅ SKIN DOWNLOAD COMPLETED")
                     log.info("   📋 Status: Success")
                     log.info(separator)
-                    # Mark skins as downloaded in app status
-                    app_status.mark_skins_downloaded()
+                    # Only mark if not already detected
+                    if not app_status.check_skins_downloaded():
+                        app_status.mark_skins_downloaded()
+                    # Mark download process as complete
+                    app_status.mark_download_process_complete()
                 else:
                     log.info(separator)
                     log.info("⚠️ SKIN DOWNLOAD COMPLETED WITH ISSUES")
                     log.info("   📋 Status: Partial Success")
                     log.info(separator)
                     # Still mark as downloaded even with issues (files may still exist)
-                    app_status.mark_skins_downloaded()
+                    if not app_status.check_skins_downloaded():
+                        app_status.mark_skins_downloaded()
+                    # Mark download process as complete
+                    app_status.mark_download_process_complete()
             except Exception as e:
                 separator = "=" * 80
                 log.info(separator)
@@ -1062,7 +987,8 @@ def main():
                 log.error(f"   📋 Error: {e}")
                 log.info(separator)
                 # Check if skins exist anyway
-                app_status.mark_skins_downloaded()
+                if not app_status.check_skins_downloaded():
+                    app_status.mark_skins_downloaded()
         
         # Start skin download in a separate thread to avoid blocking
         skin_download_thread = create_daemon_thread(target=download_skins_background, 
@@ -1071,12 +997,15 @@ def main():
     else:
         log.info("Automatic skin download disabled")
         # Check if skins already exist
-        app_status.mark_skins_downloaded()
+        if not app_status.check_skins_downloaded():
+            app_status.mark_skins_downloaded()
+        # Mark download process as complete since it's disabled
+        app_status.mark_download_process_complete()
         # Initialize injection system immediately when download is disabled
         injection_manager.initialize_when_ready()
     
     # Multi-language support is no longer needed - we use LCU scraper + English DB
-    # Skin names are matched using: OCR (client lang) → LCU scraper → skinId → English DB
+    # Skin names are matched using: Windows UI API (client lang) → LCU scraper → skinId → English DB
     
     
     # Configure skin writing
@@ -1116,165 +1045,48 @@ def main():
         
         tray_manager.quit_callback = updated_tray_quit_callback
 
-    # Function to initialize OCR when WebSocket connects
-    def initialize_ocr_on_connect(lcu_lang: str):
-        """Initialize OCR when WebSocket connects with proper language detection"""
-        nonlocal ocr
-        
-        if ocr is not None:
-            log.info(f"OCR already initialized with language {ocr.lang}, skipping")
-            return
-        
-        try:
-            # Determine OCR language
-            if args.lang == "auto":
-                ocr_lang = get_ocr_language(lcu_lang, args.lang)
-                log.info(f"Initializing OCR with language: {lcu_lang} → {ocr_lang}")
-            else:
-                ocr_lang = args.lang
-                log.info(f"Initializing OCR with manual language: {ocr_lang}")
-            
-            # Validate OCR language
-            if not validate_ocr_language(ocr_lang):
-                log.warning(f"OCR language '{ocr_lang}' may not be available. Falling back to English.")
-                ocr_lang = "eng"
-            
-            # Initialize OCR with determined language (try GPU, fallback to CPU)
-            ocr = OCR(lang=ocr_lang, psm=args.psm, tesseract_exe=args.tesseract_exe, use_gpu=True, measure_time=True)
-            separator = "=" * 80
-            log.info(separator)
-            log.info(f"🤖 OCR INITIALIZED")
-            log.info(f"   📋 Backend: {ocr.backend}")
-            log.info(f"   📋 Language: {ocr_lang}")
-            log.info(f"   📋 Mode: {'GPU' if ocr.use_gpu else 'CPU'}")
-            log.info(f"   📋 Timing: {'Enabled' if ocr.measure_time else 'Disabled'}")
-            log.info(separator)
-            
-            # Update app status
-            if app_status:
-                app_status.mark_ocr_initialized(ocr)
-                
-            # Update OCR thread with the new OCR instance
-            if t_ocr:
-                t_ocr.ocr = ocr
-                log.info("OCR thread updated with new OCR instance")
-                
-        except Exception as e:
-            log.error(f"Failed to initialize OCR: {e}")
-            # Try fallback to English
-            try:
-                log.info("Attempting fallback to English OCR...")
-                ocr = OCR(lang="eng", psm=args.psm, tesseract_exe=args.tesseract_exe)
-                log.info(f"OCR: {ocr.backend} (lang: eng, mode: CPU)")
-                
-                if app_status:
-                    app_status.mark_ocr_initialized(ocr)
-                    
-                if t_ocr:
-                    t_ocr.ocr = ocr
-                    log.info("OCR thread updated with fallback OCR instance")
-                    
-            except Exception as fallback_e:
-                log.error(f"OCR initialization failed completely: {fallback_e}")
-                log.error("EasyOCR is not properly installed or configured.")
-                log.error("Install with: pip install easyocr torch torchvision")
-                # Don't exit, let the app continue without OCR
-    
     # Function to handle LCU disconnection
     def on_lcu_disconnected():
-        """Handle LCU disconnection - reset OCR status"""
-        nonlocal ocr
-        
-        # Mark OCR as uninitialized since we lost connection
-        ocr = None
-        
-        # Update app status to golden locked (chroma and skins still ready)
-        if app_status:
-            app_status._ocr_initialized = False
-            app_status.update_status()
-    
-    # Function to update OCR language dynamically (for reconnections/language changes)
-    def update_ocr_language(new_lcu_lang: str):
-        """Update OCR language when LCU language changes or reconnects"""
-        nonlocal ocr
-        
-        # Only update if OCR is already initialized (language change)
-        if ocr is None:
-            log.debug("OCR initialization handled by WebSocket, skipping LCU monitor initialization")
-            return
-            
-        if args.lang == "auto":
-            new_ocr_lang = get_ocr_language(new_lcu_lang, args.lang)
-            try:
-                # Validate that the new OCR language is available before updating
-                if validate_ocr_language(new_ocr_lang):
-                    # Only recreate OCR if language actually changed
-                    if new_ocr_lang != ocr.lang:
-                        separator = "=" * 80
-                        log.info(separator)
-                        log.info(f"🔄 OCR LANGUAGE CHANGE DETECTED")
-                        log.info(f"   📋 Previous Language: {ocr.lang}")
-                        log.info(f"   📋 New Language: {new_ocr_lang} (LCU: {new_lcu_lang})")
-                        log.info(separator)
-                        
-                        # Create new OCR instance with new language (try GPU, fallback to CPU)
-                        new_ocr = OCR(
-                            lang=new_ocr_lang,
-                            psm=args.psm,
-                            tesseract_exe=args.tesseract_exe,
-                            use_gpu=True,
-                            measure_time=True
-                        )
-                        
-                        # Update the global OCR reference
-                        ocr.__dict__.update(new_ocr.__dict__)
-                        
-                        # Update OCR thread
-                        if t_ocr:
-                            t_ocr.ocr = ocr
-                        
-                        log.info(separator)
-                        log.info(f"✅ OCR RELOADED SUCCESSFULLY")
-                        log.info(f"   📋 Language: {new_ocr_lang}")
-                        log.info(separator)
-                    else:
-                        log.debug(f"OCR language unchanged: {new_ocr_lang}")
-                else:
-                    # Keep current OCR language (likely English fallback) but log the LCU language
-                    log.info(f"OCR language kept at: {ocr.lang} (LCU: {new_lcu_lang}, OCR language not available)")
-            except Exception as e:
-                log.warning(f"Failed to update OCR language: {e}")
+        """Handle LCU disconnection - reset UI detection status"""
 
     # Initialize thread manager for organized thread lifecycle
     thread_manager = ThreadManager()
     
     # Create and register threads
     t_phase = PhaseThread(lcu, state, interval=1.0/max(PHASE_POLL_INTERVAL_DEFAULT, args.phase_hz), 
-                         log_transitions=False, injection_manager=injection_manager)
+                         log_transitions=False, injection_manager=injection_manager, skin_scraper=skin_scraper, db=db)
     thread_manager.register("Phase", t_phase)
     
-    t_ocr = OCRSkinThread(state, db, ocr, args, lcu, skin_scraper=skin_scraper)
-    thread_manager.register("OCR", t_ocr)
+    t_ui = UISkinThread(state, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
+    state.ui_skin_thread = t_ui  # Store reference for access during champion exchange
+    thread_manager.register("UIA Detection", t_ui)
     
-    t_ws = WSEventThread(lcu, db, state, ping_interval=args.ws_ping, 
+    t_ws = WSEventThread(lcu, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
                         fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                        skin_scraper=skin_scraper, ocr_init_callback=initialize_ocr_on_connect)
+                        skin_scraper=skin_scraper)
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
-    t_lcu_monitor = LCUMonitorThread(lcu, state, update_ocr_language, t_ws, 
-                                      db=db, skin_scraper=skin_scraper, injection_manager=injection_manager,
+    # Language callback to update shared state
+    def on_language_detected(language: str):
+        """Callback when language is detected from LCU"""
+        if language:
+            # Extract language code from locale (e.g., 'en_US' -> 'en')
+            language_code = language.split('_')[0] if '_' in language else language
+            state.current_language = language_code
+            log.info(f"[Main] Language detected and set: {language_code} (from {language})")
+        else:
+            log.warning("[Main] Language detection returned None")
+    
+    t_lcu_monitor = LCUMonitorThread(lcu, state, on_language_detected, t_ws, 
+                                      db=None, skin_scraper=skin_scraper, injection_manager=injection_manager,
                                       disconnect_callback=on_lcu_disconnected)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
     
     # Start all threads
     thread_manager.start_all()
 
-    log.info("System ready - OCR active only in Champion Select")
-    if args.debug_ocr:
-        log.info("OCR Debug Mode: ON - Images will be saved to 'ocr_debug/' folder")
-    else:
-        log.info("OCR Debug Mode: OFF - Use --debug-ocr to enable")
+    log.info("System ready - UIA Detection active only in Champion Select")
 
     last_phase = None
     last_loop_time = time.time()
@@ -1297,18 +1109,146 @@ def main():
             if ph != last_phase:
                 last_phase = ph
             
+            
             # Process Qt events if available (process ALL pending events)
             if qt_app:
                 try:
-                    # Process pending chroma panel requests first
-                    if chroma_selector and chroma_selector.panel:
+                    # Check for skin changes and notify UI (modular architecture)
+                    # For Swiftplay mode, use ui_skin_id and calculate champion_id from skin_id
+                    # For regular mode, use last_hovered_skin_id and locked_champ_id
+                    if state.is_swiftplay_mode and state.ui_skin_id:
+                        current_skin_id = state.ui_skin_id
+                        current_skin_name = state.ui_last_text or f"Skin {current_skin_id}"
+                        # Calculate champion ID from skin ID for Swiftplay
+                        from utils.utilities import get_champion_id_from_skin_id
+                        champion_id = get_champion_id_from_skin_id(current_skin_id)
+                        champion_name = None
+                        # Load champion data if not already loaded
+                        if skin_scraper:
+                            if not skin_scraper.cache.is_loaded_for_champion(champion_id):
+                                skin_scraper.scrape_champion_skins(champion_id)
+                            if skin_scraper.cache.is_loaded_for_champion(champion_id):
+                                champion_name = skin_scraper.cache.champion_name
+                    elif state.last_hovered_skin_id and state.locked_champ_id:
+                        current_skin_id = state.last_hovered_skin_id
+                        current_skin_name = state.last_hovered_skin_key
+                        
+                        # Get champion name from LCU skin scraper cache
+                        champion_name = None
+                        if skin_scraper and skin_scraper.cache.is_loaded_for_champion(state.locked_champ_id):
+                            champion_name = skin_scraper.cache.champion_name
+                    else:
+                        current_skin_id = None
+                        champion_id = None
+                        champion_name = None
+                        current_skin_name = None
+                    
+                    # Check if UI should be hidden in Swiftplay mode when detection is lost
+                    if state.is_swiftplay_mode and state.ui_skin_id is None:
+                        # Use a flag to avoid spamming hide() calls
+                        if not hasattr(main, '_swiftplay_ui_hidden'):
+                            try:
+                                from ui.user_interface import get_user_interface
+                                user_interface = get_user_interface()
+                                if user_interface.is_ui_initialized():
+                                    if user_interface.chroma_ui:
+                                        user_interface.chroma_ui.hide()
+                                    if user_interface.unowned_frame:
+                                        user_interface.unowned_frame.hide()
+                                    main._swiftplay_ui_hidden = True
+                                    log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode")
+                            except Exception as e:
+                                log.debug(f"[MAIN] Error hiding UI: {e}")
+                    
+                    if current_skin_id:
+                        # Check if we need to reset skin notification debouncing
+                        if state.reset_skin_notification:
+                            if hasattr(main, '_last_notified_skin_id'):
+                                delattr(main, '_last_notified_skin_id')
+                            state.reset_skin_notification = False
+                            log.debug("[MAIN] Reset skin notification debouncing for new ChampSelect")
+                        
+                        # Check if this is a new skin (debouncing at main loop level)
+                        last_notified = getattr(main, '_last_notified_skin_id', None)
+                        should_notify = (last_notified is None or last_notified != current_skin_id)
+                        
+                        if should_notify:
+                            # Notify UserInterface of the skin change
+                            try:
+                                # Get the user interface that was already initialized
+                                from ui.user_interface import get_user_interface
+                                user_interface = get_user_interface()
+                                if user_interface.is_ui_initialized():
+                                    # Use the correct champion_id (either from Swiftplay or regular mode)
+                                    champ_id_for_ui = champion_id if state.is_swiftplay_mode else state.locked_champ_id
+                                    user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name, champ_id_for_ui)
+                                    log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
+                                    # Track the last notified skin
+                                    main._last_notified_skin_id = current_skin_id
+                                    # Reset hide flag since we're showing a skin
+                                    if hasattr(main, '_swiftplay_ui_hidden'):
+                                        delattr(main, '_swiftplay_ui_hidden')
+                                        log.debug("[MAIN] Reset UI hide flag - skin detected")
+                                else:
+                                    # Only log once per skin to avoid spam
+                                    if not hasattr(main, '_ui_not_initialized_logged') or main._ui_not_initialized_logged != current_skin_id:
+                                        log.debug(f"[MAIN] UI not initialized yet - skipping skin notification for {current_skin_id}")
+                                        main._ui_not_initialized_logged = current_skin_id
+                            except Exception as e:
+                                log.error(f"[MAIN] Failed to notify UI: {e}")
+                    
+                    # Process pending UI initialization and requests
+                    from ui.user_interface import get_user_interface
+                    user_interface = get_user_interface()
+                    
+                    # Process pending UI operations first (must be done in main thread)
+                    if user_interface.has_pending_operations():
+                        log.debug("[MAIN] Processing pending UI operations")
+                    user_interface.process_pending_operations()
+                    
+                    # Handle champion exchange - hide UI elements (must be done in main thread)
+                    if state.champion_exchange_triggered:
+                        try:
+                            state.champion_exchange_triggered = False  # Reset flag
+                            if user_interface.is_ui_initialized():
+                                log.info("[MAIN] Champion exchange detected - hiding UI elements")
+                                
+                                # Hide UnownedFrame by setting opacity to 0
+                                if user_interface.unowned_frame and hasattr(user_interface.unowned_frame, 'opacity_effect'):
+                                    user_interface.unowned_frame.opacity_effect.setOpacity(0.0)
+                                    log.debug("[exchange] UnownedFrame hidden")
+                                
+                                # Hide Chroma Opening Button by hiding it
+                                if (user_interface.chroma_ui and 
+                                    user_interface.chroma_ui.chroma_selector and 
+                                    user_interface.chroma_ui.chroma_selector.panel and
+                                    user_interface.chroma_ui.chroma_selector.panel.reopen_button):
+                                    button = user_interface.chroma_ui.chroma_selector.panel.reopen_button
+                                    button.hide()
+                                    log.debug("[exchange] Chroma Opening Button hidden")
+
+                                # Ensure ClickBlocker is visible during exchange (create if missing)
+                                try:
+                                    user_interface._show_click_blocker_on_main_thread()
+                                except Exception:
+                                    pass
+                        except Exception as e:
+                            log.error(f"[MAIN] Failed to hide UI during champion exchange: {e}")
+                    
+                    if user_interface.is_ui_initialized() and user_interface.chroma_ui and user_interface.chroma_ui.chroma_selector and user_interface.chroma_ui.chroma_selector.panel:
                         chroma_start = time.time()
-                        chroma_selector.panel.process_pending()
+                        user_interface.chroma_ui.chroma_selector.panel.process_pending()
                         # Update positions to follow League window
-                        chroma_selector.panel.update_positions()
+                        user_interface.chroma_ui.chroma_selector.panel.update_positions()
+                        # Refresh z-order for all UI components
+                        user_interface.refresh_z_order()
                         chroma_elapsed = time.time() - chroma_start
                         if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
                             log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
+                    
+                    # Check for resolution changes and update UI components
+                    if user_interface.is_ui_initialized():
+                        user_interface.check_resolution_and_update()
                     
                     # Process all Qt events
                     qt_start = time.time()
@@ -1360,6 +1300,14 @@ def main():
         # Clean up lock file on exit
         cleanup_lock_file()
         
+        # Clean up z-order manager
+        try:
+            from ui.z_order_manager import cleanup_z_order_manager
+            cleanup_z_order_manager()
+            log.debug("[MAIN] Z-order manager cleaned up")
+        except Exception as e:
+            log.debug(f"[MAIN] Error cleaning up z-order manager: {e}")
+        
         # Clean up console if we allocated one
         if sys.platform == "win32":
             try:
@@ -1399,9 +1347,10 @@ Log location: Check %LOCALAPPDATA%\\LeagueUnlocked\\logs\\
         try:
             log = get_logger()
             log.error(error_msg)
-        except:
+        except (AttributeError, RuntimeError, OSError) as e:
             # If logging fails, print to stderr
             print(error_msg, file=sys.stderr)
+            print(f"Logging system error: {e}", file=sys.stderr)
         
         # Show error dialog on Windows
         if sys.platform == "win32":

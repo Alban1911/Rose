@@ -4,19 +4,31 @@
 Logging configuration and utilities
 """
 
+# Standard library imports
+import base64
+import json
 import os
-import sys
-import time
-import logging
-import urllib3
-import threading
 import queue
 import re
+import sys
+import threading
+import time
 from datetime import datetime
-from urllib3.exceptions import InsecureRequestWarning
 from pathlib import Path
+
+# Third-party imports
+import logging
+import urllib3
+from cryptography.fernet import Fernet
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from urllib3.exceptions import InsecureRequestWarning
+
+# Local imports
 from config import (
-    LOG_MAX_FILES_DEFAULT, LOG_MAX_TOTAL_SIZE_MB_DEFAULT,
+    LOG_MAX_FILE_SIZE_MB_DEFAULT,
     LOG_FILE_PATTERN, LOG_TIMESTAMP_FORMAT, LOG_SEPARATOR_WIDTH,
     PRODUCTION_MODE
 )
@@ -41,6 +53,142 @@ def get_log_mode() -> str:
     return _CURRENT_LOG_MODE
 
 
+def _get_encryption_key() -> bytes:
+    """Get the encryption key from key file, environment variable, or generate from a fixed password"""
+    # Priority 1: Try to get key from key file (most secure)
+    key_file = Path(__file__).parent.parent / "log_encryption_key.txt"
+    if key_file.exists():
+        try:
+            with open(key_file, 'r') as f:
+                key_str = f.read().strip()
+            if key_str:
+                password = key_str.encode()
+            else:
+                # Empty file, fall through to default
+                password = None
+        except Exception:
+            # Could not read key file, fall through to default
+            password = None
+    else:
+        password = None
+    
+    # Priority 2: Try to get key from environment variable
+    if password is None:
+        key_str = os.environ.get('LEAGUE_UNLOCKED_LOG_KEY')
+        if key_str:
+            password = key_str.encode()
+    
+    # Priority 3: Default key derived from a fixed password (developer only)
+    if password is None:
+        password = b'LeagueUnlocked2024LogEncryptionDefaultKey'
+    
+    # Derive a 32-byte key using PBKDF2
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b'league_unlocked_logs_salt',
+        iterations=100000,
+        backend=default_backend()
+    )
+    key = kdf.derive(password)
+    
+    # Fernet expects a URL-safe base64-encoded 32-byte key
+    return base64.urlsafe_b64encode(key)
+
+
+class EncryptedFileHandler(logging.FileHandler):
+    """File handler that encrypts log content using AES"""
+    
+    def __init__(self, filename, mode='a', encoding='utf-8', delay=False, errors=None):
+        # Store encoding BEFORE calling parent __init__ (which may overwrite it for binary mode)
+        self._encoding = encoding if encoding else 'utf-8'
+        # Open file in binary mode for encryption
+        logging.FileHandler.__init__(self, filename, mode='ab', delay=delay, errors=errors)
+        # Get encryption key and create Fernet cipher
+        key = _get_encryption_key()
+        self.cipher = Fernet(key)
+    
+    def emit(self, record):
+        """Write encrypted log to file"""
+        try:
+            msg = self.format(record)
+            # Use our stored encoding attribute
+            encoding = getattr(self, '_encoding', 'utf-8')
+            # Encrypt the message (Fernet already includes the message in the token)
+            encrypted_msg = self.cipher.encrypt(msg.encode(encoding))
+            # Write encrypted bytes (no need to add newline as each log is on its own line)
+            self.stream.write(encrypted_msg)
+            self.stream.write(b'\n')  # Add newline for readability when decrypting
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
+class RSAHybridEncryptedFileHandler(logging.FileHandler):
+    """File handler that encrypts logs using RSA-hybrid (RSA-OAEP + Fernet).
+
+    - A random Fernet key is generated per session (per log file)
+    - The Fernet key is encrypted with the licensing RSA public key
+    - A header line is written: {"v":"rsa1","ek":"<b64_rsa_encrypted_key>"}
+    - Each log record line contains a Fernet token (base64 ASCII) only
+    """
+
+    def __init__(self, filename, mode='a', encoding='utf-8', delay=False, errors=None):
+        # Store encoding BEFORE calling parent __init__ (which may overwrite it for binary mode)
+        self._encoding = encoding if encoding else 'utf-8'
+        # Open file in binary mode for encryption
+        logging.FileHandler.__init__(self, filename, mode='ab', delay=delay, errors=errors)
+
+        # Load RSA public key used for hybrid encryption
+        try:
+            from .public_key import PUBLIC_KEY
+            public_key = serialization.load_pem_public_key(
+                PUBLIC_KEY.encode('ascii'),
+                backend=default_backend()
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load RSA public key for log encryption: {e}")
+
+        # Generate per-session Fernet key and cipher
+        fernet_key: bytes = Fernet.generate_key()
+        self._fernet_key = fernet_key
+        self._cipher = Fernet(fernet_key)
+
+        # Encrypt the Fernet key with RSA-OAEP (SHA256)
+        try:
+            encrypted_key_bytes = public_key.encrypt(
+                fernet_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+            ek_b64 = base64.urlsafe_b64encode(encrypted_key_bytes).decode('ascii')
+        except Exception as e:
+            raise RuntimeError(f"Failed to encrypt session key for log encryption: {e}")
+
+        # Write header line with version and encrypted key
+        header_obj = {"v": "rsa1", "ek": ek_b64}
+        header_line = json.dumps(header_obj, separators=(",", ":")).encode('utf-8')
+        self.stream.write(header_line)
+        self.stream.write(b"\n")
+        self.flush()
+
+    def emit(self, record):
+        """Write encrypted log to file using per-session Fernet cipher"""
+        try:
+            msg = self.format(record)
+            encoding = getattr(self, '_encoding', 'utf-8')
+            token_bytes = self._cipher.encrypt(msg.encode(encoding))
+            # Fernet tokens are already base64-encoded ASCII bytes
+            self.stream.write(token_bytes)
+            self.stream.write(b"\n")
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
 class SanitizingFilter(logging.Filter):
     """
     Logging filter that sanitizes sensitive information and controls verbosity.
@@ -61,7 +209,7 @@ class SanitizingFilter(logging.Filter):
         (re.compile(r'/[^/\s]+/[^\s]+'), '[PATH_REDACTED]'),
         # Clean up partial path leaks after redaction (very aggressive - remove everything after [PATH_REDACTED])
         (re.compile(r'\[PATH_REDACTED\][^\n]*'), '[PATH_REDACTED]'),
-        # Remove entire line with OCR timing (don't leave empty lines)
+        # Remove entire line with timing (don't leave empty lines)
         (re.compile(r'^\s*⏱️.*$', re.MULTILINE), ''),
         # Remove timing parts from detection messages
         (re.compile(r'\s*\|\s*Matching:.*$', re.MULTILINE), ''),
@@ -88,14 +236,18 @@ class SanitizingFilter(logging.Filter):
         'LCU lockfile',
         '  - VERIFIED actual position:',
         
+        # Qt/QWindowsContext messages (harmless COM warnings)
+        'QWindowsContext:',
+        'OleInitialize()',
+        
         # Initialization messages (verbose/debug only)
         'Initializing ',
         '✓ ',
         'System tray manager started',
         'System tray icon started',
         'System ready',
-        'OCR Debug Mode:',
-        'OCR: Thread ready',
+        'Debug Mode:',
+        'Thread ready',
         'Found ',
         'Language detected',
         'GPU detected',
@@ -125,13 +277,13 @@ class SanitizingFilter(logging.Filter):
         '[CHROMA] Button:',
         '[CHROMA] First skin detected',
         
-        # OCR implementation details
-        '[OCR:COMPUTE]',
-        '[OCR:timing]',
-        '[OCR:change]',
-        '[OCR:CACHE-HIT]',
-        '[ocr] OCR running',
-        '[ocr] OCR stopped',
+        # Implementation details
+        '[COMPUTE]',
+        '[timing]',
+        '[change]',
+        '[CACHE-HIT]',
+        '[running]',
+        '[stopped]',
         
         # Injection implementation details  
         '[inject]',
@@ -187,10 +339,10 @@ class SanitizingFilter(logging.Filter):
         '   📋 Champion:',  # Hide verbose champion detail line
         '   🔍 Source:',    # Hide "Source: LCU API + English DB"
         
-        # OCR initialization details
-        '🤖 OCR INITIALIZED',
-        'OCR thread updated',
-        '   ⏱️',  # OCR timing measurements
+        # Initialization details
+        '🤖 INITIALIZED',
+        'Thread updated',
+        '   ⏱️',  # Timing measurements
         
         # Game state details (keep Phase transitions, hide verbose details)
         '👥 Players:',
@@ -218,7 +370,7 @@ class SanitizingFilter(logging.Filter):
         '   • Auto-resume:',
         'PID=[REDACTED], status=',
         
-        # OCR timing (suppress any message starting with timing emoji)
+        # Timing (suppress any message starting with timing emoji)
         '⏱️',
         
         # Phase spam
@@ -242,14 +394,14 @@ class SanitizingFilter(logging.Filter):
         Filter log records. Returns False to suppress, True to allow.
         Modifies record.msg to sanitize sensitive information.
         """
+        # Get message string for prefix checking
+        msg_str = str(record.getMessage())
+        
         # Customer mode: Clean, user-friendly logs
         if self.log_mode == 'customer':
             # Only show INFO and above in customer mode
             if record.levelno < logging.INFO:
                 return False
-            
-            # Suppress technical details in customer mode
-            msg_str = str(record.getMessage())
             
             # Suppress separator lines (lines that are just "=" repeated)
             if msg_str.strip() and all(c == '=' for c in msg_str.strip()):
@@ -273,6 +425,11 @@ class SanitizingFilter(logging.Filter):
         
         # Always sanitize paths, PIDs, ports in production mode (regardless of log level)
         if self.production_mode:
+            # Also suppress Qt warnings in production mode
+            for prefix in self.SUPPRESS_PREFIXES:
+                if msg_str.startswith(prefix):
+                    return False
+            
             sanitized = record.msg
             if isinstance(sanitized, str):
                 for pattern, replacement in self.PATTERNS:
@@ -286,6 +443,113 @@ class SanitizingFilter(logging.Filter):
         return True
 
 
+class SizeRotatingCompositeHandler(logging.Handler):
+    """
+    A handler that delegates to an inner file handler and rolls over
+    to a new file when the current file size reaches a threshold.
+
+    - Creates files as: base.ext, base.ext.1, base.ext.2, ...
+    - Does not delete on rotation (retention handled separately on startup)
+    - Works with both plaintext and custom encrypted file handlers
+    """
+    def __init__(self, base_path: Path, create_handler_fn, max_bytes: int):
+        super().__init__()
+        self.base_path = Path(base_path)
+        self.create_handler_fn = create_handler_fn
+        self.max_bytes = max_bytes
+        self._index = 0
+        self.current_path = self._compute_current_path()
+        self.current_handler = self.create_handler_fn(self.current_path)
+        self._stored_formatter = None
+        # Ensure the inner handler starts at the same level/filters
+        # as this composite handler once they are set by the caller
+
+    def _compute_current_path(self) -> Path:
+        if self._index == 0:
+            return self.base_path
+        return self.base_path.with_name(f"{self.base_path.name}.{self._index}")
+
+    def _apply_stored_config(self):
+        try:
+            # Level
+            self.current_handler.setLevel(self.level)
+            # Formatter
+            if self._stored_formatter is not None:
+                self.current_handler.setFormatter(self._stored_formatter)
+            # Filters
+            for flt in getattr(self, 'filters', []) or []:
+                try:
+                    self.current_handler.addFilter(flt)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _maybe_rotate(self):
+        try:
+            current_size = self.current_path.stat().st_size if self.current_path.exists() else 0
+            if current_size >= self.max_bytes:
+                try:
+                    self.current_handler.close()
+                except Exception:
+                    pass
+                self._index += 1
+                self.current_path = self._compute_current_path()
+                self.current_handler = self.create_handler_fn(self.current_path)
+                self._apply_stored_config()
+        except Exception:
+            # Never break logging due to rotation errors
+            pass
+
+    def emit(self, record):
+        try:
+            self._maybe_rotate()
+            self.current_handler.emit(record)
+        except Exception:
+            # Swallow any errors to avoid crashing the app due to logging
+            pass
+
+    def setFormatter(self, fmt):
+        self._stored_formatter = fmt
+        try:
+            self.current_handler.setFormatter(fmt)
+        except Exception:
+            pass
+        try:
+            super().setFormatter(fmt)
+        except Exception:
+            pass
+
+    def setLevel(self, level):
+        try:
+            super().setLevel(level)
+        except Exception:
+            pass
+        try:
+            self.current_handler.setLevel(level)
+        except Exception:
+            pass
+
+    def addFilter(self, filter):
+        try:
+            super().addFilter(filter)
+        except Exception:
+            pass
+        try:
+            self.current_handler.addFilter(filter)
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            self.current_handler.close()
+        except Exception:
+            pass
+        try:
+            super().close()
+        except Exception:
+            pass
+
 def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
     """
     Setup logging configuration with three modes
@@ -296,11 +560,16 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
     """
     # Store the log mode globally
     global _CURRENT_LOG_MODE
-    _CURRENT_LOG_MODE = log_mode
     
     # Determine production mode
     if production_mode is None:
         production_mode = PRODUCTION_MODE
+    
+    # In production mode, always use verbose mode for full logging
+    if production_mode:
+        _CURRENT_LOG_MODE = 'verbose'
+    else:
+        _CURRENT_LOG_MODE = log_mode
     # Handle windowed mode where stdout/stderr might be None or redirected to devnull
     if sys.stdout is not None and not hasattr(sys.stdout, 'name') or sys.stdout.name != os.devnull:
         try:
@@ -436,16 +705,25 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
         # Create a unique log file for this session with timestamp
         # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
         timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
-        log_file = logs_dir / f"leagueunlocked_{timestamp}.log"
         
-        # Setup file handler (no rotation needed since each session has its own file)
-        file_handler = logging.FileHandler(
-            log_file, 
-            encoding='utf-8'
-        )
+        # In production mode, use RSA-hybrid encrypted logs with .log.enc extension
+        max_bytes = int(LOG_MAX_FILE_SIZE_MB_DEFAULT * 1024 * 1024)
+        if production_mode:
+            log_file = logs_dir / f"leagueunlocked_{timestamp}.log.enc"
+            def _factory_enc(p: Path):
+                return RSAHybridEncryptedFileHandler(p, encoding='utf-8')
+            file_handler = SizeRotatingCompositeHandler(log_file, _factory_enc, max_bytes)
+        else:
+            log_file = logs_dir / f"leagueunlocked_{timestamp}.log"
+            def _factory_plain(p: Path):
+                return logging.FileHandler(p, encoding='utf-8')
+            file_handler = SizeRotatingCompositeHandler(log_file, _factory_plain, max_bytes)
         
         # File formatter based on log mode
-        if log_mode == 'customer':
+        # In production mode, always use verbose format
+        if production_mode:
+            file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
+        elif log_mode == 'customer':
             # Clean format for customer logs
             file_fmt = "%(_when)s | %(message)s"
         elif log_mode == 'verbose':
@@ -463,15 +741,19 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
         file_handler.setFormatter(_FileFmt(file_fmt))
         
         # File handler logging level based on mode
-        if log_mode == 'debug':
+        # In production mode, always use verbose level (DEBUG+)
+        if production_mode:
+            file_handler.setLevel(logging.DEBUG)  # Show DEBUG and above in production
+        elif log_mode == 'debug':
             file_handler.setLevel(TRACE)  # Show everything including TRACE
         elif log_mode == 'verbose':
             file_handler.setLevel(logging.DEBUG)  # Show DEBUG and above
         else:  # customer mode
             file_handler.setLevel(logging.INFO)  # Show INFO and above
         
-        # Add sanitizing filter to file handler
-        file_handler.addFilter(SanitizingFilter(production_mode, log_mode))
+        # Only add sanitizing filter in development mode (not in production)
+        if not production_mode:
+            file_handler.addFilter(SanitizingFilter(production_mode, log_mode))
         
     except Exception as e:
         # If file logging fails, continue without it
@@ -480,33 +762,39 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
     
     root = logging.getLogger()
     root.handlers.clear()
-    root.addHandler(h)
+    
+    # Only add console handler in development mode
+    # In production mode, suppress all console output
+    if not production_mode:
+        root.addHandler(h)
+        # Console handler level based on log mode
+        if log_mode == 'debug':
+            h.setLevel(TRACE)  # Show everything including TRACE
+        elif log_mode == 'verbose':
+            h.setLevel(logging.DEBUG)  # Show DEBUG and above
+        else:  # customer mode
+            h.setLevel(logging.INFO)  # Show INFO and above (clean output)
+        
+        # Add sanitizing filter to console handler
+        h.addFilter(SanitizingFilter(production_mode, log_mode))
+    
+    # Always add file handler
     if file_handler:
         root.addHandler(file_handler)
-    
-    # Console handler level based on log mode
-    if log_mode == 'debug':
-        h.setLevel(TRACE)  # Show everything including TRACE
-    elif log_mode == 'verbose':
-        h.setLevel(logging.DEBUG)  # Show DEBUG and above
-    else:  # customer mode
-        h.setLevel(logging.INFO)  # Show INFO and above (clean output)
-    
-    # Add sanitizing filter to console handler
-    h.addFilter(SanitizingFilter(production_mode, log_mode))
     
     # Root logger must be at TRACE to allow all handlers to receive all messages
     # This is critical - if root is at INFO, DEBUG/TRACE messages never reach handlers
     root.setLevel(TRACE)
     
     # Add a console print to ensure output is visible (only if we have stdout and it's not redirected)
-    if sys.stdout is not None and not (hasattr(sys.stdout, 'name') and sys.stdout.name == os.devnull):
+    # Skip in production mode as we have no console handler
+    if not production_mode and sys.stdout is not None and not (hasattr(sys.stdout, 'name') and sys.stdout.name == os.devnull):
         try:
             # Use logging instead of direct print to avoid blocking
             logger = logging.getLogger("startup")
             
             # Show startup message based on log mode
-            if log_mode == 'customer':
+            if _CURRENT_LOG_MODE == 'customer':
                 # Clean startup for customer mode
                 logger.info(f"✅ LeagueUnlocked Started (Log: {log_file.name})")
             else:
@@ -516,10 +804,10 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
                 logger.info("=" * LOG_SEPARATOR_WIDTH)
                 
                 # Log mode information
-                if log_mode == 'debug':
+                if _CURRENT_LOG_MODE == 'debug':
                     logger.info("Debug mode: ON (ultra-detailed logs with function traces)")
                     logger.debug(f"Log file location: {log_file.absolute()}")
-                elif log_mode == 'verbose':
+                elif _CURRENT_LOG_MODE == 'verbose':
                     logger.info("Verbose mode: ON (developer logs with technical details)")
                     logger.debug(f"Log file location: {log_file.absolute()}")
                     
@@ -534,6 +822,11 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
     
     # Disable SSL warnings for LCU (self-signed cert)
     urllib3.disable_warnings(InsecureRequestWarning)
+    
+    # Suppress Qt/QWindowsContext messages (COM errors, etc.) in production mode
+    if production_mode:
+        logging.getLogger("Qt").setLevel(logging.CRITICAL)
+        logging.getLogger("QWindowsContext").setLevel(logging.CRITICAL)
 
 
 def get_logger(name: str = "tracer") -> logging.Logger:
@@ -541,54 +834,32 @@ def get_logger(name: str = "tracer") -> logging.Logger:
     return logging.getLogger(name)
 
 
-def cleanup_logs(max_files: int = LOG_MAX_FILES_DEFAULT, max_total_size_mb: int = LOG_MAX_TOTAL_SIZE_MB_DEFAULT):
+def cleanup_logs():
     """
-    Clean up old log files based on count and total size
-    
-    Args:
-        max_files: Maximum number of log files to keep
-        max_total_size_mb: Maximum total size of all log files in MB
+    Clean up old log files based on age.
+
+    New policy:
+        - Delete logs older than 1 day
+        - No limit on file count or total size
     """
     try:
         from .paths import get_user_data_dir
         logs_dir = get_user_data_dir() / "logs"
         if not logs_dir.exists():
             return
-        
-        # Get all log files matching the new pattern
+
         log_files = list(logs_dir.glob(LOG_FILE_PATTERN))
-        
-        # Sort by modification time (oldest first)
-        log_files.sort(key=lambda f: f.stat().st_mtime)
-        
-        # Calculate total size
-        total_size = sum(f.stat().st_size for f in log_files)
-        max_total_size_bytes = max_total_size_mb * 1024 * 1024
-        
-        # Remove oldest files if we exceed limits
-        files_to_remove = []
-        
-        # Remove by count limit
-        if len(log_files) > max_files:
-            files_to_remove.extend(log_files[:-max_files])
-        
-        # Remove by size limit
-        if total_size > max_total_size_bytes:
-            current_size = total_size
-            for log_file in log_files:
-                if log_file not in files_to_remove:
-                    current_size -= log_file.stat().st_size
-                    files_to_remove.append(log_file)
-                    if current_size <= max_total_size_bytes:
-                        break
-        
-        # Remove the files
-        for log_file in files_to_remove:
+        now = time.time()
+        max_age_seconds = 24 * 60 * 60  # 1 day
+
+        for log_file in log_files:
             try:
-                log_file.unlink()
+                mtime = log_file.stat().st_mtime
+                if now - mtime > max_age_seconds:
+                    log_file.unlink()
             except Exception:
-                pass  # Silently ignore removal errors
-                
+                pass
+
     except Exception as e:
         # Don't log this error to avoid recursion
         print(f"Warning: Failed to cleanup logs: {e}", file=sys.stderr)
@@ -614,7 +885,7 @@ def _clear_log_file(log_file: Path):
 
 def cleanup_logs_on_startup():
     """Clean up old log files when the application starts"""
-    cleanup_logs(max_files=LOG_MAX_FILES_DEFAULT, max_total_size_mb=LOG_MAX_TOTAL_SIZE_MB_DEFAULT)
+    cleanup_logs()
 
 
 # ==================== Pretty Logging Helpers ====================

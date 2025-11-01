@@ -5,14 +5,11 @@ __pycache__/
 *.so
 .Python
 *.pyc
-.venv311/*
 injection/overlay/*
 injection/mods/*
-injection/incoming_zips/*
-state/last_hovered_skin.txt
 skins/*
 logs/*
-ocr_debug/*
+pcr_debug/*
 
 # Installer artifacts
 build/

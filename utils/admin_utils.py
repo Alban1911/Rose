@@ -7,8 +7,8 @@ Handles elevation and Task Scheduler registration for auto-start
 
 import sys
 import ctypes
-import os
 import subprocess
+from pathlib import Path
 from utils.logging import get_logger
 
 log = get_logger()
@@ -41,7 +41,7 @@ def request_admin_elevation():
     else:
         # Running as Python script
         exe_path = sys.executable
-        script_path = os.path.abspath(sys.argv[0])
+        script_path = Path(sys.argv[0]).resolve()
     
     # Build the command line arguments
     params = ' '.join([f'"{arg}"' if ' ' in arg else arg for arg in sys.argv[1:]])
@@ -113,9 +113,9 @@ def register_autostart():
     if getattr(sys, 'frozen', False):
         exe_path = sys.executable
     else:
-        exe_path = os.path.abspath(sys.argv[0])
+        exe_path = Path(sys.argv[0]).resolve()
     
-    exe_dir = os.path.dirname(exe_path)
+    exe_dir = Path(exe_path).parent
     
     # Check if already registered
     if is_registered_for_autostart():

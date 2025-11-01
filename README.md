@@ -1,4 +1,4 @@
-# League Unlocked
+# LeagueUnlocked
 
 ```powershell
 # LeagueUnlocked Development Setup

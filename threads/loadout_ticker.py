@@ -6,12 +6,11 @@ Loadout countdown ticker thread
 
 import time
 import threading
-from typing import Optional
 from lcu.client import LCU
 from state.shared_state import SharedState
-from database.name_db import NameDB
-from utils.logging import get_logger
-from utils.normalization import normalize_text
+# NameDB no longer needed - LCU provides all data
+from utils.logging import get_logger, log_action
+# Note: normalize_text removed - using simple normalization instead
 from config import (
     TIMER_HZ_MIN, TIMER_HZ_MAX, TIMER_POLL_PERIOD_S,
     SKIN_THRESHOLD_MS_DEFAULT,
@@ -26,8 +25,7 @@ class LoadoutTicker(threading.Thread):
     """High-frequency loadout countdown ticker"""
     
     def __init__(self, lcu: LCU, state: SharedState, hz: int, fallback_ms: int, 
-                 ticker_id: int, mode: str = "auto", db: Optional[NameDB] = None, 
-                 injection_manager=None):
+                 ticker_id: int, mode: str = "auto", injection_manager=None, skin_scraper=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
@@ -35,8 +33,8 @@ class LoadoutTicker(threading.Thread):
         self.fallback_ms = max(0, int(fallback_ms))
         self.ticker_id = int(ticker_id)
         self.mode = mode
-        self.db = db
         self.injection_manager = injection_manager
+        self.skin_scraper = skin_scraper
 
     def run(self):
         """Main ticker loop"""
@@ -54,7 +52,8 @@ class LoadoutTicker(threading.Thread):
         last_poll = 0.0
         last_bucket = None
         
-        while (not self.state.stop) and (self.state.phase == "ChampSelect") and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id):
+        # Continue loop if injection is not completed yet (even if phase changed to GameStart/InProgress)
+        while (not self.state.stop) and (self.state.phase in ["ChampSelect", "FINALIZATION", "GameStart", "InProgress"]) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id) and not self.state.injection_completed:
             now = time.monotonic()
             
             # Periodic LCU resync
@@ -64,6 +63,15 @@ class LoadoutTicker(threading.Thread):
                 t = (sess.get("timer") or {})
                 phase = str((t.get("phase") or "")).upper()
                 left_ms = int(t.get("adjustedTimeLeftInPhase") or 0)
+                
+                # Check if phase changed to FINALIZATION and trigger phase handler
+                if phase == "FINALIZATION" and self.state.phase != "FINALIZATION":
+                    log.info(f"[loadout] Phase transition detected: {self.state.phase} → FINALIZATION")
+                    self.state.phase = "FINALIZATION"
+                    
+                    # ClickCatcherHide creation is now handled in OwnChampionLocked phase
+                    # No need to create them again in FINALIZATION
+                
                 if phase == "FINALIZATION" and left_ms > 0:
                     cand_deadline = time.monotonic() + (left_ms / 1000.0)
                     if cand_deadline < deadline:
@@ -79,7 +87,7 @@ class LoadoutTicker(threading.Thread):
                 remain_ms = prev_remain_ms
             prev_remain_ms = remain_ms
             
-            # Store remaining time in shared state for OCR thread
+            # Store remaining time in shared state for UI detection thread
             self.state.last_remain_ms = remain_ms
             
             bucket = remain_ms // 1000
@@ -105,12 +113,19 @@ class LoadoutTicker(threading.Thread):
                 final_label = None
                 try:
                     champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                    cname = self.db.champ_name_by_id.get(champ_id or -1, "").strip() if self.db else ""
+                    # Get champion name from LCU skin scraper cache
+                    cname = ""
+                    if champ_id and self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(champ_id):
+                        cname = self.skin_scraper.cache.champion_name or ""
 
-                    # 1) Base: prefer skin ID (Data Dragon) → ex: "Blood Lord"
-                    if self.state.last_hovered_skin_id and self.db and self.state.last_hovered_skin_id in self.db.skin_name_by_id:
-                        base = self.db.skin_name_by_id[self.state.last_hovered_skin_id].strip()
-                    else:
+                    # 1) Base: get skin name from LCU → ex: "Blood Lord"
+                    base = ""
+                    if self.state.last_hovered_skin_id and self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(champ_id):
+                        skin_data = self.skin_scraper.cache.get_skin_by_id(self.state.last_hovered_skin_id)
+                        if skin_data:
+                            base = skin_data.get('skinName', '').strip()
+                    
+                    if not base:
                         base = (raw or "").strip()
 
                     # Normalize spaces and apostrophes (NBSP etc.)
@@ -125,8 +140,8 @@ class LoadoutTicker(threading.Thread):
                         base_clean = base_clean[:-(len(c_clean) + 1)].rstrip()
 
                     # 4) If champion name is already included in the middle (ex: "K/DA ALL OUT Seraphine Indie"), don't add it
-                    nb = normalize_text(base_clean)
-                    nc = normalize_text(c_clean)
+                    nb = base_clean.lower().strip() if base_clean else ""
+                    nc = c_clean.lower().strip() if c_clean else ""
                     if nc and (nc in nb.split()):
                         final_label = base_clean
                     else:
@@ -134,28 +149,64 @@ class LoadoutTicker(threading.Thread):
                 except Exception:
                     final_label = raw or ""
 
-                # For injection, we need the English name from the database
-                # Use the English skin name that was already processed by OCR thread
-                injection_name = getattr(self.state, 'last_hovered_skin_key', None)
-                name = final_label if final_label else None
-                if injection_name:
-                    name = injection_name
+                # Check if random mode is active
+                random_mode_active = getattr(self.state, 'random_mode_active', False)
+                random_skin_name = getattr(self.state, 'random_skin_name', None)
+                log.debug(f"[inject] Random mode check: active={random_mode_active}, name={random_skin_name}")
+                
+                # Historic mode override: if active, prefer historic last skin
+                if getattr(self.state, 'historic_mode_active', False) and getattr(self.state, 'historic_skin_id', None):
+                    hist_id = int(self.state.historic_skin_id)
+                    chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+                    if chroma_id_map and hist_id in chroma_id_map:
+                        name = f"chroma_{hist_id}"
+                        log.info(f"[HISTORIC] Using historic chroma ID for injection: {hist_id}")
+                    else:
+                        name = f"skin_{hist_id}"
+                        log.info(f"[HISTORIC] Using historic skin ID for injection: {hist_id}")
+                elif random_mode_active and random_skin_name:
+                    random_skin_id = getattr(self.state, 'random_skin_id', None)
+                    # For random mode, use ID-based approach instead of name
+                    if random_skin_id:
+                        # Check if this is a chroma or base skin
+                        if self.skin_scraper and self.skin_scraper.cache and random_skin_id in self.skin_scraper.cache.chroma_id_map:
+                            # This is a chroma - use the chroma ID directly
+                            name = f"chroma_{random_skin_id}"
+                            log.info(f"[RANDOM] Injecting random chroma: {random_skin_name} (ID: {random_skin_id})")
+                        else:
+                            # This is a base skin - use the skin ID directly
+                            name = f"skin_{random_skin_id}"
+                            log.info(f"[RANDOM] Injecting random skin: {random_skin_name} (ID: {random_skin_id})")
+                    else:
+                        # No random skin ID available - this is an error condition
+                        log.error(f"[RANDOM] No random skin ID available for injection - this should not happen")
+                        log.error(f"[RANDOM] State: random_skin_id={getattr(self.state, 'random_skin_id', None)}")
+                        log.error(f"[RANDOM] State: random_skin_name={getattr(self.state, 'random_skin_name', None)}")
+                        name = None
                 else:
-                    # Fallback to OCR text if no English name available
-                    name = getattr(self.state, 'ocr_last_text', None) or name
-                    if name:
-                        # If OCR text is like "Champion X Champion", normalize to "X Champion"
-                        try:
-                            champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                            cname = (self.db.champ_name_by_id.get(champ_id or -1, "") or "").strip() if self.db else ""
-                            if cname:
-                                low = name.strip()
-                                if low.lower().startswith(cname.lower() + " ") and low.lower().endswith(" " + cname.lower()):
-                                    core = low[len(cname) + 1:-(len(cname) + 1)].strip()
-                                    if core:
-                                        name = f"{core} {cname}".strip()
-                        except Exception:
-                            pass
+                    # For injection, we MUST use skin ID - no fallbacks allowed
+                    skin_id = getattr(self.state, 'last_hovered_skin_id', None)
+                    if skin_id:
+                        # Use utility functions to determine if this is a base skin or chroma
+                        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+                        from utils.utilities import is_base_skin, get_base_skin_id_for_chroma
+                        
+                        if is_base_skin(skin_id, chroma_id_map):
+                            # This is a base skin - use the skin ID directly
+                            name = f"skin_{skin_id}"
+                            log.debug(f"[inject] Using base skin ID from state: '{name}' (ID: {skin_id})")
+                        else:
+                            # This is a chroma - use the chroma ID directly with chroma_ prefix
+                            name = f"chroma_{skin_id}"
+                            log.debug(f"[inject] Using chroma ID from state: '{name}' (chroma: {skin_id})")
+                    else:
+                        # No skin ID available - this is an error condition
+                        log.error(f"[inject] No skin ID available for injection - this should not happen")
+                        log.error(f"[inject] State: last_hovered_skin_id={getattr(self.state, 'last_hovered_skin_id', None)}")
+                        log.error(f"[inject] State: last_hovered_skin_key={getattr(self.state, 'last_hovered_skin_key', None)}")
+                        name = None
+                
+                log.debug(f"[inject] Final name variable: '{name}'")
                 
                 if name:
                     # Mark that we've processed the last hovered skin for injection
@@ -167,12 +218,12 @@ class LoadoutTicker(threading.Thread):
                     
                     try:
                         # Smart injection logic: only inject if user doesn't own the hovered skin
-                        ocr_skin_id = self.state.last_hovered_skin_id
+                        ui_skin_id = self.state.last_hovered_skin_id
                         lcu_skin_id = self.state.selected_skin_id
                         owned_skin_ids = self.state.owned_skin_ids
                         
                         # Skip injection for base skins
-                        if ocr_skin_id == 0:
+                        if ui_skin_id == 0:
                             log.info(f"[inject] skipping base skin injection (skinId=0)")
                             # Resume game if persistent monitor suspended it
                             if self.injection_manager:
@@ -181,13 +232,13 @@ class LoadoutTicker(threading.Thread):
                                 except Exception as e:
                                     log.warning(f"[inject] Failed to resume game after skipping base skin: {e}")
                         # Force owned skins/chromas instead of injecting (since owned, we can select them normally)
-                        elif ocr_skin_id in owned_skin_ids:
-                            log.info(f"[inject] User owns this skin/chroma (skinId={ocr_skin_id}), forcing selection via LCU")
+                        elif ui_skin_id in owned_skin_ids:
+                            log.info(f"[inject] User owns this skin/chroma (skinId={ui_skin_id}), forcing selection via LCU")
                             
                             # Force the owned skin/chroma using LCU API (same mechanism as base skin forcing)
                             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                             if champ_id and self.lcu:
-                                target_skin_id = ocr_skin_id
+                                target_skin_id = ui_skin_id
                                 log.info(f"[inject] Forcing owned skin/chroma (skinId={target_skin_id})")
                                 
                                 forced_successfully = False
@@ -230,17 +281,21 @@ class LoadoutTicker(threading.Thread):
                                     
                                     # Verify the change was applied
                                     if forced_successfully:
-                                        time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
-                                        verify_sess = self.lcu.session or {}  # session is a property, not a method!
-                                        verify_team = verify_sess.get("myTeam") or []
-                                        for player in verify_team:
-                                            if player.get("cellId") == my_cell:
-                                                current_skin = player.get("selectedSkinId")
-                                                if current_skin == target_skin_id:
-                                                    log.info(f"[inject] ✓ Owned skin/chroma verified: {current_skin}")
-                                                else:
-                                                    log.warning(f"[inject] Verification failed: {current_skin} != {target_skin_id}")
-                                                break
+                                        # Skip verification wait in random mode for faster injection
+                                        if not getattr(self.state, 'random_mode_active', False):
+                                            time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
+                                            verify_sess = self.lcu.session or {}  # session is a property, not a method!
+                                            verify_team = verify_sess.get("myTeam") or []
+                                            for player in verify_team:
+                                                if player.get("cellId") == my_cell:
+                                                    current_skin = player.get("selectedSkinId")
+                                                    if current_skin == target_skin_id:
+                                                        log.info(f"[inject] ✓ Owned skin/chroma verified: {current_skin}")
+                                                    else:
+                                                        log.warning(f"[inject] Verification failed: {current_skin} != {target_skin_id}")
+                                                    break
+                                        else:
+                                            log.info(f"[inject] Skipping verification wait in random mode")
                                     
                                 except Exception as e:
                                     log.warning(f"[inject] Error forcing owned skin/chroma: {e}")
@@ -254,13 +309,8 @@ class LoadoutTicker(threading.Thread):
                         # Inject if user doesn't own the hovered skin
                         elif self.injection_manager:
                             try:
-                                # Get selected chroma ID from state (already selected via wheel shown by OCR)
-                                selected_chroma_id = self.state.selected_chroma_id
-                                
-                                if selected_chroma_id:
-                                    log.info(f"[inject] Using selected chroma ID: {selected_chroma_id}")
-                                else:
-                                    log.debug(f"[inject] No chroma selected, using base skin")
+                                # Note: Chroma selection is now handled via the name format (chroma_ prefix)
+                                # No need for separate chroma_id parameter
                                 
                                 # Force base skin selection via LCU before injecting
                                 # This ensures LCU has the correct state for injection to work properly
@@ -268,32 +318,58 @@ class LoadoutTicker(threading.Thread):
                                 if champ_id:
                                     base_skin_id = champ_id * 1000
                                     
-                                    # Only force base skin if current selection is not already base skin
-                                    if lcu_skin_id is None or lcu_skin_id != base_skin_id:
-                                        log.info(f"[inject] Forcing base skin (skinId={base_skin_id}, was {lcu_skin_id})")
+                                    # Read the ACTUAL current selection from LCU session (not state variable)
+                                    # This handles cases where user selected an owned skin then hovered over an unowned skin
+                                    actual_lcu_skin_id = None
+                                    try:
+                                        sess = self.lcu.session or {}
+                                        my_team = sess.get("myTeam") or []
+                                        my_cell = self.state.local_cell_id
+                                        for player in my_team:
+                                            if player.get("cellId") == my_cell:
+                                                actual_lcu_skin_id = player.get("selectedSkinId")
+                                                if actual_lcu_skin_id is not None:
+                                                    actual_lcu_skin_id = int(actual_lcu_skin_id)
+                                                break
+                                    except Exception as e:
+                                        log.debug(f"[inject] Failed to read actual LCU skin ID: {e}")
+                                    
+                                    # Only force base skin if current ACTUAL selection is not already base skin
+                                    if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
+                                        log.info(f"[inject] Forcing base skin (skinId={base_skin_id}, was {actual_lcu_skin_id})")
                                         
                                         # Hide chroma border/wheel immediately when forcing base skin
+                                        log.debug(f"[inject] About to hide UI components")
                                         try:
-                                            from utils.chroma_selector import get_chroma_selector
-                                            chroma_selector = get_chroma_selector()
-                                            if chroma_selector and chroma_selector.panel:
-                                                # Hide the chroma panel and button
-                                                chroma_selector.hide()
+                                            log.debug(f"[inject] Importing user_interface")
+                                            from ui.user_interface import get_user_interface
+                                            log.debug(f"[inject] Getting user interface instance")
+                                            user_interface = get_user_interface(self.state, self.skin_scraper)
+                                            log.debug(f"[inject] Checking if UI is initialized: {user_interface.is_ui_initialized()}")
+                                            if user_interface.is_ui_initialized():
+                                                log.debug(f"[inject] Scheduling hide_all() on main thread")
+                                                # Schedule UI hiding on main thread to avoid PyQt6 thread issues
+                                                user_interface._schedule_hide_all_on_main_thread()
+                                                log.debug(f"[inject] hide_all() scheduled")
                                                 
-                                                # Force hide the border/lock instantly by setting opacity to 0
-                                                if chroma_selector.panel.reopen_button and chroma_selector.panel.reopen_button.unowned_frame_opacity_effect:
-                                                    chroma_selector.panel.reopen_button.unowned_frame_opacity_effect.setOpacity(0.0)
-                                                    log.info("[inject] Border/lock killed instantly - base skin forced for injection")
-                                                
-                                                log.info("[inject] Chroma UI hidden - forcing base skin for injection")
+                                                log.info("[inject] UI hiding scheduled - base skin forced for injection")
+                                            else:
+                                                log.debug(f"[inject] UI not initialized, skipping hide")
                                         except Exception as e:
-                                            log.debug(f"[inject] Failed to hide chroma UI: {e}")
+                                            log.warning(f"[inject] Failed to schedule UI hide: {e}")
+                                            import traceback
+                                            log.warning(f"[inject] UI hide traceback: {traceback.format_exc()}")
+                                        
+                                        log.debug(f"[inject] UI hiding block completed")
                                         
                                         base_skin_set_successfully = False
                                         
+                                        log.debug(f"[inject] Starting base skin forcing process")
+                                        log.debug(f"[inject] LCU ok: {self.lcu.ok}, phase: {self.state.phase}")
                                         # Find the user's action ID to update
                                         try:
                                             sess = self.lcu.session or {}  # session is a property, not a method!
+                                            log.debug(f"[inject] Got LCU session, actions: {sess.get('actions')}")
                                             actions = sess.get("actions") or []
                                             my_cell = self.state.local_cell_id
                                             
@@ -329,23 +405,30 @@ class LoadoutTicker(threading.Thread):
                                             
                                             # Verify the change was applied
                                             if base_skin_set_successfully:
-                                                time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
-                                                verify_sess = self.lcu.session or {}  # session is a property, not a method!
-                                                verify_team = verify_sess.get("myTeam") or []
-                                                for player in verify_team:
-                                                    if player.get("cellId") == my_cell:
-                                                        current_skin = player.get("selectedSkinId")
-                                                        if current_skin != base_skin_id:
-                                                            log.warning(f"[inject] Base skin verification failed: {current_skin} != {base_skin_id}")
-                                                        else:
-                                                            log.info(f"[inject] ✓ Base skin verified: {current_skin}")
-                                                        break
+                                                # Skip verification wait in random mode for faster injection
+                                                if not getattr(self.state, 'random_mode_active', False):
+                                                    time.sleep(BASE_SKIN_VERIFICATION_WAIT_S)
+                                                    verify_sess = self.lcu.session or {}  # session is a property, not a method!
+                                                    verify_team = verify_sess.get("myTeam") or []
+                                                    for player in verify_team:
+                                                        if player.get("cellId") == my_cell:
+                                                            current_skin = player.get("selectedSkinId")
+                                                            if current_skin != base_skin_id:
+                                                                log.warning(f"[inject] Base skin verification failed: {current_skin} != {base_skin_id}")
+                                                            else:
+                                                                log.info(f"[inject] ✓ Base skin verified: {current_skin}")
+                                                            break
+                                                else:
+                                                    log.info(f"[inject] Skipping base skin verification wait in random mode")
                                             else:
                                                 log.warning(f"[inject] Failed to force base skin - injection may fail")
                                                 
                                         except Exception as e:
                                             log.error(f"[inject] ✗ Error forcing base skin: {e}")
+                                            import traceback
+                                            log.error(f"[inject] Traceback: {traceback.format_exc()}")
                                 
+                                log.debug(f"[inject] Base skin forcing block completed, continuing to injection")
                                 # Track if we've been in InProgress phase
                                 has_been_in_progress = False
                                 
@@ -360,18 +443,50 @@ class LoadoutTicker(threading.Thread):
                                 # Inject skin in a separate thread to avoid blocking the ticker
                                 log.info(f"[inject] Starting injection: {name}")
                                 
+                                # Capture champion ID now to avoid it becoming None later (phase changes)
+                                champ_id_for_history = self.state.locked_champ_id
+
                                 def run_injection():
                                     try:
+                                        # Check if LCU is still valid before starting injection
+                                        if not self.lcu.ok:
+                                            log.warning(f"[inject] LCU not available, skipping injection")
+                                            return
+                                        
                                         success = self.injection_manager.inject_skin_immediately(
                                             name, 
                                             stop_callback=game_ended_callback,
-                                            chroma_id=selected_chroma_id
+                                            champion_name=cname,
+                                            champion_id=self.state.locked_champ_id
                                         )
                                         
-                                        # Set flag to prevent OCR from restarting (even if processes errored)
+                                        # Set flag to prevent UI detection from restarting (even if processes errored)
                                         self.state.injection_completed = True
                                         
+                                        # Clear random state after injection
+                                        if getattr(self.state, 'random_mode_active', False):
+                                            self.state.random_skin_name = None
+                                            self.state.random_skin_id = None
+                                            self.state.random_mode_active = False
+                                            log.info("[RANDOM] Random mode cleared after injection")
+                                        
                                         if success:
+                                            # Persist historic on real injection of unowned skin
+                                            try:
+                                                # Parse injected ID from name (skin_1234 or chroma_5678)
+                                                injected_id = None
+                                                if isinstance(name, str) and '_' in name:
+                                                    parts = name.split('_', 1)
+                                                    if len(parts) == 2 and parts[1].isdigit():
+                                                        injected_id = int(parts[1])
+                                                champ_id = champ_id_for_history
+                                                # Only record when we actually injected (unowned path)
+                                                if champ_id is not None and injected_id is not None:
+                                                    from utils.historic import write_historic_entry
+                                                    write_historic_entry(int(champ_id), int(injected_id))
+                                                    log.info(f"[HISTORIC] Stored last injected ID {injected_id} for champion {champ_id}")
+                                            except Exception as e:
+                                                log.debug(f"[HISTORIC] Failed to store historic entry: {e}")
                                             log.info("=" * LOG_SEPARATOR_WIDTH)
                                             log.info(f"✅ INJECTION COMPLETED >>> {name.upper()} <<<")
                                             log.info(f"   ⚠️  Verify in-game - timing determines if skin appears")
@@ -381,18 +496,45 @@ class LoadoutTicker(threading.Thread):
                                             log.error(f"❌ INJECTION FAILED >>> {name.upper()} <<<")
                                             log.error("=" * LOG_SEPARATOR_WIDTH)
                                             log.error(f"[inject] Skin will likely NOT appear in-game")
+                                        
+                                        # Request UI destruction after injection completes
+                                        try:
+                                            from ui.user_interface import get_user_interface
+                                            user_interface = get_user_interface(self.state, self.skin_scraper)
+                                            user_interface.request_ui_destruction()
+                                            log_action(log, "UI destruction requested after injection completion", "🧹")
+                                        except Exception as e:
+                                            log.warning(f"[inject] Failed to request UI destruction after injection: {e}")
                                     except Exception as e:
                                         log.error(f"[inject] injection thread error: {e}")
                                         self.state.injection_completed = True  # Set flag even on error
                                 
                                 injection_thread = threading.Thread(target=run_injection, daemon=True, name="InjectionThread")
                                 injection_thread.start()
+                                
+                                # Set a timeout to prevent hanging if injection takes too long
+                                def timeout_injection():
+                                    time.sleep(10)  # 10 second timeout
+                                    if injection_thread.is_alive():
+                                        log.warning(f"[inject] Injection thread timeout - forcing completion")
+                                        self.state.injection_completed = True
+                                
+                                timeout_thread = threading.Thread(target=timeout_injection, daemon=True, name="InjectionTimeout")
+                                timeout_thread.start()
                             except Exception as e:
                                 log.error(f"[inject] injection error: {e}")
                         else:
                             log.warning(f"[inject] no injection manager available")
                     except Exception as e:
                         log.warning(f"[loadout #{self.ticker_id}] injection setup failed: {e}")
+                else:
+                    # No skin ID available - injection cannot proceed
+                    log.error("=" * LOG_SEPARATOR_WIDTH)
+                    log.error(f"❌ INJECTION FAILED - NO SKIN ID AVAILABLE")
+                    log.error(f"   ⏱️  Loadout Timer: #{self.ticker_id}")
+                    log.error("=" * LOG_SEPARATOR_WIDTH)
+                    # Mark injection as completed to prevent retries
+                    self.state.injection_completed = True
 
             if remain_ms <= 0:
                 break

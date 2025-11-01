@@ -5,12 +5,15 @@ Thread Manager - Modern threading patterns for application threads
 Provides controlled startup, shutdown, and lifecycle management
 """
 
+# Standard library imports
 import threading
 import time
-from typing import List, Tuple, Optional, Callable
 from dataclasses import dataclass
+from typing import List, Tuple, Optional, Callable
+
+# Local imports
+from config import THREAD_JOIN_TIMEOUT_S
 from utils.logging import get_logger, log_success, log_action
-from config import THREAD_JOIN_TIMEOUT_S, THREAD_FORCE_EXIT_TIMEOUT_S
 
 log = get_logger()
 
@@ -108,6 +111,14 @@ class ThreadManager:
         """Get list of threads that are still alive"""
         with self.lock:
             return [m.name for m in self.threads if m.thread.is_alive()]
+    
+    def get_thread(self, name: str) -> Optional[threading.Thread]:
+        """Get a thread instance by name"""
+        with self.lock:
+            for managed in self.threads:
+                if managed.name == name:
+                    return managed.thread
+        return None
     
     def wait_for_all(self, timeout: Optional[float] = None) -> bool:
         """

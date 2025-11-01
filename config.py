@@ -9,74 +9,33 @@ All arbitrary values are centralized here for easy tracking and modification
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "alpha"                    # Application version
+APP_VERSION = "Beta"                      # Application version
 APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 # Production mode - controls logging verbosity and sensitive data exposure
 # Set to True for releases to prevent reverse engineering via logs
 # Set to False for development to get full debug information
-PRODUCTION_MODE = True
+PRODUCTION_MODE = False
 
 
 # =============================================================================
-# OCR TIMING CONSTANTS
+# UI DETECTION CONSTANTS
 # =============================================================================
 
-# OCR frequency settings (Hz)
-OCR_BURST_HZ_DEFAULT = 40.0  # OCR frequency during motion/hover
-OCR_IDLE_HZ_DEFAULT = 0.0    # OCR frequency when idle (0 = disabled)
+# UI detection polling
+UI_POLL_INTERVAL = 0.01  # Seconds between UI detection checks
+UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
+UIA_DELAY_MS = 5 # Milliseconds to wait after champion lock before starting UIA Detection
 
-# OCR timing intervals (seconds)
-OCR_MIN_INTERVAL = 0.15      # Minimum time between OCR operations
-OCR_ROI_LOCK_DURATION = 1.5  # Duration to lock ROI after detection
-OCR_CHAMPION_LOCK_DELAY_S = 0.20  # Delay after champion lock before OCR starts (200ms)
+# UIA Detection coordinates (percentage-based, resolution-independent)
+# THESE ARE THE CORRECT VALUES - DO NOT CHANGE WITHOUT TESTING
+UI_DETECTION_SKIN_NAME_X_RATIO = 0.4925    # X position as percentage of window width (50% = center)
+UI_DETECTION_SKIN_NAME_Y_RATIO = 0.6395  # Y position as percentage of window height (63.9% = constant for all skins of top pixel, +0.05% for safety)
 
-# OCR motion detection (milliseconds)
-OCR_BURST_MS_DEFAULT = 150   # Duration to continue burst OCR after motion
-OCR_SECOND_SHOT_MS_DEFAULT = 100  # Delay for second OCR attempt for accuracy
-
-# OCR thresholds
-OCR_DIFF_THRESHOLD_DEFAULT = 0.001  # Image change threshold to trigger OCR
-OCR_MIN_CONFIDENCE_DEFAULT = 0.5    # Minimum confidence score for matches
-OCR_FUZZY_MATCH_THRESHOLD = 0.5     # Threshold for fuzzy text matching
-SKIN_NAME_MIN_SIMILARITY = 0.15     # Minimum similarity for fuzzy skin name matching (15%)
-
-# OCR window detection
-OCR_WINDOW_LOG_INTERVAL = 1.0  # Seconds between window detection logs
-
-# OCR debugging
-DEFAULT_DEBUG_OCR = False  # Save OCR images to debug folder (disabled by default)
-
-# OCR image processing
-OCR_SMALL_IMAGE_WIDTH = 96   # Width for small image used in change detection
-OCR_SMALL_IMAGE_HEIGHT = 20  # Height for small image used in change detection
-OCR_IMAGE_DIFF_NORMALIZATION = 255.0  # Normalization value for image difference calculation
+# Skin matching
+SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
 
 
-# =============================================================================
-# ROI (REGION OF INTEREST) PROPORTIONS
-# =============================================================================
-
-# Fixed proportions for League of Legends skin name display area
-# Based on exact measurements at 1280x720: 455px from top, 450px from left/right, 230px from bottom
-ROI_PROPORTIONS = {
-    'x1_ratio': 0.352,  # 450/1280 - left edge
-    'y1_ratio': 0.632,  # 455/720  - top edge
-    'x2_ratio': 0.648,  # 830/1280 - right edge
-    'y2_ratio': 0.681   # 490/720  - bottom edge
-}
-
-
-# =============================================================================
-# IMAGE PROCESSING CONSTANTS
-# =============================================================================
-
-# HSV color ranges for white text detection (used in hardcoded ROI processing)
-WHITE_TEXT_HSV_LOWER = [0, 0, 200]     # Lower HSV bound for white text
-WHITE_TEXT_HSV_UPPER = [179, 70, 255]  # Upper HSV bound for white text
-
-# Upscaling threshold for small ROI images
-IMAGE_UPSCALE_THRESHOLD = 120  # Upscale if ROI height < this value
 
 
 # =============================================================================
@@ -94,12 +53,7 @@ CHAMP_POLL_INTERVAL = 0.25  # Seconds between champion state checks
 LCU_MONITOR_INTERVAL = 1.0  # Seconds between LCU connection checks
 
 # Main loop sleep intervals
-MAIN_LOOP_SLEEP = 0.01      # Main loop iteration sleep time (10ms for responsive chroma UI)
-OCR_NO_WINDOW_SLEEP = 0.05  # Sleep when no window is found
-OCR_NO_CONDITION_SLEEP = 0.15  # Sleep when OCR conditions not met
-OCR_MOTION_SLEEP_DIVISOR = 10.0  # Divisor for burst mode sleep calculation
-OCR_IDLE_SLEEP_MIN = 5.0    # Minimum frequency for idle mode calculation
-OCR_IDLE_SLEEP_DEFAULT = 0.1  # Default sleep when idle mode is off
+MAIN_LOOP_SLEEP = 0.016     # Main loop iteration sleep time (16ms for 60 FPS responsive chroma UI)
 
 
 # =============================================================================
@@ -122,17 +76,17 @@ WS_PROBE_WINDOW_MS = 480       # Total probe window (8 * 60ms ~= 480ms)
 # LOADOUT TIMER CONSTANTS
 # =============================================================================
 
-TIMER_HZ_DEFAULT = 1000              # Countdown display frequency (Hz)
-TIMER_HZ_MIN = 10                    # Minimum timer frequency
-TIMER_HZ_MAX = 2000                  # Maximum timer frequency
-TIMER_POLL_PERIOD_S = 0.2            # Seconds between LCU resync checks
-FALLBACK_LOADOUT_MS_DEFAULT = 0      # Deprecated: fallback countdown duration
+TIMER_HZ_DEFAULT = 1000                     # Countdown display frequency (Hz)
+TIMER_HZ_MIN = 10                           # Minimum timer frequency
+TIMER_HZ_MAX = 2000                         # Maximum timer frequency
+TIMER_POLL_PERIOD_S = 0.2                   # Seconds between LCU resync checks
+FALLBACK_LOADOUT_MS_DEFAULT = 0             # Fallback countdown duration (ms)
 
 # Skin injection timing
-SKIN_THRESHOLD_MS_DEFAULT = 300      # Time before loadout ends to write skin (ms)
-INJECTION_THRESHOLD_SECONDS = 2.0    # Seconds between injection attempts
-BASE_SKIN_VERIFICATION_WAIT_S = 0.15 # Seconds to wait for LCU to process base skin change
-PERSISTENT_MONITOR_START_SECONDS = 1 # Seconds remaining when persistent game monitor starts
+SKIN_THRESHOLD_MS_DEFAULT = 300             # Time before loadout ends to write skin (ms)
+INJECTION_THRESHOLD_SECONDS = 2.0           # Seconds between injection attempts
+BASE_SKIN_VERIFICATION_WAIT_S = 0.15        # Seconds to wait for LCU to process base skin change
+PERSISTENT_MONITOR_START_SECONDS = 1        # Seconds remaining when persistent game monitor starts
 PERSISTENT_MONITOR_CHECK_INTERVAL_S = 0.05  # Seconds between game process checks
 PERSISTENT_MONITOR_IDLE_INTERVAL_S = 0.1    # Seconds to wait when game already suspended
 PERSISTENT_MONITOR_WAIT_TIMEOUT_S = 3.0     # Max seconds to wait for persistent monitor to suspend game
@@ -174,8 +128,7 @@ RATE_LIMIT_BACKOFF_MULTIPLIER = 1.5  # Multiply interval by this when low
 # LOGGING CONSTANTS
 # =============================================================================
 
-LOG_MAX_FILES_DEFAULT = 10               # Maximum number of log files to keep
-LOG_MAX_TOTAL_SIZE_MB_DEFAULT = 10       # Maximum total log size in MB
+LOG_MAX_FILE_SIZE_MB_DEFAULT = 10        # Maximum single log file size before rolling (MB)
 LOG_CHUNK_SIZE = 8192                    # Chunk size for file downloads
 LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g., "=" * 80)
 
@@ -207,14 +160,9 @@ CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel 
 LCU_API_TIMEOUT_S = 2.0                 # Timeout for LCU API requests
 LCU_SKIN_SCRAPER_TIMEOUT_S = 3.0        # Timeout for LCU skin scraper requests
 DATA_DRAGON_API_TIMEOUT_S = 8           # Timeout for Data Dragon API requests
-GITHUB_API_TIMEOUT_S = 30               # Already defined as RATE_LIMIT_REQUEST_TIMEOUT
 CHROMA_DOWNLOAD_TIMEOUT_S = 10          # Timeout for chroma preview downloads
 DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S = 30    # Timeout for skin downloads
 SKIN_DOWNLOAD_STREAM_TIMEOUT_S = 60     # Timeout for streaming skin downloads
-
-# Polling timeouts (seconds)
-FUTURE_RESULT_TIMEOUT_S = 0             # Timeout for future.result() (immediate)
-
 
 # =============================================================================
 # SLEEP & DELAY CONSTANTS
@@ -251,7 +199,6 @@ TRAY_ICON_FONT_SIZE = 40                # Font size for "SC" text on icon
 TRAY_ICON_TEXT_X = 36                   # X position for text
 TRAY_ICON_TEXT_Y = 44                   # Y position for text
 TRAY_ICON_DOT_SIZE = 70                 # Size of status indicator dot
-TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
 
 
 # =============================================================================
@@ -262,35 +209,77 @@ TRAY_ICON_CHECK_SCALE_DIVISOR = 28.0    # Divisor for check mark scale factor
 CHROMA_UI_REFERENCE_WIDTH = 1600
 CHROMA_UI_REFERENCE_HEIGHT = 900
 
-# Chroma panel dimensions - RATIOS (relative to reference height 900px)
-# These will be multiplied by the scale factor based on actual League window resolution
-CHROMA_PANEL_PREVIEW_WIDTH_RATIO = 0.302222      # 272px at 900p
-CHROMA_PANEL_PREVIEW_HEIGHT_RATIO = 0.336667     # 303px at 900p
-CHROMA_PANEL_CIRCLE_RADIUS_RATIO = 0.010000      # 9px at 900p
-CHROMA_PANEL_WINDOW_WIDTH_RATIO = 0.305556       # 275px at 900p
-CHROMA_PANEL_WINDOW_HEIGHT_RATIO = 0.384444      # 346px at 900p
-CHROMA_PANEL_CIRCLE_SPACING_RATIO = 0.023333     # 21px at 900p
-CHROMA_PANEL_BUTTON_SIZE_RATIO = 0.045           # 36px at 900p (10% larger)
-
-# Chroma panel positioning - RATIOS
-CHROMA_PANEL_SCREEN_EDGE_MARGIN_RATIO = 0.022222 # 20px at 900p
-CHROMA_PANEL_PREVIEW_X_RATIO = 0.002222          # 2px at 900p
-CHROMA_PANEL_PREVIEW_Y_RATIO = 0.002222          # 2px at 900p
-CHROMA_PANEL_ROW_Y_OFFSET_RATIO = 0.028889       # 26px at 900p
+# Hard-coded configurations for three supported resolutions
+# All values are fixed pixel values relative to League window
+CHROMA_PANEL_CONFIGS = {
+    (1600, 900): {
+        'preview_width': 380,
+        'preview_height': 394,
+        'circle_radius': 14,
+        'window_width': 384,
+        'window_height': 464,  # Increased from 438 to accommodate 68px button height
+        'circle_spacing': 34,
+        'button_size': 54,
+        'button_width': 380,
+        'button_height': 68,
+        'screen_edge_margin': 32,
+        'preview_x': 2,
+        'preview_y': 2,
+        'row_y_offset': 42,
+        'panel_x': 608,  # X position from left edge of League window
+        'panel_y': 227,  # Y position from top edge of League window
+        # Swiftplay mode specific positions
+        'swiftplay_panel_x': 872,  # X position for Swiftplay mode
+        'swiftplay_panel_y': 271,  # Y position for Swiftplay mode
+    },
+    (1280, 720): {
+        'preview_width': 304,      # 380 * (1280/1600) = 304
+        'preview_height': 315,     # 394 * (720/900) = 315.2 ≈ 315
+        'circle_radius': 11,       # 14 * (720/900) = 11.2 ≈ 11
+        'window_width': 307,       # 384 * (1280/1600) = 307.2 ≈ 307
+        'window_height': 371,      # 464 * (720/900) = 371.2 ≈ 371
+        'circle_spacing': 27,      # 34 * (720/900) = 27.2 ≈ 27
+        'button_size': 43,         # 54 * (720/900) = 43.2 ≈ 43
+        'button_width': 304,       # 380 * (1280/1600) = 304
+        'button_height': 54,       # 68 * (720/900) = 54.4 ≈ 54
+        'screen_edge_margin': 26,  # 32 * (720/900) = 25.6 ≈ 26
+        'preview_x': 2,            # 2 * (1280/1600) = 1.6 ≈ 2
+        'preview_y': 2,            # 2 * (720/900) = 1.6 ≈ 2
+        'row_y_offset': 34,        # 42 * (720/900) = 33.6 ≈ 34
+        'panel_x': 487,            # 608 * (1280/1600) = 486.4 ≈ 486
+        'panel_y': 180,            # 222 * (720/900) = 177.6 ≈ 178
+        # Swiftplay mode specific positions
+        'swiftplay_panel_x': 698,  # X position for Swiftplay mode
+        'swiftplay_panel_y': 216,  # Y position for Swiftplay mode
+    },
+    (1024, 576): {
+        'preview_width': 243,      # 380 * (1024/1600) = 243.2 ≈ 243
+        'preview_height': 252,     # 394 * (576/900) = 252.16 ≈ 252
+        'circle_radius': 9,        # 14 * (576/900) = 8.96 ≈ 9
+        'window_width': 246,       # 384 * (1024/1600) = 245.76 ≈ 246
+        'window_height': 296,      # 464 * (576/900) = 296.96 ≈ 297
+        'circle_spacing': 22,      # 34 * (576/900) = 21.76 ≈ 22
+        'button_size': 35,         # 54 * (576/900) = 34.56 ≈ 35
+        'button_width': 243,       # 380 * (1024/1600) = 243.2 ≈ 243
+        'button_height': 43,       # 68 * (576/900) = 43.52 ≈ 43
+        'screen_edge_margin': 20,  # 32 * (576/900) = 20.48 ≈ 20
+        'preview_x': 1,            # 2 * (1024/1600) = 1.28 ≈ 1
+        'preview_y': 1,            # 2 * (576/900) = 1.28 ≈ 1
+        'row_y_offset': 27,        # 42 * (576/900) = 26.88 ≈ 27
+        'panel_x': 389,            # 608 * (1024/1600) = 389.12 ≈ 389
+        'panel_y': 141,            # 222 * (576/900) = 142.08 ≈ 142
+        # Swiftplay mode specific positions
+        'swiftplay_panel_x': 558,  # X position for Swiftplay mode
+        'swiftplay_panel_y': 170,  # Y position for Swiftplay mode
+    }
+}
 
 # Chroma panel button visual effects (not scaled)
 CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
-CHROMA_PANEL_CONICAL_START_ANGLE = -65           # Start angle for rainbow gradient (degrees)
-
-# Chroma panel button dimensions - RATIOS (in pixels at reference size, scaled automatically)
-CHROMA_PANEL_GOLD_BORDER_PX_RATIO = 0.002
-CHROMA_PANEL_DARK_BORDER_PX_RATIO = 0.002222
-CHROMA_PANEL_GRADIENT_RING_PX_RATIO = 0.0062
-CHROMA_PANEL_INNER_DISK_RADIUS_PX_RATIO = 0.006
 
 # Legacy constants for backward compatibility (at reference resolution)
-CHROMA_PANEL_PREVIEW_WIDTH = 272
-CHROMA_PANEL_PREVIEW_HEIGHT = 303
+CHROMA_PANEL_PREVIEW_WIDTH = 380
+CHROMA_PANEL_PREVIEW_HEIGHT = 394
 CHROMA_PANEL_CIRCLE_RADIUS = 9
 CHROMA_PANEL_WINDOW_WIDTH = 275
 CHROMA_PANEL_WINDOW_HEIGHT = 346
@@ -338,22 +327,39 @@ CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with butt
 CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
 
 # Chroma UI fade timing (milliseconds)
-CHROMA_FADE_IN_DURATION_MS = 500                 # Duration of fade in animation (with gentle logarithmic ease-out curve)
-CHROMA_FADE_OUT_DURATION_MS = 50                 # Duration of fade out animation (linear, fast)
+CHROMA_FADE_IN_DURATION_MS = 500                # Duration of fade in animation (with gentle logarithmic ease-out curve)
+CHROMA_FADE_OUT_DURATION_MS = 50                # Duration of fade out animation (linear, fast)
 CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 100          # Wait time between end of fade out and start of fade in
 
 # Legacy constant for backward compatibility (uses fade-in duration)
 CHROMA_FADE_DURATION_MS = CHROMA_FADE_IN_DURATION_MS
 
 # Chroma button Lock configuration (fades based on ownership - shown when NOT owned)
-CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7              # Lock size as ratio of button visual size
-CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014        # Lock X offset as ratio of button size (0.0 = centered)
+CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7                # Lock size as ratio of button visual size
+CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014         # Lock X offset as ratio of button size (0.0 = centered)
 CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO = -0.83          # Lock Y offset as ratio of button size (0.0 = centered)
 
 # Chroma button OutlineGold configuration (carousel border, behind Lock - shown when NOT owned)
 CHROMA_BUTTON_OUTLINE_GOLD_SIZE_RATIO = 3.63        # OutlineGold size as ratio of button visual size (keeps aspect ratio)
 CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_X_RATIO = CHROMA_BUTTON_LOCK_OFFSET_X_RATIO  # OutlineGold X offset as ratio of button size
 CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_Y_RATIO = CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO  # OutlineGold Y offset as ratio of button size
+
+# Chroma button image size (button-chroma.png dimensions at 1600x900 resolution)
+CHROMA_BUTTON_IMAGE_WIDTH_PIXELS = 22               # Fixed width in pixels at 1600x900 resolution
+CHROMA_BUTTON_IMAGE_HEIGHT_PIXELS = 22              # Fixed height in pixels at 1600x900 resolution
+
+
+# =============================================================================
+# UNOWNED FRAME UI POSITIONING - INDEPENDENT FROM CHROMA BUTTON
+# =============================================================================
+
+# UnownedFrame position (ratios based on 1600x900 resolution)
+UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO = 726/1600      # 726/1600 = 0.45375 (45.375% of window width)
+UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO = 642/900       # 642/900 = 0.713333 (71.33% of window height)
+
+# UnownedFrame size (specific pixel dimensions as ratios)
+UNOWNED_FRAME_WIDTH_RATIO = 148/1600                # 148/1600 = 0.0925 (9.25% of window width)
+UNOWNED_FRAME_HEIGHT_RATIO = 84/900                 # 84/900 = 0.093333 (9.33% of window height)
 
 
 # =============================================================================
@@ -380,8 +386,8 @@ WINDOWS_DPI_AWARENESS_SYSTEM = 1         # PROCESS_SYSTEM_DPI_AWARE
 # Lock file name
 LOCK_FILE_NAME = "leagueunlocked.lock"
 
-# Log file pattern
-LOG_FILE_PATTERN = "leagueunlocked_*.log"
+# Log file pattern (handles both .log and .log.enc files)
+LOG_FILE_PATTERN = "leagueunlocked_*.log*"
 LOG_TIMESTAMP_FORMAT = "%d-%m-%Y_%H-%M-%S"  # European format, Windows-compatible
 
 
@@ -395,6 +401,8 @@ INTERESTING_PHASES = {
     "Matchmaking", 
     "ReadyCheck",
     "ChampSelect",
+    "OwnChampionLocked",
+    "FINALIZATION",
     "GameStart",
     "InProgress",
     "EndOfGame"
@@ -402,47 +410,11 @@ INTERESTING_PHASES = {
 
 
 # =============================================================================
-# LANGUAGE MAPPING
-# =============================================================================
-
-# Map LCU languages to Tesseract OCR languages
-OCR_LANG_MAP = {
-    "en_US": "eng",
-    "es_ES": "spa", 
-    "es_MX": "spa",
-    "fr_FR": "fra",
-    "de_DE": "deu",
-    "it_IT": "ita",
-    "pt_BR": "por",
-    "ru_RU": "rus",
-    "pl_PL": "pol",
-    "tr_TR": "tur",
-    "el_GR": "ell",
-    "hu_HU": "hun",
-    "ro_RO": "ron",
-    "zh_CN": "chi_sim",
-    "zh_TW": "chi_tra",
-    "ar_AE": "ara",
-    "ar_SA": "ara",
-    "ar_EG": "ara",
-    "ja_JP": "jpn",
-    "ko_KR": "kor",
-}
-
-
-# =============================================================================
 # DEFAULT ARGUMENTS
 # =============================================================================
 
-# OCR defaults
-DEFAULT_TESSERACT_PSM = 7              # Page segmentation mode
-DEFAULT_OCR_LANG = "auto"              # Auto-detect language
-DEFAULT_DD_LANG = "en_US"              # Data Dragon language
-
-# Capture defaults
-DEFAULT_CAPTURE_MODE = "window"        # Window capture vs screen capture
-DEFAULT_MONITOR = "all"                # Monitor to capture
-DEFAULT_WINDOW_HINT = "League"         # Window title hint
+# Data Dragon language
+DEFAULT_DD_LANG = "en_US"          # Data Dragon language
 
 # Boolean flags
 DEFAULT_VERBOSE = False
@@ -450,5 +422,3 @@ DEFAULT_WEBSOCKET_ENABLED = True
 DEFAULT_MULTILANG_ENABLED = False  # DEPRECATED - Using LCU scraper instead
 DEFAULT_DOWNLOAD_SKINS = True
 DEFAULT_FORCE_UPDATE_SKINS = False
-
-

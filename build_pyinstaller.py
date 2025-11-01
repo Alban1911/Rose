@@ -2,10 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 Build script for LeagueUnlocked using PyInstaller
-Fast builds with EasyOCR support
+Fast builds with Windows UI API support
 """
 
-import os
 import sys
 import subprocess
 import shutil
@@ -34,7 +33,7 @@ def clean_previous_builds():
     dirs_to_clean = ["dist"]
     
     for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
+        if Path(dir_name).exists():
             try:
                 shutil.rmtree(dir_name)
                 print(f"[OK] Removed {dir_name}/")
@@ -42,7 +41,7 @@ def clean_previous_builds():
                 print(f"[ERROR] Failed to remove {dir_name}/: {e}")
     
     # Check if build cache exists
-    if os.path.exists("build"):
+    if Path("build").exists():
         print("[INFO] Preserved build/ folder for faster incremental builds")
     else:
         print("[INFO] No build/ cache found - this will be a full build")
@@ -50,7 +49,7 @@ def clean_previous_builds():
     # Clean injection directories
     injection_dirs = ["injection/mods", "injection/overlay", "injection/incoming_zips"]
     for dir_path in injection_dirs:
-        if os.path.exists(dir_path):
+        if Path(dir_path).exists():
             shutil.rmtree(dir_path)
             print(f"[OK] Removed {dir_path}/")
     
@@ -70,9 +69,6 @@ def build_with_pyinstaller():
     ]
     
     print(f"Running: {' '.join(cmd)}\n")
-    print("Multi-threading: PyInstaller will use all available CPU cores")
-    print("Expected time: 10-20 minutes (much faster than Nuitka!)\n")
-    print("Note: EasyOCR should work with PyInstaller!\n")
     
     try:
         result = subprocess.run(cmd, check=True)
@@ -93,58 +89,12 @@ def organize_output():
         print("[ERROR] Build output not found!")
         return False
     
-    # Create launcher
-    launcher_content = '''@echo off
-echo Starting LeagueUnlocked...
-echo.
-"%~dp0LeagueUnlocked.exe" --verbose
-if errorlevel 1 (
-    echo.
-    echo Application encountered an error.
-    pause
-)
-'''
-    launcher_path = dist_folder / "start.bat"
-    try:
-        launcher_path.write_text(launcher_content)
-        print(f"[OK] Created launcher: {launcher_path}")
-    except Exception as e:
-        print(f"[WARNING] Could not create launcher: {e}")
-    
-    # Verify CSLOL tools
-    tools_path = dist_folder / "injection" / "tools"
-    if tools_path.exists():
-        exe_files = list(tools_path.glob("*.exe"))
-        dll_files = list(tools_path.glob("*.dll"))
-        bat_files = list(tools_path.glob("*.bat"))
-        print(f"[OK] CSLOL tools: {len(exe_files)} .exe, {len(dll_files)} .dll, {len(bat_files)} .bat")
-        
-        if len(exe_files) < 5:
-            print(f"[WARNING] Expected 5+ .exe files, only found {len(exe_files)}")
-    else:
-        print("[WARNING] CSLOL tools directory not found!")
-    
-    # Verify icons
-    icons_path = dist_folder / "icons"
-    if icons_path.exists():
-        icon_files = list(icons_path.glob("*.png"))
-        print(f"[OK] Icons: {len(icon_files)} files")
-    else:
-        print("[WARNING] Icons directory not found!")
-    
-    # Check for easyocr
-    easyocr_path = dist_folder / "easyocr"
-    if easyocr_path.exists():
-        print(f"[OK] EasyOCR directory found")
-    else:
-        print("[WARNING] EasyOCR directory not found - OCR might not work!")
-    
     return True
 
 
 def main():
     """Main build process"""
-    print_header("LeagueUnlocked - PyInstaller Build (Fast & Compatible)")
+    print_header("LeagueUnlocked - PyInstaller Build")
     
     start_time = time.time()
     
@@ -176,7 +126,7 @@ def main():
         print(f"\nYour application is ready!")
         print(f"\nMode: STANDALONE (folder with all dependencies)")
         print(f"  - All DLLs and dependencies included")
-        print(f"  - EasyOCR should be fully functional!")
+        print(f"  - Windows UI API should be fully functional!")
         print(f"  - CSLOL tools included")
         
         print(f"\nProtection:")
@@ -186,11 +136,11 @@ def main():
         
         print(f"\nTo test:")
         print(f"  cd dist\\LeagueUnlocked")
-        print(f"  start.bat")
+        print(f"  LeagueUnlocked.exe")
         
         print(f"\nIMPORTANT: Check the log file after running!")
-        print(f"  Look for: 'OCR INITIALIZED' message")
-        print(f"  If you see that, EasyOCR is working!")
+        print(f"  Look for: 'UIA Detection: Thread ready' message")
+        print(f"  If you see that, Windows UI API is working!")
     else:
         print("[ERROR] Executable not found!")
         sys.exit(1)

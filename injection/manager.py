@@ -2,16 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 Injection Manager
-Manages the injection process and coordinates with OCR system
+Manages the injection process and coordinates with UI detection system
 """
 
-import time
+# Standard library imports
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
-from .injector import SkinInjector
-from utils.logging import get_logger, log_section, log_event, log_success, log_action
+# Local imports
 from config import (
     INJECTION_THRESHOLD_SECONDS,
     PERSISTENT_MONITOR_CHECK_INTERVAL_S,
@@ -21,6 +21,9 @@ from config import (
     PERSISTENT_MONITOR_AUTO_RESUME_S,
     INJECTION_LOCK_TIMEOUT_S
 )
+from utils.logging import get_logger, log_section, log_event, log_success, log_action
+
+from .injector import SkinInjector
 
 log = get_logger()
 
@@ -28,12 +31,11 @@ log = get_logger()
 class InjectionManager:
     """Manages skin injection with automatic triggering"""
     
-    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None, name_db=None):
+    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
         self.tools_dir = tools_dir
         self.mods_dir = mods_dir
         self.zips_dir = zips_dir
         self.game_dir = game_dir
-        self.name_db = name_db
         self.injector = None  # Will be initialized lazily
         self.last_skin_name = None
         self.last_injection_time = 0.0
@@ -156,8 +158,10 @@ class InjectionManager:
                     if self._suspended_game_process.status() == psutil.STATUS_STOPPED:
                         self._suspended_game_process.resume()
                         log_success(log, "Resumed suspended game on cleanup", "▶️")
-                except:
-                    pass
+                except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as e:
+                    log.debug(f"[inject] Could not resume suspended process: {e}")
+                except Exception as e:
+                    log.debug(f"[inject] Unexpected error resuming process: {e}")
                 
             self._suspended_game_process = None
     
@@ -263,7 +267,7 @@ class InjectionManager:
         # This prevents unnecessary suspension for base skins and owned skins
         pass
     
-    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None) -> bool:
+    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
         """Immediately inject a specific skin (with optional chroma)
         
         Args:
@@ -311,7 +315,9 @@ class InjectionManager:
                 skin_name, 
                 stop_callback=stop_callback,
                 injection_manager=self,
-                chroma_id=chroma_id
+                chroma_id=chroma_id,
+                champion_name=champion_name,
+                champion_id=champion_id
             )
             
             if success:
