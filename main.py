@@ -203,8 +203,6 @@ from config import (
     SKIN_THRESHOLD_MS_DEFAULT,
     DEFAULT_DOWNLOAD_SKINS,
     DEFAULT_FORCE_UPDATE_SKINS,
-    LOG_MAX_FILES_DEFAULT,
-    LOG_MAX_TOTAL_SIZE_MB_DEFAULT,
     TRAY_INIT_SLEEP_S,
     MAIN_LOOP_FORCE_QUIT_TIMEOUT_S,
     PHASE_POLL_INTERVAL_DEFAULT,
@@ -679,11 +677,7 @@ def setup_arguments() -> argparse.Namespace:
     ap.add_argument("--max-champions", type=int, default=None, 
                    help="Limit number of champions to download skins for (for testing)")
     
-    # Log management arguments
-    ap.add_argument("--log-max-files", type=int, default=LOG_MAX_FILES_DEFAULT, 
-                   help=f"Maximum number of log files to keep (default: {LOG_MAX_FILES_DEFAULT})")
-    ap.add_argument("--log-max-total-size-mb", type=int, default=LOG_MAX_TOTAL_SIZE_MB_DEFAULT, 
-                   help=f"Maximum total size of all log files in MB (default: {LOG_MAX_TOTAL_SIZE_MB_DEFAULT}MB)")
+    # Log management arguments (none - retention managed by age in utils.logging)
     
     # Development arguments
     ap.add_argument("--dev", action="store_true", default=False,
@@ -696,7 +690,7 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     """Setup logging and clean up old logs and debug folders"""
     # Clean up old log files on startup
     from utils.logging import cleanup_logs
-    cleanup_logs(max_files=args.log_max_files, max_total_size_mb=args.log_max_total_size_mb)
+    cleanup_logs()
     
     # Check if running as frozen executable (PyInstaller)
     is_frozen = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
