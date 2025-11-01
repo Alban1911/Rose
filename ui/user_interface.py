@@ -1,0 +1,2117 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+User Interface Manager - Parent class for all UI components
+Manages ChromaUI and UnownedFrame as separate components
+"""
+
+# Standard library imports
+import threading
+from typing import Optional
+
+# Local imports
+from ui.chroma_ui import ChromaUI
+from ui.z_order_manager import get_z_order_manager
+from utils.logging import get_logger
+from utils.utilities import (
+    is_owned, is_chroma_id, get_base_skin_id_for_chroma, 
+    is_base_skin_owned, is_base_skin
+)
+
+log = get_logger()
+
+
+class UserInterface:
+    """Parent class managing all UI components"""
+    
+    def __init__(self, state, skin_scraper):
+        self.state = state
+        self.skin_scraper = skin_scraper
+        self.lock = threading.Lock()
+        
+        # Z-order management
+        self._z_manager = get_z_order_manager()
+        
+        # UI Components (will be initialized when entering ChampSelect)
+        self.chroma_ui = None
+        self.unowned_frame = None
+        self.dice_button = None
+        self.random_flag = None
+        self.historic_flag = None
+        self.click_catcher_hide = None
+        self.click_blocker = None  # Block clicks during skin detection
+        
+        # Click Catcher instances for different UI elements
+        self.click_catchers = {}  # Dictionary to store multiple click catcher instances
+        
+        # Current skin tracking
+        self.current_skin_id = None
+        self.current_skin_name = None
+        self.current_champion_name = None
+        self.current_champion_id = None
+        
+        # Track UI element visibility state before hiding
+        self._ui_visibility_state = {
+            'chroma_ui_visible': False,
+            'unowned_frame_visible': False,
+            'dice_button_visible': False,
+            'random_flag_visible': False,
+            'historic_flag_visible': False
+        }
+        
+        # Randomization state
+        self._randomization_in_progress = False
+        self._randomization_started = False  # Prevent multiple simultaneous randomizations
+        
+        # Pending initialization/destruction flags
+        self._pending_ui_initialization = False
+        self._pending_ui_destruction = False
+        self._ui_destruction_in_progress = False
+        self._last_destruction_time = 0.0
+        self._force_reinitialize = False  # Flag to force UI recreation
+        self._pending_click_catcher_creation = False  # Flag for ClickCatcher creation during FINALIZATION
+        self._pending_click_catcher_creation_own_locked = False  # Flag for ClickCatcher creation during OwnChampionLocked
+        # HistoricFlag pending ops (thread-safe requests)
+        self._pending_show_historic_flag = False
+        self._pending_hide_historic_flag = False
+        # Track last base skin shown (owned or unowned) to detect chroma swaps within same base
+        self._last_base_skin_id = None
+    
+    def _initialize_components(self):
+        """Initialize all UI components (must be called from main thread)"""
+        try:
+            log.info("[UI] Creating ChromaUI components...")
+            # Initialize ChromaUI (chroma selector + panel)
+            self.chroma_ui = ChromaUI(
+                skin_scraper=self.skin_scraper,
+                state=self.state
+            )
+            log.info("[UI] ChromaUI created successfully")
+            
+            log.info("[UI] Creating UnownedFrame components...")
+            # Create UnownedFrame instance directly
+            from ui.unowned_frame import UnownedFrame
+            self.unowned_frame = UnownedFrame(state=self.state)
+            
+            # Ensure the initial UnownedFrame is properly positioned
+            self.unowned_frame._create_components()
+            self.unowned_frame.show()
+            log.info("[UI] UnownedFrame created successfully")
+            
+            # Skip DiceButton in Swiftplay mode
+            if not self.state.is_swiftplay_mode:
+                log.info("[UI] Creating DiceButton components...")
+                # Create DiceButton instance
+                from ui.dice_button import DiceButton
+                self.dice_button = DiceButton(state=self.state)
+                
+                # Connect dice button signals
+                self.dice_button.dice_clicked.connect(self._on_dice_clicked)
+                log.info("[UI] DiceButton created successfully")
+            else:
+                log.info("[UI] Skipping DiceButton creation in Swiftplay mode")
+            
+            log.info("[UI] Creating RandomFlag components...")
+            # Create RandomFlag instance
+            from ui.random_flag import RandomFlag
+            self.random_flag = RandomFlag(state=self.state)
+            log.info("[UI] RandomFlag created successfully")
+            
+            # Create ClickBlocker (only in regular mode, not Swiftplay)
+            if not self.state.is_swiftplay_mode:
+                log.info("[UI] Creating ClickBlocker components...")
+                from ui.click_blocker import ClickBlocker
+                self.click_blocker = ClickBlocker(state=self.state)
+                log.info(f"[UI] ClickBlocker created successfully - self.click_blocker = {self.click_blocker}, is None: {self.click_blocker is None}")
+            else:
+                log.info("[UI] Skipping ClickBlocker creation in Swiftplay mode")
+            
+            # ClickCatcherHide instances will be created during OwnChampionLocked phase
+            log.info("[UI] ClickCatcherHide components will be created during OwnChampionLocked phase")
+            
+            self._last_unowned_skin_id = None
+            # Track last base skin that showed UnownedFrame to control fade behavior
+            self._last_unowned_base_skin_id = None
+            log.info("[UI] All UI components initialized successfully")
+            
+        except Exception as e:
+            log.error(f"[UI] Failed to initialize UI components: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+            # Clean up any partially created components
+            if self.chroma_ui:
+                try:
+                    self.chroma_ui.cleanup()
+                except Exception as e:
+                    log.debug(f"[UI] Error cleaning up ChromaUI: {e}")
+                self.chroma_ui = None
+            if self.unowned_frame:
+                try:
+                    self.unowned_frame.cleanup()
+                except Exception as e:
+                    log.debug(f"[UI] Error cleaning up UnownedFrame: {e}")
+                self.unowned_frame = None
+            raise
+    
+    def create_click_catchers(self):
+        """Create ClickCatcherHide instances when champion is locked (if not already created)"""
+        log.debug("[UI] create_click_catchers() entry")
+        from PyQt6.QtCore import QThread
+        from PyQt6.QtWidgets import QApplication
+        
+        # Check if we're on the main thread
+        app = QApplication.instance()
+        if app is None:
+            log.error("[UI] No QApplication instance found - cannot create click catchers")
+            return
+        
+        current_thread = QThread.currentThread()
+        main_thread = app.thread()
+        
+        # If not on main thread, set pending flag for main thread processing
+        if current_thread != main_thread:
+            log.debug("[UI] Deferring click catcher creation to main thread via pending operations")
+            with self.lock:
+                self._pending_click_catcher_creation_own_locked = True
+            return
+        
+        log.debug(f"[UI] create_click_catchers executing on main thread - is_swiftplay={getattr(self.state, 'is_swiftplay_mode', False)}, click_catchers_exists={bool(self.click_catchers)}, click_catchers_count={len(self.click_catchers) if hasattr(self, 'click_catchers') and self.click_catchers else 0}")
+        
+        # Only show ClickBlocker if we're actually going to create click catchers
+        
+        try:
+            # Skip ClickCatcher creation in Swiftplay mode
+            if self.state.is_swiftplay_mode:
+                log.info("[UI] Skipping ClickCatcher creation - Swiftplay mode detected")
+                return
+            
+            # Check if click catchers already exist
+            if self.click_catchers:
+                log.debug(f"[UI] ClickCatchers already exist ({len(self.click_catchers)} catchers), skipping creation")
+                return
+            
+            # Show ClickBlocker right before creating catchers to avoid accidental clicks
+            self._try_show_click_blocker()
+
+            log.info("[UI] Creating ClickCatcherHide components...")
+            # Create ClickCatcherHide instances for different UI elements
+            from ui.click_catcher_hide import ClickCatcherHide
+            
+            # Create click catchers with resolution-based positioning
+            self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
+                state=self.state, catcher_name='EDIT_RUNES', shape='circle'
+            )
+            self.click_catchers['EDIT_RUNES'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('EDIT_RUNES')
+            )
+            
+            self.click_catchers['REC_RUNES'] = ClickCatcherHide(
+                state=self.state, catcher_name='REC_RUNES', shape='circle'
+            )
+            self.click_catchers['REC_RUNES'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('REC_RUNES')
+            )
+            
+            self.click_catchers['SETTINGS'] = ClickCatcherHide(
+                state=self.state, catcher_name='SETTINGS', shape='circle'
+            )
+            self.click_catchers['SETTINGS'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('SETTINGS')
+            )
+            
+            # SUM_L - Rectangle
+            self.click_catchers['SUM_L'] = ClickCatcherHide(
+                state=self.state, catcher_name='SUM_L', shape='rectangle'
+            )
+            self.click_catchers['SUM_L'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('SUM_L')
+            )
+            
+            # SUM_R - Rectangle
+            self.click_catchers['SUM_R'] = ClickCatcherHide(
+                state=self.state, catcher_name='SUM_R', shape='rectangle'
+            )
+            self.click_catchers['SUM_R'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('SUM_R')
+            )
+            
+            # WARD - Rectangle
+            self.click_catchers['WARD'] = ClickCatcherHide(
+                state=self.state, catcher_name='WARD', shape='rectangle'
+            )
+            self.click_catchers['WARD'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('WARD')
+            )
+            
+            # EMOTES - Rectangle
+            self.click_catchers['EMOTES'] = ClickCatcherHide(
+                state=self.state, catcher_name='EMOTES', shape='rectangle'
+            )
+            self.click_catchers['EMOTES'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('EMOTES')
+            )
+            
+            # MESSAGE - Rectangle
+            self.click_catchers['MESSAGE'] = ClickCatcherHide(
+                state=self.state, catcher_name='MESSAGE', shape='rectangle'
+            )
+            self.click_catchers['MESSAGE'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('MESSAGE')
+            )
+            
+            # ABILITIES - Rectangle
+            self.click_catchers['ABILITIES'] = ClickCatcherHide(
+                state=self.state, catcher_name='ABILITIES', shape='rectangle'
+            )
+            self.click_catchers['ABILITIES'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('ABILITIES')
+            )
+            
+            # QUESTS - Rectangle
+            self.click_catchers['QUESTS'] = ClickCatcherHide(
+                state=self.state, catcher_name='QUESTS', shape='rectangle'
+            )
+            self.click_catchers['QUESTS'].click_detected.connect(
+                lambda: self._on_click_catcher_clicked('QUESTS')
+            )
+            
+            # Keep the original single instance for backward compatibility
+            self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
+            
+            log.info(f"[UI] ClickCatcherHide instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE, ABILITIES, QUESTS (total: {len(self.click_catchers)})")
+            
+        except Exception as e:
+            log.error(f"[UI] Failed to create ClickCatcherHide instances: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+        finally:
+            log.debug(f"[UI] create_click_catchers completed - click_catchers count: {len(self.click_catchers) if self.click_catchers else 0}")
+    
+    def _try_show_click_blocker(self):
+        """Try to show ClickBlocker (can be called from any thread)"""
+        log.info(f"[UI] Attempting to show ClickBlocker - click_blocker exists: {self.click_blocker is not None}")
+        if self.click_blocker:
+            try:
+                from PyQt6.QtCore import QTimer
+                log.info("[UI] Scheduling click_blocker.show_instantly() on main thread")
+                QTimer.singleShot(0, self._show_click_blocker_on_main_thread)
+                log.info("[UI] ClickBlocker show scheduled on main thread")
+            except Exception as e:
+                log.warning(f"[UI] Failed to schedule ClickBlocker show: {e}")
+                import traceback
+                log.warning(f"[UI] Traceback: {traceback.format_exc()}")
+        else:
+            log.warning("[UI] ClickBlocker is None - cannot show")
+    
+    def _show_click_blocker_on_main_thread(self):
+        """Show ClickBlocker on main thread (called via QTimer.singleShot)"""
+        try:
+            log.info("[UI] _show_click_blocker_on_main_thread called")
+            if self.click_blocker is None and not getattr(self.state, 'is_swiftplay_mode', False):
+                try:
+                    log.info("[UI] ClickBlocker missing - creating on main thread")
+                    from ui.click_blocker import ClickBlocker
+                    self.click_blocker = ClickBlocker(state=self.state)
+                    log.info(f"[UI] ClickBlocker created successfully - self.click_blocker = {self.click_blocker}, is None: {self.click_blocker is None}")
+                except Exception as ce:
+                    log.warning(f"[UI] Failed to create ClickBlocker on main thread: {ce}")
+            if self.click_blocker:
+                log.info("[UI] Calling click_blocker.show_instantly()")
+                self.click_blocker.show_instantly()
+                log.info("[UI] ClickBlocker shown - blocking clicks during skin detection")
+            else:
+                log.warning("[UI] ClickBlocker is None in main thread callback")
+        except Exception as e:
+            log.error(f"[UI] Failed to show ClickBlocker on main thread: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def _hide_click_blocker_with_delay(self):
+        """Hide ClickBlocker after delay (called via QTimer.singleShot)"""
+        if self.click_blocker:
+            try:
+                self.click_blocker.hide_instantly()
+                log.info("[UI] ClickBlocker hidden - ChromaButton should now be visible")
+            except Exception as e:
+                log.warning(f"[UI] Failed to hide ClickBlocker: {e}")
+    
+    def create_click_catchers_for_finalization(self):
+        """Create ClickCatcherHide instances during FINALIZATION phase (deprecated - now created on lock)"""
+        # Delegates to create_click_catchers to avoid duplicate creation
+        self.create_click_catchers()
+    
+    def show_skin(self, skin_id: int, skin_name: str, champion_name: str = None, champion_id: int = None):
+        """Show UI for a specific skin - manages both ChromaUI and UnownedFrame"""
+        if not self.is_ui_initialized():
+            log.debug("[UI] Cannot show skin - UI not initialized")
+            return
+        with self.lock:
+            # Prevent duplicate processing of the same skin
+            if (self.current_skin_id == skin_id and 
+                self.current_skin_name == skin_name and 
+                self.current_champion_name == champion_name):
+                log.debug(f"[UI] Skipping duplicate skin: {skin_name} (ID: {skin_id})")
+                return
+            
+            log.info(f"[UI] Showing skin: {skin_name} (ID: {skin_id})")
+            
+            # Hide ClickBlocker when UIA finds the skin name (with 200ms delay to let ChromaButton fully appear)
+            if self.click_blocker and self.click_blocker.isVisible():
+                try:
+                    from PyQt6.QtCore import QTimer
+                    log.info("[UI] ClickBlocker will be hidden in 200ms to let ChromaButton appear first")
+                    QTimer.singleShot(200, self._hide_click_blocker_with_delay)
+                except Exception as e:
+                    log.warning(f"[UI] Failed to schedule ClickBlocker hide: {e}")
+            
+            # Capture previous base skin before updating current
+            prev_skin_id = self.current_skin_id
+            prev_base_skin_id = None
+            if prev_skin_id is not None:
+                prev_chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+                prev_base_skin_id = prev_skin_id if is_base_skin(prev_skin_id, prev_chroma_id_map) else get_base_skin_id_for_chroma(prev_skin_id, prev_chroma_id_map)
+
+            # Update current skin tracking
+            self.current_skin_id = skin_id
+            self.current_skin_name = skin_name
+            self.current_champion_name = champion_name
+            
+            # Check if this is a chroma selection for the same base skin
+            is_chroma_selection = self._is_chroma_selection_for_same_base_skin(skin_id, skin_name)
+            
+            # Check if skin has chromas
+            has_chromas = self._skin_has_chromas(skin_id)
+            
+            # Check ownership
+            is_owned_var = is_owned(skin_id, self.state.owned_skin_ids)
+            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+            is_base_skin_var = is_base_skin(skin_id, chroma_id_map)
+            # Determine new base skin id for current selection
+            new_base_skin_id = skin_id if is_base_skin_var else get_base_skin_id_for_chroma(skin_id, chroma_id_map)
+            
+            # Check if base skin is owned
+            base_skin_owned = is_base_skin_owned(skin_id, self.state.owned_skin_ids, chroma_id_map)
+            
+            # Special case: Elementalist Lux forms (fake IDs 99991-99999) should always show UnownedFrame
+            is_elementalist_form = 99991 <= skin_id <= 99999
+            
+            # Same-base chroma swap occurs when switching from base skin (or its chroma) to another chroma of same base
+            is_same_base_chroma = (not is_base_skin_var) and (prev_base_skin_id is not None) and (new_base_skin_id == prev_base_skin_id)
+            
+            # Determine what to show
+            should_show_chroma_ui = has_chromas
+            # Show UnownedFrame for:
+            # 1. Elementalist Lux forms (fake IDs 99991-99999) - always show
+            # 2. When the base skin is not owned
+            should_show_unowned_frame = is_elementalist_form or (not base_skin_owned)
+            
+            log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned_var}, is_base_skin={is_base_skin_var}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_chroma_selection={is_chroma_selection}")
+            log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}, unowned_frame={should_show_unowned_frame}")
+            
+            # Show/hide ChromaUI based on chromas
+            if should_show_chroma_ui:
+                self._show_chroma_ui(skin_id, skin_name, champion_name, champion_id)
+            else:
+                self._hide_chroma_ui()
+            
+            # Show/hide UnownedFrame based on ownership
+            if should_show_unowned_frame:
+                self._show_unowned_frame(skin_id, skin_name, champion_name, is_same_base_chroma=is_same_base_chroma)
+            else:
+                self._hide_unowned_frame()
+
+            # Cancel randomization if skin changed and random mode is active (but not during randomization sequence)
+            if self.state.random_mode_active and not self._randomization_in_progress:
+                self._cancel_randomization()
+            
+            # Update dice button visibility
+            self._update_dice_button()
+            
+            # Show click catchers when a skin is selected (champion is locked)
+            self._show_click_catchers()
+
+            # Update last base skin id after handling
+            self._last_base_skin_id = new_base_skin_id if new_base_skin_id is not None else (skin_id if is_base_skin_var else None)
+    
+    def hide_all(self):
+        """Hide all UI components"""
+        with self.lock:
+            if not self.is_ui_initialized():
+                log.debug("[UI] Cannot hide - UI not initialized")
+                return
+            log.info("[UI] Hiding all UI components")
+            self._hide_chroma_ui()
+            self._hide_unowned_frame()
+            if self.dice_button:
+                self.dice_button.hide_button()
+            if self.random_flag:
+                self.random_flag.hide_flag()
+            # Hide all click catcher instances
+            for catcher in self.click_catchers.values():
+                catcher.hide_catcher()
+    
+    def _schedule_hide_all_on_main_thread(self):
+        """Schedule hide_all() to run on the main thread to avoid PyQt6 thread issues"""
+        try:
+            # Use QTimer.singleShot to schedule on main thread
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self.hide_all)
+            log.debug("[UI] hide_all() scheduled on main thread")
+        except Exception as e:
+            log.warning(f"[UI] Failed to schedule hide_all on main thread: {e}")
+            # No fallback - avoid direct call that could cause thread issues
+    
+    def _skin_has_chromas(self, skin_id: int) -> bool:
+        """Check if skin has chromas"""
+        try:
+            # Special case: Elementalist Lux (skin ID 99007) has Forms instead of chromas
+            if skin_id == 99007:
+                log.debug(f"[UI] Elementalist Lux detected - has Forms instead of chromas")
+                return True
+            
+            # Special case: Elementalist Lux forms (fake IDs 99991-99999) are considered chromas
+            if 99991 <= skin_id <= 99999:
+                log.debug(f"[UI] Elementalist Lux form detected - considered as chroma")
+                return True
+            
+            # Special case: Risen Legend Kai'Sa (skin ID 145070) has HOL chroma instead of regular chromas
+            if skin_id == 145070:
+                log.debug(f"[UI] Risen Legend Kai'Sa detected - has HOL chroma instead of regular chromas")
+                return True
+            
+            # Special case: Immortalized Legend Kai'Sa (skin ID 145071) is treated as a chroma of Risen Legend
+            if skin_id == 145071:
+                log.debug(f"[UI] Immortalized Legend Kai'Sa detected - treated as chroma of Risen Legend")
+                return True
+            
+            # Special case: Risen Legend Kai'Sa HOL chroma (fake ID 100001) is considered a chroma
+            if skin_id == 100001:
+                log.debug(f"[UI] Risen Legend Kai'Sa HOL chroma detected - considered as chroma")
+                return True
+            
+            # Special case: Risen Legend Ahri (skin ID 103085) has HOL chroma instead of regular chromas
+            if skin_id == 103085:
+                log.debug(f"[UI] Risen Legend Ahri detected - has HOL chroma instead of regular chromas")
+                return True
+            
+            # Special case: Immortalized Legend Ahri (skin ID 103086) is treated as a chroma of Risen Legend Ahri
+            if skin_id == 103086:
+                log.debug(f"[UI] Immortalized Legend Ahri detected - treated as chroma of Risen Legend Ahri")
+                return True
+            
+            # Special case: Risen Legend Ahri HOL chroma (fake ID 88888) is considered a chroma
+            if skin_id == 88888:
+                log.debug(f"[UI] Risen Legend Ahri HOL chroma detected - considered as chroma")
+                return True
+            
+            # First, check if this skin_id is a chroma by looking it up in the chroma cache
+            if self.skin_scraper and self.skin_scraper.cache:
+                if skin_id in self.skin_scraper.cache.chroma_id_map:
+                    # This is a chroma - it's always considered to have chromas
+                    # because it's part of the base skin's chroma set
+                    return True
+            
+            # For base skins, check if they actually have chromas
+            chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
+            return bool(chromas)
+        except Exception as e:
+            log.debug(f"[UI] Error checking chromas for skin {skin_id}: {e}")
+            return False
+    
+    def _is_chroma_selection_for_same_base_skin(self, skin_id: int, skin_name: str) -> bool:
+        """Check if this is a chroma selection for the same base skin we were already showing"""
+        try:
+            # Check if we have a current skin ID that's a base skin
+            if not hasattr(self, 'current_skin_id') or self.current_skin_id is None:
+                return False
+            
+            # Check if the current skin is a base skin
+            current_base_skin_id = self.current_skin_id
+            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+            if is_chroma_id(current_base_skin_id, chroma_id_map):
+                # Current skin is already a chroma, get its base skin
+                current_base_skin_id = get_base_skin_id_for_chroma(current_base_skin_id, chroma_id_map)
+                if current_base_skin_id is None:
+                    return False
+            
+            # Check if the new skin_id is a chroma of the same base skin
+            if is_base_skin(skin_id, chroma_id_map):
+                # New skin is a base skin, not a chroma selection
+                return False
+            
+            # Get the base skin ID for the new chroma
+            new_base_skin_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
+            if new_base_skin_id is None:
+                return False
+            
+            # Check if both chromas belong to the same base skin
+            is_same_base = current_base_skin_id == new_base_skin_id
+            
+            if is_same_base:
+                log.debug(f"[UI] Detected chroma selection for same base skin: {current_base_skin_id} -> {skin_id}")
+            
+            return is_same_base
+            
+        except Exception as e:
+            log.debug(f"[UI] Error checking chroma selection: {e}")
+            return False
+    
+    
+    def _show_chroma_ui(self, skin_id: int, skin_name: str, champion_name: str = None, champion_id: int = None):
+        """Show ChromaUI for skin with chromas"""
+        if self.chroma_ui:
+            try:
+                self.chroma_ui.show_for_skin(skin_id, skin_name, champion_name, champion_id)
+                log.debug(f"[UI] ChromaUI shown for {skin_name}")
+            except Exception as e:
+                log.error(f"[UI] Error showing ChromaUI: {e}")
+    
+    def _hide_chroma_ui(self):
+        """Hide ChromaUI"""
+        if self.chroma_ui:
+            try:
+                self.chroma_ui.hide()
+                log.debug("[UI] ChromaUI hidden")
+            except Exception as e:
+                log.debug(f"[UI] Error hiding ChromaUI: {e}")
+    
+    def _show_unowned_frame(self, skin_id: int, skin_name: str, champion_name: str = None, is_same_base_chroma: bool = False):
+        """Show UnownedFrame for unowned skin"""
+        if self.unowned_frame:
+            try:
+                # Determine base skin ID for the current skin
+                current_base_skin_id = skin_id
+                chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+                if is_chroma_id(skin_id, chroma_id_map):
+                    base_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
+                    if base_id is not None:
+                        current_base_skin_id = base_id
+                # No-op on chroma swaps within the same base skin (decide after computing base id)
+                if is_same_base_chroma:
+                    log.debug(f"[UI] UnownedFrame no-op for same base chroma swap: {skin_name}")
+                    # Track last ids and exit without triggering fades
+                    self._last_unowned_skin_id = skin_id
+                    self._last_unowned_base_skin_id = current_base_skin_id
+                    return
+                
+                # Decide fade behavior based on base skin changes only
+                if getattr(self, '_last_unowned_base_skin_id', None) is None:
+                    # First time showing - fade in
+                    self.unowned_frame.fade_in()
+                    log.debug(f"[UI] UnownedFrame first shown for {skin_name}")
+                elif self._last_unowned_base_skin_id == current_base_skin_id:
+                    # Same base skin (e.g., chroma swap) - do nothing (avoid triggering any fade)
+                    log.debug(f"[UI] UnownedFrame unchanged for same base skin (no-op) for {skin_name}")
+                    # Track IDs and exit early without any visual changes
+                    self._last_unowned_skin_id = skin_id
+                    self._last_unowned_base_skin_id = current_base_skin_id
+                    return
+                else:
+                    # Different base skin - perform fade transition
+                    self.unowned_frame.fade_out()
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(200, lambda: self.unowned_frame.fade_in())
+                    log.debug(f"[UI] UnownedFrame transition (different base skin) shown for {skin_name}")
+                
+                # Track last shown IDs
+                self._last_unowned_skin_id = skin_id
+                self._last_unowned_base_skin_id = current_base_skin_id
+            except Exception as e:
+                log.error(f"[UI] Error showing UnownedFrame: {e}")
+    
+    def _hide_unowned_frame(self):
+        """Hide UnownedFrame"""
+        if self.unowned_frame:
+            try:
+                # Fade out UnownedFrame
+                self.unowned_frame.fade_out()
+                # Reset tracking when hiding
+                self._last_unowned_skin_id = None
+                self._last_unowned_base_skin_id = None
+                log.debug("[UI] UnownedFrame hidden")
+            except Exception as e:
+                log.debug(f"[UI] Error hiding UnownedFrame: {e}")
+    
+    def check_resolution_and_update(self):
+        """Check for resolution changes and update UI components accordingly"""
+        try:
+            # Check if UnownedFrame needs resolution update by destroying and recreating it
+            if self.unowned_frame:
+                # Get current resolution
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                
+                if current_resolution and hasattr(self.unowned_frame, '_current_resolution'):
+                    # Only recreate if resolution actually changed AND it's not None
+                    if (self.unowned_frame._current_resolution is not None and 
+                        current_resolution != self.unowned_frame._current_resolution):
+                        log.info(f"[UI] UnownedFrame resolution changed from {self.unowned_frame._current_resolution} to {current_resolution}, destroying and recreating")
+                        
+                        # Save current state (visibility + opacity)
+                        was_visible = False
+                        current_opacity = 0.0
+                        if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
+                            current_opacity = self.unowned_frame.opacity_effect.opacity()
+                            was_visible = current_opacity > 0.0 or self.unowned_frame.isVisible()
+                        
+                        # Completely destroy the old UnownedFrame
+                        self.unowned_frame.hide()
+                        self.unowned_frame.deleteLater()
+                        self.unowned_frame = None
+                        
+                        # Small delay to ensure cleanup
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+                        
+                        # Create completely new UnownedFrame with fresh resolution values
+                        from ui.unowned_frame import UnownedFrame
+                        self.unowned_frame = UnownedFrame(state=self.state)
+                        
+                        # Ensure the initial UnownedFrame is properly positioned (same as initialization)
+                        self.unowned_frame._create_components()
+                        # Restore prior visibility/opacity strictly (preserve state across rebuild)
+                        if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
+                            if was_visible:
+                                self.unowned_frame.opacity_effect.setOpacity(1.0)
+                                self.unowned_frame.show()
+                                try:
+                                    if hasattr(self.unowned_frame, 'unowned_frame_image') and self.unowned_frame.unowned_frame_image:
+                                        self.unowned_frame.unowned_frame_image.show()
+                                except Exception:
+                                    pass
+                                log.info("[UI] UnownedFrame recreated - restored to visible state")
+                            else:
+                                self.unowned_frame.opacity_effect.setOpacity(0.0)
+                                self.unowned_frame.hide()
+                                try:
+                                    if hasattr(self.unowned_frame, 'unowned_frame_image') and self.unowned_frame.unowned_frame_image:
+                                        self.unowned_frame.unowned_frame_image.hide()
+                                except Exception:
+                                    pass
+                                log.info("[UI] UnownedFrame recreated - restored to hidden state")
+                        
+                        # Ensure proper z-order
+                        self.unowned_frame.refresh_z_order()
+                    elif self.unowned_frame._current_resolution is None:
+                        # Just update the resolution without recreating
+                        self.unowned_frame._current_resolution = current_resolution
+                        log.debug(f"[UI] UnownedFrame resolution initialized to {current_resolution}")
+            
+            # Check ChromaUI for resolution changes (it handles its own resolution checking)
+            if self.chroma_ui:
+                # ChromaUI components handle their own resolution checking
+                pass
+            
+            # DiceButton: destroy and recreate on resolution change (like UnownedFrame)
+            if self.dice_button and not self.state.is_swiftplay_mode:
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                if current_resolution and hasattr(self.dice_button, '_current_resolution'):
+                    if (self.dice_button._current_resolution is not None and 
+                        current_resolution != self.dice_button._current_resolution):
+                        log.info(f"[UI] DiceButton resolution changed from {self.dice_button._current_resolution} to {current_resolution}, destroying and recreating")
+                        # Preserve state and visibility
+                        prev_state = getattr(self.dice_button, 'current_state', 'disabled')
+                        was_visible = getattr(self.dice_button, 'is_visible', False)
+
+                        # Destroy
+                        try:
+                            self.dice_button.hide()
+                            self.dice_button.deleteLater()
+                        except Exception:
+                            pass
+                        self.dice_button = None
+
+                        # Process events to ensure deletion
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+
+                        # Recreate fresh widget and reconnect signals
+                        from ui.dice_button import DiceButton
+                        self.dice_button = DiceButton(state=self.state)
+                        self.dice_button.dice_clicked.connect(self._on_dice_clicked)
+
+                        # Restore logical state and visibility
+                        if prev_state == 'enabled':
+                            self.dice_button.set_state('enabled')
+                        else:
+                            self.dice_button.set_state('disabled')
+                        if was_visible:
+                            self.dice_button.show_button()
+                        else:
+                            self.dice_button.hide_button()
+
+                        # Re-apply absolute positioning shortly after show
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            QTimer.singleShot(50, self.dice_button.ensure_position)
+                        except Exception:
+                            pass
+
+                        # Ensure correct z-order after recreation
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            from ui.z_order_manager import get_z_order_manager
+                            z_manager = get_z_order_manager()
+                            # Do an immediate refresh and a delayed one to be safe
+                            z_manager.refresh_z_order(force=True)
+                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
+                        except Exception:
+                            pass
+                    elif self.dice_button._current_resolution is None:
+                        self.dice_button._current_resolution = current_resolution
+
+            # RandomFlag: destroy and recreate on resolution change
+            if self.random_flag:
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                if current_resolution and hasattr(self.random_flag, '_current_resolution'):
+                    if (self.random_flag._current_resolution is not None and 
+                        current_resolution != self.random_flag._current_resolution):
+                        log.info(f"[UI] RandomFlag resolution changed from {self.random_flag._current_resolution} to {current_resolution}, destroying and recreating")
+                        was_visible = getattr(self.random_flag, 'is_visible', False)
+
+                        # Destroy
+                        try:
+                            self.random_flag.hide()
+                            self.random_flag.deleteLater()
+                        except Exception:
+                            pass
+                        self.random_flag = None
+
+                        # Process events
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+
+                        # Recreate
+                        from ui.random_flag import RandomFlag
+                        self.random_flag = RandomFlag(state=self.state)
+
+                        # Restore visibility
+                        if was_visible:
+                            self.random_flag.show_flag()
+                        else:
+                            self.random_flag.hide_flag()
+
+                        # Re-apply absolute positioning shortly after show
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            QTimer.singleShot(50, self.random_flag.ensure_position)
+                        except Exception:
+                            pass
+
+                        # Ensure correct z-order after recreation
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            from ui.z_order_manager import get_z_order_manager
+                            z_manager = get_z_order_manager()
+                            z_manager.refresh_z_order(force=True)
+                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
+                        except Exception:
+                            pass
+
+            # HistoricFlag: destroy and recreate on resolution change
+            if self.historic_flag:
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                if current_resolution and hasattr(self.historic_flag, '_current_resolution'):
+                    if (self.historic_flag._current_resolution is not None and \
+                        current_resolution != self.historic_flag._current_resolution):
+                        log.info(f"[UI] HistoricFlag resolution changed from {self.historic_flag._current_resolution} to {current_resolution}, destroying and recreating")
+                        was_visible = getattr(self.historic_flag, 'is_visible', False)
+
+                        try:
+                            self.historic_flag.hide()
+                            self.historic_flag.deleteLater()
+                        except Exception:
+                            pass
+                        self.historic_flag = None
+
+                        from PyQt6.QtWidgets import QApplication
+                        QApplication.processEvents()
+
+                        from ui.historic_flag import HistoricFlag
+                        self.historic_flag = HistoricFlag(state=self.state)
+
+                        if was_visible:
+                            self.historic_flag.show_flag()
+                        else:
+                            self.historic_flag.hide_flag()
+
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            QTimer.singleShot(50, self.historic_flag.ensure_position)
+                        except Exception:
+                            pass
+
+                        try:
+                            from PyQt6.QtCore import QTimer
+                            from ui.z_order_manager import get_z_order_manager
+                            z_manager = get_z_order_manager()
+                            z_manager.refresh_z_order(force=True)
+                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
+                        except Exception:
+                            pass
+                    elif self.random_flag._current_resolution is None:
+                        self.random_flag._current_resolution = current_resolution
+            
+            # Check ClickCatcherHide instances for resolution changes
+            # Destroy and recreate click catchers when resolution changes
+            if self.click_catchers:
+                # Get current resolution
+                from utils.window_utils import get_league_window_client_size
+                current_resolution = get_league_window_client_size()
+                
+                if current_resolution:
+                    # Check if any click catcher has a different resolution
+                    resolution_changed = False
+                    for catcher in self.click_catchers.values():
+                        if (hasattr(catcher, '_current_resolution') and 
+                            catcher._current_resolution is not None and 
+                            catcher._current_resolution != current_resolution):
+                            resolution_changed = True
+                            break
+                    
+                    if resolution_changed:
+                        # Skip ClickCatcher recreation in Swiftplay mode
+                        if self.state.is_swiftplay_mode:
+                            log.info(f"[UI] Resolution changed in Swiftplay mode - skipping ClickCatcher recreation")
+                        else:
+                            log.info(f"[UI] Click catchers resolution changed, destroying and recreating all click catchers")
+                            
+                            # Store current skin state for recreation
+                            current_skin_id = self.current_skin_id
+                            current_skin_name = self.current_skin_name
+                            current_champion_name = self.current_champion_name
+                            
+                            # Destroy all click catchers
+                            for catcher_name, catcher in self.click_catchers.items():
+                                try:
+                                    catcher.cleanup()
+                                    log.debug(f"[UI] ClickCatcher '{catcher_name}' destroyed")
+                                except Exception as e:
+                                    log.error(f"[UI] Error destroying ClickCatcher '{catcher_name}': {e}")
+                            
+                            # Clear the click catchers dictionary
+                            self.click_catchers = {}
+                            self.click_catcher_hide = None
+                            
+                            # Small delay to ensure cleanup
+                            from PyQt6.QtWidgets import QApplication
+                            QApplication.processEvents()
+                            
+                            # Recreate all click catchers with new resolution
+                            from ui.click_catcher_hide import ClickCatcherHide
+                            
+                            # Create click catchers with resolution-based positioning
+                            self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
+                                state=self.state, catcher_name='EDIT_RUNES', shape='circle'
+                            )
+                            self.click_catchers['EDIT_RUNES'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('EDIT_RUNES')
+                            )
+                            
+                            self.click_catchers['REC_RUNES'] = ClickCatcherHide(
+                                state=self.state, catcher_name='REC_RUNES', shape='circle'
+                            )
+                            self.click_catchers['REC_RUNES'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('REC_RUNES')
+                            )
+                            
+                            self.click_catchers['SETTINGS'] = ClickCatcherHide(
+                                state=self.state, catcher_name='SETTINGS', shape='circle'
+                            )
+                            self.click_catchers['SETTINGS'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('SETTINGS')
+                            )
+                            
+                            # SUM_L - Rectangle
+                            self.click_catchers['SUM_L'] = ClickCatcherHide(
+                                state=self.state, catcher_name='SUM_L', shape='rectangle'
+                            )
+                            self.click_catchers['SUM_L'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('SUM_L')
+                            )
+                            
+                            # SUM_R - Rectangle
+                            self.click_catchers['SUM_R'] = ClickCatcherHide(
+                                state=self.state, catcher_name='SUM_R', shape='rectangle'
+                            )
+                            self.click_catchers['SUM_R'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('SUM_R')
+                            )
+                            
+                            # WARD - Rectangle
+                            self.click_catchers['WARD'] = ClickCatcherHide(
+                                state=self.state, catcher_name='WARD', shape='rectangle'
+                            )
+                            self.click_catchers['WARD'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('WARD')
+                            )
+                            
+                            # EMOTES - Rectangle
+                            self.click_catchers['EMOTES'] = ClickCatcherHide(
+                                state=self.state, catcher_name='EMOTES', shape='rectangle'
+                            )
+                            self.click_catchers['EMOTES'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('EMOTES')
+                            )
+                            
+                            # MESSAGE - Rectangle
+                            self.click_catchers['MESSAGE'] = ClickCatcherHide(
+                                state=self.state, catcher_name='MESSAGE', shape='rectangle'
+                            )
+                            self.click_catchers['MESSAGE'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('MESSAGE')
+                            )
+                            
+                            # ABILITIES - Rectangle
+                            self.click_catchers['ABILITIES'] = ClickCatcherHide(
+                                state=self.state, catcher_name='ABILITIES', shape='rectangle'
+                            )
+                            self.click_catchers['ABILITIES'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('ABILITIES')
+                            )
+                            
+                            # QUESTS - Rectangle
+                            self.click_catchers['QUESTS'] = ClickCatcherHide(
+                                state=self.state, catcher_name='QUESTS', shape='rectangle'
+                            )
+                            self.click_catchers['QUESTS'].click_detected.connect(
+                                lambda: self._on_click_catcher_clicked('QUESTS')
+                            )
+                            
+                            # Restore backward compatibility
+                            self.click_catcher_hide = self.click_catchers['SETTINGS']
+                            
+                            log.info("[UI] Click catchers recreated with new resolution")
+                            
+                            # Show click catchers if we have a current skin
+                            if current_skin_id:
+                                self._show_click_catchers()
+                    else:
+                        # No resolution change, just update normally
+                        for catcher in self.click_catchers.values():
+                            catcher.check_resolution_and_update()
+                
+        except Exception as e:
+            log.error(f"[UI] Error checking resolution changes: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+    
+    def refresh_z_order(self):
+        """Refresh z-order for all UI components"""
+        try:
+            self._z_manager.refresh_z_order()
+            # Only log occasionally to avoid spam - log at most once per 10 seconds
+            import time
+            current_time = time.time()
+            if not hasattr(self, '_last_zorder_log_time'):
+                self._last_zorder_log_time = 0
+            
+            if current_time - self._last_zorder_log_time >= 10.0:
+                self._last_zorder_log_time = current_time
+                log.debug("[UI] Z-order refreshed for all components")
+        except Exception as e:
+            log.error(f"[UI] Error refreshing z-order: {e}")
+    
+    def is_ui_initialized(self):
+        """Check if UI components are initialized"""
+        # In Swiftplay mode, click_catchers and dice_button are not created, so skip those checks
+        if self.state and self.state.is_swiftplay_mode:
+            return (self.chroma_ui is not None and 
+                    self.unowned_frame is not None and 
+                    self.random_flag is not None)
+        # Regular mode requires click catchers and dice button
+        return (self.chroma_ui is not None and 
+                self.unowned_frame is not None and 
+                self.dice_button is not None and 
+                self.random_flag is not None and
+                len(self.click_catchers) > 0)
+    
+    def request_ui_initialization(self):
+        """Request UI initialization (called from any thread)"""
+        with self.lock:
+            if self._ui_destruction_in_progress:
+                log.warning("[UI] UI initialization requested but destruction is in progress - skipping")
+                return
+            
+            # Check if we're in cooldown period after destruction
+            import time
+            current_time = time.time()
+            if self._last_destruction_time > 0 and (current_time - self._last_destruction_time) < 0.5:  # 500ms cooldown
+                remaining_time = 0.5 - (current_time - self._last_destruction_time)
+                log.warning(f"[UI] UI initialization requested but in cooldown period - {remaining_time:.2f}s remaining")
+                return
+            
+            # Check for force reinitialize FIRST (before other checks)
+            if self._force_reinitialize:
+                log.info("[UI] Force reinitializing UI for new ChampSelect")
+                # Force destruction and recreation
+                self._pending_ui_destruction = True
+                self._pending_ui_initialization = True
+                self._force_reinitialize = False
+            elif not self.is_ui_initialized() and not self._pending_ui_initialization:
+                log.info("[UI] UI initialization requested for ChampSelect")
+                # Defer widget creation to main thread to avoid PyQt6 thread issues
+                self._pending_ui_initialization = True
+                self._pending_ui_destruction = False  # Cancel any pending destruction
+            else:
+                log.debug("[UI] UI initialization requested but already initialized or pending")
+    
+    def process_pending_operations(self):
+        """Process pending UI operations (must be called from main thread)"""
+        with self.lock:
+            # Handle pending destruction first (takes priority)
+            if self._pending_ui_destruction:
+                log.info("[UI] Processing pending UI destruction in main thread")
+                self._pending_ui_destruction = False
+                self._ui_destruction_in_progress = True
+                try:
+                    log.debug("[UI] About to call destroy_ui()")
+                    self.destroy_ui()
+                    log.debug("[UI] destroy_ui() completed successfully")
+                    
+                    # Record destruction time for cooldown
+                    import time
+                    self._last_destruction_time = time.time()
+                    log.debug("[UI] Destruction completed and timestamp recorded")
+                except Exception as e:
+                    log.error(f"[UI] Failed to process pending UI destruction: {e}")
+                    import traceback
+                    log.error(f"[UI] Destruction failure traceback: {traceback.format_exc()}")
+                finally:
+                    self._ui_destruction_in_progress = False
+                    log.debug("[UI] Destruction flag cleared")
+            
+            # Handle pending initialization (either new or after destruction)
+            if self._pending_ui_initialization:
+                ui_initialized = self.is_ui_initialized()
+                log.debug(f"[UI] Checking initialization: pending={self._pending_ui_initialization}, initialized={ui_initialized}")
+                if not ui_initialized:
+                    log.info("[UI] Processing pending UI initialization in main thread")
+                    self._pending_ui_initialization = False
+                    try:
+                        self._initialize_components()
+                    except Exception as e:
+                        log.error(f"[UI] Failed to process pending UI initialization: {e}")
+                        # Reset the flag so we can try again later
+                        self._pending_ui_initialization = True
+            
+            # Handle pending ClickCatcher creation during FINALIZATION
+            if self._pending_click_catcher_creation:
+                log.info("[UI] Processing pending ClickCatcher creation for FINALIZATION in main thread")
+                self._pending_click_catcher_creation = False
+                try:
+                    self.create_click_catchers_for_finalization()
+                except Exception as e:
+                    log.error(f"[UI] Failed to process pending ClickCatcher creation: {e}")
+                    import traceback
+                    log.error(f"[UI] Traceback: {traceback.format_exc()}")
+            
+            # Handle pending ClickCatcher creation during OwnChampionLocked
+            if self._pending_click_catcher_creation_own_locked:
+                log.info("[UI] Processing pending ClickCatcher creation for OwnChampionLocked in main thread")
+                self._pending_click_catcher_creation_own_locked = False
+                try:
+                    self.create_click_catchers()
+                except Exception as e:
+                    log.error(f"[UI] Failed to process pending ClickCatcher creation for OwnChampionLocked: {e}")
+                    import traceback
+                    log.error(f"[UI] Traceback: {traceback.format_exc()}")
+
+            # Handle pending HistoricFlag show/hide
+            if self._pending_hide_historic_flag:
+                self._pending_hide_historic_flag = False
+                try:
+                    if self.historic_flag:
+                        log.info("[HISTORIC] Processing pending hide HistoricFlag in main thread")
+                        self.historic_flag.hide_flag()
+                except Exception as e:
+                    log.error(f"[UI] Error hiding HistoricFlag in pending ops: {e}")
+            if self._pending_show_historic_flag:
+                self._pending_show_historic_flag = False
+                try:
+                    if not self.historic_flag:
+                        from ui.historic_flag import HistoricFlag
+                        self.historic_flag = HistoricFlag(state=self.state)
+                    log.info("[HISTORIC] Processing pending show HistoricFlag in main thread")
+                    self.historic_flag.show_flag()
+                    # Ensure position and z-order
+                    try:
+                        from PyQt6.QtCore import QTimer
+                        QTimer.singleShot(50, self.historic_flag.ensure_position)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    log.error(f"[UI] Error showing HistoricFlag in pending ops: {e}")
+    
+    def request_ui_destruction(self):
+        """Request UI destruction (called from any thread)"""
+        with self.lock:
+            if self.is_ui_initialized():
+                log.info("[UI] UI destruction requested")
+                self._pending_ui_destruction = True
+                self._pending_ui_initialization = False  # Cancel any pending initialization
+            else:
+                log.debug("[UI] UI destruction requested but UI not initialized")
+    
+    def has_pending_operations(self):
+        """Check if there are pending UI operations"""
+        with self.lock:
+            return (self._pending_ui_destruction or 
+                    self._pending_ui_initialization or 
+                    self._pending_click_catcher_creation or
+                    self._pending_click_catcher_creation_own_locked)
+    
+    def destroy_ui(self):
+        """Destroy UI components (must be called from main thread)"""
+        log.info("[UI] Starting UI component destruction")
+        
+        # Try to acquire lock with timeout to avoid deadlock
+        import time
+        lock_acquired = False
+        try:
+            lock_acquired = self.lock.acquire(timeout=0.001)  # 1ms timeout
+            if not lock_acquired:
+                log.debug("[UI] Could not acquire lock for destruction - proceeding without lock")
+        except Exception as e:
+            log.debug(f"[UI] Lock acquisition failed: {e} - proceeding without lock")
+        
+        try:
+            # Store references to cleanup outside the lock to avoid deadlock
+            chroma_ui_to_cleanup = None
+            unowned_frame_to_cleanup = None
+            dice_button_to_cleanup = None
+            random_flag_to_cleanup = None
+            historic_flag_to_cleanup = None
+            click_catchers_to_cleanup = {}
+            
+            if lock_acquired:
+                try:
+                    log.debug("[UI] Lock acquired, storing references")
+                    chroma_ui_to_cleanup = self.chroma_ui
+                    unowned_frame_to_cleanup = self.unowned_frame
+                    dice_button_to_cleanup = self.dice_button
+                    random_flag_to_cleanup = self.random_flag
+                    historic_flag_to_cleanup = self.historic_flag
+                    click_catchers_to_cleanup = self.click_catchers.copy()
+                    self.chroma_ui = None
+                    self.unowned_frame = None
+                    self.dice_button = None
+                    self.random_flag = None
+                    self.historic_flag = None
+                    self.click_catchers = {}
+                    self.click_catcher_hide = None
+                    
+                    # Also clear global instances
+                    try:
+                        from ui.chroma_panel import clear_global_panel_manager
+                        clear_global_panel_manager()
+                        log.debug("[UI] Global instances cleared")
+                    except Exception as e:
+                        log.debug(f"[UI] Could not clear global instances: {e}")
+                    
+                    log.debug("[UI] References stored and cleared")
+                finally:
+                    self.lock.release()
+                    lock_acquired = False
+            else:
+                # If we couldn't acquire lock, try to get references without lock (risky but necessary)
+                log.warning("[UI] Attempting to get UI references without lock for cleanup")
+                try:
+                    chroma_ui_to_cleanup = self.chroma_ui
+                    unowned_frame_to_cleanup = self.unowned_frame
+                    dice_button_to_cleanup = self.dice_button
+                    random_flag_to_cleanup = self.random_flag
+                    historic_flag_to_cleanup = self.historic_flag
+                    click_catchers_to_cleanup = self.click_catchers.copy()
+                    
+                    # CRITICAL: Set components to None even without lock
+                    self.chroma_ui = None
+                    self.unowned_frame = None
+                    self.dice_button = None
+                    self.random_flag = None
+                    self.historic_flag = None
+                    self.click_catchers = {}
+                    self.click_catcher_hide = None
+                    
+                    log.debug("[UI] Got references without lock and cleared instance variables")
+                except Exception as e:
+                    log.warning(f"[UI] Could not get references without lock: {e}")
+                    # Still try to clear the instance variables
+                    try:
+                        self.chroma_ui = None
+                        self.unowned_frame = None
+                        self.dice_button = None
+                        self.random_flag = None
+                        self.historic_flag = None
+                        log.debug("[UI] Cleared instance variables despite error")
+                    except Exception as e2:
+                        log.error(f"[UI] Could not clear instance variables: {e2}")
+            
+            # Cleanup components outside the lock to avoid deadlock
+            if chroma_ui_to_cleanup:
+                log.debug("[UI] Cleaning up ChromaUI...")
+                try:
+                    chroma_ui_to_cleanup.cleanup()
+                    log.debug("[UI] ChromaUI cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up ChromaUI: {e}")
+                    import traceback
+                    log.error(f"[UI] ChromaUI cleanup traceback: {traceback.format_exc()}")
+            
+            if unowned_frame_to_cleanup:
+                log.debug("[UI] Cleaning up UnownedFrame...")
+                try:
+                    unowned_frame_to_cleanup.cleanup()
+                    log.debug("[UI] UnownedFrame cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up UnownedFrame: {e}")
+                    import traceback
+                    log.error(f"[UI] UnownedFrame cleanup traceback: {traceback.format_exc()}")
+            
+            if dice_button_to_cleanup:
+                log.debug("[UI] Cleaning up DiceButton...")
+                try:
+                    dice_button_to_cleanup.cleanup()
+                    log.debug("[UI] DiceButton cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up DiceButton: {e}")
+                    import traceback
+                    log.error(f"[UI] DiceButton cleanup traceback: {traceback.format_exc()}")
+            
+            if random_flag_to_cleanup:
+                log.debug("[UI] Cleaning up RandomFlag...")
+                try:
+                    random_flag_to_cleanup.cleanup()
+                    log.debug("[UI] RandomFlag cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up RandomFlag: {e}")
+                    import traceback
+                    log.error(f"[UI] RandomFlag cleanup traceback: {traceback.format_exc()}")
+            
+            if historic_flag_to_cleanup:
+                log.debug("[UI] Cleaning up HistoricFlag...")
+                try:
+                    historic_flag_to_cleanup.cleanup()
+                    log.debug("[UI] HistoricFlag cleaned up successfully")
+                except Exception as e:
+                    log.error(f"[UI] Error cleaning up HistoricFlag: {e}")
+                    import traceback
+                    log.error(f"[UI] HistoricFlag cleanup traceback: {traceback.format_exc()}")
+            
+            if click_catchers_to_cleanup:
+                log.debug("[UI] Cleaning up ClickCatcherHide instances...")
+                for instance_name, catcher in click_catchers_to_cleanup.items():
+                    try:
+                        catcher.cleanup()
+                        log.debug(f"[UI] ClickCatcherHide '{instance_name}' cleaned up successfully")
+                    except Exception as e:
+                        log.error(f"[UI] Error cleaning up ClickCatcherHide '{instance_name}': {e}")
+                        import traceback
+                        log.error(f"[UI] ClickCatcherHide '{instance_name}' cleanup traceback: {traceback.format_exc()}")
+            
+            # If we couldn't get references, try to force cleanup through global instances
+            if not chroma_ui_to_cleanup and not unowned_frame_to_cleanup:
+                log.warning("[UI] No references obtained, attempting global cleanup")
+                try:
+                    # Try to cleanup global chroma panel manager
+                    from ui.chroma_panel import _chroma_panel_manager
+                    if _chroma_panel_manager:
+                        log.debug("[UI] Cleaning up global chroma panel manager")
+                        _chroma_panel_manager.cleanup()
+                        log.debug("[UI] Global chroma panel manager cleaned up")
+                except Exception as e:
+                    log.warning(f"[UI] Error cleaning up global chroma panel manager: {e}")
+            
+            # Force Qt to process events to ensure widgets are actually destroyed
+            log.debug("[UI] Processing Qt events for widget destruction...")
+            try:
+                from PyQt6.QtWidgets import QApplication
+                QApplication.processEvents()
+                log.debug("[UI] Qt events processed successfully")
+            except Exception as e:
+                log.error(f"[UI] Error processing Qt events: {e}")
+                import traceback
+                log.error(f"[UI] Qt events traceback: {traceback.format_exc()}")
+            
+            log.info("[UI] UI components destroyed successfully")
+            
+        except Exception as e:
+            log.error(f"[UI] Critical error during UI destruction: {e}")
+            import traceback
+            log.error(f"[UI] UI destruction traceback: {traceback.format_exc()}")
+            raise
+        finally:
+            if lock_acquired:
+                self.lock.release()
+    
+    def _on_dice_clicked(self, state: str):
+        """Handle dice button click events"""
+        log.info(f"[UI] Dice button clicked in {state} state")
+        if state == 'disabled':
+            self._handle_dice_click_disabled()
+        elif state == 'enabled':
+            self._handle_dice_click_enabled()
+        else:
+            log.warning(f"[UI] Unknown dice button state: {state}")
+    
+    def _handle_dice_click_disabled(self):
+        """Handle dice button click in disabled state - start randomization"""
+        # Prevent multiple simultaneous randomization attempts
+        if self._randomization_started:
+            log.debug("[UI] Randomization already in progress, ignoring click")
+            return
+            
+        log.info("[UI] Starting random skin selection")
+        self._randomization_started = True
+        
+        # Force champion's base skin first
+        champion_id = self.skin_scraper.cache.champion_id if self.skin_scraper and self.skin_scraper.cache else None
+        base_champion_skin_id = champion_id * 1000 if champion_id else None
+        
+        if self.current_skin_id == base_champion_skin_id:
+            # Already champion's base skin, proceed with randomization
+            self._start_randomization()
+        else:
+            # Need to force champion's base skin first
+            self._force_base_skin_and_randomize()
+    
+    def _handle_dice_click_enabled(self):
+        """Handle dice button click in enabled state - cancel randomization"""
+        log.info("[UI] Cancelling random skin selection")
+        self._cancel_randomization()
+
+    # Historic flag helpers (called from other threads via get_user_interface)
+    def show_historic_flag(self):
+        # Thread-safe: mark pending for main thread
+        with self.lock:
+            log.info("[HISTORIC] Request to show HistoricFlag (deferred to main thread)")
+            self._pending_show_historic_flag = True
+
+    def hide_historic_flag(self):
+        # Thread-safe: mark pending for main thread
+        with self.lock:
+            log.info("[HISTORIC] Request to hide HistoricFlag (deferred to main thread)")
+            self._pending_hide_historic_flag = True
+    
+    def _force_base_skin_and_randomize(self):
+        """Force champion's base skin via LCU API then start randomization"""
+        if not self.state.locked_champ_id:
+            log.warning("[UI] Cannot force base skin - no locked champion")
+            return
+        
+        # Set flag to prevent cancellation during randomization
+        self._randomization_in_progress = True
+        
+        # Get champion's base skin ID (champion_id * 1000)
+        champion_id = self.state.locked_champ_id
+        base_skin_id = champion_id * 1000
+        log.info(f"[UI] Forcing champion base skin: {base_skin_id} (champion {champion_id})")
+        
+        # Force base skin via LCU (reuse existing LCU instance)
+        try:
+            # Get the existing LCU instance from the skin scraper
+            if not self.skin_scraper or not hasattr(self.skin_scraper, 'lcu'):
+                log.warning("[UI] No LCU instance available")
+                self._randomization_in_progress = False
+                return
+            
+            lcu = self.skin_scraper.lcu
+            
+            # Try to set base skin
+            if lcu.set_my_selection_skin(base_skin_id):
+                log.info(f"[UI] Forced champion base skin: {base_skin_id}")
+                # Add a delay to let UI detection process the base skin change
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(1000, self._start_randomization)
+            else:
+                log.warning("[UI] Failed to force champion base skin")
+                self._randomization_in_progress = False
+                self._randomization_started = False
+        except Exception as e:
+            log.error(f"[UI] Error forcing champion base skin: {e}")
+            self._randomization_in_progress = False
+            self._randomization_started = False
+    
+    def _start_randomization(self):
+        """Start the randomization sequence"""
+        # Switch dice to disabled state (non-interactive)
+        if self.dice_button:
+            self.dice_button.set_state('disabled')
+        
+        # Disable HistoricMode if active
+        try:
+            if getattr(self.state, 'historic_mode_active', False):
+                self.state.historic_mode_active = False
+                self.state.historic_skin_id = None
+                log.info("[HISTORIC] Historic mode DISABLED due to RandomMode activation")
+                self.hide_historic_flag()
+        except Exception:
+            pass
+        
+        # Fade in random flag
+        if self.random_flag:
+            self.random_flag.show_flag()
+        
+        # Switch dice to enabled state
+        if self.dice_button:
+            self.dice_button.set_state('enabled')
+        
+        # Select random skin
+        random_selection = self._select_random_skin()
+        if random_selection:
+            random_skin_name, random_skin_id = random_selection
+            self.state.random_skin_name = random_skin_name
+            self.state.random_skin_id = random_skin_id
+            self.state.random_mode_active = True
+            log.info(f"[UI] Random skin selected: {random_skin_name} (ID: {random_skin_id})")
+        else:
+            log.warning("[UI] No random skin available")
+            self._cancel_randomization()
+        
+        # Clear the randomization flags AFTER everything is set up
+        self._randomization_in_progress = False
+        self._randomization_started = False
+    
+    def _cancel_randomization(self):
+        """Cancel randomization and reset state"""
+        # Fade out random flag
+        if self.random_flag:
+            self.random_flag.hide_flag()
+        
+        # Reset state
+        self.state.random_skin_name = None
+        self.state.random_skin_id = None
+        self.state.random_mode_active = False
+        
+        # Clear randomization flags
+        self._randomization_in_progress = False
+        self._randomization_started = False
+        
+        # Switch dice to disabled state
+        if self.dice_button:
+            self.dice_button.set_state('disabled')
+    
+    def reset_skin_state(self):
+        """Reset all skin-related state for new ChampSelect"""
+        with self.lock:
+            # Reset current skin tracking
+            self.current_skin_id = None
+            self.current_skin_name = None
+            self.current_champion_name = None
+            
+            # Reset UI detection state
+            self.last_skin_name = None
+            self.last_skin_id = None
+            
+            # Reset randomization state
+            self._randomization_started = False
+            
+            # Force UI recreation for new ChampSelect
+            self._force_reinitialize = True
+            
+            log.debug("[UI] Skin state reset for new ChampSelect")
+        
+        log.info("[UI] Randomization cancelled")
+    
+    def _on_click_catcher_hide_clicked(self):
+        """Handle click detection from ClickCatcherHide (backward compatibility)"""
+        self._on_click_catcher_clicked('SETTINGS')
+    
+    def _on_click_catcher_clicked(self, instance_name: str):
+        """Handle click detection from specific ClickCatcherHide instance"""
+        log.info(f"[UI] ClickCatcherHide '{instance_name}' click detected")
+        
+        if instance_name == 'EDIT_RUNES':
+            log.info("[UI] EDIT_RUNES clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'REC_RUNES':
+            log.info("[UI] REC_RUNES clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'SETTINGS':
+            log.info("[UI] SETTINGS clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'SUM_L':
+            log.info("[UI] SUM_L clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'SUM_R':
+            log.info("[UI] SUM_R clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'WARD':
+            log.info("[UI] WARD clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'EMOTES':
+            log.info("[UI] EMOTES clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'MESSAGE':
+            log.info("[UI] MESSAGE clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'ABILITIES':
+            log.info("[UI] ABILITIES clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name == 'QUESTS':
+            log.info("[UI] QUESTS clicked - hiding UI elements")
+            self._hide_all_ui_elements()
+            # Create corresponding ClickCatcherShow instances
+            self._create_show_instances_for_panel(instance_name)
+        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X', 'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L', 'CLOSE_MESSAGE_M', 'CLOSE_ABILITIES', 'CLOSE_QUESTS']:
+            log.info(f"[UI] {instance_name} clicked - showing UI elements")
+            self._show_all_ui_elements()
+            # Destroy all ClickCatcherShow instances after showing UI elements
+            self._destroy_all_show_instances()
+        else:
+            log.warning(f"[UI] Unknown click catcher instance: {instance_name}")
+    
+    def _create_show_instances_for_panel(self, panel_name: str):
+        """Create corresponding ClickCatcherShow instances based on the panel name"""
+        try:
+            from ui.click_catcher_show import ClickCatcherShow
+            
+            # Create show instances based on the panel name
+            if panel_name == 'SETTINGS':
+                # SETTINGS creates CLOSE_SETTINGS
+                self.click_catchers['CLOSE_SETTINGS'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_SETTINGS', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_SETTINGS'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_SETTINGS')
+                )
+                log.info("[UI] Created CLOSE_SETTINGS show instance")
+                
+            elif panel_name == 'EMOTES':
+                # EMOTES creates CLOSE_EMOTES
+                self.click_catchers['CLOSE_EMOTES'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_EMOTES', shape='circle'
+                )
+                self.click_catchers['CLOSE_EMOTES'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_EMOTES')
+                )
+                log.info("[UI] Created CLOSE_EMOTES show instance")
+                
+            elif panel_name in ['EDIT_RUNES', 'REC_RUNES']:
+                # RUNES creates CLOSE_RUNES_TOP, CLOSE_RUNES_L, CLOSE_RUNES_R, CLOSE_RUNES_X
+                self.click_catchers['CLOSE_RUNES_TOP'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_RUNES_TOP', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_RUNES_TOP'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_TOP')
+                )
+                
+                self.click_catchers['CLOSE_RUNES_L'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_RUNES_L', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_RUNES_L'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_L')
+                )
+                
+                self.click_catchers['CLOSE_RUNES_R'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_RUNES_R', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_RUNES_R'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_R')
+                )
+                
+                self.click_catchers['CLOSE_RUNES_X'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_RUNES_X', shape='circle'
+                )
+                self.click_catchers['CLOSE_RUNES_X'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_X')
+                )
+                log.info("[UI] Created CLOSE_RUNES show instances (TOP, L, R, X)")
+                
+            elif panel_name == 'SUM_L':
+                # SUM_L creates CLOSE_SUM
+                self.click_catchers['CLOSE_SUM'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_SUM', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_SUM'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_SUM')
+                )
+                log.info("[UI] Created CLOSE_SUM show instance for SUM_L")
+                
+            elif panel_name == 'SUM_R':
+                # SUM_R creates CLOSE_SUM
+                self.click_catchers['CLOSE_SUM'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_SUM', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_SUM'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_SUM')
+                )
+                log.info("[UI] Created CLOSE_SUM show instance for SUM_R")
+                
+            elif panel_name == 'WARD':
+                # WARD creates CLOSE_WARD
+                self.click_catchers['CLOSE_WARD'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_WARD', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_WARD'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_WARD')
+                )
+                log.info("[UI] Created CLOSE_WARD show instance")
+                
+            elif panel_name == 'MESSAGE':
+                # MESSAGE creates CLOSE_MESSAGE_R, CLOSE_MESSAGE_L, and CLOSE_MESSAGE_M
+                self.click_catchers['CLOSE_MESSAGE_R'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_MESSAGE_R', shape='circle'
+                )
+                self.click_catchers['CLOSE_MESSAGE_R'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_R')
+                )
+                
+                self.click_catchers['CLOSE_MESSAGE_L'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_MESSAGE_L', shape='circle'
+                )
+                self.click_catchers['CLOSE_MESSAGE_L'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_L')
+                )
+                
+                self.click_catchers['CLOSE_MESSAGE_M'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_MESSAGE_M', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_MESSAGE_M'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_M')
+                )
+                log.info("[UI] Created CLOSE_MESSAGE_R, CLOSE_MESSAGE_L, and CLOSE_MESSAGE_M show instances")
+                
+            elif panel_name == 'ABILITIES':
+                # ABILITIES creates CLOSE_ABILITIES
+                self.click_catchers['CLOSE_ABILITIES'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_ABILITIES', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_ABILITIES'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_ABILITIES')
+                )
+                log.info("[UI] Created CLOSE_ABILITIES show instance")
+                
+            elif panel_name == 'QUESTS':
+                # QUESTS creates CLOSE_QUESTS
+                self.click_catchers['CLOSE_QUESTS'] = ClickCatcherShow(
+                    state=self.state, catcher_name='CLOSE_QUESTS', shape='rectangle'
+                )
+                self.click_catchers['CLOSE_QUESTS'].click_detected.connect(
+                    lambda: self._on_click_catcher_clicked('CLOSE_QUESTS')
+                )
+                log.info("[UI] Created CLOSE_QUESTS show instance")
+                
+        except Exception as e:
+            log.error(f"[UI] Error creating show instances for {panel_name}: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def _destroy_all_show_instances(self):
+        """Destroy all ClickCatcherShow instances"""
+        try:
+            # List of all possible show instance names
+            show_instance_names = [
+                'CLOSE_SETTINGS', 'CLOSE_EMOTES', 
+                'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X',
+                'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L', 'CLOSE_MESSAGE_M', 'CLOSE_ABILITIES', 'CLOSE_QUESTS'
+            ]
+            
+            # Destroy all show instances
+            log.info(f"[UI] Starting to destroy show instances. Current click_catchers: {list(self.click_catchers.keys())}")
+            for instance_name in show_instance_names:
+                if instance_name in self.click_catchers:
+                    try:
+                        log.info(f"[UI] Destroying {instance_name} show instance")
+                        self.click_catchers[instance_name].cleanup()
+                        del self.click_catchers[instance_name]
+                        log.info(f"[UI] Successfully destroyed {instance_name} show instance")
+                    except Exception as e:
+                        log.error(f"[UI] Error destroying {instance_name}: {e}")
+                else:
+                    log.debug(f"[UI] {instance_name} not found in click_catchers")
+            
+            log.info("[UI] ✓ All show instances destroyed")
+                
+        except Exception as e:
+            log.error(f"[UI] Error destroying show instances: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def _hide_all_ui_elements(self):
+        """Hide all UI elements instantly when click catchers are triggered"""
+        try:
+            # Track visibility state before hiding
+            chroma_ui_visible = False
+            if self.chroma_ui and self.chroma_ui.chroma_selector and self.chroma_ui.chroma_selector.panel:
+                # Check if the reopen button is visible (this indicates ChromaUI is active)
+                chroma_ui_visible = (self.chroma_ui.chroma_selector.panel.reopen_button and 
+                                   self.chroma_ui.chroma_selector.panel.reopen_button.isVisible())
+            
+            self._ui_visibility_state['chroma_ui_visible'] = chroma_ui_visible
+            self._ui_visibility_state['unowned_frame_visible'] = self.unowned_frame and self.unowned_frame.isVisible()
+            self._ui_visibility_state['dice_button_visible'] = self.dice_button and hasattr(self.dice_button, 'is_visible') and self.dice_button.is_visible
+            self._ui_visibility_state['random_flag_visible'] = self.random_flag and self.random_flag.isVisible()
+            self._ui_visibility_state['historic_flag_visible'] = self.historic_flag and self.historic_flag.isVisible()
+            
+            log.debug(f"[UI] Visibility state before hiding: {self._ui_visibility_state}")
+            
+            # Check if any UI is actually visible - if not, skip hiding (prevents premature hiding)
+            has_visible_ui = (chroma_ui_visible or 
+                             (self.unowned_frame and self.unowned_frame.isVisible()) or
+                             (self.dice_button and hasattr(self.dice_button, 'is_visible') and self.dice_button.is_visible) or
+                             (self.random_flag and self.random_flag.isVisible()) or
+                             (self.historic_flag and self.historic_flag.isVisible()))
+            
+            if not has_visible_ui:
+                log.debug("[UI] No UI elements visible - skipping hide action")
+                return
+            
+            log.info("[UI] Hiding all UI elements instantly due to click catcher trigger")
+            
+            # Hide ChromaUI instantly
+            if self.chroma_ui:
+                try:
+                    self.chroma_ui.hide()
+                    log.debug("[UI] ChromaUI hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding ChromaUI: {e}")
+            
+            # Hide UnownedFrame instantly (no fade)
+            if self.unowned_frame:
+                try:
+                    # Set opacity to 0 instantly instead of fade_out()
+                    if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
+                        self.unowned_frame.opacity_effect.setOpacity(0.0)
+                    self.unowned_frame.hide()
+                    log.debug("[UI] UnownedFrame hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding UnownedFrame: {e}")
+            
+            # Hide DiceButton instantly
+            if self.dice_button:
+                try:
+                    self.dice_button.hide_button()
+                    log.debug("[UI] DiceButton hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding DiceButton: {e}")
+            
+            # Hide RandomFlag instantly
+            if self.random_flag:
+                try:
+                    self.random_flag.hide_flag()
+                    log.debug("[UI] RandomFlag hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding RandomFlag: {e}")
+            # Hide HistoricFlag instantly
+            if self.historic_flag:
+                try:
+                    self.historic_flag.hide_flag()
+                    log.debug("[UI] HistoricFlag hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding HistoricFlag: {e}")
+            
+            # Hide all click catchers instantly
+            for catcher_name, catcher in self.click_catchers.items():
+                try:
+                    catcher.hide_catcher()
+                    log.debug(f"[UI] ClickCatcher '{catcher_name}' hidden instantly")
+                except Exception as e:
+                    log.error(f"[UI] Error hiding ClickCatcher '{catcher_name}': {e}")
+            
+            log.info("[UI] All UI elements hidden instantly")
+            
+        except Exception as e:
+            log.error(f"[UI] Error hiding UI elements: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def _show_all_ui_elements(self):
+        """Show UI elements that were previously visible before hiding"""
+        try:
+            log.info("[UI] Showing previously visible UI elements due to click catcher trigger")
+            log.debug(f"[UI] Restoring visibility state: {self._ui_visibility_state}")
+            
+            # Show ChromaUI only if it was previously visible
+            if self._ui_visibility_state['chroma_ui_visible'] and self.chroma_ui and self.current_skin_id and self.current_skin_name:
+                try:
+                    self.chroma_ui.show_for_skin(
+                        self.current_skin_id, 
+                        self.current_skin_name, 
+                        self.current_champion_name,
+                        self.current_champion_id
+                    )
+                    log.debug("[UI] ChromaUI shown (was previously visible)")
+                except Exception as e:
+                    log.error(f"[UI] Error showing ChromaUI: {e}")
+            else:
+                log.debug("[UI] ChromaUI not shown (was not previously visible)")
+            
+            # Show UnownedFrame only if it was previously visible
+            if self._ui_visibility_state['unowned_frame_visible'] and self.unowned_frame:
+                try:
+                    # Show UnownedFrame without fade in when triggered by ClickCatcherShow
+                    if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
+                        self.unowned_frame.opacity_effect.setOpacity(1.0)
+                    self.unowned_frame.show()
+                    if hasattr(self.unowned_frame, 'unowned_frame_image') and self.unowned_frame.unowned_frame_image:
+                        self.unowned_frame.unowned_frame_image.show()
+                    log.debug("[UI] UnownedFrame shown without fade (ClickCatcherShow trigger)")
+                except Exception as e:
+                    log.error(f"[UI] Error showing UnownedFrame: {e}")
+            else:
+                log.debug("[UI] UnownedFrame not shown (was not previously visible)")
+            
+            # Show DiceButton only if it was previously visible
+            if self._ui_visibility_state['dice_button_visible'] and self.dice_button:
+                try:
+                    self.dice_button.show_button_instantly()
+                    log.debug("[UI] DiceButton shown instantly (was previously visible)")
+                except Exception as e:
+                    log.error(f"[UI] Error showing DiceButton: {e}")
+            else:
+                log.debug("[UI] DiceButton not shown (was not previously visible)")
+            
+            # Show RandomFlag only if it was previously visible
+            if self._ui_visibility_state['random_flag_visible'] and self.random_flag:
+                try:
+                    self.random_flag.show_flag_instantly()
+                    log.debug("[UI] RandomFlag shown instantly (was previously visible)")
+                except Exception as e:
+                    log.error(f"[UI] Error showing RandomFlag: {e}")
+            else:
+                log.debug("[UI] RandomFlag not shown (was not previously visible)")
+
+            # Show HistoricFlag only if it was previously visible
+            if self._ui_visibility_state.get('historic_flag_visible') and self.historic_flag:
+                try:
+                    self.historic_flag.show_flag_instantly()
+                    log.debug("[UI] HistoricFlag shown instantly (was previously visible)")
+                except Exception as e:
+                    log.error(f"[UI] Error showing HistoricFlag: {e}")
+            else:
+                log.debug("[UI] HistoricFlag not shown (was not previously visible)")
+            
+            # Show all click catchers (skip in Swiftplay mode)
+            if not self.state.is_swiftplay_mode:
+                for catcher_name, catcher in self.click_catchers.items():
+                    try:
+                        catcher.show_catcher()
+                        log.debug(f"[UI] ClickCatcher '{catcher_name}' shown")
+                    except Exception as e:
+                        log.error(f"[UI] Error showing ClickCatcher '{catcher_name}': {e}")
+            else:
+                log.debug("[UI] Skipping ClickCatcher display - Swiftplay mode detected")
+            
+            log.info("[UI] All UI elements shown")
+            
+        except Exception as e:
+            log.error(f"[UI] Error showing UI elements: {e}")
+            import traceback
+            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+    
+    def show_click_catcher_hide(self, x, y, width=50, height=50):
+        """Show the ClickCatcherHide at the specified position (backward compatibility)"""
+        if self.click_catcher_hide:
+            self.click_catcher_hide.set_position(x, y, width, height)
+            self.click_catcher_hide.show_catcher()
+            log.debug(f"[UI] ClickCatcherHide shown at ({x}, {y}) size {width}x{height}")
+    
+    def hide_click_catcher_hide(self):
+        """Hide the ClickCatcherHide (backward compatibility)"""
+        if self.click_catcher_hide:
+            self.click_catcher_hide.hide_catcher()
+            log.debug("[UI] ClickCatcherHide hidden")
+    
+    def show_click_catcher(self, instance_name: str):
+        """Show a specific click catcher instance"""
+        if instance_name in self.click_catchers:
+            self.click_catchers[instance_name].show_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
+        else:
+            log.warning(f"[UI] ClickCatcher instance '{instance_name}' not found")
+    
+    def hide_click_catcher(self, instance_name: str):
+        """Hide a specific click catcher instance"""
+        if instance_name in self.click_catchers:
+            self.click_catchers[instance_name].hide_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' hidden")
+        else:
+            log.warning(f"[UI] ClickCatcher instance '{instance_name}' not found")
+    
+    def show_all_click_catchers(self):
+        """Show all click catcher instances"""
+        for instance_name, catcher in self.click_catchers.items():
+            catcher.show_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
+    
+    def hide_all_click_catchers(self):
+        """Hide all click catcher instances"""
+        for instance_name, catcher in self.click_catchers.items():
+            catcher.hide_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' hidden")
+    
+    def _show_click_catchers(self):
+        """Show all click catcher instances when a skin is selected"""
+        # Skip showing ClickCatchers in Swiftplay mode
+        if self.state.is_swiftplay_mode:
+            log.debug("[UI] Skipping ClickCatcher display - Swiftplay mode detected")
+            return
+            
+        for instance_name, catcher in self.click_catchers.items():
+            catcher.show_catcher()
+            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
+    
+    def _select_random_skin(self) -> Optional[tuple]:
+        """Select a random skin from available skins (excluding base skin)
+        
+        Returns:
+            Tuple of (skin_name, skin_id) or None if no skin available
+        """
+        if not self.skin_scraper or not self.skin_scraper.cache.skins:
+            log.warning("[UI] No skins available for random selection")
+            return None
+        
+        # Filter out the champion's base skin (champion_id * 1000) and actual chromas
+        champion_id = self.skin_scraper.cache.champion_id
+        base_champion_skin_id = champion_id * 1000 if champion_id else None
+        
+        chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+        available_skins = [
+            skin for skin in self.skin_scraper.cache.skins 
+            if skin.get('skinId') != base_champion_skin_id and is_base_skin(skin.get('skinId'), chroma_id_map)
+        ]
+        
+        # Debug logging
+        log.debug(f"[UI] Champion ID: {champion_id}, Base skin ID: {base_champion_skin_id}")
+        log.debug(f"[UI] Total skins in cache: {len(self.skin_scraper.cache.skins)}")
+        log.debug(f"[UI] Available skins for random selection: {len(available_skins)}")
+        for skin in available_skins[:5]:  # Show first 5 for debugging
+            log.debug(f"[UI] Available skin: {skin.get('skinName')} (ID: {skin.get('skinId')})")
+        
+        if not available_skins:
+            log.warning("[UI] No non-base skins available for random selection")
+            return None
+        
+        # Select random skin
+        import random
+        selected_skin = random.choice(available_skins)
+        skin_id = selected_skin.get('skinId')
+        localized_skin_name = selected_skin.get('skinName', '')
+        
+        if not localized_skin_name or not skin_id:
+            log.warning("[UI] Selected skin has no name or ID")
+            return None
+        
+        # Use localized skin name directly from LCU (no database conversion needed)
+        english_skin_name = localized_skin_name
+        
+        # Check if this skin has chromas
+        chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
+        if chromas:
+            log.info(f"[UI] Skin '{english_skin_name}' has {len(chromas)} chromas, selecting random chroma")
+            
+            # Create list of all options: base skin + all chromas
+            all_options = []
+            
+            # Add base skin (the original skin without chromas)
+            all_options.append({
+                'id': skin_id,
+                'name': english_skin_name,
+                'type': 'base'
+            })
+            
+            # Add all chromas
+            for chroma in chromas:
+                localized_chroma_name = chroma.get('name', f'{english_skin_name} Chroma')
+                # Use localized chroma name directly from LCU
+                english_chroma_name = localized_chroma_name
+                all_options.append({
+                    'id': chroma.get('id'),
+                    'name': english_chroma_name,
+                    'type': 'chroma'
+                })
+            
+            # Select random option from base + chromas
+            selected_option = random.choice(all_options)
+            selected_name = selected_option['name']
+            selected_id = selected_option['id']
+            selected_type = selected_option['type']
+            
+            log.info(f"[UI] Random selection: {selected_type} '{selected_name}' (ID: {selected_id})")
+            return (selected_name, selected_id)
+        else:
+            # No chromas, return the base skin name and ID
+            log.info(f"[UI] Skin '{english_skin_name}' has no chromas, using base skin")
+            return (english_skin_name, skin_id)
+    
+    
+    
+    
+    def _update_dice_button(self):
+        """Update dice button visibility based on current context"""
+        # Skip dice button in Swiftplay mode
+        if self.state.is_swiftplay_mode:
+            return
+        
+        if not self.dice_button:
+            log.debug("[UI] Dice button not initialized")
+            return
+        
+        # Show dice button if we have a skin (champion name is optional)
+        if self.current_skin_id:
+            log.debug(f"[UI] Showing dice button for skin ID: {self.current_skin_id}")
+            self.dice_button.show_button()
+        else:
+            log.debug("[UI] Hiding dice button - no current skin")
+            self.dice_button.hide_button()
+
+    def cleanup(self):
+        """Clean up all UI components"""
+        with self.lock:
+            if self.chroma_ui:
+                self.chroma_ui.cleanup()
+            if self.unowned_frame:
+                self.unowned_frame.cleanup()
+            if self.dice_button:
+                self.dice_button.cleanup()
+            if self.random_flag:
+                self.random_flag.cleanup()
+            if self.click_blocker:
+                try:
+                    self.click_blocker.cleanup()
+                except Exception as e:
+                    log.warning(f"[UI] Error cleaning up ClickBlocker: {e}")
+            for catcher in self.click_catchers.values():
+                catcher.cleanup()
+            log.info("[UI] All UI components cleaned up")
+
+
+# Global UI instance
+_user_interface = None
+
+
+def get_user_interface(state=None, skin_scraper=None) -> UserInterface:
+    """Get or create global user interface instance"""
+    global _user_interface
+    if _user_interface is None:
+        _user_interface = UserInterface(state, skin_scraper)
+    else:
+        # Update the existing instance with new parameters if they were provided
+        if state is not None and _user_interface.state != state:
+            _user_interface.state = state
+        if skin_scraper is not None and _user_interface.skin_scraper != skin_scraper:
+            _user_interface.skin_scraper = skin_scraper
+    return _user_interface

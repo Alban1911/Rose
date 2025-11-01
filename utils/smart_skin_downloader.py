@@ -5,14 +5,11 @@ Smart Skin Downloader
 Downloads skins efficiently with proper API rate limiting and batch operations
 """
 
-import os
 import json
 import time
 import requests
-import zipfile
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from typing import List, Dict, Optional
 from utils.logging import get_logger
 from config import (
     RATE_LIMIT_MIN_INTERVAL, RATE_LIMIT_REQUEST_TIMEOUT, RATE_LIMIT_STREAM_TIMEOUT,
