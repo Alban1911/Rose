@@ -128,8 +128,7 @@ RATE_LIMIT_BACKOFF_MULTIPLIER = 1.5  # Multiply interval by this when low
 # LOGGING CONSTANTS
 # =============================================================================
 
-LOG_MAX_FILES_DEFAULT = 10               # Maximum number of log files to keep
-LOG_MAX_TOTAL_SIZE_MB_DEFAULT = 10       # Maximum total log size in MB
+LOG_MAX_FILE_SIZE_MB_DEFAULT = 10        # Maximum single log file size before rolling (MB)
 LOG_CHUNK_SIZE = 8192                    # Chunk size for file downloads
 LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g., "=" * 80)
 

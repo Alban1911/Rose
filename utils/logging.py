@@ -28,7 +28,7 @@ from urllib3.exceptions import InsecureRequestWarning
 
 # Local imports
 from config import (
-    LOG_MAX_FILES_DEFAULT, LOG_MAX_TOTAL_SIZE_MB_DEFAULT,
+    LOG_MAX_FILE_SIZE_MB_DEFAULT,
     LOG_FILE_PATTERN, LOG_TIMESTAMP_FORMAT, LOG_SEPARATOR_WIDTH,
     PRODUCTION_MODE
 )
@@ -443,6 +443,113 @@ class SanitizingFilter(logging.Filter):
         return True
 
 
+class SizeRotatingCompositeHandler(logging.Handler):
+    """
+    A handler that delegates to an inner file handler and rolls over
+    to a new file when the current file size reaches a threshold.
+
+    - Creates files as: base.ext, base.ext.1, base.ext.2, ...
+    - Does not delete on rotation (retention handled separately on startup)
+    - Works with both plaintext and custom encrypted file handlers
+    """
+    def __init__(self, base_path: Path, create_handler_fn, max_bytes: int):
+        super().__init__()
+        self.base_path = Path(base_path)
+        self.create_handler_fn = create_handler_fn
+        self.max_bytes = max_bytes
+        self._index = 0
+        self.current_path = self._compute_current_path()
+        self.current_handler = self.create_handler_fn(self.current_path)
+        self._stored_formatter = None
+        # Ensure the inner handler starts at the same level/filters
+        # as this composite handler once they are set by the caller
+
+    def _compute_current_path(self) -> Path:
+        if self._index == 0:
+            return self.base_path
+        return self.base_path.with_name(f"{self.base_path.name}.{self._index}")
+
+    def _apply_stored_config(self):
+        try:
+            # Level
+            self.current_handler.setLevel(self.level)
+            # Formatter
+            if self._stored_formatter is not None:
+                self.current_handler.setFormatter(self._stored_formatter)
+            # Filters
+            for flt in getattr(self, 'filters', []) or []:
+                try:
+                    self.current_handler.addFilter(flt)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _maybe_rotate(self):
+        try:
+            current_size = self.current_path.stat().st_size if self.current_path.exists() else 0
+            if current_size >= self.max_bytes:
+                try:
+                    self.current_handler.close()
+                except Exception:
+                    pass
+                self._index += 1
+                self.current_path = self._compute_current_path()
+                self.current_handler = self.create_handler_fn(self.current_path)
+                self._apply_stored_config()
+        except Exception:
+            # Never break logging due to rotation errors
+            pass
+
+    def emit(self, record):
+        try:
+            self._maybe_rotate()
+            self.current_handler.emit(record)
+        except Exception:
+            # Swallow any errors to avoid crashing the app due to logging
+            pass
+
+    def setFormatter(self, fmt):
+        self._stored_formatter = fmt
+        try:
+            self.current_handler.setFormatter(fmt)
+        except Exception:
+            pass
+        try:
+            super().setFormatter(fmt)
+        except Exception:
+            pass
+
+    def setLevel(self, level):
+        try:
+            super().setLevel(level)
+        except Exception:
+            pass
+        try:
+            self.current_handler.setLevel(level)
+        except Exception:
+            pass
+
+    def addFilter(self, filter):
+        try:
+            super().addFilter(filter)
+        except Exception:
+            pass
+        try:
+            self.current_handler.addFilter(filter)
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            self.current_handler.close()
+        except Exception:
+            pass
+        try:
+            super().close()
+        except Exception:
+            pass
+
 def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
     """
     Setup logging configuration with three modes
@@ -600,12 +707,17 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
         timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
         
         # In production mode, use RSA-hybrid encrypted logs with .log.enc extension
+        max_bytes = int(LOG_MAX_FILE_SIZE_MB_DEFAULT * 1024 * 1024)
         if production_mode:
             log_file = logs_dir / f"leagueunlocked_{timestamp}.log.enc"
-            file_handler = RSAHybridEncryptedFileHandler(log_file, encoding='utf-8')
+            def _factory_enc(p: Path):
+                return RSAHybridEncryptedFileHandler(p, encoding='utf-8')
+            file_handler = SizeRotatingCompositeHandler(log_file, _factory_enc, max_bytes)
         else:
             log_file = logs_dir / f"leagueunlocked_{timestamp}.log"
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            def _factory_plain(p: Path):
+                return logging.FileHandler(p, encoding='utf-8')
+            file_handler = SizeRotatingCompositeHandler(log_file, _factory_plain, max_bytes)
         
         # File formatter based on log mode
         # In production mode, always use verbose format
@@ -722,54 +834,32 @@ def get_logger(name: str = "tracer") -> logging.Logger:
     return logging.getLogger(name)
 
 
-def cleanup_logs(max_files: int = LOG_MAX_FILES_DEFAULT, max_total_size_mb: int = LOG_MAX_TOTAL_SIZE_MB_DEFAULT):
+def cleanup_logs():
     """
-    Clean up old log files based on count and total size
-    
-    Args:
-        max_files: Maximum number of log files to keep
-        max_total_size_mb: Maximum total size of all log files in MB
+    Clean up old log files based on age.
+
+    New policy:
+        - Delete logs older than 1 day
+        - No limit on file count or total size
     """
     try:
         from .paths import get_user_data_dir
         logs_dir = get_user_data_dir() / "logs"
         if not logs_dir.exists():
             return
-        
-        # Get all log files matching the new pattern
+
         log_files = list(logs_dir.glob(LOG_FILE_PATTERN))
-        
-        # Sort by modification time (oldest first)
-        log_files.sort(key=lambda f: f.stat().st_mtime)
-        
-        # Calculate total size
-        total_size = sum(f.stat().st_size for f in log_files)
-        max_total_size_bytes = max_total_size_mb * 1024 * 1024
-        
-        # Remove oldest files if we exceed limits
-        files_to_remove = []
-        
-        # Remove by count limit
-        if len(log_files) > max_files:
-            files_to_remove.extend(log_files[:-max_files])
-        
-        # Remove by size limit
-        if total_size > max_total_size_bytes:
-            current_size = total_size
-            for log_file in log_files:
-                if log_file not in files_to_remove:
-                    current_size -= log_file.stat().st_size
-                    files_to_remove.append(log_file)
-                    if current_size <= max_total_size_bytes:
-                        break
-        
-        # Remove the files
-        for log_file in files_to_remove:
+        now = time.time()
+        max_age_seconds = 24 * 60 * 60  # 1 day
+
+        for log_file in log_files:
             try:
-                log_file.unlink()
+                mtime = log_file.stat().st_mtime
+                if now - mtime > max_age_seconds:
+                    log_file.unlink()
             except Exception:
-                pass  # Silently ignore removal errors
-                
+                pass
+
     except Exception as e:
         # Don't log this error to avoid recursion
         print(f"Warning: Failed to cleanup logs: {e}", file=sys.stderr)
@@ -795,7 +885,7 @@ def _clear_log_file(log_file: Path):
 
 def cleanup_logs_on_startup():
     """Clean up old log files when the application starts"""
-    cleanup_logs(max_files=LOG_MAX_FILES_DEFAULT, max_total_size_mb=LOG_MAX_TOTAL_SIZE_MB_DEFAULT)
+    cleanup_logs()
 
 
 # ==================== Pretty Logging Helpers ====================
