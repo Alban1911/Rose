@@ -673,13 +673,8 @@ class ChromaPanelManager:
         """Request to hide the reopen button (thread-safe)"""
         with self.lock:
             self.pending_hide_button = True
-            self.pending_update_button_state = False  # Reset button state when hiding
-            self.current_chroma_color = None  # Reset color when hiding
-            self.current_chroma_colors = None  # Reset colors when hiding
-            
-            # Reset button to rainbow
-            if self.reopen_button:
-                self.reopen_button.set_chroma_color(None)
+            self.pending_update_button_state = False  # Reset button hover state when hiding
+            # Preserve current chroma colors to restore on next show; do not reset button color
     
     def cleanup(self):
         """Clean up resources (called on app exit or UI destruction)"""
