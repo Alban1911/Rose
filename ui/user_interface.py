@@ -376,6 +376,7 @@ class UserInterface:
             self.current_skin_id = skin_id
             self.current_skin_name = skin_name
             self.current_champion_name = champion_name
+            self.current_champion_id = champion_id
             
             # Check if this is a chroma selection for the same base skin
             is_chroma_selection = self._is_chroma_selection_for_same_base_skin(skin_id, skin_name)
@@ -1502,6 +1503,7 @@ class UserInterface:
             self.current_skin_id = None
             self.current_skin_name = None
             self.current_champion_name = None
+            self.current_champion_id = None
             
             # Reset UI detection state
             self.last_skin_name = None
