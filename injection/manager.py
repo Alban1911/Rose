@@ -88,7 +88,7 @@ class InjectionManager:
                 while self._monitor_active:
                     # If we've already suspended the game, check for safety timeout
                     if self._suspended_game_process is not None:
-                        # Check safety timeout to auto-resume
+                        # Check safety timeout to auto-resume (prevent permanent freeze)
                         if suspension_start_time is not None:
                             elapsed = time.time() - suspension_start_time
                             if elapsed >= PERSISTENT_MONITOR_AUTO_RESUME_S:
@@ -100,8 +100,9 @@ class InjectionManager:
                                     suspension_start_time = None
                                 except Exception as e:
                                     log.error(f"[monitor] Auto-resume error: {e}")
-                            break
+                                # Continue monitoring after auto-resume (don't break)
                         
+                        # Keep monitoring while game is suspended (wait for runoverlay to finish)
                         time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
                         continue
                     
@@ -335,7 +336,8 @@ class InjectionManager:
             self.injection_lock.release()
             log.debug(f"[INJECT] Injection completed - lock released")
             
-            # Stop monitor after injection completes
+            # Stop monitor after injection completes (this will resume game if still suspended)
+            # Note: Monitor may have already stopped if game ended, but that's fine
             self._stop_monitor()
     
     def inject_skin_for_testing(self, skin_name: str) -> bool:
