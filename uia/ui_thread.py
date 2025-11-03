@@ -189,7 +189,10 @@ class UISkinThread(threading.Thread):
         # For Swiftplay, also connect in Lobby phase
         if self.shared_state.phase == "Lobby" and self.shared_state.is_swiftplay_mode:
             return True
-        return self.shared_state.phase in ["ChampSelect", "OwnChampionLocked", "FINALIZATION"]
+        # Check flag instead of OwnChampionLocked phase
+        if self.shared_state.own_champion_locked:
+            return True
+        return self.shared_state.phase in ["ChampSelect", "FINALIZATION"]
     
     def _should_run_detection(self) -> bool:
         """Check if we should run detection based on current state"""
@@ -197,8 +200,8 @@ class UISkinThread(threading.Thread):
         if self.shared_state.phase == "Lobby" and self.shared_state.is_swiftplay_mode:
             return True
         
-        # OwnChampionLocked phase - our champion is locked, activate UIA Detection
-        if self.shared_state.phase == "OwnChampionLocked":
+        # Own champion locked flag - our champion is locked, activate UIA Detection
+        if self.shared_state.own_champion_locked:
             return True
         
         # Also allow FINALIZATION phase for backwards compatibility

@@ -81,6 +81,10 @@ class WSEventThread(threading.Thread):
         self.state.locked_champ_id = new_champ_id
         self.state.locked_champ_timestamp = time.time()
         
+        # Ensure flag is set (exchange is a new lock of different champion)
+        # Note: Exchange handler already triggers pipeline manually, so we just set the flag
+        self.state.own_champion_locked = True
+        
         # Reset HistoricMode state so it restarts for the new champion
         try:
             self.state.historic_mode_active = False
@@ -137,6 +141,96 @@ class WSEventThread(threading.Thread):
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
+    def _on_own_champion_locked(self, champion_id: int, champion_label: str, old_champ_id: Optional[int] = None):
+        """Handle own champion lock event - triggers detection/UI pipeline if needed
+        
+        Args:
+            champion_id: ID of the locked champion
+            champion_label: Label/name of the locked champion
+            old_champ_id: Previous champion ID (before update) for exchange detection
+            
+        Pipeline triggers when:
+        - First lock (own_champion_locked is False)
+        - Champion exchange (own_champion_locked is True but champion_id changed)
+        Pipeline does NOT trigger when:
+        - Re-lock of same champion (own_champion_locked is True and same champion_id)
+        """
+        # Check if pipeline should trigger
+        should_trigger = False
+        
+        if not self.state.own_champion_locked:
+            # First lock - always trigger
+            should_trigger = True
+            log.debug(f"[lock:champ] First champion lock detected - triggering pipeline")
+        elif old_champ_id is not None and old_champ_id != champion_id:
+            # Champion exchange - trigger pipeline for new champion
+            should_trigger = True
+            log.debug(f"[lock:champ] Champion exchange detected (old={old_champ_id}, new={champion_id}) - triggering pipeline")
+        elif old_champ_id is not None and old_champ_id == champion_id:
+            # Re-lock of same champion - skip pipeline
+            log.debug(f"[lock:champ] Re-lock of same champion ({champion_id}) - skipping pipeline")
+        else:
+            # Fallback: if old_champ_id is None, check against current locked_champ_id
+            # This handles edge cases where old_champ_id wasn't provided
+            if self.state.locked_champ_id != champion_id:
+                should_trigger = True
+                log.debug(f"[lock:champ] Champion change detected (current={self.state.locked_champ_id}, new={champion_id}) - triggering pipeline")
+            else:
+                log.debug(f"[lock:champ] Re-lock of same champion ({champion_id}) - skipping pipeline")
+        
+        # Set flag to True
+        self.state.own_champion_locked = True
+        
+        # Trigger pipeline if needed
+        if should_trigger:
+            separator = "=" * 80
+            log.info(separator)
+            log.info(f"🎮 YOUR CHAMPION LOCKED")
+            log.info(f"   📋 Champion: {champion_label}")
+            log.info(f"   📋 ID: {champion_id}")
+            log.info(separator)
+            
+            # Clear UIA cache to ensure fresh detection (prevents using stale cached elements)
+            if self.state.ui_skin_thread:
+                try:
+                    self.state.ui_skin_thread.clear_cache()
+                    log.debug("[lock:champ] UIA cache cleared")
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to clear UIA cache: {e}")
+            
+            # Scrape skins for this champion from LCU
+            if self.skin_scraper:
+                try:
+                    self.skin_scraper.scrape_champion_skins(champion_id)
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
+            
+            # Notify injection manager of champion lock
+            if self.injection_manager:
+                try:
+                    self.injection_manager.on_champion_locked(champion_label, champion_id, self.state.owned_skin_ids)
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to notify injection manager: {e}")
+            
+            # Create chroma panel widgets on champion lock
+            chroma_selector = get_chroma_selector()
+            if chroma_selector:
+                try:
+                    chroma_selector.panel.request_create()
+                    log.debug(f"[lock:champ] Requested chroma panel creation for {champion_label}")
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
+            
+            # Create ClickCatchers on champion lock (when not in Swiftplay)
+            from ui.user_interface import get_user_interface
+            user_interface = get_user_interface(self.state, self.skin_scraper)
+            if user_interface:
+                try:
+                    user_interface.create_click_catchers()
+                    log.debug(f"[lock:champ] Requested ClickCatcher creation for {champion_label}")
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
+
     def _maybe_start_timer(self, sess: dict):
         """Start timer if conditions are met - ONLY on FINALIZATION phase"""
         t = (sess.get("timer") or {})
@@ -148,9 +242,10 @@ class WSEventThread(threading.Thread):
         # ONLY start timer on FINALIZATION phase (final countdown before game start)
         # This prevents starting too early when all champions are locked but bans are still in progress
         if phase_timer == "FINALIZATION":
-            # Update phase to FINALIZATION if we're currently in OwnChampionLocked or ChampSelect
+            # Update phase to FINALIZATION if we're currently in ChampSelect
             # This ensures the phase transition happens even if the websocket event doesn't fire
-            if self.state.phase in ["OwnChampionLocked", "ChampSelect"]:
+            # Note: own_champion_locked flag can coexist with FINALIZATION phase
+            if self.state.phase == "ChampSelect":
                 if self.state.phase != "FINALIZATION":
                     log_status(log, "Phase", "FINALIZATION", "🎯")
                     self.state.phase = "FINALIZATION"
@@ -201,18 +296,12 @@ class WSEventThread(threading.Thread):
         
         if uri == "/lol-gameflow/v1/gameflow-phase":
             ph = payload.get("data")
-            if isinstance(ph, str) and ph != self.state.phase:
-                # Don't overwrite OwnChampionLocked phase - it's a custom phase set when our champion locks
-                if self.state.phase == "OwnChampionLocked":
-                    # Allow transition to FINALIZATION (for loadout ticker) or GameStart/InProgress, or back to ChampSelect
-                    if ph in ["FINALIZATION", "GameStart", "InProgress", "ChampSelect"]:
-                        if ph in INTERESTING_PHASES:
-                            log_status(log, "Phase", ph, "🎯")
-                        self.state.phase = ph
-                elif ph is not None:
-                    if ph in INTERESTING_PHASES:
-                        log_status(log, "Phase", ph, "🎯")
-                    self.state.phase = ph
+            # Phase transitions are handled by phase_thread
+            # own_champion_locked flag can coexist with any phase
+            if isinstance(ph, str) and ph != self.state.phase and ph is not None:
+                if ph in INTERESTING_PHASES:
+                    log_status(log, "Phase", ph, "🎯")
+                self.state.phase = ph
                 
                 if ph == "ChampSelect":
                     # Detect game mode FIRST to get accurate is_swiftplay_mode flag
@@ -285,7 +374,7 @@ class WSEventThread(threading.Thread):
                     log.debug("[WS] State reset complete - ready for new champion select")
                 
                 elif ph == "FINALIZATION":
-                    # FINALIZATION phase - ClickCatcherHide creation now handled in OwnChampionLocked
+                    # FINALIZATION phase - ClickCatcherHide creation now handled when own champion is locked
                     log_event(log, "Entering FINALIZATION phase", "🎯")
                         
                 elif ph == "InProgress":
@@ -380,57 +469,19 @@ class WSEventThread(threading.Thread):
                     else:
                         # This is a new champion lock (first lock or re-lock of same champion)
                         champ_label = f"#{new_champ_id}"
-                        separator = "=" * 80
-                        log.info(separator)
-                        log.info(f"🎮 YOUR CHAMPION LOCKED")
-                        log.info(f"   📋 Champion: {champ_label}")
-                        log.info(f"   📋 ID: {new_champ_id}")
                         log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
-                        log.info(separator)
+                        
+                        # Store old champion ID before update for exchange detection
+                        old_champ_id = self.state.locked_champ_id
+                        
                         self.state.locked_champ_id = new_champ_id
                         self.state.locked_champ_timestamp = time.time()  # Record lock time
                         # Note: Historic Mode is only reset on champion exchange (handled in _handle_champion_exchange)
                         # We don't reset it here because the same champion can lock multiple times during ChampSelect
                         # and Historic Mode should persist across these re-locks
                         
-                        # Trigger OwnChampionLocked phase - set phase state
-                        log_status(log, "Phase", "OwnChampionLocked", "🎯")
-                        self.state.phase = "OwnChampionLocked"
-                        
-                        # Scrape skins for this champion from LCU
-                        if self.skin_scraper:
-                            try:
-                                self.skin_scraper.scrape_champion_skins(new_champ_id)
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
-                        
-                        # English skin names are now loaded by LCU skin scraper
-                        
-                        # Notify injection manager of champion lock
-                        if self.injection_manager:
-                            try:
-                                self.injection_manager.on_champion_locked(champ_label, new_champ_id, self.state.owned_skin_ids)
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to notify injection manager: {e}")
-                        
-                        # Create chroma panel widgets on champion lock
-                        chroma_selector = get_chroma_selector()
-                        if chroma_selector:
-                            try:
-                                chroma_selector.panel.request_create()
-                                log.debug(f"[lock:champ] Requested chroma panel creation for {champ_label}")
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
-                        
-                        # Create ClickCatchers on champion lock (when not in Swiftplay)
-                        from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper)
-                        if user_interface:
-                            try:
-                                user_interface.create_click_catchers()
-                                log.debug(f"[lock:champ] Requested ClickCatcher creation for {champ_label}")
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
+                        # Trigger pipeline using flag-based system
+                        self._on_own_champion_locked(new_champ_id, champ_label, old_champ_id)
                         
                         # Update tracking
                         self.last_locked_champion_id = new_champ_id

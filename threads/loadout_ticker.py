@@ -69,7 +69,7 @@ class LoadoutTicker(threading.Thread):
                     log.info(f"[loadout] Phase transition detected: {self.state.phase} → FINALIZATION")
                     self.state.phase = "FINALIZATION"
                     
-                    # ClickCatcherHide creation is now handled in OwnChampionLocked phase
+                    # ClickCatcherHide creation is now handled when own champion is locked
                     # No need to create them again in FINALIZATION
                 
                 if phase == "FINALIZATION" and left_ms > 0:
