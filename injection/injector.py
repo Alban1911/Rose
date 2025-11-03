@@ -71,7 +71,11 @@ class SkinInjector:
         # Use user data directory for mods and skins to avoid permission issues
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
         self.zips_dir = zips_dir or get_skins_dir()
-        self.game_dir = game_dir or self._detect_game_dir()
+        # Only detect if game_dir not provided - never use invalid fallback paths
+        if game_dir is not None:
+            self.game_dir = game_dir
+        else:
+            self.game_dir = self._detect_game_dir()
         # Database no longer needed - LCU provides all data
         
         # Create directories if they don't exist
@@ -142,8 +146,9 @@ class SkinInjector:
         except Exception as e:
             log.warning(f"Failed to save config file: {e}")
     
-    def _detect_game_dir(self) -> Path:
-        """Auto-detect League of Legends Game directory using config and LeagueClient.exe detection"""
+    def _detect_game_dir(self) -> Optional[Path]:
+        """Auto-detect League of Legends Game directory using config and LeagueClient.exe detection.
+        Returns None if game directory cannot be found - never saves invalid paths to config."""
         
         # First, try to load from config
         config_path = self._load_config()
@@ -159,41 +164,13 @@ class SkinInjector:
         log.debug("Config not found or invalid, detecting via LeagueClient.exe")
         detected_path = self._detect_via_leagueclient()
         if detected_path:
-            # Save the detected path to config
+            # Save the detected path to config only if we actually found a valid path
             self._save_config(str(detected_path))
             return detected_path
         
-        # Fallback to common paths
-        log.debug("LeagueClient.exe detection failed, trying common paths")
-        candidates = [
-            Path(r"C:\Riot Games\League of Legends\Game"),
-            Path(r"C:\Riot Games\League of Legends"),
-            Path(r"C:\Program Files\Riot Games\League of Legends\Game"),
-            Path(r"C:\Program Files (x86)\Riot Games\League of Legends\Game"),
-        ]
-
-        for c in candidates:
-            if c.is_dir():
-                exe = c / "League of Legends.exe"
-                if exe.exists():
-                    if c.name.lower() != "game" and (c / "Game" / "League of Legends.exe").exists():
-                        gd = c / "Game"
-                        log_success(log, f"Auto-detected game directory: {gd}", "📂")
-                        # Save to config
-                        self._save_config(str(gd))
-                        return gd
-                    log_success(log, f"Auto-detected game directory: {c}", "📂")
-                    result = c if c.name.lower() == "game" else (c / "Game")
-                    # Save to config
-                    self._save_config(str(result))
-                    return result
-
-        # Last resort: return default and save to config
-        gd = Path(r"C:\Riot Games\League of Legends\Game")
-        log_event(log, f"Using default game directory: {gd}", "📂")
-        # Save default to config so user can manually edit it
-        self._save_config(str(gd))
-        return gd
+        # No fallbacks - if we can't detect it, return None
+        log.warning("Could not detect League of Legends game directory. Please ensure League Client is running or manually set the path in config.ini")
+        return None
     
     def _detect_via_leagueclient(self) -> Optional[Path]:
         """Detect League path by finding running LeagueClient.exe process"""
@@ -522,6 +499,11 @@ class SkinInjector:
     
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 60, stop_callback=None, injection_manager=None) -> int:
         """Create and run overlay"""
+        if self.game_dir is None:
+            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
+            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
+            return 127
+            
         tools = self._detect_tools()
         exe = tools.get("modtools")
         if not exe or not exe.exists():
@@ -671,6 +653,11 @@ class SkinInjector:
     
     def _mk_overlay_only(self, mod_names: List[str], timeout: int = 60) -> int:
         """Create overlay using mkoverlay only (no runoverlay) - for testing"""
+        if self.game_dir is None:
+            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
+            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
+            return 127
+            
         try:
             # Build mkoverlay command
             cmd = [
@@ -871,6 +858,11 @@ class SkinInjector:
                 return False
             
             # Create configuration file path
+            if self.game_dir is None:
+                log.error("[INJECTOR] Cannot run overlay - League game directory not found")
+                log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
+                return False
+                
             cfg = main_overlay_dir / "cslol-config.json"
             gpath = str(self.game_dir)
             
