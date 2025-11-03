@@ -401,7 +401,6 @@ INTERESTING_PHASES = {
     "Matchmaking", 
     "ReadyCheck",
     "ChampSelect",
-    "OwnChampionLocked",
     "FINALIZATION",
     "GameStart",
     "InProgress",
