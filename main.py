@@ -1226,6 +1226,14 @@ def main():
                                     button = user_interface.chroma_ui.chroma_selector.panel.reopen_button
                                     button.hide()
                                     log.debug("[exchange] Chroma Opening Button hidden")
+                                
+                                # Hide RandomFlag (random mode is disabled on champion swap)
+                                if user_interface.random_flag:
+                                    try:
+                                        user_interface.random_flag.hide_flag()
+                                        log.debug("[exchange] RandomFlag hidden")
+                                    except Exception as e:
+                                        log.debug(f"[exchange] Failed to hide RandomFlag: {e}")
 
                                 # Ensure ClickBlocker is visible during exchange (create if missing)
                                 try:

@@ -57,14 +57,8 @@ class PhaseThread(threading.Thread):
                 if ph is not None and self.log_transitions and ph in self.INTERESTING:
                     log_status(log, "Phase", ph, "🎯")
                 
-                # Don't overwrite OwnChampionLocked phase (set by websocket thread on champion lock)
-                if self.state.phase == "OwnChampionLocked":
-                    # Allow transition to FINALIZATION (for loadout ticker) or GameStart/InProgress
-                    # The websocket thread handles the transition, but if phase polling sees FINALIZATION, allow it
-                    if ph == "FINALIZATION":
-                        self.state.phase = ph
-                    # Otherwise, let websocket thread handle the transition
-                elif ph is not None:
+                # Update phase (own_champion_locked flag can coexist with any phase)
+                if ph is not None:
                     self.state.phase = ph
                 
                 if ph == "Lobby":
@@ -140,6 +134,7 @@ class PhaseThread(threading.Thread):
                         self.state.locked_champ_id = None  # Reset first
                         self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                         self.state.champion_exchange_triggered = False  # Reset champion exchange flag
+                        self.state.own_champion_locked = False  # Reset flag for new game
                     
                     # Backup UI initialization if websocket thread didn't handle it
                     # This ensures UI is created even if websocket event was missed or already processed
@@ -212,7 +207,7 @@ class PhaseThread(threading.Thread):
                 else:
                     # Exit champ select or other phases → request UI destruction and reset counter/timer
                     # Skip reset for Swiftplay mode (handled separately)
-                    if not self.state.is_swiftplay_mode and ph is not None and self.state.phase != "OwnChampionLocked":
+                    if not self.state.is_swiftplay_mode and ph is not None:
                         try:
                             from ui.user_interface import get_user_interface
                             user_interface = get_user_interface(self.state, self.skin_scraper)
