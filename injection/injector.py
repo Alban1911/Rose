@@ -498,7 +498,14 @@ class SkinInjector:
         return target
     
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 60, stop_callback=None, injection_manager=None) -> int:
-        """Create and run overlay"""
+        """Create and run overlay
+        
+        Args:
+            mod_names: List of mod names to inject
+            timeout: Unused (kept for backward compatibility) - overlay runs until explicitly killed
+            stop_callback: Optional callback to check if game ended
+            injection_manager: Optional injection manager for game resume
+        """
         if self.game_dir is None:
             log.error("[INJECTOR] Cannot create overlay - League game directory not found")
             log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
@@ -609,13 +616,11 @@ class SkinInjector:
                 injection_manager.resume_game()
             
             # Monitor process with stop callback
-            start_time = time.time()
-            runoverlay_hooked = False
+            # No timeout - overlay will run until explicitly killed or game ends
             while proc.poll() is None:
                 # Check if we should stop (game ended)
                 if stop_callback and stop_callback():
                     log.info("[inject] Game ended, stopping overlay process")
-                    runoverlay_hooked = True  # Assume it hooked if game ended
                     proc.terminate()
                     try:
                         proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
@@ -624,18 +629,6 @@ class SkinInjector:
                         proc.wait()
                     self.current_overlay_process = None
                     return 0  # Success - overlay ran through game
-                
-                # Check timeout
-                if time.time() - start_time > timeout:
-                    log.warning(f"[inject] runoverlay timeout after {timeout}s - may not have hooked in time")
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                        proc.wait()
-                    self.current_overlay_process = None
-                    return 1  # Timeout = likely failed to hook
                 
                 time.sleep(PROCESS_MONITOR_SLEEP_S)
             
