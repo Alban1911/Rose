@@ -309,22 +309,11 @@ class InjectionManager:
             log.debug(f"[INJECT] Injection started - lock acquired for: {skin_name}")
             
             # Start monitor now (only when injection actually happens)
+            # Monitor runs in background and will suspend game if/when it finds it
+            # Injection proceeds immediately - suspension is optional and helps prevent file locks
             if not self._monitor_active:
                 log.info("[INJECT] Starting game monitor for injection")
                 self._start_monitor()
-            
-            # Wait briefly for monitor to find and suspend game
-            if self._monitor_active and self._suspended_game_process is None:
-                import time
-                log.debug("[INJECT] Waiting for monitor to suspend game...")
-                wait_start = time.time()
-                while time.time() - wait_start < PERSISTENT_MONITOR_WAIT_TIMEOUT_S and self._suspended_game_process is None:
-                    time.sleep(PERSISTENT_MONITOR_WAIT_INTERVAL_S)
-                
-                if self._suspended_game_process is not None:
-                    log.debug(f"[INJECT] Game suspended by monitor after {time.time() - wait_start:.2f}s")
-                else:
-                    log.debug(f"[INJECT] Monitor didn't suspend game in {PERSISTENT_MONITOR_WAIT_TIMEOUT_S}s - will wait during injection")
             
             # Pass the manager instance so injector can call resume_game()
             success = self.injector.inject_skin(
