@@ -389,10 +389,9 @@ class WSEventThread(threading.Thread):
                         log.info(separator)
                         self.state.locked_champ_id = new_champ_id
                         self.state.locked_champ_timestamp = time.time()  # Record lock time
-                        # Reset historic detection state for this champion
-                        self.state.historic_mode_active = False
-                        self.state.historic_skin_id = None
-                        self.state.historic_first_detection_done = False
+                        # Note: Historic Mode is only reset on champion exchange (handled in _handle_champion_exchange)
+                        # We don't reset it here because the same champion can lock multiple times during ChampSelect
+                        # and Historic Mode should persist across these re-locks
                         
                         # Trigger OwnChampionLocked phase - set phase state
                         log_status(log, "Phase", "OwnChampionLocked", "🎯")
