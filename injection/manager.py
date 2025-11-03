@@ -51,6 +51,7 @@ class InjectionManager:
         self._monitor_active = False
         self._monitor_thread = None
         self._suspended_game_process = None
+        self._runoverlay_started = False  # Flag to prevent suspending after runoverlay starts
     
     def _ensure_initialized(self):
         """Initialize the injector lazily when first needed"""
@@ -75,6 +76,7 @@ class InjectionManager:
         
         self._monitor_active = True
         self._suspended_game_process = None
+        self._runoverlay_started = False  # Reset flag when starting new monitor
         
         def game_monitor():
             """Monitor for game process and suspend immediately when found"""
@@ -96,11 +98,25 @@ class InjectionManager:
                                 log.warning(f"[monitor] Injection took too long - releasing game to prevent freeze")
                                 try:
                                     self._suspended_game_process.resume()
-                                    self._suspended_game_process = None
-                                    suspension_start_time = None
+                                    log.info("[monitor] Auto-resumed game successfully")
                                 except Exception as e:
                                     log.error(f"[monitor] Auto-resume error: {e}")
-                                # Continue monitoring after auto-resume (don't break)
+                                    # Try to resume one more time, but don't block on it
+                                    try:
+                                        import psutil
+                                        # Check if process still exists
+                                        if self._suspended_game_process.status() == psutil.STATUS_STOPPED:
+                                            self._suspended_game_process.resume()
+                                            log.info("[monitor] Auto-resume retry succeeded")
+                                    except Exception as retry_e:
+                                        log.error(f"[monitor] Auto-resume retry failed: {retry_e}")
+                                # Always clear reference and stop monitor after auto-resume attempt
+                                # Even if resume failed, we can't keep trying forever
+                                self._suspended_game_process = None
+                                suspension_start_time = None
+                                log.info("[monitor] Stopping monitor after auto-resume - runoverlay should have hooked")
+                                self._monitor_active = False
+                                break
                         
                         # Keep monitoring while game is suspended (wait for runoverlay to finish)
                         time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
@@ -109,6 +125,11 @@ class InjectionManager:
                     # Look for game process
                     for proc in psutil.process_iter(['name', 'pid']):
                         if not self._monitor_active:
+                            break
+                            
+                        # Don't suspend if runoverlay has already started
+                        if self._runoverlay_started:
+                            log.debug("[monitor] runoverlay started - skipping suspend")
                             break
                             
                         if proc.info['name'] == 'League of Legends.exe':
@@ -130,15 +151,21 @@ class InjectionManager:
                                     log.error("[monitor] ACCESS DENIED - Cannot suspend game")
                                     log.error("[monitor] Try running LeagueUnlocked as Administrator")
                                     self._monitor_active = False
+                                    # Clear reference if we couldn't suspend (game is running anyway)
+                                    self._suspended_game_process = None
                                     break
                                 except Exception as e:
                                     log.error(f"[monitor] Failed to suspend: {e}")
+                                    # Clear reference on error (game might not be suspended)
+                                    self._suspended_game_process = None
                                     break
                                     
                             except psutil.NoSuchProcess:
                                 continue
                             except Exception as e:
                                 log.error(f"[monitor] Error: {e}")
+                                # Clear reference on error to prevent leaving game suspended
+                                self._suspended_game_process = None
                                 break
                     
                     time.sleep(PERSISTENT_MONITOR_CHECK_INTERVAL_S)
@@ -178,6 +205,9 @@ class InjectionManager:
     
     def resume_game(self):
         """Resume the suspended game (called when runoverlay starts)"""
+        # Set flag to prevent monitor from suspending after runoverlay starts
+        self._runoverlay_started = True
+        
         if self._suspended_game_process is not None:
             try:
                 import psutil
@@ -225,6 +255,10 @@ class InjectionManager:
                 
             except Exception as e:
                 log.error(f"[monitor] Error resuming game: {e}")
+                # CRITICAL: Clear reference even on error to prevent permanent lock
+                # If resume failed, _stop_monitor() will try again later
+                self._suspended_game_process = None
+                self._monitor_active = False
     
     def resume_if_suspended(self):
         """Resume game if monitor suspended it (for when injection is skipped)"""
