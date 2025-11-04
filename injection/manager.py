@@ -88,6 +88,12 @@ class InjectionManager:
                 suspension_start_time = None
                 
                 while self._monitor_active:
+                    # Don't suspend if runoverlay has already started - exit monitor entirely
+                    if self._runoverlay_started:
+                        log.debug("[monitor] runoverlay started - stopping monitor")
+                        self._monitor_active = False
+                        break
+                    
                     # If we've already suspended the game, check for safety timeout
                     if self._suspended_game_process is not None:
                         # Check safety timeout to auto-resume (prevent permanent freeze)
@@ -118,57 +124,53 @@ class InjectionManager:
                                 self._monitor_active = False
                                 break
                         
-                        # Keep monitoring while game is suspended (wait for runoverlay to finish)
-                        time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
-                        continue
+                    # Keep monitoring while game is suspended (wait for runoverlay to finish)
+                    time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
+                    continue
                     
-                    # Look for game process
-                    for proc in psutil.process_iter(['name', 'pid']):
-                        if not self._monitor_active:
-                            break
+                # Look for game process
+                for proc in psutil.process_iter(['name', 'pid']):
+                    if not self._monitor_active:
+                        break
+                    
+                    if proc.info['name'] == 'League of Legends.exe':
+                        try:
+                            game_proc = psutil.Process(proc.info['pid'])
+                            log_event(log, "Game process found", "🎮", {"PID": proc.info['pid']})
                             
-                        # Don't suspend if runoverlay has already started
-                        if self._runoverlay_started:
-                            log.debug("[monitor] runoverlay started - skipping suspend")
-                            break
-                            
-                        if proc.info['name'] == 'League of Legends.exe':
+                            # Try to suspend immediately
                             try:
-                                game_proc = psutil.Process(proc.info['pid'])
-                                log_event(log, "Game process found", "🎮", {"PID": proc.info['pid']})
-                                
-                                # Try to suspend immediately
-                                try:
-                                    game_proc.suspend()
-                                    self._suspended_game_process = game_proc
-                                    suspension_start_time = time.time()  # Start safety timer
-                                    log_event(log, "Game suspended", "⏸️", {
-                                        "PID": proc.info['pid'],
-                                        "Auto-resume": f"{PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s"
-                                    })
-                                    break
-                                except psutil.AccessDenied:
-                                    log.error("[monitor] ACCESS DENIED - Cannot suspend game")
-                                    log.error("[monitor] Try running LeagueUnlocked as Administrator")
-                                    self._monitor_active = False
-                                    # Clear reference if we couldn't suspend (game is running anyway)
-                                    self._suspended_game_process = None
-                                    break
-                                except Exception as e:
-                                    log.error(f"[monitor] Failed to suspend: {e}")
-                                    # Clear reference on error (game might not be suspended)
-                                    self._suspended_game_process = None
-                                    break
-                                    
-                            except psutil.NoSuchProcess:
-                                continue
-                            except Exception as e:
-                                log.error(f"[monitor] Error: {e}")
-                                # Clear reference on error to prevent leaving game suspended
+                                game_proc.suspend()
+                                self._suspended_game_process = game_proc
+                                suspension_start_time = time.time()  # Start safety timer
+                                log_event(log, "Game suspended", "⏸️", {
+                                    "PID": proc.info['pid'],
+                                    "Auto-resume": f"{PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s"
+                                })
+                                break
+                            except psutil.AccessDenied:
+                                log.error("[monitor] ACCESS DENIED - Cannot suspend game")
+                                log.error("[monitor] Try running LeagueUnlocked as Administrator")
+                                self._monitor_active = False
+                                # Clear reference if we couldn't suspend (game is running anyway)
                                 self._suspended_game_process = None
                                 break
-                    
-                    time.sleep(PERSISTENT_MONITOR_CHECK_INTERVAL_S)
+                            except Exception as e:
+                                log.error(f"[monitor] Failed to suspend: {e}")
+                                # Clear reference on error (game might not be suspended)
+                                self._suspended_game_process = None
+                                break
+                                
+                        except psutil.NoSuchProcess:
+                            continue
+                        except Exception as e:
+                            log.error(f"[monitor] Error: {e}")
+                            # Clear reference on error to prevent leaving game suspended
+                            self._suspended_game_process = None
+                            break
+                
+                # Sleep after checking all processes (not after each process)
+                time.sleep(PERSISTENT_MONITOR_CHECK_INTERVAL_S)
                 
                 log.debug("[monitor] Stopped")
                 
