@@ -1064,7 +1064,7 @@ def main():
     t_ws = WSEventThread(lcu, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
                         fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                        skin_scraper=skin_scraper)
+                        skin_scraper=skin_scraper, app_status=app_status)
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     # Language callback to update shared state

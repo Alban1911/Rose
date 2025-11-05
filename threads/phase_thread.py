@@ -122,13 +122,6 @@ class PhaseThread(threading.Thread):
                             self._injection_triggered = True
                 
                 elif ph == "ChampSelect":
-                    # Rename tools folder when entering ChampSelect (every time, with new random value)
-                    if self.injection_manager:
-                        try:
-                            self.injection_manager.rename_tools_folder()
-                        except Exception as e:
-                            log.warning(f"[phase] Failed to rename tools folder: {e}")
-                    
                     # For Swiftplay mode, run overlay injection on ChampSelect instead of GameStart
                     log.debug(f"[phase] ChampSelect detected - is_swiftplay_mode={self.state.is_swiftplay_mode}, extracted_mods={len(self.state.swiftplay_extracted_mods)}")
                     if self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
