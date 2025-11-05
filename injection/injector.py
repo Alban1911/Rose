@@ -43,31 +43,58 @@ class SkinInjector:
         import sys
         if getattr(sys, 'frozen', False):
             # Running as compiled executable (PyInstaller)
-            # Tools are included alongside the executable
-            base_dir = Path(sys.executable).parent
-            
-            # Check multiple locations for injection tools (PyInstaller can place them in different spots)
-            possible_injection_dirs = [
-                base_dir / "injection",  # Direct path
-                base_dir / "_internal" / "injection",  # _internal folder
-            ]
-            
-            injection_dir = None
-            for dir_path in possible_injection_dirs:
-                if dir_path.exists():
-                    injection_dir = dir_path
-                    log.debug(f"Found injection directory at: {injection_dir}")
-                    break
-            
-            if not injection_dir:
-                # Fallback to first option if neither exists
-                injection_dir = possible_injection_dirs[0]
-                log.warning(f"Injection directory not found, using default: {injection_dir}")
+            # Handle both onefile (_MEIPASS) and onedir (_internal) modes
+            if hasattr(sys, '_MEIPASS'):
+                # One-file mode: tools are in _MEIPASS (temporary extraction directory)
+                base_path = Path(sys._MEIPASS)
+                injection_dir = base_path / "injection"
+                log.debug(f"Found injection directory at: {injection_dir} (onefile mode)")
+            else:
+                # One-dir mode: tools are alongside executable
+                base_dir = Path(sys.executable).parent
+                
+                # Check multiple locations for injection tools (PyInstaller can place them in different spots)
+                possible_injection_dirs = [
+                    base_dir / "injection",  # Direct path
+                    base_dir / "_internal" / "injection",  # _internal folder
+                ]
+                
+                injection_dir = None
+                for dir_path in possible_injection_dirs:
+                    if dir_path.exists():
+                        injection_dir = dir_path
+                        log.debug(f"Found injection directory at: {injection_dir}")
+                        break
+                
+                if not injection_dir:
+                    # Fallback to first option if neither exists
+                    injection_dir = possible_injection_dirs[0]
+                    log.warning(f"Injection directory not found, using default: {injection_dir}")
         else:
             # Running as Python script
             injection_dir = Path(__file__).parent
         
-        self.tools_dir = tools_dir or injection_dir / "tools"
+        # If tools_dir is provided, use it (might be renamed)
+        if tools_dir:
+            self.tools_dir = tools_dir
+        else:
+            # Check for renamed tools folder first (tools_* pattern)
+            tools_dir_found = None
+            try:
+                if injection_dir.exists():
+                    for item in injection_dir.iterdir():
+                        if item.is_dir() and item.name.startswith("tools_"):
+                            tools_dir_found = item
+                            log.debug(f"Found renamed tools folder: {item.name}")
+                            break
+            except (OSError, PermissionError) as e:
+                log.debug(f"Could not iterate injection directory: {e}")
+            
+            # Use renamed folder if found, otherwise use default "tools"
+            if tools_dir_found:
+                self.tools_dir = tools_dir_found
+            else:
+                self.tools_dir = injection_dir / "tools"
         # Use user data directory for mods and skins to avoid permission issues
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
         self.zips_dir = zips_dir or get_skins_dir()

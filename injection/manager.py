@@ -8,6 +8,8 @@ Manages the injection process and coordinates with UI detection system
 # Standard library imports
 import threading
 import time
+import random
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -52,14 +54,21 @@ class InjectionManager:
         self._monitor_thread = None
         self._suspended_game_process = None
         self._runoverlay_started = False  # Flag to prevent suspending after runoverlay starts
+        
+        # Tools folder renaming
+        self._tools_renamed = False  # Track if tools folder has been renamed
+        self._tools_random_value = None  # Store the random value used for renaming
     
     def _ensure_initialized(self):
         """Initialize the injector lazily when first needed"""
         if not self._initialized:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock
+                    # Use renamed tools_dir if available, otherwise use the default
+                    tools_dir_to_use = self.tools_dir if self.tools_dir else None
+                    
                     log_action(log, "Initializing injection system...", "💉")
-                    self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
+                    self.injector = SkinInjector(tools_dir_to_use, self.mods_dir, self.zips_dir, self.game_dir)
                     # Only mark as initialized if we have a valid game directory
                     if self.injector.game_dir is not None:
                         self._initialized = True
@@ -472,3 +481,114 @@ class InjectionManager:
         
         cleanup = threading.Thread(target=cleanup_thread, daemon=True, name="CleanupThread")
         cleanup.start()
+    
+    def _get_injection_dir(self) -> Path:
+        """Get the injection directory path (works in both frozen and development environments)"""
+        import sys
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable (PyInstaller)
+            # Handle both onefile (_MEIPASS) and onedir (_internal) modes
+            if hasattr(sys, '_MEIPASS'):
+                # One-file mode: tools are in _MEIPASS (temporary extraction directory)
+                base_path = Path(sys._MEIPASS)
+                injection_dir = base_path / "injection"
+            else:
+                # One-dir mode: tools are alongside executable
+                base_dir = Path(sys.executable).parent
+                possible_injection_dirs = [
+                    base_dir / "injection",  # Direct path
+                    base_dir / "_internal" / "injection",  # _internal folder
+                ]
+                
+                injection_dir = None
+                for dir_path in possible_injection_dirs:
+                    if dir_path.exists():
+                        injection_dir = dir_path
+                        break
+                
+                if not injection_dir:
+                    injection_dir = possible_injection_dirs[0]
+        else:
+            # Running as Python script
+            injection_dir = Path(__file__).parent.parent / "injection"
+        
+        return injection_dir
+    
+    def rename_tools_folder(self) -> bool:
+        """Rename the tools folder to tools_RANDOMVALUE with a 10-digit random number
+        This is called every time we enter ChampSelect, generating a new random value each time.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            injection_dir = self._get_injection_dir()
+            
+            # Find the current tools folder (could be "tools" or "tools_*")
+            current_tools_dir = None
+            
+            # First check for plain "tools" folder
+            original_tools_dir = injection_dir / "tools"
+            if original_tools_dir.exists():
+                current_tools_dir = original_tools_dir
+            else:
+                # Check for renamed tools folder (tools_* pattern)
+                try:
+                    if injection_dir.exists():
+                        for item in injection_dir.iterdir():
+                            if item.is_dir() and item.name.startswith("tools_"):
+                                current_tools_dir = item
+                                break
+                except (OSError, PermissionError) as e:
+                    log.warning(f"[INJECT] Could not check injection directory: {e}")
+            
+            if not current_tools_dir:
+                log.warning(f"[INJECT] Tools folder not found in {injection_dir}")
+                return False
+            
+            # Generate new random 10-digit number
+            random_value = random.randint(1000000000, 9999999999)
+            new_tools_dir = injection_dir / f"tools_{random_value}"
+            
+            # Make sure we don't try to rename to the same name
+            if current_tools_dir.name == new_tools_dir.name:
+                log.debug(f"[INJECT] Tools folder already has the same name: {new_tools_dir.name}")
+                # Still update references to ensure consistency
+                self._tools_renamed = True
+                self._tools_random_value = str(random_value)
+                self.tools_dir = current_tools_dir
+                if self.injector is not None:
+                    self.injector.tools_dir = current_tools_dir
+                return True
+            
+            # Rename the folder to new random value
+            try:
+                current_tools_dir.rename(new_tools_dir)
+                self._tools_renamed = True
+                self._tools_random_value = str(random_value)
+                self.tools_dir = new_tools_dir
+                
+                log_success(log, f"Renamed tools folder from {current_tools_dir.name} to tools_{random_value}", "🔄")
+                
+                # Update injector's tools_dir if already initialized
+                if self.injector is not None:
+                    self.injector.tools_dir = new_tools_dir
+                    log.debug(f"[INJECT] Updated injector's tools_dir to {new_tools_dir}")
+                
+                return True
+                
+            except OSError as e:
+                log.error(f"[INJECT] Failed to rename tools folder: {e}")
+                return False
+                
+        except Exception as e:
+            log.error(f"[INJECT] Error renaming tools folder: {e}")
+            import traceback
+            log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
+            return False
+    
+    def reset_tools_rename_flag(self):
+        """Reset the tools rename flag when leaving ChampSelect"""
+        self._tools_renamed = False
+        self._tools_random_value = None
+        log.debug("[INJECT] Reset tools rename flag")

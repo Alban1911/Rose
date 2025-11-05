@@ -122,6 +122,13 @@ class PhaseThread(threading.Thread):
                             self._injection_triggered = True
                 
                 elif ph == "ChampSelect":
+                    # Rename tools folder when entering ChampSelect (every time, with new random value)
+                    if self.injection_manager:
+                        try:
+                            self.injection_manager.rename_tools_folder()
+                        except Exception as e:
+                            log.warning(f"[phase] Failed to rename tools folder: {e}")
+                    
                     # For Swiftplay mode, run overlay injection on ChampSelect instead of GameStart
                     log.debug(f"[phase] ChampSelect detected - is_swiftplay_mode={self.state.is_swiftplay_mode}, extracted_mods={len(self.state.swiftplay_extracted_mods)}")
                     if self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
@@ -153,6 +160,13 @@ class PhaseThread(threading.Thread):
                     log_action(log, "GameStart detected - UI will be destroyed after injection", "🚀")
                 
                 elif ph == "InProgress":
+                    # Reset tools rename flag when leaving ChampSelect
+                    if self.injection_manager:
+                        try:
+                            self.injection_manager.reset_tools_rename_flag()
+                        except Exception as e:
+                            log.debug(f"[phase] Failed to reset tools rename flag: {e}")
+                    
                     # Game in progress - request UI destruction
                     try:
                         from ui.user_interface import get_user_interface
@@ -172,6 +186,13 @@ class PhaseThread(threading.Thread):
                             log.debug(f"[phase] Error destroying chroma panel: {e}")
                 
                 elif ph == "EndOfGame":
+                    # Reset tools rename flag when leaving ChampSelect
+                    if self.injection_manager:
+                        try:
+                            self.injection_manager.reset_tools_rename_flag()
+                        except Exception as e:
+                            log.debug(f"[phase] Failed to reset tools rename flag: {e}")
+                    
                     # Game ended → request UI destruction and stop overlay process
                     try:
                         from ui.user_interface import get_user_interface
@@ -208,6 +229,13 @@ class PhaseThread(threading.Thread):
                     # Exit champ select or other phases → request UI destruction and reset counter/timer
                     # Skip reset for Swiftplay mode (handled separately)
                     if not self.state.is_swiftplay_mode and ph is not None:
+                        # Reset tools rename flag when leaving ChampSelect
+                        if self.injection_manager and self.last_phase == "ChampSelect":
+                            try:
+                                self.injection_manager.reset_tools_rename_flag()
+                            except Exception as e:
+                                log.debug(f"[phase] Failed to reset tools rename flag: {e}")
+                        
                         try:
                             from ui.user_interface import get_user_interface
                             user_interface = get_user_interface(self.state, self.skin_scraper)
