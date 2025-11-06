@@ -34,11 +34,12 @@ log = get_logger()
 class InjectionManager:
     """Manages skin injection with automatic triggering"""
     
-    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
+    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None, shared_state=None):
         self.tools_dir = tools_dir
         self.mods_dir = mods_dir
         self.zips_dir = zips_dir
         self.game_dir = game_dir
+        self.shared_state = shared_state  # Reference to shared state for accessing UISkinThread
         self.injector = None  # Will be initialized lazily
         self.last_skin_name = None
         self.last_injection_time = 0.0
@@ -312,6 +313,14 @@ class InjectionManager:
             if (skin_name != self.last_skin_name or 
                 current_time - self.last_injection_time >= self.injection_threshold):
                 
+                # Disconnect from UIA window when injection threshold triggers
+                # (launcher closes when game starts, so the window is gone)
+                if self.shared_state and self.shared_state.ui_skin_thread:
+                    try:
+                        self.shared_state.ui_skin_thread.force_disconnect()
+                    except Exception as e:
+                        log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
+                
                 success = self.injector.inject_skin(skin_name)
                 
                 if success:
@@ -354,6 +363,14 @@ class InjectionManager:
         try:
             self._injection_in_progress = True
             log.debug(f"[INJECT] Injection started - lock acquired for: {skin_name}")
+            
+            # Disconnect from UIA window when injection happens
+            # (launcher closes when game starts, so the window is gone)
+            if self.shared_state and self.shared_state.ui_skin_thread:
+                try:
+                    self.shared_state.ui_skin_thread.force_disconnect()
+                except Exception as e:
+                    log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
             
             # Start monitor now (only when injection actually happens)
             # Monitor runs in background and will suspend game if/when it finds it

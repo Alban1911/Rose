@@ -910,7 +910,7 @@ def main():
     # Initialize injection manager with database (lazy initialization)
     try:
         log.info("Initializing injection manager...")
-        injection_manager = InjectionManager()
+        injection_manager = InjectionManager(shared_state=state)
         log.info("✓ Injection manager initialized")
     except Exception as e:
         log.error("=" * 80)
