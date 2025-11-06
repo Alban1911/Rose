@@ -54,6 +54,10 @@ class UISkinThread(threading.Thread):
         # Skin ID mapping cache for Swiftplay
         self.skin_id_mapping: Dict[str, int] = {}
         self.skin_mapping_loaded = False
+        
+        # Flag to prevent immediate reconnection after injection-triggered disconnect
+        self._injection_disconnect_active = False
+        self._last_phase = None  # Track phase changes to reset injection disconnect flag
     
     def run(self):
         """Main thread loop"""
@@ -63,19 +67,31 @@ class UISkinThread(threading.Thread):
         
         while self.running and not self.stop_event.is_set():
             try:
+                # Check if phase changed - reset injection disconnect flag when entering ChampSelect
+                current_phase = self.shared_state.phase
+                if current_phase != self._last_phase:
+                    if current_phase == "ChampSelect":
+                        # Reset injection disconnect flag when entering ChampSelect
+                        self._injection_disconnect_active = False
+                        log.debug("[UIA] Entered ChampSelect - resetting injection disconnect flag")
+                    self._last_phase = current_phase
+                
                 # Handle [UIA] connection (connect when entering ChampSelect)
-                if self._should_connect():
+                if self._should_connect() and not self._injection_disconnect_active:
                     if not self.connection.is_connected():
                         if self.connection.connect():
                             self.detector = UIDetector(self.connection.league_window, self.skin_scraper, self.shared_state)
                             self.debugger = UIDebugger(self.connection.league_window)
-                            log.info("UIA] Connected in ChampSelect phase")
+                            log.info("[UIA] Connected in ChampSelect phase")
                 else:
                     if self.connection.is_connected():
                         self.connection.disconnect()
                         self.detector = None
                         self.debugger = None
-                        log.info("[UIA] Disconnected - left ChampSelect phase")
+                        if self._injection_disconnect_active:
+                            log.info("[UIA] Disconnected - injection threshold triggered (will reconnect in next ChampSelect)")
+                        else:
+                            log.info("[UIA] Disconnected - left ChampSelect phase")
                         self.detection_available = False
                         self.skin_name_element = None
                         self.last_skin_name = None
@@ -183,6 +199,28 @@ class UISkinThread(threading.Thread):
         # Clear shared state UI detection variables
         self.shared_state.ui_skin_id = None
         self.shared_state.ui_last_text = None
+    
+    def force_disconnect(self):
+        """Force disconnect from UIA window - called when injection threshold triggers"""
+        if self.connection.is_connected():
+            log.info("[UIA] Force disconnecting - injection threshold triggered")
+            # Set flag to prevent immediate reconnection
+            self._injection_disconnect_active = True
+            # Properly disconnect and clean up
+            self.connection.disconnect()
+            self.detector = None
+            self.debugger = None
+            self.detection_available = False
+            self.skin_name_element = None
+            self.last_skin_name = None
+            self.last_skin_id = None
+            self.detection_attempts = 0
+            # Clear cached elements in detector if it exists
+            if hasattr(self, 'detector') and self.detector:
+                try:
+                    self.detector._clear_cache()
+                except Exception:
+                    pass
     
     def _should_connect(self) -> bool:
         """Check if we should establish [UIA] connection"""
