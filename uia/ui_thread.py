@@ -76,8 +76,22 @@ class UISkinThread(threading.Thread):
                         log.debug("[UIA] Entered ChampSelect - resetting injection disconnect flag")
                     self._last_phase = current_phase
                 
-                # Handle [UIA] connection (connect when entering ChampSelect)
-                if self._should_connect() and not self._injection_disconnect_active:
+                should_connect = self._should_connect()
+
+                # Provide visibility into why connection may be suppressed
+                if (self.shared_state.phase == "Lobby" and
+                        self.shared_state.is_swiftplay_mode and
+                        not should_connect):
+                    log.debug("[UIA] Swiftplay lobby detected but _should_connect() returned False")
+
+                if (self.shared_state.phase == "Lobby" and
+                        self.shared_state.is_swiftplay_mode and
+                        should_connect and
+                        self._injection_disconnect_active):
+                    log.debug("[UIA] Swiftplay lobby detected but injection disconnect flag still active")
+
+                # Handle [UIA] connection (connect when entering ChampSelect or Swiftplay lobby)
+                if should_connect and not self._injection_disconnect_active:
                     if not self.connection.is_connected():
                         if self.connection.connect():
                             self.detector = UIDetector(self.connection.league_window, self.skin_scraper, self.shared_state)

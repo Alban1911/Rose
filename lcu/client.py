@@ -479,59 +479,89 @@ class LCU:
     def _extract_champion_selection_from_data(self, data: dict) -> Optional[dict]:
         """Extract champion selection from lobby data"""
         try:
-            champion_selection = {}
-            
+            from utils.utilities import get_champion_id_from_skin_id
+
+            # Helper to build champion selection dict when we have IDs
+            def _build_selection(champ_id: int, skin_id: int, slot: Optional[dict] = None) -> Optional[dict]:
+                if champ_id <= 0 and skin_id > 0:
+                    try:
+                        derived_id = get_champion_id_from_skin_id(skin_id)
+                        if derived_id:
+                            champ_id = derived_id
+                    except Exception:
+                        pass
+
+                if champ_id <= 0 and skin_id <= 0:
+                    return None
+
+                slot = slot or {}
+                selection = {
+                    "championId": champ_id,
+                    "skinId": skin_id,
+                    "position": slot.get("positionPreference", ""),
+                    "spell1": slot.get("spell1", 0),
+                    "spell2": slot.get("spell2", 0)
+                }
+                log.debug(f"Resolved Swiftplay champion selection: {selection}")
+                return selection
+
             # Method 1: Check localMember in lobby data
-            if "localMember" in data:
-                local_member = data.get("localMember", {})
-                player_slots = local_member.get("playerSlots", [])
+            local_member = data.get("localMember") if isinstance(data, dict) else None
+            if isinstance(local_member, dict):
+                player_slots = local_member.get("playerSlots", []) or []
                 if player_slots:
-                    # Get the first player slot (usually the selected champion)
-                    slot = player_slots[0]
-                    champion_id = slot.get("championId", 0)
-                    skin_id = slot.get("skinId", 0)
-                    
-                    if champion_id > 0:  # Valid champion selected
-                        champion_selection = {
-                            "championId": champion_id,
-                            "skinId": skin_id,
-                            "position": slot.get("positionPreference", ""),
-                            "spell1": slot.get("spell1", 0),
-                            "spell2": slot.get("spell2", 0)
-                        }
-                        log.debug(f"Found champion selection in localMember: {champion_selection}")
-                        return champion_selection
-            
-            # Method 2: Check members array
-            if "members" in data:
-                members = data.get("members", [])
+                    slot = player_slots[0] or {}
+                    champ_id = int(slot.get("championId") or 0)
+                    skin_id = int(slot.get("skinId") or 0)
+                    selection = _build_selection(champ_id, skin_id, slot)
+                    if selection:
+                        return selection
+
+                # Fallback: look for selectedSkinId/primaryChampionId even without playerSlots
+                skin_id = int(local_member.get("selectedSkinId") or 0)
+                if skin_id <= 0:
+                    skin_id = int(local_member.get("primarySkinId") or 0)
+                champ_id = int(local_member.get("primaryChampionId") or 0)
+                if champ_id <= 0:
+                    champ_id = int(local_member.get("secondaryChampionId") or 0)
+                selection = _build_selection(champ_id, skin_id, local_member)
+                if selection:
+                    return selection
+
+            # Method 2: Check members array for local player entry
+            members = data.get("members") if isinstance(data, dict) else None
+            if isinstance(members, list):
                 for member in members:
-                    if member.get("isLeader", False) or member.get("isLocalPlayer", False):
-                        player_slots = member.get("playerSlots", [])
-                        if player_slots:
-                            slot = player_slots[0]
-                            champion_id = slot.get("championId", 0)
-                            skin_id = slot.get("skinId", 0)
-                            
-                            if champion_id > 0:  # Valid champion selected
-                                champion_selection = {
-                                    "championId": champion_id,
-                                    "skinId": skin_id,
-                                    "position": slot.get("positionPreference", ""),
-                                    "spell1": slot.get("spell1", 0),
-                                    "spell2": slot.get("spell2", 0)
-                                }
-                                log.debug(f"Found champion selection in members: {champion_selection}")
-                                return champion_selection
-            
-            # Method 3: Check gameConfig for any champion info
-            if "gameConfig" in data:
+                    if not isinstance(member, dict):
+                        continue
+                    if not (member.get("isLeader", False) or member.get("isLocalPlayer", False) or member.get("summonerId") == data.get("localMember", {}).get("summonerId")):
+                        continue
+                    player_slots = member.get("playerSlots", []) or []
+                    if player_slots:
+                        slot = player_slots[0] or {}
+                        champ_id = int(slot.get("championId") or 0)
+                        skin_id = int(slot.get("skinId") or 0)
+                        selection = _build_selection(champ_id, skin_id, slot)
+                        if selection:
+                            return selection
+
+                    skin_id = int(member.get("selectedSkinId") or 0)
+                    if skin_id <= 0:
+                        skin_id = int(member.get("primarySkinId") or 0)
+                    champ_id = int(member.get("primaryChampionId") or 0)
+                    if champ_id <= 0:
+                        champ_id = int(member.get("secondaryChampionId") or 0)
+                    selection = _build_selection(champ_id, skin_id, member)
+                    if selection:
+                        return selection
+
+            # Method 3: Check gameConfig and fallback on map info (informational only)
+            if isinstance(data, dict) and "gameConfig" in data:
                 game_config = data.get("gameConfig", {})
-                # Some lobby data might have champion info in gameConfig
                 log.debug(f"Game config data: {game_config}")
-            
+
             return None
-            
+
         except Exception as e:
             log.debug(f"Error extracting champion selection from data: {e}")
             return None
