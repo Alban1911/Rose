@@ -12,6 +12,10 @@ from PyQt6.QtGui import QPainter, QColor, QBrush, QRadialGradient, QPixmap, QPai
 from ui.chroma_base import ChromaWidgetBase
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
+from utils.resolution_utils import (
+    scale_dimension_from_base,
+    scale_position_from_base,
+)
 
 log = get_logger()
 
@@ -60,9 +64,11 @@ class OpeningButton(ChromaWidgetBase):
             # 1024x576 resolution
             self.button_visual_size = 28  # Visual size (golden border)
         else:
-            # Unsupported resolution - use default 1600x900 values
-            log.warning(f"[CHROMA] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
-            self.button_visual_size = 41
+            # Unsupported resolution - scale from baseline values
+            self.button_visual_size = scale_dimension_from_base(40, current_resolution, axis='y')
+            log.info(
+                f"[CHROMA] Scaled button size for unsupported resolution {window_width}x{window_height}: {self.button_visual_size}"
+            )
         
         # Add extra space for the 3px transparent ring on each side
         self.transparent_ring_width = 3
@@ -88,9 +94,8 @@ class OpeningButton(ChromaWidgetBase):
                 button_x = 664
                 button_y = 473
             else:
-                # Fallback to 1280*720 Swiftplay values
-                button_x = 831
-                button_y = 593
+                button_x = scale_position_from_base(1041, current_resolution, axis='x')
+                button_y = scale_position_from_base(743, current_resolution, axis='y')
         else:
             # Regular mode - Button should be at center X, 80.35% down from top (same as anchor point)
             if window_width == 1600 and window_height == 900:
@@ -106,9 +111,10 @@ class OpeningButton(ChromaWidgetBase):
                 button_x = 512 - (self.button_size // 2)  # Center horizontally
                 button_y = 463 - (self.button_size // 2)  # 80.35% down from top
             else:
-                # Unsupported resolution - use default 1600x900 values
-                button_x = 800 - (self.button_size // 2)
-                button_y = 723 - (self.button_size // 2)
+                center_x = scale_position_from_base(800, current_resolution, axis='x')
+                center_y = scale_position_from_base(723, current_resolution, axis='y')
+                button_x = center_x - (self.button_size // 2)
+                button_y = center_y - (self.button_size // 2)
         
         # Position button absolutely in League window
         self._position_button_absolutely(button_x, button_y)
