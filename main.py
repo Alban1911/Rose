@@ -183,7 +183,6 @@ from threads.lcu_monitor_thread import LCUMonitorThread
 
 # Local imports - utilities
 from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
-from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
 from utils.thread_manager import ThreadManager, create_daemon_thread
 from utils.license_client import LicenseClient
@@ -912,6 +911,7 @@ def run_league_unlock():
         log.info("Initializing injection manager...")
         injection_manager = InjectionManager(shared_state=state)
         log.info("✓ Injection manager initialized")
+        injection_manager.initialize_when_ready()
     except Exception as e:
         log.error("=" * 80)
         log.error("FATAL ERROR DURING INJECTION MANAGER INITIALIZATION")
@@ -936,73 +936,8 @@ def run_league_unlock():
                 pass
         sys.exit(1)
     
-    # Download skins if enabled (run in background to avoid blocking startup)
-    if args.download_skins:
-        separator = "=" * 80
-        log.info(separator)
-        log.info("📥 STARTING SKIN DOWNLOAD")
-        log.info("   📋 Mode: Background (non-blocking)")
-        log.info(separator)
-        
-        def download_skins_background():
-            try:
-                # Download skins first
-                success = download_skins_on_startup(
-                    force_update=args.force_update_skins,
-                    max_champions=args.max_champions,
-                    tray_manager=tray_manager,
-                    injection_manager=injection_manager
-                )
-                
-                # Preview images are now included in the merged database
-                # Mark previews as downloaded since they're included with skins
-                if not app_status.check_previews_downloaded():
-                    app_status.mark_previews_downloaded()
-                
-                separator = "=" * 80
-                if success:
-                    log.info(separator)
-                    log.info("✅ SKIN DOWNLOAD COMPLETED")
-                    log.info("   📋 Status: Success")
-                    log.info(separator)
-                    # Only mark if not already detected
-                    if not app_status.check_skins_downloaded():
-                        app_status.mark_skins_downloaded()
-                    # Mark download process as complete
-                    app_status.mark_download_process_complete()
-                else:
-                    log.info(separator)
-                    log.info("⚠️ SKIN DOWNLOAD COMPLETED WITH ISSUES")
-                    log.info("   📋 Status: Partial Success")
-                    log.info(separator)
-                    # Still mark as downloaded even with issues (files may still exist)
-                    if not app_status.check_skins_downloaded():
-                        app_status.mark_skins_downloaded()
-                    # Mark download process as complete
-                    app_status.mark_download_process_complete()
-            except Exception as e:
-                separator = "=" * 80
-                log.info(separator)
-                log.error(f"❌ SKIN DOWNLOAD FAILED")
-                log.error(f"   📋 Error: {e}")
-                log.info(separator)
-                # Check if skins exist anyway
-                if not app_status.check_skins_downloaded():
-                    app_status.mark_skins_downloaded()
-        
-        # Start skin download in a separate thread to avoid blocking
-        skin_download_thread = create_daemon_thread(target=download_skins_background, 
-                                                    name="SkinDownload")
-        skin_download_thread.start()
-    else:
-        log.info("Automatic skin download disabled")
-        # Check if skins already exist
-        if not app_status.check_skins_downloaded():
-            app_status.mark_skins_downloaded()
-        # Mark download process as complete since it's disabled
-        app_status.mark_download_process_complete()
-        # Initialize injection system immediately when download is disabled
-        injection_manager.initialize_when_ready()
+    # Launcher now handles skin downloads; ensure status reflects ready state
+    app_status.mark_download_process_complete()
     
     # Multi-language support is no longer needed - we use LCU scraper + English DB
     # Skin names are matched using: Windows UI API (client lang) → LCU scraper → skinId → English DB
