@@ -819,8 +819,8 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
 
 
 
-def main():
-    """Main entry point - orchestrates application startup and main loop"""
+def run_league_unlock():
+    """Run the core LeagueUnlocked application startup and main loop"""
     # Check for admin rights FIRST (required for injection to work)
     from utils.admin_utils import ensure_admin_rights
     ensure_admin_rights()
@@ -1249,7 +1249,7 @@ def main():
                     # Check if UI should be hidden in Swiftplay mode when detection is lost
                     if state.is_swiftplay_mode and state.ui_skin_id is None:
                         # Use a flag to avoid spamming hide() calls
-                        if not hasattr(main, '_swiftplay_ui_hidden'):
+                        if not hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
                             try:
                                 from ui.user_interface import get_user_interface
                                 user_interface = get_user_interface()
@@ -1258,7 +1258,7 @@ def main():
                                         user_interface.chroma_ui.hide()
                                     if user_interface.unowned_frame:
                                         user_interface.unowned_frame.hide()
-                                    main._swiftplay_ui_hidden = True
+                                    run_league_unlock._swiftplay_ui_hidden = True
                                     log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode")
                             except Exception as e:
                                 log.debug(f"[MAIN] Error hiding UI: {e}")
@@ -1266,13 +1266,13 @@ def main():
                     if current_skin_id:
                         # Check if we need to reset skin notification debouncing
                         if state.reset_skin_notification:
-                            if hasattr(main, '_last_notified_skin_id'):
-                                delattr(main, '_last_notified_skin_id')
+                            if hasattr(run_league_unlock, '_last_notified_skin_id'):
+                                delattr(run_league_unlock, '_last_notified_skin_id')
                             state.reset_skin_notification = False
                             log.debug("[MAIN] Reset skin notification debouncing for new ChampSelect")
                         
                         # Check if this is a new skin (debouncing at main loop level)
-                        last_notified = getattr(main, '_last_notified_skin_id', None)
+                        last_notified = getattr(run_league_unlock, '_last_notified_skin_id', None)
                         should_notify = (last_notified is None or last_notified != current_skin_id)
                         
                         if should_notify:
@@ -1287,16 +1287,16 @@ def main():
                                     user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name, champ_id_for_ui)
                                     log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
                                     # Track the last notified skin
-                                    main._last_notified_skin_id = current_skin_id
+                                    run_league_unlock._last_notified_skin_id = current_skin_id
                                     # Reset hide flag since we're showing a skin
-                                    if hasattr(main, '_swiftplay_ui_hidden'):
-                                        delattr(main, '_swiftplay_ui_hidden')
+                                    if hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
+                                        delattr(run_league_unlock, '_swiftplay_ui_hidden')
                                         log.debug("[MAIN] Reset UI hide flag - skin detected")
                                 else:
                                     # Only log once per skin to avoid spam
-                                    if not hasattr(main, '_ui_not_initialized_logged') or main._ui_not_initialized_logged != current_skin_id:
+                                    if not hasattr(run_league_unlock, '_ui_not_initialized_logged') or run_league_unlock._ui_not_initialized_logged != current_skin_id:
                                         log.debug(f"[MAIN] UI not initialized yet - skipping skin notification for {current_skin_id}")
-                                        main._ui_not_initialized_logged = current_skin_id
+                                        run_league_unlock._ui_not_initialized_logged = current_skin_id
                             except Exception as e:
                                 log.error(f"[MAIN] Failed to notify UI: {e}")
                     
@@ -1428,6 +1428,31 @@ def main():
                     ctypes.windll.kernel32.FreeConsole()
             except (OSError, AttributeError) as e:
                 log.debug(f"Console cleanup error (non-critical): {e}")
+
+
+def main():
+    """Program entry point that shows the launcher before starting LeagueUnlocked."""
+    unlocked = True
+
+    if PYQT6_AVAILABLE:
+        try:
+            from launcher.launcher import run_launcher
+        except ImportError as err:
+            print(f"[Launcher] Unable to import launcher module: {err}")
+        else:
+            try:
+                unlocked = run_launcher()
+            except Exception as err:  # noqa: BLE001 - show launcher errors plainly
+                print(f"[Launcher] Launcher encountered an error: {err}")
+                unlocked = True
+    else:
+        print("[Launcher] PyQt6 not available; skipping launcher.")
+
+    if not unlocked:
+        print("[Launcher] Launcher closed without unlocking. Exiting.")
+        return
+
+    run_league_unlock()
 
 
 if __name__ == "__main__":
