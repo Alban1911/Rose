@@ -12,18 +12,37 @@ import zipfile
 import tempfile
 import requests
 from pathlib import Path
-from typing import Optional, Dict, List, Set, Tuple
+from typing import Callable, Optional, Dict, List, Set, Tuple
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
 
 log = get_logger()
 
+ProgressCallback = Callable[[int, Optional[str]], None]
+
+
+def _format_size(num: Optional[int]) -> str:
+    if num is None or num <= 0:
+        return "0B"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(num)
+    for unit in units:
+        if size < 1024.0 or unit == units[-1]:
+            return f"{size:.1f}{unit}"
+        size /= 1024.0
+    return f"{num}B"
+
 
 class RepoDownloader:
     """Downloads entire repository as ZIP and extracts locally with incremental updates"""
     
-    def __init__(self, target_dir: Path = None, repo_url: str = "https://github.com/AlbanCliquet/LeagueSkins"):
+    def __init__(
+        self,
+        target_dir: Path = None,
+        repo_url: str = "https://github.com/AlbanCliquet/LeagueSkins",
+        progress_callback: Optional[ProgressCallback] = None,
+    ):
         self.repo_url = repo_url
         # Use user data directory for skins to avoid permission issues
         self.target_dir = target_dir or get_skins_dir()
@@ -32,10 +51,17 @@ class RepoDownloader:
             'User-Agent': APP_USER_AGENT,
             'Accept': 'application/vnd.github.v3+json'
         })
+        self.progress_callback = progress_callback
         
         # State tracking for incremental updates
         self.state_file = self.target_dir / '.repo_state.json'
         self.api_base = "https://api.github.com/repos/AlbanCliquet/LeagueSkins"
+    
+    def _emit_progress(self, percent: float, message: Optional[str] = None):
+        if not self.progress_callback:
+            return
+        bounded = max(0.0, min(percent, 100.0))
+        self.progress_callback(int(bounded), message)
     
     def get_repo_state(self) -> Dict:
         """Get current repository state from GitHub API
@@ -218,7 +244,7 @@ class RepoDownloader:
             log.error(f"Error saving {file_info['filename']}: {e}")
             return False, None
         
-    def download_repo_zip(self) -> Optional[Path]:
+    def download_repo_zip(self, progress_start: float = 0.0, progress_end: float = 70.0) -> Optional[Path]:
         """Download the entire repository as a ZIP file"""
         # GitHub's ZIP download URL format
         zip_url = f"{self.repo_url}/archive/refs/heads/main.zip"
@@ -230,18 +256,61 @@ class RepoDownloader:
             temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
             temp_zip_path = Path(temp_zip.name)
             temp_zip.close()
-            
+
+            # Try to resolve total size via HEAD request first
+            total_size: Optional[int] = None
+            try:
+                head_response = self.session.head(zip_url, allow_redirects=True, timeout=SKIN_DOWNLOAD_STREAM_TIMEOUT_S)
+                head_response.raise_for_status()
+                total_size_header = head_response.headers.get('Content-Length')
+                if total_size_header:
+                    total_size = int(total_size_header)
+            except requests.RequestException:
+                total_size = None
+            except ValueError:
+                total_size = None
+
             # Download ZIP file
             response = self.session.get(zip_url, stream=True, timeout=SKIN_DOWNLOAD_STREAM_TIMEOUT_S)
             response.raise_for_status()
+            if total_size is None:
+                total_size_header = response.headers.get('Content-Length')
+                try:
+                    total_size = int(total_size_header) if total_size_header else None
+                except ValueError:
+                    total_size = None
+            downloaded = 0
+            last_emit = -1
+            last_reported_bytes = 0
+            unknown_estimated_total = total_size if total_size else 200 * 1024 * 1024
+            self._emit_progress(progress_start, "Downloading skins...")
             
             # Save ZIP file
             with open(temp_zip_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            
+                        downloaded += len(chunk)
+                        if total_size and total_size > 0:
+                            fraction = downloaded / total_size
+                        else:
+                            if downloaded > unknown_estimated_total:
+                                unknown_estimated_total = int(downloaded * 1.25)
+                            fraction = min(downloaded / max(unknown_estimated_total, 1), 0.99)
+                        percent = progress_start + fraction * (progress_end - progress_start)
+                        emit_value = int(percent * 10)
+                        if emit_value != last_emit:
+                            last_emit = emit_value
+                            downloaded_mb = _format_size(downloaded)
+                            total_mb = _format_size(total_size) if total_size else "?"
+                            self._emit_progress(
+                                percent,
+                                f"Downloading skins... {downloaded_mb} / {total_mb}",
+                            )
+ 
             log.info(f"Repository ZIP downloaded: {temp_zip_path}")
+            final_total = total_size if total_size else downloaded
+            self._emit_progress(progress_end, f"Download complete ({_format_size(downloaded)} / {_format_size(final_total)})")
             return temp_zip_path
             
         except requests.RequestException as e:
@@ -251,7 +320,13 @@ class RepoDownloader:
             log.error(f"Error downloading repository: {e}")
             return None
     
-    def extract_skins_from_zip(self, zip_path: Path, overwrite_existing: bool = False) -> bool:
+    def extract_skins_from_zip(
+        self,
+        zip_path: Path,
+        overwrite_existing: bool = False,
+        progress_start: float = 70.0,
+        progress_end: float = 100.0,
+    ) -> bool:
         """Extract skins, previews, and skin_id mappings from the new merged LeagueSkins repository ZIP"""
         try:
             log.info("Extracting skins, previews, and skin_id mappings from merged LeagueSkins repository ZIP...")
@@ -296,99 +371,96 @@ class RepoDownloader:
                 
                 log.info(f"Found {zip_count} skin .zip files, {png_count} preview .png files, and {json_count} skin ID mapping files in repository")
                 
-                # Extract all skins files (both .zip and .png)
+                # Extract all skins and mapping files with byte-level progress tracking
                 extracted_zip_count = 0
                 extracted_png_count = 0
-                skipped_count = 0
-                
-                for file_info in skins_files:
+                extracted_json_count = 0
+                skipped_skin_count = 0
+                skipped_json_count = 0
+
+                entries: List[Tuple[str, zipfile.ZipInfo]] = [("skin", info) for info in skins_files]
+                entries.extend(("mapping", info) for info in mapping_files)
+
+                def _info_size(info: zipfile.ZipInfo) -> int:
+                    return info.file_size or info.compress_size or 0
+
+                total_bytes = sum(_info_size(info) for _, info in entries)
+                if total_bytes <= 0:
+                    total_bytes = len(entries) or 1
+                processed_bytes = 0
+
+                from utils.paths import get_user_data_dir
+                mapping_target_dir = get_user_data_dir() / "skinid_mapping"
+
+                def update_progress(label: str):
+                    if total_bytes <= 0:
+                        return
+                    fraction = min(processed_bytes / total_bytes, 1.0)
+                    percent = progress_start + fraction * (progress_end - progress_start)
+                    current_mb = _format_size(processed_bytes)
+                    total_mb = _format_size(total_bytes)
+                    self._emit_progress(percent, f"{label} {current_mb} / {total_mb}")
+
+                for entry_type, file_info in entries:
                     try:
-                        # Skip directories
                         if file_info.is_dir():
                             continue
-                        
-                        # Remove the 'LeagueSkins-main/' prefix from the path
+
+                        label = "Extracting skins..." if entry_type == "skin" else "Extracting resources..."
                         relative_path = file_info.filename.replace('LeagueSkins-main/', '')
-                        
-                        # Check file type
                         is_zip = relative_path.endswith('.zip')
                         is_png = relative_path.endswith('.png')
-                        
-                        # Skip if it's not a skin file
-                        if not (is_zip or is_png):
-                            continue
-                        
-                        # Remove the 'skins/' prefix since target_dir is already the skins directory
-                        if relative_path.startswith('skins/'):
-                            relative_path = relative_path.replace('skins/', '', 1)
-                        
-                        # Extract to target directory
-                        extract_path = self.target_dir / relative_path
-                        extract_path.parent.mkdir(parents=True, exist_ok=True)
-                        
-                        # Skip if file already exists (unless we're overwriting)
-                        if extract_path.exists() and not overwrite_existing:
-                            skipped_count += 1
-                            continue
-                        
-                        # Extract the file
-                        with zip_ref.open(file_info) as source:
-                            with open(extract_path, 'wb') as target:
-                                target.write(source.read())
-                        
-                        # Count by type
-                        if is_zip:
-                            extracted_zip_count += 1
-                        elif is_png:
-                            extracted_png_count += 1
-                        
-                    except Exception as e:
-                        log.warning(f"Failed to extract {file_info.filename}: {e}")
-                
-                # Extract skin ID mapping files to user data directory
-                extracted_json_count = 0
-                skipped_json_count = 0
-                
-                if mapping_files:
-                    from utils.paths import get_user_data_dir
-                    mapping_target_dir = get_user_data_dir() / "skinid_mapping"
-                    
-                    for file_info in mapping_files:
-                        try:
-                            # Skip directories
-                            if file_info.is_dir():
-                                continue
-                            
-                            # Remove the 'LeagueSkins-main/' prefix from the path
-                            relative_path = file_info.filename.replace('LeagueSkins-main/', '')
-                            
-                            # Remove the 'resources/skinid_mapping/' prefix since target_dir is the mapping directory
+
+                        if entry_type == "skin":
+                            if relative_path.startswith('skins/'):
+                                relative_path = relative_path.replace('skins/', '', 1)
+                            extract_path = self.target_dir / relative_path
+                        else:
                             if relative_path.startswith('resources/skinid_mapping/'):
                                 relative_path = relative_path.replace('resources/skinid_mapping/', '', 1)
-                            
-                            # Extract to mapping target directory
                             extract_path = mapping_target_dir / relative_path
-                            extract_path.parent.mkdir(parents=True, exist_ok=True)
-                            
-                            # Skip if file already exists (unless we're overwriting)
-                            if extract_path.exists() and not overwrite_existing:
+
+                        extract_path.parent.mkdir(parents=True, exist_ok=True)
+
+                        file_bytes = _info_size(file_info) or 1
+
+                        if extract_path.exists() and not overwrite_existing:
+                            if entry_type == "skin":
+                                skipped_skin_count += 1
+                            else:
                                 skipped_json_count += 1
-                                continue
-                            
-                            # Extract the file
-                            with zip_ref.open(file_info) as source:
-                                with open(extract_path, 'wb') as target:
-                                    target.write(source.read())
-                            
+                            processed_bytes += file_bytes
+                            update_progress(label)
+                            continue
+
+                        with zip_ref.open(file_info) as source, open(extract_path, 'wb') as target:
+                            while True:
+                                chunk = source.read(64 * 1024)
+                                if not chunk:
+                                    break
+                                target.write(chunk)
+                                processed_bytes += len(chunk)
+                                update_progress(label)
+
+                        if entry_type == "skin":
+                            if is_zip:
+                                extracted_zip_count += 1
+                            elif is_png:
+                                extracted_png_count += 1
+                        else:
                             extracted_json_count += 1
-                            
-                        except Exception as e:
-                            log.warning(f"Failed to extract {file_info.filename}: {e}")
-                
+
+                    except Exception as e:
+                        log.warning(f"Failed to extract {file_info.filename}: {e}")
+                        processed_bytes += _info_size(file_info) or 1
+                        update_progress("Extracting...")
+
                 log.info(f"Extracted {extracted_zip_count} new skin .zip files, {extracted_png_count} preview .png files, "
-                        f"and {extracted_json_count} skin ID mapping files (skipped {skipped_count} existing skin files, "
+                        f"and {extracted_json_count} skin ID mapping files (skipped {skipped_skin_count} existing skin files, "
                         f"{skipped_json_count} existing mapping files)")
-                
+
+                total_mb = _format_size(total_bytes)
+                self._emit_progress(progress_end, f"Extraction complete ({_format_size(processed_bytes)} / {total_mb})")
                 return (extracted_zip_count + extracted_png_count + extracted_json_count) > 0
                 
         except zipfile.BadZipFile:
@@ -401,8 +473,10 @@ class RepoDownloader:
     def download_incremental_updates(self, force_update: bool = False) -> bool:
         """Download only changed files since last update"""
         try:
+            self._emit_progress(0, "Checking repository state...")
             # Check if repository has changed
             if not force_update and not self.has_repository_changed():
+                self._emit_progress(100, "Skins already up to date")
                 return True
             
             local_state = self.load_local_state()
@@ -488,6 +562,7 @@ class RepoDownloader:
                 # Update state even if no changes
                 current_state['last_checked'] = current_state['last_commit_date']
                 self.save_local_state(current_state)
+                self._emit_progress(100, "Skins already up to date")
                 return True
             
             log.info(f"Found {len(changed_files)} changed files")
@@ -503,12 +578,16 @@ class RepoDownloader:
                     return self.download_and_extract_skins(force_update=True)
             
             # Download changed files
+            total_files = len(changed_files)
             success_count = 0
             rate_limit_hit = False
-            for file_info in changed_files:
+            for index, file_info in enumerate(changed_files, start=1):
                 success, error_type = self.download_individual_file(file_info)
                 if success:
                     success_count += 1
+                    if total_files > 0:
+                        progress = 10 + (index / total_files) * 80
+                        self._emit_progress(progress, f"Applying updates {index}/{total_files}")
                 elif error_type == 'rate_limit':
                     rate_limit_hit = True
                     log.warning("Rate limit hit during download, falling back to ZIP download")
@@ -524,15 +603,22 @@ class RepoDownloader:
             current_state['last_checked'] = current_state['last_commit_date']
             self.save_local_state(current_state)
             
-            return success_count > 0
+            completed = success_count > 0
+            if completed:
+                self._emit_progress(100, "Skins updated")
+            else:
+                self._emit_progress(100, "No changes applied")
+            return completed
             
         except Exception as e:
             log.error(f"Failed to download incremental updates: {e}")
+            self._emit_progress(100, f"Failed: {e}")
             return False
     
     def download_and_extract_skins(self, force_update: bool = False) -> bool:
         """Download repository and extract skins in one operation"""
         try:
+            self._emit_progress(0, "Preparing download...")
             # Clean up any conflicting files/directories
             if self.target_dir.exists():
                 # Remove any file named "skins" that might conflict
@@ -546,16 +632,23 @@ class RepoDownloader:
                 existing_skins = list(self.target_dir.rglob("*.zip"))
                 if existing_skins:
                     log.info(f"Found {len(existing_skins)} existing skins, skipping download")
+                    self._emit_progress(100, "Skins already up to date")
                     return True
             
             # Download repository ZIP
-            zip_path = self.download_repo_zip()
+            zip_path = self.download_repo_zip(progress_start=5.0, progress_end=70.0)
             if not zip_path:
+                self._emit_progress(5, "Failed to start download")
                 return False
             
             try:
                 # Extract skins from ZIP
-                success = self.extract_skins_from_zip(zip_path, overwrite_existing=force_update)
+                success = self.extract_skins_from_zip(
+                    zip_path,
+                    overwrite_existing=force_update,
+                    progress_start=70.0,
+                    progress_end=100.0,
+                )
                 
                 # Save state after successful full download
                 if success:
@@ -564,7 +657,11 @@ class RepoDownloader:
                         current_state['last_checked'] = current_state['last_commit_date']
                         self.save_local_state(current_state)
                 
-                return success
+                if success:
+                    self._emit_progress(100, "Skins ready")
+                    return True
+                self._emit_progress(100, "Extraction failed")
+                return False
                 
             finally:
                 # Clean up temporary ZIP file
@@ -578,6 +675,7 @@ class RepoDownloader:
             
         except Exception as e:
             log.error(f"Failed to download and extract skins: {e}")
+            self._emit_progress(100, f"Failed: {e}")
             return False
     
     
@@ -664,11 +762,17 @@ class RepoDownloader:
         }
 
 
-def download_skins_from_repo(target_dir: Path = None, force_update: bool = False, tray_manager=None, use_incremental: bool = True) -> bool:
+def download_skins_from_repo(
+    target_dir: Path = None,
+    force_update: bool = False,
+    tray_manager=None,
+    use_incremental: bool = True,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> bool:
     """Download skins from repository with optional incremental updates"""
     try:
         # Note: tray_manager status is already set by caller (download_skins_on_startup)
-        downloader = RepoDownloader(target_dir)
+        downloader = RepoDownloader(target_dir, progress_callback=progress_callback)
         
         # Get current detailed stats
         current_detailed = downloader.get_detailed_stats()
