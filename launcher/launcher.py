@@ -31,7 +31,7 @@ def run_launcher() -> bool:
     and True is returned so the application can continue.
     """
     try:
-        from PyQt6.QtCore import Qt, QEventLoop, QObject, QThread, QTimer, pyqtSignal
+        from PyQt6.QtCore import Qt, QEventLoop, QObject, QThread, pyqtSignal
         from PyQt6.QtGui import QIcon, QPixmap
         from PyQt6.QtWidgets import QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
     except ImportError:
@@ -78,6 +78,12 @@ def run_launcher() -> bool:
         finished = pyqtSignal(bool, bool)  # success, already_ready
         error = pyqtSignal(str)
 
+        def _emit_progress(self, percent: int, message: Optional[str] = None) -> None:
+            clamped = max(0, min(percent, 100))
+            if message:
+                self.status.emit(message)
+            self.progress.emit(clamped)
+
         def run(self) -> None:
             try:
                 self.status.emit("Checking installed skins...")
@@ -90,22 +96,23 @@ def run_launcher() -> bool:
 
                 if have_skins and have_previews:
                     status_checker.mark_download_process_complete()
-                    self.progress.emit(100)
+                    self._emit_progress(100, "Skins already up to date")
                     self.finished.emit(True, True)
                     return
 
                 self.download_started.emit()
                 self.status.emit("Downloading skins...")
-                success = download_skins_on_startup()
+                success = download_skins_on_startup(progress_callback=self._emit_progress)
                 status_checker.update_status(force=True)
                 if success:
                     status_checker.mark_download_process_complete()
-                    self.progress.emit(100)
+                    self._emit_progress(100, "Skins ready")
                 else:
-                    self.progress.emit(0)
+                    self._emit_progress(0, "Download failed")
                 self.finished.emit(success, False)
             except Exception as worker_err:  # noqa: BLE001 - surface error
                 self.error.emit(str(worker_err))
+                self._emit_progress(0, "Download failed")
                 self.finished.emit(False, False)
 
     class LauncherWindow(QWidget):
@@ -120,7 +127,6 @@ def run_launcher() -> bool:
             self._status_text = "Checking skins..."
             self._progress_active = False
             self._progress_value = 0
-            self._progress_timer: Optional[QTimer] = None
             self.worker_thread: QThread | None = None
             self.worker: SkinDownloadWorker | None = None
 
@@ -192,21 +198,23 @@ def run_launcher() -> bool:
             self._set_button_enabled(False)
             self._apply_button_style(self._progress_value)
             self.unlock_button.setText(self._status_text)
-            self._start_fake_progress()
 
         def _handle_progress(self, value: int) -> None:
             clamped = max(0, min(value, 100))
             self._progress_value = clamped
+            if clamped >= 100:
+                self._progress_active = False
+            else:
+                self._progress_active = True
+
             if self._progress_active:
                 self.unlock_button.setText(f"{self._status_text} {clamped}%")
-                if clamped >= 100:
-                    self._stop_fake_progress()
-                    self._apply_button_style(100)
-                else:
-                    self._apply_button_style(clamped)
+            else:
+                self.unlock_button.setText(self._status_text if self.unlock_button.isEnabled() else f"{self._status_text} 100%")
+
+            self._apply_button_style(clamped if self._progress_active else None)
 
         def _handle_finished(self, success: bool, already_ready: bool) -> None:
-            self._stop_fake_progress()
             self._progress_active = False
             self._progress_value = 0
             if success:
@@ -225,34 +233,10 @@ def run_launcher() -> bool:
             except Exception:
                 pass
 
-        def _start_fake_progress(self) -> None:
-            if self._progress_timer:
-                return
-            self._progress_timer = QTimer(self)
-            self._progress_timer.setInterval(120)
-            self._progress_timer.timeout.connect(self._advance_fake_progress)
-            self._progress_timer.start()
-
-        def _advance_fake_progress(self) -> None:
-            if not self._progress_active:
-                self._stop_fake_progress()
-                return
-            if self._progress_value < 95:
-                self._progress_value += 1
-                self.unlock_button.setText(f"{self._status_text} {self._progress_value}%")
-                self._apply_button_style(self._progress_value)
-            else:
-                self._stop_fake_progress()
-
-        def _stop_fake_progress(self) -> None:
-            if self._progress_timer:
-                self._progress_timer.stop()
-                self._progress_timer.deleteLater()
-                self._progress_timer = None
-
         def _set_button_enabled(self, enabled: bool) -> None:
             self.unlock_button.setEnabled(enabled)
-            self._apply_button_style(self._progress_value if self._progress_active else None)
+            progress_value = self._progress_value if (self._progress_active and not enabled) else None
+            self._apply_button_style(progress_value)
 
         def _apply_button_style(self, progress: Optional[int]) -> None:
             enabled = self.unlock_button.isEnabled()
@@ -284,7 +268,6 @@ def run_launcher() -> bool:
             self.unlock_button.setStyleSheet(stylesheet)
 
         def closeEvent(self, event) -> None:  # type: ignore[override]
-            self._stop_fake_progress()
             if self.worker_thread and self.worker_thread.isRunning():
                 self.worker_thread.quit()
                 self.worker_thread.wait(200)
