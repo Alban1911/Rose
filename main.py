@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Tuple
 
 # Local imports - constants first (needed for Windows setup)
 from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S
@@ -212,6 +212,7 @@ from config import (
     THREAD_JOIN_TIMEOUT_S,
     THREAD_FORCE_EXIT_TIMEOUT_S,
     MAIN_LOOP_STALL_THRESHOLD_S,
+    get_config_float,
 )
 
 class AppState:
@@ -818,8 +819,8 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
 
 
 
-def run_league_unlock():
-    """Run the core LeagueUnlocked application startup and main loop"""
+def run_league_unlock(injection_threshold: Optional[float] = None):
+    """Run the core LeagueUnlocked application startup and main loop."""
     # Check for admin rights FIRST (required for injection to work)
     from utils.admin_utils import ensure_admin_rights
     ensure_admin_rights()
@@ -910,6 +911,9 @@ def run_league_unlock():
     try:
         log.info("Initializing injection manager...")
         injection_manager = InjectionManager(shared_state=state)
+        if injection_threshold is not None:
+            log.info(f"Launcher override: setting injection threshold to {injection_threshold:.2f}s")
+            injection_manager.injection_threshold = max(0.0, injection_threshold)
         log.info("✓ Injection manager initialized")
         injection_manager.initialize_when_ready()
     except Exception as e:
@@ -943,8 +947,8 @@ def run_league_unlock():
     # Skin names are matched using: Windows UI API (client lang) → LCU scraper → skinId → English DB
     
     
-    # Configure skin writing
-    state.skin_write_ms = int(getattr(args, 'skin_threshold_ms', 2000) or 2000)
+    # Configure skin writing based on the final injection threshold (seconds → ms)
+    state.skin_write_ms = max(0, int(injection_manager.injection_threshold * 1000))
     state.inject_batch = getattr(args, 'inject_batch', state.inject_batch) or state.inject_batch
     
     # Update tray manager quit callback now that state is available
@@ -1368,6 +1372,7 @@ def run_league_unlock():
 def main():
     """Program entry point that shows the launcher before starting LeagueUnlocked."""
     unlocked = True
+    injection_threshold = get_config_float("General", "injection_threshold", 0.5)
 
     if PYQT6_AVAILABLE:
         try:
@@ -1376,7 +1381,7 @@ def main():
             print(f"[Launcher] Unable to import launcher module: {err}")
         else:
             try:
-                unlocked = run_launcher()
+                unlocked, injection_threshold = run_launcher()
             except Exception as err:  # noqa: BLE001 - show launcher errors plainly
                 print(f"[Launcher] Launcher encountered an error: {err}")
                 unlocked = True
@@ -1387,7 +1392,7 @@ def main():
         print("[Launcher] Launcher closed without unlocking. Exiting.")
         return
 
-    run_league_unlock()
+    run_league_unlock(injection_threshold)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,10 @@ from __future__ import annotations
 import sys
 from typing import Optional, Tuple
 
+from config import get_config_float
+from pathlib import Path
+import configparser
+
 
 def _ensure_application() -> Tuple["QApplication", bool]:
     """Return a running QApplication instance, creating one if needed."""
@@ -22,25 +26,53 @@ def _ensure_application() -> Tuple["QApplication", bool]:
     return app, False
 
 
-def run_launcher() -> bool:
-    """
-    Show the launcher window and return True if the user clicked UNLOCK.
-
-    Returns False when the window is closed via the window controls without
-    pressing UNLOCK. On ImportError (PyQt6 missing), the launcher is skipped
-    and True is returned so the application can continue.
-    """
+def run_launcher() -> Tuple[bool, float]:
+    """Launch the PyQt6 UI and return (unlocked, injection_threshold)."""
     try:
-        from PyQt6.QtCore import Qt, QEventLoop, QObject, QThread, pyqtSignal
+        from PyQt6.QtCore import Qt, QEventLoop, QObject, QThread, pyqtSignal, QSize
         from PyQt6.QtGui import QIcon, QPixmap
-        from PyQt6.QtWidgets import QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
+        from PyQt6.QtWidgets import (
+            QDialog,
+            QDialogButtonBox,
+            QHBoxLayout,
+            QLabel,
+            QMessageBox,
+            QPushButton,
+            QSlider,
+            QVBoxLayout,
+            QWidget,
+        )
     except ImportError:
+        fallback_threshold = get_config_float("General", "injection_threshold", 0.5)
         print("[Launcher] PyQt6 not available; starting LeagueUnlocked directly.")
-        return True
+        return True, fallback_threshold
 
     app, created_app = _ensure_application()
     icon = None
     logo_pixmap = None
+    settings_icon = None
+
+    config_path = Path("config.ini")
+    launcher_threshold = 0.5
+
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        try:
+            config.read(config_path)
+        except Exception as config_err:
+            print(f"[Launcher] Failed to read config.ini: {config_err}")
+    if not config.has_section("General"):
+        config.add_section("General")
+    if config.has_option("General", "injection_threshold"):
+        try:
+            launcher_threshold = float(config.get("General", "injection_threshold"))
+        except ValueError:
+            launcher_threshold = 0.5
+    else:
+        # Ensure default value is present
+        config.set("General", "injection_threshold", f"{launcher_threshold:.2f}")
+        with open(config_path, "w", encoding="utf-8") as f:
+            config.write(f)
 
     try:
         from utils.paths import get_asset_path
@@ -65,11 +97,52 @@ def run_launcher() -> bool:
                 print(f"[Launcher] icon.png at {logo_path} is invalid.")
         else:
             print(f"[Launcher] Icon image missing at {logo_path}")
+
+        settings_path = get_asset_path("settings.png")
+        if settings_path.exists():
+            settings_icon = QIcon(str(settings_path))
+        else:
+            print(f"[Launcher] Settings icon missing at {settings_path}")
     except Exception as icon_err:  # noqa: BLE001 - inform but continue without icon
         print(f"[Launcher] Failed to load icon: {icon_err}")
 
     if icon and created_app:
         app.setWindowIcon(icon)
+
+    class SettingsDialog(QDialog):
+        def __init__(self, parent: QWidget, initial_threshold: float) -> None:
+            super().__init__(parent)
+            self.setWindowTitle("Launcher Settings")
+            self.setModal(True)
+            self.value = initial_threshold
+
+            layout = QVBoxLayout(self)
+            description = QLabel("Injection Threshold (seconds)")
+            layout.addWidget(description)
+
+            self.value_label = QLabel(f"{initial_threshold:.2f}s")
+            layout.addWidget(self.value_label)
+
+            self.slider = QSlider(Qt.Orientation.Horizontal)
+            self.slider.setRange(30, 200)  # Represents 0.30s to 2.00s (value / 100)
+            self.slider.setSingleStep(1)
+            self.slider.setValue(int(initial_threshold * 100))
+            layout.addWidget(self.slider)
+
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+            layout.addWidget(buttons)
+
+            self.slider.valueChanged.connect(self._handle_slider_change)
+            buttons.accepted.connect(self.accept)
+            buttons.rejected.connect(self.reject)
+
+        def _handle_slider_change(self, raw_value: int) -> None:
+            value = raw_value / 100.0
+            self._update_value(value)
+
+        def _update_value(self, value: float) -> None:
+            self.value = value
+            self.value_label.setText(f"{value:.2f}s")
 
     class SkinDownloadWorker(QObject):
         progress = pyqtSignal(int)
@@ -129,10 +202,30 @@ def run_launcher() -> bool:
             self._progress_value = 0
             self.worker_thread: QThread | None = None
             self.worker: SkinDownloadWorker | None = None
+            self.injection_threshold = launcher_threshold
 
             layout = QVBoxLayout()
             layout.setContentsMargins(32, 32, 32, 32)
             layout.setSpacing(24)
+
+            header_layout = QHBoxLayout()
+            self.settings_button = QPushButton()
+            self.settings_button.setFlat(True)
+            self.settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.settings_button.setFixedSize(48, 48)
+            self.settings_button.setStyleSheet(
+                "QPushButton { background-color: transparent; border: none; }"
+                "QPushButton::hover { background-color: rgba(255, 255, 255, 30); border-radius: 6px; }"
+            )
+            if settings_icon:
+                self.settings_button.setIcon(settings_icon)
+                self.settings_button.setIconSize(QSize(32, 32))
+            else:
+                self.settings_button.setText("Settings")
+            self.settings_button.clicked.connect(self._open_settings)
+            header_layout.addWidget(self.settings_button, alignment=Qt.AlignmentFlag.AlignLeft)
+            header_layout.addStretch(1)
+            layout.addLayout(header_layout)
 
             layout.addStretch(1)
 
@@ -233,6 +326,17 @@ def run_launcher() -> bool:
             except Exception:
                 pass
 
+        def _open_settings(self) -> None:
+            dialog = SettingsDialog(self, self.injection_threshold)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.injection_threshold = dialog.value
+                config.set("General", "injection_threshold", f"{self.injection_threshold:.2f}")
+                try:
+                    with open(config_path, "w", encoding="utf-8") as f:
+                        config.write(f)
+                except Exception as err:
+                    print(f"[Launcher] Failed to write config.ini: {err}")
+
         def _set_button_enabled(self, enabled: bool) -> None:
             self.unlock_button.setEnabled(enabled)
             progress_value = self._progress_value if (self._progress_active and not enabled) else None
@@ -286,9 +390,10 @@ def run_launcher() -> bool:
         loop.exec()
 
     unlocked = getattr(window, "unlocked", False)
+    launcher_threshold = getattr(window, "injection_threshold", launcher_threshold)
 
     if created_app:
         app.quit()
 
-    return unlocked
+    return unlocked, launcher_threshold
 

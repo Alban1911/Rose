@@ -16,13 +16,13 @@ from typing import Optional
 
 # Local imports
 from config import (
-    INJECTION_THRESHOLD_SECONDS,
     PERSISTENT_MONITOR_CHECK_INTERVAL_S,
     PERSISTENT_MONITOR_IDLE_INTERVAL_S,
     PERSISTENT_MONITOR_WAIT_TIMEOUT_S,
     PERSISTENT_MONITOR_WAIT_INTERVAL_S,
     PERSISTENT_MONITOR_AUTO_RESUME_S,
-    INJECTION_LOCK_TIMEOUT_S
+    INJECTION_LOCK_TIMEOUT_S,
+    get_config_float
 )
 from utils.logging import get_logger, log_section, log_event, log_success, log_action
 
@@ -43,7 +43,7 @@ class InjectionManager:
         self.injector = None  # Will be initialized lazily
         self.last_skin_name = None
         self.last_injection_time = 0.0
-        self.injection_threshold = INJECTION_THRESHOLD_SECONDS
+        self.injection_threshold = get_config_float("General", "injection_threshold", 0.5)
         self.injection_lock = threading.Lock()
         self._initialized = False
         self.current_champion = None
@@ -308,24 +308,26 @@ class InjectionManager:
             
         with self.injection_lock:
             current_time = time.time()
-            
-            # If skin changed or enough time passed, trigger injection
-            if (skin_name != self.last_skin_name or 
-                current_time - self.last_injection_time >= self.injection_threshold):
-                
-                # Disconnect from UIA window when injection threshold triggers
-                # (launcher closes when game starts, so the window is gone)
-                if self.shared_state and self.shared_state.ui_skin_thread:
-                    try:
-                        self.shared_state.ui_skin_thread.force_disconnect()
-                    except Exception as e:
-                        log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
-                
-                success = self.injector.inject_skin(skin_name)
-                
-                if success:
-                    self.last_skin_name = skin_name
-                    self.last_injection_time = current_time
+
+            elapsed = current_time - self.last_injection_time
+            if self.last_injection_time and elapsed < self.injection_threshold:
+                remaining = self.injection_threshold - elapsed
+                log.debug(f"[INJECT] Skipping injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                return
+
+            # Disconnect from UIA window when injection threshold triggers
+            # (launcher closes when game starts, so the window is gone)
+            if self.shared_state and self.shared_state.ui_skin_thread:
+                try:
+                    self.shared_state.ui_skin_thread.force_disconnect()
+                except Exception as e:
+                    log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
+
+            success = self.injector.inject_skin(skin_name)
+
+            if success:
+                self.last_skin_name = skin_name
+                self.last_injection_time = current_time
     
     def on_loadout_countdown(self, seconds_remaining: int):
         """Called during loadout countdown - no longer used (monitor starts with injection)"""
@@ -363,7 +365,14 @@ class InjectionManager:
         try:
             self._injection_in_progress = True
             log.debug(f"[INJECT] Injection started - lock acquired for: {skin_name}")
-            
+
+            current_time = time.time()
+            elapsed = current_time - self.last_injection_time
+            if self.last_injection_time and elapsed < self.injection_threshold:
+                remaining = self.injection_threshold - elapsed
+                log.debug(f"[INJECT] Skipping immediate injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                return False
+
             # Disconnect from UIA window when injection happens
             # (launcher closes when game starts, so the window is gone)
             if self.shared_state and self.shared_state.ui_skin_thread:
@@ -391,7 +400,7 @@ class InjectionManager:
             
             if success:
                 self.last_skin_name = skin_name
-                self.last_injection_time = time.time()
+                self.last_injection_time = current_time
             
             return success
         finally:
@@ -416,12 +425,19 @@ class InjectionManager:
             return False
             
         with self.injection_lock:
-            success = self.injector.inject_skin_for_testing(skin_name)
-            
+            current_time = time.time()
+            elapsed = current_time - self.last_injection_time
+            if self.last_injection_time and elapsed < self.injection_threshold:
+                remaining = self.injection_threshold - elapsed
+                log.debug(f"[INJECT] Skipping testing injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                return False
+
+            success = self.injector.inject_skin(skin_name)
+
             if success:
                 self.last_skin_name = skin_name
-                self.last_injection_time = time.time()
-            
+                self.last_injection_time = current_time
+                log.info(f"[INJECT] Test injection successful for: {skin_name}")
             return success
     
     def clean_system(self) -> bool:

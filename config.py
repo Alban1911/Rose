@@ -5,12 +5,49 @@ Global constants for LeagueUnlocked
 All arbitrary values are centralized here for easy tracking and modification
 """
 
+from typing import TYPE_CHECKING, Optional, Tuple
+from pathlib import Path
+import configparser
+
 # =============================================================================
 # APPLICATION METADATA
 # =============================================================================
 
 APP_VERSION = "Beta"                      # Application version
 APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
+
+_CONFIG = configparser.ConfigParser()
+_CONFIG_PATH = Path("config.ini")
+
+
+def _reload_config() -> None:
+    _CONFIG.clear()
+    if _CONFIG_PATH.exists():
+        try:
+            _CONFIG.read(_CONFIG_PATH)
+        except Exception:
+            pass
+
+
+_reload_config()
+
+
+def get_config_option(section: str, option: str, fallback: Optional[str] = None) -> Optional[str]:
+    _reload_config()
+    if _CONFIG.has_option(section, option):
+        return _CONFIG.get(section, option)
+    return fallback
+
+
+def get_config_float(section: str, option: str, fallback: float) -> float:
+    value = get_config_option(section, option)
+    if value is None:
+        return fallback
+    try:
+        return float(value)
+    except ValueError:
+        return fallback
+
 
 # Production mode - controls logging verbosity and sensitive data exposure
 # Set to True for releases to prevent reverse engineering via logs
@@ -84,7 +121,6 @@ FALLBACK_LOADOUT_MS_DEFAULT = 0             # Fallback countdown duration (ms)
 
 # Skin injection timing
 SKIN_THRESHOLD_MS_DEFAULT = 300             # Time before loadout ends to write skin (ms)
-INJECTION_THRESHOLD_SECONDS = 2.0           # Seconds between injection attempts
 BASE_SKIN_VERIFICATION_WAIT_S = 0.15        # Seconds to wait for LCU to process base skin change
 PERSISTENT_MONITOR_START_SECONDS = 1        # Seconds remaining when persistent game monitor starts
 PERSISTENT_MONITOR_CHECK_INTERVAL_S = 0.05  # Seconds between game process checks
