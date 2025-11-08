@@ -8,6 +8,7 @@ as a frozen executable.
 from __future__ import annotations
 
 import configparser
+import os
 import shutil
 import subprocess
 import sys
@@ -17,8 +18,7 @@ from typing import Callable, Optional
 
 import requests
 
-from config import APP_VERSION
-from utils.paths import get_user_data_dir
+from config import APP_VERSION, get_config_file_path
 
 GITHUB_RELEASE_API = "https://api.github.com/repos/FlorentTariolle/LeagueUnlockedDev/releases/latest"
 
@@ -51,15 +51,23 @@ def auto_update(
     download_url = asset.get("browser_download_url")
     total_size = asset.get("size", 0)
 
-    config_path = Path("config.ini")
-    installed_version = APP_VERSION
+    config_path = get_config_file_path()
     config = configparser.ConfigParser()
     if config_path.exists():
         try:
             config.read(config_path)
-            installed_version = config.get("General", "installed_version", fallback=installed_version)
         except Exception:
-            installed_version = APP_VERSION
+            pass
+    if not config.has_section("General"):
+        config.add_section("General")
+    config.set("General", "installed_version", APP_VERSION)
+    try:
+        with open(config_path, "w", encoding="utf-8") as fh:
+            config.write(fh)
+    except Exception:
+        pass
+
+    installed_version = config.get("General", "installed_version", fallback=APP_VERSION)
 
     if remote_version and installed_version == remote_version:
         status_callback("Launcher is already up to date")
@@ -69,7 +77,7 @@ def auto_update(
         status_callback("Update skipped (dev environment)")
         return False
 
-    updates_root = get_user_data_dir() / "updates"
+    updates_root = config_path.parent / "updates"
     updates_root.mkdir(parents=True, exist_ok=True)
     zip_name = asset.get("name") or "update.zip"
     zip_path = updates_root / zip_name
@@ -120,32 +128,48 @@ def auto_update(
     install_dir = Path(sys.executable).resolve().parent
     exe_name = Path(sys.executable).name
 
-    if not config.has_section("General"):
-        config.add_section("General")
-    config.set("General", "installed_version", remote_version or "")
-    try:
-        with open(config_path, "w", encoding="utf-8") as fh:
-            config.write(fh)
-    except Exception:
-        pass
+    if not (extracted_root / exe_name).exists():
+        status_callback("Update aborted: executable missing in package")
+        return False
 
     batch_path = updates_root / "apply_update.bat"
+    zip_path_str = str(zip_path)
+    staging_path_str = str(staging_dir)
+    updates_root_str = str(updates_root)
+    log_path_str = str(updates_root / "update.log")
     try:
         with open(batch_path, "w", encoding="utf-8") as batch:
             batch.write("@echo off\n")
             batch.write("setlocal enableextensions\n")
             batch.write(f'set "SOURCE={extracted_root}"\n')
             batch.write(f'set "DEST={install_dir}"\n')
-            batch.write("ping 127.0.0.1 -n 3 >nul\n")
-            batch.write("robocopy \"%SOURCE%\" \"%DEST%\" /MIR /NFL /NDL /NJH /NJS /XD __pycache__ /XF config.ini >nul\n")
-            batch.write(f'start "" "{install_dir / exe_name}"\n')
-            batch.write("del \"%~f0\"\n")
+            batch.write(f'set "ZIPFILE={zip_path_str}"\n')
+            batch.write(f'set "STAGING={staging_path_str}"\n')
+            batch.write(f'set "UPDATES={updates_root_str}"\n')
+            batch.write(f'set "LOG={log_path_str}"\n')
+            batch.write('echo [%date% %time%] Update start > "%LOG%"\n')
+            batch.write("ping 127.0.0.1 -n 4 >nul\n")
+            batch.write('echo [%date% %time%] Mirroring files >> "%LOG%"\n')
+            batch.write('robocopy "%SOURCE%" "%DEST%" /MIR /NFL /NDL /NJH /NJS /XD __pycache__ /XF config.ini license.dat >> "%LOG%" 2>&1\n')
+            batch.write("if %ERRORLEVEL% GEQ 8 goto :robofail\n")
+            batch.write(f'start "" /D "{install_dir}" "{install_dir / exe_name}"\n')
+            batch.write('echo [%date% %time%] Cleaning staging >> "%LOG%"\n')
+            batch.write('if exist "%STAGING%" rd /s /q "%STAGING%" >> "%LOG%" 2>&1\n')
+            batch.write('if exist "%ZIPFILE%" del "%ZIPFILE%" >> "%LOG%" 2>&1\n')
+            batch.write("del \"%~f0\" >nul 2>&1\n")
+            batch.write("exit\n")
+            batch.write("")
+            batch.write(":robofail\n")
+            batch.write('echo [%date% %time%] Update failed >> "%LOG%"\n')
+            batch.write("echo Update failed. Press any key to close.\n")
+            batch.write("pause >nul\n")
+            batch.write("exit 1\n")
     except Exception as exc:  # noqa: BLE001
         status_callback(f"Failed to prepare updater: {exc}")
         return False
 
     try:
-        subprocess.Popen(["cmd", "/c", "start", "", str(batch_path)], close_fds=True)
+        subprocess.Popen(["cmd", "/c", str(batch_path), str(os.getpid())], close_fds=True)
     except Exception as exc:  # noqa: BLE001
         status_callback(f"Failed to launch updater: {exc}")
         return False
