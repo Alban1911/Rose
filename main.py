@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Tuple
 
 # Local imports - constants first (needed for Windows setup)
-from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S
+from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S, APP_VERSION
 
 if TYPE_CHECKING:
     from lcu.client import LCU
@@ -186,6 +186,7 @@ from utils.logging import setup_logging, get_logger, log_section, log_success, l
 from utils.tray_manager import TrayManager
 from utils.thread_manager import ThreadManager, create_daemon_thread
 from utils.license_client import LicenseClient
+from utils.paths import get_user_data_dir
 
 # Local imports - UI and injection
 from ui.user_interface import get_user_interface
@@ -193,6 +194,7 @@ from injection.manager import InjectionManager
 
 # Local imports - configuration
 from config import (
+    APP_VERSION,
     DEFAULT_DD_LANG,
     DEFAULT_VERBOSE,
     PHASE_HZ_DEFAULT,
@@ -213,6 +215,7 @@ from config import (
     THREAD_FORCE_EXIT_TIMEOUT_S,
     MAIN_LOOP_STALL_THRESHOLD_S,
     get_config_float,
+    set_config_option,
 )
 
 class AppState:
@@ -530,7 +533,7 @@ def check_license():
     # Initialize license client
     license_client = LicenseClient(
         server_url="https://api.leagueunlocked.net",
-        license_file="license.dat",
+        license_file=str(get_user_data_dir() / "license.dat"),
         public_key_pem=PUBLIC_KEY  # Public key for verifying server signatures
     )
     print("[LICENSE] License client initialized")
@@ -821,6 +824,7 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
 
 def run_league_unlock(injection_threshold: Optional[float] = None):
     """Run the core LeagueUnlocked application startup and main loop."""
+    set_config_option("General", "installed_version", APP_VERSION)
     # Check for admin rights FIRST (required for injection to work)
     from utils.admin_utils import ensure_admin_rights
     ensure_admin_rights()

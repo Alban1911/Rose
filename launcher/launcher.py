@@ -11,10 +11,12 @@ import os
 import sys
 from typing import Optional, Tuple
 
-from config import APP_VERSION, get_config_float
+from config import APP_VERSION, get_config_float, get_config_file_path
 from launcher.updater import auto_update
 from pathlib import Path
 import configparser
+from utils.license_client import LicenseClient
+from utils.paths import get_user_data_dir
 
 
 def _ensure_application() -> Tuple["QApplication", bool]:
@@ -54,7 +56,7 @@ def run_launcher() -> Tuple[bool, float]:
     logo_pixmap = None
     settings_icon = None
 
-    config_path = Path("config.ini")
+    config_path = get_config_file_path()
     launcher_threshold = 0.5
 
     config = configparser.ConfigParser()
@@ -71,10 +73,16 @@ def run_launcher() -> Tuple[bool, float]:
         except ValueError:
             launcher_threshold = 0.5
     else:
-        # Ensure default value is present
         config.set("General", "injection_threshold", f"{launcher_threshold:.2f}")
         with open(config_path, "w", encoding="utf-8") as f:
             config.write(f)
+
+    license_info = LicenseClient(
+        server_url="https://api.leagueunlocked.net",
+        license_file=str(get_user_data_dir() / "license.dat"),
+        public_key_pem=None,
+    ).get_license_info()
+    license_days_remaining = license_info.get("days_remaining") if license_info else None
 
     try:
         from utils.paths import get_asset_path
@@ -239,6 +247,16 @@ def run_launcher() -> Tuple[bool, float]:
             self.settings_button.clicked.connect(self._open_settings)
             header_layout.addWidget(self.settings_button, alignment=Qt.AlignmentFlag.AlignLeft)
             header_layout.addStretch(1)
+
+            if license_days_remaining is not None:
+                self.license_label = QLabel(f"{license_days_remaining} days left")
+                self.license_label.setStyleSheet(
+                    "color: #f0f0f0; font-weight: bold;"
+                )
+                header_layout.addWidget(self.license_label, alignment=Qt.AlignmentFlag.AlignRight)
+            else:
+                self.license_label = None
+
             layout.addLayout(header_layout)
 
             layout.addStretch(1)

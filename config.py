@@ -5,26 +5,42 @@ Global constants for LeagueUnlocked
 All arbitrary values are centralized here for easy tracking and modification
 """
 
+import shutil
 from typing import TYPE_CHECKING, Optional, Tuple
 from pathlib import Path
 import configparser
+
+from utils.paths import get_user_data_dir
 
 # =============================================================================
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "Beta_1.3"                  # Application version
+APP_VERSION = "Beta_1.3"                         # Application version
 APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 _CONFIG = configparser.ConfigParser()
-_CONFIG_PATH = Path("config.ini")
+
+
+def get_config_file_path() -> Path:
+    config_dir = get_user_data_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir / "config.ini"
 
 
 def _reload_config() -> None:
     _CONFIG.clear()
-    if _CONFIG_PATH.exists():
+    config_path = get_config_file_path()
+    if not config_path.exists():
+        legacy_path = Path("config.ini")
+        if legacy_path.exists():
+            try:
+                shutil.copy2(legacy_path, config_path)
+            except Exception:
+                pass
+    if config_path.exists():
         try:
-            _CONFIG.read(_CONFIG_PATH)
+            _CONFIG.read(config_path)
         except Exception:
             pass
 
@@ -47,6 +63,24 @@ def get_config_float(section: str, option: str, fallback: float) -> float:
         return float(value)
     except ValueError:
         return fallback
+
+
+def set_config_option(section: str, option: str, value: str) -> None:
+    config_path = get_config_file_path()
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        try:
+            config.read(config_path)
+        except Exception:
+            pass
+    if section not in config:
+        config.add_section(section)
+    config.set(section, option, value)
+    try:
+        with open(config_path, "w", encoding="utf-8") as fh:
+            config.write(fh)
+    except Exception:
+        pass
 
 
 # Production mode - controls logging verbosity and sensitive data exposure
