@@ -7,10 +7,12 @@ allowing the main application to continue starting up.
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Optional, Tuple
 
-from config import get_config_float
+from config import APP_VERSION, get_config_float
+from launcher.updater import auto_update
 from pathlib import Path
 import configparser
 
@@ -159,6 +161,18 @@ def run_launcher() -> Tuple[bool, float]:
 
         def run(self) -> None:
             try:
+                try:
+                    updated = auto_update(self.status.emit, self.progress.emit)
+                except Exception as update_err:  # noqa: BLE001
+                    self.status.emit(f"Update failed: {update_err}")
+                    updated = False
+
+                if updated:
+                    self.status.emit("Restarting after update...")
+                    self.progress.emit(100)
+                    os._exit(0)
+
+                self.progress.emit(0)
                 self.status.emit("Checking installed skins...")
                 from state.app_status import AppStatus
                 from utils.skin_downloader import download_skins_on_startup
@@ -191,7 +205,7 @@ def run_launcher() -> Tuple[bool, float]:
     class LauncherWindow(QWidget):
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle("LeagueUnlocked Launcher")
+            self.setWindowTitle(f"LeagueUnlocked Launcher {APP_VERSION}")
             self.setFixedSize(1280, 720)
             self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
             if icon:

@@ -13,7 +13,7 @@ import configparser
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "Beta"                      # Application version
+APP_VERSION = "Beta_1.3"                  # Application version
 APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 _CONFIG = configparser.ConfigParser()
