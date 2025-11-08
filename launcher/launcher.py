@@ -56,8 +56,8 @@ def run_launcher() -> bool:
             pixmap = QPixmap(str(logo_path))
             if not pixmap.isNull():
                 logo_pixmap = pixmap.scaled(
-                    320,
-                    320,
+                    210,
+                    210,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
