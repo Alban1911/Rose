@@ -430,23 +430,18 @@ def _perform_skin_sync(dialog: UpdateDialog) -> None:
     have_previews = status_checker.check_previews_downloaded()
     updater_log.info(f"Skin status - skins: {have_skins}, previews: {have_previews}")
 
-    if have_skins and have_previews:
-        status_checker.mark_download_process_complete()
-        dialog.set_status("Skins already up to date.")
-        dialog.set_marquee(False)
-        dialog.set_progress(100)
-        dialog.clear_transfer_text()
-        dialog.pump_messages()
-        time.sleep(0.4)
-        updater_log.info("Skins already up to date; skipping download.")
-        return
+    needs_full_download = not (have_skins and have_previews)
 
+    if needs_full_download:
         dialog.set_status("Downloading latest skins…")
+    else:
+        dialog.set_status("Checking for skin updates…")
+
     dialog.set_marquee(False)
     dialog.reset_progress()
     dialog.clear_transfer_text()
     dialog.pump_messages()
-    updater_log.info("Downloading skins and previews.")
+    updater_log.info("Downloading skins and previews (incremental=%s).", not needs_full_download)
 
     def skin_progress(percent: int, message: Optional[str] = None) -> None:
         if message:
@@ -458,7 +453,10 @@ def _perform_skin_sync(dialog: UpdateDialog) -> None:
 
     success = False
     try:
-        success = download_skins_on_startup(progress_callback=skin_progress)
+        success = download_skins_on_startup(
+            force_update=needs_full_download,
+            progress_callback=skin_progress,
+        )
         updater_log.info(f"Skin download completed with success={success}")
     except Exception as exc:  # noqa: BLE001
         log.error(f"Skin download failed: {exc}")
