@@ -16,7 +16,7 @@ from utils.paths import get_user_data_dir
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "Beta_1.31"                         # Application version
+APP_VERSION = "Beta_1.2"                         # Application version
 APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 _CONFIG = configparser.ConfigParser()
