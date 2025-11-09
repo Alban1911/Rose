@@ -26,6 +26,7 @@ GITHUB_RELEASE_API = "https://api.github.com/repos/FlorentTariolle/LeagueUnlocke
 def auto_update(
     status_callback: Callable[[str], None],
     progress_callback: Callable[[int], None],
+    bytes_callback: Optional[Callable[[int, Optional[int]], None]] = None,
 ) -> bool:
     """Download and install the latest release if a new version is available.
 
@@ -49,7 +50,7 @@ def auto_update(
         return False
 
     download_url = asset.get("browser_download_url")
-    total_size = asset.get("size", 0)
+    total_size = asset.get("size", 0) or None
 
     config_path = get_config_file_path()
     config = configparser.ConfigParser()
@@ -97,6 +98,10 @@ def auto_update(
                     if total_size:
                         progress = int(min(40, 40 * bytes_read / total_size))
                         progress_callback(progress)
+                    else:
+                        progress_callback(min(40, int(bytes_read / (1024 * 64))))
+                    if bytes_callback:
+                        bytes_callback(bytes_read, total_size)
     except Exception as exc:  # noqa: BLE001
         status_callback(f"Download failed: {exc}")
         return False
@@ -175,6 +180,8 @@ def auto_update(
         return False
 
     progress_callback(100)
+    if bytes_callback and total_size:
+        bytes_callback(total_size, total_size)
     status_callback("Update installed")
     return True
 
