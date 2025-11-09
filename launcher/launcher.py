@@ -186,25 +186,19 @@ class UpdateDialog(Win32Window):
         self.invoke(_apply)
 
     def set_progress(self, value: int) -> None:
-        clamped = max(0, min(100, int(value)))
-        updater_log.debug(f"Progress set to {clamped}%")
-
-        def _apply() -> None:
-            if not self.progress_hwnd:
-                return
-            self._set_marquee_ui(False)
-            self.send_message(self.progress_hwnd, PBM_SETPOS, clamped, 0)
-
-        self.invoke(_apply)
-
-    def reset_progress(self) -> None:
-        updater_log.debug("Progress reset to 0%.")
+        updater_log.debug(f"Progress update ignored (visual only): {value}")
 
         def _apply() -> None:
             if self.progress_hwnd:
-                self._set_marquee_ui(False)
-                self.send_message(self.progress_hwnd, PBM_SETPOS, 0, 0)
+                self.set_marquee(True)
+        self.invoke(_apply)
 
+    def reset_progress(self) -> None:
+        updater_log.debug("Progress reset ignored (visual only).")
+
+        def _apply() -> None:
+            if self.progress_hwnd:
+                self.set_marquee(True)
         self.invoke(_apply)
 
     def set_transfer_text(self, text: str) -> None:
@@ -388,7 +382,7 @@ def _perform_update(dialog: UpdateDialog) -> bool:
     try:
         updated = auto_update(
             status_cb,
-            progress_cb,
+            lambda _: None,
             bytes_callback=lambda downloaded, total: dialog.update_transfer_progress(downloaded, total),
         )
         updater_log.info(f"Auto-update completed. Update installed: {updated}")
