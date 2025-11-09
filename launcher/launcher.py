@@ -13,16 +13,25 @@ application continues bootstrapping.
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import time
 import threading
+from pathlib import Path
 from typing import Callable, Optional
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 from config import APP_VERSION
 from launcher.updater import auto_update
 from state.app_status import AppStatus
 from utils.license_flow import check_license
 from utils.logging import get_logger, get_named_logger
+from utils.paths import get_asset_path
 from utils.skin_downloader import download_skins_on_startup
 from utils.win32_base import (
     PBS_MARQUEE,
@@ -71,6 +80,8 @@ class UpdateDialog(Win32Window):
         self._allow_close = False
         self._marquee_enabled = False
         self._current_status = ""
+        self._icon_temp_path: Optional[str] = None
+        self._icon_source_path: Optional[str] = self._prepare_window_icon()
 
     def on_create(self) -> Optional[int]:
         margin = 20
@@ -118,6 +129,9 @@ class UpdateDialog(Win32Window):
         self.send_message(progress_hwnd, PBM_SETRANGE, 0, MAKELPARAM(0, 100))
         self.set_marquee(True)
         updater_log.info("Update dialog controls created successfully.")
+        if self._icon_source_path:
+            updater_log.debug(f"Applying window icon from {self._icon_source_path}")
+            self.set_window_icon(self._icon_source_path)
         return 0
 
     def on_close(self) -> Optional[int]:
@@ -187,6 +201,50 @@ class UpdateDialog(Win32Window):
         elif not enabled and self._marquee_enabled:
             self.send_message(self.progress_hwnd, PBM_SETMARQUEE, 0, 0)
             self._marquee_enabled = False
+
+    def destroy_window(self) -> None:
+        try:
+            super().destroy_window()
+        finally:
+            if self._icon_temp_path:
+                try:
+                    os.remove(self._icon_temp_path)
+                except OSError:
+                    pass
+
+    def _prepare_window_icon(self) -> Optional[str]:
+        png_path: Optional[Path] = None
+        try:
+            png_candidate = get_asset_path("icon.png")
+            if png_candidate.exists():
+                png_path = png_candidate
+        except Exception as exc:  # noqa: BLE001
+            updater_log.warning(f"Failed to resolve icon.png asset: {exc}")
+
+        if png_path is not None and Image is not None:
+            try:
+                tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".ico")
+                tmp_path = tmp_file.name
+                tmp_file.close()
+                with Image.open(png_path) as img:
+                    img.save(
+                        tmp_path,
+                        format="ICO",
+                        sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)],
+                    )
+                self._icon_temp_path = tmp_path
+                return tmp_path
+            except Exception as exc:  # noqa: BLE001
+                updater_log.warning(f"Failed to convert icon.png to .ico: {exc}")
+
+        try:
+            ico_candidate = get_asset_path("icon.ico")
+            if ico_candidate.exists():
+                return str(ico_candidate)
+        except Exception as exc:  # noqa: BLE001
+            updater_log.warning(f"Failed to resolve icon.ico asset: {exc}")
+
+        return None
 
 
 def _show_error(message: str) -> None:

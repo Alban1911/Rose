@@ -38,6 +38,7 @@ WM_SETFONT = 0x0030
 WM_GETMINMAXINFO = 0x0024
 WM_NCCREATE = 0x0081
 WM_NCDESTROY = 0x0082
+WM_SETICON = 0x0080
 
 WM_USER = 0x0400
 WM_EXECUTE = WM_USER + 0x200
@@ -83,6 +84,14 @@ PBM_SETMARQUEE = WM_USER + 10
 
 PBS_MARQUEE = 0x0008
 
+IMAGE_ICON = 1
+
+ICON_SMALL = 0
+ICON_BIG = 1
+
+LR_DEFAULTSIZE = 0x00000040
+LR_LOADFROMFILE = 0x00000010
+
 TBM_GETPOS = WM_USER
 TBM_SETPOS = WM_USER + 5
 TBM_SETRANGE = WM_USER + 6
@@ -123,6 +132,17 @@ user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, WPARAM, LPARAM]
 user32.PostMessageW.restype = wintypes.BOOL
 user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, WPARAM, LPARAM]
 user32.SendMessageW.restype = LRESULT
+user32.LoadImageW.argtypes = [
+    wintypes.HINSTANCE,
+    wintypes.LPCWSTR,
+    wintypes.UINT,
+    ctypes.c_int,
+    ctypes.c_int,
+    wintypes.UINT,
+]
+user32.LoadImageW.restype = wintypes.HANDLE
+user32.DestroyIcon.argtypes = [wintypes.HICON]
+user32.DestroyIcon.restype = wintypes.BOOL
 
 WNDPROC = ctypes.WINFUNCTYPE(
     LRESULT,
@@ -231,6 +251,7 @@ class Win32Window:
         self._lp_create_param_ptr = ctypes.pointer(self._lp_create_param)
         self.ui_thread_id = threading.get_ident()
         self._pending_actions: "queue.Queue[Callable[[], None]]" = queue.Queue()
+        self._icon_handles: list[int] = []
         self._register_class()
 
     # ------------------------------------------------------------------
@@ -372,6 +393,7 @@ class Win32Window:
         if self.hwnd:
             user32.DestroyWindow(self.hwnd)
             self.hwnd = None
+        self._free_icons()
 
     def pump_messages(self, block: bool = False) -> bool:
         msg = wintypes.MSG()
@@ -453,6 +475,49 @@ class Win32Window:
             except Exception:
                 pass
 
+    def _load_icon_handle(self, path: str, width: int, height: int) -> Optional[int]:
+        handle = user32.LoadImageW(
+            None,
+            path,
+            IMAGE_ICON,
+            width,
+            height,
+            LR_LOADFROMFILE | LR_DEFAULTSIZE,
+        )
+        if handle:
+            return ctypes.cast(handle, ctypes.c_void_p).value  # type: ignore[arg-type]
+        return None
+
+    def set_window_icon(self, path: str) -> None:
+        def _apply():
+            if not self.hwnd:
+                return
+            big = self._load_icon_handle(path, 0, 0)
+            small = self._load_icon_handle(path, 32, 32)
+
+            for handle_value, flag in ((big, ICON_BIG), (small, ICON_SMALL)):
+                if handle_value:
+                    previous = user32.SendMessageW(
+                        self.hwnd,
+                        WM_SETICON,
+                        WPARAM(flag),
+                        LPARAM(handle_value),
+                    )
+                    if previous:
+                        user32.DestroyIcon(wintypes.HICON(previous))
+                    self._icon_handles.append(handle_value)
+
+        self.invoke(_apply)
+
+    def _free_icons(self) -> None:
+        for handle_value in self._icon_handles:
+            try:
+                if handle_value:
+                    user32.DestroyIcon(wintypes.HICON(handle_value))
+            except Exception:
+                pass
+        self._icon_handles.clear()
+
 __all__ = [
     "Win32Window",
     "HIWORD",
@@ -471,6 +536,7 @@ __all__ = [
     "WM_CLOSE",
     "WM_DESTROY",
     "WM_CREATE",
+    "WM_SETICON",
     "WM_SETFONT",
     "WS_CHILD",
     "WS_VISIBLE",
@@ -479,10 +545,15 @@ __all__ = [
     "BS_DEFPUSHBUTTON",
     "BS_PUSHBUTTON",
     "ES_AUTOHSCROLL",
+    "IMAGE_ICON",
     "WS_OVERLAPPEDWINDOW",
     "WS_CAPTION",
     "WS_SYSMENU",
     "WS_MINIMIZEBOX",
+    "ICON_SMALL",
+    "ICON_BIG",
+    "LR_DEFAULTSIZE",
+    "LR_LOADFROMFILE",
     "init_common_controls",
     "user32",
     "gdi32",
