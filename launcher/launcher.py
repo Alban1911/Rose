@@ -76,13 +76,13 @@ class UpdateDialog(Win32Window):
         )
         init_common_controls()
         updater_log.info("Update dialog initialized (Win32 window class registered).")
-        self.status_hwnd: Optional[int] = None
         self.detail_hwnd: Optional[int] = None
         self.progress_hwnd: Optional[int] = None
-        self.progress_text_hwnd: Optional[int] = None
         self._allow_close = False
         self._marquee_enabled = False
         self._current_status = ""
+        self._status_text = ""
+        self._transfer_text = ""
         self._icon_temp_path: Optional[str] = None
         self._icon_source_path: Optional[str] = self._prepare_window_icon()
         self._transfer_bytes: Optional[int] = None
@@ -98,7 +98,7 @@ class UpdateDialog(Win32Window):
         top = 20
         updater_log.debug("Creating update dialog controls.")
 
-        title_hwnd = self.create_control(
+        detail_hwnd = self.create_control(
             "STATIC",
             "Preparing LeagueUnlocked…",
             WS_CHILD | WS_VISIBLE | SS_CENTER,
@@ -109,20 +109,7 @@ class UpdateDialog(Win32Window):
             22,
             self.DETAIL_ID,
         )
-        self.detail_hwnd = title_hwnd
-
-        status_hwnd = self.create_control(
-            "STATIC",
-            "Initializing…",
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            0,
-            x_pos,
-            top + 30,
-            content_width,
-            36,
-            self.STATUS_ID,
-        )
-        self.status_hwnd = status_hwnd
+        self.detail_hwnd = detail_hwnd
 
         progress_hwnd = self.create_control(
             "msctls_progress32",
@@ -130,7 +117,7 @@ class UpdateDialog(Win32Window):
             WS_CHILD | WS_VISIBLE | PBS_MARQUEE,
             0,
             x_pos,
-            top + 86,
+            top + 46,
             content_width,
             20,
             self.PROGRESS_ID,
@@ -138,6 +125,19 @@ class UpdateDialog(Win32Window):
         self.progress_hwnd = progress_hwnd
         self.send_message(progress_hwnd, PBM_SETRANGE, 0, MAKELPARAM(0, 100))
         self.set_marquee(True)
+
+        status_hwnd = self.create_control(
+            "STATIC",
+            "",
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            0,
+            x_pos,
+            top + 46 + 26,
+            content_width,
+            20,
+            self.STATUS_ID,
+        )
+        self.status_hwnd = status_hwnd
 
         updater_log.info("Update dialog controls created successfully.")
         if self._icon_source_path:
@@ -162,17 +162,25 @@ class UpdateDialog(Win32Window):
         updater_log.info(f"Detail: {text}")
         def _apply() -> None:
             self._current_status = text
+            self._status_text = ""
             if self.detail_hwnd:
                 user32.SetWindowTextW(self.detail_hwnd, text)
+            self._render_status_text()
         self.invoke(_apply)
 
     def set_status(self, text: str) -> None:
         updater_log.info(f"Status: {text}")
         def _apply() -> None:
-            if self.status_hwnd:
-                clean_text = re.sub(r"\s*/\s*\?\s*$", "", text).strip()
-                user32.SetWindowTextW(self.status_hwnd, clean_text)
-                self._update_transfer_from_message(clean_text)
+            clean_text = re.sub(r"\s*/\s*\?\s*$", "", text).strip()
+            title_text = re.sub(
+                r"\s*(\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB))(?:\s*/\s*\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB))?\s*$",
+                "",
+                clean_text,
+                flags=re.IGNORECASE,
+            ).strip()
+            self._status_text = title_text or clean_text
+            self._render_status_text()
+            self._update_transfer_from_message(clean_text)
         self.invoke(_apply)
 
     def set_progress(self, value: int) -> None:
@@ -199,19 +207,8 @@ class UpdateDialog(Win32Window):
 
     def set_transfer_text(self, text: str) -> None:
         def _apply_change() -> None:
-            if not self.status_hwnd:
-                return
-            length = user32.GetWindowTextLengthW(self.status_hwnd)
-            buffer = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(self.status_hwnd, buffer, len(buffer))
-            current = buffer.value
-            base = current.split(" [", 1)[0]
-            base = re.sub(r"\s*/\s*\?\s*$", "", base).strip()
-            if text:
-                combined = f"{base} [{text}]"
-            else:
-                combined = base
-            user32.SetWindowTextW(self.status_hwnd, combined)
+            self._transfer_text = text
+            self._render_status_text()
         self.invoke(_apply_change)
 
     def clear_transfer_text(self) -> None:
@@ -245,6 +242,8 @@ class UpdateDialog(Win32Window):
             self._transfer_bytes = None
             self._transfer_total = None
             self._transfer_managed = False
+            self._status_text = ""
+            self._transfer_text = ""
             if self._icon_temp_path:
                 try:
                     os.remove(self._icon_temp_path)
@@ -336,6 +335,13 @@ class UpdateDialog(Win32Window):
             self.set_transfer_text(text)
         except Exception:
             pass
+
+    def _render_status_text(self) -> None:
+        if not self.detail_hwnd or not self.status_hwnd:
+            return
+        header = self._status_text or self._current_status or "Preparing LeagueUnlocked…"
+        user32.SetWindowTextW(self.detail_hwnd, header)
+        user32.SetWindowTextW(self.status_hwnd, self._transfer_text or "")
 
 
 def _show_error(message: str) -> None:
