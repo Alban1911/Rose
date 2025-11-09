@@ -95,11 +95,6 @@ def auto_update(
                         continue
                     fh.write(chunk)
                     bytes_read += len(chunk)
-                    if total_size:
-                        progress = int(min(40, 40 * bytes_read / total_size))
-                        progress_callback(progress)
-                    else:
-                        progress_callback(min(40, int(bytes_read / (1024 * 64))))
                     if bytes_callback:
                         bytes_callback(bytes_read, total_size)
     except Exception as exc:  # noqa: BLE001
