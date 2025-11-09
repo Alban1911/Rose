@@ -331,6 +331,9 @@ class Win32Window:
             py_obj = ctypes.cast(create_struct.lpCreateParams, ctypes.POINTER(ctypes.py_object)).contents.value
             cls._instances[int(hwnd)] = py_obj
             py_obj.hwnd = hwnd
+            if getattr(py_obj, "_icon_handles", None):
+                user32.SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_BIG), LPARAM(py_obj._icon_handles[0]))
+                user32.SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_SMALL), LPARAM(py_obj._icon_handles[1]))
         instance = cls._instances.get(int(hwnd))
         if instance is not None:
             result = instance.wnd_proc(hwnd, msg, w_param, l_param)
