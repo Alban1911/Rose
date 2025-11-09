@@ -91,6 +91,7 @@ ICON_BIG = 1
 
 LR_DEFAULTSIZE = 0x00000040
 LR_LOADFROMFILE = 0x00000010
+SS_CENTER = 0x00000001
 
 TBM_GETPOS = WM_USER
 TBM_SETPOS = WM_USER + 5
@@ -143,6 +144,8 @@ user32.LoadImageW.argtypes = [
 user32.LoadImageW.restype = wintypes.HANDLE
 user32.DestroyIcon.argtypes = [wintypes.HICON]
 user32.DestroyIcon.restype = wintypes.BOOL
+user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+user32.GetClientRect.restype = wintypes.BOOL
 
 WNDPROC = ctypes.WINFUNCTYPE(
     LRESULT,
@@ -414,6 +417,16 @@ class Win32Window:
         self._drain_pending_actions()
         return True
 
+    def get_client_size(self) -> tuple[int, int]:
+        if not self.hwnd:
+            return self.width, self.height
+        rect = wintypes.RECT()
+        if user32.GetClientRect(self.hwnd, ctypes.byref(rect)):
+            width = rect.right - rect.left
+            height = rect.bottom - rect.top
+            return max(0, width), max(0, height)
+        return self.width, self.height
+
     def send_message(self, hwnd: wintypes.HWND, message: int, w_param: int, l_param: int) -> int:
         return user32.SendMessageW(hwnd, message, w_param, l_param)
 
@@ -546,6 +559,7 @@ __all__ = [
     "BS_PUSHBUTTON",
     "ES_AUTOHSCROLL",
     "IMAGE_ICON",
+    "SS_CENTER",
     "WS_OVERLAPPEDWINDOW",
     "WS_CAPTION",
     "WS_SYSMENU",

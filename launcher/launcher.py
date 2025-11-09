@@ -14,6 +14,7 @@ application continues bootstrapping.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import time
@@ -48,6 +49,7 @@ from utils.win32_base import (
     Win32Window,
     init_common_controls,
     MAKELPARAM,
+    SS_CENTER,
     user32,
 )
 
@@ -69,7 +71,7 @@ class UpdateDialog(Win32Window):
             class_name="LeagueUnlockedUpdateDialog",
             window_title=f"LeagueUnlocked {APP_VERSION}",
             width=420,
-            height=190,
+            height=180,
             style=WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         )
         init_common_controls()
@@ -77,24 +79,32 @@ class UpdateDialog(Win32Window):
         self.status_hwnd: Optional[int] = None
         self.detail_hwnd: Optional[int] = None
         self.progress_hwnd: Optional[int] = None
+        self.progress_text_hwnd: Optional[int] = None
         self._allow_close = False
         self._marquee_enabled = False
         self._current_status = ""
         self._icon_temp_path: Optional[str] = None
         self._icon_source_path: Optional[str] = self._prepare_window_icon()
+        self._transfer_bytes: Optional[int] = None
+        self._transfer_total: Optional[int] = None
+        self._transfer_managed = False
 
     def on_create(self) -> Optional[int]:
+        client_width, client_height = self.get_client_size()
         margin = 20
-        content_width = self.width - (margin * 2)
+        content_width = min(client_width - 2 * margin, 360)
+        content_width = max(content_width, 240)
+        x_pos = (client_width - content_width) // 2
+        top = 20
         updater_log.debug("Creating update dialog controls.")
 
         title_hwnd = self.create_control(
             "STATIC",
             "Preparing LeagueUnlocked…",
-            WS_CHILD | WS_VISIBLE,
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
             0,
-            margin,
-            margin - 6,
+            x_pos,
+            top,
             content_width,
             22,
             self.DETAIL_ID,
@@ -104,10 +114,10 @@ class UpdateDialog(Win32Window):
         status_hwnd = self.create_control(
             "STATIC",
             "Initializing…",
-            WS_CHILD | WS_VISIBLE,
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
             0,
-            margin,
-            margin + 20,
+            x_pos,
+            top + 30,
             content_width,
             36,
             self.STATUS_ID,
@@ -119,15 +129,16 @@ class UpdateDialog(Win32Window):
             "",
             WS_CHILD | WS_VISIBLE | PBS_MARQUEE,
             0,
-            margin,
-            margin + 64,
+            x_pos,
+            top + 86,
             content_width,
-            22,
+            20,
             self.PROGRESS_ID,
         )
         self.progress_hwnd = progress_hwnd
         self.send_message(progress_hwnd, PBM_SETRANGE, 0, MAKELPARAM(0, 100))
         self.set_marquee(True)
+
         updater_log.info("Update dialog controls created successfully.")
         if self._icon_source_path:
             updater_log.debug(f"Applying window icon from {self._icon_source_path}")
@@ -159,7 +170,9 @@ class UpdateDialog(Win32Window):
         updater_log.info(f"Status: {text}")
         def _apply() -> None:
             if self.status_hwnd:
-                user32.SetWindowTextW(self.status_hwnd, text)
+                clean_text = re.sub(r"\s*/\s*\?\s*$", "", text).strip()
+                user32.SetWindowTextW(self.status_hwnd, clean_text)
+                self._update_transfer_from_message(clean_text)
         self.invoke(_apply)
 
     def set_progress(self, value: int) -> None:
@@ -184,6 +197,29 @@ class UpdateDialog(Win32Window):
 
         self.invoke(_apply)
 
+    def set_transfer_text(self, text: str) -> None:
+        def _apply_change() -> None:
+            if not self.status_hwnd:
+                return
+            length = user32.GetWindowTextLengthW(self.status_hwnd)
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(self.status_hwnd, buffer, len(buffer))
+            current = buffer.value
+            base = current.split(" [", 1)[0]
+            base = re.sub(r"\s*/\s*\?\s*$", "", base).strip()
+            if text:
+                combined = f"{base} [{text}]"
+            else:
+                combined = base
+            user32.SetWindowTextW(self.status_hwnd, combined)
+        self.invoke(_apply_change)
+
+    def clear_transfer_text(self) -> None:
+        self._transfer_bytes = None
+        self._transfer_total = None
+        self._transfer_managed = False
+        self.set_transfer_text("")
+
     def set_marquee(self, enabled: bool) -> None:
         updater_log.debug("Marquee animation enabled." if enabled else "Marquee animation disabled.")
 
@@ -206,6 +242,9 @@ class UpdateDialog(Win32Window):
         try:
             super().destroy_window()
         finally:
+            self._transfer_bytes = None
+            self._transfer_total = None
+            self._transfer_managed = False
             if self._icon_temp_path:
                 try:
                     os.remove(self._icon_temp_path)
@@ -246,6 +285,58 @@ class UpdateDialog(Win32Window):
 
         return None
 
+    @staticmethod
+    def _format_bytes(value: int) -> str:
+        if value <= 0:
+            return "0 MB"
+        if value < 1024 * 1024:
+            return f"{value / 1024:.1f} KB"
+        return f"{value / (1024 * 1024):.1f} MB"
+
+    def update_transfer_progress(self, downloaded: int, total: Optional[int]) -> None:
+        self._transfer_bytes = max(0, downloaded)
+        self._transfer_total = total if (total is not None and total > 0) else None
+        self._transfer_managed = True
+        if self._transfer_total:
+            text = f"{self._format_bytes(self._transfer_bytes)} / {self._format_bytes(self._transfer_total)}"
+        else:
+            text = self._format_bytes(self._transfer_bytes)
+        self.set_transfer_text(text)
+
+    def _update_transfer_from_message(self, message: str) -> None:
+        matches = re.findall(r"(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB)", message, flags=re.IGNORECASE)
+        if not matches:
+            if not self._transfer_managed:
+                self.clear_transfer_text()
+            return
+        units = {
+            "B": 1,
+            "KB": 1024,
+            "MB": 1024 * 1024,
+            "GB": 1024 * 1024 * 1024,
+            "TB": 1024 * 1024 * 1024 * 1024,
+        }
+        try:
+            first_value, first_unit = matches[0]
+            downloaded = int(float(first_value) * units[first_unit.upper()])
+            if len(matches) > 1:
+                second_value, second_unit = matches[1]
+                total = int(float(second_value) * units[second_unit.upper()])
+                if total <= 0:
+                    total = None
+            else:
+                total = None
+            self._transfer_bytes = max(0, downloaded)
+            self._transfer_total = total if (total is not None and total > 0) else None
+            self._transfer_managed = False
+            if self._transfer_total:
+                text = f"{self._format_bytes(self._transfer_bytes)} / {self._format_bytes(self._transfer_total)}"
+            else:
+                text = self._format_bytes(self._transfer_bytes)
+            self.set_transfer_text(text)
+        except Exception:
+            pass
+
 
 def _show_error(message: str) -> None:
     try:
@@ -277,6 +368,7 @@ def _with_ui_updates(dialog: UpdateDialog) -> tuple[Callable[[str], None], Calla
 
 def _perform_update(dialog: UpdateDialog) -> bool:
     updater_log.info("Starting update check sequence.")
+    dialog.clear_transfer_text()
     dialog.set_detail("Checking for updates…")
     dialog.set_status("Contacting update server…")
     dialog.set_marquee(True)
@@ -284,13 +376,18 @@ def _perform_update(dialog: UpdateDialog) -> bool:
 
     status_cb, progress_cb = _with_ui_updates(dialog)
     try:
-        updated = auto_update(status_cb, progress_cb)
+        updated = auto_update(
+            status_cb,
+            progress_cb,
+            bytes_callback=lambda downloaded, total: dialog.update_transfer_progress(downloaded, total),
+        )
         updater_log.info(f"Auto-update completed. Update installed: {updated}")
     except Exception as exc:  # noqa: BLE001
         log.error(f"Auto-update failed: {exc}")
         dialog.set_status(f"Update failed: {exc}")
         dialog.set_marquee(False)
         dialog.reset_progress()
+        dialog.clear_transfer_text()
         dialog.pump_messages()
         updater_log.exception("Auto-update raised an exception", exc_info=True)
         return False
@@ -308,6 +405,7 @@ def _perform_update(dialog: UpdateDialog) -> bool:
 
     dialog.set_marquee(False)
     dialog.reset_progress()
+    dialog.clear_transfer_text()
     dialog.pump_messages()
     updater_log.info("No update applied; continuing startup.")
     return False
@@ -315,6 +413,7 @@ def _perform_update(dialog: UpdateDialog) -> bool:
 
 def _perform_skin_sync(dialog: UpdateDialog) -> None:
     updater_log.info("Starting skin verification sequence.")
+    dialog.clear_transfer_text()
     dialog.set_detail("Verifying skin library…")
     dialog.set_status("Checking installed skins…")
     dialog.set_marquee(True)
@@ -330,14 +429,16 @@ def _perform_skin_sync(dialog: UpdateDialog) -> None:
         dialog.set_status("Skins already up to date.")
         dialog.set_marquee(False)
         dialog.set_progress(100)
+        dialog.clear_transfer_text()
         dialog.pump_messages()
         time.sleep(0.4)
         updater_log.info("Skins already up to date; skipping download.")
         return
 
-    dialog.set_status("Downloading latest skins…")
+        dialog.set_status("Downloading latest skins…")
     dialog.set_marquee(False)
     dialog.reset_progress()
+    dialog.clear_transfer_text()
     dialog.pump_messages()
     updater_log.info("Downloading skins and previews.")
 
@@ -366,12 +467,14 @@ def _perform_skin_sync(dialog: UpdateDialog) -> None:
         status_checker.mark_download_process_complete()
         dialog.set_status("Skins ready.")
         dialog.set_progress(100)
+        dialog.clear_transfer_text()
         dialog.pump_messages()
         time.sleep(0.4)
         updater_log.info("Skin library synchronized successfully.")
     else:
         dialog.set_status("Continuing without updating skins.")
         dialog.set_progress(0)
+        dialog.clear_transfer_text()
         dialog.pump_messages()
         updater_log.warning("Skin download failed; continuing without new skins.")
 
