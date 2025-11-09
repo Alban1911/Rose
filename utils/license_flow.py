@@ -4,15 +4,23 @@ License validation helpers using native Win32 UI elements.
 
 from __future__ import annotations
 
+import os
 import ctypes
 from ctypes import wintypes
 import sys
 import threading
 from typing import Callable, Optional
+import tempfile
+from pathlib import Path
+
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - optional dependency
+    Image = None
 
 from utils.license_client import LicenseClient
 from utils.logging import get_logger, get_log_mode, log_section, log_success
-from utils.paths import get_user_data_dir
+from utils.paths import get_user_data_dir, get_asset_path
 from utils.public_key import PUBLIC_KEY
 from utils.win32_base import (
     BS_DEFPUSHBUTTON,
@@ -28,6 +36,14 @@ from utils.win32_base import (
     Win32Window,
     init_common_controls,
     user32,
+    IMAGE_ICON,
+    LR_LOADFROMFILE,
+    LR_DEFAULTSIZE,
+    ICON_BIG,
+    ICON_SMALL,
+    WM_SETICON,
+    WPARAM,
+    LPARAM,
 )
 
 log = get_logger()
@@ -57,6 +73,50 @@ class LicenseActivationWindow(Win32Window):
         self.input_hwnd: Optional[int] = None
         self.error_hwnd: Optional[int] = None
         init_common_controls()
+        self._icon_temp_path: Optional[str] = None
+        self._icon_handles: list[int] = []
+        self._load_window_icon()
+
+    def _load_window_icon(self) -> None:
+        icon_path: Optional[str] = None
+        try:
+            png_candidate = get_asset_path("icon.png")
+            if png_candidate.exists() and Image is not None:
+                tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".ico")
+                tmp_path = tmp_file.name
+                tmp_file.close()
+                with Image.open(png_candidate) as img:
+                    img.save(
+                        tmp_path,
+                        format="ICO",
+                        sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)],
+                    )
+                self._icon_temp_path = tmp_path
+                icon_path = tmp_path
+        except Exception:
+            icon_path = None
+
+        if icon_path is None:
+            try:
+                ico_candidate = get_asset_path("icon.ico")
+                if ico_candidate.exists():
+                    icon_path = str(ico_candidate)
+            except Exception:
+                icon_path = None
+
+        if not icon_path:
+            return
+
+        big = user32.LoadImageW(None, icon_path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
+        small = user32.LoadImageW(None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        if big:
+            self._icon_handles.append(big)
+        if small:
+            self._icon_handles.append(small)
+        if big:
+            user32.SendMessageW(self.hwnd or 0, WM_SETICON, WPARAM(ICON_BIG), LPARAM(big))
+        if small:
+            user32.SendMessageW(self.hwnd or 0, WM_SETICON, WPARAM(ICON_SMALL), LPARAM(small))
 
     def on_create(self) -> Optional[int]:
         margin_x = 20
@@ -150,6 +210,18 @@ class LicenseActivationWindow(Win32Window):
 
     def on_destroy(self) -> Optional[int]:
         self._done.set()
+        for handle in getattr(self, "_icon_handles", []):
+            try:
+                user32.DestroyIcon(wintypes.HICON(handle))
+            except Exception:
+                pass
+        self._icon_handles = []
+        if self._icon_temp_path:
+            try:
+                os.remove(self._icon_temp_path)
+            except OSError:
+                pass
+            self._icon_temp_path = None
         user32.PostQuitMessage(0)
         return 0
 
