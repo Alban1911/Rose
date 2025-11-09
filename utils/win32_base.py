@@ -100,17 +100,36 @@ ICC_PROGRESS_CLASS = 0x00000020
 # ---------------------------------------------------------------------------
 
 # Python 3.8 lacks wintypes.LRESULT; fall back to pointer-sized integer.
+pointer_size = ctypes.sizeof(ctypes.c_void_p)
 if hasattr(wintypes, "LRESULT"):
     LRESULT = wintypes.LRESULT  # type: ignore[attr-defined]
 else:
-    LRESULT = ctypes.c_longlong if ctypes.sizeof(ctypes.c_void_p) == ctypes.sizeof(ctypes.c_longlong) else ctypes.c_long
+    LRESULT = ctypes.c_longlong if pointer_size == ctypes.sizeof(ctypes.c_longlong) else ctypes.c_long
+
+if hasattr(wintypes, "WPARAM"):
+    WPARAM = wintypes.WPARAM  # type: ignore[attr-defined]
+else:
+    WPARAM = ctypes.c_ulonglong if pointer_size == ctypes.sizeof(ctypes.c_ulonglong) else ctypes.c_ulong
+
+if hasattr(wintypes, "LPARAM"):
+    LPARAM = wintypes.LPARAM  # type: ignore[attr-defined]
+else:
+    LPARAM = ctypes.c_longlong if pointer_size == ctypes.sizeof(ctypes.c_longlong) else ctypes.c_long
+
+
+user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, WPARAM, LPARAM]
+user32.DefWindowProcW.restype = LRESULT
+user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, WPARAM, LPARAM]
+user32.PostMessageW.restype = wintypes.BOOL
+user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, WPARAM, LPARAM]
+user32.SendMessageW.restype = LRESULT
 
 WNDPROC = ctypes.WINFUNCTYPE(
     LRESULT,
     wintypes.HWND,
     wintypes.UINT,
-    wintypes.WPARAM,
-    wintypes.LPARAM,
+    WPARAM,
+    LPARAM,
 )
 
 
@@ -144,7 +163,7 @@ class CREATESTRUCTW(ctypes.Structure):
         ("style", ctypes.c_long),
         ("lpszName", wintypes.LPCWSTR),
         ("lpszClass", wintypes.LPCWSTR),
-        ("dwExStyle", wintypes.DWORD),
+        ("dwExStyle", ctypes.c_ulong),
     ]
 
 
