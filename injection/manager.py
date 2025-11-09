@@ -22,7 +22,8 @@ from config import (
     PERSISTENT_MONITOR_WAIT_INTERVAL_S,
     PERSISTENT_MONITOR_AUTO_RESUME_S,
     INJECTION_LOCK_TIMEOUT_S,
-    get_config_float
+    get_config_float,
+    get_config_file_path
 )
 from utils.logging import get_logger, log_section, log_event, log_success, log_action
 
@@ -560,12 +561,7 @@ class InjectionManager:
         """
         try:
             # First, verify config.ini exists
-            import sys
-            if getattr(sys, 'frozen', False):
-                base_dir = Path(sys.executable).parent
-            else:
-                base_dir = Path(__file__).parent.parent
-            config_path = base_dir / "config.ini"
+            config_path = get_config_file_path()
             
             if not config_path.exists():
                 log.warning(f"[INJECT] config.ini not found at {config_path}, skipping tools folder operation")
