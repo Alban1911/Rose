@@ -5,6 +5,8 @@ Utility helpers for creating simple Win32 windows using ctypes.
 from __future__ import annotations
 
 import ctypes
+import queue
+import threading
 from ctypes import wintypes
 from typing import Callable, Dict, Optional
 
@@ -38,6 +40,7 @@ WM_NCCREATE = 0x0081
 WM_NCDESTROY = 0x0082
 
 WM_USER = 0x0400
+WM_EXECUTE = WM_USER + 0x200
 
 PM_REMOVE = 0x0001
 
@@ -207,6 +210,8 @@ class Win32Window:
         self.default_font = gdi32.GetStockObject(DEFAULT_GUI_FONT)
         self._lp_create_param = ctypes.py_object(self)
         self._lp_create_param_ptr = ctypes.pointer(self._lp_create_param)
+        self.ui_thread_id = threading.get_ident()
+        self._pending_actions: "queue.Queue[Callable[[], None]]" = queue.Queue()
         self._register_class()
 
     # ------------------------------------------------------------------
@@ -261,6 +266,11 @@ class Win32Window:
             result = instance.wnd_proc(hwnd, msg, w_param, l_param)
             if result is not None:
                 return result
+        if msg == WM_EXECUTE:
+            instance = cls._instances.get(int(hwnd))
+            if instance is not None:
+                instance._drain_pending_actions()
+                return 0
         if msg == WM_NCDESTROY:
             cls._instances.pop(int(hwnd), None)
         return user32.DefWindowProcW(hwnd, msg, w_param, l_param)
@@ -351,13 +361,16 @@ class Win32Window:
             if result == -1:
                 return False
             if result == 0:
+                self._drain_pending_actions()
                 return False
             user32.TranslateMessage(ctypes.byref(msg))
             user32.DispatchMessageW(ctypes.byref(msg))
+            self._drain_pending_actions()
             return True
         while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, PM_REMOVE):
             user32.TranslateMessage(ctypes.byref(msg))
             user32.DispatchMessageW(ctypes.byref(msg))
+        self._drain_pending_actions()
         return True
 
     def send_message(self, hwnd: wintypes.HWND, message: int, w_param: int, l_param: int) -> int:
@@ -398,6 +411,28 @@ class Win32Window:
         self.set_font(hwnd)
         return hwnd
 
+    def invoke(self, func: Callable, *args, **kwargs) -> None:
+        if threading.get_ident() == self.ui_thread_id:
+            func(*args, **kwargs)
+            return
+
+        def wrapper():
+            func(*args, **kwargs)
+
+        self._pending_actions.put(wrapper)
+        if self.hwnd:
+            user32.PostMessageW(self.hwnd, WM_EXECUTE, 0, 0)
+
+    def _drain_pending_actions(self) -> None:
+        while True:
+            try:
+                action = self._pending_actions.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                action()
+            except Exception:
+                pass
 
 __all__ = [
     "Win32Window",

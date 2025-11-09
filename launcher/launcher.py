@@ -82,6 +82,7 @@ class UpdateDialog(Win32Window):
             "Preparing LeagueUnlocked…",
             WS_CHILD | WS_VISIBLE,
             0,
+            margin,
             margin - 6,
             content_width,
             22,
@@ -94,6 +95,7 @@ class UpdateDialog(Win32Window):
             "Initializing…",
             WS_CHILD | WS_VISIBLE,
             0,
+            margin,
             margin + 20,
             content_width,
             36,
@@ -106,6 +108,7 @@ class UpdateDialog(Win32Window):
             "",
             WS_CHILD | WS_VISIBLE | PBS_MARQUEE,
             0,
+            margin,
             margin + 64,
             content_width,
             22,
@@ -125,45 +128,65 @@ class UpdateDialog(Win32Window):
         return super().on_close()
 
     def allow_close(self) -> None:
-        self._allow_close = True
+        def _apply() -> None:
+            self._allow_close = True
+        self.invoke(_apply)
         updater_log.debug("Update dialog marked as closable.")
 
     def set_detail(self, text: str) -> None:
-        self._current_status = text
-        if self.detail_hwnd:
-            user32.SetWindowTextW(self.detail_hwnd, text)
         updater_log.info(f"Detail: {text}")
+        def _apply() -> None:
+            self._current_status = text
+            if self.detail_hwnd:
+                user32.SetWindowTextW(self.detail_hwnd, text)
+        self.invoke(_apply)
 
     def set_status(self, text: str) -> None:
-        if self.status_hwnd:
-            user32.SetWindowTextW(self.status_hwnd, text)
         updater_log.info(f"Status: {text}")
+        def _apply() -> None:
+            if self.status_hwnd:
+                user32.SetWindowTextW(self.status_hwnd, text)
+        self.invoke(_apply)
 
     def set_progress(self, value: int) -> None:
-        if not self.progress_hwnd:
-            return
-        self.set_marquee(False)
         clamped = max(0, min(100, int(value)))
-        self.send_message(self.progress_hwnd, PBM_SETPOS, clamped, 0)
         updater_log.debug(f"Progress set to {clamped}%")
 
+        def _apply() -> None:
+            if not self.progress_hwnd:
+                return
+            self._set_marquee_ui(False)
+            self.send_message(self.progress_hwnd, PBM_SETPOS, clamped, 0)
+
+        self.invoke(_apply)
+
     def reset_progress(self) -> None:
-        if self.progress_hwnd:
-            self.set_marquee(False)
-            self.send_message(self.progress_hwnd, PBM_SETPOS, 0, 0)
-            updater_log.debug("Progress reset to 0%.")
+        updater_log.debug("Progress reset to 0%.")
+
+        def _apply() -> None:
+            if self.progress_hwnd:
+                self._set_marquee_ui(False)
+                self.send_message(self.progress_hwnd, PBM_SETPOS, 0, 0)
+
+        self.invoke(_apply)
 
     def set_marquee(self, enabled: bool) -> None:
+        updater_log.debug("Marquee animation enabled." if enabled else "Marquee animation disabled.")
+
+        def _apply() -> None:
+            self._set_marquee_ui(enabled)
+
+        self.invoke(_apply)
+
+    def _set_marquee_ui(self, enabled: bool) -> None:
         if not self.progress_hwnd:
             return
         if enabled and not self._marquee_enabled:
             self.send_message(self.progress_hwnd, PBM_SETMARQUEE, 1, 40)
             self._marquee_enabled = True
-            updater_log.debug("Marquee animation enabled.")
         elif not enabled and self._marquee_enabled:
             self.send_message(self.progress_hwnd, PBM_SETMARQUEE, 0, 0)
             self._marquee_enabled = False
-            updater_log.debug("Marquee animation disabled.")
 
 
 def _show_error(message: str) -> None:
