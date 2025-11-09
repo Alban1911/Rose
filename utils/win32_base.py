@@ -91,6 +91,9 @@ ICON_BIG = 1
 
 LR_DEFAULTSIZE = 0x00000040
 LR_LOADFROMFILE = 0x00000010
+WS_EX_TRANSPARENT = 0x00000020
+GWL_STYLE = -16
+GWL_EXSTYLE = -20
 SS_CENTER = 0x00000001
 
 TBM_GETPOS = WM_USER
@@ -104,6 +107,9 @@ DEFAULT_GUI_FONT = 17  # Stock font identifier for GetStockObject
 ICC_BAR_CLASSES = 0x00000004
 ICC_PROGRESS_CLASS = 0x00000020
 
+TRANSPARENT = 1
+NULL_BRUSH = 5
+
 
 # ---------------------------------------------------------------------------
 # Helper structures and utility functions
@@ -115,6 +121,8 @@ if hasattr(wintypes, "LRESULT"):
     LRESULT = wintypes.LRESULT  # type: ignore[attr-defined]
 else:
     LRESULT = ctypes.c_longlong if pointer_size == ctypes.sizeof(ctypes.c_longlong) else ctypes.c_long
+
+LONG_PTR = ctypes.c_longlong if pointer_size == ctypes.sizeof(ctypes.c_longlong) else ctypes.c_long
 
 if hasattr(wintypes, "WPARAM"):
     WPARAM = wintypes.WPARAM  # type: ignore[attr-defined]
@@ -146,6 +154,25 @@ user32.DestroyIcon.argtypes = [wintypes.HICON]
 user32.DestroyIcon.restype = wintypes.BOOL
 user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
 user32.GetClientRect.restype = wintypes.BOOL
+user32.GetSysColor.argtypes = [ctypes.c_int]
+user32.GetSysColor.restype = wintypes.DWORD
+user32.InvalidateRect.argtypes = [wintypes.HWND, ctypes.c_void_p, wintypes.BOOL]
+user32.InvalidateRect.restype = wintypes.BOOL
+
+if pointer_size == ctypes.sizeof(ctypes.c_longlong):
+    user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongPtrW.restype = LONG_PTR
+    user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, LONG_PTR]
+    user32.SetWindowLongPtrW.restype = LONG_PTR
+    GetWindowLongPtr = user32.GetWindowLongPtrW
+    SetWindowLongPtr = user32.SetWindowLongPtrW
+else:
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = ctypes.c_long
+    user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+    user32.SetWindowLongW.restype = ctypes.c_long
+    GetWindowLongPtr = user32.GetWindowLongW
+    SetWindowLongPtr = user32.SetWindowLongW
 
 WNDPROC = ctypes.WINFUNCTYPE(
     LRESULT,
@@ -355,6 +382,11 @@ class Win32Window:
             return self.on_command(LOWORD(w_param), HIWORD(w_param), ctypes.cast(l_param, wintypes.HWND))
         if msg == WM_HSCROLL:
             return self.on_hscroll(LOWORD(w_param), HIWORD(w_param), ctypes.cast(l_param, wintypes.HWND))
+        if msg == 0x00138:  # WM_CTLCOLORSTATIC
+            hdc = ctypes.cast(w_param, ctypes.c_void_p)
+            gdi32.SetBkMode(hdc, 2)  # OPAQUE
+            gdi32.SetBkColor(hdc, user32.GetSysColor(COLOR_WINDOW))
+            return user32.GetSysColorBrush(COLOR_WINDOW)
         return None
 
     # ------------------------------------------------------------------
@@ -488,6 +520,32 @@ class Win32Window:
             except Exception:
                 pass
 
+    def set_window_styles(self, hwnd: wintypes.HWND, add: int = 0, remove: int = 0) -> None:
+        if not hwnd:
+            return
+        style = GetWindowLongPtr(hwnd, GWL_STYLE)
+        style = (style | add) & ~remove
+        SetWindowLongPtr(hwnd, GWL_STYLE, style)
+
+    def set_window_ex_styles(self, hwnd: wintypes.HWND, add: int = 0, remove: int = 0) -> None:
+        if not hwnd:
+            return
+        style = GetWindowLongPtr(hwnd, GWL_EXSTYLE)
+        style = (style | add) & ~remove
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, style)
+
+    def enable_text_transparency(self, hwnd: wintypes.HWND) -> None:
+        if not hwnd:
+            return
+        self.set_window_styles(hwnd, remove=(0x0001 | 0x0002))  # remove SS_CENTER / SS_RIGHT
+        self.set_window_ex_styles(hwnd, add=WS_EX_TRANSPARENT)
+
+    def set_label_text(self, hwnd: wintypes.HWND, text: str) -> None:
+        if not hwnd:
+            return
+        user32.SetWindowTextW(hwnd, text)
+        user32.InvalidateRect(hwnd, None, True)
+
     def _load_icon_handle(self, path: str, width: int, height: int) -> Optional[int]:
         handle = user32.LoadImageW(
             None,
@@ -568,6 +626,9 @@ __all__ = [
     "ICON_BIG",
     "LR_DEFAULTSIZE",
     "LR_LOADFROMFILE",
+    "WS_EX_TRANSPARENT",
+    "GWL_STYLE",
+    "GWL_EXSTYLE",
     "init_common_controls",
     "user32",
     "gdi32",

@@ -46,10 +46,10 @@ from utils.win32_base import (
     WS_MINIMIZEBOX,
     WS_SYSMENU,
     WS_VISIBLE,
+    WS_EX_TRANSPARENT,
     Win32Window,
     init_common_controls,
     MAKELPARAM,
-    SS_CENTER,
     user32,
 )
 
@@ -71,7 +71,7 @@ class UpdateDialog(Win32Window):
             class_name="LeagueUnlockedUpdateDialog",
             window_title=f"LeagueUnlocked {APP_VERSION}",
             width=420,
-            height=180,
+            height=120,
             style=WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         )
         init_common_controls()
@@ -95,31 +95,32 @@ class UpdateDialog(Win32Window):
         content_width = min(client_width - 2 * margin, 360)
         content_width = max(content_width, 240)
         x_pos = (client_width - content_width) // 2
-        top = 20
+        top = 4
         updater_log.debug("Creating update dialog controls.")
 
         detail_hwnd = self.create_control(
             "STATIC",
             "Preparing LeagueUnlocked…",
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            WS_CHILD | WS_VISIBLE,
             0,
             x_pos,
             top,
             content_width,
-            22,
+            20,
             self.DETAIL_ID,
         )
         self.detail_hwnd = detail_hwnd
 
+        progress_top = top + 24
         progress_hwnd = self.create_control(
             "msctls_progress32",
             "",
             WS_CHILD | WS_VISIBLE | PBS_MARQUEE,
             0,
             x_pos,
-            top + 46,
+            progress_top,
             content_width,
-            20,
+            16,
             self.PROGRESS_ID,
         )
         self.progress_hwnd = progress_hwnd
@@ -129,12 +130,12 @@ class UpdateDialog(Win32Window):
         status_hwnd = self.create_control(
             "STATIC",
             "",
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            WS_CHILD | WS_VISIBLE,
             0,
             x_pos,
-            top + 46 + 26,
+            progress_top + 20,
             content_width,
-            20,
+            18,
             self.STATUS_ID,
         )
         self.status_hwnd = status_hwnd
@@ -165,6 +166,7 @@ class UpdateDialog(Win32Window):
             self._status_text = ""
             if self.detail_hwnd:
                 user32.SetWindowTextW(self.detail_hwnd, text)
+                user32.InvalidateRect(self.detail_hwnd, None, True)
             self._render_status_text()
         self.invoke(_apply)
 
@@ -341,7 +343,9 @@ class UpdateDialog(Win32Window):
             return
         header = self._status_text or self._current_status or "Preparing LeagueUnlocked…"
         user32.SetWindowTextW(self.detail_hwnd, header)
+        user32.InvalidateRect(self.detail_hwnd, None, True)
         user32.SetWindowTextW(self.status_hwnd, self._transfer_text or "")
+        user32.InvalidateRect(self.status_hwnd, None, True)
 
 
 def _show_error(message: str) -> None:
