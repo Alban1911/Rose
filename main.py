@@ -19,6 +19,14 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Tuple
 
+
+MIN_PYTHON = (3, 11)
+if sys.version_info < MIN_PYTHON:
+    raise RuntimeError(
+        f"LeagueUnlocked requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer. "
+        "Please upgrade your interpreter and rebuild the application."
+    )
+
 # Local imports - constants first (needed for Windows setup)
 from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S, APP_VERSION
 
@@ -185,8 +193,7 @@ from threads.lcu_monitor_thread import LCUMonitorThread
 from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
 from utils.tray_manager import TrayManager
 from utils.thread_manager import ThreadManager, create_daemon_thread
-from utils.license_client import LicenseClient
-from utils.paths import get_user_data_dir
+from utils.license_flow import check_license
 
 # Local imports - UI and injection
 from ui.user_interface import get_user_interface
@@ -214,7 +221,6 @@ from config import (
     THREAD_JOIN_TIMEOUT_S,
     THREAD_FORCE_EXIT_TIMEOUT_S,
     MAIN_LOOP_STALL_THRESHOLD_S,
-    get_config_float,
     set_config_option,
 )
 
@@ -475,164 +481,6 @@ def check_single_instance():
         sys.exit(1)
 
 
-def show_license_activation_dialog(error_message: str) -> Optional[str]:
-    """Show the PyQt6 license dialog to enter license key"""
-    try:
-        # Import the license dialog
-        from utils.license_dialog import show_enhanced_license_dialog
-        
-        # Show the PyQt6-based dialog
-        license_key = show_enhanced_license_dialog(error_message)
-        return license_key
-        
-    except ImportError as e:
-        # PyQt6 not available - show error and exit
-        print(f"ERROR: PyQt6 not available: {e}")
-        if sys.platform == "win32":
-            try:
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    f"PyQt6 is required for the license dialog but is not available.\n\nError: {str(e)}\n\nPlease install PyQt6 or contact support.",
-                    "LeagueUnlocked - Missing Dependency",
-                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                )
-            except (OSError, AttributeError):
-                pass
-        return None
-    except Exception as e:
-        # Log the error with full traceback for debugging
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"ERROR: Failed to show license dialog: {e}")
-        print(f"Traceback:\n{error_details}")
-        
-        # Show error message
-        if sys.platform == "win32":
-            try:
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    f"Failed to show license dialog:\n\n{str(e)}\n\nPlease contact support.",
-                    "LeagueUnlocked - Dialog Error",
-                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                )
-            except (OSError, AttributeError):
-                pass
-        return None
-
-
-
-
-def check_license():
-    """Check and validate license on startup"""
-    print("[LICENSE] Starting license check...")
-    
-    # Load public key used for RSA verification and log encryption
-    from utils.public_key import PUBLIC_KEY
-    
-    print("[LICENSE] Initializing license client...")
-    # Initialize license client
-    license_client = LicenseClient(
-        server_url="https://api.leagueunlocked.net",
-        license_file=str(get_user_data_dir() / "license.dat"),
-        public_key_pem=PUBLIC_KEY  # Public key for verifying server signatures
-    )
-    print("[LICENSE] License client initialized")
-    
-    # Check if license is valid (offline check first for speed)
-    print("[LICENSE] Checking license validity (offline)...")
-    valid, message = license_client.is_license_valid(check_online=False)
-    print(f"[LICENSE] Validation result: valid={valid}, message={message}")
-    
-    if not valid:
-        # License is invalid or missing - prompt for activation
-        print(f"[LICENSE] License validation failed: {message}")
-        log.warning(f"License validation failed: {message}")
-        
-        # Show dialog to enter license key
-        max_attempts = 3
-        print(f"[LICENSE] Showing activation dialog (max {max_attempts} attempts)...")
-        for attempt in range(max_attempts):
-            print(f"[LICENSE] Attempt {attempt + 1}/{max_attempts}")
-            license_key = show_license_activation_dialog(message)
-            print(f"[LICENSE] Dialog returned: {bool(license_key)}")
-            
-            if not license_key:
-                # User cancelled or didn't enter anything
-                if sys.platform == "win32":
-                    try:
-                        ctypes.windll.user32.MessageBoxW(
-                            0,
-                            "No license key entered.\n\nThe application will now exit.",
-                            "LeagueUnlocked - License Required",
-                            0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                        )
-                    except (OSError, AttributeError):
-                        print("No license key entered. Exiting.")
-                sys.exit(1)
-            
-            # Try to activate the license
-            log.info(f"Attempting to activate license (attempt {attempt + 1}/{max_attempts})...")
-            success, activation_message = license_client.activate_license(license_key)
-            
-            if success:
-                log_success(log, f"License activated successfully: {activation_message}", "✅")
-                
-                # Show success message
-                if sys.platform == "win32":
-                    try:
-                        import tkinter as tk
-                        from tkinter import messagebox
-                        root = tk.Tk()
-                        root.withdraw()
-                        root.attributes('-topmost', True)
-                        messagebox.showinfo(
-                            "License Activated",
-                            f"Success!\n\n{activation_message}\n\nLeagueUnlocked will now start."
-                        )
-                        root.destroy()
-                    except (ImportError, AttributeError, RuntimeError) as e:
-                        # Fallback to console output if tkinter fails
-                        print(f"License activated: {activation_message}")
-                        log.debug(f"Tkinter dialog failed: {e}")
-                
-                # Update valid status and message
-                valid = True
-                break
-            else:
-                log.warning(f"License activation failed: {activation_message}")
-                message = activation_message  # Update message for next attempt
-                
-                if attempt < max_attempts - 1:
-                    # Not the last attempt - show error and prompt again
-                    continue
-                else:
-                    # Last attempt failed - show final error and exit
-                    if sys.platform == "win32":
-                        try:
-                            ctypes.windll.user32.MessageBoxW(
-                                0,
-                                f"License activation failed after {max_attempts} attempts:\n\n{activation_message}\n\nPlease contact support for assistance.",
-                                "LeagueUnlocked - Activation Failed",
-                                0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                            )
-                        except (OSError, AttributeError):
-                            print(f"License activation failed: {activation_message}")
-                    sys.exit(1)
-    
-    # License is valid - log the info
-    info = license_client.get_license_info()
-    if info:
-        # License validation - mode-aware logging
-        if get_log_mode() == 'customer':
-            log.info(f"✅ License Valid ({info['days_remaining']} days remaining)")
-        else:
-            log_section(log, "License Validated", "✅", {
-                "Status": "Active",
-                "Days Remaining": str(info['days_remaining']),
-                "Expires": info['expires_at']
-            })
-    
-    return True
 
 
 
@@ -1374,29 +1222,18 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
 
 
 def main():
-    """Program entry point that shows the launcher before starting LeagueUnlocked."""
-    unlocked = True
-    injection_threshold = get_config_float("General", "injection_threshold", 0.5)
-
-    if PYQT6_AVAILABLE:
+    """Program entry point that prepares and launches LeagueUnlocked."""
+    if sys.platform == "win32":
         try:
             from launcher.launcher import run_launcher
-        except ImportError as err:
+
+            run_launcher()
+        except ModuleNotFoundError as err:
             print(f"[Launcher] Unable to import launcher module: {err}")
-        else:
-            try:
-                unlocked, injection_threshold = run_launcher()
-            except Exception as err:  # noqa: BLE001 - show launcher errors plainly
-                print(f"[Launcher] Launcher encountered an error: {err}")
-                unlocked = True
-    else:
-        print("[Launcher] PyQt6 not available; skipping launcher.")
+        except Exception as err:  # noqa: BLE001
+            print(f"[Launcher] Launcher encountered an error: {err}")
 
-    if not unlocked:
-        print("[Launcher] Launcher closed without unlocking. Exiting.")
-        return
-
-    run_league_unlock(injection_threshold)
+    run_league_unlock()
 
 
 if __name__ == "__main__":

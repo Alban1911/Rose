@@ -177,8 +177,10 @@ hiddenimports = [
     'pystray',
     'pystray._win32',
     
-    # License dialogs (PyQt6 only)
-    'utils.license_dialog',
+    # Native dialogs and settings
+    'utils.license_flow',
+    'utils.tray_settings',
+    'utils.win32_base',
     
     # Other dependencies
     'psutil',
