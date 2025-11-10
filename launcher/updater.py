@@ -21,6 +21,7 @@ import requests
 from config import APP_VERSION, get_config_file_path
 
 GITHUB_RELEASE_API = "https://api.github.com/repos/FlorentTariolle/LeagueUnlockedDev/releases/latest"
+PERSISTENT_ROOT_FILES = ("icon.ico", "unins000.exe", "unins000.dat")
 
 
 def auto_update(
@@ -131,6 +132,17 @@ def auto_update(
     if not (extracted_root / exe_name).exists():
         status_callback("Update aborted: executable missing in package")
         return False
+
+    for relative_name in PERSISTENT_ROOT_FILES:
+        source_path = install_dir / relative_name
+        if not source_path.exists():
+            continue
+        target_path = extracted_root / relative_name
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+        except Exception as exc:  # noqa: BLE001
+            status_callback(f"Warning: failed to preserve {relative_name}: {exc}")
 
     batch_path = updates_root / "apply_update.bat"
     zip_path_str = str(zip_path)
