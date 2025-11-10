@@ -20,7 +20,7 @@ import requests
 
 from config import APP_VERSION, get_config_file_path
 
-GITHUB_RELEASE_API = "https://api.github.com/repos/FlorentTariolle/LeagueUnlockedDev/releases/latest"
+GITHUB_RELEASE_API = "https://api.github.com/repos/Alban1911/LeagueUnlocked/releases/latest"
 PERSISTENT_ROOT_FILES = ("icon.ico", "unins000.exe", "unins000.dat")
 
 
