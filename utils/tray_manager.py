@@ -171,6 +171,26 @@ class TrayManager:
         # Left click does nothing, only right click shows menu
         pass
     
+    def _on_settings(self, icon, item):
+        """Open the injection threshold settings dialog."""
+        log.info("Settings requested from system tray")
+        try:
+            from utils.tray_settings import show_injection_settings_dialog
+
+            show_injection_settings_dialog()
+        except Exception as e:
+            log.error(f"Failed to open settings dialog: {e}")
+            try:
+                from utils.admin_utils import show_message_box_threaded
+
+                show_message_box_threaded(
+                    f"Failed to open settings dialog:\n\n{e}",
+                    "LeagueUnlocked Settings",
+                    0x10,  # MB_ICONERROR
+                )
+            except Exception:
+                log.debug("Unable to show error message box for settings dialog failure")
+    
     def _on_enable_autostart(self, icon, item):
         """Handle enable auto-start menu item click"""
         log.info("Enable auto-start requested from system tray")
@@ -275,6 +295,7 @@ class TrayManager:
         return pystray.Menu(
             pystray.MenuItem("LeagueUnlocked", None, enabled=False),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Settings", self._on_settings),
             autostart_item,
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._on_quit)

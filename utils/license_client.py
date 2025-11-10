@@ -12,6 +12,7 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
+import shutil
 from typing import Optional
 
 # Third-party imports
@@ -20,6 +21,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+
+from utils.paths import get_user_data_dir
 
 class LicenseClient:
     def __init__(self, server_url: str, license_file: str = "license.dat", public_key_pem: str = None):
@@ -34,21 +37,22 @@ class LicenseClient:
         """
         self.server_url = server_url.rstrip('/')
 
-        # Resolve license file path to be anchored to the executable directory when frozen.
-        # This ensures the same location regardless of the current working directory.
         try:
-            if getattr(sys, "frozen", False):
-                base_dir = Path(sys.executable).resolve().parent
-            else:
-                # When running from source, anchor to project root (file two levels up)
-                base_dir = Path(__file__).resolve().parent.parent
-
             lic_path = Path(license_file)
             if not lic_path.is_absolute():
-                lic_path = base_dir / lic_path
+                lic_path = get_user_data_dir() / lic_path
+            lic_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if not lic_path.exists():
+                legacy_path = self._legacy_license_path(license_file)
+                if legacy_path and legacy_path.exists():
+                    try:
+                        shutil.copy2(legacy_path, lic_path)
+                    except Exception:
+                        pass
+
             self.license_file = str(lic_path)
         except Exception:
-            # Fallback to original behavior if path resolution fails for any reason
             self.license_file = license_file
         
         # Load public key for signature verification

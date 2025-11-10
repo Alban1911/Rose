@@ -120,14 +120,9 @@ class SkinInjector:
         
     def _get_config_path(self) -> Path:
         """Get the path to the config.ini file"""
-        import sys
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable (PyInstaller)
-            base_dir = Path(sys.executable).parent
-        else:
-            # Running as Python script
-            base_dir = Path(__file__).parent.parent
-        return base_dir / "config.ini"
+        from config import get_config_file_path
+
+        return get_config_file_path()
     
     def _load_config(self) -> Optional[str]:
         """Load League path from config.ini file"""
