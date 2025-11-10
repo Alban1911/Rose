@@ -78,7 +78,7 @@ class InjectionSettingsWindow(Win32Window):
             class_name="LeagueUnlockedSettingsDialog",
             window_title="Settings",
             width=360,
-            height=240,
+            height=265,
             style=WS_CAPTION | WS_SYSMENU,
         )
         self.initial_threshold = max(0.3, min(2.0, float(initial_threshold)))
