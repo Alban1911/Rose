@@ -47,6 +47,7 @@ class InjectionManager:
         self.injection_threshold = get_config_float("General", "injection_threshold", 0.5)
         self.injection_lock = threading.Lock()
         self._initialized = False
+        self._last_threshold_value = self.injection_threshold
         self.current_champion = None
         self._injection_in_progress = False  # Track if injection is running
         self._cleanup_in_progress = False  # Track if cleanup is running
@@ -61,6 +62,24 @@ class InjectionManager:
         # Tools folder renaming
         self._tools_renamed = False  # Track if tools folder has been renamed
         self._tools_random_value = None  # Store the random value used for renaming
+
+    def _refresh_injection_threshold(self) -> None:
+        """Reload injection threshold from config so tray changes apply immediately."""
+        try:
+            new_value = get_config_float("General", "injection_threshold", 0.5)
+        except Exception as exc:  # noqa: BLE001
+            log.debug(f"[INJECT] Failed to refresh injection threshold: {exc}")
+            return
+
+        # Allow 0 as a special case for no cooldown, but guard against negatives.
+        new_value = max(0.0, float(new_value))
+
+        if abs(new_value - self._last_threshold_value) < 1e-6:
+            return
+
+        self.injection_threshold = new_value
+        self._last_threshold_value = new_value
+        log.info(f"[INJECT] Injection threshold reloaded: {new_value:.2f}s")
     
     def _ensure_initialized(self):
         """Initialize the injector lazily when first needed"""
@@ -302,6 +321,7 @@ class InjectionManager:
             return
         
         self._ensure_initialized()
+        self._refresh_injection_threshold()
         
         # Don't attempt injection if system isn't properly initialized
         if not self._initialized or self.injector is None or self.injector.game_dir is None:
@@ -345,6 +365,7 @@ class InjectionManager:
             chroma_id: Optional chroma ID for chroma variant
         """
         self._ensure_initialized()
+        self._refresh_injection_threshold()
         
         # Don't attempt injection if system isn't properly initialized
         if not self._initialized or self.injector is None or self.injector.game_dir is None:
@@ -419,6 +440,7 @@ class InjectionManager:
             return False
             
         self._ensure_initialized()
+        self._refresh_injection_threshold()
         
         # Don't attempt injection if system isn't properly initialized
         if not self._initialized or self.injector is None or self.injector.game_dir is None:
