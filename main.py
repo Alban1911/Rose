@@ -17,10 +17,18 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Tuple
+
+
+MIN_PYTHON = (3, 11)
+if sys.version_info < MIN_PYTHON:
+    raise RuntimeError(
+        f"LeagueUnlocked requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer. "
+        "Please upgrade your interpreter and rebuild the application."
+    )
 
 # Local imports - constants first (needed for Windows setup)
-from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S
+from config import WINDOWS_DPI_AWARENESS_SYSTEM, CONSOLE_BUFFER_CLEAR_INTERVAL_S, APP_VERSION
 
 if TYPE_CHECKING:
     from lcu.client import LCU
@@ -183,10 +191,9 @@ from threads.lcu_monitor_thread import LCUMonitorThread
 
 # Local imports - utilities
 from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
-from utils.skin_downloader import download_skins_on_startup
 from utils.tray_manager import TrayManager
 from utils.thread_manager import ThreadManager, create_daemon_thread
-from utils.license_client import LicenseClient
+from utils.license_flow import check_license
 
 # Local imports - UI and injection
 from ui.user_interface import get_user_interface
@@ -194,6 +201,7 @@ from injection.manager import InjectionManager
 
 # Local imports - configuration
 from config import (
+    APP_VERSION,
     DEFAULT_DD_LANG,
     DEFAULT_VERBOSE,
     PHASE_HZ_DEFAULT,
@@ -213,6 +221,7 @@ from config import (
     THREAD_JOIN_TIMEOUT_S,
     THREAD_FORCE_EXIT_TIMEOUT_S,
     MAIN_LOOP_STALL_THRESHOLD_S,
+    set_config_option,
 )
 
 class AppState:
@@ -472,164 +481,6 @@ def check_single_instance():
         sys.exit(1)
 
 
-def show_license_activation_dialog(error_message: str) -> Optional[str]:
-    """Show the PyQt6 license dialog to enter license key"""
-    try:
-        # Import the license dialog
-        from utils.license_dialog import show_enhanced_license_dialog
-        
-        # Show the PyQt6-based dialog
-        license_key = show_enhanced_license_dialog(error_message)
-        return license_key
-        
-    except ImportError as e:
-        # PyQt6 not available - show error and exit
-        print(f"ERROR: PyQt6 not available: {e}")
-        if sys.platform == "win32":
-            try:
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    f"PyQt6 is required for the license dialog but is not available.\n\nError: {str(e)}\n\nPlease install PyQt6 or contact support.",
-                    "LeagueUnlocked - Missing Dependency",
-                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                )
-            except (OSError, AttributeError):
-                pass
-        return None
-    except Exception as e:
-        # Log the error with full traceback for debugging
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"ERROR: Failed to show license dialog: {e}")
-        print(f"Traceback:\n{error_details}")
-        
-        # Show error message
-        if sys.platform == "win32":
-            try:
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    f"Failed to show license dialog:\n\n{str(e)}\n\nPlease contact support.",
-                    "LeagueUnlocked - Dialog Error",
-                    0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                )
-            except (OSError, AttributeError):
-                pass
-        return None
-
-
-
-
-def check_license():
-    """Check and validate license on startup"""
-    print("[LICENSE] Starting license check...")
-    
-    # Load public key used for RSA verification and log encryption
-    from utils.public_key import PUBLIC_KEY
-    
-    print("[LICENSE] Initializing license client...")
-    # Initialize license client
-    license_client = LicenseClient(
-        server_url="https://api.leagueunlocked.net",
-        license_file="license.dat",
-        public_key_pem=PUBLIC_KEY  # Public key for verifying server signatures
-    )
-    print("[LICENSE] License client initialized")
-    
-    # Check if license is valid (offline check first for speed)
-    print("[LICENSE] Checking license validity (offline)...")
-    valid, message = license_client.is_license_valid(check_online=False)
-    print(f"[LICENSE] Validation result: valid={valid}, message={message}")
-    
-    if not valid:
-        # License is invalid or missing - prompt for activation
-        print(f"[LICENSE] License validation failed: {message}")
-        log.warning(f"License validation failed: {message}")
-        
-        # Show dialog to enter license key
-        max_attempts = 3
-        print(f"[LICENSE] Showing activation dialog (max {max_attempts} attempts)...")
-        for attempt in range(max_attempts):
-            print(f"[LICENSE] Attempt {attempt + 1}/{max_attempts}")
-            license_key = show_license_activation_dialog(message)
-            print(f"[LICENSE] Dialog returned: {bool(license_key)}")
-            
-            if not license_key:
-                # User cancelled or didn't enter anything
-                if sys.platform == "win32":
-                    try:
-                        ctypes.windll.user32.MessageBoxW(
-                            0,
-                            "No license key entered.\n\nThe application will now exit.",
-                            "LeagueUnlocked - License Required",
-                            0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                        )
-                    except (OSError, AttributeError):
-                        print("No license key entered. Exiting.")
-                sys.exit(1)
-            
-            # Try to activate the license
-            log.info(f"Attempting to activate license (attempt {attempt + 1}/{max_attempts})...")
-            success, activation_message = license_client.activate_license(license_key)
-            
-            if success:
-                log_success(log, f"License activated successfully: {activation_message}", "✅")
-                
-                # Show success message
-                if sys.platform == "win32":
-                    try:
-                        import tkinter as tk
-                        from tkinter import messagebox
-                        root = tk.Tk()
-                        root.withdraw()
-                        root.attributes('-topmost', True)
-                        messagebox.showinfo(
-                            "License Activated",
-                            f"Success!\n\n{activation_message}\n\nLeagueUnlocked will now start."
-                        )
-                        root.destroy()
-                    except (ImportError, AttributeError, RuntimeError) as e:
-                        # Fallback to console output if tkinter fails
-                        print(f"License activated: {activation_message}")
-                        log.debug(f"Tkinter dialog failed: {e}")
-                
-                # Update valid status and message
-                valid = True
-                break
-            else:
-                log.warning(f"License activation failed: {activation_message}")
-                message = activation_message  # Update message for next attempt
-                
-                if attempt < max_attempts - 1:
-                    # Not the last attempt - show error and prompt again
-                    continue
-                else:
-                    # Last attempt failed - show final error and exit
-                    if sys.platform == "win32":
-                        try:
-                            ctypes.windll.user32.MessageBoxW(
-                                0,
-                                f"License activation failed after {max_attempts} attempts:\n\n{activation_message}\n\nPlease contact support for assistance.",
-                                "LeagueUnlocked - Activation Failed",
-                                0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
-                            )
-                        except (OSError, AttributeError):
-                            print(f"License activation failed: {activation_message}")
-                    sys.exit(1)
-    
-    # License is valid - log the info
-    info = license_client.get_license_info()
-    if info:
-        # License validation - mode-aware logging
-        if get_log_mode() == 'customer':
-            log.info(f"✅ License Valid ({info['days_remaining']} days remaining)")
-        else:
-            log_section(log, "License Validated", "✅", {
-                "Status": "Active",
-                "Days Remaining": str(info['days_remaining']),
-                "Expires": info['expires_at']
-            })
-    
-    return True
 
 
 
@@ -819,8 +670,9 @@ def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_stat
 
 
 
-def main():
-    """Main entry point - orchestrates application startup and main loop"""
+def run_league_unlock(injection_threshold: Optional[float] = None):
+    """Run the core LeagueUnlocked application startup and main loop."""
+    set_config_option("General", "installed_version", APP_VERSION)
     # Check for admin rights FIRST (required for injection to work)
     from utils.admin_utils import ensure_admin_rights
     ensure_admin_rights()
@@ -910,8 +762,12 @@ def main():
     # Initialize injection manager with database (lazy initialization)
     try:
         log.info("Initializing injection manager...")
-        injection_manager = InjectionManager()
+        injection_manager = InjectionManager(shared_state=state)
+        if injection_threshold is not None:
+            log.info(f"Launcher override: setting injection threshold to {injection_threshold:.2f}s")
+            injection_manager.injection_threshold = max(0.0, injection_threshold)
         log.info("✓ Injection manager initialized")
+        injection_manager.initialize_when_ready()
     except Exception as e:
         log.error("=" * 80)
         log.error("FATAL ERROR DURING INJECTION MANAGER INITIALIZATION")
@@ -936,80 +792,15 @@ def main():
                 pass
         sys.exit(1)
     
-    # Download skins if enabled (run in background to avoid blocking startup)
-    if args.download_skins:
-        separator = "=" * 80
-        log.info(separator)
-        log.info("📥 STARTING SKIN DOWNLOAD")
-        log.info("   📋 Mode: Background (non-blocking)")
-        log.info(separator)
-        
-        def download_skins_background():
-            try:
-                # Download skins first
-                success = download_skins_on_startup(
-                    force_update=args.force_update_skins,
-                    max_champions=args.max_champions,
-                    tray_manager=tray_manager,
-                    injection_manager=injection_manager
-                )
-                
-                # Preview images are now included in the merged database
-                # Mark previews as downloaded since they're included with skins
-                if not app_status.check_previews_downloaded():
-                    app_status.mark_previews_downloaded()
-                
-                separator = "=" * 80
-                if success:
-                    log.info(separator)
-                    log.info("✅ SKIN DOWNLOAD COMPLETED")
-                    log.info("   📋 Status: Success")
-                    log.info(separator)
-                    # Only mark if not already detected
-                    if not app_status.check_skins_downloaded():
-                        app_status.mark_skins_downloaded()
-                    # Mark download process as complete
-                    app_status.mark_download_process_complete()
-                else:
-                    log.info(separator)
-                    log.info("⚠️ SKIN DOWNLOAD COMPLETED WITH ISSUES")
-                    log.info("   📋 Status: Partial Success")
-                    log.info(separator)
-                    # Still mark as downloaded even with issues (files may still exist)
-                    if not app_status.check_skins_downloaded():
-                        app_status.mark_skins_downloaded()
-                    # Mark download process as complete
-                    app_status.mark_download_process_complete()
-            except Exception as e:
-                separator = "=" * 80
-                log.info(separator)
-                log.error(f"❌ SKIN DOWNLOAD FAILED")
-                log.error(f"   📋 Error: {e}")
-                log.info(separator)
-                # Check if skins exist anyway
-                if not app_status.check_skins_downloaded():
-                    app_status.mark_skins_downloaded()
-        
-        # Start skin download in a separate thread to avoid blocking
-        skin_download_thread = create_daemon_thread(target=download_skins_background, 
-                                                    name="SkinDownload")
-        skin_download_thread.start()
-    else:
-        log.info("Automatic skin download disabled")
-        # Check if skins already exist
-        if not app_status.check_skins_downloaded():
-            app_status.mark_skins_downloaded()
-        # Mark download process as complete since it's disabled
-        app_status.mark_download_process_complete()
-        # Initialize injection system immediately when download is disabled
-        injection_manager.initialize_when_ready()
+    # Launcher now handles skin downloads; ensure status reflects ready state
+    app_status.mark_download_process_complete()
     
     # Multi-language support is no longer needed - we use LCU scraper + English DB
     # Skin names are matched using: Windows UI API (client lang) → LCU scraper → skinId → English DB
     
     
-    # Configure skin writing
-    state.skin_write_ms = int(getattr(args, 'skin_threshold_ms', 2000) or 2000)
+    # Configure skin writing based on the final injection threshold (seconds → ms)
+    state.skin_write_ms = max(0, int(injection_manager.injection_threshold * 1000))
     state.inject_batch = getattr(args, 'inject_batch', state.inject_batch) or state.inject_batch
     
     # Update tray manager quit callback now that state is available
@@ -1048,7 +839,110 @@ def main():
     # Function to handle LCU disconnection
     def on_lcu_disconnected():
         """Handle LCU disconnection - reset UI detection status"""
+        log.info("[Main] LCU disconnected - resetting UI state")
 
+        # Reset shared state fields that influence UI detection
+        state.phase = None
+        state.hovered_champ_id = None
+        state.locked_champ_id = None
+        state.locked_champ_timestamp = 0.0
+        state.own_champion_locked = False
+        state.players_visible = 0
+        state.all_locked_announced = False
+        state.loadout_countdown_active = False
+        state.loadout_t0 = 0.0
+        state.loadout_left0_ms = 0
+        state.last_remain_ms = 0
+        state.last_hover_written = False
+        state.selected_skin_id = None
+        state.selected_chroma_id = None
+        state.selected_form_path = None
+        state.pending_chroma_selection = False
+        state.chroma_panel_open = False
+        state.reset_skin_notification = True
+        state.current_game_mode = None
+        state.current_map_id = None
+        state.current_queue_id = None
+        state.chroma_panel_skin_name = None
+        state.is_swiftplay_mode = False
+        state.random_mode_active = False
+        state.random_skin_name = None
+        state.random_skin_id = None
+        state.historic_mode_active = False
+        state.historic_skin_id = None
+        state.historic_first_detection_done = False
+        state.ui_skin_id = None
+        state.ui_last_text = None
+        state.last_hovered_skin_key = None
+        state.last_hovered_skin_id = None
+        state.last_hovered_skin_slug = None
+        state.champion_exchange_triggered = False
+        state.injection_completed = False
+
+        # Clear collection state safely
+        try:
+            state.locks_by_cell.clear()
+        except Exception:
+            state.locks_by_cell = {}
+        try:
+            state.processed_action_ids.clear()
+        except Exception:
+            state.processed_action_ids = set()
+        try:
+            state.owned_skin_ids.clear()
+        except Exception:
+            state.owned_skin_ids = set()
+        try:
+            state.swiftplay_skin_tracking.clear()
+        except Exception:
+            state.swiftplay_skin_tracking = {}
+        try:
+            state.swiftplay_extracted_mods.clear()
+        except Exception:
+            state.swiftplay_extracted_mods = []
+
+        # Reset UI detection thread cache/connection
+        if getattr(state, "ui_skin_thread", None) is not None:
+            try:
+                state.ui_skin_thread.clear_cache()
+                if hasattr(state.ui_skin_thread, "connection"):
+                    state.ui_skin_thread.connection.disconnect()
+                state.ui_skin_thread.detection_available = False
+                state.ui_skin_thread.detection_attempts = 0
+            except Exception as e:
+                log.debug(f"[Main] Failed to reset UISkinThread after disconnection: {e}")
+
+        # Tear down any existing UI overlay so it can be recreated cleanly
+        try:
+            from ui import user_interface as ui_module
+
+            ui_instance = getattr(ui_module, "_user_interface", None)
+            if ui_instance is not None:
+                if ui_instance.state is not state:
+                    ui_instance.state = state
+                if skin_scraper and ui_instance.skin_scraper is not skin_scraper:
+                    ui_instance.skin_scraper = skin_scraper
+
+                try:
+                    ui_instance.reset_skin_state()
+                except Exception as e:
+                    log.debug(f"[Main] Failed to reset UI skin state on disconnection: {e}")
+
+                try:
+                    ui_instance.request_ui_destruction()
+                except Exception as e:
+                    log.debug(f"[Main] Failed to request UI destruction on disconnection: {e}")
+        except Exception as e:
+            log.debug(f"[Main] Unable to access UI instance during disconnection: {e}")
+
+        # Update tray status (forces icon refresh if needed)
+        if app_status:
+            try:
+                app_status.update_status(force=True)
+            except Exception as e:
+                log.debug(f"[Main] Failed to update app status after disconnection: {e}")
+
+                
     # Initialize thread manager for organized thread lifecycle
     thread_manager = ThreadManager()
     
@@ -1064,7 +958,7 @@ def main():
     t_ws = WSEventThread(lcu, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
                         fallback_ms=args.fallback_loadout_ms, injection_manager=injection_manager, 
-                        skin_scraper=skin_scraper)
+                        skin_scraper=skin_scraper, app_status=app_status)
     thread_manager.register("WebSocket", t_ws, stop_method=t_ws.stop)
     
     # Language callback to update shared state
@@ -1146,7 +1040,7 @@ def main():
                     # Check if UI should be hidden in Swiftplay mode when detection is lost
                     if state.is_swiftplay_mode and state.ui_skin_id is None:
                         # Use a flag to avoid spamming hide() calls
-                        if not hasattr(main, '_swiftplay_ui_hidden'):
+                        if not hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
                             try:
                                 from ui.user_interface import get_user_interface
                                 user_interface = get_user_interface()
@@ -1155,7 +1049,7 @@ def main():
                                         user_interface.chroma_ui.hide()
                                     if user_interface.unowned_frame:
                                         user_interface.unowned_frame.hide()
-                                    main._swiftplay_ui_hidden = True
+                                    run_league_unlock._swiftplay_ui_hidden = True
                                     log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode")
                             except Exception as e:
                                 log.debug(f"[MAIN] Error hiding UI: {e}")
@@ -1163,13 +1057,13 @@ def main():
                     if current_skin_id:
                         # Check if we need to reset skin notification debouncing
                         if state.reset_skin_notification:
-                            if hasattr(main, '_last_notified_skin_id'):
-                                delattr(main, '_last_notified_skin_id')
+                            if hasattr(run_league_unlock, '_last_notified_skin_id'):
+                                delattr(run_league_unlock, '_last_notified_skin_id')
                             state.reset_skin_notification = False
                             log.debug("[MAIN] Reset skin notification debouncing for new ChampSelect")
                         
                         # Check if this is a new skin (debouncing at main loop level)
-                        last_notified = getattr(main, '_last_notified_skin_id', None)
+                        last_notified = getattr(run_league_unlock, '_last_notified_skin_id', None)
                         should_notify = (last_notified is None or last_notified != current_skin_id)
                         
                         if should_notify:
@@ -1184,16 +1078,16 @@ def main():
                                     user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name, champ_id_for_ui)
                                     log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
                                     # Track the last notified skin
-                                    main._last_notified_skin_id = current_skin_id
+                                    run_league_unlock._last_notified_skin_id = current_skin_id
                                     # Reset hide flag since we're showing a skin
-                                    if hasattr(main, '_swiftplay_ui_hidden'):
-                                        delattr(main, '_swiftplay_ui_hidden')
+                                    if hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
+                                        delattr(run_league_unlock, '_swiftplay_ui_hidden')
                                         log.debug("[MAIN] Reset UI hide flag - skin detected")
                                 else:
                                     # Only log once per skin to avoid spam
-                                    if not hasattr(main, '_ui_not_initialized_logged') or main._ui_not_initialized_logged != current_skin_id:
+                                    if not hasattr(run_league_unlock, '_ui_not_initialized_logged') or run_league_unlock._ui_not_initialized_logged != current_skin_id:
                                         log.debug(f"[MAIN] UI not initialized yet - skipping skin notification for {current_skin_id}")
-                                        main._ui_not_initialized_logged = current_skin_id
+                                        run_league_unlock._ui_not_initialized_logged = current_skin_id
                             except Exception as e:
                                 log.error(f"[MAIN] Failed to notify UI: {e}")
                     
@@ -1226,6 +1120,14 @@ def main():
                                     button = user_interface.chroma_ui.chroma_selector.panel.reopen_button
                                     button.hide()
                                     log.debug("[exchange] Chroma Opening Button hidden")
+                                
+                                # Hide RandomFlag (random mode is disabled on champion swap)
+                                if user_interface.random_flag:
+                                    try:
+                                        user_interface.random_flag.hide_flag()
+                                        log.debug("[exchange] RandomFlag hidden")
+                                    except Exception as e:
+                                        log.debug(f"[exchange] Failed to hide RandomFlag: {e}")
 
                                 # Ensure ClickBlocker is visible during exchange (create if missing)
                                 try:
@@ -1317,6 +1219,21 @@ def main():
                     ctypes.windll.kernel32.FreeConsole()
             except (OSError, AttributeError) as e:
                 log.debug(f"Console cleanup error (non-critical): {e}")
+
+
+def main():
+    """Program entry point that prepares and launches LeagueUnlocked."""
+    if sys.platform == "win32":
+        try:
+            from launcher.launcher import run_launcher
+
+            run_launcher()
+        except ModuleNotFoundError as err:
+            print(f"[Launcher] Unable to import launcher module: {err}")
+        except Exception as err:  # noqa: BLE001
+            print(f"[Launcher] Launcher encountered an error: {err}")
+
+    run_league_unlock()
 
 
 if __name__ == "__main__":

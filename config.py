@@ -5,12 +5,83 @@ Global constants for LeagueUnlocked
 All arbitrary values are centralized here for easy tracking and modification
 """
 
+import shutil
+from typing import TYPE_CHECKING, Optional, Tuple
+from pathlib import Path
+import configparser
+
+from utils.paths import get_user_data_dir
+
 # =============================================================================
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "Beta"                      # Application version
+APP_VERSION = "Beta_1.2"                          # Application version
 APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
+
+_CONFIG = configparser.ConfigParser()
+
+
+def get_config_file_path() -> Path:
+    config_dir = get_user_data_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir / "config.ini"
+
+
+def _reload_config() -> None:
+    _CONFIG.clear()
+    config_path = get_config_file_path()
+    if not config_path.exists():
+        legacy_path = Path("config.ini")
+        if legacy_path.exists():
+            try:
+                shutil.copy2(legacy_path, config_path)
+            except Exception:
+                pass
+    if config_path.exists():
+        try:
+            _CONFIG.read(config_path)
+        except Exception:
+            pass
+
+
+_reload_config()
+
+
+def get_config_option(section: str, option: str, fallback: Optional[str] = None) -> Optional[str]:
+    _reload_config()
+    if _CONFIG.has_option(section, option):
+        return _CONFIG.get(section, option)
+    return fallback
+
+
+def get_config_float(section: str, option: str, fallback: float) -> float:
+    value = get_config_option(section, option)
+    if value is None:
+        return fallback
+    try:
+        return float(value)
+    except ValueError:
+        return fallback
+
+
+def set_config_option(section: str, option: str, value: str) -> None:
+    config_path = get_config_file_path()
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        try:
+            config.read(config_path)
+        except Exception:
+            pass
+    if section not in config:
+        config.add_section(section)
+    config.set(section, option, value)
+    try:
+        with open(config_path, "w", encoding="utf-8") as fh:
+            config.write(fh)
+    except Exception:
+        pass
+
 
 # Production mode - controls logging verbosity and sensitive data exposure
 # Set to True for releases to prevent reverse engineering via logs
@@ -84,12 +155,11 @@ FALLBACK_LOADOUT_MS_DEFAULT = 0             # Fallback countdown duration (ms)
 
 # Skin injection timing
 SKIN_THRESHOLD_MS_DEFAULT = 300             # Time before loadout ends to write skin (ms)
-INJECTION_THRESHOLD_SECONDS = 2.0           # Seconds between injection attempts
 BASE_SKIN_VERIFICATION_WAIT_S = 0.15        # Seconds to wait for LCU to process base skin change
 PERSISTENT_MONITOR_START_SECONDS = 1        # Seconds remaining when persistent game monitor starts
 PERSISTENT_MONITOR_CHECK_INTERVAL_S = 0.05  # Seconds between game process checks
 PERSISTENT_MONITOR_IDLE_INTERVAL_S = 0.1    # Seconds to wait when game already suspended
-PERSISTENT_MONITOR_WAIT_TIMEOUT_S = 3.0     # Max seconds to wait for persistent monitor to suspend game
+PERSISTENT_MONITOR_WAIT_TIMEOUT_S = 20.0    # Max seconds to wait for persistent monitor to suspend game
 PERSISTENT_MONITOR_WAIT_INTERVAL_S = 0.1    # Seconds between checks while waiting for suspension
 PERSISTENT_MONITOR_AUTO_RESUME_S = 20.0     # Auto-resume game after this many seconds if still suspended (safety)
 GAME_RESUME_VERIFICATION_WAIT_S = 0.1       # Seconds to wait after resume for status verification
@@ -401,7 +471,6 @@ INTERESTING_PHASES = {
     "Matchmaking", 
     "ReadyCheck",
     "ChampSelect",
-    "OwnChampionLocked",
     "FINALIZATION",
     "GameStart",
     "InProgress",

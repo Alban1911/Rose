@@ -13,6 +13,10 @@ from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
+from utils.resolution_utils import (
+    scale_dimension_from_base,
+    scale_position_from_base,
+)
 from utils.utilities import is_default_skin, is_owned
 import config
 
@@ -99,7 +103,6 @@ class UnownedFrame(ChromaWidgetBase):
         # Hardcoded positions for each resolution (no scaling)
         # Swiftplay mode uses different positions than regular ChampSelect
         if window_width == 1600 and window_height == 900:
-            # 1600x900 resolution
             frame_width = 148
             frame_height = 84
             if is_swiftplay:
@@ -109,7 +112,6 @@ class UnownedFrame(ChromaWidgetBase):
                 target_x = 726
                 target_y = 642
         elif window_width == 1280 and window_height == 720:
-            # 1280x720 resolution
             frame_width = 118
             frame_height = 67
             if is_swiftplay:
@@ -119,7 +121,6 @@ class UnownedFrame(ChromaWidgetBase):
                 target_x = 581
                 target_y = 513
         elif window_width == 1024 and window_height == 576:
-            # 1024x576 resolution
             frame_width = 95
             frame_height = 54
             if is_swiftplay:
@@ -129,16 +130,17 @@ class UnownedFrame(ChromaWidgetBase):
                 target_x = 465
                 target_y = 411
         else:
-            # Unsupported resolution - use default 1600x900 values
-            log.warning(f"[UnownedFrame] Unsupported resolution {window_width}x{window_height}, using 1600x900 defaults")
-            frame_width = 148
-            frame_height = 84
+            frame_width = scale_dimension_from_base(148, (window_width, window_height), axis='x')
+            frame_height = scale_dimension_from_base(84, (window_width, window_height), axis='y')
             if is_swiftplay:
-                target_x = 990
-                target_y = 684
+                target_x = scale_position_from_base(990, (window_width, window_height), axis='x')
+                target_y = scale_position_from_base(684, (window_width, window_height), axis='y')
             else:
-                target_x = 726
-                target_y = 642
+                target_x = scale_position_from_base(726, (window_width, window_height), axis='x')
+                target_y = scale_position_from_base(642, (window_width, window_height), axis='y')
+            log.info(
+                f"[UnownedFrame] Scaled frame for unsupported resolution {window_width}x{window_height}: {frame_width}x{frame_height} at ({target_x}, {target_y})"
+            )
         
         log.debug(f"[UnownedFrame] Hardcoded positioning: window={window_width}x{window_height}, frame={frame_width}x{frame_height}, pos=({target_x}, {target_y}), swiftplay={is_swiftplay}")
         

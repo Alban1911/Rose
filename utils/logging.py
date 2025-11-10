@@ -15,6 +15,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Dict
 
 # Third-party imports
 import logging
@@ -47,6 +48,7 @@ logging.Logger.trace = trace
 
 # Global log mode (set by setup_logging)
 _CURRENT_LOG_MODE = 'customer'
+_NAMED_LOGGERS: Dict[str, logging.Logger] = {}
 
 def get_log_mode() -> str:
     """Get the current logging mode"""
@@ -832,6 +834,87 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
 def get_logger(name: str = "tracer") -> logging.Logger:
     """Get a logger instance"""
     return logging.getLogger(name)
+
+
+def get_named_logger(name: str, prefix: str, log_mode: str = None) -> logging.Logger:
+    """
+    Create (or return) a dedicated logger that writes to its own rotating file.
+
+    Args:
+        name: Logger name (unique key).
+        prefix: File prefix (e.g., 'log_updater').
+        log_mode: Optional override for formatting levels; defaults to current global mode.
+    """
+    global _NAMED_LOGGERS
+
+    if name in _NAMED_LOGGERS:
+        return _NAMED_LOGGERS[name]
+
+    if log_mode is None:
+        log_mode = _CURRENT_LOG_MODE
+
+    production_mode = PRODUCTION_MODE
+
+    try:
+        from .paths import get_user_data_dir
+        logs_dir = get_user_data_dir() / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
+        max_bytes = int(LOG_MAX_FILE_SIZE_MB_DEFAULT * 1024 * 1024)
+
+        if production_mode:
+            base_path = logs_dir / f"{prefix}_{timestamp}.log.enc"
+
+            def _factory_enc(p: Path):
+                return RSAHybridEncryptedFileHandler(p, encoding="utf-8")
+
+            file_handler = SizeRotatingCompositeHandler(base_path, _factory_enc, max_bytes)
+        else:
+            base_path = logs_dir / f"{prefix}_{timestamp}.log"
+
+            def _factory_plain(p: Path):
+                return logging.FileHandler(p, encoding="utf-8")
+
+            file_handler = SizeRotatingCompositeHandler(base_path, _factory_plain, max_bytes)
+
+        if production_mode or log_mode == "verbose":
+            file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
+        elif log_mode == "debug":
+            file_fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
+        else:
+            file_fmt = "%(_when)s | %(message)s"
+
+        class _FileFmt(logging.Formatter):
+            def format(self, record):
+                record._when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                return super().format(record)
+
+        file_handler.setFormatter(_FileFmt(file_fmt))
+
+        if production_mode or log_mode in ("verbose", "debug"):
+            file_handler.setLevel(logging.DEBUG if log_mode != "debug" else TRACE)
+        else:
+            file_handler.setLevel(logging.INFO)
+
+        if not production_mode:
+            file_handler.addFilter(SanitizingFilter(production_mode, log_mode))
+
+        logger = logging.getLogger(name)
+        logger.handlers.clear()
+        logger.addHandler(file_handler)
+        logger.setLevel(TRACE)
+        logger.propagate = False
+
+        _NAMED_LOGGERS[name] = logger
+        return logger
+    except Exception as exc:  # noqa: BLE001
+        fallback_logger = logging.getLogger(name)
+        fallback_logger.setLevel(TRACE)
+        fallback_logger.propagate = True
+        fallback_logger.warning(f"Failed to configure dedicated logger '{name}': {exc}")
+        _NAMED_LOGGERS[name] = fallback_logger
+        return fallback_logger
 
 
 def cleanup_logs():

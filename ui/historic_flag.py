@@ -13,6 +13,10 @@ from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
+from utils.resolution_utils import (
+    scale_dimension_from_base,
+    scale_position_from_base,
+)
 
 log = get_logger()
 
@@ -86,14 +90,21 @@ class HistoricFlag(ChromaWidgetBase):
                 flag_size = 32
                 target_x = 851
                 target_y = 634
+            elif window_width == 1280 and window_height == 720:
+                flag_size = 26
+                target_x = 680
+                target_y = 507
             elif window_width == 1024 and window_height == 576:
                 flag_size = 20
                 target_x = 544
                 target_y = 406
             else:
-                flag_size = 26
-                target_x = 680
-                target_y = 507
+                flag_size = scale_dimension_from_base(32, (window_width, window_height), axis='y')
+                target_x = scale_position_from_base(851, (window_width, window_height), axis='x')
+                target_y = scale_position_from_base(634, (window_width, window_height), axis='y')
+                log.info(
+                    f"[HistoricFlag] Scaled position for unsupported resolution {window_width}x{window_height}: {target_x},{target_y} size {flag_size}"
+                )
 
             self.setFixedSize(flag_size, flag_size)
             self.setGeometry(self.x(), self.y(), flag_size, flag_size)
@@ -160,14 +171,18 @@ class HistoricFlag(ChromaWidgetBase):
                 flag_size = 32
                 target_x = 851
                 target_y = 634
+            elif window_width == 1280 and window_height == 720:
+                flag_size = 26
+                target_x = 680
+                target_y = 507
             elif window_width == 1024 and window_height == 576:
                 flag_size = 20
                 target_x = 544
                 target_y = 406
             else:
-                flag_size = 26
-                target_x = 680
-                target_y = 507
+                flag_size = scale_dimension_from_base(32, (window_width, window_height), axis='y')
+                target_x = scale_position_from_base(851, (window_width, window_height), axis='x')
+                target_y = scale_position_from_base(634, (window_width, window_height), axis='y')
             widget_hwnd = int(self.winId())
             HWND_TOP = 0
             ctypes.windll.user32.SetWindowPos(

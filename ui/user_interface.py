@@ -71,7 +71,7 @@ class UserInterface:
         self._last_destruction_time = 0.0
         self._force_reinitialize = False  # Flag to force UI recreation
         self._pending_click_catcher_creation = False  # Flag for ClickCatcher creation during FINALIZATION
-        self._pending_click_catcher_creation_own_locked = False  # Flag for ClickCatcher creation during OwnChampionLocked
+        self._pending_click_catcher_creation_own_locked = False  # Flag for ClickCatcher creation when own champion is locked
         # HistoricFlag pending ops (thread-safe requests)
         self._pending_show_historic_flag = False
         self._pending_hide_historic_flag = False
@@ -127,8 +127,8 @@ class UserInterface:
             else:
                 log.info("[UI] Skipping ClickBlocker creation in Swiftplay mode")
             
-            # ClickCatcherHide instances will be created during OwnChampionLocked phase
-            log.info("[UI] ClickCatcherHide components will be created during OwnChampionLocked phase")
+            # ClickCatcherHide instances will be created when own champion is locked
+            log.info("[UI] ClickCatcherHide components will be created when own champion is locked")
             
             self._last_unowned_skin_id = None
             # Track last base skin that showed UnownedFrame to control fade behavior
@@ -376,6 +376,7 @@ class UserInterface:
             self.current_skin_id = skin_id
             self.current_skin_name = skin_name
             self.current_champion_name = champion_name
+            self.current_champion_id = champion_id
             
             # Check if this is a chroma selection for the same base skin
             is_chroma_selection = self._is_chroma_selection_for_same_base_skin(skin_id, skin_name)
@@ -1110,14 +1111,14 @@ class UserInterface:
                     import traceback
                     log.error(f"[UI] Traceback: {traceback.format_exc()}")
             
-            # Handle pending ClickCatcher creation during OwnChampionLocked
+            # Handle pending ClickCatcher creation when own champion is locked
             if self._pending_click_catcher_creation_own_locked:
-                log.info("[UI] Processing pending ClickCatcher creation for OwnChampionLocked in main thread")
+                log.info("[UI] Processing pending ClickCatcher creation for locked champion in main thread")
                 self._pending_click_catcher_creation_own_locked = False
                 try:
                     self.create_click_catchers()
                 except Exception as e:
-                    log.error(f"[UI] Failed to process pending ClickCatcher creation for OwnChampionLocked: {e}")
+                    log.error(f"[UI] Failed to process pending ClickCatcher creation for locked champion: {e}")
                     import traceback
                     log.error(f"[UI] Traceback: {traceback.format_exc()}")
 
@@ -1502,6 +1503,7 @@ class UserInterface:
             self.current_skin_id = None
             self.current_skin_name = None
             self.current_champion_name = None
+            self.current_champion_id = None
             
             # Reset UI detection state
             self.last_skin_name = None

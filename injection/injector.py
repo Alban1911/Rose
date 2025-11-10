@@ -43,35 +43,66 @@ class SkinInjector:
         import sys
         if getattr(sys, 'frozen', False):
             # Running as compiled executable (PyInstaller)
-            # Tools are included alongside the executable
-            base_dir = Path(sys.executable).parent
-            
-            # Check multiple locations for injection tools (PyInstaller can place them in different spots)
-            possible_injection_dirs = [
-                base_dir / "injection",  # Direct path
-                base_dir / "_internal" / "injection",  # _internal folder
-            ]
-            
-            injection_dir = None
-            for dir_path in possible_injection_dirs:
-                if dir_path.exists():
-                    injection_dir = dir_path
-                    log.debug(f"Found injection directory at: {injection_dir}")
-                    break
-            
-            if not injection_dir:
-                # Fallback to first option if neither exists
-                injection_dir = possible_injection_dirs[0]
-                log.warning(f"Injection directory not found, using default: {injection_dir}")
+            # Handle both onefile (_MEIPASS) and onedir (_internal) modes
+            if hasattr(sys, '_MEIPASS'):
+                # One-file mode: tools are in _MEIPASS (temporary extraction directory)
+                base_path = Path(sys._MEIPASS)
+                injection_dir = base_path / "injection"
+                log.debug(f"Found injection directory at: {injection_dir} (onefile mode)")
+            else:
+                # One-dir mode: tools are alongside executable
+                base_dir = Path(sys.executable).parent
+                
+                # Check multiple locations for injection tools (PyInstaller can place them in different spots)
+                possible_injection_dirs = [
+                    base_dir / "injection",  # Direct path
+                    base_dir / "_internal" / "injection",  # _internal folder
+                ]
+                
+                injection_dir = None
+                for dir_path in possible_injection_dirs:
+                    if dir_path.exists():
+                        injection_dir = dir_path
+                        log.debug(f"Found injection directory at: {injection_dir}")
+                        break
+                
+                if not injection_dir:
+                    # Fallback to first option if neither exists
+                    injection_dir = possible_injection_dirs[0]
+                    log.warning(f"Injection directory not found, using default: {injection_dir}")
         else:
             # Running as Python script
             injection_dir = Path(__file__).parent
         
-        self.tools_dir = tools_dir or injection_dir / "tools"
+        # If tools_dir is provided, use it (might be renamed)
+        if tools_dir:
+            self.tools_dir = tools_dir
+        else:
+            # Check for renamed tools folder first (tools_* pattern)
+            tools_dir_found = None
+            try:
+                if injection_dir.exists():
+                    for item in injection_dir.iterdir():
+                        if item.is_dir() and item.name.startswith("tools_"):
+                            tools_dir_found = item
+                            log.debug(f"Found renamed tools folder: {item.name}")
+                            break
+            except (OSError, PermissionError) as e:
+                log.debug(f"Could not iterate injection directory: {e}")
+            
+            # Use renamed folder if found, otherwise use default "tools"
+            if tools_dir_found:
+                self.tools_dir = tools_dir_found
+            else:
+                self.tools_dir = injection_dir / "tools"
         # Use user data directory for mods and skins to avoid permission issues
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
         self.zips_dir = zips_dir or get_skins_dir()
-        self.game_dir = game_dir or self._detect_game_dir()
+        # Only detect if game_dir not provided - never use invalid fallback paths
+        if game_dir is not None:
+            self.game_dir = game_dir
+        else:
+            self.game_dir = self._detect_game_dir()
         # Database no longer needed - LCU provides all data
         
         # Create directories if they don't exist
@@ -89,14 +120,9 @@ class SkinInjector:
         
     def _get_config_path(self) -> Path:
         """Get the path to the config.ini file"""
-        import sys
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable (PyInstaller)
-            base_dir = Path(sys.executable).parent
-        else:
-            # Running as Python script
-            base_dir = Path(__file__).parent.parent
-        return base_dir / "config.ini"
+        from config import get_config_file_path
+
+        return get_config_file_path()
     
     def _load_config(self) -> Optional[str]:
         """Load League path from config.ini file"""
@@ -142,8 +168,9 @@ class SkinInjector:
         except Exception as e:
             log.warning(f"Failed to save config file: {e}")
     
-    def _detect_game_dir(self) -> Path:
-        """Auto-detect League of Legends Game directory using config and LeagueClient.exe detection"""
+    def _detect_game_dir(self) -> Optional[Path]:
+        """Auto-detect League of Legends Game directory using config and LeagueClient.exe detection.
+        Returns None if game directory cannot be found - never saves invalid paths to config."""
         
         # First, try to load from config
         config_path = self._load_config()
@@ -159,41 +186,13 @@ class SkinInjector:
         log.debug("Config not found or invalid, detecting via LeagueClient.exe")
         detected_path = self._detect_via_leagueclient()
         if detected_path:
-            # Save the detected path to config
+            # Save the detected path to config only if we actually found a valid path
             self._save_config(str(detected_path))
             return detected_path
         
-        # Fallback to common paths
-        log.debug("LeagueClient.exe detection failed, trying common paths")
-        candidates = [
-            Path(r"C:\Riot Games\League of Legends\Game"),
-            Path(r"C:\Riot Games\League of Legends"),
-            Path(r"C:\Program Files\Riot Games\League of Legends\Game"),
-            Path(r"C:\Program Files (x86)\Riot Games\League of Legends\Game"),
-        ]
-
-        for c in candidates:
-            if c.is_dir():
-                exe = c / "League of Legends.exe"
-                if exe.exists():
-                    if c.name.lower() != "game" and (c / "Game" / "League of Legends.exe").exists():
-                        gd = c / "Game"
-                        log_success(log, f"Auto-detected game directory: {gd}", "📂")
-                        # Save to config
-                        self._save_config(str(gd))
-                        return gd
-                    log_success(log, f"Auto-detected game directory: {c}", "📂")
-                    result = c if c.name.lower() == "game" else (c / "Game")
-                    # Save to config
-                    self._save_config(str(result))
-                    return result
-
-        # Last resort: return default and save to config
-        gd = Path(r"C:\Riot Games\League of Legends\Game")
-        log_event(log, f"Using default game directory: {gd}", "📂")
-        # Save default to config so user can manually edit it
-        self._save_config(str(gd))
-        return gd
+        # No fallbacks - if we can't detect it, return None
+        log.warning("Could not detect League of Legends game directory. Please ensure League Client is running or manually set the path in config.ini")
+        return None
     
     def _detect_via_leagueclient(self) -> Optional[Path]:
         """Detect League path by finding running LeagueClient.exe process"""
@@ -521,7 +520,19 @@ class SkinInjector:
         return target
     
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 60, stop_callback=None, injection_manager=None) -> int:
-        """Create and run overlay"""
+        """Create and run overlay
+        
+        Args:
+            mod_names: List of mod names to inject
+            timeout: Unused (kept for backward compatibility) - overlay runs until explicitly killed
+            stop_callback: Optional callback to check if game ended
+            injection_manager: Optional injection manager for game resume
+        """
+        if self.game_dir is None:
+            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
+            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
+            return 127
+            
         tools = self._detect_tools()
         exe = tools.get("modtools")
         if not exe or not exe.exists():
@@ -627,13 +638,11 @@ class SkinInjector:
                 injection_manager.resume_game()
             
             # Monitor process with stop callback
-            start_time = time.time()
-            runoverlay_hooked = False
+            # No timeout - overlay will run until explicitly killed or game ends
             while proc.poll() is None:
                 # Check if we should stop (game ended)
                 if stop_callback and stop_callback():
                     log.info("[inject] Game ended, stopping overlay process")
-                    runoverlay_hooked = True  # Assume it hooked if game ended
                     proc.terminate()
                     try:
                         proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
@@ -642,18 +651,6 @@ class SkinInjector:
                         proc.wait()
                     self.current_overlay_process = None
                     return 0  # Success - overlay ran through game
-                
-                # Check timeout
-                if time.time() - start_time > timeout:
-                    log.warning(f"[inject] runoverlay timeout after {timeout}s - may not have hooked in time")
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                        proc.wait()
-                    self.current_overlay_process = None
-                    return 1  # Timeout = likely failed to hook
                 
                 time.sleep(PROCESS_MONITOR_SLEEP_S)
             
@@ -671,6 +668,11 @@ class SkinInjector:
     
     def _mk_overlay_only(self, mod_names: List[str], timeout: int = 60) -> int:
         """Create overlay using mkoverlay only (no runoverlay) - for testing"""
+        if self.game_dir is None:
+            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
+            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
+            return 127
+            
         try:
             # Build mkoverlay command
             cmd = [
@@ -871,6 +873,11 @@ class SkinInjector:
                 return False
             
             # Create configuration file path
+            if self.game_dir is None:
+                log.error("[INJECTOR] Cannot run overlay - League game directory not found")
+                log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
+                return False
+                
             cfg = main_overlay_dir / "cslol-config.json"
             gpath = str(self.game_dir)
             

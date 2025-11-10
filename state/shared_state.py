@@ -87,3 +87,6 @@ class SharedState:
     
     # Champion exchange detection
     champion_exchange_triggered = False  # Flag to hide UI during champion exchange
+    
+    # Own champion lock tracking
+    own_champion_locked: bool = False  # Flag to track if our champion is locked (triggers detection/UI pipeline)
