@@ -435,10 +435,15 @@ class LoadoutTicker(threading.Thread):
                                 # Create callback to check if game ended
                                 def game_ended_callback():
                                     nonlocal has_been_in_progress
-                                    if self.state.phase == "InProgress":
+                                    phase = self.state.phase
+                                    if phase == "InProgress":
                                         has_been_in_progress = True
-                                    # Only stop after we've been in InProgress and then left it
-                                    return has_been_in_progress and self.state.phase != "InProgress"
+                                        return False
+                                    # Treat reconnect/gamestart transitions as still in-game so overlay stays alive
+                                    if phase in ("Reconnect", "GameStart"):
+                                        return False
+                                    # Only stop after we've been in-game and transitioned to a non-active phase
+                                    return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
                                 
                                 # Inject skin in a separate thread to avoid blocking the ticker
                                 log.info(f"[inject] Starting injection: {name}")
