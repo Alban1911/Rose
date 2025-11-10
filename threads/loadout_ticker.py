@@ -52,8 +52,8 @@ class LoadoutTicker(threading.Thread):
         last_poll = 0.0
         last_bucket = None
         
-        # Continue loop if injection is not completed yet (even if phase changed to GameStart/InProgress)
-        while (not self.state.stop) and (self.state.phase in ["ChampSelect", "FINALIZATION", "GameStart", "InProgress"]) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id) and not self.state.injection_completed:
+        # Continue loop only in ChampSelect/FINALIZATION; timer is independent from injection
+        while (not self.state.stop) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id) and (self.state.phase in ["ChampSelect", "FINALIZATION"]):
             now = time.monotonic()
             
             # Periodic LCU resync
@@ -69,7 +69,7 @@ class LoadoutTicker(threading.Thread):
                     log.info(f"[loadout] Phase transition detected: {self.state.phase} → FINALIZATION")
                     self.state.phase = "FINALIZATION"
                     
-                    # ClickCatcherHide creation is now handled in OwnChampionLocked phase
+                    # ClickCatcherHide creation is now handled when own champion is locked
                     # No need to create them again in FINALIZATION
                 
                 if phase == "FINALIZATION" and left_ms > 0:
@@ -435,10 +435,15 @@ class LoadoutTicker(threading.Thread):
                                 # Create callback to check if game ended
                                 def game_ended_callback():
                                     nonlocal has_been_in_progress
-                                    if self.state.phase == "InProgress":
+                                    phase = self.state.phase
+                                    if phase == "InProgress":
                                         has_been_in_progress = True
-                                    # Only stop after we've been in InProgress and then left it
-                                    return has_been_in_progress and self.state.phase != "InProgress"
+                                        return False
+                                    # Treat reconnect/gamestart transitions as still in-game so overlay stays alive
+                                    if phase in ("Reconnect", "GameStart"):
+                                        return False
+                                    # Only stop after we've been in-game and transitioned to a non-active phase
+                                    return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
                                 
                                 # Inject skin in a separate thread to avoid blocking the ticker
                                 log.info(f"[inject] Starting injection: {name}")
@@ -460,8 +465,7 @@ class LoadoutTicker(threading.Thread):
                                             champion_id=self.state.locked_champ_id
                                         )
                                         
-                                        # Set flag to prevent UI detection from restarting (even if processes errored)
-                                        self.state.injection_completed = True
+                                        # Injection completion should not affect the timer ticker
                                         
                                         # Clear random state after injection
                                         if getattr(self.state, 'random_mode_active', False):
@@ -507,20 +511,11 @@ class LoadoutTicker(threading.Thread):
                                             log.warning(f"[inject] Failed to request UI destruction after injection: {e}")
                                     except Exception as e:
                                         log.error(f"[inject] injection thread error: {e}")
-                                        self.state.injection_completed = True  # Set flag even on error
                                 
                                 injection_thread = threading.Thread(target=run_injection, daemon=True, name="InjectionThread")
                                 injection_thread.start()
                                 
-                                # Set a timeout to prevent hanging if injection takes too long
-                                def timeout_injection():
-                                    time.sleep(10)  # 10 second timeout
-                                    if injection_thread.is_alive():
-                                        log.warning(f"[inject] Injection thread timeout - forcing completion")
-                                        self.state.injection_completed = True
-                                
-                                timeout_thread = threading.Thread(target=timeout_injection, daemon=True, name="InjectionTimeout")
-                                timeout_thread.start()
+                                # Removed injection timeout that interfered with the timer ticker
                             except Exception as e:
                                 log.error(f"[inject] injection error: {e}")
                         else:
@@ -533,8 +528,6 @@ class LoadoutTicker(threading.Thread):
                     log.error(f"❌ INJECTION FAILED - NO SKIN ID AVAILABLE")
                     log.error(f"   ⏱️  Loadout Timer: #{self.ticker_id}")
                     log.error("=" * LOG_SEPARATOR_WIDTH)
-                    # Mark injection as completed to prevent retries
-                    self.state.injection_completed = True
 
             if remain_ms <= 0:
                 break

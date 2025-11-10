@@ -18,6 +18,62 @@ RESOLUTIONS = {
     (1024, 576): "1024x576"
 }
 
+BASE_RESOLUTION: Tuple[int, int] = (1600, 900)
+BASE_RESOLUTION_KEY: str = RESOLUTIONS[BASE_RESOLUTION]
+
+
+def _get_scaling_factors(resolution: Tuple[int, int]) -> Tuple[float, float]:
+    """Calculate scaling factors relative to the 1600x900 baseline."""
+    base_width, base_height = BASE_RESOLUTION
+    width, height = resolution
+    if base_width == 0 or base_height == 0:
+        raise ValueError("Base resolution dimensions must be non-zero")
+    return width / base_width, height / base_height
+
+
+def _scale_position(value: int, scale: float) -> int:
+    """Scale a positional coordinate using the provided factor."""
+    if value == 0:
+        return 0
+    return int(round(value * scale))
+
+
+def _scale_dimension(value: int, scale: float) -> int:
+    """Scale a size dimension ensuring minimum size of 1 when original > 0."""
+    if value == 0:
+        return 0
+    scaled = int(round(value * scale))
+    return max(1, scaled)
+
+
+def _scale_rect_config(config: Dict[str, int], scale_x: float, scale_y: float) -> Dict[str, int]:
+    """Scale a rectangle-style configuration dictionary."""
+    return {
+        "x": _scale_position(config.get("x", 0), scale_x),
+        "y": _scale_position(config.get("y", 0), scale_y),
+        "width": _scale_dimension(config.get("width", 0), scale_x),
+        "height": _scale_dimension(config.get("height", 0), scale_y),
+    }
+
+
+def get_scaling_factors(resolution: Tuple[int, int]) -> Tuple[float, float]:
+    """Public helper to obtain scaling factors relative to the base resolution."""
+    return _get_scaling_factors(resolution)
+
+
+def scale_position_from_base(value: int, resolution: Tuple[int, int], axis: str = "x") -> int:
+    """Scale a positional value from the base resolution along the specified axis."""
+    scale_x, scale_y = _get_scaling_factors(resolution)
+    scale = scale_x if axis.lower() == "x" else scale_y
+    return _scale_position(value, scale)
+
+
+def scale_dimension_from_base(value: int, resolution: Tuple[int, int], axis: str = "x") -> int:
+    """Scale a dimension (width/height) from the base resolution along the specified axis."""
+    scale_x, scale_y = _get_scaling_factors(resolution)
+    scale = scale_x if axis.lower() == "x" else scale_y
+    return _scale_dimension(value, scale)
+
 # Language-specific ABILITIES and CLOSE_ABILITIES configurations for all resolutions
 LANGUAGE_CONFIGS = {
     "fr": {
@@ -274,6 +330,112 @@ CLICK_CATCHER_CONFIGS_MAYHEM = {
 }
 
 
+def _lookup_click_catcher_config(resolution_key: str, catcher_name: str, map_id: Optional[int], queue_id: Optional[int]) -> Optional[Dict[str, int]]:
+    """Lookup click catcher configuration for known resolutions."""
+    is_mayhem = queue_id == 2400
+    is_aram = (map_id == 12) and not is_mayhem
+    is_arena = map_id == 22
+
+    if is_mayhem:
+        if catcher_name in ["REC_RUNES", "EDIT_RUNES"]:
+            log.debug(f"[ResolutionUtils] {catcher_name} not available in ARAM: Mayhem mode")
+            return None
+        if resolution_key in CLICK_CATCHER_CONFIGS_MAYHEM and catcher_name in CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key]:
+            log.debug(f"[ResolutionUtils] Using ARAM: Mayhem config for {catcher_name} at {resolution_key}")
+            return CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key][catcher_name].copy()
+
+    if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
+        if catcher_name in CLICK_CATCHER_CONFIGS_ARENA[resolution_key]:
+            log.debug(f"[ResolutionUtils] Using Arena config for {catcher_name} at {resolution_key}")
+            return CLICK_CATCHER_CONFIGS_ARENA[resolution_key][catcher_name].copy()
+
+    if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
+        if catcher_name in CLICK_CATCHER_CONFIGS_ARAM[resolution_key]:
+            log.debug(f"[ResolutionUtils] Using ARAM config for {catcher_name} at {resolution_key} (map_id={map_id})")
+            return CLICK_CATCHER_CONFIGS_ARAM[resolution_key][catcher_name].copy()
+
+    if resolution_key not in CLICK_CATCHER_CONFIGS:
+        log.warning(f"[ResolutionUtils] No config found for resolution: {resolution_key}")
+        return None
+
+    if catcher_name not in CLICK_CATCHER_CONFIGS[resolution_key]:
+        log.warning(f"[ResolutionUtils] No config found for catcher '{catcher_name}' in resolution {resolution_key}")
+        return None
+
+    return CLICK_CATCHER_CONFIGS[resolution_key][catcher_name].copy()
+
+
+def _get_base_click_catcher_entry(catcher_name: str) -> Optional[Dict[str, int]]:
+    base_configs = CLICK_CATCHER_CONFIGS.get(BASE_RESOLUTION_KEY, {})
+    return base_configs.get(catcher_name)
+
+
+def _get_scaled_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map_id: Optional[int], queue_id: Optional[int]) -> Optional[Dict[str, int]]:
+    """Generate a scaled click catcher config for unsupported resolutions."""
+    is_mayhem = queue_id == 2400
+    is_aram = (map_id == 12) and not is_mayhem
+    is_arena = map_id == 22
+
+    scale_x, scale_y = _get_scaling_factors(resolution)
+
+    base_config: Optional[Dict[str, int]] = _get_base_click_catcher_entry(catcher_name)
+
+    if is_mayhem:
+        if catcher_name in ["REC_RUNES", "EDIT_RUNES"]:
+            log.debug(f"[ResolutionUtils] {catcher_name} not available in ARAM: Mayhem mode")
+            return None
+        mayhem_overrides = CLICK_CATCHER_CONFIGS_MAYHEM.get(BASE_RESOLUTION_KEY, {})
+        if catcher_name in mayhem_overrides:
+            base_config = mayhem_overrides[catcher_name]
+
+    elif is_arena:
+        arena_overrides = CLICK_CATCHER_CONFIGS_ARENA.get(BASE_RESOLUTION_KEY, {})
+        if catcher_name in arena_overrides:
+            base_config = arena_overrides[catcher_name]
+
+    elif is_aram:
+        aram_overrides = CLICK_CATCHER_CONFIGS_ARAM.get(BASE_RESOLUTION_KEY, {})
+        if catcher_name in aram_overrides:
+            base_config = aram_overrides[catcher_name]
+
+    if not base_config:
+        log.warning(f"[ResolutionUtils] No base config found for catcher '{catcher_name}' to scale")
+        return None
+
+    scaled_config = _scale_rect_config(base_config, scale_x, scale_y)
+    log.debug(f"[ResolutionUtils] Scaled config for {catcher_name} at {resolution}: {scaled_config}")
+    return scaled_config
+
+
+def _build_scaled_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[int], queue_id: Optional[int]) -> Dict[str, Dict[str, int]]:
+    """Build scaled config dictionary for unsupported resolutions."""
+    scale_x, scale_y = _get_scaling_factors(resolution)
+
+    base_configs = CLICK_CATCHER_CONFIGS.get(BASE_RESOLUTION_KEY, {})
+    result = {name: _scale_rect_config(config, scale_x, scale_y) for name, config in base_configs.items()}
+
+    is_mayhem = queue_id == 2400
+    is_aram = (map_id == 12) and not is_mayhem
+    is_arena = map_id == 22
+
+    if is_mayhem:
+        result.pop("REC_RUNES", None)
+        result.pop("EDIT_RUNES", None)
+        mayhem_overrides = CLICK_CATCHER_CONFIGS_MAYHEM.get(BASE_RESOLUTION_KEY, {})
+        for name, config in mayhem_overrides.items():
+            result[name] = _scale_rect_config(config, scale_x, scale_y)
+    elif is_arena:
+        arena_overrides = CLICK_CATCHER_CONFIGS_ARENA.get(BASE_RESOLUTION_KEY, {})
+        for name, config in arena_overrides.items():
+            result[name] = _scale_rect_config(config, scale_x, scale_y)
+    elif is_aram:
+        aram_overrides = CLICK_CATCHER_CONFIGS_ARAM.get(BASE_RESOLUTION_KEY, {})
+        for name, config in aram_overrides.items():
+            result[name] = _scale_rect_config(config, scale_x, scale_y)
+
+    return result
+
+
 def get_resolution_key(resolution: Tuple[int, int]) -> Optional[str]:
     """
     Get the resolution key for a given resolution tuple
@@ -304,59 +466,26 @@ def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map
         Dictionary with x, y, width, height or None if not found
     """
     resolution_key = get_resolution_key(resolution)
-    if not resolution_key:
-        log.warning(f"[ResolutionUtils] Unsupported resolution: {resolution}")
-        return None
-    
+
     # Check for language-specific coordinates for ABILITIES and CLOSE_ABILITIES
     if language and catcher_name in ['ABILITIES', 'CLOSE_ABILITIES']:
         language_coords = get_language_specific_coordinates(language, resolution, catcher_name)
         if language_coords:
-            log.debug(f"[ResolutionUtils] Using language-specific config for {catcher_name} at {resolution_key} with language {language}")
+            log.debug(f"[ResolutionUtils] Using language-specific config for {catcher_name} at {resolution} with language {language}")
             return language_coords
         else:
             log.debug(f"[ResolutionUtils] No language-specific config found for {catcher_name} with language {language}, falling back to default")
-    
-    # Check if this catcher has gamemode-specific config
-    # Check for ARAM: Mayhem (queue_id 2400) first, then Arena, then ARAM
-    is_mayhem = queue_id == 2400
-    is_aram = (map_id == 12) and not is_mayhem  # ARAM but not Mayhem
-    is_arena = map_id == 22
-    
-    # Check ARAM: Mayhem config first (queue_id 2400)
-    if is_mayhem:
-        # Mayhem doesn't have REC_RUNES or EDIT_RUNES, so return None if requested
-        if catcher_name in ["REC_RUNES", "EDIT_RUNES"]:
-            log.debug(f"[ResolutionUtils] {catcher_name} not available in ARAM: Mayhem mode")
-            return None
-        # For Mayhem-specific catchers, use Mayhem config
-        if resolution_key in CLICK_CATCHER_CONFIGS_MAYHEM:
-            if catcher_name in CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key]:
-                log.debug(f"[ResolutionUtils] Using ARAM: Mayhem config for {catcher_name} at {resolution_key}")
-                return CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key][catcher_name].copy()
-    
-    # Check Arena config
-    if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
-        if catcher_name in CLICK_CATCHER_CONFIGS_ARENA[resolution_key]:
-            log.debug(f"[ResolutionUtils] Using Arena config for {catcher_name} at {resolution_key}")
-            return CLICK_CATCHER_CONFIGS_ARENA[resolution_key][catcher_name].copy()
-    
-    # Check ARAM config (standard ARAM, not Mayhem)
-    if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
-        if catcher_name in CLICK_CATCHER_CONFIGS_ARAM[resolution_key]:
-            log.debug(f"[ResolutionUtils] Using ARAM config for {catcher_name} at {resolution_key} (map_id={map_id})")
-            return CLICK_CATCHER_CONFIGS_ARAM[resolution_key][catcher_name].copy()
-    
-    # Fall back to default (Summoner's Rift) config
-    if resolution_key not in CLICK_CATCHER_CONFIGS:
-        log.warning(f"[ResolutionUtils] No config found for resolution: {resolution_key}")
-        return None
-    
-    if catcher_name not in CLICK_CATCHER_CONFIGS[resolution_key]:
-        log.warning(f"[ResolutionUtils] No config found for catcher '{catcher_name}' in resolution {resolution_key}")
-        return None
-    
-    return CLICK_CATCHER_CONFIGS[resolution_key][catcher_name].copy()
+
+    if resolution_key:
+        return _lookup_click_catcher_config(resolution_key, catcher_name, map_id, queue_id)
+
+    # Unsupported resolution - scale from base 1600x900 configuration
+    scaled_config = _get_scaled_click_catcher_config(resolution, catcher_name, map_id, queue_id)
+    if scaled_config:
+        return scaled_config
+
+    log.warning(f"[ResolutionUtils] No config found for catcher '{catcher_name}' at resolution {resolution}")
+    return None
 
 
 def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[int] = None, queue_id: Optional[int] = None) -> Optional[Dict[str, Dict[str, int]]]:
@@ -372,59 +501,40 @@ def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[
         Dictionary of all catcher configs or None if resolution not supported
     """
     resolution_key = get_resolution_key(resolution)
-    if not resolution_key:
-        log.warning(f"[ResolutionUtils] Unsupported resolution: {resolution}")
-        return None
-    
-    # Check if we should use gamemode-specific config
-    # Check for ARAM: Mayhem (queue_id 2400) first, then Arena, then ARAM
-    is_mayhem = queue_id == 2400
-    is_aram = (map_id == 12) and not is_mayhem  # ARAM but not Mayhem
-    is_arena = map_id == 22
-    
-    # Check ARAM: Mayhem config first (queue_id 2400)
-    if is_mayhem and resolution_key in CLICK_CATCHER_CONFIGS_MAYHEM:
-        # Start with default config and overlay Mayhem-specific values
-        result = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
-        
-        # Remove REC_RUNES and EDIT_RUNES for Mayhem (they don't exist)
-        result.pop("REC_RUNES", None)
-        result.pop("EDIT_RUNES", None)
-        
-        # Override with Mayhem-specific configs where they exist
-        for name, config in CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key].items():
-            result[name] = config.copy()
-        
-        return result
-    
-    # Check Arena config
-    if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
-        # Start with default config and overlay Arena-specific values
-        result = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
-        
-        # Override with Arena-specific configs where they exist
-        for name, config in CLICK_CATCHER_CONFIGS_ARENA[resolution_key].items():
-            result[name] = config.copy()
-        
-        return result
-    
-    # Check ARAM config (standard ARAM, not Mayhem)
-    if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
-        # Start with default config and overlay ARAM-specific values
-        result = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
-        
-        # Override with ARAM-specific configs where they exist
-        for name, config in CLICK_CATCHER_CONFIGS_ARAM[resolution_key].items():
-            result[name] = config.copy()
-        
-        return result
-    
-    if resolution_key not in CLICK_CATCHER_CONFIGS:
-        log.warning(f"[ResolutionUtils] No config found for resolution: {resolution_key}")
-        return None
-    
-    # Return a deep copy of all configs
-    return {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
+
+    if resolution_key:
+        # Check if we should use gamemode-specific config
+        is_mayhem = queue_id == 2400
+        is_aram = (map_id == 12) and not is_mayhem  # ARAM but not Mayhem
+        is_arena = map_id == 22
+
+        if resolution_key not in CLICK_CATCHER_CONFIGS:
+            log.warning(f"[ResolutionUtils] No config found for resolution: {resolution_key}")
+            return None
+
+        base_configs = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS[resolution_key].items()}
+
+        if is_mayhem and resolution_key in CLICK_CATCHER_CONFIGS_MAYHEM:
+            base_configs.pop("REC_RUNES", None)
+            base_configs.pop("EDIT_RUNES", None)
+            for name, config in CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key].items():
+                base_configs[name] = config.copy()
+            return base_configs
+
+        if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
+            for name, config in CLICK_CATCHER_CONFIGS_ARENA[resolution_key].items():
+                base_configs[name] = config.copy()
+            return base_configs
+
+        if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
+            for name, config in CLICK_CATCHER_CONFIGS_ARAM[resolution_key].items():
+                base_configs[name] = config.copy()
+            return base_configs
+
+        return base_configs
+
+    # Unsupported resolution - scale from base configuration
+    return _build_scaled_click_catcher_configs(resolution, map_id, queue_id)
 
 
 def is_supported_resolution(resolution: Tuple[int, int]) -> bool:
@@ -480,41 +590,40 @@ def get_language_specific_coordinates(language: str, resolution: Tuple[int, int]
         log.debug(f"[ResolutionUtils] Language {language} not found in configs, using default")
         return None
     
-    # Get resolution string
+    # Get resolution string if supported
     resolution_str = RESOLUTIONS.get(resolution)
-    if not resolution_str:
-        log.warning(f"[ResolutionUtils] Unsupported resolution for language coordinates: {resolution}")
+    if resolution_str and resolution_str in LANGUAGE_CONFIGS[language] and element in LANGUAGE_CONFIGS[language][resolution_str]:
+        lang_config = LANGUAGE_CONFIGS[language][resolution_str][element]
+        base_element_config = CLICK_CATCHER_CONFIGS.get(resolution_str, {}).get(element)
+        if not base_element_config:
+            log.warning(f"[ResolutionUtils] No base config found for element {element} at resolution {resolution_str}")
+            return None
+        return {
+            "x": lang_config["x"],
+            "y": base_element_config["y"],
+            "width": lang_config["width"],
+            "height": base_element_config["height"],
+        }
+
+    # Fallback: scale from base 1600x900 values
+    base_language_configs = LANGUAGE_CONFIGS[language].get(BASE_RESOLUTION_KEY)
+    if not base_language_configs or element not in base_language_configs:
+        log.debug(f"[ResolutionUtils] No base language config for element {element} in language {language}")
         return None
-    
-    if resolution_str not in LANGUAGE_CONFIGS[language]:
-        log.debug(f"[ResolutionUtils] Resolution {resolution_str} not found for language {language}")
-        return None
-    
-    if element not in LANGUAGE_CONFIGS[language][resolution_str]:
-        log.debug(f"[ResolutionUtils] Element {element} not found for language {language} at resolution {resolution_str}")
-        return None
-    
-    # Get language-specific coordinates for this resolution
-    lang_config = LANGUAGE_CONFIGS[language][resolution_str][element]
-    lang_x = lang_config["x"]
-    lang_width = lang_config["width"]
-    
-    # Y coordinates and height are the same for all languages (only x and width vary)
-    # Get these from the base resolution config
-    if resolution_str not in CLICK_CATCHER_CONFIGS:
-        log.warning(f"[ResolutionUtils] No base config found for resolution {resolution_str}")
-        return None
-    
-    base_element_config = CLICK_CATCHER_CONFIGS[resolution_str].get(element)
+
+    base_element_config = CLICK_CATCHER_CONFIGS.get(BASE_RESOLUTION_KEY, {}).get(element)
     if not base_element_config:
-        log.warning(f"[ResolutionUtils] No base config found for element {element} at resolution {resolution_str}")
+        log.warning(f"[ResolutionUtils] No base click catcher config for element {element} to scale")
         return None
-    
+
+    base_lang_config = base_language_configs[element]
+    scale_x, scale_y = _get_scaling_factors(resolution)
+
     return {
-        "x": lang_x,
-        "y": base_element_config["y"],
-        "width": lang_width,
-        "height": base_element_config["height"]
+        "x": _scale_position(base_lang_config["x"], scale_x),
+        "y": _scale_position(base_element_config["y"], scale_y),
+        "width": _scale_dimension(base_lang_config["width"], scale_x),
+        "height": _scale_dimension(base_element_config["height"], scale_y),
     }
 
 

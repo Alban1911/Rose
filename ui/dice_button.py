@@ -14,6 +14,10 @@ from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
+from utils.resolution_utils import (
+    scale_dimension_from_base,
+    scale_position_from_base,
+)
 
 log = get_logger()
 
@@ -103,25 +107,33 @@ class DiceButton(ChromaWidgetBase):
         window_width = window_right - window_left
         window_height = window_bottom - window_top
         
-        # Hardcoded positions for each resolution (no scaling)
+        # Hardcoded positions for core resolutions, scale from baseline otherwise
         if window_width == 1600 and window_height == 900:
-            # 1600x900 resolution (maximum)
             button_width = 46
             button_height = 27
-            target_x = 800 - (button_width // 2)
-            target_y = 754 - (button_height // 2)
-        elif window_width == 1024 and window_height == 576:
-            # 1024x576 resolution (minimum)
-            button_width = 28
-            button_height = 18
-            target_x = 512 - (button_width // 2)
-            target_y = 483 - (button_height // 2)
-        else:
-            # Fallback for other resolutions (use 1280x720 size)
+            center_x = 800
+            center_y = 754
+        elif window_width == 1280 and window_height == 720:
             button_width = 38
             button_height = 23
-            target_x = 640 - (button_width // 2)
-            target_y = 602 - (button_height // 2)
+            center_x = 640
+            center_y = 602
+        elif window_width == 1024 and window_height == 576:
+            button_width = 28
+            button_height = 18
+            center_x = 512
+            center_y = 483
+        else:
+            button_width = scale_dimension_from_base(46, (window_width, window_height), axis='x')
+            button_height = scale_dimension_from_base(27, (window_width, window_height), axis='y')
+            center_x = scale_position_from_base(800, (window_width, window_height), axis='x')
+            center_y = scale_position_from_base(754, (window_width, window_height), axis='y')
+            log.info(
+                f"[DiceButton] Scaled size for unsupported resolution {window_width}x{window_height}: {button_width}x{button_height}"
+            )
+
+        target_x = center_x - (button_width // 2)
+        target_y = center_y - (button_height // 2)
         
         # Set static size
         self.setFixedSize(button_width, button_height)
@@ -205,18 +217,26 @@ class DiceButton(ChromaWidgetBase):
             if window_width == 1600 and window_height == 900:
                 button_width = 46
                 button_height = 27
-                target_x = 800 - (button_width // 2)
-                target_y = 754 - (button_height // 2)
+                center_x = 800
+                center_y = 754
+            elif window_width == 1280 and window_height == 720:
+                button_width = 38
+                button_height = 23
+                center_x = 640
+                center_y = 602
             elif window_width == 1024 and window_height == 576:
                 button_width = 28
                 button_height = 18
-                target_x = 512 - (button_width // 2)
-                target_y = 483 - (button_height // 2)
+                center_x = 512
+                center_y = 483
             else:
-                button_width = 38
-                button_height = 23
-                target_x = 640 - (button_width // 2)
-                target_y = 602 - (button_height // 2)
+                button_width = scale_dimension_from_base(46, (window_width, window_height), axis='x')
+                button_height = scale_dimension_from_base(27, (window_width, window_height), axis='y')
+                center_x = scale_position_from_base(800, (window_width, window_height), axis='x')
+                center_y = scale_position_from_base(754, (window_width, window_height), axis='y')
+
+            target_x = center_x - (button_width // 2)
+            target_y = center_y - (button_height // 2)
             widget_hwnd = int(self.winId())
             HWND_TOP = 0
             ctypes.windll.user32.SetWindowPos(

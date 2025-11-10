@@ -8,18 +8,22 @@ Manages the injection process and coordinates with UI detection system
 # Standard library imports
 import threading
 import time
+import random
+import sys
+import shutil
 from pathlib import Path
 from typing import Optional
 
 # Local imports
 from config import (
-    INJECTION_THRESHOLD_SECONDS,
     PERSISTENT_MONITOR_CHECK_INTERVAL_S,
     PERSISTENT_MONITOR_IDLE_INTERVAL_S,
     PERSISTENT_MONITOR_WAIT_TIMEOUT_S,
     PERSISTENT_MONITOR_WAIT_INTERVAL_S,
     PERSISTENT_MONITOR_AUTO_RESUME_S,
-    INJECTION_LOCK_TIMEOUT_S
+    INJECTION_LOCK_TIMEOUT_S,
+    get_config_float,
+    get_config_file_path
 )
 from utils.logging import get_logger, log_section, log_event, log_success, log_action
 
@@ -31,17 +35,19 @@ log = get_logger()
 class InjectionManager:
     """Manages skin injection with automatic triggering"""
     
-    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
+    def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None, shared_state=None):
         self.tools_dir = tools_dir
         self.mods_dir = mods_dir
         self.zips_dir = zips_dir
         self.game_dir = game_dir
+        self.shared_state = shared_state  # Reference to shared state for accessing UISkinThread
         self.injector = None  # Will be initialized lazily
         self.last_skin_name = None
         self.last_injection_time = 0.0
-        self.injection_threshold = INJECTION_THRESHOLD_SECONDS
+        self.injection_threshold = get_config_float("General", "injection_threshold", 0.5)
         self.injection_lock = threading.Lock()
         self._initialized = False
+        self._last_threshold_value = self.injection_threshold
         self.current_champion = None
         self._injection_in_progress = False  # Track if injection is running
         self._cleanup_in_progress = False  # Track if cleanup is running
@@ -51,16 +57,60 @@ class InjectionManager:
         self._monitor_active = False
         self._monitor_thread = None
         self._suspended_game_process = None
+        self._runoverlay_started = False  # Flag to prevent suspending after runoverlay starts
+        
+        # Tools folder renaming
+        self._tools_renamed = False  # Track if tools folder has been renamed
+        self._tools_random_value = None  # Store the random value used for renaming
+
+    def _refresh_injection_threshold(self) -> None:
+        """Reload injection threshold from config so tray changes apply immediately."""
+        try:
+            new_value = get_config_float("General", "injection_threshold", 0.5)
+        except Exception as exc:  # noqa: BLE001
+            log.debug(f"[INJECT] Failed to refresh injection threshold: {exc}")
+            return
+
+        # Allow 0 as a special case for no cooldown, but guard against negatives.
+        new_value = max(0.0, float(new_value))
+
+        if abs(new_value - self._last_threshold_value) < 1e-6:
+            return
+
+        self.injection_threshold = new_value
+        self._last_threshold_value = new_value
+
+        if self.shared_state is not None:
+            try:
+                self.shared_state.skin_write_ms = max(0, int(new_value * 1000))
+            except Exception as exc:  # noqa: BLE001
+                log.debug(f"[INJECT] Failed to propagate skin_write_ms update: {exc}")
+
+        log.info(f"[INJECT] Injection threshold reloaded: {new_value:.2f}s")
+
+    def refresh_injection_threshold(self) -> float:
+        """Public helper to reload injection threshold from config."""
+        self._refresh_injection_threshold()
+        return self.injection_threshold
     
     def _ensure_initialized(self):
         """Initialize the injector lazily when first needed"""
         if not self._initialized:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock
+                    # Use renamed tools_dir if available, otherwise use the default
+                    tools_dir_to_use = self.tools_dir if self.tools_dir else None
+                    
                     log_action(log, "Initializing injection system...", "💉")
-                    self.injector = SkinInjector(self.tools_dir, self.mods_dir, self.zips_dir, self.game_dir)
-                    self._initialized = True
-                    log_success(log, "Injection system initialized successfully", "✅")
+                    self.injector = SkinInjector(tools_dir_to_use, self.mods_dir, self.zips_dir, self.game_dir)
+                    # Only mark as initialized if we have a valid game directory
+                    if self.injector.game_dir is not None:
+                        self._initialized = True
+                        log_success(log, "Injection system initialized successfully", "✅")
+                    else:
+                        log.error("[INJECT] Cannot initialize injection system - League game directory not found")
+                        log.error("[INJECT] Please ensure League Client is running or manually set the path in config.ini")
+                        self._initialized = False
     
     def _start_monitor(self):
         """Start game monitor - watches for game and suspends it"""
@@ -69,6 +119,7 @@ class InjectionManager:
         
         self._monitor_active = True
         self._suspended_game_process = None
+        self._runoverlay_started = False  # Reset flag when starting new monitor
         
         def game_monitor():
             """Monitor for game process and suspend immediately when found"""
@@ -80,9 +131,15 @@ class InjectionManager:
                 suspension_start_time = None
                 
                 while self._monitor_active:
+                    # Don't suspend if runoverlay has already started - exit monitor entirely
+                    if self._runoverlay_started:
+                        log.debug("[monitor] runoverlay started - stopping monitor")
+                        self._monitor_active = False
+                        break
+                    
                     # If we've already suspended the game, check for safety timeout
                     if self._suspended_game_process is not None:
-                        # Check safety timeout to auto-resume
+                        # Check safety timeout to auto-resume (prevent permanent freeze)
                         if suspension_start_time is not None:
                             elapsed = time.time() - suspension_start_time
                             if elapsed >= PERSISTENT_MONITOR_AUTO_RESUME_S:
@@ -90,51 +147,73 @@ class InjectionManager:
                                 log.warning(f"[monitor] Injection took too long - releasing game to prevent freeze")
                                 try:
                                     self._suspended_game_process.resume()
-                                    self._suspended_game_process = None
-                                    suspension_start_time = None
+                                    log.info("[monitor] Auto-resumed game successfully")
                                 except Exception as e:
                                     log.error(f"[monitor] Auto-resume error: {e}")
-                            break
-                        
-                        time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
-                        continue
-                    
-                    # Look for game process
-                    for proc in psutil.process_iter(['name', 'pid']):
-                        if not self._monitor_active:
-                            break
-                            
-                        if proc.info['name'] == 'League of Legends.exe':
-                            try:
-                                game_proc = psutil.Process(proc.info['pid'])
-                                log_event(log, "Game process found", "🎮", {"PID": proc.info['pid']})
-                                
-                                # Try to suspend immediately
-                                try:
-                                    game_proc.suspend()
-                                    self._suspended_game_process = game_proc
-                                    suspension_start_time = time.time()  # Start safety timer
-                                    log_event(log, "Game suspended", "⏸️", {
-                                        "PID": proc.info['pid'],
-                                        "Auto-resume": f"{PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s"
-                                    })
-                                    break
-                                except psutil.AccessDenied:
-                                    log.error("[monitor] ACCESS DENIED - Cannot suspend game")
-                                    log.error("[monitor] Try running LeagueUnlocked as Administrator")
-                                    self._monitor_active = False
-                                    break
-                                except Exception as e:
-                                    log.error(f"[monitor] Failed to suspend: {e}")
-                                    break
-                                    
-                            except psutil.NoSuchProcess:
-                                continue
-                            except Exception as e:
-                                log.error(f"[monitor] Error: {e}")
+                                    # Try to resume one more time, but don't block on it
+                                    try:
+                                        import psutil
+                                        # Check if process still exists
+                                        if self._suspended_game_process.status() == psutil.STATUS_STOPPED:
+                                            self._suspended_game_process.resume()
+                                            log.info("[monitor] Auto-resume retry succeeded")
+                                    except Exception as retry_e:
+                                        log.error(f"[monitor] Auto-resume retry failed: {retry_e}")
+                                # Always clear reference and stop monitor after auto-resume attempt
+                                # Even if resume failed, we can't keep trying forever
+                                self._suspended_game_process = None
+                                suspension_start_time = None
+                                log.info("[monitor] Stopping monitor after auto-resume - runoverlay should have hooked")
+                                self._monitor_active = False
                                 break
+                        
+                    # Keep monitoring while game is suspended (wait for runoverlay to finish)
+                    time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
+                    continue
                     
-                    time.sleep(PERSISTENT_MONITOR_CHECK_INTERVAL_S)
+                # Look for game process
+                for proc in psutil.process_iter(['name', 'pid']):
+                    if not self._monitor_active:
+                        break
+                    
+                    if proc.info['name'] == 'League of Legends.exe':
+                        try:
+                            game_proc = psutil.Process(proc.info['pid'])
+                            log_event(log, "Game process found", "🎮", {"PID": proc.info['pid']})
+                            
+                            # Try to suspend immediately
+                            try:
+                                game_proc.suspend()
+                                self._suspended_game_process = game_proc
+                                suspension_start_time = time.time()  # Start safety timer
+                                log_event(log, "Game suspended", "⏸️", {
+                                    "PID": proc.info['pid'],
+                                    "Auto-resume": f"{PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s"
+                                })
+                                break
+                            except psutil.AccessDenied:
+                                log.error("[monitor] ACCESS DENIED - Cannot suspend game")
+                                log.error("[monitor] Try running LeagueUnlocked as Administrator")
+                                self._monitor_active = False
+                                # Clear reference if we couldn't suspend (game is running anyway)
+                                self._suspended_game_process = None
+                                break
+                            except Exception as e:
+                                log.error(f"[monitor] Failed to suspend: {e}")
+                                # Clear reference on error (game might not be suspended)
+                                self._suspended_game_process = None
+                                break
+                                
+                        except psutil.NoSuchProcess:
+                            continue
+                        except Exception as e:
+                            log.error(f"[monitor] Error: {e}")
+                            # Clear reference on error to prevent leaving game suspended
+                            self._suspended_game_process = None
+                            break
+                
+                # Sleep after checking all processes (not after each process)
+                time.sleep(PERSISTENT_MONITOR_CHECK_INTERVAL_S)
                 
                 log.debug("[monitor] Stopped")
                 
@@ -171,6 +250,9 @@ class InjectionManager:
     
     def resume_game(self):
         """Resume the suspended game (called when runoverlay starts)"""
+        # Set flag to prevent monitor from suspending after runoverlay starts
+        self._runoverlay_started = True
+        
         if self._suspended_game_process is not None:
             try:
                 import psutil
@@ -218,6 +300,10 @@ class InjectionManager:
                 
             except Exception as e:
                 log.error(f"[monitor] Error resuming game: {e}")
+                # CRITICAL: Clear reference even on error to prevent permanent lock
+                # If resume failed, _stop_monitor() will try again later
+                self._suspended_game_process = None
+                self._monitor_active = False
     
     def resume_if_suspended(self):
         """Resume game if monitor suspended it (for when injection is skipped)"""
@@ -247,19 +333,34 @@ class InjectionManager:
             return
         
         self._ensure_initialized()
+        self.refresh_injection_threshold()
+        
+        # Don't attempt injection if system isn't properly initialized
+        if not self._initialized or self.injector is None or self.injector.game_dir is None:
+            return
             
         with self.injection_lock:
             current_time = time.time()
-            
-            # If skin changed or enough time passed, trigger injection
-            if (skin_name != self.last_skin_name or 
-                current_time - self.last_injection_time >= self.injection_threshold):
-                
-                success = self.injector.inject_skin(skin_name)
-                
-                if success:
-                    self.last_skin_name = skin_name
-                    self.last_injection_time = current_time
+
+            elapsed = current_time - self.last_injection_time
+            if self.last_injection_time and elapsed < self.injection_threshold:
+                remaining = self.injection_threshold - elapsed
+                log.debug(f"[INJECT] Skipping injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                return
+
+            # Disconnect from UIA window when injection threshold triggers
+            # (launcher closes when game starts, so the window is gone)
+            if self.shared_state and self.shared_state.ui_skin_thread:
+                try:
+                    self.shared_state.ui_skin_thread.force_disconnect()
+                except Exception as e:
+                    log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
+
+            success = self.injector.inject_skin(skin_name)
+
+            if success:
+                self.last_skin_name = skin_name
+                self.last_injection_time = current_time
     
     def on_loadout_countdown(self, seconds_remaining: int):
         """Called during loadout countdown - no longer used (monitor starts with injection)"""
@@ -276,6 +377,13 @@ class InjectionManager:
             chroma_id: Optional chroma ID for chroma variant
         """
         self._ensure_initialized()
+        self.refresh_injection_threshold()
+        
+        # Don't attempt injection if system isn't properly initialized
+        if not self._initialized or self.injector is None or self.injector.game_dir is None:
+            log.error("[INJECT] Cannot inject - League game directory not found")
+            log.error("[INJECT] Please ensure League Client is running or manually set the path in config.ini")
+            return False
         
         # Check if injection already in progress
         if self._injection_in_progress:
@@ -291,24 +399,28 @@ class InjectionManager:
         try:
             self._injection_in_progress = True
             log.debug(f"[INJECT] Injection started - lock acquired for: {skin_name}")
+
+            current_time = time.time()
+            elapsed = current_time - self.last_injection_time
+            if self.last_injection_time and elapsed < self.injection_threshold:
+                remaining = self.injection_threshold - elapsed
+                log.debug(f"[INJECT] Skipping immediate injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                return False
+
+            # Disconnect from UIA window when injection happens
+            # (launcher closes when game starts, so the window is gone)
+            if self.shared_state and self.shared_state.ui_skin_thread:
+                try:
+                    self.shared_state.ui_skin_thread.force_disconnect()
+                except Exception as e:
+                    log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
             
             # Start monitor now (only when injection actually happens)
+            # Monitor runs in background and will suspend game if/when it finds it
+            # Injection proceeds immediately - suspension is optional and helps prevent file locks
             if not self._monitor_active:
                 log.info("[INJECT] Starting game monitor for injection")
                 self._start_monitor()
-            
-            # Wait briefly for monitor to find and suspend game
-            if self._monitor_active and self._suspended_game_process is None:
-                import time
-                log.debug("[INJECT] Waiting for monitor to suspend game...")
-                wait_start = time.time()
-                while time.time() - wait_start < PERSISTENT_MONITOR_WAIT_TIMEOUT_S and self._suspended_game_process is None:
-                    time.sleep(PERSISTENT_MONITOR_WAIT_INTERVAL_S)
-                
-                if self._suspended_game_process is not None:
-                    log.debug(f"[INJECT] Game suspended by monitor after {time.time() - wait_start:.2f}s")
-                else:
-                    log.debug(f"[INJECT] Monitor didn't suspend game in {PERSISTENT_MONITOR_WAIT_TIMEOUT_S}s - will wait during injection")
             
             # Pass the manager instance so injector can call resume_game()
             success = self.injector.inject_skin(
@@ -322,7 +434,7 @@ class InjectionManager:
             
             if success:
                 self.last_skin_name = skin_name
-                self.last_injection_time = time.time()
+                self.last_injection_time = current_time
             
             return success
         finally:
@@ -330,7 +442,8 @@ class InjectionManager:
             self.injection_lock.release()
             log.debug(f"[INJECT] Injection completed - lock released")
             
-            # Stop monitor after injection completes
+            # Stop monitor after injection completes (this will resume game if still suspended)
+            # Note: Monitor may have already stopped if game ended, but that's fine
             self._stop_monitor()
     
     def inject_skin_for_testing(self, skin_name: str) -> bool:
@@ -339,13 +452,27 @@ class InjectionManager:
             return False
             
         self._ensure_initialized()
-        with self.injection_lock:
-            success = self.injector.inject_skin_for_testing(skin_name)
+        self.refresh_injection_threshold()
+        
+        # Don't attempt injection if system isn't properly initialized
+        if not self._initialized or self.injector is None or self.injector.game_dir is None:
+            log.error("[INJECT] Cannot inject - League game directory not found")
+            return False
             
+        with self.injection_lock:
+            current_time = time.time()
+            elapsed = current_time - self.last_injection_time
+            if self.last_injection_time and elapsed < self.injection_threshold:
+                remaining = self.injection_threshold - elapsed
+                log.debug(f"[INJECT] Skipping testing injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                return False
+
+            success = self.injector.inject_skin(skin_name)
+
             if success:
                 self.last_skin_name = skin_name
-                self.last_injection_time = time.time()
-            
+                self.last_injection_time = current_time
+                log.info(f"[INJECT] Test injection successful for: {skin_name}")
             return success
     
     def clean_system(self) -> bool:
@@ -423,3 +550,155 @@ class InjectionManager:
         
         cleanup = threading.Thread(target=cleanup_thread, daemon=True, name="CleanupThread")
         cleanup.start()
+    
+    def _get_injection_dir(self) -> Path:
+        """Get the injection directory path (works in both frozen and development environments)"""
+        import sys
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable (PyInstaller)
+            # Handle both onefile (_MEIPASS) and onedir (_internal) modes
+            if hasattr(sys, '_MEIPASS'):
+                # One-file mode: tools are in _MEIPASS (temporary extraction directory)
+                base_path = Path(sys._MEIPASS)
+                injection_dir = base_path / "injection"
+            else:
+                # One-dir mode: tools are alongside executable
+                base_dir = Path(sys.executable).parent
+                possible_injection_dirs = [
+                    base_dir / "injection",  # Direct path
+                    base_dir / "_internal" / "injection",  # _internal folder
+                ]
+                
+                injection_dir = None
+                for dir_path in possible_injection_dirs:
+                    if dir_path.exists():
+                        injection_dir = dir_path
+                        break
+                
+                if not injection_dir:
+                    injection_dir = possible_injection_dirs[0]
+        else:
+            # Running as Python script
+            injection_dir = Path(__file__).parent.parent / "injection"
+        
+        return injection_dir
+    
+    def rename_tools_folder(self) -> bool:
+        """Handle tools folder in League of Legends game directory.
+        Checks for tools_RANDOMVALUE in game directory, renames if exists, or copies from app root if not.
+        This is called every time we enter ChampSelect, generating a new random value each time.
+        
+        The tools folder in the app root is used as a blueprint and is never renamed.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # First, verify config.ini exists
+            config_path = get_config_file_path()
+            
+            if not config_path.exists():
+                log.warning(f"[INJECT] config.ini not found at {config_path}, skipping tools folder operation")
+                return False
+            
+            # Ensure injector is initialized to get game directory
+            self._ensure_initialized()
+            
+            if not self._initialized or self.injector is None or self.injector.game_dir is None:
+                log.warning("[INJECT] Cannot handle tools folder - game directory not available")
+                return False
+            
+            game_dir = self.injector.game_dir
+            injection_dir = self._get_injection_dir()
+            
+            # Get the blueprint tools folder from app root (never rename this)
+            blueprint_tools_dir = injection_dir / "tools"
+            if not blueprint_tools_dir.exists():
+                log.warning(f"[INJECT] Blueprint tools folder not found in {injection_dir}")
+                return False
+            
+            # Check in game directory for existing tools_RANDOMVALUE folder
+            existing_tools_dir = None
+            try:
+                if game_dir.exists():
+                    for item in game_dir.iterdir():
+                        if item.is_dir() and item.name.startswith("tools_"):
+                            existing_tools_dir = item
+                            break
+            except (OSError, PermissionError) as e:
+                log.warning(f"[INJECT] Could not check game directory: {e}")
+                return False
+            
+            # Generate new random 10-digit number (retry if collision occurs)
+            max_retries = 10
+            random_value = None
+            new_tools_dir = None
+            for _ in range(max_retries):
+                random_value = random.randint(1000000000, 9999999999)
+                new_tools_dir = game_dir / f"tools_{random_value}"
+                if not new_tools_dir.exists():
+                    break
+            else:
+                log.error(f"[INJECT] Failed to generate unique tools folder name after {max_retries} attempts")
+                return False
+            
+            # If tools_RANDOMVALUE exists in game directory, rename it
+            if existing_tools_dir is not None:
+                # Make sure we don't try to rename to the same name
+                if existing_tools_dir.name == new_tools_dir.name:
+                    log.debug(f"[INJECT] Tools folder already has the same name: {new_tools_dir.name}")
+                    self._tools_renamed = True
+                    self._tools_random_value = str(random_value)
+                    self.tools_dir = existing_tools_dir
+                    if self.injector is not None:
+                        self.injector.tools_dir = existing_tools_dir
+                    return True
+                
+                try:
+                    existing_tools_dir.rename(new_tools_dir)
+                    self._tools_renamed = True
+                    self._tools_random_value = str(random_value)
+                    self.tools_dir = new_tools_dir
+                    
+                    log_success(log, f"Renamed tools folder from {existing_tools_dir.name} to tools_{random_value} in game directory", "🔄")
+                    
+                    # Update injector's tools_dir if already initialized
+                    if self.injector is not None:
+                        self.injector.tools_dir = new_tools_dir
+                        log.debug(f"[INJECT] Updated injector's tools_dir to {new_tools_dir}")
+                    
+                    return True
+                except OSError as e:
+                    log.error(f"[INJECT] Failed to rename tools folder in game directory: {e}")
+                    return False
+            else:
+                # Tools folder doesn't exist in game directory - copy from blueprint
+                try:
+                    shutil.copytree(blueprint_tools_dir, new_tools_dir)
+                    self._tools_renamed = True
+                    self._tools_random_value = str(random_value)
+                    self.tools_dir = new_tools_dir
+                    
+                    log_success(log, f"Copied tools folder to game directory as tools_{random_value}", "📋")
+                    
+                    # Update injector's tools_dir if already initialized
+                    if self.injector is not None:
+                        self.injector.tools_dir = new_tools_dir
+                        log.debug(f"[INJECT] Updated injector's tools_dir to {new_tools_dir}")
+                    
+                    return True
+                except OSError as e:
+                    log.error(f"[INJECT] Failed to copy tools folder to game directory: {e}")
+                    return False
+                
+        except Exception as e:
+            log.error(f"[INJECT] Error handling tools folder: {e}")
+            import traceback
+            log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
+            return False
+    
+    def reset_tools_rename_flag(self):
+        """Reset the tools rename flag when leaving ChampSelect"""
+        self._tools_renamed = False
+        self._tools_random_value = None
+        log.debug("[INJECT] Reset tools rename flag")

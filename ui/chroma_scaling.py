@@ -8,6 +8,10 @@ Provides dynamic scaling based on League window resolution
 from typing import Tuple, Optional
 from utils.window_utils import get_league_window_client_size
 import config
+from utils.resolution_utils import (
+    scale_dimension_from_base,
+    scale_position_from_base,
+)
 
 
 # DEPRECATED - Scaling cache removed, now using hard-coded values
@@ -84,29 +88,29 @@ class ScaledChromaValues:
                 self.panel_x = config_values['panel_x']
                 self.panel_y = config_values['panel_y']
         else:
-            # Fallback to 1600x900 values for unsupported resolutions
+            # Fallback: scale from 1600x900 baseline values
             fallback_config = config.CHROMA_PANEL_CONFIGS[(1600, 900)]
-            self.preview_width = fallback_config['preview_width']
-            self.preview_height = fallback_config['preview_height']
-            self.circle_radius = fallback_config['circle_radius']
-            self.window_width = fallback_config['window_width']
-            self.window_height = fallback_config['window_height']
-            self.circle_spacing = fallback_config['circle_spacing']
-            self.button_size = fallback_config['button_size']
-            self.button_width = fallback_config['button_width']
-            self.button_height = fallback_config['button_height']
-            self.screen_edge_margin = fallback_config['screen_edge_margin']
-            self.preview_x = fallback_config['preview_x']
-            self.preview_y = fallback_config['preview_y']
-            self.row_y_offset = fallback_config['row_y_offset']
-            
-            # Use Swiftplay-specific panel positions if in Swiftplay mode
+
+            self.preview_width = scale_dimension_from_base(fallback_config['preview_width'], self.resolution, axis='x')
+            self.preview_height = scale_dimension_from_base(fallback_config['preview_height'], self.resolution, axis='y')
+            self.circle_radius = scale_dimension_from_base(fallback_config['circle_radius'], self.resolution, axis='y')
+            self.window_width = scale_dimension_from_base(fallback_config['window_width'], self.resolution, axis='x')
+            self.window_height = scale_dimension_from_base(fallback_config['window_height'], self.resolution, axis='y')
+            self.circle_spacing = scale_dimension_from_base(fallback_config['circle_spacing'], self.resolution, axis='y')
+            self.button_size = scale_dimension_from_base(fallback_config['button_size'], self.resolution, axis='y')
+            self.button_width = scale_dimension_from_base(fallback_config['button_width'], self.resolution, axis='x')
+            self.button_height = scale_dimension_from_base(fallback_config['button_height'], self.resolution, axis='y')
+            self.screen_edge_margin = scale_dimension_from_base(fallback_config['screen_edge_margin'], self.resolution, axis='x')
+            self.preview_x = scale_position_from_base(fallback_config['preview_x'], self.resolution, axis='x')
+            self.preview_y = scale_position_from_base(fallback_config['preview_y'], self.resolution, axis='y')
+            self.row_y_offset = scale_dimension_from_base(fallback_config['row_y_offset'], self.resolution, axis='y')
+
             if self.is_swiftplay:
-                self.panel_x = fallback_config['swiftplay_panel_x']
-                self.panel_y = fallback_config['swiftplay_panel_y']
+                self.panel_x = scale_position_from_base(fallback_config['swiftplay_panel_x'], self.resolution, axis='x')
+                self.panel_y = scale_position_from_base(fallback_config['swiftplay_panel_y'], self.resolution, axis='y')
             else:
-                self.panel_x = fallback_config['panel_x']
-                self.panel_y = fallback_config['panel_y']
+                self.panel_x = scale_position_from_base(fallback_config['panel_x'], self.resolution, axis='x')
+                self.panel_y = scale_position_from_base(fallback_config['panel_y'], self.resolution, axis='y')
         
         # Button visual dimensions (fixed values)
         # Increase gold border by 1px for maximum resolution (1600x900)

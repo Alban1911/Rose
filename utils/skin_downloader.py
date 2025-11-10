@@ -8,7 +8,7 @@ Automatically downloads skins from the GitHub repository
 import time
 import requests
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Callable, List, Dict, Optional
 from utils.logging import get_logger
 from utils.paths import get_skins_dir
 from config import (
@@ -17,6 +17,8 @@ from config import (
 )
 
 log = get_logger()
+
+ProgressCallback = Callable[[int, Optional[str]], None]
 
 
 class SkinDownloader:
@@ -248,8 +250,14 @@ class SkinDownloader:
         return removed_count
 
 
-def download_skins_on_startup(target_dir: Path = None, force_update: bool = False, 
-                            max_champions: Optional[int] = None, tray_manager=None, injection_manager=None) -> bool:
+def download_skins_on_startup(
+    target_dir: Path = None,
+    force_update: bool = False,
+    max_champions: Optional[int] = None,
+    tray_manager=None,
+    injection_manager=None,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> bool:
     """Download skins using repository ZIP download (most efficient method)"""
     try:
         # Note: Tray status is now managed by AppStatus class in main.py
@@ -257,7 +265,12 @@ def download_skins_on_startup(target_dir: Path = None, force_update: bool = Fals
         
         from utils.repo_downloader import download_skins_from_repo
         log.info("Downloading skins from repository ZIP...")
-        result = download_skins_from_repo(target_dir, force_update, tray_manager)
+        result = download_skins_from_repo(
+            target_dir,
+            force_update,
+            tray_manager,
+            progress_callback=progress_callback,
+        )
         if injection_manager:
             injection_manager.initialize_when_ready()
         return result

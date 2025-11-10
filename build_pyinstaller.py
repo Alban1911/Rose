@@ -12,6 +12,15 @@ import time
 from pathlib import Path
 
 
+MIN_PYTHON = (3, 11)
+if sys.version_info < MIN_PYTHON:
+    sys.stderr.write(
+        f"LeagueUnlocked build scripts require Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer.\n"
+        "Please re-run using an updated interpreter.\n"
+    )
+    sys.exit(1)
+
+
 def print_header(title):
     """Print a formatted header"""
     print("\n" + "=" * 70)

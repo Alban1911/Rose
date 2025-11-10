@@ -42,7 +42,7 @@ class WSEventThread(threading.Thread):
     
     def __init__(self, lcu: LCU, state: SharedState, ping_interval: int = WS_PING_INTERVAL_DEFAULT, 
                  ping_timeout: int = WS_PING_TIMEOUT_DEFAULT, timer_hz: int = TIMER_HZ_DEFAULT, fallback_ms: int = FALLBACK_LOADOUT_MS_DEFAULT, 
-                 injection_manager=None, skin_scraper=None, app_status_callback=None):
+                 injection_manager=None, skin_scraper=None, app_status_callback=None, app_status=None):
         super().__init__(daemon=True)
         self.lcu = lcu
         self.state = state
@@ -55,8 +55,10 @@ class WSEventThread(threading.Thread):
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
         self.app_status_callback = app_status_callback
+        self.app_status = app_status  # Store app_status to check if app is ready
         self.ticker: Optional[LoadoutTicker] = None
         self.last_locked_champion_id = None  # Track previously locked champion for exchange detection
+        self._injection_42003_done = False  # Track if injection 42003 has been done
 
     def _handle_champion_exchange(self, old_champ_id: int, new_champ_id: int, new_champ_label: str):
         """Handle champion exchange by resetting all state and reinitializing for new champion"""
@@ -80,6 +82,10 @@ class WSEventThread(threading.Thread):
         # Reset locked champion state
         self.state.locked_champ_id = new_champ_id
         self.state.locked_champ_timestamp = time.time()
+        
+        # Ensure flag is set (exchange is a new lock of different champion)
+        # Note: Exchange handler already triggers pipeline manually, so we just set the flag
+        self.state.own_champion_locked = True
         
         # Reset HistoricMode state so it restarts for the new champion
         try:
@@ -137,6 +143,96 @@ class WSEventThread(threading.Thread):
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
+    def _on_own_champion_locked(self, champion_id: int, champion_label: str, old_champ_id: Optional[int] = None):
+        """Handle own champion lock event - triggers detection/UI pipeline if needed
+        
+        Args:
+            champion_id: ID of the locked champion
+            champion_label: Label/name of the locked champion
+            old_champ_id: Previous champion ID (before update) for exchange detection
+            
+        Pipeline triggers when:
+        - First lock (own_champion_locked is False)
+        - Champion exchange (own_champion_locked is True but champion_id changed)
+        Pipeline does NOT trigger when:
+        - Re-lock of same champion (own_champion_locked is True and same champion_id)
+        """
+        # Check if pipeline should trigger
+        should_trigger = False
+        
+        if not self.state.own_champion_locked:
+            # First lock - always trigger
+            should_trigger = True
+            log.debug(f"[lock:champ] First champion lock detected - triggering pipeline")
+        elif old_champ_id is not None and old_champ_id != champion_id:
+            # Champion exchange - trigger pipeline for new champion
+            should_trigger = True
+            log.debug(f"[lock:champ] Champion exchange detected (old={old_champ_id}, new={champion_id}) - triggering pipeline")
+        elif old_champ_id is not None and old_champ_id == champion_id:
+            # Re-lock of same champion - skip pipeline
+            log.debug(f"[lock:champ] Re-lock of same champion ({champion_id}) - skipping pipeline")
+        else:
+            # Fallback: if old_champ_id is None, check against current locked_champ_id
+            # This handles edge cases where old_champ_id wasn't provided
+            if self.state.locked_champ_id != champion_id:
+                should_trigger = True
+                log.debug(f"[lock:champ] Champion change detected (current={self.state.locked_champ_id}, new={champion_id}) - triggering pipeline")
+            else:
+                log.debug(f"[lock:champ] Re-lock of same champion ({champion_id}) - skipping pipeline")
+        
+        # Set flag to True
+        self.state.own_champion_locked = True
+        
+        # Trigger pipeline if needed
+        if should_trigger:
+            separator = "=" * 80
+            log.info(separator)
+            log.info(f"🎮 YOUR CHAMPION LOCKED")
+            log.info(f"   📋 Champion: {champion_label}")
+            log.info(f"   📋 ID: {champion_id}")
+            log.info(separator)
+            
+            # Clear UIA cache to ensure fresh detection (prevents using stale cached elements)
+            if self.state.ui_skin_thread:
+                try:
+                    self.state.ui_skin_thread.clear_cache()
+                    log.debug("[lock:champ] UIA cache cleared")
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to clear UIA cache: {e}")
+            
+            # Scrape skins for this champion from LCU
+            if self.skin_scraper:
+                try:
+                    self.skin_scraper.scrape_champion_skins(champion_id)
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
+            
+            # Notify injection manager of champion lock
+            if self.injection_manager:
+                try:
+                    self.injection_manager.on_champion_locked(champion_label, champion_id, self.state.owned_skin_ids)
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to notify injection manager: {e}")
+            
+            # Create chroma panel widgets on champion lock
+            chroma_selector = get_chroma_selector()
+            if chroma_selector:
+                try:
+                    chroma_selector.panel.request_create()
+                    log.debug(f"[lock:champ] Requested chroma panel creation for {champion_label}")
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
+            
+            # Create ClickCatchers on champion lock (when not in Swiftplay)
+            from ui.user_interface import get_user_interface
+            user_interface = get_user_interface(self.state, self.skin_scraper)
+            if user_interface:
+                try:
+                    user_interface.create_click_catchers()
+                    log.debug(f"[lock:champ] Requested ClickCatcher creation for {champion_label}")
+                except Exception as e:
+                    log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
+
     def _maybe_start_timer(self, sess: dict):
         """Start timer if conditions are met - ONLY on FINALIZATION phase"""
         t = (sess.get("timer") or {})
@@ -148,9 +244,10 @@ class WSEventThread(threading.Thread):
         # ONLY start timer on FINALIZATION phase (final countdown before game start)
         # This prevents starting too early when all champions are locked but bans are still in progress
         if phase_timer == "FINALIZATION":
-            # Update phase to FINALIZATION if we're currently in OwnChampionLocked or ChampSelect
+            # Update phase to FINALIZATION if we're currently in ChampSelect
             # This ensures the phase transition happens even if the websocket event doesn't fire
-            if self.state.phase in ["OwnChampionLocked", "ChampSelect"]:
+            # Note: own_champion_locked flag can coexist with FINALIZATION phase
+            if self.state.phase == "ChampSelect":
                 if self.state.phase != "FINALIZATION":
                     log_status(log, "Phase", "FINALIZATION", "🎯")
                     self.state.phase = "FINALIZATION"
@@ -201,22 +298,23 @@ class WSEventThread(threading.Thread):
         
         if uri == "/lol-gameflow/v1/gameflow-phase":
             ph = payload.get("data")
-            if isinstance(ph, str) and ph != self.state.phase:
-                # Don't overwrite OwnChampionLocked phase - it's a custom phase set when our champion locks
-                if self.state.phase == "OwnChampionLocked":
-                    # Allow transition to FINALIZATION (for loadout ticker) or GameStart/InProgress, or back to ChampSelect
-                    if ph in ["FINALIZATION", "GameStart", "InProgress", "ChampSelect"]:
-                        if ph in INTERESTING_PHASES:
-                            log_status(log, "Phase", ph, "🎯")
-                        self.state.phase = ph
-                elif ph is not None:
-                    if ph in INTERESTING_PHASES:
-                        log_status(log, "Phase", ph, "🎯")
-                    self.state.phase = ph
+            # Phase transitions are handled by phase_thread
+            # own_champion_locked flag can coexist with any phase
+            if isinstance(ph, str) and ph != self.state.phase and ph is not None:
+                if ph in INTERESTING_PHASES:
+                    log_status(log, "Phase", ph, "🎯")
+                self.state.phase = ph
                 
                 if ph == "ChampSelect":
                     # Detect game mode FIRST to get accurate is_swiftplay_mode flag
                     self._detect_game_mode()
+
+                    if self.injection_manager:
+                        try:
+                            new_threshold = self.injection_manager.refresh_injection_threshold()
+                            log.info(f"[WS] Injection threshold refreshed for ChampSelect: {new_threshold:.2f}s")
+                        except Exception as exc:  # noqa: BLE001
+                            log.warning(f"[WS] Failed to refresh injection threshold in ChampSelect: {exc}")
                     
                     if self.state.is_swiftplay_mode:
                         log.debug("[WS] ChampSelect in Swiftplay mode - skipping normal reset")
@@ -285,7 +383,7 @@ class WSEventThread(threading.Thread):
                     log.debug("[WS] State reset complete - ready for new champion select")
                 
                 elif ph == "FINALIZATION":
-                    # FINALIZATION phase - ClickCatcherHide creation now handled in OwnChampionLocked
+                    # FINALIZATION phase - ClickCatcherHide creation now handled when own champion is locked
                     log_event(log, "Entering FINALIZATION phase", "🎯")
                         
                 elif ph == "InProgress":
@@ -380,58 +478,19 @@ class WSEventThread(threading.Thread):
                     else:
                         # This is a new champion lock (first lock or re-lock of same champion)
                         champ_label = f"#{new_champ_id}"
-                        separator = "=" * 80
-                        log.info(separator)
-                        log.info(f"🎮 YOUR CHAMPION LOCKED")
-                        log.info(f"   📋 Champion: {champ_label}")
-                        log.info(f"   📋 ID: {new_champ_id}")
                         log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
-                        log.info(separator)
+                        
+                        # Store old champion ID before update for exchange detection
+                        old_champ_id = self.state.locked_champ_id
+                        
                         self.state.locked_champ_id = new_champ_id
                         self.state.locked_champ_timestamp = time.time()  # Record lock time
-                        # Reset historic detection state for this champion
-                        self.state.historic_mode_active = False
-                        self.state.historic_skin_id = None
-                        self.state.historic_first_detection_done = False
+                        # Note: Historic Mode is only reset on champion exchange (handled in _handle_champion_exchange)
+                        # We don't reset it here because the same champion can lock multiple times during ChampSelect
+                        # and Historic Mode should persist across these re-locks
                         
-                        # Trigger OwnChampionLocked phase - set phase state
-                        log_status(log, "Phase", "OwnChampionLocked", "🎯")
-                        self.state.phase = "OwnChampionLocked"
-                        
-                        # Scrape skins for this champion from LCU
-                        if self.skin_scraper:
-                            try:
-                                self.skin_scraper.scrape_champion_skins(new_champ_id)
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to scrape champion skins: {e}")
-                        
-                        # English skin names are now loaded by LCU skin scraper
-                        
-                        # Notify injection manager of champion lock
-                        if self.injection_manager:
-                            try:
-                                self.injection_manager.on_champion_locked(champ_label, new_champ_id, self.state.owned_skin_ids)
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to notify injection manager: {e}")
-                        
-                        # Create chroma panel widgets on champion lock
-                        chroma_selector = get_chroma_selector()
-                        if chroma_selector:
-                            try:
-                                chroma_selector.panel.request_create()
-                                log.debug(f"[lock:champ] Requested chroma panel creation for {champ_label}")
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
-                        
-                        # Create ClickCatchers on champion lock (when not in Swiftplay)
-                        from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper)
-                        if user_interface:
-                            try:
-                                user_interface.create_click_catchers()
-                                log.debug(f"[lock:champ] Requested ClickCatcher creation for {champ_label}")
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
+                        # Trigger pipeline using flag-based system
+                        self._on_own_champion_locked(new_champ_id, champ_label, old_champ_id)
                         
                         # Update tracking
                         self.last_locked_champion_id = new_champ_id
@@ -479,6 +538,103 @@ class WSEventThread(threading.Thread):
         if self.app_status_callback:
             self.app_status_callback()
         
+        # Inject skin 42003 when websocket connects (runs in background, waits for app to be ready)
+        if not self._injection_42003_done and self.injection_manager:
+            def injection_42003_thread():
+                """Background thread to inject skin 42003 when websocket connects"""
+                try:
+                    # Wait for app to be ready (with timeout)
+                    max_wait_app_ready = 60  # Wait up to 60 seconds for app to be ready
+                    wait_start = time.time()
+                    while (not self.app_status or not self.app_status.is_ready) and \
+                          (time.time() - wait_start < max_wait_app_ready):
+                        time.sleep(0.5)  # Check every 500ms
+                    
+                    if not self.app_status or not self.app_status.is_ready:
+                        log.warning("[INJECT] App not ready within timeout, skipping skin 42003 injection")
+                        return
+                    
+                    # Ensure injection system is initialized
+                    if not self.injection_manager._initialized:
+                        self.injection_manager._ensure_initialized()
+                    
+                    # Wait for initialization if needed
+                    max_wait_init = 5
+                    wait_start_init = time.time()
+                    while (not self.injection_manager._initialized or 
+                           not self.injection_manager.injector or 
+                           not self.injection_manager.injector.game_dir) and \
+                          (time.time() - wait_start_init < max_wait_init):
+                        time.sleep(0.1)
+                    
+                    if (not self.injection_manager._initialized or 
+                        not self.injection_manager.injector or 
+                        not self.injection_manager.injector.game_dir):
+                        log.warning("[INJECT] Injection system not ready, skipping skin 42003 injection")
+                        return
+                    
+                    # Ensure tools folder is set up in game directory (tools_RANDOMVALUE)
+                    log.info("[INJECT] Setting up tools folder in game directory...")
+                    try:
+                        self.injection_manager.rename_tools_folder()
+                    except Exception as e:
+                        log.warning(f"[INJECT] Failed to set up tools folder: {e}")
+                        return
+                    
+                    log.info("[INJECT] Injecting skin 42003 on websocket connection...")
+                    # Inject using skin ID format (hardcoded, not using shared state)
+                    skin_id = 42003
+                    from utils.utilities import get_champion_id_from_skin_id
+                    champion_id = get_champion_id_from_skin_id(skin_id)
+                    skin_name = f"skin_{skin_id}"
+                    
+                    # Start injection in a separate thread since it's blocking
+                    def injection_exec_thread():
+                        try:
+                            self.injection_manager.injector.inject_skin(
+                                skin_name, 
+                                injection_manager=self.injection_manager, 
+                                champion_id=champion_id
+                            )
+                        except Exception as e:
+                            log.error(f"[INJECT] Injection thread error: {e}")
+                    
+                    threading.Thread(target=injection_exec_thread, daemon=True).start()
+                    
+                    # Wait for overlay process to start (poll for it)
+                    max_wait_overlay = 30  # Wait up to 30 seconds for overlay to start
+                    wait_start_overlay = time.time()
+                    overlay_started = False
+                    while time.time() - wait_start_overlay < max_wait_overlay:
+                        if (self.injection_manager.injector and 
+                            self.injection_manager.injector.current_overlay_process is not None):
+                            overlay_started = True
+                            log.info("[INJECT] Overlay process started, waiting 1 second before killing...")
+                            break
+                        time.sleep(0.1)  # Check every 100ms
+                    
+                    if overlay_started:
+                        # Wait 1 second after overlay starts
+                        time.sleep(1.0)
+                        log.info("[INJECT] Killing overlay process after 1 second...")
+                        self.injection_manager.stop_overlay_process()
+                        
+                        # Rename tools folder after injection (cleanup)
+                        log.info("[INJECT] Renaming tools folder after injection...")
+                        try:
+                            self.injection_manager.rename_tools_folder()
+                        except Exception as e:
+                            log.warning(f"[INJECT] Failed to rename tools folder after injection: {e}")
+                        
+                        self._injection_42003_done = True  # Mark as done to prevent re-injection
+                    else:
+                        log.warning("[INJECT] Overlay process did not start within timeout")
+                except Exception as e:
+                    log.error(f"[INJECT] Error in skin 42003 injection thread: {e}")
+            
+            # Start injection thread (non-blocking)
+            threading.Thread(target=injection_42003_thread, daemon=True).start()
+        
         try: 
             ws.send('[5,"OnJsonApiEvent"]')
         except Exception as e: 
@@ -513,6 +669,9 @@ class WSEventThread(threading.Thread):
         
         # Mark WebSocket as disconnected
         self.is_connected = False
+        
+        # Reset injection flag so it can run again on next connection
+        self._injection_42003_done = False
         
         # Update app status to reflect LCU disconnection
         if self.app_status_callback:

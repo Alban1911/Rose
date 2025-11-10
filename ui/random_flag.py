@@ -13,6 +13,10 @@ from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
 from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
+from utils.resolution_utils import (
+    scale_dimension_from_base,
+    scale_position_from_base,
+)
 
 log = get_logger()
 
@@ -99,22 +103,29 @@ class RandomFlag(ChromaWidgetBase):
                 log.warning("[RandomFlag] Failed to load random_flag.png")
                 return
             
-            # Hardcoded positions and sizes for each resolution
+            # Hardcoded positions and sizes for key resolutions; scale from baseline otherwise
             if window_width == 1600 and window_height == 900:
-                # 1600x900 resolution
                 flag_size = 36
-                target_x = 800 - (flag_size // 2)
-                target_y = 723 - (flag_size // 2)
-            elif window_width == 1024 and window_height == 576:
-                # 1024x576 resolution
-                flag_size = 24
-                target_x = 512 - (flag_size // 2)
-                target_y = 463 - (flag_size // 2)
-            else:
-                # Fallback for other resolutions (use 1280x720 values)
+                center_x = 800
+                center_y = 723
+            elif window_width == 1280 and window_height == 720:
                 flag_size = 26
-                target_x = 640 - (flag_size // 2)
-                target_y = 578 - (flag_size // 2)
+                center_x = 640
+                center_y = 578
+            elif window_width == 1024 and window_height == 576:
+                flag_size = 24
+                center_x = 512
+                center_y = 463
+            else:
+                flag_size = scale_dimension_from_base(36, (window_width, window_height), axis='y')
+                center_x = scale_position_from_base(800, (window_width, window_height), axis='x')
+                center_y = scale_position_from_base(723, (window_width, window_height), axis='y')
+                log.info(
+                    f"[RandomFlag] Scaled size for unsupported resolution {window_width}x{window_height}: {flag_size}"
+                )
+
+            target_x = center_x - (flag_size // 2)
+            target_y = center_y - (flag_size // 2)
             
             # Set static size
             self.setFixedSize(flag_size, flag_size)
@@ -194,16 +205,23 @@ class RandomFlag(ChromaWidgetBase):
             window_height = window_bottom - window_top
             if window_width == 1600 and window_height == 900:
                 flag_size = 36
-                target_x = 800 - (flag_size // 2)
-                target_y = 723 - (flag_size // 2)
+                center_x = 800
+                center_y = 723
+            elif window_width == 1280 and window_height == 720:
+                flag_size = 26
+                center_x = 640
+                center_y = 578
             elif window_width == 1024 and window_height == 576:
                 flag_size = 24
-                target_x = 512 - (flag_size // 2)
-                target_y = 463 - (flag_size // 2)
+                center_x = 512
+                center_y = 463
             else:
-                flag_size = 26
-                target_x = 640 - (flag_size // 2)
-                target_y = 578 - (flag_size // 2)
+                flag_size = scale_dimension_from_base(36, (window_width, window_height), axis='y')
+                center_x = scale_position_from_base(800, (window_width, window_height), axis='x')
+                center_y = scale_position_from_base(723, (window_width, window_height), axis='y')
+
+            target_x = center_x - (flag_size // 2)
+            target_y = center_y - (flag_size // 2)
             widget_hwnd = int(self.winId())
             HWND_TOP = 0
             ctypes.windll.user32.SetWindowPos(

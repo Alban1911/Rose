@@ -38,6 +38,16 @@ class PhaseThread(threading.Thread):
         self._injection_triggered = False
         self._last_matchmaking_state = None
 
+        # Lobby mode monitoring (poll at 5 Hz)
+        self._lobby_mode_check_interval = 0.2  # seconds
+        self._last_lobby_check = 0.0
+        self._last_lobby_mode = None
+        self._last_lobby_queue = None
+        self._last_logged_mode = None
+        self._last_logged_queue = None
+        self._swiftplay_champ_check_interval = 0.5
+        self._last_swiftplay_champ_check = 0.0
+
     def run(self):
         """Main thread loop"""
         while not self.state.stop:
@@ -47,77 +57,38 @@ class PhaseThread(threading.Thread):
                 log.debug(f"LCU refresh failed in phase thread: {e}")
             
             ph = self.lcu.phase if self.lcu.ok else None
+            if ph == "None":
+                ph = None
             # If phase is unknown (None), skip handling to avoid spurious UI destruction
             if ph is None:
+                # Update shared phase to reflect the absence of a gameflow phase
+                self.state.phase = None
+                # When gameflow phase becomes None, finalize any Swiftplay cleanup
+                if self.state.is_swiftplay_mode:
+                    self._cleanup_swiftplay_exit()
+                elif self.state.swiftplay_extracted_mods:
+                    # Ensure non-Swiftplay games drop any leftover mods
+                    self.state.swiftplay_extracted_mods = []
+
                 time.sleep(self.interval)
                 continue
-            if ph != self.last_phase:
+
+            phase_changed = (ph != self.last_phase)
+
+            if ph == "Lobby":
+                self._process_lobby_state(force=phase_changed)
+
+            if phase_changed:
                 # Log phase transition whenever LCU phase changes (ph != last_phase)
                 # This ensures we always log phase transitions, even if websocket thread already set state.phase
                 if ph is not None and self.log_transitions and ph in self.INTERESTING:
                     log_status(log, "Phase", ph, "🎯")
                 
-                # Don't overwrite OwnChampionLocked phase (set by websocket thread on champion lock)
-                if self.state.phase == "OwnChampionLocked":
-                    # Allow transition to FINALIZATION (for loadout ticker) or GameStart/InProgress
-                    # The websocket thread handles the transition, but if phase polling sees FINALIZATION, allow it
-                    if ph == "FINALIZATION":
-                        self.state.phase = ph
-                    # Otherwise, let websocket thread handle the transition
-                elif ph is not None:
+                # Update phase (own_champion_locked flag can coexist with any phase)
+                if ph is not None:
                     self.state.phase = ph
                 
-                if ph == "Lobby":
-                    # Force game mode detection in lobby phase
-                    log.debug("[phase] Lobby phase detected - checking game mode...")
-                    
-                    # Try to detect game mode directly
-                    game_mode = None
-                    try:
-                        if self.lcu.ok:
-                            # Check multiple endpoints for Swiftplay detection
-                            game_mode = self._detect_swiftplay_in_lobby()
-                    except Exception as e:
-                        log.debug(f"[phase] Error detecting game mode in lobby: {e}")
-                    
-                    # Check if this is Swiftplay mode
-                    is_swiftplay = (game_mode == "SWIFTPLAY") or (self.lcu.is_swiftplay if self.lcu.ok else False)
-                    log.debug(f"[phase] Swiftplay mode check: {is_swiftplay} (game_mode: {game_mode})")
-                    
-                    if is_swiftplay:
-                        if not self.state.is_swiftplay_mode:
-                            log_action(log, "Swiftplay lobby detected - triggering early skin detection", "⚡")
-                            # For Swiftplay, trigger skin detection and UI immediately in lobby
-                            self._handle_swiftplay_lobby()
-                        else:
-                            # Already in Swiftplay mode, continue monitoring
-                            # Monitor matchmaking state for injection triggering
-                            self._monitor_swiftplay_matchmaking()
-                    else:
-                        # Cleanup operations when entering regular Lobby
-                        # Clear Swiftplay skin tracking if we're leaving Swiftplay mode
-                        if self.state.is_swiftplay_mode:
-                            log.info("[phase] Clearing Swiftplay skin tracking - leaving Swiftplay mode")
-                            self.state.swiftplay_skin_tracking.clear()
-                        
-                        if self.injection_manager:
-                            # Kill any existing runoverlay processes from previous game
-                            try:
-                                self.injection_manager.kill_all_runoverlay_processes()
-                                log_action(log, "Killed all runoverlay processes for Lobby", "🧹")
-                            except Exception as e:
-                                log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
-                        
-                        # Request UI destruction for regular Lobby
-                        try:
-                            from ui.user_interface import get_user_interface
-                            user_interface = get_user_interface(self.state, self.skin_scraper)
-                            user_interface.request_ui_destruction()
-                            log_action(log, "UI destruction requested for Lobby", "🏠")
-                        except Exception as e:
-                            log.warning(f"[phase] Failed to request UI destruction for Lobby: {e}")
-                
-                elif ph == "Matchmaking":
+                if ph == "Matchmaking":
                     # Matchmaking phase - for Swiftplay, trigger injection
                     if self.state.is_swiftplay_mode:
                         log.info("[phase] Matchmaking phase detected in Swiftplay mode - triggering injection")
@@ -140,6 +111,7 @@ class PhaseThread(threading.Thread):
                         self.state.locked_champ_id = None  # Reset first
                         self.state.locked_champ_timestamp = 0.0  # Reset lock timestamp
                         self.state.champion_exchange_triggered = False  # Reset champion exchange flag
+                        self.state.own_champion_locked = False  # Reset flag for new game
                     
                     # Backup UI initialization if websocket thread didn't handle it
                     # This ensures UI is created even if websocket event was missed or already processed
@@ -158,6 +130,13 @@ class PhaseThread(threading.Thread):
                     log_action(log, "GameStart detected - UI will be destroyed after injection", "🚀")
                 
                 elif ph == "InProgress":
+                    # Reset tools rename flag when leaving ChampSelect
+                    if self.injection_manager:
+                        try:
+                            self.injection_manager.reset_tools_rename_flag()
+                        except Exception as e:
+                            log.debug(f"[phase] Failed to reset tools rename flag: {e}")
+                    
                     # Game in progress - request UI destruction
                     try:
                         from ui.user_interface import get_user_interface
@@ -177,6 +156,13 @@ class PhaseThread(threading.Thread):
                             log.debug(f"[phase] Error destroying chroma panel: {e}")
                 
                 elif ph == "EndOfGame":
+                    # Reset tools rename flag when leaving ChampSelect
+                    if self.injection_manager:
+                        try:
+                            self.injection_manager.reset_tools_rename_flag()
+                        except Exception as e:
+                            log.debug(f"[phase] Failed to reset tools rename flag: {e}")
+                    
                     # Game ended → request UI destruction and stop overlay process
                     try:
                         from ui.user_interface import get_user_interface
@@ -193,10 +179,6 @@ class PhaseThread(threading.Thread):
                         except Exception as e:
                             log.warning(f"[phase] Failed to stop overlay process: {e}")
                     
-                    # Reset Swiftplay flag after game ends
-                    self.state.is_swiftplay_mode = False
-                    self.state.swiftplay_extracted_mods = []
-                    
                 elif ph == "ReadyCheck":
                     # ReadyCheck phase - preserve Swiftplay state, don't reset
                     if not self.state.is_swiftplay_mode:
@@ -212,7 +194,14 @@ class PhaseThread(threading.Thread):
                 else:
                     # Exit champ select or other phases → request UI destruction and reset counter/timer
                     # Skip reset for Swiftplay mode (handled separately)
-                    if not self.state.is_swiftplay_mode and ph is not None and self.state.phase != "OwnChampionLocked":
+                    if not self.state.is_swiftplay_mode and ph is not None:
+                        # Reset tools rename flag when leaving ChampSelect
+                        if self.injection_manager and self.last_phase == "ChampSelect":
+                            try:
+                                self.injection_manager.reset_tools_rename_flag()
+                            except Exception as e:
+                                log.debug(f"[phase] Failed to reset tools rename flag: {e}")
+                        
                         try:
                             from ui.user_interface import get_user_interface
                             user_interface = get_user_interface(self.state, self.skin_scraper)
@@ -231,9 +220,106 @@ class PhaseThread(threading.Thread):
                         self.state.last_hover_written = False
                         self.state.is_swiftplay_mode = False  # Reset Swiftplay flag
                 
+                if self.last_phase == "Lobby" and ph != "Lobby":
+                    if self.state.is_swiftplay_mode:
+                        self._cleanup_swiftplay_exit()
+
+                    # Reset lobby tracking when leaving the lobby phase
+                    self._last_lobby_mode = None
+                    self._last_lobby_queue = None
+                    self._last_lobby_check = 0.0
+
                 self.last_phase = ph
+            elif ph == "Lobby":
+                # Phase unchanged but still in lobby – continue monitoring for mode changes
+                self._process_lobby_state(force=False)
             time.sleep(self.interval)
     
+    def _process_lobby_state(self, force: bool = False):
+        """Monitor lobby state and detect Swiftplay mode changes."""
+        now = time.time()
+        if not force and (now - self._last_lobby_check) < self._lobby_mode_check_interval:
+            return
+
+        self._last_lobby_check = now
+
+        detected_mode = None
+        detected_queue = None
+
+        try:
+            if self.lcu.ok:
+                detected_mode, detected_queue = self._detect_swiftplay_in_lobby()
+        except Exception as e:
+            log.debug(f"[phase] Error detecting game mode in lobby: {e}")
+
+        if detected_mode:
+            self.state.current_game_mode = detected_mode
+        if detected_queue is not None:
+            self.state.current_queue_id = detected_queue
+
+        is_swiftplay = False
+        if detected_mode == "SWIFTPLAY":
+            is_swiftplay = True
+        elif detected_mode is None and self.lcu.ok and self.lcu.is_swiftplay:
+            is_swiftplay = True
+
+        previous_mode = self._last_lobby_mode
+        previous_queue = self._last_lobby_queue
+        swiftplay_previous = self.state.is_swiftplay_mode
+
+        mode_changed = detected_mode is not None and detected_mode != previous_mode
+        queue_changed = detected_queue is not None and detected_queue != previous_queue
+        swiftplay_changed = is_swiftplay != swiftplay_previous
+
+        effective_mode = detected_mode if detected_mode is not None else ("SWIFTPLAY" if is_swiftplay else previous_mode)
+
+        if mode_changed or queue_changed or swiftplay_changed:
+            prev_mode_label = previous_mode or "UNKNOWN"
+            new_mode_label = effective_mode or prev_mode_label
+            prev_queue_label = previous_queue if previous_queue is not None else "-"
+            new_queue_label = detected_queue if detected_queue is not None else prev_queue_label
+            log.info(f"[phase] Lobby game mode updated: {prev_mode_label} → {new_mode_label} (queue: {prev_queue_label} → {new_queue_label})")
+
+        if is_swiftplay:
+            if swiftplay_changed or force or mode_changed or queue_changed:
+                if not swiftplay_previous:
+                    log_action(log, "Swiftplay lobby detected - triggering early skin detection", "⚡")
+                self._handle_swiftplay_lobby()
+            else:
+                # Already in Swiftplay mode, continue monitoring
+                self._monitor_swiftplay_matchmaking()
+                self._poll_swiftplay_champion_selection()
+        else:
+            if swiftplay_previous and (swiftplay_changed or force or mode_changed or queue_changed):
+                self._cleanup_swiftplay_exit()
+
+            if swiftplay_changed or force or mode_changed or queue_changed:
+                if self.injection_manager:
+                    try:
+                        self.injection_manager.kill_all_runoverlay_processes()
+                        log_action(log, "Killed all runoverlay processes for Lobby", "🧹")
+                    except Exception as e:
+                        log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
+
+                try:
+                    from ui.user_interface import get_user_interface
+                    user_interface = get_user_interface(self.state, self.skin_scraper)
+                    user_interface.request_ui_destruction()
+                    log_action(log, "UI destruction requested for Lobby", "🏠")
+                except Exception as e:
+                    log.warning(f"[phase] Failed to request UI destruction for Lobby: {e}")
+
+            self.state.is_swiftplay_mode = False
+
+        if effective_mode is not None:
+            self._last_lobby_mode = effective_mode
+        if detected_queue is not None:
+            self._last_lobby_queue = detected_queue
+        if effective_mode is not None:
+            self._last_logged_mode = effective_mode
+        if detected_queue is not None:
+            self._last_logged_queue = detected_queue
+
     def _handle_swiftplay_lobby(self):
         """Handle Swiftplay lobby - trigger early skin detection and UI"""
         try:
@@ -263,6 +349,18 @@ class PhaseThread(threading.Thread):
             self.state.current_game_mode = game_mode
             self.state.current_map_id = map_id
             self.state.is_swiftplay_mode = True
+            self._last_swiftplay_champ_check = 0.0
+
+            # Ensure UIA thread can reconnect for Swiftplay lobby monitoring
+            ui_thread = getattr(self.state, "ui_skin_thread", None)
+            if ui_thread is not None and hasattr(ui_thread, "_injection_disconnect_active"):
+                ui_thread._injection_disconnect_active = False
+                if hasattr(ui_thread, "stop_event") and getattr(ui_thread, "stop_event"):
+                    try:
+                        ui_thread.stop_event.clear()
+                    except Exception:
+                        pass
+                log.debug("[phase] Reset UIA injection disconnect flag for Swiftplay lobby")
             
             log.info(f"[phase] Swiftplay lobby - Game mode: {game_mode}, Map ID: {map_id}")
             
@@ -316,6 +414,7 @@ class PhaseThread(threading.Thread):
                 log.info(f"[phase] Swiftplay champion selected: {champion_id}")
                 self.state.locked_champ_id = champion_id
                 self.state.locked_champ_timestamp = time.time()
+                self.state.own_champion_locked = True
                 
                 # Trigger skin scraping for the selected champion
                 if self.skin_scraper:
@@ -464,6 +563,91 @@ class PhaseThread(threading.Thread):
         except Exception as e:
             log.debug(f"[phase] Error monitoring Swiftplay matchmaking: {e}")
     
+    def _poll_swiftplay_champion_selection(self):
+        """Periodically poll Swiftplay champion selection until we detect our lock."""
+        now = time.time()
+        if (now - self._last_swiftplay_champ_check) < self._swiftplay_champ_check_interval:
+            return
+
+        self._last_swiftplay_champ_check = now
+
+        # Skip polling if we already recorded a champion lock
+        if self.state.own_champion_locked and self.state.locked_champ_id:
+            return
+
+        try:
+            champion_selection = self.lcu.get_swiftplay_champion_selection()
+            if champion_selection:
+                self._process_swiftplay_champion_selection(champion_selection)
+        except Exception as e:
+            log.debug(f"[phase] Error polling Swiftplay champion selection: {e}")
+
+    def _cleanup_swiftplay_exit(self):
+        """Clear Swiftplay-specific state and stop UIA detection when leaving the lobby."""
+        try:
+            log.info("[phase] Clearing Swiftplay skin tracking - leaving Swiftplay mode")
+
+            try:
+                self.state.swiftplay_skin_tracking.clear()
+            except Exception:
+                self.state.swiftplay_skin_tracking = {}
+
+            try:
+                self.state.swiftplay_extracted_mods.clear()
+            except Exception:
+                self.state.swiftplay_extracted_mods = []
+
+            # Reset UI-related shared state
+            self.state.ui_skin_id = None
+            self.state.ui_last_text = None
+            self.state.last_hovered_skin_id = None
+            self.state.last_hovered_skin_key = None
+
+            # Reset champion lock state to prevent stale detections
+            self.state.own_champion_locked = False
+            self.state.locked_champ_id = None
+            self.state.locked_champ_timestamp = 0.0
+
+            # Stop UIA detection and clear its caches
+            ui_thread = getattr(self.state, "ui_skin_thread", None)
+            if ui_thread is not None:
+                try:
+                    ui_thread.clear_cache()
+                except Exception as e:
+                    log.debug(f"[phase] Failed to clear UIA cache after Swiftplay exit: {e}")
+
+                try:
+                    connection = getattr(ui_thread, "connection", None)
+                    if connection and hasattr(connection, "is_connected") and connection.is_connected():
+                        connection.disconnect()
+                except Exception as e:
+                    log.debug(f"[phase] Failed to disconnect UIA after Swiftplay exit: {e}")
+
+                ui_thread.detection_available = False
+                ui_thread.detection_attempts = 0
+                # Ensure the UIA thread isn't left in a stopped state
+                if hasattr(ui_thread, "stop_event"):
+                    try:
+                        ui_thread.stop_event.clear()
+                    except Exception:
+                        pass
+                # Ensure UIA can reconnect the next time Swiftplay lobby is entered
+                if hasattr(ui_thread, "_injection_disconnect_active"):
+                    ui_thread._injection_disconnect_active = False
+                if hasattr(ui_thread, "_last_phase"):
+                    ui_thread._last_phase = None
+
+            # Reset matchmaking helpers used for Swiftplay
+            self._last_matchmaking_state = None
+            self._injection_triggered = False
+            self._last_swiftplay_champ_check = 0.0
+
+            # Ensure Swiftplay flag is cleared for subsequent phases
+            self.state.is_swiftplay_mode = False
+
+        except Exception as e:
+            log.warning(f"[phase] Error while cleaning up Swiftplay state: {e}")
+
     def _trigger_swiftplay_injection(self):
         """Trigger injection system for Swiftplay mode with all tracked skins"""
         try:
@@ -603,61 +787,53 @@ class PhaseThread(threading.Thread):
     
     
     def _detect_swiftplay_in_lobby(self):
-        """Detect Swiftplay mode in lobby using multiple API endpoints"""
+        """Detect lobby game mode using multiple API endpoints."""
         try:
+            game_mode = None
+            queue_id = None
+
             # Check gameflow session first
             session = self.lcu.get("/lol-gameflow/v1/session")
-            
+
             if session and isinstance(session, dict):
                 game_data = session.get("gameData", {})
                 if "queue" in game_data:
                     queue = game_data.get("queue", {})
-                    game_mode = queue.get("gameMode")
-                    log.debug(f"[phase] Detected game mode in lobby: {game_mode}")
-                    
-                    # Also check for other Swiftplay indicators
-                    queue_id = queue.get("queueId")
-                    log.debug(f"[phase] Queue ID: {queue_id}")
-                    
-                    # Check if this might be Swiftplay based on queue ID
-                    if queue_id and "swift" in str(queue_id).lower():
-                        log.debug(f"[phase] Potential Swiftplay detected via queue ID: {queue_id}")
-                        return "SWIFTPLAY"
-                    
-                    if game_mode == "SWIFTPLAY":
-                        log.debug(f"[phase] Swiftplay detected via gameMode: {game_mode}")
-                        return game_mode
+                    game_mode = queue.get("gameMode") or game_mode
+                    queue_id = queue.get("queueId") or queue_id
+
+                    if queue_id and "swift" in str(queue_id).lower() and game_mode != "SWIFTPLAY":
+                        game_mode = "SWIFTPLAY"
             else:
-                log.debug("[phase] No game session data available in lobby")
-            
+                pass
+
             # Check lobby endpoints for Swiftplay indicators
             lobby_endpoints = [
                 "/lol-lobby/v2/lobby",
                 "/lol-lobby/v2/lobby/matchmaking/search-state",
                 "/lol-lobby/v1/parties/me"
             ]
-            
+
             for endpoint in lobby_endpoints:
                 try:
                     data = self.lcu.get(endpoint)
                     if data and isinstance(data, dict):
-                        # Look for Swiftplay indicators in lobby data
                         if "gameMode" in data and data.get("gameMode") == "SWIFTPLAY":
-                            log.debug(f"[phase] Swiftplay detected in {endpoint}")
-                            return "SWIFTPLAY"
-                        
+                            game_mode = "SWIFTPLAY"
+
                         if "queueId" in data:
-                            queue_id = data.get("queueId")
-                            if queue_id and "swift" in str(queue_id).lower():
-                                log.debug(f"[phase] Swiftplay detected via queue ID in {endpoint}: {queue_id}")
-                                return "SWIFTPLAY"
-                                
+                            endpoint_queue = data.get("queueId")
+                            if endpoint_queue is not None:
+                                queue_id = endpoint_queue
+                                if "swift" in str(endpoint_queue).lower():
+                                    game_mode = "SWIFTPLAY"
+
                 except Exception as e:
                     log.debug(f"[phase] Error checking {endpoint}: {e}")
                     continue
-            
-            return None
-            
+
+            return game_mode, queue_id
+
         except Exception as e:
             log.debug(f"[phase] Error in Swiftplay detection: {e}")
-            return None
+            return None, None
