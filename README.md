@@ -11,7 +11,7 @@ conda create -n leagueunlocked python=3.11 -y
 conda activate leagueunlocked
 
 # Clone the repository
-git clone https://github.com/AlbanCliquet/LeagueUnlocked.git
+git clone https://github.com/Alban1911/LeagueUnlocked.git
 
 # Navigate to project directory (adjust path as needed)
 cd ".\LeagueUnlocked"

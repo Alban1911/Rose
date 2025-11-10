@@ -40,7 +40,7 @@ class RepoDownloader:
     def __init__(
         self,
         target_dir: Path = None,
-        repo_url: str = "https://github.com/AlbanCliquet/LeagueSkins",
+        repo_url: str = "https://github.com/Alban1911/LeagueSkins",
         progress_callback: Optional[ProgressCallback] = None,
     ):
         self.repo_url = repo_url
@@ -55,7 +55,7 @@ class RepoDownloader:
         
         # State tracking for incremental updates
         self.state_file = self.target_dir / '.repo_state.json'
-        self.api_base = "https://api.github.com/repos/AlbanCliquet/LeagueSkins"
+        self.api_base = "https://api.github.com/repos/Alban1911/LeagueSkins"
     
     def _emit_progress(self, percent: float, message: Optional[str] = None):
         if not self.progress_callback:
