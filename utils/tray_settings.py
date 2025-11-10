@@ -17,6 +17,15 @@ except ImportError:  # pragma: no cover - optional dependency
     Image = None  # type: ignore
 
 from config import get_config_float, set_config_option
+from utils.admin_utils import (
+    is_admin,
+    is_registered_for_autostart,
+    register_autostart,
+    unregister_autostart,
+    show_autostart_removed_dialog,
+    show_autostart_success_dialog,
+    show_message_box_threaded,
+)
 from utils.logging import get_logger
 from utils.paths import get_asset_path
 from utils.license_client import LicenseClient
@@ -48,6 +57,11 @@ MB_ICONINFORMATION = 0x00000040
 MB_ICONERROR = 0x00000010
 MB_TOPMOST = 0x00040000
 WS_EX_TOOLWINDOW = 0x00000080
+BS_AUTOCHECKBOX = 0x00000003
+BM_GETCHECK = 0x00F0
+BM_SETCHECK = 0x00F1
+BST_UNCHECKED = 0x0000
+BST_CHECKED = 0x0001
 
 
 class InjectionSettingsWindow(Win32Window):
@@ -56,6 +70,7 @@ class InjectionSettingsWindow(Win32Window):
     SAVE_ID = 3103
     CANCEL_ID = 3104
     LICENSE_LABEL_ID = 3105
+    AUTOSTART_ID = 3106
     LICENSE_SERVER_URL = "https://api.leagueunlocked.net"
 
     def __init__(self, initial_threshold: float) -> None:
@@ -63,7 +78,7 @@ class InjectionSettingsWindow(Win32Window):
             class_name="LeagueUnlockedSettingsDialog",
             window_title="Settings",
             width=360,
-            height=220,
+            height=240,
             style=WS_CAPTION | WS_SYSMENU,
         )
         self.initial_threshold = max(0.3, min(2.0, float(initial_threshold)))
@@ -71,10 +86,13 @@ class InjectionSettingsWindow(Win32Window):
         self.trackbar_hwnd: Optional[int] = None
         self.value_label_hwnd: Optional[int] = None
         self.license_label_hwnd: Optional[int] = None
+        self.autostart_checkbox_hwnd: Optional[int] = None
         self.result: Optional[float] = None
+        self.autostart_result: Optional[bool] = None
         self._done = threading.Event()
         self._icon_temp_path: Optional[str] = None
         self._icon_source_path: Optional[str] = self._prepare_window_icon()
+        self._autostart_initial, self._autostart_enabled = self._load_autostart_status()
         self._license_status_text = self._load_license_status_text()
         init_common_controls()
 
@@ -141,6 +159,14 @@ class InjectionSettingsWindow(Win32Window):
             log.warning(f"[TraySettings] Failed to resolve icon.ico: {exc}")
 
         return None
+
+    def _load_autostart_status(self) -> tuple[bool, bool]:
+        try:
+            enabled = is_registered_for_autostart()
+            return enabled, enabled
+        except Exception as exc:  # noqa: BLE001
+            log.debug(f"[TraySettings] Failed to load autostart status: {exc}")
+            return False, False
 
     def _load_license_status_text(self) -> str:
         try:
@@ -223,19 +249,34 @@ class InjectionSettingsWindow(Win32Window):
             WS_CHILD | WS_VISIBLE,
             0,
             margin_x,
-            margin_y + 94,
+            margin_y + 96,
             content_width,
             20,
             self.LICENSE_LABEL_ID,
         )
         self.license_label_hwnd = license_label
 
+        autostart_checkbox = self.create_control(
+            "BUTTON",
+            "Start automatically with Windows",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+            0,
+            margin_x,
+            margin_y + 122,
+            content_width,
+            20,
+            self.AUTOSTART_ID,
+        )
+        self.autostart_checkbox_hwnd = autostart_checkbox
+        if self._autostart_enabled:
+            self.send_message(autostart_checkbox, BM_SETCHECK, BST_CHECKED, 0)
+
         if self.hwnd:
             self.set_window_ex_styles(self.hwnd, add=WS_EX_TOOLWINDOW, remove=WS_EX_APPWINDOW)
             if self._icon_source_path:
                 self.set_window_icon(self._icon_source_path)
 
-        button_y = margin_y + 130
+        button_y = margin_y + 162
         self.create_control(
             "BUTTON",
             "Save",
@@ -264,16 +305,22 @@ class InjectionSettingsWindow(Win32Window):
         if command_id == self.SAVE_ID and notification_code == 0:
             self._update_threshold_from_trackbar()
             self.result = self.current_threshold
+            self.autostart_result = self._autostart_enabled
             self._done.set()
             user32.DestroyWindow(self.hwnd)
             return 0
         if command_id == self.CANCEL_ID and notification_code == 0:
             self.result = None
+            self.autostart_result = None
             self._done.set()
             user32.DestroyWindow(self.hwnd)
             return 0
         if command_id == self.TRACKBAR_ID:
             self._update_threshold_from_trackbar()
+            return 0
+        if command_id == self.AUTOSTART_ID and notification_code == 0:
+            self._handle_autostart_toggle()
+            return 0
         return None
 
     def on_hscroll(self, request_code: int, position: int, trackbar_hwnd) -> Optional[int]:
@@ -302,13 +349,27 @@ class InjectionSettingsWindow(Win32Window):
     def wait(self) -> None:
         self._done.wait()
 
+    def _handle_autostart_toggle(self) -> None:
+        if not self.autostart_checkbox_hwnd:
+            return
+        state = self.send_message(self.autostart_checkbox_hwnd, BM_GETCHECK, 0, 0)
+        self._autostart_enabled = state == BST_CHECKED
+
+    @property
+    def autostart_initial(self) -> bool:
+        return self._autostart_initial
+
 
 def show_injection_settings_dialog() -> None:
     """
     Show the injection threshold settings dialog and persist changes.
     """
     current_threshold = get_config_float("General", "injection_threshold", 0.5)
-    result_holder: dict[str, Optional[float]] = {"value": None}
+    result_holder: dict[str, Optional[float | bool]] = {
+        "threshold": None,
+        "autostart": None,
+        "autostart_initial": None,
+    }
     done_event = threading.Event()
 
     def dialog_thread() -> None:
@@ -326,7 +387,9 @@ def show_injection_settings_dialog() -> None:
                 user32.DispatchMessageW(ctypes.byref(msg))
 
             if window and window.result is not None:
-                result_holder["value"] = window.result
+                result_holder["threshold"] = window.result
+                result_holder["autostart"] = window.autostart_result
+                result_holder["autostart_initial"] = window.autostart_initial
         finally:
             done_event.set()
 
@@ -334,7 +397,7 @@ def show_injection_settings_dialog() -> None:
     thread.start()
     done_event.wait()
 
-    new_value = result_holder["value"]
+    new_value = result_holder["threshold"]
     if new_value is None:
         return
 
@@ -349,4 +412,50 @@ def show_injection_settings_dialog() -> None:
             "LeagueUnlocked Settings",
             MB_OK | MB_ICONERROR | MB_TOPMOST,
         )
+        # Even if threshold save fails, fall through to process auto-start changes.
+
+    autostart_new = result_holder["autostart"]
+    autostart_initial = result_holder["autostart_initial"]
+    if isinstance(autostart_new, bool) and isinstance(autostart_initial, bool):
+        if autostart_new != autostart_initial:
+            if autostart_new:
+                if not is_admin():
+                    msg = (
+                        "Administrator privileges are required to enable auto-start.\n\n"
+                        "Please restart LeagueUnlocked with Administrator rights and try again."
+                    )
+                    show_message_box_threaded(msg, "Auto-Start", MB_ICONERROR)
+                    log.warning("[TraySettings] Auto-start enable blocked - not running as administrator")
+                    return
+                success, message = register_autostart()
+                if success:
+                    log.info("[TraySettings] Auto-start registered via settings dialog")
+                    show_autostart_success_dialog()
+                else:
+                    log.error(f"[TraySettings] Failed to register auto-start: {message}")
+                    show_message_box_threaded(
+                        f"Failed to enable auto-start:\n\n{message}",
+                        "Auto-Start",
+                        MB_ICONERROR,
+                    )
+            else:
+                if not is_admin():
+                    msg = (
+                        "Administrator privileges are required to disable auto-start.\n\n"
+                        "Please restart LeagueUnlocked with Administrator rights and try again."
+                    )
+                    show_message_box_threaded(msg, "Auto-Start", MB_ICONERROR)
+                    log.warning("[TraySettings] Auto-start disable blocked - not running as administrator")
+                    return
+                success, message = unregister_autostart()
+                if success:
+                    log.info("[TraySettings] Auto-start unregistered via settings dialog")
+                    show_autostart_removed_dialog()
+                else:
+                    log.error(f"[TraySettings] Failed to unregister auto-start: {message}")
+                    show_message_box_threaded(
+                        f"Failed to disable auto-start:\n\n{message}",
+                        "Auto-Start",
+                        MB_ICONERROR,
+                    )
 

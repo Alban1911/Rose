@@ -191,112 +191,12 @@ class TrayManager:
             except Exception:
                 log.debug("Unable to show error message box for settings dialog failure")
     
-    def _on_enable_autostart(self, icon, item):
-        """Handle enable auto-start menu item click"""
-        log.info("Enable auto-start requested from system tray")
-        try:
-            from utils.admin_utils import (
-                is_admin, register_autostart, show_autostart_success_dialog,
-                show_message_box_threaded
-            )
-            
-            if not is_admin():
-                # Show error message using threaded message box
-                show_message_box_threaded(
-                    "Administrator privileges are required to register auto-start.\n\n"
-                    "LeagueUnlocked is already running as Administrator, but something went wrong.\n\n"
-                    "Please try restarting the application.",
-                    "Admin Rights Required",
-                    0x10  # MB_ICONERROR
-                )
-                return
-            
-            success, message = register_autostart()
-            
-            if success:
-                log.info(f"Auto-start registered: {message}")
-                show_autostart_success_dialog()
-                # Update menu to show new status
-                if self.icon:
-                    self.icon.menu = self._create_menu()
-            else:
-                log.error(f"Failed to register auto-start: {message}")
-                show_message_box_threaded(
-                    f"Failed to register auto-start:\n\n{message}",
-                    "Auto-Start Registration Failed",
-                    0x10  # MB_ICONERROR
-                )
-        except Exception as e:
-            log.error(f"Error enabling auto-start: {e}")
-            from utils.admin_utils import show_message_box_threaded
-            show_message_box_threaded(
-                f"An error occurred:\n\n{e}",
-                "Error",
-                0x10  # MB_ICONERROR
-            )
-    
-    def _on_disable_autostart(self, icon, item):
-        """Handle disable auto-start menu item click"""
-        log.info("Disable auto-start requested from system tray")
-        try:
-            from utils.admin_utils import (
-                is_admin, unregister_autostart, show_autostart_removed_dialog,
-                show_message_box_threaded
-            )
-            
-            if not is_admin():
-                # Show error message using threaded message box
-                show_message_box_threaded(
-                    "Administrator privileges are required to unregister auto-start.\n\n"
-                    "LeagueUnlocked is already running as Administrator, but something went wrong.\n\n"
-                    "Please try restarting the application.",
-                    "Admin Rights Required",
-                    0x10  # MB_ICONERROR
-                )
-                return
-            
-            success, message = unregister_autostart()
-            
-            if success:
-                log.info(f"Auto-start unregistered: {message}")
-                show_autostart_removed_dialog()
-                # Update menu to show new status
-                if self.icon:
-                    self.icon.menu = self._create_menu()
-            else:
-                log.error(f"Failed to unregister auto-start: {message}")
-                show_message_box_threaded(
-                    f"Failed to unregister auto-start:\n\n{message}",
-                    "Auto-Start Removal Failed",
-                    0x10  # MB_ICONERROR
-                )
-        except Exception as e:
-            log.error(f"Error disabling auto-start: {e}")
-            from utils.admin_utils import show_message_box_threaded
-            show_message_box_threaded(
-                f"An error occurred:\n\n{e}",
-                "Error",
-                0x10  # MB_ICONERROR
-            )
-    
     def _create_menu(self) -> pystray.Menu:
         """Create the context menu for the tray icon"""
-        try:
-            from utils.admin_utils import is_registered_for_autostart
-            is_autostart_enabled = is_registered_for_autostart()
-        except Exception:
-            is_autostart_enabled = False
-        
-        if is_autostart_enabled:
-            autostart_item = pystray.MenuItem("Remove Auto-Start", self._on_disable_autostart)
-        else:
-            autostart_item = pystray.MenuItem("Enable Auto-Start", self._on_enable_autostart)
-        
         return pystray.Menu(
             pystray.MenuItem("LeagueUnlocked", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Settings", self._on_settings),
-            autostart_item,
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._on_quit)
         )

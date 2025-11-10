@@ -232,13 +232,8 @@ def show_admin_required_dialog():
 def show_autostart_success_dialog():
     """Show a dialog box confirming auto-start registration"""
     show_message_box_threaded(
-        "LeagueUnlocked has been successfully registered to start automatically with Windows.\n\n"
-        "From now on, the application will:\n"
-        "  • Start automatically when you log in\n"
-        "  • Run with Administrator privileges\n"
-        "  • No UAC prompts on startup\n\n"
-        "To remove auto-start, right-click the tray icon and select 'Remove Auto-Start'.",
-        "Auto-Start Registered Successfully",
+        "LeagueUnlocked will now start automatically when turn on your computer.",
+        "Auto-Start Enabled",
         0x40  # MB_ICONINFORMATION
     )
 
@@ -248,7 +243,7 @@ def show_autostart_removed_dialog():
     show_message_box_threaded(
         "LeagueUnlocked has been removed from auto-start.\n\n"
         "The application will no longer start automatically with Windows.\n\n"
-        "You can re-enable auto-start from the tray icon menu.",
+        "You can re-enable auto-start from the settings menu.",
         "Auto-Start Removed",
         0x40  # MB_ICONINFORMATION
     )
