@@ -308,6 +308,13 @@ class WSEventThread(threading.Thread):
                 if ph == "ChampSelect":
                     # Detect game mode FIRST to get accurate is_swiftplay_mode flag
                     self._detect_game_mode()
+
+                    if self.injection_manager:
+                        try:
+                            new_threshold = self.injection_manager.refresh_injection_threshold()
+                            log.info(f"[WS] Injection threshold refreshed for ChampSelect: {new_threshold:.2f}s")
+                        except Exception as exc:  # noqa: BLE001
+                            log.warning(f"[WS] Failed to refresh injection threshold in ChampSelect: {exc}")
                     
                     if self.state.is_swiftplay_mode:
                         log.debug("[WS] ChampSelect in Swiftplay mode - skipping normal reset")

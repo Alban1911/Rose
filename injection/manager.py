@@ -79,7 +79,19 @@ class InjectionManager:
 
         self.injection_threshold = new_value
         self._last_threshold_value = new_value
+
+        if self.shared_state is not None:
+            try:
+                self.shared_state.skin_write_ms = max(0, int(new_value * 1000))
+            except Exception as exc:  # noqa: BLE001
+                log.debug(f"[INJECT] Failed to propagate skin_write_ms update: {exc}")
+
         log.info(f"[INJECT] Injection threshold reloaded: {new_value:.2f}s")
+
+    def refresh_injection_threshold(self) -> float:
+        """Public helper to reload injection threshold from config."""
+        self._refresh_injection_threshold()
+        return self.injection_threshold
     
     def _ensure_initialized(self):
         """Initialize the injector lazily when first needed"""
@@ -321,7 +333,7 @@ class InjectionManager:
             return
         
         self._ensure_initialized()
-        self._refresh_injection_threshold()
+        self.refresh_injection_threshold()
         
         # Don't attempt injection if system isn't properly initialized
         if not self._initialized or self.injector is None or self.injector.game_dir is None:
@@ -365,7 +377,7 @@ class InjectionManager:
             chroma_id: Optional chroma ID for chroma variant
         """
         self._ensure_initialized()
-        self._refresh_injection_threshold()
+        self.refresh_injection_threshold()
         
         # Don't attempt injection if system isn't properly initialized
         if not self._initialized or self.injector is None or self.injector.game_dir is None:
@@ -440,7 +452,7 @@ class InjectionManager:
             return False
             
         self._ensure_initialized()
-        self._refresh_injection_threshold()
+        self.refresh_injection_threshold()
         
         # Don't attempt injection if system isn't properly initialized
         if not self._initialized or self.injector is None or self.injector.game_dir is None:
