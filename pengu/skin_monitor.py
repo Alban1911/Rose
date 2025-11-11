@@ -188,7 +188,16 @@ class PenguSkinMonitorThread(threading.Thread):
             self._last_phase = current_phase
 
         if self._injection_disconnect_active:
-            return False
+            if current_phase in {"ChampSelect", "FINALIZATION"} or getattr(
+                self.shared_state, "own_champion_locked", False
+            ):
+                log.debug(
+                    "[PenguSkinMonitor] Resuming after injection disconnect (phase=%s)",
+                    current_phase,
+                )
+                self._injection_disconnect_active = False
+            else:
+                return False
 
         if getattr(self.shared_state, "phase", None) == "Lobby" and getattr(
             self.shared_state, "is_swiftplay_mode", False
