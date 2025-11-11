@@ -61,6 +61,8 @@ state/*.json
 state/*.lock
 *.log
 logs/
+# Allow Pengu Loader assets to be tracked
+!Pengu Loader/**
 
 # Installer
 installer/
