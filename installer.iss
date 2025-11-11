@@ -2,8 +2,8 @@
 ; This creates a proper Windows installer that registers the app
 
 #define MyAppName "LeagueUnlocked"
-#define MyAppVersion "Beta"
-#define MyAppVersionInfo "1.2.0.0"
+#define MyAppVersion "Beta 2.0"
+#define MyAppVersionInfo "2.0.0.0"
 #define MyAppPublisher "LeagueUnlocked Team"
 #define MyAppURL "https://github.com/Alban1911/LeagueUnlocked"
 #define MyAppExeName "LeagueUnlocked.exe"
