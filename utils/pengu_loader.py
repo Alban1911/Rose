@@ -25,7 +25,33 @@ from utils.paths import get_app_dir
 
 log = get_logger("pengu_loader")
 
-PENGU_DIR = get_app_dir() / "Pengu Loader"
+
+def _resolve_pengu_dir() -> Path:
+    """Locate the Pengu Loader directory in dev and frozen builds."""
+    # 1. PyInstaller onefile/onedir: resources live under _MEIPASS
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidate = Path(meipass) / "Pengu Loader"
+        if candidate.exists():
+            return candidate
+
+    # 2. Standard frozen build: alongside executable
+    app_dir = get_app_dir()
+    candidate = app_dir / "Pengu Loader"
+    if candidate.exists():
+        return candidate
+
+    # 3. Development environment: relative to project root
+    repo_dir = Path(__file__).resolve().parent.parent
+    candidate = repo_dir / "Pengu Loader"
+    if candidate.exists():
+        return candidate
+
+    # Fallback to app_dir (even if missing) so logging remains consistent
+    return app_dir / "Pengu Loader"
+
+
+PENGU_DIR = _resolve_pengu_dir()
 PENGU_EXE = PENGU_DIR / "Pengu Loader.exe"
 
 _LEAGUE_PROCESSES: set[str] = {
