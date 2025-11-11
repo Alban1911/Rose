@@ -169,16 +169,6 @@ class ChampThread(threading.Thread):
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
                         
-                        # Create ClickCatchers on champion lock (when not in Swiftplay)
-                        from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper)
-                        if user_interface:
-                            try:
-                                user_interface.create_click_catchers()
-                                log.debug(f"[lock:champ] Requested ClickCatcher creation for {nm}")
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
-                    
                     # Always update the state, even for the same champion
                     self.state.locked_champ_id = locked
                     self.state.locked_champ_timestamp = time.time()  # Record lock time

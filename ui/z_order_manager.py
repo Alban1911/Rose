@@ -26,13 +26,10 @@ class ZOrderManager:
     # Explicit z-order levels (higher numbers = on top)
     Z_LEVELS = {
         'LEAGUE_WINDOW': 0,        # Base League window
-        'UNOWNED_FRAME': 100,      # Golden border + lock icon (behind interactive elements)
-        'CHROMA_BUTTON': 150,      # Circular chroma button (above unowned frame)
-        'DICE_BUTTON': 200,        # Dice button for random skin selection (above chroma button)
-        'RANDOM_FLAG': 250,        # Random flag indicator (above chroma button)
-        'CHROMA_CLICK_CATCHER': 275, # Invisible overlay for chroma panel (above other UI, below panel)
+        'CHROMA_BUTTON': 150,      # Circular chroma button
+        'DICE_BUTTON': 200,        # Dice button for random skin selection
+        'RANDOM_FLAG': 250,        # Random flag indicator
         'CHROMA_PANEL': 300,       # Chroma selection panel (topmost for user interaction)
-        'CLICK_CATCHER': 400,      # Invisible overlay for hiding UI elements (topmost for detection)
     }
     
     def __init__(self):
@@ -56,8 +53,7 @@ class ZOrderManager:
             self._widgets[widget_name] = widget
             self._z_levels[widget_name] = z_level
             self._dirty = True
-            # Only log registration for important widgets to reduce spam
-            if widget_name in ['chroma_panel', 'unowned_frame']:
+            if widget_name == 'chroma_panel':
                 log.debug(f"[Z-ORDER] Registered {widget_name} at z-level {z_level}")
     
     def unregister_widget(self, widget_name: str):
@@ -67,8 +63,7 @@ class ZOrderManager:
                 del self._widgets[widget_name]
                 del self._z_levels[widget_name]
                 self._dirty = True
-                # Only log unregistration for important widgets to reduce spam
-                if widget_name in ['chroma_panel', 'unowned_frame']:
+                if widget_name == 'chroma_panel':
                     log.debug(f"[Z-ORDER] Unregistered {widget_name}")
     
     def set_z_level(self, widget_name: str, z_level: int):
@@ -77,8 +72,7 @@ class ZOrderManager:
             if widget_name in self._z_levels:
                 self._z_levels[widget_name] = z_level
                 self._dirty = True
-                # Only log z-level changes for important widgets to reduce spam
-                if widget_name in ['chroma_panel', 'unowned_frame']:
+                if widget_name == 'chroma_panel':
                     log.debug(f"[Z-ORDER] {widget_name} z-level changed to {z_level}")
     
     def refresh_z_order(self, force: bool = False):
@@ -125,7 +119,7 @@ class ZOrderManager:
             
             # Apply z-order: process widgets in ORDER (lowest z-level first)
             # Build a chain by placing each widget AFTER the previous one using the previous widget's HWND
-            # This ensures: unowned_frame(100) < chroma_button(200) < random_flag(250) < chroma_panel(300) < click_catcher(400)
+            # This ensures: chroma_button(150) < random_flag(250) < chroma_panel(300)
             
             # Debug: Log the processing order
             for widget_name, widget in sorted_widgets:
@@ -157,8 +151,7 @@ class ZOrderManager:
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
                     )
                     
-                    # Debug logging for z-order application
-                    if widget_name in ['unowned_frame', 'chroma_button', 'chroma_panel']:
+                    if widget_name in ['chroma_button', 'chroma_panel']:
                         log.debug(f"[Z-ORDER] Applied z-order to {widget_name} (level {z_level}) - result: {bool(result)}")
                     
                     if not result:

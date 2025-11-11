@@ -40,10 +40,10 @@ class UserInterface:
         self.random_flag = None
         self.historic_flag = None
         self.click_catcher_hide = None
-        self.click_blocker = None  # Block clicks during skin detection
+        self.click_blocker = None  # Legacy placeholder (removed)
         
         # Click Catcher instances for different UI elements
-        self.click_catchers = {}  # Dictionary to store multiple click catcher instances
+        self.click_catchers = {}  # Legacy placeholder (removed)
         
         # Current skin tracking
         self.current_skin_id = None
@@ -70,8 +70,8 @@ class UserInterface:
         self._ui_destruction_in_progress = False
         self._last_destruction_time = 0.0
         self._force_reinitialize = False  # Flag to force UI recreation
-        self._pending_click_catcher_creation = False  # Flag for ClickCatcher creation during FINALIZATION
-        self._pending_click_catcher_creation_own_locked = False  # Flag for ClickCatcher creation when own champion is locked
+        self._pending_click_catcher_creation = False  # Legacy placeholder (click catchers removed)
+        self._pending_click_catcher_creation_own_locked = False  # Legacy placeholder
         # HistoricFlag pending ops (thread-safe requests)
         self._pending_show_historic_flag = False
         self._pending_hide_historic_flag = False
@@ -88,53 +88,30 @@ class UserInterface:
                 state=self.state
             )
             log.info("[UI] ChromaUI created successfully")
-            
-            log.info("[UI] Creating UnownedFrame components...")
-            # Create UnownedFrame instance directly
-            from ui.unowned_frame import UnownedFrame
-            self.unowned_frame = UnownedFrame(state=self.state)
-            
-            # Ensure the initial UnownedFrame is properly positioned
-            self.unowned_frame._create_components()
-            self.unowned_frame.show()
-            log.info("[UI] UnownedFrame created successfully")
-            
+
             # Skip DiceButton in Swiftplay mode
             if not self.state.is_swiftplay_mode:
                 log.info("[UI] Creating DiceButton components...")
-                # Create DiceButton instance
                 from ui.dice_button import DiceButton
                 self.dice_button = DiceButton(state=self.state)
-                
-                # Connect dice button signals
                 self.dice_button.dice_clicked.connect(self._on_dice_clicked)
                 log.info("[UI] DiceButton created successfully")
             else:
                 log.info("[UI] Skipping DiceButton creation in Swiftplay mode")
-            
+
             log.info("[UI] Creating RandomFlag components...")
-            # Create RandomFlag instance
             from ui.random_flag import RandomFlag
             self.random_flag = RandomFlag(state=self.state)
             log.info("[UI] RandomFlag created successfully")
-            
-            # Create ClickBlocker (only in regular mode, not Swiftplay)
-            if not self.state.is_swiftplay_mode:
-                log.info("[UI] Creating ClickBlocker components...")
-                from ui.click_blocker import ClickBlocker
-                self.click_blocker = ClickBlocker(state=self.state)
-                log.info(f"[UI] ClickBlocker created successfully - self.click_blocker = {self.click_blocker}, is None: {self.click_blocker is None}")
-            else:
-                log.info("[UI] Skipping ClickBlocker creation in Swiftplay mode")
-            
-            # ClickCatcherHide instances will be created when own champion is locked
-            log.info("[UI] ClickCatcherHide components will be created when own champion is locked")
-            
+
+            # Legacy UI components removed (UnownedFrame, ClickBlocker, ClickCatchers)
+            self.unowned_frame = None
+            self.click_blocker = None
+            self.click_catchers.clear()
             self._last_unowned_skin_id = None
-            # Track last base skin that showed UnownedFrame to control fade behavior
             self._last_unowned_base_skin_id = None
-            log.info("[UI] All UI components initialized successfully")
-            
+            log.info("[UI] Legacy click catcher components skipped (removed)")
+
         except Exception as e:
             log.error(f"[UI] Failed to initialize UI components: {e}")
             import traceback
@@ -155,186 +132,25 @@ class UserInterface:
             raise
     
     def create_click_catchers(self):
-        """Create ClickCatcherHide instances when champion is locked (if not already created)"""
-        log.debug("[UI] create_click_catchers() entry")
-        from PyQt6.QtCore import QThread
-        from PyQt6.QtWidgets import QApplication
-        
-        # Check if we're on the main thread
-        app = QApplication.instance()
-        if app is None:
-            log.error("[UI] No QApplication instance found - cannot create click catchers")
-            return
-        
-        current_thread = QThread.currentThread()
-        main_thread = app.thread()
-        
-        # If not on main thread, set pending flag for main thread processing
-        if current_thread != main_thread:
-            log.debug("[UI] Deferring click catcher creation to main thread via pending operations")
-            with self.lock:
-                self._pending_click_catcher_creation_own_locked = True
-            return
-        
-        log.debug(f"[UI] create_click_catchers executing on main thread - is_swiftplay={getattr(self.state, 'is_swiftplay_mode', False)}, click_catchers_exists={bool(self.click_catchers)}, click_catchers_count={len(self.click_catchers) if hasattr(self, 'click_catchers') and self.click_catchers else 0}")
-        
-        # Only show ClickBlocker if we're actually going to create click catchers
-        
-        try:
-            # Skip ClickCatcher creation in Swiftplay mode
-            if self.state.is_swiftplay_mode:
-                log.info("[UI] Skipping ClickCatcher creation - Swiftplay mode detected")
-                return
-            
-            # Check if click catchers already exist
-            if self.click_catchers:
-                log.debug(f"[UI] ClickCatchers already exist ({len(self.click_catchers)} catchers), skipping creation")
-                return
-            
-            # Show ClickBlocker right before creating catchers to avoid accidental clicks
-            self._try_show_click_blocker()
-
-            log.info("[UI] Creating ClickCatcherHide components...")
-            # Create ClickCatcherHide instances for different UI elements
-            from ui.click_catcher_hide import ClickCatcherHide
-            
-            # Create click catchers with resolution-based positioning
-            self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
-                state=self.state, catcher_name='EDIT_RUNES', shape='circle'
-            )
-            self.click_catchers['EDIT_RUNES'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('EDIT_RUNES')
-            )
-            
-            self.click_catchers['REC_RUNES'] = ClickCatcherHide(
-                state=self.state, catcher_name='REC_RUNES', shape='circle'
-            )
-            self.click_catchers['REC_RUNES'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('REC_RUNES')
-            )
-            
-            self.click_catchers['SETTINGS'] = ClickCatcherHide(
-                state=self.state, catcher_name='SETTINGS', shape='circle'
-            )
-            self.click_catchers['SETTINGS'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('SETTINGS')
-            )
-            
-            # SUM_L - Rectangle
-            self.click_catchers['SUM_L'] = ClickCatcherHide(
-                state=self.state, catcher_name='SUM_L', shape='rectangle'
-            )
-            self.click_catchers['SUM_L'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('SUM_L')
-            )
-            
-            # SUM_R - Rectangle
-            self.click_catchers['SUM_R'] = ClickCatcherHide(
-                state=self.state, catcher_name='SUM_R', shape='rectangle'
-            )
-            self.click_catchers['SUM_R'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('SUM_R')
-            )
-            
-            # WARD - Rectangle
-            self.click_catchers['WARD'] = ClickCatcherHide(
-                state=self.state, catcher_name='WARD', shape='rectangle'
-            )
-            self.click_catchers['WARD'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('WARD')
-            )
-            
-            # EMOTES - Rectangle
-            self.click_catchers['EMOTES'] = ClickCatcherHide(
-                state=self.state, catcher_name='EMOTES', shape='rectangle'
-            )
-            self.click_catchers['EMOTES'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('EMOTES')
-            )
-            
-            # MESSAGE - Rectangle
-            self.click_catchers['MESSAGE'] = ClickCatcherHide(
-                state=self.state, catcher_name='MESSAGE', shape='rectangle'
-            )
-            self.click_catchers['MESSAGE'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('MESSAGE')
-            )
-            
-            # ABILITIES - Rectangle
-            self.click_catchers['ABILITIES'] = ClickCatcherHide(
-                state=self.state, catcher_name='ABILITIES', shape='rectangle'
-            )
-            self.click_catchers['ABILITIES'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('ABILITIES')
-            )
-            
-            # QUESTS - Rectangle
-            self.click_catchers['QUESTS'] = ClickCatcherHide(
-                state=self.state, catcher_name='QUESTS', shape='rectangle'
-            )
-            self.click_catchers['QUESTS'].click_detected.connect(
-                lambda: self._on_click_catcher_clicked('QUESTS')
-            )
-            
-            # Keep the original single instance for backward compatibility
-            self.click_catcher_hide = self.click_catchers['SETTINGS']  # Default to SETTINGS
-            
-            log.info(f"[UI] ClickCatcherHide instances created successfully: EDIT_RUNES, REC_RUNES, SETTINGS, SUM_L, SUM_R, WARD, EMOTES, MESSAGE, ABILITIES, QUESTS (total: {len(self.click_catchers)})")
-            
-        except Exception as e:
-            log.error(f"[UI] Failed to create ClickCatcherHide instances: {e}")
-            import traceback
-            log.error(f"[UI] Traceback: {traceback.format_exc()}")
-        finally:
-            log.debug(f"[UI] create_click_catchers completed - click_catchers count: {len(self.click_catchers) if self.click_catchers else 0}")
-    
+        """Legacy click catcher creation has been removed."""
+        log.debug("[UI] Click catcher support removed; skipping creation")
+        with self.lock:
+            self.click_catchers.clear()
+            self.click_catcher_hide = None
+            self._pending_click_catcher_creation = False
+            self._pending_click_catcher_creation_own_locked = False
+        return
     def _try_show_click_blocker(self):
-        """Try to show ClickBlocker (can be called from any thread)"""
-        log.info(f"[UI] Attempting to show ClickBlocker - click_blocker exists: {self.click_blocker is not None}")
-        if self.click_blocker:
-            try:
-                from PyQt6.QtCore import QTimer
-                log.info("[UI] Scheduling click_blocker.show_instantly() on main thread")
-                QTimer.singleShot(0, self._show_click_blocker_on_main_thread)
-                log.info("[UI] ClickBlocker show scheduled on main thread")
-            except Exception as e:
-                log.warning(f"[UI] Failed to schedule ClickBlocker show: {e}")
-                import traceback
-                log.warning(f"[UI] Traceback: {traceback.format_exc()}")
-        else:
-            log.warning("[UI] ClickBlocker is None - cannot show")
+        """Legacy click blocker support removed."""
+        log.debug("[UI] ClickBlocker removed; skipping show")
     
     def _show_click_blocker_on_main_thread(self):
-        """Show ClickBlocker on main thread (called via QTimer.singleShot)"""
-        try:
-            log.info("[UI] _show_click_blocker_on_main_thread called")
-            if self.click_blocker is None and not getattr(self.state, 'is_swiftplay_mode', False):
-                try:
-                    log.info("[UI] ClickBlocker missing - creating on main thread")
-                    from ui.click_blocker import ClickBlocker
-                    self.click_blocker = ClickBlocker(state=self.state)
-                    log.info(f"[UI] ClickBlocker created successfully - self.click_blocker = {self.click_blocker}, is None: {self.click_blocker is None}")
-                except Exception as ce:
-                    log.warning(f"[UI] Failed to create ClickBlocker on main thread: {ce}")
-            if self.click_blocker:
-                log.info("[UI] Calling click_blocker.show_instantly()")
-                self.click_blocker.show_instantly()
-                log.info("[UI] ClickBlocker shown - blocking clicks during skin detection")
-            else:
-                log.warning("[UI] ClickBlocker is None in main thread callback")
-        except Exception as e:
-            log.error(f"[UI] Failed to show ClickBlocker on main thread: {e}")
-            import traceback
-            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+        """Legacy click blocker support removed (no-op)."""
+        log.debug("[UI] ClickBlocker removed; main-thread show ignored")
     
     def _hide_click_blocker_with_delay(self):
-        """Hide ClickBlocker after delay (called via QTimer.singleShot)"""
-        if self.click_blocker:
-            try:
-                self.click_blocker.hide_instantly()
-                log.info("[UI] ClickBlocker hidden - ChromaButton should now be visible")
-            except Exception as e:
-                log.warning(f"[UI] Failed to hide ClickBlocker: {e}")
+        """Legacy click blocker support removed (no-op)."""
+        log.debug("[UI] ClickBlocker removed; hide ignored")
     
     def create_click_catchers_for_finalization(self):
         """Create ClickCatcherHide instances during FINALIZATION phase (deprecated - now created on lock)"""
@@ -578,126 +394,22 @@ class UserInterface:
                 log.debug(f"[UI] Error hiding ChromaUI: {e}")
     
     def _show_unowned_frame(self, skin_id: int, skin_name: str, champion_name: str = None, is_same_base_chroma: bool = False):
-        """Show UnownedFrame for unowned skin"""
-        if self.unowned_frame:
-            try:
-                # Determine base skin ID for the current skin
-                current_base_skin_id = skin_id
-                chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
-                if is_chroma_id(skin_id, chroma_id_map):
-                    base_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
-                    if base_id is not None:
-                        current_base_skin_id = base_id
-                # No-op on chroma swaps within the same base skin (decide after computing base id)
-                if is_same_base_chroma:
-                    log.debug(f"[UI] UnownedFrame no-op for same base chroma swap: {skin_name}")
-                    # Track last ids and exit without triggering fades
-                    self._last_unowned_skin_id = skin_id
-                    self._last_unowned_base_skin_id = current_base_skin_id
-                    return
-                
-                # Decide fade behavior based on base skin changes only
-                if getattr(self, '_last_unowned_base_skin_id', None) is None:
-                    # First time showing - fade in
-                    self.unowned_frame.fade_in()
-                    log.debug(f"[UI] UnownedFrame first shown for {skin_name}")
-                elif self._last_unowned_base_skin_id == current_base_skin_id:
-                    # Same base skin (e.g., chroma swap) - do nothing (avoid triggering any fade)
-                    log.debug(f"[UI] UnownedFrame unchanged for same base skin (no-op) for {skin_name}")
-                    # Track IDs and exit early without any visual changes
-                    self._last_unowned_skin_id = skin_id
-                    self._last_unowned_base_skin_id = current_base_skin_id
-                    return
-                else:
-                    # Different base skin - perform fade transition
-                    self.unowned_frame.fade_out()
-                    from PyQt6.QtCore import QTimer
-                    QTimer.singleShot(200, lambda: self.unowned_frame.fade_in())
-                    log.debug(f"[UI] UnownedFrame transition (different base skin) shown for {skin_name}")
-                
-                # Track last shown IDs
-                self._last_unowned_skin_id = skin_id
-                self._last_unowned_base_skin_id = current_base_skin_id
-            except Exception as e:
-                log.error(f"[UI] Error showing UnownedFrame: {e}")
+        """Legacy UnownedFrame removed (no-op)."""
+        self._last_unowned_skin_id = None
+        self._last_unowned_base_skin_id = None
+        log.debug("[UI] UnownedFrame removed; skipping show request")
     
     def _hide_unowned_frame(self):
         """Hide UnownedFrame"""
-        if self.unowned_frame:
-            try:
-                # Fade out UnownedFrame
-                self.unowned_frame.fade_out()
-                # Reset tracking when hiding
-                self._last_unowned_skin_id = None
-                self._last_unowned_base_skin_id = None
-                log.debug("[UI] UnownedFrame hidden")
-            except Exception as e:
-                log.debug(f"[UI] Error hiding UnownedFrame: {e}")
+        self._last_unowned_skin_id = None
+        self._last_unowned_base_skin_id = None
+        log.debug("[UI] UnownedFrame removed; skipping hide request")
     
     def check_resolution_and_update(self):
         """Check for resolution changes and update UI components accordingly"""
         try:
-            # Check if UnownedFrame needs resolution update by destroying and recreating it
-            if self.unowned_frame:
-                # Get current resolution
-                from utils.window_utils import get_league_window_client_size
-                current_resolution = get_league_window_client_size()
-                
-                if current_resolution and hasattr(self.unowned_frame, '_current_resolution'):
-                    # Only recreate if resolution actually changed AND it's not None
-                    if (self.unowned_frame._current_resolution is not None and 
-                        current_resolution != self.unowned_frame._current_resolution):
-                        log.info(f"[UI] UnownedFrame resolution changed from {self.unowned_frame._current_resolution} to {current_resolution}, destroying and recreating")
-                        
-                        # Save current state (visibility + opacity)
-                        was_visible = False
-                        current_opacity = 0.0
-                        if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
-                            current_opacity = self.unowned_frame.opacity_effect.opacity()
-                            was_visible = current_opacity > 0.0 or self.unowned_frame.isVisible()
-                        
-                        # Completely destroy the old UnownedFrame
-                        self.unowned_frame.hide()
-                        self.unowned_frame.deleteLater()
-                        self.unowned_frame = None
-                        
-                        # Small delay to ensure cleanup
-                        from PyQt6.QtWidgets import QApplication
-                        QApplication.processEvents()
-                        
-                        # Create completely new UnownedFrame with fresh resolution values
-                        from ui.unowned_frame import UnownedFrame
-                        self.unowned_frame = UnownedFrame(state=self.state)
-                        
-                        # Ensure the initial UnownedFrame is properly positioned (same as initialization)
-                        self.unowned_frame._create_components()
-                        # Restore prior visibility/opacity strictly (preserve state across rebuild)
-                        if hasattr(self.unowned_frame, 'opacity_effect') and self.unowned_frame.opacity_effect:
-                            if was_visible:
-                                self.unowned_frame.opacity_effect.setOpacity(1.0)
-                                self.unowned_frame.show()
-                                try:
-                                    if hasattr(self.unowned_frame, 'unowned_frame_image') and self.unowned_frame.unowned_frame_image:
-                                        self.unowned_frame.unowned_frame_image.show()
-                                except Exception:
-                                    pass
-                                log.info("[UI] UnownedFrame recreated - restored to visible state")
-                            else:
-                                self.unowned_frame.opacity_effect.setOpacity(0.0)
-                                self.unowned_frame.hide()
-                                try:
-                                    if hasattr(self.unowned_frame, 'unowned_frame_image') and self.unowned_frame.unowned_frame_image:
-                                        self.unowned_frame.unowned_frame_image.hide()
-                                except Exception:
-                                    pass
-                                log.info("[UI] UnownedFrame recreated - restored to hidden state")
-                        
-                        # Ensure proper z-order
-                        self.unowned_frame.refresh_z_order()
-                    elif self.unowned_frame._current_resolution is None:
-                        # Just update the resolution without recreating
-                        self.unowned_frame._current_resolution = current_resolution
-                        log.debug(f"[UI] UnownedFrame resolution initialized to {current_resolution}")
+            # Legacy UnownedFrame support removed
+            self.unowned_frame = None
             
             # Check ChromaUI for resolution changes (it handles its own resolution checking)
             if self.chroma_ui:
@@ -857,144 +569,11 @@ class UserInterface:
                     elif self.random_flag._current_resolution is None:
                         self.random_flag._current_resolution = current_resolution
             
-            # Check ClickCatcherHide instances for resolution changes
-            # Destroy and recreate click catchers when resolution changes
+            # Legacy click catchers removed; ensure dictionaries stay empty
             if self.click_catchers:
-                # Get current resolution
-                from utils.window_utils import get_league_window_client_size
-                current_resolution = get_league_window_client_size()
-                
-                if current_resolution:
-                    # Check if any click catcher has a different resolution
-                    resolution_changed = False
-                    for catcher in self.click_catchers.values():
-                        if (hasattr(catcher, '_current_resolution') and 
-                            catcher._current_resolution is not None and 
-                            catcher._current_resolution != current_resolution):
-                            resolution_changed = True
-                            break
-                    
-                    if resolution_changed:
-                        # Skip ClickCatcher recreation in Swiftplay mode
-                        if self.state.is_swiftplay_mode:
-                            log.info(f"[UI] Resolution changed in Swiftplay mode - skipping ClickCatcher recreation")
-                        else:
-                            log.info(f"[UI] Click catchers resolution changed, destroying and recreating all click catchers")
-                            
-                            # Store current skin state for recreation
-                            current_skin_id = self.current_skin_id
-                            current_skin_name = self.current_skin_name
-                            current_champion_name = self.current_champion_name
-                            
-                            # Destroy all click catchers
-                            for catcher_name, catcher in self.click_catchers.items():
-                                try:
-                                    catcher.cleanup()
-                                    log.debug(f"[UI] ClickCatcher '{catcher_name}' destroyed")
-                                except Exception as e:
-                                    log.error(f"[UI] Error destroying ClickCatcher '{catcher_name}': {e}")
-                            
-                            # Clear the click catchers dictionary
-                            self.click_catchers = {}
-                            self.click_catcher_hide = None
-                            
-                            # Small delay to ensure cleanup
-                            from PyQt6.QtWidgets import QApplication
-                            QApplication.processEvents()
-                            
-                            # Recreate all click catchers with new resolution
-                            from ui.click_catcher_hide import ClickCatcherHide
-                            
-                            # Create click catchers with resolution-based positioning
-                            self.click_catchers['EDIT_RUNES'] = ClickCatcherHide(
-                                state=self.state, catcher_name='EDIT_RUNES', shape='circle'
-                            )
-                            self.click_catchers['EDIT_RUNES'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('EDIT_RUNES')
-                            )
-                            
-                            self.click_catchers['REC_RUNES'] = ClickCatcherHide(
-                                state=self.state, catcher_name='REC_RUNES', shape='circle'
-                            )
-                            self.click_catchers['REC_RUNES'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('REC_RUNES')
-                            )
-                            
-                            self.click_catchers['SETTINGS'] = ClickCatcherHide(
-                                state=self.state, catcher_name='SETTINGS', shape='circle'
-                            )
-                            self.click_catchers['SETTINGS'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('SETTINGS')
-                            )
-                            
-                            # SUM_L - Rectangle
-                            self.click_catchers['SUM_L'] = ClickCatcherHide(
-                                state=self.state, catcher_name='SUM_L', shape='rectangle'
-                            )
-                            self.click_catchers['SUM_L'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('SUM_L')
-                            )
-                            
-                            # SUM_R - Rectangle
-                            self.click_catchers['SUM_R'] = ClickCatcherHide(
-                                state=self.state, catcher_name='SUM_R', shape='rectangle'
-                            )
-                            self.click_catchers['SUM_R'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('SUM_R')
-                            )
-                            
-                            # WARD - Rectangle
-                            self.click_catchers['WARD'] = ClickCatcherHide(
-                                state=self.state, catcher_name='WARD', shape='rectangle'
-                            )
-                            self.click_catchers['WARD'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('WARD')
-                            )
-                            
-                            # EMOTES - Rectangle
-                            self.click_catchers['EMOTES'] = ClickCatcherHide(
-                                state=self.state, catcher_name='EMOTES', shape='rectangle'
-                            )
-                            self.click_catchers['EMOTES'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('EMOTES')
-                            )
-                            
-                            # MESSAGE - Rectangle
-                            self.click_catchers['MESSAGE'] = ClickCatcherHide(
-                                state=self.state, catcher_name='MESSAGE', shape='rectangle'
-                            )
-                            self.click_catchers['MESSAGE'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('MESSAGE')
-                            )
-                            
-                            # ABILITIES - Rectangle
-                            self.click_catchers['ABILITIES'] = ClickCatcherHide(
-                                state=self.state, catcher_name='ABILITIES', shape='rectangle'
-                            )
-                            self.click_catchers['ABILITIES'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('ABILITIES')
-                            )
-                            
-                            # QUESTS - Rectangle
-                            self.click_catchers['QUESTS'] = ClickCatcherHide(
-                                state=self.state, catcher_name='QUESTS', shape='rectangle'
-                            )
-                            self.click_catchers['QUESTS'].click_detected.connect(
-                                lambda: self._on_click_catcher_clicked('QUESTS')
-                            )
-                            
-                            # Restore backward compatibility
-                            self.click_catcher_hide = self.click_catchers['SETTINGS']
-                            
-                            log.info("[UI] Click catchers recreated with new resolution")
-                            
-                            # Show click catchers if we have a current skin
-                            if current_skin_id:
-                                self._show_click_catchers()
-                    else:
-                        # No resolution change, just update normally
-                        for catcher in self.click_catchers.values():
-                            catcher.check_resolution_and_update()
+                log.debug("[UI] Clearing legacy click catcher state")
+                self.click_catchers.clear()
+                self.click_catcher_hide = None
                 
         except Exception as e:
             log.error(f"[UI] Error checking resolution changes: {e}")
@@ -1021,15 +600,15 @@ class UserInterface:
         """Check if UI components are initialized"""
         # In Swiftplay mode, click_catchers and dice_button are not created, so skip those checks
         if self.state and self.state.is_swiftplay_mode:
-            return (self.chroma_ui is not None and 
-                    self.unowned_frame is not None and 
-                    self.random_flag is not None)
-        # Regular mode requires click catchers and dice button
-        return (self.chroma_ui is not None and 
-                self.unowned_frame is not None and 
-                self.dice_button is not None and 
-                self.random_flag is not None and
-                len(self.click_catchers) > 0)
+            return (
+                self.chroma_ui is not None
+                and self.random_flag is not None
+            )
+        return (
+            self.chroma_ui is not None
+            and self.dice_button is not None
+            and self.random_flag is not None
+        )
     
     def request_ui_initialization(self):
         """Request UI initialization (called from any thread)"""
@@ -1520,237 +1099,21 @@ class UserInterface:
         log.info("[UI] Randomization cancelled")
     
     def _on_click_catcher_hide_clicked(self):
-        """Handle click detection from ClickCatcherHide (backward compatibility)"""
-        self._on_click_catcher_clicked('SETTINGS')
+        """Legacy click catcher handler (no-op)."""
+        log.debug("[UI] Click catcher hide callback ignored (feature removed)")
     
     def _on_click_catcher_clicked(self, instance_name: str):
-        """Handle click detection from specific ClickCatcherHide instance"""
-        log.info(f"[UI] ClickCatcherHide '{instance_name}' click detected")
-        
-        if instance_name == 'EDIT_RUNES':
-            log.info("[UI] EDIT_RUNES clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'REC_RUNES':
-            log.info("[UI] REC_RUNES clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'SETTINGS':
-            log.info("[UI] SETTINGS clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'SUM_L':
-            log.info("[UI] SUM_L clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'SUM_R':
-            log.info("[UI] SUM_R clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'WARD':
-            log.info("[UI] WARD clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'EMOTES':
-            log.info("[UI] EMOTES clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'MESSAGE':
-            log.info("[UI] MESSAGE clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'ABILITIES':
-            log.info("[UI] ABILITIES clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name == 'QUESTS':
-            log.info("[UI] QUESTS clicked - hiding UI elements")
-            self._hide_all_ui_elements()
-            # Create corresponding ClickCatcherShow instances
-            self._create_show_instances_for_panel(instance_name)
-        elif instance_name in ['CLOSE_SETTINGS', 'CLOSE_EMOTES', 'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X', 'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L', 'CLOSE_MESSAGE_M', 'CLOSE_ABILITIES', 'CLOSE_QUESTS']:
-            log.info(f"[UI] {instance_name} clicked - showing UI elements")
-            self._show_all_ui_elements()
-            # Destroy all ClickCatcherShow instances after showing UI elements
-            self._destroy_all_show_instances()
-        else:
-            log.warning(f"[UI] Unknown click catcher instance: {instance_name}")
+        """Legacy click catcher handler (no-op)."""
+        log.debug(f"[UI] Click catcher '{instance_name}' ignored (feature removed)")
     
     def _create_show_instances_for_panel(self, panel_name: str):
-        """Create corresponding ClickCatcherShow instances based on the panel name"""
-        try:
-            from ui.click_catcher_show import ClickCatcherShow
-            
-            # Create show instances based on the panel name
-            if panel_name == 'SETTINGS':
-                # SETTINGS creates CLOSE_SETTINGS
-                self.click_catchers['CLOSE_SETTINGS'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_SETTINGS', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_SETTINGS'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_SETTINGS')
-                )
-                log.info("[UI] Created CLOSE_SETTINGS show instance")
-                
-            elif panel_name == 'EMOTES':
-                # EMOTES creates CLOSE_EMOTES
-                self.click_catchers['CLOSE_EMOTES'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_EMOTES', shape='circle'
-                )
-                self.click_catchers['CLOSE_EMOTES'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_EMOTES')
-                )
-                log.info("[UI] Created CLOSE_EMOTES show instance")
-                
-            elif panel_name in ['EDIT_RUNES', 'REC_RUNES']:
-                # RUNES creates CLOSE_RUNES_TOP, CLOSE_RUNES_L, CLOSE_RUNES_R, CLOSE_RUNES_X
-                self.click_catchers['CLOSE_RUNES_TOP'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_RUNES_TOP', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_RUNES_TOP'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_TOP')
-                )
-                
-                self.click_catchers['CLOSE_RUNES_L'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_RUNES_L', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_RUNES_L'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_L')
-                )
-                
-                self.click_catchers['CLOSE_RUNES_R'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_RUNES_R', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_RUNES_R'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_R')
-                )
-                
-                self.click_catchers['CLOSE_RUNES_X'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_RUNES_X', shape='circle'
-                )
-                self.click_catchers['CLOSE_RUNES_X'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_RUNES_X')
-                )
-                log.info("[UI] Created CLOSE_RUNES show instances (TOP, L, R, X)")
-                
-            elif panel_name == 'SUM_L':
-                # SUM_L creates CLOSE_SUM
-                self.click_catchers['CLOSE_SUM'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_SUM', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_SUM'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_SUM')
-                )
-                log.info("[UI] Created CLOSE_SUM show instance for SUM_L")
-                
-            elif panel_name == 'SUM_R':
-                # SUM_R creates CLOSE_SUM
-                self.click_catchers['CLOSE_SUM'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_SUM', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_SUM'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_SUM')
-                )
-                log.info("[UI] Created CLOSE_SUM show instance for SUM_R")
-                
-            elif panel_name == 'WARD':
-                # WARD creates CLOSE_WARD
-                self.click_catchers['CLOSE_WARD'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_WARD', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_WARD'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_WARD')
-                )
-                log.info("[UI] Created CLOSE_WARD show instance")
-                
-            elif panel_name == 'MESSAGE':
-                # MESSAGE creates CLOSE_MESSAGE_R, CLOSE_MESSAGE_L, and CLOSE_MESSAGE_M
-                self.click_catchers['CLOSE_MESSAGE_R'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_MESSAGE_R', shape='circle'
-                )
-                self.click_catchers['CLOSE_MESSAGE_R'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_R')
-                )
-                
-                self.click_catchers['CLOSE_MESSAGE_L'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_MESSAGE_L', shape='circle'
-                )
-                self.click_catchers['CLOSE_MESSAGE_L'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_L')
-                )
-                
-                self.click_catchers['CLOSE_MESSAGE_M'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_MESSAGE_M', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_MESSAGE_M'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_MESSAGE_M')
-                )
-                log.info("[UI] Created CLOSE_MESSAGE_R, CLOSE_MESSAGE_L, and CLOSE_MESSAGE_M show instances")
-                
-            elif panel_name == 'ABILITIES':
-                # ABILITIES creates CLOSE_ABILITIES
-                self.click_catchers['CLOSE_ABILITIES'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_ABILITIES', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_ABILITIES'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_ABILITIES')
-                )
-                log.info("[UI] Created CLOSE_ABILITIES show instance")
-                
-            elif panel_name == 'QUESTS':
-                # QUESTS creates CLOSE_QUESTS
-                self.click_catchers['CLOSE_QUESTS'] = ClickCatcherShow(
-                    state=self.state, catcher_name='CLOSE_QUESTS', shape='rectangle'
-                )
-                self.click_catchers['CLOSE_QUESTS'].click_detected.connect(
-                    lambda: self._on_click_catcher_clicked('CLOSE_QUESTS')
-                )
-                log.info("[UI] Created CLOSE_QUESTS show instance")
-                
-        except Exception as e:
-            log.error(f"[UI] Error creating show instances for {panel_name}: {e}")
-            import traceback
-            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+        """Legacy ClickCatcherShow creation removed."""
+        log.debug(f"[UI] Skipping creation of show instances for panel: {panel_name}")
     
     def _destroy_all_show_instances(self):
-        """Destroy all ClickCatcherShow instances"""
-        try:
-            # List of all possible show instance names
-            show_instance_names = [
-                'CLOSE_SETTINGS', 'CLOSE_EMOTES', 
-                'CLOSE_RUNES_TOP', 'CLOSE_RUNES_L', 'CLOSE_RUNES_R', 'CLOSE_RUNES_X',
-                'CLOSE_SUM', 'CLOSE_WARD', 'CLOSE_MESSAGE_R', 'CLOSE_MESSAGE_L', 'CLOSE_MESSAGE_M', 'CLOSE_ABILITIES', 'CLOSE_QUESTS'
-            ]
-            
-            # Destroy all show instances
-            log.info(f"[UI] Starting to destroy show instances. Current click_catchers: {list(self.click_catchers.keys())}")
-            for instance_name in show_instance_names:
-                if instance_name in self.click_catchers:
-                    try:
-                        log.info(f"[UI] Destroying {instance_name} show instance")
-                        self.click_catchers[instance_name].cleanup()
-                        del self.click_catchers[instance_name]
-                        log.info(f"[UI] Successfully destroyed {instance_name} show instance")
-                    except Exception as e:
-                        log.error(f"[UI] Error destroying {instance_name}: {e}")
-                else:
-                    log.debug(f"[UI] {instance_name} not found in click_catchers")
-            
-            log.info("[UI] ✓ All show instances destroyed")
-                
-        except Exception as e:
-            log.error(f"[UI] Error destroying show instances: {e}")
-            import traceback
-            log.error(f"[UI] Traceback: {traceback.format_exc()}")
+        """Legacy ClickCatcherShow cleanup removed."""
+        self.click_catchers.clear()
+        self.click_catcher_hide = None
     
     def _hide_all_ui_elements(self):
         """Hide all UI elements instantly when click catchers are triggered"""
@@ -1926,55 +1289,31 @@ class UserInterface:
     
     def show_click_catcher_hide(self, x, y, width=50, height=50):
         """Show the ClickCatcherHide at the specified position (backward compatibility)"""
-        if self.click_catcher_hide:
-            self.click_catcher_hide.set_position(x, y, width, height)
-            self.click_catcher_hide.show_catcher()
-            log.debug(f"[UI] ClickCatcherHide shown at ({x}, {y}) size {width}x{height}")
+        log.debug("[UI] show_click_catcher_hide ignored (feature removed)")
     
     def hide_click_catcher_hide(self):
         """Hide the ClickCatcherHide (backward compatibility)"""
-        if self.click_catcher_hide:
-            self.click_catcher_hide.hide_catcher()
-            log.debug("[UI] ClickCatcherHide hidden")
+        log.debug("[UI] hide_click_catcher_hide ignored (feature removed)")
     
     def show_click_catcher(self, instance_name: str):
         """Show a specific click catcher instance"""
-        if instance_name in self.click_catchers:
-            self.click_catchers[instance_name].show_catcher()
-            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
-        else:
-            log.warning(f"[UI] ClickCatcher instance '{instance_name}' not found")
+        log.debug(f"[UI] show_click_catcher('{instance_name}') ignored (feature removed)")
     
     def hide_click_catcher(self, instance_name: str):
         """Hide a specific click catcher instance"""
-        if instance_name in self.click_catchers:
-            self.click_catchers[instance_name].hide_catcher()
-            log.debug(f"[UI] ClickCatcher '{instance_name}' hidden")
-        else:
-            log.warning(f"[UI] ClickCatcher instance '{instance_name}' not found")
+        log.debug(f"[UI] hide_click_catcher('{instance_name}') ignored (feature removed)")
     
     def show_all_click_catchers(self):
         """Show all click catcher instances"""
-        for instance_name, catcher in self.click_catchers.items():
-            catcher.show_catcher()
-            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
+        log.debug("[UI] show_all_click_catchers ignored (feature removed)")
     
     def hide_all_click_catchers(self):
         """Hide all click catcher instances"""
-        for instance_name, catcher in self.click_catchers.items():
-            catcher.hide_catcher()
-            log.debug(f"[UI] ClickCatcher '{instance_name}' hidden")
+        log.debug("[UI] hide_all_click_catchers ignored (feature removed)")
     
     def _show_click_catchers(self):
-        """Show all click catcher instances when a skin is selected"""
-        # Skip showing ClickCatchers in Swiftplay mode
-        if self.state.is_swiftplay_mode:
-            log.debug("[UI] Skipping ClickCatcher display - Swiftplay mode detected")
-            return
-            
-        for instance_name, catcher in self.click_catchers.items():
-            catcher.show_catcher()
-            log.debug(f"[UI] ClickCatcher '{instance_name}' shown")
+        """Legacy ClickCatcher display removed."""
+        log.debug("[UI] _show_click_catchers ignored (feature removed)")
     
     def _select_random_skin(self) -> Optional[tuple]:
         """Select a random skin from available skins (excluding base skin)

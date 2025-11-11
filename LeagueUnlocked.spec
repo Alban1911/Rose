@@ -93,8 +93,6 @@ if Path('injection/mods_map.json').exists():
 else:
     print("[WARNING] injection/mods_map.json not found")
 
-# uiautomation removed - using custom uia module instead
-
 # Hidden imports - modules PyInstaller might not detect
 hiddenimports = [
     # Core app modules
@@ -119,11 +117,6 @@ hiddenimports = [
     'utils.admin_utils',
     'ui.chroma_base',
     'ui.chroma_button',
-    'ui.chroma_click_catcher',
-    'ui.click_blocker',
-    'ui.click_catcher',
-    'ui.click_catcher_hide',
-    'ui.click_catcher_show',
     'ui.chroma_panel',
     'ui.chroma_panel_widget',
     'ui.chroma_preview_manager',
@@ -133,14 +126,8 @@ hiddenimports = [
     'ui.dice_button',
     'ui.random_flag',
     'ui.historic_flag',
-    'ui.unowned_frame',
     'ui.user_interface',
     'ui.z_order_manager',
-    'uia',
-    'uia.connection',
-    'uia.debug',
-    'uia.detector',
-    'uia.ui_thread',
     'utils.license_client',
     'utils.logging',
     'utils.normalization',

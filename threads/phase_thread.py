@@ -464,29 +464,16 @@ class PhaseThread(threading.Thread):
             log.warning(f"[phase] Error starting Swiftplay monitoring: {e}")
     
     def _cleanup_click_catchers_for_swiftplay(self):
-        """Clean up existing ClickCatchers when entering Swiftplay mode"""
+        """Legacy click catcher cleanup (no-op)."""
+        log.debug("[phase] Click catcher support removed; nothing to clean for Swiftplay mode")
         try:
-            log.info("[phase] Cleaning up ClickCatchers for Swiftplay mode...")
-            
-            # Use global cleanup function
-            from ui.click_catcher import cleanup_all_click_catchers
-            cleanup_all_click_catchers()
-            
-            # Also clean up user interface ClickCatchers
             from ui.user_interface import get_user_interface
             user_interface = get_user_interface(self.state, self.skin_scraper)
-            
-            if user_interface and hasattr(user_interface, 'click_catchers'):
-                # Clear the ClickCatchers dictionary
+            if user_interface:
                 user_interface.click_catchers.clear()
                 user_interface.click_catcher_hide = None
-                
-                log.info("[phase] User interface ClickCatchers cleared for Swiftplay mode")
-            else:
-                log.debug("[phase] No user interface ClickCatchers to clean up for Swiftplay mode")
-                
-        except Exception as e:
-            log.warning(f"[phase] Error cleaning up ClickCatchers for Swiftplay: {e}")
+        except Exception:
+            pass
     
     def test_swiftplay_detection(self):
         """Test method to verify Swiftplay detection is working"""

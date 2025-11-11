@@ -11,7 +11,6 @@ from utils.logging import get_logger, log_event, log_action, log_success
 from utils.utilities import is_default_skin, is_owned, is_base_skin_owned
 from ui.chroma_button import OpeningButton
 from ui.chroma_panel_widget import ChromaPanelWidget
-from ui.chroma_click_catcher import ClickCatcherOverlay
 
 log = get_logger()
 
@@ -25,7 +24,7 @@ class ChromaPanelManager:
         self.lcu = lcu  # LCU client for game mode detection
         self.widget = None
         self.reopen_button = None
-        self.click_catcher = None  # Invisible overlay to catch clicks outside UI
+        self.click_catcher = None  # Legacy overlay removed
         self.is_initialized = False
         self.pending_show = None  # (skin_name, chromas) to show from other threads
         self.pending_hide = False
@@ -130,13 +129,6 @@ class ChromaPanelManager:
             # Set button reference on wheel so it can detect button clicks
             self.widget.set_button_reference(self.reopen_button)
             
-            # Create click catcher overlay (invisible, catches clicks on League to close panel)
-            if league_hwnd:
-                self.click_catcher = ClickCatcherOverlay(
-                    on_click_callback=self._on_click_catcher_clicked,
-                    parent_hwnd=league_hwnd
-                )
-            
             self.is_initialized = True
             log.info("[CHROMA] Panel widgets created")
     
@@ -148,14 +140,7 @@ class ChromaPanelManager:
     def _destroy_widgets(self):
         """Destroy widgets (must be called from main thread)"""
         if self.is_initialized:
-            # Destroy click catcher first
-            if self.click_catcher:
-                try:
-                    self.click_catcher.hide()
-                    self.click_catcher.deleteLater()
-                    self.click_catcher = None
-                except Exception as e:
-                    log.warning(f"[CHROMA] Error destroying click catcher: {e}")
+            self.click_catcher = None
             
             if self.widget:
                 try:
@@ -541,24 +526,6 @@ class ChromaPanelManager:
                 self.pending_show = None
                 
                 if self.widget:
-                    # Create click catcher if it doesn't exist (was destroyed on last hide)
-                    if not self.click_catcher:
-                        from utils.window_utils import get_league_window_handle
-                        league_hwnd = get_league_window_handle()
-                        if league_hwnd:
-                            self.click_catcher = ClickCatcherOverlay(
-                                on_click_callback=self._on_click_catcher_clicked,
-                                parent_hwnd=league_hwnd
-                            )
-                            log.debug("[CHROMA] Click catcher overlay created")
-                    
-                    # Show click catcher (at z-level 275, below panel at 300)
-                    if self.click_catcher:
-                        self.click_catcher.show()
-                        self.click_catcher.raise_()  # Make it visible
-                        self.click_catcher.update()  # Force repaint
-                        log.debug("[CHROMA] Click catcher overlay shown")
-                    
                     # Reload background based on current game mode before showing
                     if self.widget:
                         self.widget.reload_background()
@@ -594,16 +561,6 @@ class ChromaPanelManager:
             # Process hide request
             if self.pending_hide:
                 self.pending_hide = False
-                
-                # Destroy click catcher when panel closes
-                if self.click_catcher:
-                    try:
-                        self.click_catcher.hide()
-                        self.click_catcher.deleteLater()
-                        self.click_catcher = None
-                        log.debug("[CHROMA] Click catcher overlay destroyed")
-                    except Exception as e:
-                        log.warning(f"[CHROMA] Error destroying click catcher: {e}")
                 
                 if self.widget:
                     self.widget.hide()

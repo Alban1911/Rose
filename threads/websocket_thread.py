@@ -223,16 +223,6 @@ class WSEventThread(threading.Thread):
                 except Exception as e:
                     log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
             
-            # Create ClickCatchers on champion lock (when not in Swiftplay)
-            from ui.user_interface import get_user_interface
-            user_interface = get_user_interface(self.state, self.skin_scraper)
-            if user_interface:
-                try:
-                    user_interface.create_click_catchers()
-                    log.debug(f"[lock:champ] Requested ClickCatcher creation for {champion_label}")
-                except Exception as e:
-                    log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
-
     def _maybe_start_timer(self, sess: dict):
         """Start timer if conditions are met - ONLY on FINALIZATION phase"""
         t = (sess.get("timer") or {})
