@@ -194,6 +194,7 @@ from utils.logging import setup_logging, get_logger, log_section, log_success, l
 from utils.tray_manager import TrayManager
 from utils.thread_manager import ThreadManager, create_daemon_thread
 from utils.license_flow import check_license
+from utils import pengu_loader
 
 # Local imports - UI and injection
 from ui.user_interface import get_user_interface
@@ -241,8 +242,11 @@ def signal_handler(signum, frame):
     _app_state.shutting_down = True
     
     print(f"\nReceived signal {signum}, initiating graceful shutdown...")
+    try:
+        pengu_loader.deactivate_on_exit()
+    except Exception:
+        pass
     # Force exit if we're stuck
-    import os
     os._exit(0)
 
 def force_quit_handler():
@@ -252,6 +256,10 @@ def force_quit_handler():
     _app_state.shutting_down = True
     
     print("\nForce quit initiated...")
+    try:
+        pengu_loader.deactivate_on_exit()
+    except Exception:
+        pass
     os._exit(0)
 
 # Set up signal handlers
@@ -685,6 +693,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
     
     # Setup logging and cleanup
     setup_logging_and_cleanup(args)
+    pengu_loader.activate_on_start()
     
     # Check license validity before continuing
     check_license()
@@ -1171,6 +1180,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
         state.stop = True
         
         log_section(log, "Cleanup", "🧹")
+        pengu_loader.deactivate_on_exit()
         
         # Stop system tray
         if tray_manager:
