@@ -104,6 +104,8 @@ hiddenimports = [
     'lcu.skin_scraper',
     'lcu.types',
     'lcu.utils',
+    'pengu',
+    'pengu.skin_monitor',
     'state',
     'state.app_status',
     'state.shared_state',
@@ -115,6 +117,7 @@ hiddenimports = [
     'threads.websocket_thread',
     'utils',
     'utils.admin_utils',
+    'utils.pengu_loader',
     'ui.chroma_base',
     'ui.chroma_button',
     'ui.chroma_panel',
@@ -171,7 +174,6 @@ hiddenimports = [
     
     # Other dependencies
     'psutil',
-    'pywinauto',
 ]
 
 # Exclusions - modules we don't need (reduces size and build time)
