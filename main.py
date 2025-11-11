@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from state.app_status import AppStatus
     from threads.phase_thread import PhaseThread
     from threads.champ_thread import ChampThread
-    from uia import UISkinThread
+    from pengu.skin_monitor import PenguSkinMonitorThread
     from threads.websocket_thread import WSEventThread
     from threads.lcu_monitor_thread import LCUMonitorThread
     from utils.tray_manager import TrayManager
@@ -185,7 +185,7 @@ from state.shared_state import SharedState
 from state.app_status import AppStatus
 from threads.phase_thread import PhaseThread
 from threads.champ_thread import ChampThread
-from uia import UISkinThread
+from pengu import PenguSkinMonitorThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
 
@@ -919,7 +919,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                 state.ui_skin_thread.detection_available = False
                 state.ui_skin_thread.detection_attempts = 0
             except Exception as e:
-                log.debug(f"[Main] Failed to reset UISkinThread after disconnection: {e}")
+                log.debug(f"[Main] Failed to reset skin monitor thread after disconnection: {e}")
 
         # Tear down any existing UI overlay so it can be recreated cleanly
         try:
@@ -960,9 +960,9 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                          log_transitions=False, injection_manager=injection_manager, skin_scraper=skin_scraper, db=db)
     thread_manager.register("Phase", t_phase)
     
-    t_ui = UISkinThread(state, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
+    t_ui = PenguSkinMonitorThread(state, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
     state.ui_skin_thread = t_ui  # Store reference for access during champion exchange
-    thread_manager.register("UIA Detection", t_ui)
+    thread_manager.register("Pengu Skin Monitor", t_ui, stop_method=t_ui.stop)
     
     t_ws = WSEventThread(lcu, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
