@@ -17,6 +17,8 @@ from utils.logging import get_logger, log_status, log_action
 
 log = get_logger()
 
+SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
+
 
 class PhaseThread(threading.Thread):
     """Thread for monitoring game phase changes"""
@@ -258,10 +260,13 @@ class PhaseThread(threading.Thread):
             self.state.current_queue_id = detected_queue
 
         is_swiftplay = False
-        if detected_mode == "SWIFTPLAY":
+        if detected_mode and isinstance(detected_mode, str) and detected_mode.upper() in SWIFTPLAY_MODES:
             is_swiftplay = True
         elif detected_mode is None and self.lcu.ok and self.lcu.is_swiftplay:
             is_swiftplay = True
+            fallback_mode = self.lcu.game_mode
+            if fallback_mode and isinstance(fallback_mode, str) and fallback_mode.upper() in SWIFTPLAY_MODES:
+                detected_mode = fallback_mode
 
         previous_mode = self._last_lobby_mode
         previous_queue = self._last_lobby_queue
@@ -271,7 +276,9 @@ class PhaseThread(threading.Thread):
         queue_changed = detected_queue is not None and detected_queue != previous_queue
         swiftplay_changed = is_swiftplay != swiftplay_previous
 
-        effective_mode = detected_mode if detected_mode is not None else ("SWIFTPLAY" if is_swiftplay else previous_mode)
+        effective_mode = detected_mode if detected_mode is not None else (
+            self.lcu.game_mode if (is_swiftplay and self.lcu.ok and self.lcu.game_mode) else previous_mode
+        )
 
         if mode_changed or queue_changed or swiftplay_changed:
             prev_mode_label = previous_mode or "UNKNOWN"
@@ -283,7 +290,8 @@ class PhaseThread(threading.Thread):
         if is_swiftplay:
             if swiftplay_changed or force or mode_changed or queue_changed:
                 if not swiftplay_previous:
-                    log_action(log, "Swiftplay lobby detected - triggering early skin detection", "⚡")
+                    mode_label = (effective_mode or "Swiftplay").upper()
+                    log_action(log, f"{mode_label} lobby detected - triggering early skin detection", "⚡")
                 self._handle_swiftplay_lobby()
             else:
                 # Already in Swiftplay mode, continue monitoring
@@ -789,8 +797,12 @@ class PhaseThread(threading.Thread):
                     game_mode = queue.get("gameMode") or game_mode
                     queue_id = queue.get("queueId") or queue_id
 
-                    if queue_id and "swift" in str(queue_id).lower() and game_mode != "SWIFTPLAY":
-                        game_mode = "SWIFTPLAY"
+                    if queue_id and isinstance(queue_id, (str, int)):
+                        queue_str = str(queue_id).lower()
+                        if "swift" in queue_str and game_mode != "SWIFTPLAY":
+                            game_mode = "SWIFTPLAY"
+                        elif "brawl" in queue_str and game_mode != "BRAWL":
+                            game_mode = "BRAWL"
             else:
                 pass
 
@@ -805,15 +817,20 @@ class PhaseThread(threading.Thread):
                 try:
                     data = self.lcu.get(endpoint)
                     if data and isinstance(data, dict):
-                        if "gameMode" in data and data.get("gameMode") == "SWIFTPLAY":
-                            game_mode = "SWIFTPLAY"
+                        if "gameMode" in data and isinstance(data.get("gameMode"), str):
+                            mode_value = data.get("gameMode")
+                            if mode_value.upper() in SWIFTPLAY_MODES:
+                                game_mode = mode_value
 
                         if "queueId" in data:
                             endpoint_queue = data.get("queueId")
                             if endpoint_queue is not None:
                                 queue_id = endpoint_queue
-                                if "swift" in str(endpoint_queue).lower():
-                                    game_mode = "SWIFTPLAY"
+                                queue_str = str(endpoint_queue).lower()
+                                if "swift" in queue_str:
+                                    game_mode = game_mode or "SWIFTPLAY"
+                                elif "brawl" in queue_str:
+                                    game_mode = game_mode or "BRAWL"
 
                 except Exception as e:
                     log.debug(f"[phase] Error checking {endpoint}: {e}")

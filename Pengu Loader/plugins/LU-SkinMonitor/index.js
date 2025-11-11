@@ -1,7 +1,10 @@
 console.log("[SkinMonitor] Plugin loaded");
 
 const LOG_PREFIX = "[SkinMonitor]";
-const SKIN_SELECTOR = ".skin-name-text";
+const SKIN_SELECTORS = [
+    ".skin-name-text", // Classic Champ Select
+    ".skin-name",       // Swiftplay lobby
+];
 const POLL_INTERVAL_MS = 250;
 const BRIDGE_URL = "ws://localhost:3000";
 
@@ -125,27 +128,33 @@ function isVisible(element) {
 }
 
 function readCurrentSkin() {
-    const nodes = document.querySelectorAll(SKIN_SELECTOR);
-    if (!nodes.length) {
-        return null;
+    for (const selector of SKIN_SELECTORS) {
+        const nodes = document.querySelectorAll(selector);
+        if (!nodes.length) {
+            continue;
+        }
+
+        let candidate = null;
+
+        nodes.forEach((node) => {
+            const name = node.textContent.trim();
+            if (!name) {
+                return;
+            }
+
+            if (isVisible(node)) {
+                candidate = name;
+            } else if (!candidate) {
+                candidate = name;
+            }
+        });
+
+        if (candidate) {
+            return candidate;
+        }
     }
 
-    let candidate = null;
-
-    nodes.forEach((node) => {
-        const name = node.textContent.trim();
-        if (!name) {
-            return;
-        }
-
-        if (isVisible(node)) {
-            candidate = name;
-        } else if (!candidate) {
-            candidate = name;
-        }
-    });
-
-    return candidate;
+    return null;
 }
 
 function reportSkinIfChanged() {

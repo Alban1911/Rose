@@ -36,6 +36,9 @@ log = get_logger()
 # Disable websocket ping logs
 logging.getLogger("websocket").setLevel(logging.WARNING)
 
+SWIFTPLAY_LOCKED_CHAMPION_DELAY = 0.1
+SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
+
 
 class WSEventThread(threading.Thread):
     """WebSocket event thread with WAMP + lock counter + timer"""
@@ -777,7 +780,10 @@ class WSEventThread(threading.Thread):
             
             # Update is_swiftplay_mode flag based on detected game mode
             # This ensures the flag is correct when entering ChampSelect
-            self.state.is_swiftplay_mode = (game_mode == "SWIFTPLAY")
+            if isinstance(game_mode, str) and game_mode.upper() in SWIFTPLAY_MODES:
+                self.state.is_swiftplay_mode = True
+            else:
+                self.state.is_swiftplay_mode = False
             
             if old_swiftplay_mode != self.state.is_swiftplay_mode:
                 log.info(f"[WS] Swiftplay mode flag updated: {old_swiftplay_mode} → {self.state.is_swiftplay_mode}")
@@ -790,9 +796,9 @@ class WSEventThread(threading.Thread):
                 log.info("[WS] ARAM mode detected - chroma panel will use ARAM background")
             elif map_id == 11 or game_mode == "CLASSIC":
                 log.info("[WS] Summoner's Rift mode detected - chroma panel will use SR background")
-            elif game_mode == "SWIFTPLAY":
-                log.info("[WS] Swiftplay mode detected - will trigger early skin detection in lobby")
-                log.info("[WS] Swiftplay mode: Champion selection and skin detection will happen in lobby phase")
+            elif isinstance(game_mode, str) and game_mode.upper() in SWIFTPLAY_MODES:
+                log.info(f"[WS] {game_mode} mode detected - will trigger early skin detection in lobby")
+                log.info("[WS] Swiftplay-like mode: Champion selection and skin detection will happen in lobby phase")
             else:
                 log.info(f"[WS] Unknown game mode ({game_mode}, Map ID: {map_id}) - defaulting to SR background")
                 

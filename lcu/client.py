@@ -21,6 +21,8 @@ from utils.logging import get_logger, log_section, log_success
 
 log = get_logger()
 
+SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
+
 
 @dataclass
 class Lockfile:
@@ -359,7 +361,8 @@ class LCU:
     @property
     def is_swiftplay(self) -> bool:
         """Check if currently in Swiftplay mode"""
-        return self.game_mode == "SWIFTPLAY"
+        game_mode = self.game_mode
+        return isinstance(game_mode, str) and game_mode.upper() in SWIFTPLAY_MODES
     
     def get_swiftplay_lobby_data(self) -> Optional[dict]:
         """Get Swiftplay lobby data with champion selection"""
@@ -392,8 +395,8 @@ class LCU:
         try:
             # Look for indicators that this is Swiftplay lobby data
             # This might include specific fields or structures
-            if "gameMode" in data and data.get("gameMode") == "SWIFTPLAY":
-                log.debug("Found Swiftplay game mode in lobby data")
+            if "gameMode" in data and isinstance(data.get("gameMode"), str) and data.get("gameMode").upper() in SWIFTPLAY_MODES:
+                log.debug("Found Swiftplay-like game mode in lobby data")
                 return True
             
             # Check for other Swiftplay-specific indicators
@@ -401,8 +404,9 @@ class LCU:
                 # Swiftplay might have a specific queue ID
                 queue_id = data.get("queueId")
                 log.debug(f"Found queue ID: {queue_id}")
-                # Add specific queue ID checks here when we know them
-                # For now, we'll assume any lobby data could be Swiftplay if we're in Swiftplay mode
+                if queue_id is not None and any(tag in str(queue_id).lower() for tag in ("swift", "brawl")):
+                    log.debug("Queue ID indicates Swiftplay-like mode")
+                    return True
             
             # If we're already detected as Swiftplay mode, any lobby data is likely Swiftplay
             if self.is_swiftplay:
