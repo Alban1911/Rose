@@ -93,6 +93,15 @@ if Path('injection/mods_map.json').exists():
 else:
     print("[WARNING] injection/mods_map.json not found")
 
+# Include Pengu Loader directory (for Pengu activation/deactivation CLI)
+pengu_loader_dir = Path('Pengu Loader')
+if pengu_loader_dir.exists() and pengu_loader_dir.is_dir():
+    datas += [(str(pengu_loader_dir), 'Pengu Loader')]
+    contained = ", ".join(os.listdir(pengu_loader_dir)) or "<empty>"
+    print(f"[OK] Pengu Loader directory bundled ({contained})")
+else:
+    print("[WARNING] Pengu Loader directory not found – Pengu features will be disabled")
+
 # Hidden imports - modules PyInstaller might not detect
 hiddenimports = [
     # Core app modules
