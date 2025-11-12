@@ -638,7 +638,7 @@ class OpeningButton(ChromaWidgetBase):
                 log.warning("[CHROMA] League window still not available, delaying button show")
                 # Schedule a retry in 100ms
                 from PyQt6.QtCore import QTimer
-                QTimer.singleShot(100, self.show_instantly)
+                QTimer.singleShot(450, self.show_instantly)
                 return
             
             # Button position is handled by position_relative_to_anchor() in __init__
@@ -648,7 +648,7 @@ class OpeningButton(ChromaWidgetBase):
                 log.warning("[CHROMA] Button position is (0,0), delaying show until positioning is ready")
                 # Schedule a retry in 50ms
                 from PyQt6.QtCore import QTimer
-                QTimer.singleShot(50, self.show_instantly)
+                QTimer.singleShot(400, self.show_instantly)
                 return
             
             # Debug: Check position before showing
