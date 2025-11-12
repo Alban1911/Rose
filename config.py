@@ -104,7 +104,6 @@ UI_DETECTION_SKIN_NAME_X_RATIO = 0.4925    # X position as percentage of window 
 UI_DETECTION_SKIN_NAME_Y_RATIO = 0.6395  # Y position as percentage of window height (63.9% = constant for all skins of top pixel, +0.05% for safety)
 
 # Skin matching
-SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
 
 
 
