@@ -6,6 +6,10 @@
   cursor: pointer !important;
 }
 
+.champion-select .uikit-background-switcher.locked:after {
+  background: none !important;
+}
+
 .skin-selection-carousel .skin-selection-item.lpp-skin-hidden {
   pointer-events: none !important;
 }

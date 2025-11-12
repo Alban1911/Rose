@@ -58,6 +58,10 @@
       pointer-events: none !important;
     }
 
+    .champion-select .uikit-background-switcher.locked:after {
+      background: none !important;
+    }
+
     .unlock-skin-hit-area {
       display: none !important;
       pointer-events: none !important;
