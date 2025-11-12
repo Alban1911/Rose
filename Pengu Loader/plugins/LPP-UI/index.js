@@ -3,12 +3,13 @@
  * a companion stylesheet (and falling back to inline rules if it fails).
  */
 (function enableLockedSkinPreview() {
-  const LOG_PREFIX = '[LPP-UI][skin-preview]';
-  const STYLE_ID = 'lpp-ui-unlock-skins-css';
+  const LOG_PREFIX = "[LPP-UI][skin-preview]";
+  const STYLE_ID = "lpp-ui-unlock-skins-css";
   const INLINE_ID = `${STYLE_ID}-inline`;
-  const STYLESHEET_NAME = 'style.css';
-  const BORDER_CLASS = 'lpp-skin-border';
-  const HIDDEN_CLASS = 'lpp-skin-hidden';
+  const STYLESHEET_NAME = "style.css";
+  const BORDER_CLASS = "lpp-skin-border";
+  const HIDDEN_CLASS = "lpp-skin-hidden";
+  const CHROMA_CONTAINER_CLASS = "lpp-chroma-container";
   const VISIBLE_OFFSETS = new Set([0, 1, 2, 3, 4]);
 
   const INLINE_RULES = `
@@ -86,14 +87,14 @@
 
     .skin-selection-carousel .skin-selection-item .lpp-skin-border {
       position: absolute;
-      inset: 0;
+      inset: -1px;
       border: 2px solid transparent;
       border-image-source: linear-gradient(0deg, #4f4f54 0%, #3c3c41 50%, #29272b 100%);
       border-image-slice: 1;
       border-radius: inherit;
       box-sizing: border-box;
       pointer-events: none;
-      z-index: 1;
+      z-index: 0;
     }
 
     .skin-selection-carousel .skin-selection-item.skin-carousel-offset-2 .lpp-skin-border {
@@ -103,12 +104,26 @@
       box-shadow: inset 0 0 0 1px rgba(1, 10, 19, 0.6);
     }
 
+    .skin-selection-carousel .skin-selection-item .${CHROMA_CONTAINER_CLASS} {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .skin-selection-carousel .skin-selection-item .${CHROMA_CONTAINER_CLASS} .chroma-button {
+      pointer-events: auto;
+    }
+
 
   `;
 
   const log = {
-    info: (msg, extra) => console.info(`${LOG_PREFIX} ${msg}`, extra ?? ''),
-    warn: (msg, extra) => console.warn(`${LOG_PREFIX} ${msg}`, extra ?? ''),
+    info: (msg, extra) => console.info(`${LOG_PREFIX} ${msg}`, extra ?? ""),
+    warn: (msg, extra) => console.warn(`${LOG_PREFIX} ${msg}`, extra ?? ""),
   };
 
   function resolveStylesheetHref() {
@@ -122,7 +137,10 @@
         return new URL(STYLESHEET_NAME, script.src).toString();
       }
     } catch (error) {
-      log.warn('failed to resolve stylesheet URL; falling back to relative path', error);
+      log.warn(
+        "failed to resolve stylesheet URL; falling back to relative path",
+        error
+      );
     }
 
     return STYLESHEET_NAME;
@@ -133,11 +151,11 @@
       return;
     }
 
-    const styleTag = document.createElement('style');
+    const styleTag = document.createElement("style");
     styleTag.id = INLINE_ID;
     styleTag.textContent = INLINE_RULES;
     document.head.appendChild(styleTag);
-    log.warn('applied inline fallback styling');
+    log.warn("applied inline fallback styling");
   }
 
   function removeInlineRules() {
@@ -152,17 +170,17 @@
       return;
     }
 
-    const link = document.createElement('link');
+    const link = document.createElement("link");
     link.id = STYLE_ID;
-    link.rel = 'stylesheet';
+    link.rel = "stylesheet";
     link.href = resolveStylesheetHref();
 
-    link.addEventListener('load', () => {
+    link.addEventListener("load", () => {
       removeInlineRules();
-      log.info('external stylesheet loaded');
+      log.info("external stylesheet loaded");
     });
 
-    link.addEventListener('error', () => {
+    link.addEventListener("error", () => {
       link.remove();
       injectInlineRules();
     });
@@ -175,18 +193,65 @@
       return;
     }
 
-    if (skinItem.querySelector(`.${BORDER_CLASS}`)) {
+    let border = skinItem.querySelector(`.${BORDER_CLASS}`);
+    if (!border) {
+      border = document.createElement("div");
+      border.className = BORDER_CLASS;
+      border.setAttribute("aria-hidden", "true");
+    }
+
+    const chromaContainer = skinItem.querySelector(
+      `.${CHROMA_CONTAINER_CLASS}`
+    );
+    if (chromaContainer && border.nextSibling !== chromaContainer) {
+      skinItem.insertBefore(border, chromaContainer);
       return;
     }
 
-    const border = document.createElement('div');
-    border.className = BORDER_CLASS;
-    border.setAttribute('aria-hidden', 'true');
-    skinItem.appendChild(border);
+    if (border.parentElement !== skinItem || border !== skinItem.firstChild) {
+      skinItem.insertBefore(border, skinItem.firstChild || null);
+    }
+  }
+
+  function ensureChromaContainer(skinItem) {
+    if (!skinItem) {
+      return;
+    }
+
+    const chromaButton = skinItem.querySelector(".outer-mask .chroma-button");
+    if (!chromaButton) {
+      return;
+    }
+
+    let container = skinItem.querySelector(`.${CHROMA_CONTAINER_CLASS}`);
+    if (!container) {
+      container = document.createElement("div");
+      container.className = CHROMA_CONTAINER_CLASS;
+      container.setAttribute("aria-hidden", "true");
+      skinItem.appendChild(container);
+    } else if (container.parentElement !== skinItem) {
+      skinItem.appendChild(container);
+    }
+
+    if (
+      container.previousSibling &&
+      !container.previousSibling.classList?.contains(BORDER_CLASS)
+    ) {
+      const border = skinItem.querySelector(`.${BORDER_CLASS}`);
+      if (border) {
+        skinItem.insertBefore(border, container);
+      }
+    }
+
+    if (chromaButton.parentElement !== container) {
+      container.appendChild(chromaButton);
+    }
   }
 
   function parseCarouselOffset(skinItem) {
-    const offsetClass = Array.from(skinItem.classList).find((cls) => cls.startsWith('skin-carousel-offset'));
+    const offsetClass = Array.from(skinItem.classList).find((cls) =>
+      cls.startsWith("skin-carousel-offset")
+    );
     if (!offsetClass) {
       return null;
     }
@@ -216,18 +281,19 @@
     const offset = parseCarouselOffset(skinItem);
     const shouldBeVisible = isOffsetVisible(offset);
 
-    skinItem.classList.toggle('lpp-visible-skin', shouldBeVisible);
+    skinItem.classList.toggle("lpp-visible-skin", shouldBeVisible);
     skinItem.classList.toggle(HIDDEN_CLASS, !shouldBeVisible);
 
     if (shouldBeVisible) {
-      skinItem.style.removeProperty('pointer-events');
+      skinItem.style.removeProperty("pointer-events");
     } else {
-      skinItem.style.setProperty('pointer-events', 'none', 'important');
+      skinItem.style.setProperty("pointer-events", "none", "important");
     }
   }
 
   function scanSkinSelection() {
-    document.querySelectorAll('.skin-selection-item').forEach((skinItem) => {
+    document.querySelectorAll(".skin-selection-item").forEach((skinItem) => {
+      ensureChromaContainer(skinItem);
       ensureBorderFrame(skinItem);
       applyOffsetVisibility(skinItem);
     });
@@ -241,7 +307,7 @@
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['class'],
+      attributeFilter: ["class"],
     });
 
     // Re-scan periodically as a safety net (LCU sometimes swaps DOM wholesale)
@@ -250,12 +316,12 @@
     const handleResize = () => {
       scanSkinSelection();
     };
-    window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener("resize", handleResize, { passive: true });
 
     document.addEventListener(
-      'visibilitychange',
+      "visibilitychange",
       () => {
-        if (document.visibilityState === 'visible') {
+        if (document.visibilityState === "visible") {
           scanSkinSelection();
         }
       },
@@ -266,7 +332,7 @@
     return () => {
       observer.disconnect();
       clearInterval(intervalId);
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener("resize", handleResize);
     };
   }
 
@@ -279,18 +345,17 @@
     attachStylesheet();
     scanSkinSelection();
     setupSkinObserver();
-    log.info('skin preview overrides active');
+    log.info("skin preview overrides active");
   }
 
-  if (typeof document === 'undefined') {
-    log.warn('document unavailable; aborting');
+  if (typeof document === "undefined") {
+    log.warn("document unavailable; aborting");
     return;
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init, { once: true });
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
   } else {
     init();
   }
 })();
-
