@@ -87,7 +87,7 @@
 
     .skin-selection-carousel .skin-selection-item .lpp-skin-border {
       position: absolute;
-      inset: -1px;
+      inset: -2px;
       border: 2px solid transparent;
       border-image-source: linear-gradient(0deg, #4f4f54 0%, #3c3c41 50%, #29272b 100%);
       border-image-slice: 1;
