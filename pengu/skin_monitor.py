@@ -20,7 +20,6 @@ from typing import Optional, Set
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol, serve
 
-from utils.paths import get_user_data_dir
 from utils.utilities import get_champion_id_from_skin_id
 
 log = logging.getLogger(__name__)
@@ -58,10 +57,7 @@ class PenguSkinMonitorThread(threading.Thread):
         self._injection_disconnect_active = False
         self._last_phase = None
 
-        # Skin mapping cache (per language)
-        self.skin_id_mapping: dict[str, int] = {}
-        self.skin_mapping_loaded = False
-        self.last_skin_name: Optional[str] = None
+        self.last_skin_id: Optional[int] = None
 
     # ------------------------------------------------------------------ Thread
     def run(self) -> None:
@@ -123,7 +119,7 @@ class PenguSkinMonitorThread(threading.Thread):
         Mimic the legacy UIA behaviour when injection is about to occur.
         """
         self._injection_disconnect_active = True
-        self.last_skin_name = None
+        self.last_skin_id = None
         self.shared_state.ui_skin_id = None
         self.shared_state.ui_last_text = None
 
@@ -131,11 +127,9 @@ class PenguSkinMonitorThread(threading.Thread):
         """
         Reset cached mappings/state (called during champion exchange events).
         """
-        self.last_skin_name = None
+        self.last_skin_id = None
         self.shared_state.ui_skin_id = None
         self.shared_state.ui_last_text = None
-        self.skin_mapping_loaded = False
-        self.skin_id_mapping.clear()
 
     # ------------------------------------------------------------ WebSocket IO
     async def _handler(self, websocket: WebSocketServerProtocol) -> None:
@@ -161,19 +155,32 @@ class PenguSkinMonitorThread(threading.Thread):
             log.warning("[PenguSkinMonitor] Invalid payload: %s (%s)", message, exc)
             return
 
-        skin_name = payload.get("skin")
-        if not isinstance(skin_name, str) or not skin_name.strip():
+        skin_id_raw = payload.get("skinId")
+        if skin_id_raw is None:
+            legacy_skin = payload.get("skin")
+            if legacy_skin:
+                log.debug(
+                    "[PenguSkinMonitor] Ignoring legacy skin payload in ID mode: %s",
+                    legacy_skin,
+                )
+            return
+
+        try:
+            skin_id = int(skin_id_raw)
+        except (TypeError, ValueError):
+            return
+
+        if skin_id <= 0:
             return
 
         if not self._should_process_payload():
             return
 
-        skin_name = skin_name.strip()
-        if skin_name == self.last_skin_name:
+        if skin_id == self.last_skin_id:
             return
 
-        self.last_skin_name = skin_name
-        self._process_skin_name(skin_name)
+        self.last_skin_id = skin_id
+        self._process_skin_id(skin_id)
 
     # ----------------------------------------------------------- Flow control
     def _should_process_payload(self) -> bool:
@@ -213,169 +220,53 @@ class PenguSkinMonitorThread(threading.Thread):
         return False
 
     # ------------------------------------------------------------ Skin logic
-    def _process_skin_name(self, skin_name: str) -> None:
+    def _process_skin_id(self, skin_id: int) -> None:
         try:
-            log.info("[PenguSkinMonitor] Skin detected: '%s'", skin_name)
-            self.shared_state.ui_last_text = skin_name
+            champion_id = get_champion_id_from_skin_id(skin_id)
+            if getattr(self.shared_state, "is_swiftplay_mode", False) and champion_id:
+                self.shared_state.swiftplay_skin_tracking[champion_id] = skin_id
 
-            if getattr(self.shared_state, "is_swiftplay_mode", False):
-                self._process_swiftplay_skin_name(skin_name)
-            else:
-                self._process_regular_skin_name(skin_name)
+            self.shared_state.ui_skin_id = skin_id
+            self.shared_state.last_hovered_skin_id = skin_id
+
+            skin_name = self._resolve_skin_name(skin_id)
+            self.shared_state.ui_last_text = skin_name
+            self.shared_state.last_hovered_skin_key = skin_name or f"Skin {skin_id}"
+
+            log.info(
+                "[PenguSkinMonitor] Skin ID detected: %s (champion=%s, name='%s')",
+                skin_id,
+                champion_id,
+                skin_name or "unknown",
+            )
         except Exception as exc:  # noqa: BLE001
             log.error(
-                "[PenguSkinMonitor] Error processing skin '%s': %s",
-                skin_name,
+                "[PenguSkinMonitor] Error processing skin ID %s: %s",
+                skin_id,
                 exc,
             )
-
-    def _process_swiftplay_skin_name(self, skin_name: str) -> None:
-        skin_id = self._find_skin_id_by_name(skin_name)
-        if skin_id is None:
-            log.warning(
-                "[PenguSkinMonitor] Unable to map Swiftplay skin '%s' to ID",
-                skin_name,
-            )
-            return
-
-        champion_id = get_champion_id_from_skin_id(skin_id)
-        self.shared_state.swiftplay_skin_tracking[champion_id] = skin_id
-        self.shared_state.ui_skin_id = skin_id
-        self.shared_state.last_hovered_skin_id = skin_id
-
-        log.info(
-            "[PenguSkinMonitor] Swiftplay skin '%s' mapped to champion %s (id=%s)",
-            skin_name,
-            champion_id,
-            skin_id,
-        )
-
-    def _process_regular_skin_name(self, skin_name: str) -> None:
-        skin_id = self._find_skin_id(skin_name)
-        if skin_id is None:
-            log.debug(
-                "[PenguSkinMonitor] No skin ID found for '%s' with current data",
-                skin_name,
-            )
-            return
-
-        self.shared_state.ui_skin_id = skin_id
-        self.shared_state.last_hovered_skin_id = skin_id
-
-        english_skin_name = None
-        try:
-            champ_id = getattr(self.shared_state, "locked_champ_id", None)
-            if (
-                self.skin_scraper
-                and champ_id
-                and self.skin_scraper.cache.is_loaded_for_champion(champ_id)
-            ):
-                skin_data = self.skin_scraper.cache.get_skin_by_id(skin_id)
-                english_skin_name = (skin_data or {}).get("skinName", "").strip()
-        except Exception:
-            english_skin_name = None
-
-        self.shared_state.last_hovered_skin_key = english_skin_name or skin_name
-        log.info(
-            "[PenguSkinMonitor] Skin '%s' mapped to ID %s (key=%s)",
-            skin_name,
-            skin_id,
-            self.shared_state.last_hovered_skin_key,
-        )
 
     # ------------------------------------------------------- Skin lookup utils
-    def _load_skin_id_mapping(self) -> bool:
-        language = getattr(self.shared_state, "current_language", None)
-        if not language:
-            log.warning("[PenguSkinMonitor] No language detected; cannot load mapping")
-            return False
-
-        mapping_path = (
-            get_user_data_dir()
-            / "skinid_mapping"
-            / language
-            / "skin_ids.json"
-        )
-
-        if not mapping_path.exists():
-            log.warning(
-                "[PenguSkinMonitor] Skin mapping file missing: %s", mapping_path
-            )
-            return False
-
-        try:
-            with open(mapping_path, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
-        except Exception as exc:  # noqa: BLE001
-            log.error(
-                "[PenguSkinMonitor] Failed to load skin mapping %s: %s",
-                mapping_path,
-                exc,
-            )
-            return False
-
-        self.skin_id_mapping.clear()
-        for skin_id_str, name in data.items():
-            try:
-                skin_id = int(skin_id_str)
-            except (TypeError, ValueError):
-                continue
-            normalized = (name or "").strip().lower()
-            if normalized and normalized not in self.skin_id_mapping:
-                self.skin_id_mapping[normalized] = skin_id
-
-        self.skin_mapping_loaded = True
-        log.info(
-            "[PenguSkinMonitor] Loaded %s skin mappings for '%s'",
-            len(self.skin_id_mapping),
-            language,
-        )
-        return True
-
-    def _find_skin_id_by_name(self, skin_name: str) -> Optional[int]:
-        if not self.skin_mapping_loaded:
-            if not self._load_skin_id_mapping():
-                return None
-
-        normalized = skin_name.strip().lower()
-        if normalized in self.skin_id_mapping:
-            return self.skin_id_mapping[normalized]
-
-        for mapped_name, skin_id in self.skin_id_mapping.items():
-            if normalized in mapped_name or mapped_name in normalized:
-                return skin_id
-
-        return None
-
-    def _find_skin_id(self, skin_name: str) -> Optional[int]:
-        champ_id = getattr(self.shared_state, "locked_champ_id", None)
-        if not champ_id:
-            return None
-
+    def _resolve_skin_name(self, skin_id: int) -> Optional[str]:
         if not self.skin_scraper:
             return None
 
+        # Try using the currently locked champion, if available.
+        champ_id = getattr(self.shared_state, "locked_champ_id", None)
+        if champ_id:
+            try:
+                self.skin_scraper.scrape_champion_skins(champ_id)
+            except Exception:
+                champ_id = None
+
         try:
-            if not self.skin_scraper.scrape_champion_skins(champ_id):
-                return None
+            skin_data = self.skin_scraper.cache.get_skin_by_id(skin_id)
         except Exception:
             return None
 
-        try:
-            result = self.skin_scraper.find_skin_by_text(skin_name)
-        except Exception:
+        if not skin_data:
             return None
 
-        if result:
-            skin_id, matched_name, similarity = result
-            log.info(
-                "[PenguSkinMonitor] Matched '%s' -> '%s' (ID=%s, similarity=%.2f)",
-                skin_name,
-                matched_name,
-                skin_id,
-                similarity,
-            )
-            return skin_id
-
-        return None
+        name = (skin_data.get("skinName") or "").strip()
+        return name or None
 

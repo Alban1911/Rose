@@ -1,47 +1,46 @@
 console.log("[SkinMonitor] Plugin loaded");
 
 const LOG_PREFIX = "[SkinMonitor]";
-const SKIN_SELECTORS = [
-    ".skin-name-text", // Classic Champ Select
-    ".skin-name",       // Swiftplay lobby
-];
-const POLL_INTERVAL_MS = 250;
 const BRIDGE_URL = "ws://localhost:3000";
+const SKIN_REQUEST_REGEX = /\/lol-store\/v1\/skins\/(\d+)/i;
 
-let lastLoggedSkin = null;
-let pollTimer = null;
-let observer = null;
 let bridgeSocket = null;
 let bridgeReady = false;
 let bridgeQueue = [];
+let interceptorsInstalled = false;
+let lastReportedSkinId = null;
 
-function logHover(skinName) {
-    console.log(`${LOG_PREFIX} Hovered skin: ${skinName}`);
-    notifyBridge(skinName);
+function logSkinSelection(skinId) {
+    console.log(`${LOG_PREFIX} Detected skin ID: ${skinId}`);
+    notifyBridge({ skinId, timestamp: Date.now() });
 }
 
-function notifyBridge(skinName) {
-    const payload = JSON.stringify({ skin: skinName, timestamp: Date.now() });
-    sendToBridge(payload);
+function notifyBridge(payload) {
+    try {
+        const message = JSON.stringify(payload);
+        sendToBridge(message);
+    } catch (error) {
+        console.warn(`${LOG_PREFIX} Failed to encode payload`, error);
+    }
 }
 
-function sendToBridge(payload) {
+function sendToBridge(message) {
     if (!bridgeSocket || bridgeSocket.readyState === WebSocket.CLOSING || bridgeSocket.readyState === WebSocket.CLOSED) {
-        bridgeQueue.push(payload);
+        bridgeQueue.push(message);
         setupBridgeSocket();
         return;
     }
 
     if (bridgeSocket.readyState === WebSocket.CONNECTING) {
-        bridgeQueue.push(payload);
+        bridgeQueue.push(message);
         return;
     }
 
     try {
-        bridgeSocket.send(payload);
+        bridgeSocket.send(message);
     } catch (error) {
         console.warn(`${LOG_PREFIX} Bridge send failed`, error);
-        bridgeQueue.push(payload);
+        bridgeQueue.push(message);
         resetBridgeSocket();
     }
 }
@@ -86,12 +85,12 @@ function flushBridgeQueue() {
     }
 
     while (bridgeQueue.length) {
-        const payload = bridgeQueue.shift();
+        const message = bridgeQueue.shift();
         try {
-            bridgeSocket.send(payload);
+            bridgeSocket.send(message);
         } catch (error) {
             console.warn(`${LOG_PREFIX} Bridge flush failed`, error);
-            bridgeQueue.unshift(payload);
+            bridgeQueue.unshift(message);
             resetBridgeSocket();
             break;
         }
@@ -120,101 +119,73 @@ function resetBridgeSocket() {
     scheduleBridgeRetry();
 }
 
-function isVisible(element) {
-    if (typeof element.offsetParent === "undefined") {
-        return true;
-    }
-    return element.offsetParent !== null;
-}
-
-function readCurrentSkin() {
-    for (const selector of SKIN_SELECTORS) {
-        const nodes = document.querySelectorAll(selector);
-        if (!nodes.length) {
-            continue;
-        }
-
-        let candidate = null;
-
-        nodes.forEach((node) => {
-            const name = node.textContent.trim();
-            if (!name) {
-                return;
-            }
-
-            if (isVisible(node)) {
-                candidate = name;
-            } else if (!candidate) {
-                candidate = name;
-            }
-        });
-
-        if (candidate) {
-            return candidate;
-        }
+function extractSkinIdFromUrl(url) {
+    if (!url || typeof url !== "string") {
+        return null;
     }
 
-    return null;
+    const match = SKIN_REQUEST_REGEX.exec(url);
+    if (!match) {
+        return null;
+    }
+
+    const skinId = parseInt(match[1], 10);
+    if (!Number.isFinite(skinId)) {
+        return null;
+    }
+
+    return skinId;
 }
 
-function reportSkinIfChanged() {
-    const name = readCurrentSkin();
-    if (!name || name === lastLoggedSkin) {
+function handlePotentialSkinRequest(url) {
+    const skinId = extractSkinIdFromUrl(url);
+    if (!skinId || skinId === lastReportedSkinId) {
         return;
     }
 
-    lastLoggedSkin = name;
-    logHover(name);
+    lastReportedSkinId = skinId;
+    logSkinSelection(skinId);
 }
 
-function attachObservers() {
-    if (observer) {
-        observer.disconnect();
+function installInterceptors() {
+    if (interceptorsInstalled) {
+        return;
+    }
+    interceptorsInstalled = true;
+
+    if (typeof window.fetch === "function") {
+        const originalFetch = window.fetch;
+        window.fetch = function patchedFetch(...args) {
+            try {
+                const request = args[0];
+                const url = typeof request === "string" ? request : request && request.url;
+                handlePotentialSkinRequest(url);
+            } catch (error) {
+                console.warn(`${LOG_PREFIX} Failed to inspect fetch request`, error);
+            }
+            return originalFetch.apply(this, args);
+        };
     }
 
-    observer = new MutationObserver(reportSkinIfChanged);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    document.querySelectorAll("*").forEach((node) => {
-        if (!node.shadowRoot || !(node.shadowRoot instanceof Node)) {
-            return;
-        }
-
-        try {
-            observer.observe(node.shadowRoot, { childList: true, subtree: true });
-        } catch (error) {
-            console.warn(`${LOG_PREFIX} Cannot observe shadowRoot`, error);
-        }
-    });
-
-    if (!pollTimer) {
-        pollTimer = setInterval(reportSkinIfChanged, POLL_INTERVAL_MS);
+    if (typeof window.XMLHttpRequest === "function") {
+        const originalOpen = window.XMLHttpRequest.prototype.open;
+        window.XMLHttpRequest.prototype.open = function patchedOpen(method, url, ...rest) {
+            try {
+                handlePotentialSkinRequest(url);
+            } catch (error) {
+                console.warn(`${LOG_PREFIX} Failed to inspect XHR request`, error);
+            }
+            return originalOpen.call(this, method, url, ...rest);
+        };
     }
 }
 
 function start() {
-    if (!document.body) {
-        console.log(`${LOG_PREFIX} Waiting for document.body...`);
-        setTimeout(start, 250);
-        return;
-    }
-
     setupBridgeSocket();
-    attachObservers();
-    reportSkinIfChanged();
+    installInterceptors();
 }
 
 function stop() {
-    if (observer) {
-        observer.disconnect();
-        observer = null;
-    }
-
-    if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-    }
-
     if (bridgeSocket) {
         bridgeSocket.close();
         bridgeSocket = null;
