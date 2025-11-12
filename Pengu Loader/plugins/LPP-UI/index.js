@@ -122,6 +122,9 @@
       pointer-events: auto;
     }
 
+    .chroma-button.chroma-selection {
+      display: none !important;
+    }
 
   `;
 
