@@ -1,0 +1,85 @@
+/* class="chroma-button chroma-selection {{if item.selectedChildSkin 'selected'}} uikit-framed-icon ember-view" */
+--champion-preview-hover-animation-percentage: 0%;
+--column-height: 95px;
+--font-display: "LoL Display","Times New Roman",Times,Baskerville,Georgia,serif;
+--font-body: "LoL Body",Arial,"Helvetica Neue",Helvetica,sans-serif;
+pointer-events: auto;
+-webkit-user-select: none;
+list-style-type: none;
+cursor: default;
+display: block;
+bottom: 0;
+height: 25px;
+left: 50%;
+position: absolute;
+transform: translateX(-50%) translateY(50%);
+width: 25px;
+
+/* class="outer-mask interactive " */
+--champion-preview-hover-animation-percentage: 0%;
+--column-height: 95px;
+--font-display: "LoL Display","Times New Roman",Times,Baskerville,Georgia,serif;
+--font-body: "LoL Body",Arial,"Helvetica Neue",Helvetica,sans-serif;
+pointer-events: auto;
+-webkit-user-select: none;
+list-style-type: none;
+cursor: default;
+border-radius: 50%;
+box-shadow: 0 0 4px 1px rgba(1,10,19,.25);
+box-sizing: border-box;
+height: 100%;
+overflow: hidden;
+position: relative;
+
+/* class="frame-color " */
+--champion-preview-hover-animation-percentage: 0%;
+--column-height: 95px;
+--font-display: "LoL Display","Times New Roman",Times,Baskerville,Georgia,serif;
+--font-body: "LoL Body",Arial,"Helvetica Neue",Helvetica,sans-serif;
+pointer-events: auto;
+-webkit-user-select: none;
+list-style-type: none;
+cursor: default;
+background-image: linear-gradient(0deg,#695625 0,#a9852d 23%,#b88d35 93%,#c8aa6e);
+box-sizing: border-box;
+height: 100%;
+overflow: hidden;
+width: 100%;
+padding: 2px;
+
+/* class="content " */
+--champion-preview-hover-animation-percentage: 0%;
+--column-height: 95px;
+--font-display: "LoL Display","Times New Roman",Times,Baskerville,Georgia,serif;
+--font-body: "LoL Body",Arial,"Helvetica Neue",Helvetica,sans-serif;
+pointer-events: auto;
+-webkit-user-select: none;
+list-style-type: none;
+cursor: default;
+display: block;
+background: url(/fe/lol-champ-select/images/config/button-chroma.png) no-repeat;
+background-size: contain;
+border: 2px solid #010a13;
+border-radius: 50%;
+height: 16px;
+margin: 1px;
+width: 16px;
+
+/* class="inner-mask inner-shadow" */
+--champion-preview-hover-animation-percentage: 0%;
+--column-height: 95px;
+--font-display: "LoL Display","Times New Roman",Times,Baskerville,Georgia,serif;
+--font-body: "LoL Body",Arial,"Helvetica Neue",Helvetica,sans-serif;
+-webkit-user-select: none;
+list-style-type: none;
+cursor: default;
+border-radius: 50%;
+box-sizing: border-box;
+overflow: hidden;
+pointer-events: none;
+position: absolute;
+box-shadow: inset 0 0 4px 4px rgba(0,0,0,.75);
+width: calc(100% - 4px);
+height: calc(100% - 4px);
+left: 2px;
+top: 2px;
