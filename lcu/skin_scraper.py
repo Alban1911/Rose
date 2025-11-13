@@ -4,9 +4,9 @@
 LCU Skin Scraper - Scrape skins for a specific champion from LCU
 """
 
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from utils.logging import get_logger
-from config import LCU_SKIN_SCRAPER_TIMEOUT_S
+from config import LCU_SKIN_SCRAPER_TIMEOUT_S, SKIN_NAME_MIN_SIMILARITY
 
 log = get_logger()
 
@@ -19,6 +19,7 @@ class ChampionSkinCache:
         self.champion_name = None
         self.skins = []  # List of {skinId, skinName, isBase, chromas, chromaDetails}
         self.skin_id_map = {}  # skinId -> skin data
+        self.skin_name_map = {}  # skinName -> skin data
         self.chroma_id_map = {}  # chromaId -> chroma data (for quick lookup)
         # No longer using external data sources - LCU provides all needed data
     
@@ -28,6 +29,7 @@ class ChampionSkinCache:
         self.champion_name = None
         self.skins = []
         self.skin_id_map = {}
+        self.skin_name_map = {}
         self.chroma_id_map = {}
         # No longer using external data sources
     
@@ -38,6 +40,10 @@ class ChampionSkinCache:
     def get_skin_by_id(self, skin_id: int) -> Optional[Dict]:
         """Get skin data by skin ID"""
         return self.skin_id_map.get(skin_id)
+    
+    def get_skin_by_name(self, skin_name: str) -> Optional[Dict]:
+        """Get skin data by skin name (exact match)"""
+        return self.skin_name_map.get(skin_name)
     
     @property
     def all_skins(self) -> List[Dict]:
@@ -161,7 +167,7 @@ class LCUSkinScraper:
             
             self.cache.skins.append(skin_data)
             self.cache.skin_id_map[skin_id] = skin_data
-            # Skin names are stored on each entry; we no longer index by name.
+            self.cache.skin_name_map[english_skin_name] = skin_data
         
         log.info(f"[LCU-SCRAPER] ✓ Scraped {len(self.cache.skins)} skins for {self.cache.champion_name} (ID: {champion_id})")
         
@@ -174,6 +180,62 @@ class LCUSkinScraper:
         return True
     
     # No longer converting to English - using LCU localized names directly
+    
+    def find_skin_by_text(self, text: str, use_levenshtein: bool = True) -> Optional[Tuple[int, str, float]]:
+        """Find best matching skin by text using Levenshtein distance
+        
+        Args:
+            text: Text to match
+            use_levenshtein: If True, use Levenshtein distance for fuzzy matching
+            
+        Returns:
+            Tuple of (skinId, skinName, similarity_score) if found, None otherwise
+        """
+        if not text or not self.cache.skins:
+            return None
+        
+        # Try exact match first
+        exact_match = self.cache.get_skin_by_name(text)
+        if exact_match:
+            return (exact_match['skinId'], exact_match['skinName'], 1.0)
+        
+        # Fuzzy matching with Levenshtein distance
+        if not use_levenshtein:
+            return None
+        
+        try:
+            from rapidfuzz.distance import Levenshtein
+        except ImportError:
+            log.warning("[LCU-SCRAPER] rapidfuzz not available for fuzzy matching")
+            return None
+        
+        best_match = None
+        best_distance = float('inf')
+        best_similarity = 0.0
+        
+        for skin in self.cache.skins:
+            skin_name = skin['skinName']
+            
+            # Remove spaces from both texts before comparison
+            text_no_spaces = text.replace(" ", "")
+            skin_name_no_spaces = skin_name.replace(" ", "")
+            
+            # Calculate Levenshtein distance
+            distance = Levenshtein.distance(text_no_spaces, skin_name_no_spaces)
+            max_len = max(len(text_no_spaces), len(skin_name_no_spaces))
+            similarity = 1.0 - (distance / max_len) if max_len > 0 else 0.0
+            
+            # Update best match
+            if distance < best_distance:
+                best_distance = distance
+                best_similarity = similarity
+                best_match = skin
+        
+        # Only return if similarity is above threshold
+        if best_match and best_similarity >= SKIN_NAME_MIN_SIMILARITY:
+            return (best_match['skinId'], best_match['skinName'], best_similarity)
+        
+        return None
     
     @property
     def cached_champion_name(self) -> Optional[str]:
