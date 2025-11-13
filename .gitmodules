@@ -1,0 +1,9 @@
+[submodule "Pengu Loader/plugins/LPP-UI"]
+	path = Pengu Loader/plugins/LPP-UI
+	url = https://github.com/Alban1911/LPP-UI
+[submodule "Pengu Loader/plugins/LU-SkinMonitor"]
+	path = Pengu Loader/plugins/LU-SkinMonitor
+	url = https://github.com/Alban1911/LU-SkinMonitor
+[submodule "Pengu Loader/plugins/LU-ChromaWheel"]
+	path = Pengu Loader/plugins/LU-ChromaWheel
+	url = https://github.com/Alban1911/LU-ChromaWheel
