@@ -126,6 +126,26 @@
       display: none !important;
     }
 
+    /* Remove grey filters and locks */
+    .thumbnail-wrapper {
+      filter: grayscale(0) saturate(1) contrast(1) !important;
+      -webkit-filter: grayscale(0) saturate(1) contrast(1) !important;
+    }
+
+    .skin-thumbnail-img {
+      filter: grayscale(0) saturate(1) contrast(1) !important;
+      -webkit-filter: grayscale(0) saturate(1) contrast(1) !important;
+    }
+
+    .locked-state {
+      display: none !important;
+    }
+
+    .unlock-skin-hit-area {
+      display: none !important;
+      pointer-events: none !important;
+    }
+
   `;
 
   const log = {
@@ -298,17 +318,40 @@
     }
   }
 
+  function markSkinsAsOwned() {
+    // Remove unowned class and add owned class to thumbnail-wrapper elements
+    document.querySelectorAll('.thumbnail-wrapper.unowned').forEach((wrapper) => {
+      wrapper.classList.remove('unowned');
+      wrapper.classList.add('owned');
+    });
+
+    // Replace purchase-available with active
+    document.querySelectorAll('.purchase-available').forEach((element) => {
+      element.classList.remove('purchase-available');
+      element.classList.add('active');
+    });
+
+    // Remove purchase-disabled class from any element
+    document.querySelectorAll('.purchase-disabled').forEach((element) => {
+      element.classList.remove('purchase-disabled');
+    });
+  }
+
   function scanSkinSelection() {
     document.querySelectorAll(".skin-selection-item").forEach((skinItem) => {
       ensureChromaContainer(skinItem);
       ensureBorderFrame(skinItem);
       applyOffsetVisibility(skinItem);
     });
+    
+    // Mark skins as owned in Swiftplay
+    markSkinsAsOwned();
   }
 
   function setupSkinObserver() {
     const observer = new MutationObserver(() => {
       scanSkinSelection();
+      markSkinsAsOwned();
     });
     observer.observe(document.body, {
       childList: true,
@@ -318,7 +361,10 @@
     });
 
     // Re-scan periodically as a safety net (LCU sometimes swaps DOM wholesale)
-    const intervalId = setInterval(scanSkinSelection, 500);
+    const intervalId = setInterval(() => {
+      scanSkinSelection();
+      markSkinsAsOwned();
+    }, 500);
 
     const handleResize = () => {
       scanSkinSelection();

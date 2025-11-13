@@ -140,3 +140,23 @@
 .chroma-button.chroma-selection {
   display: none !important;
 }
+
+/* Remove grey filters and locks */
+.thumbnail-wrapper {
+  filter: grayscale(0) saturate(1) contrast(1) !important;
+  -webkit-filter: grayscale(0) saturate(1) contrast(1) !important;
+}
+
+.skin-thumbnail-img {
+  filter: grayscale(0) saturate(1) contrast(1) !important;
+  -webkit-filter: grayscale(0) saturate(1) contrast(1) !important;
+}
+
+.locked-state {
+  display: none !important;
+}
+
+.unlock-skin-hit-area {
+  display: none !important;
+  pointer-events: none !important;
+}
