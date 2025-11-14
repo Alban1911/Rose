@@ -16,7 +16,7 @@ git clone https://github.com/Alban1911/LU-source.git
 # Navigate to project directory (adjust path as needed)
 cd ".\LU-source"
 
-# Switch to dev branch (submodules only exist on dev, not on main)
+# Switch to dev branch
 git checkout dev
 
 # Initialize and update submodules (required!)
