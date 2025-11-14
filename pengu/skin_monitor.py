@@ -25,6 +25,18 @@ from utils.utilities import get_champion_id_from_skin_id
 
 log = logging.getLogger(__name__)
 
+SPECIAL_BASE_SKIN_IDS = {
+    99007,  # Elementalist Lux
+    145070,  # Risen Legend Kai'Sa
+    103085,  # Risen Legend Ahri
+}
+SPECIAL_CHROMA_SKIN_IDS = {
+    145071,  # Immortalized Legend Kai'Sa
+    100001,  # Kai'Sa HOL chroma
+    103086,  # Immortalized Legend Ahri
+    88888,  # Ahri HOL chroma
+}
+
 
 class PenguSkinMonitorThread(threading.Thread):
     """
@@ -161,6 +173,13 @@ class PenguSkinMonitorThread(threading.Thread):
             log.warning("[PenguSkinMonitor] Invalid payload: %s (%s)", message, exc)
             return
 
+        payload_type = payload.get("type")
+        if payload_type == "chroma-log":
+            event = payload.get("event") or payload.get("message") or "unknown"
+            details = payload.get("data") or payload
+            log.info("[ChromaWheel] %s | %s", event, details)
+            return
+
         skin_name = payload.get("skin")
         if not isinstance(skin_name, str) or not skin_name.strip():
             return
@@ -249,6 +268,7 @@ class PenguSkinMonitorThread(threading.Thread):
             champion_id,
             skin_id,
         )
+        self._broadcast_skin_state(skin_name, skin_id)
 
     def _process_regular_skin_name(self, skin_name: str) -> None:
         skin_id = self._find_skin_id(skin_name)
@@ -282,6 +302,7 @@ class PenguSkinMonitorThread(threading.Thread):
             skin_id,
             self.shared_state.last_hovered_skin_key,
         )
+        self._broadcast_skin_state(skin_name, skin_id)
 
     # ------------------------------------------------------- Skin lookup utils
     def _load_skin_id_mapping(self) -> bool:
@@ -378,3 +399,81 @@ class PenguSkinMonitorThread(threading.Thread):
             return skin_id
 
         return None
+
+    # ---------------------------------------------------------- JS Integration
+    def _broadcast_skin_state(self, skin_name: str, skin_id: Optional[int]) -> None:
+        if not self._loop or not self._connections:
+            return
+
+        champion_id = (
+            get_champion_id_from_skin_id(skin_id)
+            if skin_id is not None
+            else None
+        )
+        has_chromas = self._skin_has_chromas(skin_id)
+        payload = {
+            "type": "skin-state",
+            "skinName": skin_name,
+            "skinId": skin_id,
+            "championId": champion_id,
+            "hasChromas": has_chromas,
+        }
+        log.info(
+            "[PenguSkinMonitor] Skin state → name='%s' id=%s champion=%s hasChromas=%s",
+            skin_name,
+            skin_id,
+            champion_id,
+            has_chromas,
+        )
+        message = json.dumps(payload)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is self._loop:
+            self._loop.create_task(self._broadcast(message))
+        else:
+            asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+
+    async def _broadcast(self, message: str) -> None:
+        stale: list[WebSocketServerProtocol] = []
+        for ws in list(self._connections):
+            try:
+                await ws.send(message)
+            except Exception:
+                stale.append(ws)
+        for ws in stale:
+            self._connections.discard(ws)
+
+    def _skin_has_chromas(self, skin_id: Optional[int]) -> bool:
+        if skin_id is None:
+            return False
+
+        if skin_id == 99007:
+            return True
+
+        if 99991 <= skin_id <= 99999:
+            return True
+
+        if skin_id in SPECIAL_BASE_SKIN_IDS:
+            return True
+
+        if skin_id in SPECIAL_CHROMA_SKIN_IDS:
+            return True
+
+        if self.skin_scraper and self.skin_scraper.cache:
+            chroma_id_map = getattr(
+                self.skin_scraper.cache, "chroma_id_map", None
+            )
+            if chroma_id_map and skin_id in chroma_id_map:
+                return True
+
+            try:
+                chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
+                if chromas:
+                    return True
+            except Exception:
+                return False
+
+        return False

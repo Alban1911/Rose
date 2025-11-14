@@ -429,10 +429,9 @@ class ChromaSelector:
                 log.error(f"[CHROMA] Failed to show button: {e}")
     
     def hide(self):
-        """Hide the chroma panel and reopen button"""
+        """Hide the chroma panel (JavaScript plugin handles button)"""
         with self.lock:
             self.panel.hide()
-            self.panel.hide_reopen_button()
             self.state.pending_chroma_selection = False
             self.current_skin_id = None
     

@@ -9,7 +9,6 @@ import threading
 from typing import Callable, List, Dict
 from utils.logging import get_logger, log_event, log_action, log_success
 from utils.utilities import is_default_skin, is_owned, is_base_skin_owned
-from ui.chroma_button import OpeningButton
 from ui.chroma_panel_widget import ChromaPanelWidget
 
 log = get_logger()
@@ -23,25 +22,21 @@ class ChromaPanelManager:
         self.state = state  # SharedState for panel control
         self.lcu = lcu  # LCU client for game mode detection
         self.widget = None
-        self.reopen_button = None
         self.click_catcher = None  # Legacy overlay removed
         self.is_initialized = False
         self.pending_show = None  # (skin_name, chromas) to show from other threads
         self.pending_hide = False
-        self.pending_show_button = False
-        self.pending_hide_button = False
         self.pending_create = False  # Request to create widgets
         self.pending_destroy = False  # Request to destroy widgets
         self.pending_rebuild = False  # Request to rebuild widgets (for resolution changes)
-        self.pending_update_button_state = None  # True/False to update button panel_is_open state
-        self.current_skin_id = None  # Track current skin for button
+        self.current_skin_id = None  # Track current skin
         self.current_skin_name = None
         self.current_chromas = None
         self.current_champion_name = None  # Track champion for direct path
         self.current_champion_id = None  # Track champion ID for direct path
         self.current_selected_chroma_id = None  # Track currently applied chroma
-        self.current_chroma_color = None  # Track current chroma color for button display (backward compatibility)
-        self.current_chroma_colors = None  # Track both chroma colors for split-circle design
+        self.current_chroma_color = None  # Track current chroma color (for JavaScript plugin)
+        self.current_chroma_colors = None  # Track both chroma colors for split-circle design (for JavaScript plugin)
         self.lock = threading.RLock()  # Use RLock for reentrant locking (prevents deadlock)
         self._rebuilding = False  # Flag to prevent infinite rebuild loops
         self.pending_initial_unowned_fade = False  # Flag to trigger initial UnownedFrame fade after creation
@@ -99,15 +94,13 @@ class ChromaPanelManager:
                     self._last_resolution_check = 0
                 
                 # Check resolution only once per second AND only if widgets are visible
-                widgets_visible = (self.widget and self.widget.isVisible()) or (self.reopen_button and self.reopen_button.isVisible())
+                widgets_visible = (self.widget and self.widget.isVisible())
                 if widgets_visible and (current_time - self._last_resolution_check >= 1.0):
                     self._last_resolution_check = current_time
                     
                 # Check for resolution changes and trigger rebuild if needed
                 if self.widget:
                     self.widget.check_resolution_and_update()
-                if self.reopen_button:
-                    self.reopen_button.check_resolution_and_update()
             finally:
                 self.lock.release()
         except RuntimeError:
@@ -124,10 +117,8 @@ class ChromaPanelManager:
             
             self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper, manager=self, lcu=self.lcu)
             log.info("[CHROMA] ChromaPanelWidget created")
-            self.reopen_button = OpeningButton(on_click=self._on_reopen_clicked, manager=self)
-            log.info("[CHROMA] OpeningButton created")
-            # Set button reference on wheel so it can detect button clicks
-            self.widget.set_button_reference(self.reopen_button)
+            # JavaScript plugin handles button display - no Python button needed
+            self.widget.set_button_reference(None)
             
             self.is_initialized = True
             log.info("[CHROMA] Panel widgets created")
@@ -160,123 +151,59 @@ class ChromaPanelManager:
                     self.widget = None
                 except Exception as e:
                     log.warning(f"[CHROMA] Error destroying panel widget: {e}")
-            if self.reopen_button:
-                try:
-                    # Un-parent UnownedFrame from League window first
-                    import ctypes
-                    if hasattr(self.reopen_button, 'unowned_frame') and self.reopen_button.unowned_frame:
-                        if hasattr(self.reopen_button, '_unowned_frame_parented') and self.reopen_button._unowned_frame_parented:
-                            try:
-                                frame_hwnd = int(self.reopen_button.unowned_frame.winId())
-                                ctypes.windll.user32.SetParent(frame_hwnd, 0)  # Un-parent
-                                log.debug("[CHROMA] UnownedFrame un-parented from League window")
-                            except (OSError, AttributeError, ValueError) as e:
-                                log.debug(f"[CHROMA] Could not un-parent UnownedFrame: {e}")
-                            except Exception as e:
-                                log.debug(f"[CHROMA] Unexpected error un-parenting UnownedFrame: {e}")
-                        # Lock and OutlineGold are children of UnownedFrame, will be deleted automatically
-                        self.reopen_button.unowned_frame.hide()
-                        self.reopen_button.unowned_frame.deleteLater()
-                    
-                    # Un-parent button from League window before destroying
-                    if hasattr(self.reopen_button, '_league_window_hwnd') and self.reopen_button._league_window_hwnd:
-                        button_hwnd = int(self.reopen_button.winId())
-                        ctypes.windll.user32.SetParent(button_hwnd, 0)  # Un-parent (set to desktop)
-                        self.reopen_button._league_window_hwnd = None
-                        log.debug("[CHROMA] Button un-parented from League window")
-                    
-                    # Use hide() + deleteLater() instead of close() to avoid blocking
-                    self.reopen_button.hide()
-                    self.reopen_button.deleteLater()
-                    self.reopen_button = None
-                except Exception as e:
-                    log.warning(f"[CHROMA] Error destroying reopen button: {e}")
             self.is_initialized = False
             self.last_skin_name = None
             self.last_chromas = None
             log.info("[CHROMA] Panel widgets destroyed (un-parented from League)")
     
     def _on_chroma_selected_wrapper(self, chroma_id: int, chroma_name: str):
-        """Wrapper for chroma selection - button stays visible (no need to show again)"""
+        """Wrapper for chroma selection - tracks colors for JavaScript plugin"""
         # Call the original callback
         if self.on_chroma_selected:
             self.on_chroma_selected(chroma_id, chroma_name)
         
-        # Track the selected chroma ID and update button color
+        # Track the selected chroma ID and colors (for JavaScript plugin)
         with self.lock:
             self.current_selected_chroma_id = chroma_id if chroma_id != 0 else None
             
-            # Update button color to match selected chroma
-            if self.reopen_button:
-                # Find the selected chroma's colors from current_chromas
-                chroma_colors = None
-                chroma_color = None  # Keep for backward compatibility
-                if chroma_id != 0 and self.current_chromas:
-                    for chroma in self.current_chromas:
-                        if chroma.get('id') == chroma_id:
-                            colors = chroma.get('colors', [])
-                            if colors:
-                                if len(colors) >= 2:
-                                    # Check if both colors are identical
-                                    first_color = colors[0] if not colors[0].startswith('#') else colors[0][1:]
-                                    second_color = colors[1] if not colors[1].startswith('#') else colors[1][1:]
-                                    
-                                    if first_color == second_color:
-                                        # Both colors are the same - use solid circle
-                                        selected_color = colors[0]
-                                        chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
-                                        if not chroma_color.startswith('#'):
-                                            chroma_color = f"#{chroma_color}"
-                                    else:
-                                        # Colors are different - use split-circle design
-                                        chroma_colors = [colors[0], colors[1]]
-                                        # Ensure colors have # prefix
-                                        chroma_colors = [color if color.startswith('#') else f"#{color}" for color in chroma_colors]
-                                elif len(colors) == 1:
-                                    # Use single color for solid circle
+            # Track chroma colors for JavaScript plugin
+            chroma_colors = None
+            chroma_color = None
+            if chroma_id != 0 and self.current_chromas:
+                for chroma in self.current_chromas:
+                    if chroma.get('id') == chroma_id:
+                        colors = chroma.get('colors', [])
+                        if colors:
+                            if len(colors) >= 2:
+                                # Check if both colors are identical
+                                first_color = colors[0] if not colors[0].startswith('#') else colors[0][1:]
+                                second_color = colors[1] if not colors[1].startswith('#') else colors[1][1:]
+                                
+                                if first_color == second_color:
+                                    # Both colors are the same - use solid circle
                                     selected_color = colors[0]
                                     chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
                                     if not chroma_color.startswith('#'):
                                         chroma_color = f"#{chroma_color}"
-                            break
-                
-                # Set button colors (None = rainbow for base skin)
-                self.current_chroma_color = chroma_color  # Save for rebuilds (backward compatibility)
-                self.current_chroma_colors = chroma_colors  # Save both colors for rebuilds
-                if chroma_colors:
-                    self.reopen_button.set_chroma_color(colors=chroma_colors)
-                else:
-                    self.reopen_button.set_chroma_color(chroma_color)
-                log.debug(f"[CHROMA] Button colors updated to: {chroma_colors if chroma_colors else chroma_color if chroma_color else 'rainbow'}")
+                                else:
+                                    # Colors are different - use split-circle design
+                                    chroma_colors = [colors[0], colors[1]]
+                                    # Ensure colors have # prefix
+                                    chroma_colors = [color if color.startswith('#') else f"#{color}" for color in chroma_colors]
+                            elif len(colors) == 1:
+                                # Use single color for solid circle
+                                selected_color = colors[0]
+                                chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
+                                if not chroma_color.startswith('#'):
+                                    chroma_color = f"#{chroma_color}"
+                        break
             
-            self.pending_update_button_state = False  # Wheel will be hidden, so button should be unhovered
+            # Store colors for JavaScript plugin access
+            self.current_chroma_color = chroma_color  # None = rainbow for base skin
+            self.current_chroma_colors = chroma_colors  # None = single color or rainbow
+            log.debug(f"[CHROMA] Chroma colors tracked: {chroma_colors if chroma_colors else chroma_color if chroma_color else 'rainbow'}")
+            
             log_event(log, f"Chroma selected: {chroma_name}" if chroma_id != 0 else "Base skin selected", "✨")
-    
-    def _on_reopen_clicked(self):
-        """Handle button click - toggle the panel for current skin"""
-        with self.lock:
-            if self.current_skin_name and self.current_chromas:
-                # Check if wheel is currently visible
-                is_wheel_visible = self.widget and self.widget.isVisible()
-                
-                if is_wheel_visible:
-                    # Wheel is open, close it
-                    log_action(log, f"Closing panel for {self.current_skin_name}", "🎨")
-                    self.pending_hide = True
-                    self.pending_update_button_state = False  # Button should unhover
-                else:
-                    # Wheel is closed, open it
-                    separator = "=" * 80
-                    log.info(separator)
-                    log.info(f"🎨 OPENING CHROMA WHEEL")
-                    log.info(f"   📋 Skin: {self.current_skin_name}")
-                    log.info(f"   📋 Chromas: {len(self.current_chromas)}")
-                    log.info(separator)
-                    self.pending_show = (self.current_skin_name, self.current_chromas)
-                    self.pending_update_button_state = True  # Button should hover
-                # Don't hide button - it should stay visible while skin has chromas
-                # self.pending_hide_button = True  # REMOVED - button stays visible
-                # self.pending_show_button = False  # REMOVED - no need to cancel show
     
     def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None, is_chroma_selection: bool = False, champion_id: int = None):
         """Show button for a skin (not the wheel itself)
@@ -298,13 +225,8 @@ class ChromaPanelManager:
                 log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
                 self.pending_hide = True
                 self.current_selected_chroma_id = None  # Reset selection for new skin
-                self.current_chroma_color = None  # Reset chroma color
-                self.current_chroma_colors = None  # Reset chroma colors
-                self.pending_update_button_state = False  # Reset button state when switching skins
-                
-                # Reset button to rainbow (only if button exists)
-                if self.reopen_button:
-                    self.reopen_button.set_chroma_color(None)
+                self.current_chroma_color = None  # Reset chroma color (for JavaScript plugin)
+                self.current_chroma_colors = None  # Reset chroma colors (for JavaScript plugin)
             elif is_chroma_selection:
                 log.debug(f"[CHROMA] Chroma selection for same base skin - preserving selection")
             
@@ -328,53 +250,11 @@ class ChromaPanelManager:
             else:
                 log.debug(f"[CHROMA] No chromas found, using original skin_id {skin_id} as base skin ID")
             
-            # Queue the show/hide request regardless of initialization state
-            # Strategy for skins without chromas:
-            # - Show the button first to position the UnownedFrame
-            # - Then hide the button (UnownedFrame stays visible independently)
-            
-            # Check if this is Elementalist Lux base skin or form - they always have chromas
-            is_elementalist_lux = skin_id == 99007 or (99991 <= skin_id <= 99999)
-            has_chromas = bool(chromas) or is_elementalist_lux
-            
+            # Ensure widgets are created if needed (JavaScript plugin handles button display)
             if not self.is_initialized:
                 # Request widget creation
                 self.request_create()
-                if has_chromas:
-                    log.debug(f"[CHROMA] Widgets not initialized yet - queueing button show for {skin_name} ({len(chromas)} chromas)")
-                else:
-                    log.debug(f"[CHROMA] Widgets not initialized yet - will show UnownedFrame only for {skin_name}")
-            else:
-                if has_chromas:
-                    log.debug(f"[CHROMA] Showing button for {skin_name} ({len(chromas)} chromas)")
-                else:
-                    log.debug(f"[CHROMA] Showing UnownedFrame only for {skin_name} (no chromas)")
-            
-            # Show or hide button based on whether skin has chromas
-            if has_chromas:
-                # Check if we're switching between different skins (both with chromas)
-                if is_different_skin and not is_chroma_selection:
-                    # Hide button first, then show it after 25ms for smooth transition
-                    log.debug(f"[CHROMA] Different skin transition detected - hiding button with delay")
-                    self.pending_show_button = False
-                    self.pending_hide_button = True
-                    
-                    # Schedule button to show after 25ms
-                    from PyQt6.QtCore import QTimer
-                    QTimer.singleShot(25, lambda: self._delayed_show_button())
-                else:
-                    # Normal show for same skin or chroma selection
-                    log.debug(f"[CHROMA] Same skin or chroma selection - showing button normally")
-                    self.pending_show_button = True
-                    self.pending_hide_button = False
-            else:
-                log.debug(f"[CHROMA] No chromas - hiding button")
-                self.pending_show_button = False
-                self.pending_hide_button = True
-            
-            # Reset button state to unhovered when showing for new skin (wheel will be closed)
-            if self.pending_update_button_state is None:
-                self.pending_update_button_state = False
+                log.debug(f"[CHROMA] Widgets not initialized yet - will be created for {skin_name}")
             
             # Check ownership and trigger UnownedFrame fade if needed
             if self.state:
@@ -407,12 +287,11 @@ class ChromaPanelManager:
                     log.debug(f"[CHROMA] Skin {skin_id} chroma - base skin owned, UnownedFrame hidden")
     
     def show_wheel_directly(self):
-        """Request to show the chroma panel for current skin (called by button click)"""
+        """Request to show the chroma panel for current skin (called by JavaScript plugin)"""
         with self.lock:
             if self.current_skin_name and self.current_chromas:
                 log.info(f"[CHROMA] Request to show panel for {self.current_skin_name}")
                 self.pending_show = (self.current_skin_name, self.current_chromas)
-                self.pending_hide_button = True
     
     def process_pending(self):
         """Process pending show/hide requests (must be called from main thread) - NON-BLOCKING"""
@@ -451,16 +330,8 @@ class ChromaPanelManager:
                 try:
                     # Save current state
                     was_panel_visible = self.widget and self.widget.isVisible()
-                    was_button_visible = self.reopen_button and self.reopen_button.isVisible()
                     
-                    # Save UnownedFrame opacity before rebuild (only for button's UnownedFrame)
-                    unowned_frame_opacity = 0.0
-                    if self.reopen_button and hasattr(self.reopen_button, 'unowned_frame') and self.reopen_button.unowned_frame:
-                        if hasattr(self.reopen_button, 'unowned_frame_opacity_effect'):
-                            unowned_frame_opacity = self.reopen_button.unowned_frame_opacity_effect.opacity()
-                            log.debug(f"[CHROMA] Saved button's UnownedFrame opacity: {unowned_frame_opacity:.2f}")
-                    
-                    log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}, button_visible={was_button_visible}, unowned_frame_opacity={unowned_frame_opacity:.2f}")
+                    log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}")
                     
                     # Destroy old widgets
                     log.info("[CHROMA] Destroying old widgets...")
@@ -474,25 +345,9 @@ class ChromaPanelManager:
                     log.info("[CHROMA] Creating new widgets with updated resolution...")
                     self._create_widgets()
                     
-                    # Restore chroma colors on button after rebuild
-                    if self.reopen_button:
-                        if self.current_chroma_colors:
-                            self.reopen_button.set_chroma_color(colors=self.current_chroma_colors)
-                            log.debug(f"[CHROMA] Button colors restored after rebuild: {self.current_chroma_colors}")
-                        elif self.current_chroma_color:
-                            self.reopen_button.set_chroma_color(self.current_chroma_color)
-                            log.debug(f"[CHROMA] Button color restored after rebuild: {self.current_chroma_color}")
-                    
-                    # Restore UnownedFrame opacity after rebuild (only for button's UnownedFrame)
-                    if self.reopen_button and hasattr(self.reopen_button, 'unowned_frame_opacity_effect'):
-                        self.reopen_button.unowned_frame_opacity_effect.setOpacity(unowned_frame_opacity)
-                        log.debug(f"[CHROMA] Button's UnownedFrame opacity restored after rebuild: {unowned_frame_opacity:.2f}")
+                    # Chroma colors are preserved in self.current_chroma_color/current_chroma_colors for JavaScript plugin
                     
                     # Restore visibility state
-                    if was_button_visible and self.current_skin_name and self.current_chromas:
-                        log.info("[CHROMA] Restoring button visibility after rebuild")
-                        self.pending_show_button = True
-                    
                     if was_panel_visible and self.current_skin_name and self.current_chromas:
                         log.info("[CHROMA] Restoring panel visibility after rebuild")
                         self.pending_show = (self.current_skin_name, self.current_chromas)
@@ -534,9 +389,8 @@ class ChromaPanelManager:
                     # Use base skin ID for preview loading (important for chromas)
                     base_skin_id_for_previews = getattr(self, 'current_base_skin_id', self.current_skin_id)
                     self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id, base_skin_id_for_previews, self.current_champion_id)
-                    # Position wheel above button
-                    button_pos = self.reopen_button.pos() if self.reopen_button else None
-                    self.widget.show_wheel(button_pos=button_pos)
+                    # Position wheel (JavaScript plugin handles button positioning)
+                    self.widget.show_wheel(button_pos=None)
                     self.widget.setVisible(True)
                     # Don't call raise_() or bring_to_front() - z-order is managed by ZOrderManager
                     # The panel has the highest z-level (300) so it will naturally be on top
@@ -569,69 +423,13 @@ class ChromaPanelManager:
                     if self.state:
                         self.state.chroma_panel_open = False
                         log.debug(f"[CHROMA] UI detection resumed - panel closed")
-            
-            # Process button state update (after show/hide to ensure correct final state)
-            if self.pending_update_button_state is not None:
-                new_state = self.pending_update_button_state
-                self.pending_update_button_state = None
-                if self.reopen_button and self.is_initialized:
-                    try:
-                        # Check if widget is still valid before updating
-                        if not self.reopen_button.isHidden() or new_state is False:
-                            self.reopen_button.set_wheel_open(new_state)
-                    except (RuntimeError, AttributeError) as e:
-                        log.debug(f"[CHROMA] Button no longer valid for state update: {e}")
-            
-            # Process reopen button show request
-            if self.pending_show_button:
-                self.pending_show_button = False
-                if self.reopen_button:
-                    # Show immediately - no delay needed (widget is already initialized)
-                    self.reopen_button.show_for_chromas()
-                    log.debug("[CHROMA] Button shown for chromas")
-                    
-                    # Refresh z-order after a small delay to ensure button is fully visible
-                    from PyQt6.QtCore import QTimer
-                    def delayed_zorder_refresh():
-                        try:
-                            from ui.z_order_manager import get_z_order_manager
-                            z_manager = get_z_order_manager()
-                            z_manager.refresh_z_order(force=True)
-                        except Exception as e:
-                            log.debug(f"[CHROMA] Error refreshing z-order after showing button: {e}")
-                    QTimer.singleShot(10, delayed_zorder_refresh)
-            
-            # Process reopen button hide request
-            if self.pending_hide_button:
-                self.pending_hide_button = False
-                if self.reopen_button:
-                    self.reopen_button.hide_for_no_chromas()
-                    log.debug("[CHROMA] Button hidden for no chromas")
         finally:
             self.lock.release()
-    
-    def _delayed_show_button(self):
-        """Delayed show button for smooth transition between different skins"""
-        with self.lock:
-            # Only show if we still have chromas for the current skin
-            if self.current_chromas:
-                self.pending_show_button = True
-                self.pending_hide_button = False
-                log.debug("[CHROMA] Delayed button show after skin transition")
     
     def hide(self):
         """Request to hide the chroma panel (thread-safe)"""
         with self.lock:
             self.pending_hide = True
-            # Ensure button visual state resets when panel is closed via click-catcher or programmatically
-            self.pending_update_button_state = False
-    
-    def hide_reopen_button(self):
-        """Request to hide the reopen button (thread-safe)"""
-        with self.lock:
-            self.pending_hide_button = True
-            self.pending_update_button_state = False  # Reset button hover state when hiding
-            # Preserve current chroma colors to restore on next show; do not reset button color
     
     def cleanup(self):
         """Clean up resources (called on app exit or UI destruction)"""
