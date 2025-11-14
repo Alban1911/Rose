@@ -19,7 +19,7 @@ cd ".\LU-source"
 # Switch to dev branch (submodules only exist on dev, not on main)
 git checkout dev
 
-# Initialize and update submodules (required!)
+# Initialize and update submodules
 git submodule update --init --recursive
 
 # Install all dependencies
