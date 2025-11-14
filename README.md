@@ -10,17 +10,17 @@ conda create -n leagueunlocked python=3.11 -y
 # Activate the environment
 conda activate leagueunlocked
 
-# Clone the repository WITH submodules (required!)
-git clone --recurse-submodules https://github.com/Alban1911/LU-source.git
+# Clone the repository
+git clone https://github.com/Alban1911/LU-source.git
 
 # Navigate to project directory (adjust path as needed)
 cd ".\LU-source"
 
-# Switch to dev branch
+# Switch to dev branch (submodules only exist on dev, not on main)
 git checkout dev
 
-# If you already cloned without submodules, initialize and update them:
-# git submodule update --init --recursive
+# Initialize and update submodules (required!)
+git submodule update --init --recursive
 
 # Install all dependencies
 pip install -r requirements.txt
