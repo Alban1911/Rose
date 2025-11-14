@@ -116,6 +116,9 @@ class OpeningButton(ChromaWidgetBase):
                 button_x = center_x - (self.button_size // 2)
                 button_y = center_y - (self.button_size // 2)
         
+        # Shift button slightly left so in-game chroma button remains visible
+        button_x = max(0, button_x - 50)
+
         # Position button absolutely in League window
         self._position_button_absolutely(button_x, button_y)
         
