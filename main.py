@@ -1121,14 +1121,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                                     user_interface.unowned_frame.opacity_effect.setOpacity(0.0)
                                     log.debug("[exchange] UnownedFrame hidden")
                                 
-                                # Hide Chroma Opening Button by hiding it
-                                if (user_interface.chroma_ui and 
-                                    user_interface.chroma_ui.chroma_selector and 
-                                    user_interface.chroma_ui.chroma_selector.panel and
-                                    user_interface.chroma_ui.chroma_selector.panel.reopen_button):
-                                    button = user_interface.chroma_ui.chroma_selector.panel.reopen_button
-                                    button.hide()
-                                    log.debug("[exchange] Chroma Opening Button hidden")
+                                # Chroma button is handled by JavaScript plugin - no need to hide Python button
                                 
                                 # Hide RandomFlag (random mode is disabled on champion swap)
                                 if user_interface.random_flag:

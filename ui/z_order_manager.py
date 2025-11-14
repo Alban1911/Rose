@@ -26,7 +26,6 @@ class ZOrderManager:
     # Explicit z-order levels (higher numbers = on top)
     Z_LEVELS = {
         'LEAGUE_WINDOW': 0,        # Base League window
-        'CHROMA_BUTTON': 150,      # Circular chroma button
         'DICE_BUTTON': 200,        # Dice button for random skin selection
         'RANDOM_FLAG': 250,        # Random flag indicator
         'CHROMA_PANEL': 300,       # Chroma selection panel (topmost for user interaction)
@@ -119,7 +118,7 @@ class ZOrderManager:
             
             # Apply z-order: process widgets in ORDER (lowest z-level first)
             # Build a chain by placing each widget AFTER the previous one using the previous widget's HWND
-            # This ensures: chroma_button(150) < random_flag(250) < chroma_panel(300)
+            # This ensures: dice_button(200) < random_flag(250) < chroma_panel(300)
             
             # Debug: Log the processing order
             for widget_name, widget in sorted_widgets:
@@ -151,7 +150,7 @@ class ZOrderManager:
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
                     )
                     
-                    if widget_name in ['chroma_button', 'chroma_panel']:
+                    if widget_name in ['chroma_panel']:
                         log.debug(f"[Z-ORDER] Applied z-order to {widget_name} (level {z_level}) - result: {bool(result)}")
                     
                     if not result:
@@ -163,7 +162,7 @@ class ZOrderManager:
             
             # No need for special "force" operations - the main loop already applies proper z-order
             # The sorted_widgets are processed in ascending z-level order, which naturally creates
-            # the correct stacking: unowned_frame(100) < chroma_button(200) < random_flag(250) < chroma_panel(300)
+            # the correct stacking: dice_button(200) < random_flag(250) < chroma_panel(300)
             
             # Log the final widget order for debugging
             import time

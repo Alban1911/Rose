@@ -1121,9 +1121,9 @@ class UserInterface:
             # Track visibility state before hiding
             chroma_ui_visible = False
             if self.chroma_ui and self.chroma_ui.chroma_selector and self.chroma_ui.chroma_selector.panel:
-                # Check if the reopen button is visible (this indicates ChromaUI is active)
-                chroma_ui_visible = (self.chroma_ui.chroma_selector.panel.reopen_button and 
-                                   self.chroma_ui.chroma_selector.panel.reopen_button.isVisible())
+                # Check if the panel widget is visible (JavaScript plugin handles button)
+                chroma_ui_visible = (self.chroma_ui.chroma_selector.panel.widget and 
+                                   self.chroma_ui.chroma_selector.panel.widget.isVisible())
             
             self._ui_visibility_state['chroma_ui_visible'] = chroma_ui_visible
             self._ui_visibility_state['unowned_frame_visible'] = self.unowned_frame and self.unowned_frame.isVisible()
