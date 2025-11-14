@@ -11,7 +11,7 @@ conda create -n leagueunlocked python=3.11 -y
 conda activate leagueunlocked
 
 # Clone the repository WITH submodules (required!)
-git clone --recurse-submodules https://github.com/Alban1911/LeagueUnlocked.git
+git clone --recurse-submodules https://github.com/Alban1911/LU-source.git
 
 # Navigate to project directory (adjust path as needed)
 cd ".\LU-source"
