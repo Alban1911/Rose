@@ -14,7 +14,7 @@ conda activate leagueunlocked
 git clone --recurse-submodules https://github.com/Alban1911/LeagueUnlocked.git
 
 # Navigate to project directory (adjust path as needed)
-cd ".\LeagueUnlocked"
+cd ".\LU-source"
 
 # Switch to dev branch
 git checkout dev
