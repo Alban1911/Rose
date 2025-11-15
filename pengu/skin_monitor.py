@@ -681,6 +681,33 @@ class PenguSkinMonitorThread(threading.Thread):
             self._loop.create_task(self._broadcast(message))
         else:
             asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+    
+    def _broadcast_phase_change(self, phase: str) -> None:
+        """Broadcast phase change to JavaScript plugins"""
+        if not self._loop or not self._connections:
+            return
+
+        payload = {
+            "type": "phase-change",
+            "phase": phase,
+            "timestamp": int(time.time() * 1000),
+        }
+        
+        log.debug(
+            "[PenguSkinMonitor] Broadcasting phase change → phase=%s",
+            phase,
+        )
+        
+        message = json.dumps(payload)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is self._loop:
+            self._loop.create_task(self._broadcast(message))
+        else:
+            asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
 
     def _start_http_server(self) -> None:
         """Start HTTP server for serving local preview images and assets"""

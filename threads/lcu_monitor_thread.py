@@ -210,6 +210,19 @@ class LCUMonitorThread(threading.Thread):
                     self.state.locked_champ_id = locked_champ_id
                     self.state.locked_champ_timestamp = time.time()
                     
+                    # Reset historic mode state for new champion lock (always deactivate before checking)
+                    self.state.historic_mode_active = False
+                    self.state.historic_skin_id = None
+                    self.state.historic_first_detection_done = False
+                    log.debug(f"[init-state] Reset historic mode state for initial champion lock")
+                    
+                    # Broadcast deactivated state to JavaScript (hide flag)
+                    try:
+                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                            self.state.ui_skin_thread._broadcast_historic_state()
+                    except Exception as e:
+                        log.debug(f"[init-state] Failed to broadcast historic state reset: {e}")
+                    
                     # Scrape skins for this champion from LCU
                     if self.skin_scraper:
                         try:

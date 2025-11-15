@@ -169,10 +169,25 @@ class ChampThread(threading.Thread):
                                 log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
                         
                     # Always update the state, even for the same champion
+                    old_lock = self.last_lock
                     self.state.locked_champ_id = locked
                     self.state.locked_champ_timestamp = time.time()  # Record lock time
                     self.last_lock = locked
                     self.last_locked_champion_id = locked  # Update tracking for next comparison
+                    
+                    # Reset historic mode state for new champion lock (if champion changed)
+                    if old_lock != locked:
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        self.state.historic_first_detection_done = False
+                        log.debug(f"[lock:champ] Reset historic mode state for new champion lock")
+                        
+                        # Broadcast deactivated state to JavaScript (hide flag)
+                        try:
+                            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                self.state.ui_skin_thread._broadcast_historic_state()
+                        except Exception as e:
+                            log.debug(f"[lock:champ] Failed to broadcast historic state reset: {e}")
             except Exception:
                 pass
             time.sleep(self.interval)

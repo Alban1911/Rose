@@ -79,6 +79,14 @@ class PhaseThread(threading.Thread):
 
             if ph == "Lobby":
                 self._process_lobby_state(force=phase_changed)
+                # Broadcast phase change to JavaScript plugins (for SkinMonitor reset)
+                if phase_changed:
+                    try:
+                        ui_thread = getattr(self.state, "ui_skin_thread", None)
+                        if ui_thread:
+                            ui_thread._broadcast_phase_change("Lobby")
+                    except Exception as e:
+                        log.debug(f"[phase] Failed to broadcast phase change to JavaScript: {e}")
 
             if phase_changed:
                 # Log phase transition whenever LCU phase changes (ph != last_phase)

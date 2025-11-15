@@ -34,7 +34,6 @@ class UserInterface:
         self.unowned_frame = None
         self.dice_button = None
         self.random_flag = None
-        self.historic_flag = None
         self.click_catcher_hide = None
         self.click_blocker = None  # Legacy placeholder (removed)
         
@@ -52,8 +51,7 @@ class UserInterface:
             'chroma_ui_visible': False,
             'unowned_frame_visible': False,
             'dice_button_visible': False,
-            'random_flag_visible': False,
-            'historic_flag_visible': False
+            'random_flag_visible': False
         }
         
         # Randomization state
@@ -68,11 +66,44 @@ class UserInterface:
         self._force_reinitialize = False  # Flag to force UI recreation
         self._pending_click_catcher_creation = False  # Legacy placeholder (click catchers removed)
         self._pending_click_catcher_creation_own_locked = False  # Legacy placeholder
-        # HistoricFlag pending ops (thread-safe requests)
-        self._pending_show_historic_flag = False
-        self._pending_hide_historic_flag = False
         # Track last base skin shown (owned or unowned) to detect chroma swaps within same base
         self._last_base_skin_id = None
+    
+    def _check_and_activate_historic_mode(self, skin_id: int) -> None:
+        """Check and activate historic mode if conditions are met"""
+        if self.state.historic_first_detection_done or self.state.locked_champ_id is None:
+            return
+        
+        # Check if current skin is the default skin (champion_id * 1000)
+        base_skin_id = self.state.locked_champ_id * 1000
+        if skin_id == base_skin_id:
+            # Check if there's a historic entry for this champion
+            try:
+                from utils.historic import get_historic_skin_for_champion
+                historic_skin_id = get_historic_skin_for_champion(self.state.locked_champ_id)
+                
+                if historic_skin_id is not None:
+                    # Activate historic mode
+                    self.state.historic_mode_active = True
+                    self.state.historic_skin_id = historic_skin_id
+                    log.info(f"[HISTORIC] Historic mode ACTIVATED for champion {self.state.locked_champ_id} (historic skin ID: {historic_skin_id})")
+                    
+                    # Broadcast state to JavaScript (will show JS plugin flag)
+                    try:
+                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                            self.state.ui_skin_thread._broadcast_historic_state()
+                            log.debug("[HISTORIC] Broadcasted state to JavaScript")
+                    except Exception as e:
+                        log.debug(f"[UI] Failed to broadcast historic state on activation: {e}")
+                else:
+                    log.debug(f"[HISTORIC] No historic entry found for champion {self.state.locked_champ_id}")
+            except Exception as e:
+                log.debug(f"[HISTORIC] Failed to check historic entry: {e}")
+        else:
+            log.debug(f"[HISTORIC] First detected skin is not default (skin_id={skin_id}, base={base_skin_id}) - historic mode not activated")
+        
+        # Mark first detection as done AFTER processing (only activate on first detection)
+        self.state.historic_first_detection_done = True
     
     def _initialize_components(self):
         """Initialize all UI components (must be called from main thread)"""
@@ -246,6 +277,27 @@ class UserInterface:
 
             # Update last base skin id after handling
             self._last_base_skin_id = new_base_skin_id if new_base_skin_id is not None else (skin_id if is_base_skin_var else None)
+            
+            # Historic mode activation: check on first skin detection if champion is locked with default skin
+            self._check_and_activate_historic_mode(skin_id)
+            
+            # Historic mode deactivation: if skin changes from default to non-default, deactivate historic mode
+            if self.state.historic_mode_active and self.state.locked_champ_id is not None:
+                base_skin_id = self.state.locked_champ_id * 1000
+                # Check if current skin is not the default skin (and not a chroma of the default skin)
+                # Use the already computed new_base_skin_id to check if this is still the base skin or its chroma
+                if new_base_skin_id != base_skin_id:
+                    # Skin changed to a different base skin - deactivate historic mode
+                    self.state.historic_mode_active = False
+                    self.state.historic_skin_id = None
+                    log.info(f"[HISTORIC] Historic mode DEACTIVATED - skin changed from default to {skin_id} (base: {new_base_skin_id})")
+                    
+                    # Broadcast state to JavaScript (will hide JS plugin flag)
+                    try:
+                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                            self.state.ui_skin_thread._broadcast_historic_state()
+                    except Exception as e:
+                        log.debug(f"[UI] Failed to broadcast historic state on deactivation: {e}")
     
     def hide_all(self):
         """Hide all UI components"""
@@ -499,47 +551,6 @@ class UserInterface:
                             pass
 
 
-            # HistoricFlag: destroy and recreate on resolution change
-            if self.historic_flag:
-                from utils.window_utils import get_league_window_client_size
-                current_resolution = get_league_window_client_size()
-                if current_resolution and hasattr(self.historic_flag, '_current_resolution'):
-                    if (self.historic_flag._current_resolution is not None and \
-                        current_resolution != self.historic_flag._current_resolution):
-                        log.info(f"[UI] HistoricFlag resolution changed from {self.historic_flag._current_resolution} to {current_resolution}, destroying and recreating")
-                        was_visible = getattr(self.historic_flag, 'is_visible', False)
-
-                        try:
-                            self.historic_flag.hide()
-                            self.historic_flag.deleteLater()
-                        except Exception:
-                            pass
-                        self.historic_flag = None
-
-                        from PyQt6.QtWidgets import QApplication
-                        QApplication.processEvents()
-
-                        from ui.historic_flag import HistoricFlag
-                        self.historic_flag = HistoricFlag(state=self.state)
-
-                        if was_visible:
-                            self.historic_flag.show_flag()
-                        else:
-                            self.historic_flag.hide_flag()
-
-                        try:
-                            from PyQt6.QtCore import QTimer
-                            QTimer.singleShot(50, self.historic_flag.ensure_position)
-                        except Exception:
-                            pass
-                        
-                        # Broadcast state to JavaScript
-                        try:
-                            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                                self.state.ui_skin_thread._broadcast_historic_state()
-                        except Exception as e:
-                            log.debug(f"[UI] Failed to broadcast historic state: {e}")
-
                     elif self.random_flag._current_resolution is None:
                         self.random_flag._current_resolution = current_resolution
             
@@ -660,44 +671,6 @@ class UserInterface:
                     import traceback
                     log.error(f"[UI] Traceback: {traceback.format_exc()}")
 
-            # Handle pending HistoricFlag show/hide
-            if self._pending_hide_historic_flag:
-                self._pending_hide_historic_flag = False
-                try:
-                    if self.historic_flag:
-                        log.info("[HISTORIC] Processing pending hide HistoricFlag in main thread")
-                        self.historic_flag.hide_flag()
-                    # Broadcast state to JavaScript (hide)
-                    try:
-                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                            self.state.ui_skin_thread._broadcast_historic_state()
-                    except Exception as e:
-                        log.debug(f"[UI] Failed to broadcast historic state: {e}")
-                except Exception as e:
-                    log.error(f"[UI] Error hiding HistoricFlag in pending ops: {e}")
-            if self._pending_show_historic_flag:
-                self._pending_show_historic_flag = False
-                try:
-                    if not self.historic_flag:
-                        from ui.historic_flag import HistoricFlag
-                        self.historic_flag = HistoricFlag(state=self.state)
-                    log.info("[HISTORIC] Processing pending show HistoricFlag in main thread")
-                    self.historic_flag.show_flag()
-                    # Ensure position
-                    try:
-                        from PyQt6.QtCore import QTimer
-                        QTimer.singleShot(50, self.historic_flag.ensure_position)
-                    except Exception:
-                        pass
-                    # Broadcast state to JavaScript (show)
-                    try:
-                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                            self.state.ui_skin_thread._broadcast_historic_state()
-                    except Exception as e:
-                        log.debug(f"[UI] Failed to broadcast historic state: {e}")
-                except Exception as e:
-                    log.error(f"[UI] Error showing HistoricFlag in pending ops: {e}")
-    
     def request_ui_destruction(self):
         """Request UI destruction (called from any thread)"""
         with self.lock:
@@ -736,7 +709,6 @@ class UserInterface:
             unowned_frame_to_cleanup = None
             dice_button_to_cleanup = None
             random_flag_to_cleanup = None
-            historic_flag_to_cleanup = None
             click_catchers_to_cleanup = {}
             
             if lock_acquired:
@@ -746,13 +718,11 @@ class UserInterface:
                     unowned_frame_to_cleanup = self.unowned_frame
                     dice_button_to_cleanup = self.dice_button
                     random_flag_to_cleanup = self.random_flag
-                    historic_flag_to_cleanup = self.historic_flag
                     click_catchers_to_cleanup = self.click_catchers.copy()
                     self.chroma_ui = None
                     self.unowned_frame = None
                     self.dice_button = None
                     self.random_flag = None
-                    self.historic_flag = None
                     self.click_catchers = {}
                     self.click_catcher_hide = None
                     
@@ -776,7 +746,6 @@ class UserInterface:
                     unowned_frame_to_cleanup = self.unowned_frame
                     dice_button_to_cleanup = self.dice_button
                     random_flag_to_cleanup = self.random_flag
-                    historic_flag_to_cleanup = self.historic_flag
                     click_catchers_to_cleanup = self.click_catchers.copy()
                     
                     # CRITICAL: Set components to None even without lock
@@ -784,7 +753,6 @@ class UserInterface:
                     self.unowned_frame = None
                     self.dice_button = None
                     self.random_flag = None
-                    self.historic_flag = None
                     self.click_catchers = {}
                     self.click_catcher_hide = None
                     
@@ -797,7 +765,6 @@ class UserInterface:
                         self.unowned_frame = None
                         self.dice_button = None
                         self.random_flag = None
-                        self.historic_flag = None
                         log.debug("[UI] Cleared instance variables despite error")
                     except Exception as e2:
                         log.error(f"[UI] Could not clear instance variables: {e2}")
@@ -838,16 +805,6 @@ class UserInterface:
                     log.error(f"[UI] Error cleaning up RandomFlag: {e}")
                     import traceback
                     log.error(f"[UI] RandomFlag cleanup traceback: {traceback.format_exc()}")
-            
-            if historic_flag_to_cleanup:
-                log.debug("[UI] Cleaning up HistoricFlag...")
-                try:
-                    historic_flag_to_cleanup.cleanup()
-                    log.debug("[UI] HistoricFlag cleaned up successfully")
-                except Exception as e:
-                    log.error(f"[UI] Error cleaning up HistoricFlag: {e}")
-                    import traceback
-                    log.error(f"[UI] HistoricFlag cleanup traceback: {traceback.format_exc()}")
             
             if click_catchers_to_cleanup:
                 log.debug("[UI] Cleaning up ClickCatcherHide instances...")
@@ -931,19 +888,6 @@ class UserInterface:
         log.info("[UI] Cancelling random skin selection")
         self._cancel_randomization()
 
-    # Historic flag helpers (called from other threads via get_user_interface)
-    def show_historic_flag(self):
-        # Thread-safe: mark pending for main thread
-        with self.lock:
-            log.info("[HISTORIC] Request to show HistoricFlag (deferred to main thread)")
-            self._pending_show_historic_flag = True
-
-    def hide_historic_flag(self):
-        # Thread-safe: mark pending for main thread
-        with self.lock:
-            log.info("[HISTORIC] Request to hide HistoricFlag (deferred to main thread)")
-            self._pending_hide_historic_flag = True
-    
     def _force_base_skin_and_randomize(self):
         """Force champion's base skin via LCU API then start randomization"""
         if not self.state.locked_champ_id:
@@ -995,7 +939,12 @@ class UserInterface:
                 self.state.historic_mode_active = False
                 self.state.historic_skin_id = None
                 log.info("[HISTORIC] Historic mode DISABLED due to RandomMode activation")
-                self.hide_historic_flag()
+                # Broadcast state to JavaScript (will hide JS plugin flag)
+                try:
+                    if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                        self.state.ui_skin_thread._broadcast_historic_state()
+                except Exception as e:
+                    log.debug(f"[UI] Failed to broadcast historic state on RandomMode activation: {e}")
         except Exception:
             pass
         
@@ -1096,7 +1045,6 @@ class UserInterface:
             self._ui_visibility_state['unowned_frame_visible'] = self.unowned_frame and self.unowned_frame.isVisible()
             self._ui_visibility_state['dice_button_visible'] = self.dice_button and hasattr(self.dice_button, 'is_visible') and self.dice_button.is_visible
             self._ui_visibility_state['random_flag_visible'] = self.random_flag and self.random_flag.isVisible()
-            self._ui_visibility_state['historic_flag_visible'] = self.historic_flag and self.historic_flag.isVisible()
             
             log.debug(f"[UI] Visibility state before hiding: {self._ui_visibility_state}")
             
@@ -1104,8 +1052,7 @@ class UserInterface:
             has_visible_ui = (chroma_ui_visible or 
                              (self.unowned_frame and self.unowned_frame.isVisible()) or
                              (self.dice_button and hasattr(self.dice_button, 'is_visible') and self.dice_button.is_visible) or
-                             (self.random_flag and self.random_flag.isVisible()) or
-                             (self.historic_flag and self.historic_flag.isVisible()))
+                             (self.random_flag and self.random_flag.isVisible()))
             
             if not has_visible_ui:
                 log.debug("[UI] No UI elements visible - skipping hide action")
@@ -1146,20 +1093,6 @@ class UserInterface:
                     log.debug("[UI] RandomFlag hidden instantly")
                 except Exception as e:
                     log.error(f"[UI] Error hiding RandomFlag: {e}")
-            # Hide HistoricFlag instantly
-            if self.historic_flag:
-                try:
-                    self.historic_flag.hide_flag()
-                    log.debug("[UI] HistoricFlag hidden instantly")
-                    # Broadcast state to JavaScript (hide)
-                    try:
-                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                            self.state.ui_skin_thread._broadcast_historic_state()
-                    except Exception as e:
-                        log.debug(f"[UI] Failed to broadcast historic state: {e}")
-                except Exception as e:
-                    log.error(f"[UI] Error hiding HistoricFlag: {e}")
-            
             # Hide all click catchers instantly
             for catcher_name, catcher in self.click_catchers.items():
                 try:
@@ -1228,22 +1161,6 @@ class UserInterface:
             else:
                 log.debug("[UI] RandomFlag not shown (was not previously visible)")
 
-            # Show HistoricFlag only if it was previously visible
-            if self._ui_visibility_state.get('historic_flag_visible') and self.historic_flag:
-                try:
-                    self.historic_flag.show_flag_instantly()
-                    log.debug("[UI] HistoricFlag shown instantly (was previously visible)")
-                    # Broadcast state to JavaScript (show)
-                    try:
-                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                            self.state.ui_skin_thread._broadcast_historic_state()
-                    except Exception as e:
-                        log.debug(f"[UI] Failed to broadcast historic state: {e}")
-                except Exception as e:
-                    log.error(f"[UI] Error showing HistoricFlag: {e}")
-            else:
-                log.debug("[UI] HistoricFlag not shown (was not previously visible)")
-            
             # Show all click catchers (skip in Swiftplay mode)
             if not self.state.is_swiftplay_mode:
                 for catcher_name, catcher in self.click_catchers.items():

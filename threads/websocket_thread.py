@@ -224,6 +224,19 @@ class WSEventThread(threading.Thread):
                 except Exception as e:
                     log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
             
+            # Reset historic mode state for new champion lock (always deactivate before checking)
+            self.state.historic_mode_active = False
+            self.state.historic_skin_id = None
+            self.state.historic_first_detection_done = False
+            log.debug(f"[lock:champ] Reset historic mode state for new champion lock")
+            
+            # Broadcast deactivated state to JavaScript (hide flag)
+            try:
+                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                    self.state.ui_skin_thread._broadcast_historic_state()
+            except Exception as e:
+                log.debug(f"[lock:champ] Failed to broadcast historic state reset: {e}")
+            
     def _maybe_start_timer(self, sess: dict):
         """Start timer if conditions are met - ONLY on FINALIZATION phase"""
         t = (sess.get("timer") or {})
