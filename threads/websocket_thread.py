@@ -230,6 +230,13 @@ class WSEventThread(threading.Thread):
             except Exception as e:
                 log.debug(f"[lock:champ] Failed to broadcast historic state reset: {e}")
             
+            # Broadcast champion lock state to JavaScript
+            try:
+                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                    self.state.ui_skin_thread._broadcast_champion_locked(True)
+            except Exception as e:
+                log.debug(f"[lock:champ] Failed to broadcast champion lock state: {e}")
+            
     def _maybe_start_timer(self, sess: dict):
         """Start timer if conditions are met - ONLY on FINALIZATION phase"""
         t = (sess.get("timer") or {})
@@ -334,6 +341,13 @@ class WSEventThread(threading.Thread):
                         # Reset champion lock state for new game
                         self.state.locked_champ_id = None
                         self.state.locked_champ_timestamp = 0.0  # Reset timestamp for new game
+                        self.state.own_champion_locked = False
+                        # Broadcast champion unlock state to JavaScript
+                        try:
+                            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                self.state.ui_skin_thread._broadcast_champion_locked(False)
+                        except Exception as e:
+                            log.debug(f"[ws] Failed to broadcast champion unlock state: {e}")
                         # Reset random skin state
                         self.state.random_skin_name = None
                         self.state.random_skin_id = None

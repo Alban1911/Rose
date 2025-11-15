@@ -731,6 +731,33 @@ class PenguSkinMonitorThread(threading.Thread):
         else:
             asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
     
+    def _broadcast_champion_locked(self, locked: bool) -> None:
+        """Broadcast champion lock state to JavaScript plugins"""
+        if not self._loop or not self._connections:
+            return
+
+        payload = {
+            "type": "champion-locked",
+            "locked": locked,
+            "timestamp": int(time.time() * 1000),
+        }
+        
+        log.debug(
+            "[PenguSkinMonitor] Broadcasting champion lock state → locked=%s",
+            locked,
+        )
+        
+        message = json.dumps(payload)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is self._loop:
+            self._loop.create_task(self._broadcast(message))
+        else:
+            asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+    
     def _broadcast_random_mode_state(self) -> None:
         """Broadcast random mode state to JavaScript plugins"""
         if not self._loop or not self._connections:
