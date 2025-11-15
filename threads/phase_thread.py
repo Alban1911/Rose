@@ -89,6 +89,14 @@ class PhaseThread(threading.Thread):
                         log.debug(f"[phase] Failed to broadcast phase change to JavaScript: {e}")
 
             if phase_changed:
+                # Broadcast phase change to JavaScript plugins (for HistoricMode and RandomSkin activation)
+                if ph in ["ChampSelect", "FINALIZATION", "Lobby"]:
+                    try:
+                        ui_thread = getattr(self.state, "ui_skin_thread", None)
+                        if ui_thread:
+                            ui_thread._broadcast_phase_change(ph)
+                    except Exception as e:
+                        log.debug(f"[phase] Failed to broadcast phase change to JavaScript: {e}")
                 # Log phase transition whenever LCU phase changes (ph != last_phase)
                 # This ensures we always log phase transitions, even if websocket thread already set state.phase
                 if ph is not None and self.log_transitions and ph in self.INTERESTING:
