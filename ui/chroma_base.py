@@ -7,7 +7,6 @@ Base classes and configuration for Chroma UI components
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt
 from utils.window_utils import get_league_window_handle
-from ui.z_order_manager import get_z_order_manager
 import ctypes
 
 
@@ -20,10 +19,9 @@ class ChromaWidgetBase(QWidget):
     Base class for chroma UI widgets (panel and button)
     Provides common functionality and synchronized positioning
     Uses Windows parent-child relationship to embed in League window
-    Now uses centralized z-order management instead of creation order dependency
     """
     
-    def __init__(self, parent=None, z_level: int = None, widget_name: str = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self._setup_common_window_flags()
         self._anchor_offset_x = 0  # Override in child classes
@@ -33,15 +31,6 @@ class ChromaWidgetBase(QWidget):
         self._position_offset_x = 0  # Store position offsets
         self._position_offset_y = 0
         self._league_window_hwnd = None  # Store League window handle for parenting
-        
-        # Z-order management
-        self._z_level = z_level
-        self._widget_name = widget_name
-        self._z_manager = get_z_order_manager()
-        
-        # Register with z-order manager if both z_level and widget_name are provided
-        if z_level is not None and widget_name is not None:
-            self._z_manager.register_widget(self, widget_name, z_level)
     
     def _setup_common_window_flags(self):
         """Setup common window flags and attributes for chroma UI"""
@@ -99,25 +88,6 @@ class ChromaWidgetBase(QWidget):
                 
                 if not self._league_window_hwnd or not self._is_parented_correctly():
                     self._parent_to_league_window()
-            
-            # Z-order is now managed centrally - no need for individual widget z-order refresh
-            # The z-order manager handles all z-order updates efficiently
-    
-    def refresh_z_order(self):
-        """Refresh z-order using centralized manager"""
-        if self._widget_name:
-            self._z_manager.refresh_z_order()
-    
-    def bring_to_front(self):
-        """Bring this widget to the front of its z-level"""
-        if self._widget_name:
-            self._z_manager.bring_to_front(self._widget_name)
-    
-    def set_z_level(self, z_level: int):
-        """Change this widget's z-level"""
-        if self._widget_name:
-            self._z_manager.set_z_level(self._widget_name, z_level)
-            self._z_level = z_level
     
     def _parent_to_league_window(self):
         """
@@ -247,9 +217,6 @@ class ChromaWidgetBase(QWidget):
         return (screen.width() // 2, screen.height() // 2)
     
     def cleanup(self):
-        """Clean up widget and unregister from z-order manager"""
-        if self._widget_name:
-            self._z_manager.unregister_widget(self._widget_name)
-            self._widget_name = None
-            self._z_level = None
+        """Clean up widget"""
+        pass
 

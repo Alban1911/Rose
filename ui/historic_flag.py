@@ -11,7 +11,6 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
-from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
 from utils.resolution_utils import (
     scale_dimension_from_base,
@@ -27,10 +26,7 @@ class HistoricFlag(ChromaWidgetBase):
     fade_out_requested = pyqtSignal()
 
     def __init__(self, state=None):
-        super().__init__(
-            z_level=ZOrderManager.Z_LEVELS['RANDOM_FLAG'],
-            widget_name='historic_flag'
-        )
+        super().__init__()
 
         self.state = state
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
@@ -197,10 +193,6 @@ class HistoricFlag(ChromaWidgetBase):
             self.is_visible = True
             log.debug("[HistoricFlag] show_flag() called")
             self.show()
-            def delayed_zorder_refresh():
-                log.debug("[HistoricFlag] Applying delayed z-order refresh after show")
-                self.refresh_z_order()
-            QTimer.singleShot(50, delayed_zorder_refresh)
             self.fade_in_requested.emit()
 
     def hide_flag(self):
@@ -225,12 +217,6 @@ class HistoricFlag(ChromaWidgetBase):
         # Always set opacity to 1.0 instantly (even if already visible)
         self.opacity_effect.setOpacity(1.0)
         self.show()
-        # Ensure proper z-order after showing
-        from PyQt6.QtCore import QTimer
-        def delayed_zorder_refresh():
-            log.debug("[HistoricFlag] Applying delayed z-order refresh after instant show")
-            self.refresh_z_order()
-        QTimer.singleShot(50, delayed_zorder_refresh)
 
     def _do_fade_in(self):
         if self.fade_timer:
