@@ -436,9 +436,15 @@ class ChromaPanelManager:
                     # Position wheel (JavaScript plugin handles button positioning)
                     self.widget.show_wheel(button_pos=None)
                     self.widget.setVisible(True)
+                    # Don't call raise_() or bring_to_front() - z-order is managed by ZOrderManager
+                    # The panel has the highest z-level (300) so it will naturally be on top
+                    # NO z-order refresh needed - panel widget is already registered with correct z-level
                     
                     # Position is handled by _position_panel_absolutely() in setup_ui()
                     # No need to call _update_position() since we use absolute positioning
+                    
+                    # Don't call raise_() or bring_to_front() on button - z-order is managed by ZOrderManager
+                    # This allows RandomFlag (higher z-level) to properly appear above ChromaButton
                     
                     log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
                     
