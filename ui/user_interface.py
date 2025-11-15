@@ -12,7 +12,6 @@ from typing import Optional
 
 # Local imports
 from ui.chroma_ui import ChromaUI
-from ui.z_order_manager import get_z_order_manager
 from utils.logging import get_logger
 from utils.utilities import (
     is_owned, is_chroma_id, get_base_skin_id_for_chroma, 
@@ -29,9 +28,6 @@ class UserInterface:
         self.state = state
         self.skin_scraper = skin_scraper
         self.lock = threading.Lock()
-        
-        # Z-order management
-        self._z_manager = get_z_order_manager()
         
         # UI Components (will be initialized when entering ChampSelect)
         self.chroma_ui = None
@@ -462,16 +458,6 @@ class UserInterface:
                         except Exception:
                             pass
 
-                        # Ensure correct z-order after recreation
-                        try:
-                            from PyQt6.QtCore import QTimer
-                            from ui.z_order_manager import get_z_order_manager
-                            z_manager = get_z_order_manager()
-                            # Do an immediate refresh and a delayed one to be safe
-                            z_manager.refresh_z_order(force=True)
-                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
-                        except Exception:
-                            pass
                     elif self.dice_button._current_resolution is None:
                         self.dice_button._current_resolution = current_resolution
 
@@ -514,15 +500,6 @@ class UserInterface:
                         except Exception:
                             pass
 
-                        # Ensure correct z-order after recreation
-                        try:
-                            from PyQt6.QtCore import QTimer
-                            from ui.z_order_manager import get_z_order_manager
-                            z_manager = get_z_order_manager()
-                            z_manager.refresh_z_order(force=True)
-                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
-                        except Exception:
-                            pass
 
             # HistoricFlag: destroy and recreate on resolution change
             if self.historic_flag:
@@ -558,14 +535,6 @@ class UserInterface:
                         except Exception:
                             pass
 
-                        try:
-                            from PyQt6.QtCore import QTimer
-                            from ui.z_order_manager import get_z_order_manager
-                            z_manager = get_z_order_manager()
-                            z_manager.refresh_z_order(force=True)
-                            QTimer.singleShot(50, lambda: z_manager.refresh_z_order(force=True))
-                        except Exception:
-                            pass
                     elif self.random_flag._current_resolution is None:
                         self.random_flag._current_resolution = current_resolution
             
@@ -580,21 +549,6 @@ class UserInterface:
             import traceback
             log.error(traceback.format_exc())
     
-    def refresh_z_order(self):
-        """Refresh z-order for all UI components"""
-        try:
-            self._z_manager.refresh_z_order()
-            # Only log occasionally to avoid spam - log at most once per 10 seconds
-            import time
-            current_time = time.time()
-            if not hasattr(self, '_last_zorder_log_time'):
-                self._last_zorder_log_time = 0
-            
-            if current_time - self._last_zorder_log_time >= 10.0:
-                self._last_zorder_log_time = current_time
-                log.debug("[UI] Z-order refreshed for all components")
-        except Exception as e:
-            log.error(f"[UI] Error refreshing z-order: {e}")
     
     def is_ui_initialized(self):
         """Check if UI components are initialized"""
@@ -718,7 +672,7 @@ class UserInterface:
                         self.historic_flag = HistoricFlag(state=self.state)
                     log.info("[HISTORIC] Processing pending show HistoricFlag in main thread")
                     self.historic_flag.show_flag()
-                    # Ensure position and z-order
+                    # Ensure position
                     try:
                         from PyQt6.QtCore import QTimer
                         QTimer.singleShot(50, self.historic_flag.ensure_position)

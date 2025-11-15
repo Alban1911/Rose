@@ -12,7 +12,6 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap, QMouseEvent, QCursor
 from ui.chroma_base import ChromaWidgetBase
 from ui.chroma_scaling import get_scaled_chroma_values
-from ui.z_order_manager import ZOrderManager
 from utils.logging import get_logger
 from utils.resolution_utils import (
     scale_dimension_from_base,
@@ -31,11 +30,7 @@ class DiceButton(ChromaWidgetBase):
     dice_clicked = pyqtSignal(str)  # Emits state: 'disabled' or 'enabled'
     
     def __init__(self, state=None):
-        # Initialize with explicit z-level
-        super().__init__(
-            z_level=ZOrderManager.Z_LEVELS['DICE_BUTTON'],
-            widget_name='dice_button'
-        )
+        super().__init__()
         
         # Store reference to shared state
         self.state = state

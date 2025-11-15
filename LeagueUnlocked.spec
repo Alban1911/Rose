@@ -139,7 +139,6 @@ hiddenimports = [
     'ui.random_flag',
     'ui.historic_flag',
     'ui.user_interface',
-    'ui.z_order_manager',
     'utils.license_client',
     'utils.logging',
     'utils.normalization',
