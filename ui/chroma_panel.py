@@ -169,34 +169,53 @@ class ChromaPanelManager:
             # Track chroma colors for JavaScript plugin
             chroma_colors = None
             chroma_color = None
+            chroma_data = None
+            
+            # Try to get chroma data from current_chromas first
             if chroma_id != 0 and self.current_chromas:
                 for chroma in self.current_chromas:
                     if chroma.get('id') == chroma_id:
-                        colors = chroma.get('colors', [])
-                        if colors:
-                            if len(colors) >= 2:
-                                # Check if both colors are identical
-                                first_color = colors[0] if not colors[0].startswith('#') else colors[0][1:]
-                                second_color = colors[1] if not colors[1].startswith('#') else colors[1][1:]
-                                
-                                if first_color == second_color:
-                                    # Both colors are the same - use solid circle
-                                    selected_color = colors[0]
-                                    chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
-                                    if not chroma_color.startswith('#'):
-                                        chroma_color = f"#{chroma_color}"
-                                else:
-                                    # Colors are different - use split-circle design
-                                    chroma_colors = [colors[0], colors[1]]
-                                    # Ensure colors have # prefix
-                                    chroma_colors = [color if color.startswith('#') else f"#{color}" for color in chroma_colors]
-                            elif len(colors) == 1:
-                                # Use single color for solid circle
-                                selected_color = colors[0]
-                                chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
-                                if not chroma_color.startswith('#'):
-                                    chroma_color = f"#{chroma_color}"
+                        chroma_data = chroma
                         break
+            
+            # Fallback: get chroma data from skin scraper cache if not in current_chromas
+            if not chroma_data and chroma_id != 0:
+                try:
+                    from ui.chroma_selector import get_chroma_selector
+                    chroma_selector = get_chroma_selector()
+                    if chroma_selector and chroma_selector.skin_scraper and chroma_selector.skin_scraper.cache:
+                        chroma_data = chroma_selector.skin_scraper.cache.chroma_id_map.get(chroma_id)
+                        if chroma_data:
+                            log.debug(f"[CHROMA] Found chroma data in skin scraper cache for chroma {chroma_id}")
+                except Exception as e:
+                    log.debug(f"[CHROMA] Failed to get chroma data from skin scraper: {e}")
+            
+            # Extract colors from chroma data
+            if chroma_data:
+                colors = chroma_data.get('colors', [])
+                if colors:
+                    if len(colors) >= 2:
+                        # Check if both colors are identical
+                        first_color = colors[0] if not colors[0].startswith('#') else colors[0][1:]
+                        second_color = colors[1] if not colors[1].startswith('#') else colors[1][1:]
+                        
+                        if first_color == second_color:
+                            # Both colors are the same - use solid circle
+                            selected_color = colors[0]
+                            chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
+                            if not chroma_color.startswith('#'):
+                                chroma_color = f"#{chroma_color}"
+                        else:
+                            # Colors are different - use split-circle design
+                            chroma_colors = [colors[0], colors[1]]
+                            # Ensure colors have # prefix
+                            chroma_colors = [color if color.startswith('#') else f"#{color}" for color in chroma_colors]
+                    elif len(colors) == 1:
+                        # Use single color for solid circle
+                        selected_color = colors[0]
+                        chroma_color = selected_color if not selected_color.startswith('#') else selected_color[1:]
+                        if not chroma_color.startswith('#'):
+                            chroma_color = f"#{chroma_color}"
             
             # Store colors for JavaScript plugin access
             self.current_chroma_color = chroma_color  # None = rainbow for base skin
@@ -204,6 +223,13 @@ class ChromaPanelManager:
             log.debug(f"[CHROMA] Chroma colors tracked: {chroma_colors if chroma_colors else chroma_color if chroma_color else 'rainbow'}")
             
             log_event(log, f"Chroma selected: {chroma_name}" if chroma_id != 0 else "Base skin selected", "✨")
+            
+            # Broadcast chroma state to JavaScript
+            try:
+                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                    self.state.ui_skin_thread._broadcast_chroma_state()
+            except Exception as e:
+                log.debug(f"[CHROMA] Failed to broadcast chroma state: {e}")
     
     def show_button_for_skin(self, skin_id: int, skin_name: str, chromas: List[Dict], champion_name: str = None, is_chroma_selection: bool = False, champion_id: int = None):
         """Show button for a skin (not the wheel itself)
@@ -224,9 +250,20 @@ class ChromaPanelManager:
             if is_different_skin and not is_chroma_selection:
                 log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
                 self.pending_hide = True
-                self.current_selected_chroma_id = None  # Reset selection for new skin
-                self.current_chroma_color = None  # Reset chroma color (for JavaScript plugin)
-                self.current_chroma_colors = None  # Reset chroma colors (for JavaScript plugin)
+                # Only reset if the selected chroma is not for this skin
+                # Check if current_selected_chroma_id belongs to this skin's chromas
+                if self.current_selected_chroma_id and chromas:
+                    chroma_belongs_to_skin = any(c.get('id') == self.current_selected_chroma_id for c in chromas)
+                    if not chroma_belongs_to_skin:
+                        self.current_selected_chroma_id = None  # Reset selection for new skin
+                        self.current_chroma_color = None  # Reset chroma color (for JavaScript plugin)
+                        self.current_chroma_colors = None  # Reset chroma colors (for JavaScript plugin)
+                    else:
+                        log.debug(f"[CHROMA] Preserving selected chroma {self.current_selected_chroma_id} for same base skin")
+                else:
+                    self.current_selected_chroma_id = None  # Reset selection for new skin
+                    self.current_chroma_color = None  # Reset chroma color (for JavaScript plugin)
+                    self.current_chroma_colors = None  # Reset chroma colors (for JavaScript plugin)
             elif is_chroma_selection:
                 log.debug(f"[CHROMA] Chroma selection for same base skin - preserving selection")
             
@@ -255,6 +292,13 @@ class ChromaPanelManager:
                 # Request widget creation
                 self.request_create()
                 log.debug(f"[CHROMA] Widgets not initialized yet - will be created for {skin_name}")
+            
+            # Broadcast chroma state to JavaScript when panel is shown/updated
+            try:
+                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                    self.state.ui_skin_thread._broadcast_chroma_state()
+            except Exception as e:
+                log.debug(f"[CHROMA] Failed to broadcast chroma state on show: {e}")
             
             # Check ownership and trigger UnownedFrame fade if needed
             if self.state:

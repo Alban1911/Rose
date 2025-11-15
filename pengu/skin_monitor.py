@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from typing import Optional, Set
 
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
@@ -178,6 +179,55 @@ class PenguSkinMonitorThread(threading.Thread):
             event = payload.get("event") or payload.get("message") or "unknown"
             details = payload.get("data") or payload
             log.info("[ChromaWheel] %s | %s", event, details)
+            return
+
+        if payload_type == "chroma-selection":
+            # Handle chroma selection from JavaScript plugin
+            chroma_id = payload.get("chromaId") or payload.get("skinId")
+            chroma_name = payload.get("chromaName") or "Unknown"
+            base_skin_id = payload.get("baseSkinId")
+            
+            if chroma_id is not None:
+                # Use ChromaSelector's logic to handle chroma selection
+                from ui.chroma_selector import get_chroma_selector
+                chroma_selector = get_chroma_selector()
+                
+                if chroma_selector:
+                    # Call ChromaSelector's _on_chroma_selected to use its logic
+                    chroma_selector._on_chroma_selected(chroma_id, chroma_name)
+                    log.info(f"[PenguSkinMonitor] Chroma selected via ChromaSelector: {chroma_name} (ID: {chroma_id})")
+                    
+                    # Also call the panel's wrapper to track colors and broadcast state
+                    # This ensures the panel's current_chroma_color is updated
+                    if chroma_selector.panel:
+                        try:
+                            chroma_selector.panel._on_chroma_selected_wrapper(chroma_id, chroma_name)
+                        except Exception as e:
+                            log.debug(f"[PenguSkinMonitor] Failed to call panel wrapper: {e}")
+                            # Fallback: broadcast state anyway
+                            self._broadcast_chroma_state()
+                    else:
+                        # Fallback: broadcast state if panel not available
+                        self._broadcast_chroma_state()
+                else:
+                    # Fallback: update shared state directly if ChromaSelector not available
+                    self.shared_state.selected_chroma_id = chroma_id if chroma_id != 0 else None
+                    self.shared_state.last_hovered_skin_id = chroma_id
+                    log.info(f"[PenguSkinMonitor] Chroma selected (fallback): {chroma_name} (ID: {chroma_id})")
+                    
+                    # Try to call panel wrapper directly to track colors
+                    try:
+                        from ui.chroma_panel import get_chroma_panel
+                        panel = get_chroma_panel(state=self.shared_state)
+                        if panel:
+                            panel._on_chroma_selected_wrapper(chroma_id, chroma_name)
+                        else:
+                            # Panel not available - broadcast state anyway
+                            self._broadcast_chroma_state()
+                    except Exception as e:
+                        log.debug(f"[PenguSkinMonitor] Failed to call panel wrapper in fallback: {e}")
+                        # Broadcast state anyway
+                        self._broadcast_chroma_state()
             return
 
         skin_name = payload.get("skin")
@@ -445,6 +495,53 @@ class PenguSkinMonitorThread(threading.Thread):
                 stale.append(ws)
         for ws in stale:
             self._connections.discard(ws)
+
+    def _broadcast_chroma_state(self) -> None:
+        """Broadcast current chroma selection state to JavaScript"""
+        if not self._loop or not self._connections:
+            return
+
+        # Get chroma state from ChromaPanelManager
+        from ui.chroma_panel import get_chroma_panel
+        panel = get_chroma_panel(state=self.shared_state)
+        
+        if panel:
+            with panel.lock:
+                selected_chroma_id = panel.current_selected_chroma_id
+                chroma_color = panel.current_chroma_color
+                chroma_colors = panel.current_chroma_colors
+                current_skin_id = panel.current_skin_id
+        else:
+            selected_chroma_id = self.shared_state.selected_chroma_id
+            chroma_color = None
+            chroma_colors = None
+            current_skin_id = None
+
+        payload = {
+            "type": "chroma-state",
+            "selectedChromaId": selected_chroma_id,
+            "chromaColor": chroma_color,
+            "chromaColors": chroma_colors,
+            "currentSkinId": current_skin_id,
+            "timestamp": int(time.time() * 1000),
+        }
+        
+        log.debug(
+            "[PenguSkinMonitor] Broadcasting chroma state → selectedChromaId=%s chromaColor=%s",
+            selected_chroma_id,
+            chroma_color,
+        )
+        
+        message = json.dumps(payload)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is self._loop:
+            self._loop.create_task(self._broadcast(message))
+        else:
+            asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
 
     def _skin_has_chromas(self, skin_id: Optional[int]) -> bool:
         if skin_id is None:
