@@ -18,10 +18,13 @@ import threading
 import time
 from typing import Optional, Set
 
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.parse import urlparse, unquote
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol, serve
 
-from utils.paths import get_user_data_dir
+from utils.paths import get_user_data_dir, get_skins_dir, get_asset_path
 from utils.utilities import get_champion_id_from_skin_id
 
 log = logging.getLogger(__name__)
@@ -76,11 +79,18 @@ class PenguSkinMonitorThread(threading.Thread):
         self.skin_mapping_loaded = False
         self.last_skin_name: Optional[str] = None
 
+        # HTTP server for serving local files
+        self._http_server: Optional[HTTPServer] = None
+        self._http_port = 3001  # Different port from WebSocket
+
     # ------------------------------------------------------------------ Thread
     def run(self) -> None:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self._shutdown_event = asyncio.Event()
+
+        # Start HTTP server for serving local files
+        self._start_http_server()
 
         try:
             self._server = self._loop.run_until_complete(
@@ -91,10 +101,16 @@ class PenguSkinMonitorThread(threading.Thread):
                 self.host,
                 self.port,
             )
+            log.info(
+                "[PenguSkinMonitor] HTTP server for local files on http://%s:%s",
+                self.host,
+                self._http_port,
+            )
             self._loop.run_until_complete(self._shutdown_event.wait())
         except Exception as exc:  # noqa: BLE001
             log.error("[PenguSkinMonitor] Server stopped unexpectedly: %s", exc)
         finally:
+            self._stop_http_server()
             self._loop.run_until_complete(self._shutdown())
             self._loop.close()
             log.info("[PenguSkinMonitor] Thread terminated")
@@ -119,6 +135,7 @@ class PenguSkinMonitorThread(threading.Thread):
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._stop_http_server()
         if self._loop and self._shutdown_event:
             try:
                 asyncio.run_coroutine_threadsafe(
@@ -179,6 +196,95 @@ class PenguSkinMonitorThread(threading.Thread):
             event = payload.get("event") or payload.get("message") or "unknown"
             details = payload.get("data") or payload
             log.info("[ChromaWheel] %s | %s", event, details)
+            return
+
+        if payload_type == "request-local-preview":
+            # Handle request for local preview image (for special skins like Elementalist Lux)
+            champion_id = payload.get("championId")
+            skin_id = payload.get("skinId")
+            chroma_id = payload.get("chromaId")
+            
+            if champion_id and skin_id and chroma_id:
+                try:
+                    from ui.chroma_preview_manager import get_preview_manager
+                    preview_manager = get_preview_manager()
+                    
+                    # Get preview path (chroma_id is the form ID for Elementalist Lux)
+                    preview_path = preview_manager.get_preview_path(
+                        champion_name="",  # Not needed for path construction
+                        skin_name="",  # Not needed for path construction
+                        chroma_id=chroma_id if chroma_id != skin_id else None,
+                        skin_id=skin_id,
+                        champion_id=champion_id
+                    )
+                    
+                    if preview_path and preview_path.exists():
+                        # Serve via HTTP instead of file:// (browsers block file:// URLs)
+                        http_url = f"http://{self.host}:{self._http_port}/preview/{champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png"
+                        log.debug(f"[PenguSkinMonitor] Local preview found: {preview_path} -> {http_url}")
+                        
+                        # Send the HTTP URL back to JavaScript
+                        payload = {
+                            "type": "local-preview-url",
+                            "championId": champion_id,
+                            "skinId": skin_id,
+                            "chromaId": chroma_id,
+                            "url": http_url,
+                            "timestamp": int(time.time() * 1000),
+                        }
+                        message = json.dumps(payload)
+                        try:
+                            running_loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            running_loop = None
+
+                        if running_loop is self._loop:
+                            self._loop.create_task(self._broadcast(message))
+                        else:
+                            asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                    else:
+                        log.debug(f"[PenguSkinMonitor] Local preview not found: champion={champion_id}, skin={skin_id}, chroma={chroma_id}")
+                except Exception as e:
+                    log.debug(f"[PenguSkinMonitor] Failed to get local preview: {e}")
+            return
+
+        if payload_type == "request-local-asset":
+            # Handle request for local asset (like Elementalist Lux button icons)
+            asset_path = payload.get("assetPath")
+            chroma_id = payload.get("chromaId")
+            
+            if asset_path:
+                try:
+                    from utils.paths import get_asset_path
+                    asset_file = get_asset_path(asset_path)
+                    
+                    if asset_file and asset_file.exists():
+                        # Serve via HTTP instead of file:// (browsers block file:// URLs)
+                        http_url = f"http://{self.host}:{self._http_port}/asset/{asset_path.replace(chr(92), '/')}"  # Replace backslashes with forward slashes
+                        log.debug(f"[PenguSkinMonitor] Local asset found: {asset_file} -> {http_url}")
+                        
+                        # Send the HTTP URL back to JavaScript
+                        payload = {
+                            "type": "local-asset-url",
+                            "assetPath": asset_path,
+                            "chromaId": chroma_id,
+                            "url": http_url,
+                            "timestamp": int(time.time() * 1000),
+                        }
+                        message = json.dumps(payload)
+                        try:
+                            running_loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            running_loop = None
+
+                        if running_loop is self._loop:
+                            self._loop.create_task(self._broadcast(message))
+                        else:
+                            asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                    else:
+                        log.debug(f"[PenguSkinMonitor] Local asset not found: {asset_path}")
+                except Exception as e:
+                    log.debug(f"[PenguSkinMonitor] Failed to get local asset: {e}")
             return
 
         if payload_type == "chroma-selection":
@@ -542,6 +648,101 @@ class PenguSkinMonitorThread(threading.Thread):
             self._loop.create_task(self._broadcast(message))
         else:
             asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+
+    def _start_http_server(self) -> None:
+        """Start HTTP server for serving local preview images and assets"""
+        class LocalFileHandler(SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                self.skins_dir = get_skins_dir()
+                try:
+                    # Get assets directory
+                    test_asset = get_asset_path("dummy")
+                    self.assets_dir = test_asset.parent if test_asset else None
+                except:
+                    self.assets_dir = None
+                super().__init__(*args, **kwargs)
+
+            def do_GET(self):
+                try:
+                    parsed_path = urlparse(self.path)
+                    path = unquote(parsed_path.path)
+                    
+                    # Handle preview requests: /preview/{champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
+                    if path.startswith("/preview/"):
+                        parts = path.replace("/preview/", "").split("/")
+                        if len(parts) >= 4:
+                            champion_id = parts[0]
+                            skin_id = parts[1]
+                            chroma_id = parts[2]
+                            
+                            # Construct file path
+                            if chroma_id == skin_id:
+                                # Base skin preview
+                                file_path = self.skins_dir / champion_id / skin_id / f"{skin_id}.png"
+                            else:
+                                # Chroma preview
+                                file_path = self.skins_dir / champion_id / skin_id / chroma_id / f"{chroma_id}.png"
+                            
+                            if file_path.exists():
+                                self.send_response(200)
+                                self.send_header("Content-Type", "image/png")
+                                self.send_header("Access-Control-Allow-Origin", "*")
+                                self.end_headers()
+                                with open(file_path, "rb") as f:
+                                    self.wfile.write(f.read())
+                                return
+                    
+                    # Handle asset requests: /asset/elementalist_buttons/{form_id}.png
+                    elif path.startswith("/asset/"):
+                        asset_path = path.replace("/asset/", "").replace("/", chr(92))  # Convert to Windows path
+                        if self.assets_dir:
+                            file_path = self.assets_dir / asset_path
+                            if file_path.exists():
+                                self.send_response(200)
+                                # Determine content type from extension
+                                if file_path.suffix.lower() == ".png":
+                                    self.send_header("Content-Type", "image/png")
+                                elif file_path.suffix.lower() in [".jpg", ".jpeg"]:
+                                    self.send_header("Content-Type", "image/jpeg")
+                                else:
+                                    self.send_header("Content-Type", "application/octet-stream")
+                                self.send_header("Access-Control-Allow-Origin", "*")
+                                self.end_headers()
+                                with open(file_path, "rb") as f:
+                                    self.wfile.write(f.read())
+                                return
+                    
+                    # 404 for unknown paths
+                    self.send_response(404)
+                    self.end_headers()
+                except Exception as e:
+                    log.debug(f"[PenguSkinMonitor] HTTP server error: {e}")
+                    self.send_response(500)
+                    self.end_headers()
+
+            def log_message(self, format, *args):
+                # Suppress default logging
+                pass
+
+        try:
+            self._http_server = HTTPServer((self.host, self._http_port), LocalFileHandler)
+            http_thread = threading.Thread(target=self._http_server.serve_forever, daemon=True)
+            http_thread.start()
+            log.info(f"[PenguSkinMonitor] HTTP server started on http://{self.host}:{self._http_port}")
+        except Exception as e:
+            log.warning(f"[PenguSkinMonitor] Failed to start HTTP server: {e}")
+
+    def _stop_http_server(self) -> None:
+        """Stop HTTP server"""
+        if self._http_server:
+            try:
+                self._http_server.shutdown()
+                self._http_server.server_close()
+                log.info("[PenguSkinMonitor] HTTP server stopped")
+            except Exception as e:
+                log.debug(f"[PenguSkinMonitor] Error stopping HTTP server: {e}")
+            finally:
+                self._http_server = None
 
     def _skin_has_chromas(self, skin_id: Optional[int]) -> bool:
         if skin_id is None:
