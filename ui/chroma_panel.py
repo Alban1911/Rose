@@ -9,26 +9,32 @@ import threading
 from typing import Callable, List, Dict
 from utils.logging import get_logger, log_event, log_action, log_success
 from utils.utilities import is_default_skin, is_owned, is_base_skin_owned
-from ui.chroma_panel_widget import ChromaPanelWidget
 
 log = get_logger()
 
 
 class ChromaPanelManager:
-    """Manages PyQt6 chroma panel - uses polling instead of QTimer"""
+    """Headless chroma panel manager
+
+    NOTE: The legacy PyQt6 visual chroma panel has been removed.
+    This manager now only tracks chroma state for the JavaScript plugins
+    (LU-ChromaWheel, LU-RandomSkin, LU-HistoricMode, etc.) and no longer
+    creates or shows any Qt widgets.
+    """
     
     def __init__(self, on_chroma_selected: Callable[[int, str], None] = None, state=None, lcu=None):
         self.on_chroma_selected = on_chroma_selected
         self.state = state  # SharedState for panel control
         self.lcu = lcu  # LCU client for game mode detection
+        # UI/widget fields kept for backwards compatibility but unused now
         self.widget = None
-        self.click_catcher = None  # Legacy overlay removed
-        self.is_initialized = False
-        self.pending_show = None  # (skin_name, chromas) to show from other threads
+        self.click_catcher = None  # Legacy overlay (no-op)
+        self.is_initialized = False  # No real widget initialization anymore
+        self.pending_show = None  # (skin_name, chromas) kept for API compatibility
         self.pending_hide = False
-        self.pending_create = False  # Request to create widgets
-        self.pending_destroy = False  # Request to destroy widgets
-        self.pending_rebuild = False  # Request to rebuild widgets (for resolution changes)
+        self.pending_create = False
+        self.pending_destroy = False
+        self.pending_rebuild = False
         self.current_skin_id = None  # Track current skin
         self.current_skin_name = None
         self.current_chromas = None
@@ -63,58 +69,17 @@ class ChromaPanelManager:
                 log.debug("[CHROMA] Rebuild already in progress, ignoring duplicate request")
     
     def update_positions(self):
-        """Check for resolution changes and focus changes periodically - NON-BLOCKING
-        
-        Note: When widgets are parented to League window (embedded mode), Windows
-        automatically handles ALL positioning. We only need to check for resolution changes
-        and detect when League window gains focus to close the panel.
-        """
-        try:
-            # Try to acquire lock with timeout to avoid blocking
-            if not self.lock.acquire(blocking=False):
-                return  # Skip this iteration if lock is held by another thread
-            
-            try:
-                # Don't check while rebuilding
-                if self._rebuilding:
-                    return
-                
-                # Only check resolution changes when widgets are visible
-                # Check at most once per second to avoid excessive polling
-                import time
-                current_time = time.time()
-                if not hasattr(self, '_last_resolution_check'):
-                    self._last_resolution_check = 0
-                
-                # Check resolution only once per second AND only if widgets are visible
-                widgets_visible = (self.widget and self.widget.isVisible())
-                if widgets_visible and (current_time - self._last_resolution_check >= 1.0):
-                    self._last_resolution_check = current_time
-                    
-                # Check for resolution changes and trigger rebuild if needed
-                if self.widget:
-                    self.widget.check_resolution_and_update()
-            finally:
-                self.lock.release()
-        except RuntimeError:
-            # Widget may have been deleted
-            pass
+        """Legacy resolution/focus updater – now a no-op (no Qt widgets)."""
+        return
     
     def _create_widgets(self):
-        """Create widgets (must be called from main thread)"""
+        """Legacy widget creation – no longer creates any Qt UI.
+
+        Kept only so existing calls don’t crash; logs once in debug.
+        """
         if not self.is_initialized:
-            from utils.window_utils import get_league_window_handle
-            
-            # Get League window handle for click catcher
-            league_hwnd = get_league_window_handle()
-            
-            self.widget = ChromaPanelWidget(on_chroma_selected=self._on_chroma_selected_wrapper, manager=self, lcu=self.lcu)
-            log.info("[CHROMA] ChromaPanelWidget created")
-            # JavaScript plugin handles button display - no Python button needed
-            self.widget.set_button_reference(None)
-            
             self.is_initialized = True
-            log.info("[CHROMA] Panel widgets created")
+            log.debug("[CHROMA] _create_widgets called in headless mode (no Qt widgets created)")
     
     def _on_click_catcher_clicked(self):
         """Called when click catcher overlay is clicked - close panel"""
@@ -122,32 +87,13 @@ class ChromaPanelManager:
         self.hide()
     
     def _destroy_widgets(self):
-        """Destroy widgets (must be called from main thread)"""
-        if self.is_initialized:
-            self.click_catcher = None
-            
-            if self.widget:
-                try:
-                    # Un-parent from League window before destroying
-                    if hasattr(self.widget, '_league_window_hwnd') and self.widget._league_window_hwnd:
-                        import ctypes
-                        widget_hwnd = int(self.widget.winId())
-                        ctypes.windll.user32.SetParent(widget_hwnd, 0)  # Un-parent (set to desktop)
-                        self.widget._league_window_hwnd = None
-                        log.debug("[CHROMA] Panel un-parented from League window")
-                    
-                    # Clear button reference before destroying
-                    self.widget.set_button_reference(None)
-                    # Use hide() + deleteLater() instead of close() to avoid blocking
-                    self.widget.hide()
-                    self.widget.deleteLater()
-                    self.widget = None
-                except Exception as e:
-                    log.warning(f"[CHROMA] Error destroying panel widget: {e}")
-            self.is_initialized = False
-            self.last_skin_name = None
-            self.last_chromas = None
-            log.info("[CHROMA] Panel widgets destroyed (un-parented from League)")
+        """Legacy widget destruction – now a no-op (no Qt widgets)."""
+        self.widget = None
+        self.click_catcher = None
+        self.is_initialized = False
+        self.last_skin_name = None
+        self.last_chromas = None
+        log.debug("[CHROMA] _destroy_widgets called in headless mode (no Qt widgets to destroy)")
     
     def _on_chroma_selected_wrapper(self, chroma_id: int, chroma_name: str):
         """Wrapper for chroma selection - tracks colors for JavaScript plugin"""
@@ -308,65 +254,14 @@ class ChromaPanelManager:
             return  # Skip this iteration if lock is held by another thread
         
         try:
-            # Process create request
+            # Process create request (headless – only marks manager initialized)
             if self.pending_create:
                 self.pending_create = False
-                try:
-                    self._create_widgets()
-                    
-                except Exception as e:
-                    log.error(f"[CHROMA] Error creating widgets: {e}")
+                self._create_widgets()
             
-            # Process rebuild request (resolution change) - ONLY if already initialized
+            # Process rebuild request – no-op in headless mode (no widgets to rebuild)
             if self.pending_rebuild:
-                if not self.is_initialized:
-                    log.warning("[CHROMA] Rebuild requested but widgets not initialized yet")
-                    self.pending_rebuild = False
-                elif self._rebuilding:
-                    log.debug("[CHROMA] Rebuild already in progress, skipping duplicate")
-                else:
-                    self.pending_rebuild = False
-                    self._rebuilding = True
-                    log.info("="*80)
-                    log.info("[CHROMA] 🔄 STARTING WIDGET REBUILD (RESOLUTION CHANGE)")
-                    log.info("="*80)
-                    
-                try:
-                    # Save current state
-                    was_panel_visible = self.widget and self.widget.isVisible()
-                    
-                    log.info(f"[CHROMA] Rebuild state: panel_visible={was_panel_visible}")
-                    
-                    # Destroy old widgets
-                    log.info("[CHROMA] Destroying old widgets...")
-                    self._destroy_widgets()
-                    
-                    # Small delay to allow cleanup
-                    from PyQt6.QtWidgets import QApplication
-                    QApplication.processEvents()
-                    
-                    # Recreate widgets with fresh resolution values
-                    log.info("[CHROMA] Creating new widgets with updated resolution...")
-                    self._create_widgets()
-                    
-                    # Chroma colors are preserved in self.current_chroma_color/current_chroma_colors for JavaScript plugin
-                    
-                    # Restore visibility state
-                    if was_panel_visible and self.current_skin_name and self.current_chromas:
-                        log.info("[CHROMA] Restoring panel visibility after rebuild")
-                        self.pending_show = (self.current_skin_name, self.current_chromas)
-                    
-                    log.info("="*80)
-                    log.info("[CHROMA] ✅ WIDGET REBUILD COMPLETED SUCCESSFULLY")
-                    log.info("="*80)
-                except Exception as e:
-                    log.error(f"[CHROMA] ❌ Error rebuilding widgets: {e}")
-                    import traceback
-                    log.error(traceback.format_exc())
-                finally:
-                    self._rebuilding = False
-                    # Continue processing other requests in the same frame
-                    # (removed early return)
+                self.pending_rebuild = False
             
             # Process destroy request
             if self.pending_destroy:
@@ -379,54 +274,25 @@ class ChromaPanelManager:
                     log.error(f"[CHROMA] Error destroying widgets: {e}")
                 return  # Don't process other requests after destroying
             
-            # Process show request
+            # Process show request – no visual panel anymore, only update state flags if needed
             if self.pending_show:
                 skin_name, chromas = self.pending_show
                 self.pending_show = None
-                
-                if self.widget:
-                    # Reload background based on current game mode before showing
-                    if self.widget:
-                        self.widget.reload_background()
-                    
-                    # Pass the currently selected chroma ID so wheel opens at that index
-                    # Use base skin ID for preview loading (important for chromas)
-                    base_skin_id_for_previews = getattr(self, 'current_base_skin_id', self.current_skin_id)
-                    self.widget.set_chromas(skin_name, chromas, self.current_champion_name, self.current_selected_chroma_id, base_skin_id_for_previews, self.current_champion_id)
-                    # Position wheel (JavaScript plugin handles button positioning)
-                    self.widget.show_wheel(button_pos=None)
-                    self.widget.setVisible(True)
-                    # Don't call raise_() or bring_to_front() - z-order is managed by ZOrderManager
-                    # The panel has the highest z-level (300) so it will naturally be on top
-                    # NO z-order refresh needed - panel widget is already registered with correct z-level
-                    
-                    # Position is handled by _position_panel_absolutely() in setup_ui()
-                    # No need to call _update_position() since we use absolute positioning
-                    
-                    # Don't call raise_() or bring_to_front() on button - z-order is managed by ZOrderManager
-                    # This allows RandomFlag (higher z-level) to properly appear above ChromaButton
-                    
-                    log_success(log, f"Chroma panel displayed for {skin_name}", "🎨")
-                    
-                    # Pause UI detection while panel is open (panel covers the text area)
-                    if self.state:
-                        self.state.chroma_panel_open = True
-                        # Store the base skin NAME to avoid re-detecting the same skin on resume
-                        # Chromas are named like "Base Skin Name" + " Ruby", so we store the base
-                        self.state.chroma_panel_skin_name = skin_name
-                        log.debug(f"[CHROMA] UI detection paused - panel open (skin: {skin_name})")
+
+                # Pause UI detection flag as if a panel were open, so existing logic keeps working
+                if self.state:
+                    self.state.chroma_panel_open = True
+                    self.state.chroma_panel_skin_name = skin_name
+                    log.debug(f"[CHROMA] (headless) UI detection paused - virtual panel open (skin: {skin_name})")
             
             # Process hide request
             if self.pending_hide:
                 self.pending_hide = False
                 
-                if self.widget:
-                    self.widget.hide()
-                    
-                    # Resume UI detection when panel closes
-                    if self.state:
-                        self.state.chroma_panel_open = False
-                        log.debug(f"[CHROMA] UI detection resumed - panel closed")
+                # Resume UI detection when the (virtual) panel closes
+                if self.state:
+                    self.state.chroma_panel_open = False
+                    log.debug("[CHROMA] (headless) UI detection resumed - virtual panel closed")
         finally:
             self.lock.release()
     

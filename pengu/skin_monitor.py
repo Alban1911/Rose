@@ -709,15 +709,27 @@ class PenguSkinMonitorThread(threading.Thread):
         if not self._loop or not self._connections:
             return
 
+        # Include basic game mode context from shared state so JS plugins
+        # (like LU-ChromaWheel) can adapt visuals such as ARAM backgrounds
+        game_mode = getattr(self.shared_state, "current_game_mode", None)
+        map_id = getattr(self.shared_state, "current_map_id", None)
+        queue_id = getattr(self.shared_state, "current_queue_id", None)
+
         payload = {
             "type": "phase-change",
             "phase": phase,
+            "gameMode": game_mode,
+            "mapId": map_id,
+            "queueId": queue_id,
             "timestamp": int(time.time() * 1000),
         }
         
         log.debug(
-            "[PenguSkinMonitor] Broadcasting phase change → phase=%s",
+            "[PenguSkinMonitor] Broadcasting phase change → phase=%s, gameMode=%s, mapId=%s, queueId=%s",
             phase,
+            game_mode,
+            map_id,
+            queue_id,
         )
         
         message = json.dumps(payload)
