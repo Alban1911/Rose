@@ -238,9 +238,9 @@ class InjectionManager:
                         self._suspended_game_process.resume()
                         log_success(log, "Resumed suspended game on cleanup", "▶️")
                 except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as e:
-                    log.debug(f"[inject] Could not resume suspended process: {e}")
+                    log.debug(f"[INJECT] Could not resume suspended process: {e}")
                 except Exception as e:
-                    log.debug(f"[inject] Unexpected error resuming process: {e}")
+                    log.debug(f"[INJECT] Unexpected error resuming process: {e}")
                 
             self._suspended_game_process = None
     
@@ -511,7 +511,7 @@ class InjectionManager:
         try:
             self.injector.stop_overlay_process()
         except Exception as e:
-            log.warning(f"[inject] Failed to stop overlay process: {e}")
+            log.warning(f"[INJECT] Failed to stop overlay process: {e}")
     
     def kill_all_runoverlay_processes(self):
         """Kill all runoverlay processes (for ChampSelect cleanup)"""
@@ -542,7 +542,7 @@ class InjectionManager:
                 self.injector.kill_all_runoverlay_processes()
                 log.debug("[INJECT] Cleanup thread completed")
             except Exception as e:
-                log.warning(f"[inject] Cleanup thread failed: {e}")
+                log.warning(f"[INJECT] Cleanup thread failed: {e}")
             finally:
                 # Clear flag when done
                 with self._cleanup_lock:
