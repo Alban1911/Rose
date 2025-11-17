@@ -27,7 +27,7 @@ from utils.admin_utils import (
     show_message_box_threaded,
 )
 from utils.logging import get_logger
-from utils.paths import get_asset_path
+from utils.paths import get_asset_path, get_icon_path
 from utils.win32_base import (
     BS_DEFPUSHBUTTON,
     BS_PUSHBUTTON,
@@ -123,11 +123,11 @@ class InjectionSettingsWindow(Win32Window):
     def _prepare_window_icon(self) -> Optional[str]:
         png_path: Optional[str] = None
         try:
-            candidate = get_asset_path("icon.png")
+            candidate = get_icon_path("tray_ready.png")
             if candidate.exists():
                 png_path = str(candidate)
         except Exception as exc:  # noqa: BLE001
-            log.warning(f"[TraySettings] Failed to resolve icon.png: {exc}")
+            log.warning(f"[TraySettings] Failed to resolve tray_ready.png icon: {exc}")
 
         if png_path and Image is not None:
             try:
@@ -143,7 +143,7 @@ class InjectionSettingsWindow(Win32Window):
                 self._icon_temp_path = tmp_path
                 return tmp_path
             except Exception as exc:  # noqa: BLE001
-                log.warning(f"[TraySettings] Failed to convert icon.png to .ico: {exc}")
+                log.warning(f"[TraySettings] Failed to convert tray_ready.png to .ico: {exc}")
 
         try:
             ico_candidate = get_asset_path("icon.ico")
