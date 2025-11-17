@@ -95,10 +95,10 @@ class TrayManager:
     def _load_icons(self):
         """Load locked and unlocked icons"""
         # Load locked icon
-        self._locked_icon_image = self._load_icon_from_file("tray_locked.png")
+        self._locked_icon_image = self._load_icon_from_file("tray_starting.png")
         
         # Load golden unlocked icon
-        self._unlocked_icon_image = self._load_icon_from_file("tray_golden_unlocked.png")
+        self._unlocked_icon_image = self._load_icon_from_file("tray_ready.png")
         
         # Fallback to icon.png if none exist
         if not self._locked_icon_image and not self._unlocked_icon_image:

@@ -122,7 +122,7 @@ def get_icon_path(icon_name: str) -> Path:
     Works in both development and frozen (PyInstaller) environments.
     
     Args:
-        icon_name: Name of the icon file (e.g., "tray_locked.png")
+        icon_name: Name of the icon file (e.g., "tray_starting.png")
         
     Returns:
         Path to the icon file
