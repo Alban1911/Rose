@@ -5,8 +5,6 @@ Logging configuration and utilities
 """
 
 # Standard library imports
-import base64
-import json
 import os
 import queue
 import re
@@ -20,11 +18,6 @@ from typing import Dict
 # Third-party imports
 import logging
 import urllib3
-from cryptography.fernet import Fernet
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from urllib3.exceptions import InsecureRequestWarning
 
 # Local imports
@@ -53,142 +46,6 @@ _NAMED_LOGGERS: Dict[str, logging.Logger] = {}
 def get_log_mode() -> str:
     """Get the current logging mode"""
     return _CURRENT_LOG_MODE
-
-
-def _get_encryption_key() -> bytes:
-    """Get the encryption key from key file, environment variable, or generate from a fixed password"""
-    # Priority 1: Try to get key from key file (most secure)
-    key_file = Path(__file__).parent.parent / "log_encryption_key.txt"
-    if key_file.exists():
-        try:
-            with open(key_file, 'r') as f:
-                key_str = f.read().strip()
-            if key_str:
-                password = key_str.encode()
-            else:
-                # Empty file, fall through to default
-                password = None
-        except Exception:
-            # Could not read key file, fall through to default
-            password = None
-    else:
-        password = None
-    
-    # Priority 2: Try to get key from environment variable
-    if password is None:
-        key_str = os.environ.get('LEAGUE_UNLOCKED_LOG_KEY')
-        if key_str:
-            password = key_str.encode()
-    
-    # Priority 3: Default key derived from a fixed password (developer only)
-    if password is None:
-        password = b'Rose2024LogEncryptionDefaultKey'
-    
-    # Derive a 32-byte key using PBKDF2
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=b'league_unlocked_logs_salt',
-        iterations=100000,
-        backend=default_backend()
-    )
-    key = kdf.derive(password)
-    
-    # Fernet expects a URL-safe base64-encoded 32-byte key
-    return base64.urlsafe_b64encode(key)
-
-
-class EncryptedFileHandler(logging.FileHandler):
-    """File handler that encrypts log content using AES"""
-    
-    def __init__(self, filename, mode='a', encoding='utf-8', delay=False, errors=None):
-        # Store encoding BEFORE calling parent __init__ (which may overwrite it for binary mode)
-        self._encoding = encoding if encoding else 'utf-8'
-        # Open file in binary mode for encryption
-        logging.FileHandler.__init__(self, filename, mode='ab', delay=delay, errors=errors)
-        # Get encryption key and create Fernet cipher
-        key = _get_encryption_key()
-        self.cipher = Fernet(key)
-    
-    def emit(self, record):
-        """Write encrypted log to file"""
-        try:
-            msg = self.format(record)
-            # Use our stored encoding attribute
-            encoding = getattr(self, '_encoding', 'utf-8')
-            # Encrypt the message (Fernet already includes the message in the token)
-            encrypted_msg = self.cipher.encrypt(msg.encode(encoding))
-            # Write encrypted bytes (no need to add newline as each log is on its own line)
-            self.stream.write(encrypted_msg)
-            self.stream.write(b'\n')  # Add newline for readability when decrypting
-            self.flush()
-        except Exception:
-            self.handleError(record)
-
-
-class RSAHybridEncryptedFileHandler(logging.FileHandler):
-    """File handler that encrypts logs using RSA-hybrid (RSA-OAEP + Fernet).
-
-    - A random Fernet key is generated per session (per log file)
-    - The Fernet key is encrypted with the licensing RSA public key
-    - A header line is written: {"v":"rsa1","ek":"<b64_rsa_encrypted_key>"}
-    - Each log record line contains a Fernet token (base64 ASCII) only
-    """
-
-    def __init__(self, filename, mode='a', encoding='utf-8', delay=False, errors=None):
-        # Store encoding BEFORE calling parent __init__ (which may overwrite it for binary mode)
-        self._encoding = encoding if encoding else 'utf-8'
-        # Open file in binary mode for encryption
-        logging.FileHandler.__init__(self, filename, mode='ab', delay=delay, errors=errors)
-
-        # Load RSA public key used for hybrid encryption
-        try:
-            from .public_key import PUBLIC_KEY
-            public_key = serialization.load_pem_public_key(
-                PUBLIC_KEY.encode('ascii'),
-                backend=default_backend()
-            )
-        except Exception as e:
-            raise RuntimeError(f"Failed to load RSA public key for log encryption: {e}")
-
-        # Generate per-session Fernet key and cipher
-        fernet_key: bytes = Fernet.generate_key()
-        self._fernet_key = fernet_key
-        self._cipher = Fernet(fernet_key)
-
-        # Encrypt the Fernet key with RSA-OAEP (SHA256)
-        try:
-            encrypted_key_bytes = public_key.encrypt(
-                fernet_key,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None,
-                ),
-            )
-            ek_b64 = base64.urlsafe_b64encode(encrypted_key_bytes).decode('ascii')
-        except Exception as e:
-            raise RuntimeError(f"Failed to encrypt session key for log encryption: {e}")
-
-        # Write header line with version and encrypted key
-        header_obj = {"v": "rsa1", "ek": ek_b64}
-        header_line = json.dumps(header_obj, separators=(",", ":")).encode('utf-8')
-        self.stream.write(header_line)
-        self.stream.write(b"\n")
-        self.flush()
-
-    def emit(self, record):
-        """Write encrypted log to file using per-session Fernet cipher"""
-        try:
-            msg = self.format(record)
-            encoding = getattr(self, '_encoding', 'utf-8')
-            token_bytes = self._cipher.encrypt(msg.encode(encoding))
-            # Fernet tokens are already base64-encoded ASCII bytes
-            self.stream.write(token_bytes)
-            self.stream.write(b"\n")
-            self.flush()
-        except Exception:
-            self.handleError(record)
 
 
 class SanitizingFilter(logging.Filter):
@@ -311,8 +168,8 @@ class SanitizingFilter(logging.Filter):
         '[APP STATUS]',
         '📍 System tray',
         '📊 App status',
-        '🌹 APP STATUS',
         '🥀 APP STATUS',
+        '🌹 APP STATUS',
         '   📋 ',  # Detail lines with this prefix
         '   ⏳ ',
         '   ✅ ',
@@ -440,7 +297,6 @@ class SizeRotatingCompositeHandler(logging.Handler):
 
     - Creates files as: base.ext, base.ext.1, base.ext.2, ...
     - Does not delete on rotation (retention handled separately on startup)
-    - Works with both plaintext and custom encrypted file handlers
     """
     def __init__(self, base_path: Path, create_handler_fn, max_bytes: int):
         super().__init__()
@@ -696,18 +552,11 @@ def setup_logging(log_mode: str = 'customer', production_mode: bool = None):
         # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
         timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
         
-        # In production mode, use RSA-hybrid encrypted logs with .log.enc extension
         max_bytes = int(LOG_MAX_FILE_SIZE_MB_DEFAULT * 1024 * 1024)
-        if production_mode:
-            log_file = logs_dir / f"rose_{timestamp}.log.enc"
-            def _factory_enc(p: Path):
-                return RSAHybridEncryptedFileHandler(p, encoding='utf-8')
-            file_handler = SizeRotatingCompositeHandler(log_file, _factory_enc, max_bytes)
-        else:
-            log_file = logs_dir / f"rose_{timestamp}.log"
-            def _factory_plain(p: Path):
-                return logging.FileHandler(p, encoding='utf-8')
-            file_handler = SizeRotatingCompositeHandler(log_file, _factory_plain, max_bytes)
+        log_file = logs_dir / f"rose_{timestamp}.log"
+        def _factory_plain(p: Path):
+            return logging.FileHandler(p, encoding='utf-8')
+        file_handler = SizeRotatingCompositeHandler(log_file, _factory_plain, max_bytes)
         
         # File formatter based on log mode
         # In production mode, always use verbose format
@@ -851,20 +700,12 @@ def get_named_logger(name: str, prefix: str, log_mode: str = None) -> logging.Lo
         timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
         max_bytes = int(LOG_MAX_FILE_SIZE_MB_DEFAULT * 1024 * 1024)
 
-        if production_mode:
-            base_path = logs_dir / f"{prefix}_{timestamp}.log.enc"
+        base_path = logs_dir / f"{prefix}_{timestamp}.log"
 
-            def _factory_enc(p: Path):
-                return RSAHybridEncryptedFileHandler(p, encoding="utf-8")
+        def _factory_plain(p: Path):
+            return logging.FileHandler(p, encoding="utf-8")
 
-            file_handler = SizeRotatingCompositeHandler(base_path, _factory_enc, max_bytes)
-        else:
-            base_path = logs_dir / f"{prefix}_{timestamp}.log"
-
-            def _factory_plain(p: Path):
-                return logging.FileHandler(p, encoding="utf-8")
-
-            file_handler = SizeRotatingCompositeHandler(base_path, _factory_plain, max_bytes)
+        file_handler = SizeRotatingCompositeHandler(base_path, _factory_plain, max_bytes)
 
         if production_mode or log_mode == "verbose":
             file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
