@@ -510,7 +510,7 @@ class WSEventThread(threading.Thread):
                 ch = new_locks[cid]
                 # Use champion ID as label since we don't have database
                 champ_label = f"#{ch}"
-                log_event(log, f"Champion locked: {champ_label}", "🔒", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
+                log_event(log, f"Champion locked: {champ_label}", "🌹", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
                 log.debug(f"[lock_debug] Processing lock: cid={cid}, ch={ch}, local_cell_id={self.state.local_cell_id}")
                 # Champion lock processing is now handled in the exchange detection section above
                 # This loop only logs other players' champion locks
@@ -518,7 +518,7 @@ class WSEventThread(threading.Thread):
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)
                 champ_label = f"#{ch}"
-                log_event(log, f"Champion unlocked: {champ_label}", "🔓", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
+                log_event(log, f"Champion unlocked: {champ_label}", "🥀", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
             
             self.state.locks_by_cell = new_locks
             

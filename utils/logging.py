@@ -289,7 +289,7 @@ class SanitizingFilter(logging.Filter):
         
         # Lock details
         '[locks]',
-        '🔒 Champion locked:',
+        '🌹 Champion locked:',
         
         # LCU scraper details
         '[LCU-SCRAPER]',
@@ -306,14 +306,13 @@ class SanitizingFilter(logging.Filter):
         
         # Status icon updates and app status sections (verbose only)
         'Locked icon shown',
-        'Golden locked icon shown',
-        'Golden unlocked icon shown',
+        'Wilted Rose icon shown',
+        'Bloomed Rose icon shown',
         '[APP STATUS]',
         '📍 System tray',
         '📊 App status',
-        '🔒 APP STATUS',
-        '🔓 APP STATUS',
-        '🔓✨ APP STATUS',
+        '🌹 APP STATUS',
+        '🥀 APP STATUS',
         '   📋 ',  # Detail lines with this prefix
         '   ⏳ ',
         '   ✅ ',
