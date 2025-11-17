@@ -9,7 +9,6 @@ injection/overlay/*
 injection/mods/*
 skins/*
 logs/*
-pcr_debug/*
 
 # Installer artifacts
 build/
@@ -56,11 +55,11 @@ Thumbs.db
 # Application specific
 injection/mods/
 injection/overlay/
-injection/incoming_zips/
 state/*.json
 state/*.lock
 *.log
 logs/
+
 # Allow Pengu Loader assets to be tracked
 !Pengu Loader/**
 
