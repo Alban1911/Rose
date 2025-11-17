@@ -276,4 +276,3 @@ coll = COLLECT(
     upx_exclude=[],
     name='Rose',
 )
-

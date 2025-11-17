@@ -9,6 +9,12 @@ import subprocess
 import shutil
 from pathlib import Path
 
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 MIN_PYTHON = (3, 11)
 if sys.version_info < MIN_PYTHON:
     sys.stderr.write(
@@ -64,12 +70,38 @@ def create_installer():
     
     print("\n[1/3] Preparing installer files...")
     
+    # Convert tray_ready.png to ICO format for installer
+    # Inno Setup requires ICO format for SetupIconFile
+    png_icon = Path("icons/tray_ready.png")
+    ico_icon = Path("assets/icon.ico")
+    
+    if png_icon.exists() and PIL_AVAILABLE:
+        try:
+            # Convert PNG to ICO with multiple sizes for best compatibility
+            with Image.open(png_icon) as img:
+                ico_icon.parent.mkdir(exist_ok=True)
+                img.save(
+                    ico_icon,
+                    format="ICO",
+                    sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)]
+                )
+            print(f"Converted {png_icon} to {ico_icon}")
+        except Exception as e:
+            print(f"Warning: Could not convert {png_icon} to ICO: {e}")
+            if not ico_icon.exists():
+                print("Error: No valid icon file available!")
+                return False
+    elif not ico_icon.exists():
+        print(f"Error: Icon file not found at {ico_icon}")
+        if not png_icon.exists():
+            print(f"  Source PNG also not found at {png_icon}")
+        return False
+    
     # Copy icon file to dist directory if it doesn't exist
-    icon_src = Path("assets/icon.ico")
     icon_dst = Path("dist/Rose/icon.ico")
-    if icon_src.exists() and not icon_dst.exists():
-        shutil.copy2(icon_src, icon_dst)
-        print(f"Copied {icon_src} to {icon_dst}")
+    if ico_icon.exists() and not icon_dst.exists():
+        shutil.copy2(ico_icon, icon_dst)
+        print(f"Copied {ico_icon} to {icon_dst}")
     
     print("\n[2/3] Compiling installer...")
     
