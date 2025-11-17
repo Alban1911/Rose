@@ -7,9 +7,9 @@
 [submodule "Pengu Loader/plugins/LU-ChromaWheel"]
 	path = Pengu Loader/plugins/LU-ChromaWheel
 	url = https://github.com/Alban1911/LU-ChromaWheel
-[submodule "Pengu Loader/plugins/LU-HistoricMode"]
-	path = Pengu Loader/plugins/LU-HistoricMode
-	url = https://github.com/FlorentTariolle/LU-HistoricMode
-[submodule "Pengu Loader/plugins/LU-RandomSkin"]
-	path = Pengu Loader/plugins/LU-RandomSkin
-	url = https://github.com/FlorentTariolle/LU-RandomSkin
+[submodule "Pengu Loader/plugins/Rose-HistoricMode"]
+	path = Pengu Loader/plugins/Rose-HistoricMode
+	url = https://github.com/FlorentTariolle/Rose-HistoricMode
+[submodule "Pengu Loader/plugins/Rose-RandomSkin"]
+	path = Pengu Loader/plugins/Rose-RandomSkin
+	url = https://github.com/FlorentTariolle/Rose-RandomSkin

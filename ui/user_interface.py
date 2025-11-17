@@ -103,7 +103,7 @@ class UserInterface:
             )
             log.info("[UI] ChromaUI created successfully")
 
-            # DiceButton is now handled by JavaScript (LU-RandomSkin plugin)
+            # DiceButton is now handled by JavaScript (Rose-RandomSkin plugin)
 
 
         except Exception as e:
@@ -889,7 +889,7 @@ class UserInterface:
         if self.state.is_swiftplay_mode:
             return
         
-        # Broadcast random mode state to JavaScript (dice button is handled by LU-RandomSkin plugin)
+        # Broadcast random mode state to JavaScript (dice button is handled by Rose-RandomSkin plugin)
         if self.current_skin_id:
             try:
                 if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
