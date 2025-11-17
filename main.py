@@ -537,10 +537,6 @@ def setup_arguments() -> argparse.Namespace:
     
     # Log management arguments (none - retention managed by age in utils.logging)
     
-    # Development arguments
-    ap.add_argument("--dev", action="store_true", default=False,
-                   help="Development mode - disable log sanitization (shows full paths, ports, PIDs)")
-    
     return ap.parse_args()
 
 
@@ -550,23 +546,6 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     from utils.logging import cleanup_logs
     cleanup_logs()
     
-    # Check if running as frozen executable (PyInstaller)
-    is_frozen = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
-    
-    # Force production mode in frozen builds (disable dev/verbose/debug)
-    if is_frozen:
-        original_dev = args.dev
-        original_verbose = args.verbose
-        original_debug = args.debug
-        
-        args.dev = False
-        args.verbose = False
-        args.debug = False
-        
-        # Log if flags were overridden
-        if original_dev or original_verbose or original_debug:
-            print("[WARNING] Development flags disabled in frozen build (--dev, --verbose, --debug ignored)")
-    
     # Determine log mode based on flags
     if args.debug:
         log_mode = 'debug'
@@ -575,15 +554,8 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     else:
         log_mode = 'customer'
     
-    # Determine production mode (--dev disables sanitization)
-    production_mode = not args.dev  # False if --dev, True otherwise
-    
-    # Setup logging first
-    setup_logging(log_mode, production_mode)
-    
-    # Log dev mode status after logging is set up
-    if args.dev:
-        log.info("🛠️  Development mode enabled - log sanitization disabled")
+    # Setup logging
+    setup_logging(log_mode)
     
     # Suppress PIL/Pillow debug messages for optional image plugins
     logging.getLogger("PIL").setLevel(logging.INFO)

@@ -83,12 +83,6 @@ def set_config_option(section: str, option: str, value: str) -> None:
         pass
 
 
-# Production mode - controls logging verbosity and sensitive data exposure
-# Set to True for releases to prevent reverse engineering via logs
-# Set to False for development to get full debug information
-PRODUCTION_MODE = False
-
-
 # =============================================================================
 # UI DETECTION CONSTANTS
 # =============================================================================
