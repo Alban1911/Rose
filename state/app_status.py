@@ -156,17 +156,13 @@ class AppStatus:
             separator = "=" * 80
             if all_ready:
                 log.info(separator)
-                log.info("🥀 APP STATUS: READY")
-                log.info("   📋 Skins: Downloaded")
-                log.info("   📋 Previews: Downloaded")
-                log.info("   🎯 Status: Golden Unlocked")
+                log.info("🌹 APP STATUS: READY")
                 log.info(separator)
             else:
                 log.info(separator)
-                log.info("🌹 APP STATUS: DOWNLOADING")
+                log.info("🥀 APP STATUS: STARTING")
                 log.info(f"   {'✅' if self._skins_downloaded else '⏳'} Skins: {'Downloaded' if self._skins_downloaded else 'Pending'}")
                 log.info(f"   {'✅' if self._previews_downloaded else '⏳'} Previews: {'Downloaded' if self._previews_downloaded else 'Pending'}")
-                log.info("   🎯 Status: Locked")
                 log.info(separator)
     
     def mark_skins_downloaded(self):
