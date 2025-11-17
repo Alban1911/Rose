@@ -155,7 +155,9 @@ class AppStatus:
             # Log status change
             separator = "=" * 80
             if all_ready:
-                log.info(f"{separator}\n🌹 APP STATUS: READY\n{separator}")
+                log.info(separator)
+                log.info("🌹 APP STATUS: READY")
+                log.info(separator)
             else:
                 log.info(separator)
                 log.info("🥀 APP STATUS: STARTING")

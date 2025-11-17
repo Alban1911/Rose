@@ -288,12 +288,12 @@ class TrayManager:
                 # Show locked icon
                 if self._locked_icon_image:
                     self.icon.icon = self._locked_icon_image
-                    log.info("Locked icon shown")
+                    log.info("Wilted icon shown")
             elif status == "unlocked":
                 # Show golden unlocked icon
                 if self._unlocked_icon_image:
                     self.icon.icon = self._unlocked_icon_image
-                    log.info("Golden unlocked icon shown")
+                    log.info("Bloomed icon shown")
             else:
                 log.warning(f"Unknown status: {status}")
         except Exception as e:
