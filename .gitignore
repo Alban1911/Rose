@@ -55,6 +55,8 @@ Thumbs.db
 # Application specific
 injection/mods/
 injection/overlay/
+injection/tools/hashes.game.txt
+
 state/*.json
 state/*.lock
 *.log
