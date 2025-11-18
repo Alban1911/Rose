@@ -3,7 +3,6 @@
 # App requirements
 psutil>=5.8.0
 requests>=2.25.0
-rapidfuzz>=2.0.0
 websocket-client>=1.0.0
 websockets>=12.0
 Pillow>=8.0.0
