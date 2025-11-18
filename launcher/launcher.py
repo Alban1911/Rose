@@ -30,7 +30,7 @@ from config import APP_VERSION
 from launcher.updater import auto_update
 from state.app_status import AppStatus
 from utils.logging import get_logger, get_named_logger
-from utils.paths import get_asset_path, get_icon_path
+from utils.paths import get_asset_path
 from utils.skin_downloader import download_skins_on_startup
 from utils.hash_updater import update_hash_files
 from utils.win32_base import (
@@ -248,7 +248,7 @@ class UpdateDialog(Win32Window):
     def _prepare_window_icon(self) -> Optional[str]:
         png_path: Optional[Path] = None
         try:
-            png_candidate = get_icon_path("tray_ready.png")
+            png_candidate = get_asset_path("tray_ready.png")
             if png_candidate.exists():
                 png_path = png_candidate
         except Exception as exc:  # noqa: BLE001

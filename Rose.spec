@@ -26,16 +26,7 @@ if Path('assets').exists() and Path('assets').is_dir():
 else:
     print("[WARNING] Assets directory not found")
 
-# Verify and add icons directory
-if Path('icons').exists() and Path('icons').is_dir():
-    icon_dir_files = os.listdir('icons')
-    if icon_dir_files:
-        datas += [('icons', 'icons')]
-        print(f"[OK] Icons directory found with {len(icon_dir_files)} files: {', '.join(icon_dir_files)}")
-    else:
-        print("[WARNING] Icons directory is empty")
-else:
-    print("[WARNING] Icons directory not found")
+# Icons have been moved to assets folder, no separate icons directory needed
 
 # Injection tools - separate binaries (.exe, .dll) from data files (.bat)
 import os

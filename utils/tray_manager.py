@@ -69,15 +69,15 @@ class TrayManager:
         return image
     
     def _load_icon_from_file(self, icon_name: str) -> Optional[Image.Image]:
-        """Try to load icon from icons folder
+        """Try to load icon from assets folder
         
         Args:
-            icon_name: Name of the icon file (e.g., "locked_tray.png", "golden_unlocked_tray.png")
+            icon_name: Name of the icon file (e.g., "tray_starting.png", "tray_ready.png")
         """
         try:
-            # Use proper icon path resolution for PyInstaller compatibility
-            from utils.paths import get_icon_path
-            icon_path = get_icon_path(icon_name)
+            # Use proper asset path resolution for PyInstaller compatibility
+            from utils.paths import get_asset_path
+            icon_path = get_asset_path(icon_name)
             
             if icon_path.exists():
                 log.debug(f"Loading tray icon from: {icon_path}")

@@ -264,83 +264,7 @@ TRAY_ICON_DOT_SIZE = 70                 # Size of status indicator dot
 
 
 # =============================================================================
-# CHROMA PANEL UI CONSTANTS - RESOLUTION ADAPTIVE
-# =============================================================================
-
-# Reference resolution (UI designed for this resolution)
-CHROMA_UI_REFERENCE_WIDTH = 1600
-CHROMA_UI_REFERENCE_HEIGHT = 900
-
-# Hard-coded configurations for three supported resolutions
-# All values are fixed pixel values relative to League window
-CHROMA_PANEL_CONFIGS = {
-    (1600, 900): {
-        'preview_width': 380,
-        'preview_height': 394,
-        'circle_radius': 14,
-        'window_width': 384,
-        'window_height': 464,  # Increased from 438 to accommodate 68px button height
-        'circle_spacing': 34,
-        'button_size': 54,
-        'button_width': 380,
-        'button_height': 68,
-        'screen_edge_margin': 32,
-        'preview_x': 2,
-        'preview_y': 2,
-        'row_y_offset': 42,
-        'panel_x': 608,  # X position from left edge of League window
-        'panel_y': 227,  # Y position from top edge of League window
-        # Swiftplay mode specific positions
-        'swiftplay_panel_x': 872,  # X position for Swiftplay mode
-        'swiftplay_panel_y': 271,  # Y position for Swiftplay mode
-    },
-    (1280, 720): {
-        'preview_width': 304,      # 380 * (1280/1600) = 304
-        'preview_height': 315,     # 394 * (720/900) = 315.2 ≈ 315
-        'circle_radius': 11,       # 14 * (720/900) = 11.2 ≈ 11
-        'window_width': 307,       # 384 * (1280/1600) = 307.2 ≈ 307
-        'window_height': 371,      # 464 * (720/900) = 371.2 ≈ 371
-        'circle_spacing': 27,      # 34 * (720/900) = 27.2 ≈ 27
-        'button_size': 43,         # 54 * (720/900) = 43.2 ≈ 43
-        'button_width': 304,       # 380 * (1280/1600) = 304
-        'button_height': 54,       # 68 * (720/900) = 54.4 ≈ 54
-        'screen_edge_margin': 26,  # 32 * (720/900) = 25.6 ≈ 26
-        'preview_x': 2,            # 2 * (1280/1600) = 1.6 ≈ 2
-        'preview_y': 2,            # 2 * (720/900) = 1.6 ≈ 2
-        'row_y_offset': 34,        # 42 * (720/900) = 33.6 ≈ 34
-        'panel_x': 487,            # 608 * (1280/1600) = 486.4 ≈ 486
-        'panel_y': 180,            # 222 * (720/900) = 177.6 ≈ 178
-        # Swiftplay mode specific positions
-        'swiftplay_panel_x': 698,  # X position for Swiftplay mode
-        'swiftplay_panel_y': 216,  # Y position for Swiftplay mode
-    },
-    (1024, 576): {
-        'preview_width': 243,      # 380 * (1024/1600) = 243.2 ≈ 243
-        'preview_height': 252,     # 394 * (576/900) = 252.16 ≈ 252
-        'circle_radius': 9,        # 14 * (576/900) = 8.96 ≈ 9
-        'window_width': 246,       # 384 * (1024/1600) = 245.76 ≈ 246
-        'window_height': 296,      # 464 * (576/900) = 296.96 ≈ 297
-        'circle_spacing': 22,      # 34 * (576/900) = 21.76 ≈ 22
-        'button_size': 35,         # 54 * (576/900) = 34.56 ≈ 35
-        'button_width': 243,       # 380 * (1024/1600) = 243.2 ≈ 243
-        'button_height': 43,       # 68 * (576/900) = 43.52 ≈ 43
-        'screen_edge_margin': 20,  # 32 * (576/900) = 20.48 ≈ 20
-        'preview_x': 1,            # 2 * (1024/1600) = 1.28 ≈ 1
-        'preview_y': 1,            # 2 * (576/900) = 1.28 ≈ 1
-        'row_y_offset': 27,        # 42 * (576/900) = 26.88 ≈ 27
-        'panel_x': 389,            # 608 * (1024/1600) = 389.12 ≈ 389
-        'panel_y': 141,            # 222 * (576/900) = 142.08 ≈ 142
-        # Swiftplay mode specific positions
-        'swiftplay_panel_x': 558,  # X position for Swiftplay mode
-        'swiftplay_panel_y': 170,  # Y position for Swiftplay mode
-    }
-}
-
-# Chroma panel button visual effects (not scaled)
-CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
-
-# =============================================================================
-# CHROMA UI POSITIONING - FINALIZED POSITIONS
+# CHROMA UI POSITIONING - RESOLUTION INDEPENDENT
 # =============================================================================
 #
 # 🎯 Reference Point: Opening Button Center (locked position)
@@ -359,9 +283,12 @@ CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow eff
 #
 # =============================================================================
 
+# Chroma panel button visual effects (not scaled)
+CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
+
 # Button position (center of League window, 30% down)
 CHROMA_UI_ANCHOR_OFFSET_X_RATIO = 0.0           # Horizontally centered
-CHROMA_UI_ANCHOR_OFFSET_Y_RATIO = 0.3035        # ~273px down from center at 900p (near bottom)
+CHROMA_UI_ANCHOR_OFFSET_Y_RATIO = 0.3035        # ~30% down from center (resolution-independent)
 
 # Button offset from anchor (keep at 0,0 - button IS the anchor point)
 CHROMA_UI_BUTTON_OFFSET_X_RATIO = 0.0           # No horizontal offset
@@ -369,7 +296,7 @@ CHROMA_UI_BUTTON_OFFSET_Y_RATIO = 0.0           # No vertical offset
 
 # Panel offset from anchor (positions panel relative to button)
 CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with button center
-CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
+CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~22% above button (resolution-independent)
 
 # Chroma UI fade timing (milliseconds)
 CHROMA_FADE_IN_DURATION_MS = 500                # Duration of fade in animation (with gentle logarithmic ease-out curve)
@@ -389,22 +316,18 @@ CHROMA_BUTTON_OUTLINE_GOLD_SIZE_RATIO = 3.63        # OutlineGold size as ratio 
 CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_X_RATIO = CHROMA_BUTTON_LOCK_OFFSET_X_RATIO  # OutlineGold X offset as ratio of button size
 CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_Y_RATIO = CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO  # OutlineGold Y offset as ratio of button size
 
-# Chroma button image size (button-chroma.png dimensions at 1600x900 resolution)
-CHROMA_BUTTON_IMAGE_WIDTH_PIXELS = 22               # Fixed width in pixels at 1600x900 resolution
-CHROMA_BUTTON_IMAGE_HEIGHT_PIXELS = 22              # Fixed height in pixels at 1600x900 resolution
-
 
 # =============================================================================
 # UNOWNED FRAME UI POSITIONING - INDEPENDENT FROM CHROMA BUTTON
 # =============================================================================
 
-# UnownedFrame position (ratios based on 1600x900 resolution)
-UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO = 726/1600      # 726/1600 = 0.45375 (45.375% of window width)
-UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO = 642/900       # 642/900 = 0.713333 (71.33% of window height)
+# UnownedFrame position (resolution-independent ratios)
+UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO = 0.45375       # 45.375% of window width
+UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO = 0.713333      # 71.33% of window height
 
-# UnownedFrame size (specific pixel dimensions as ratios)
-UNOWNED_FRAME_WIDTH_RATIO = 148/1600                # 148/1600 = 0.0925 (9.25% of window width)
-UNOWNED_FRAME_HEIGHT_RATIO = 84/900                 # 84/900 = 0.093333 (9.33% of window height)
+# UnownedFrame size (resolution-independent ratios)
+UNOWNED_FRAME_WIDTH_RATIO = 0.0925                  # 9.25% of window width
+UNOWNED_FRAME_HEIGHT_RATIO = 0.093333               # 9.33% of window height
 
 
 # =============================================================================

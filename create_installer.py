@@ -72,7 +72,7 @@ def create_installer():
     
     # Convert tray_ready.png to ICO format for installer
     # Inno Setup requires ICO format for SetupIconFile
-    png_icon = Path("icons/tray_ready.png")
+    png_icon = Path("assets/tray_ready.png")
     ico_icon = Path("assets/icon.ico")
     
     if png_icon.exists() and PIL_AVAILABLE:
