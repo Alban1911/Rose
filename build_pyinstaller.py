@@ -135,7 +135,6 @@ def main():
         print(f"\nYour application is ready!")
         print(f"\nMode: STANDALONE (folder with all dependencies)")
         print(f"  - All DLLs and dependencies included")
-        print(f"  - Windows UI API should be fully functional!")
         print(f"  - CSLOL tools included")
         
         print(f"\nProtection:")
@@ -146,10 +145,6 @@ def main():
         print(f"\nTo test:")
         print(f"  cd dist\\Rose")
         print(f"  Rose.exe")
-        
-        print(f"\nIMPORTANT: Check the log file after running!")
-        print(f"  Look for: 'UIA Detection: Thread ready' message")
-        print(f"  If you see that, Windows UI API is working!")
     else:
         print("[ERROR] Executable not found!")
         sys.exit(1)
