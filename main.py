@@ -202,7 +202,6 @@ from injection.manager import InjectionManager
 # Local imports - configuration
 from config import (
     APP_VERSION,
-    DEFAULT_DD_LANG,
     DEFAULT_VERBOSE,
     PHASE_HZ_DEFAULT,
     WS_PING_INTERVAL_DEFAULT,
@@ -454,10 +453,6 @@ def setup_arguments() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description="Rose - Windows UI API skin detection"
     )
-    
-    # Database arguments
-    ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, 
-                   help="DDragon language(s): 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
     
     # General arguments
     ap.add_argument("--verbose", action="store_true", default=DEFAULT_VERBOSE,
