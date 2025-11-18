@@ -87,21 +87,8 @@ def set_config_option(section: str, option: str, value: str) -> None:
 # UI DETECTION CONSTANTS
 # =============================================================================
 
-# UI detection polling
-UI_POLL_INTERVAL = 0.01  # Seconds between UI detection checks
-UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
-UIA_DELAY_MS = 5 # Milliseconds to wait after champion lock before starting UIA Detection
-
-# UIA Detection coordinates (percentage-based, resolution-independent)
-# THESE ARE THE CORRECT VALUES - DO NOT CHANGE WITHOUT TESTING
-UI_DETECTION_SKIN_NAME_X_RATIO = 0.4925    # X position as percentage of window width (50% = center)
-UI_DETECTION_SKIN_NAME_Y_RATIO = 0.6395  # Y position as percentage of window height (63.9% = constant for all skins of top pixel, +0.05% for safety)
-
 # Skin matching
 SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
-
-
-
 
 # =============================================================================
 # THREAD POLLING INTERVALS
@@ -205,7 +192,6 @@ LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g
 PROCESS_TERMINATE_TIMEOUT_S = 5         # Timeout for process.wait() after terminate/kill
 PROCESS_TERMINATE_WAIT_S = 0.3          # Short timeout for process wait after terminate() before kill()
 PROCESS_ENUM_TIMEOUT_S = 2.0            # Timeout for process enumeration when finding runoverlay
-MKOVERLAY_PROCESS_TIMEOUT_S = 60        # Timeout for mkoverlay process execution
 THREAD_JOIN_TIMEOUT_S = 2               # Timeout for thread.join() on shutdown (increased from 1.0s)
 THREAD_FORCE_EXIT_TIMEOUT_S = 4         # Total timeout before forcing app exit
 INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
@@ -222,7 +208,6 @@ CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel 
 # API request timeouts (seconds)
 LCU_API_TIMEOUT_S = 2.0                 # Timeout for LCU API requests
 LCU_SKIN_SCRAPER_TIMEOUT_S = 3.0        # Timeout for LCU skin scraper requests
-DATA_DRAGON_API_TIMEOUT_S = 8           # Timeout for Data Dragon API requests
 CHROMA_DOWNLOAD_TIMEOUT_S = 10          # Timeout for chroma preview downloads
 DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S = 30    # Timeout for skin downloads
 SKIN_DOWNLOAD_STREAM_TIMEOUT_S = 60     # Timeout for streaming skin downloads
@@ -237,9 +222,6 @@ PROCESS_MONITOR_SLEEP_S = 0.5           # Sleep during process monitoring loop
 WINDOW_CHECK_SLEEP_S = 1                # Sleep between window existence checks
 API_POLITENESS_DELAY_S = 0.5            # Delay between API calls to be polite
 CONSOLE_BUFFER_CLEAR_INTERVAL_S = 0.5   # Interval to clear console buffer on Windows
-
-# UI animation delays (milliseconds)
-
 
 # =============================================================================
 # SYSTEM TRAY CONSTANTS
@@ -261,74 +243,6 @@ TRAY_ICON_FONT_SIZE = 40                # Font size for "SC" text on icon
 TRAY_ICON_TEXT_X = 36                   # X position for text
 TRAY_ICON_TEXT_Y = 44                   # Y position for text
 TRAY_ICON_DOT_SIZE = 70                 # Size of status indicator dot
-
-
-# =============================================================================
-# CHROMA UI POSITIONING - RESOLUTION INDEPENDENT
-# =============================================================================
-#
-# 🎯 Reference Point: Opening Button Center (locked position)
-#
-# Positioning uses percentage ratios for resolution-independent placement:
-#   - X ratios relative to window WIDTH  (0.0 = center, -0.5 = far left, 0.5 = far right)
-#   - Y ratios relative to window HEIGHT (0.0 = center, -0.5 = top, 0.5 = bottom)
-#
-# Current Setup:
-#   - Button: Horizontally centered, positioned ~30% down from League window center
-#   - Panel: Horizontally aligned with button, positioned ~22% above button
-#
-# ⚠️ WARNING: These values are LOCKED. Changing them requires app restart.
-#             Widgets are parented to League window as child windows.
-#             Position updates only occur during resolution changes (auto-rebuild).
-#
-# =============================================================================
-
-# Chroma panel button visual effects (not scaled)
-CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
-
-# Button position (center of League window, 30% down)
-CHROMA_UI_ANCHOR_OFFSET_X_RATIO = 0.0           # Horizontally centered
-CHROMA_UI_ANCHOR_OFFSET_Y_RATIO = 0.3035        # ~30% down from center (resolution-independent)
-
-# Button offset from anchor (keep at 0,0 - button IS the anchor point)
-CHROMA_UI_BUTTON_OFFSET_X_RATIO = 0.0           # No horizontal offset
-CHROMA_UI_BUTTON_OFFSET_Y_RATIO = 0.0           # No vertical offset
-
-# Panel offset from anchor (positions panel relative to button)
-CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with button center
-CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~22% above button (resolution-independent)
-
-# Chroma UI fade timing (milliseconds)
-CHROMA_FADE_IN_DURATION_MS = 500                # Duration of fade in animation (with gentle logarithmic ease-out curve)
-CHROMA_FADE_OUT_DURATION_MS = 50                # Duration of fade out animation (linear, fast)
-CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 100          # Wait time between end of fade out and start of fade in
-
-# Legacy constant for backward compatibility (uses fade-in duration)
-CHROMA_FADE_DURATION_MS = CHROMA_FADE_IN_DURATION_MS
-
-# Chroma button Lock configuration (fades based on ownership - shown when NOT owned)
-CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7                # Lock size as ratio of button visual size
-CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014         # Lock X offset as ratio of button size (0.0 = centered)
-CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO = -0.83          # Lock Y offset as ratio of button size (0.0 = centered)
-
-# Chroma button OutlineGold configuration (carousel border, behind Lock - shown when NOT owned)
-CHROMA_BUTTON_OUTLINE_GOLD_SIZE_RATIO = 3.63        # OutlineGold size as ratio of button visual size (keeps aspect ratio)
-CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_X_RATIO = CHROMA_BUTTON_LOCK_OFFSET_X_RATIO  # OutlineGold X offset as ratio of button size
-CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_Y_RATIO = CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO  # OutlineGold Y offset as ratio of button size
-
-
-# =============================================================================
-# UNOWNED FRAME UI POSITIONING - INDEPENDENT FROM CHROMA BUTTON
-# =============================================================================
-
-# UnownedFrame position (resolution-independent ratios)
-UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO = 0.45375       # 45.375% of window width
-UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO = 0.713333      # 71.33% of window height
-
-# UnownedFrame size (resolution-independent ratios)
-UNOWNED_FRAME_WIDTH_RATIO = 0.0925                  # 9.25% of window width
-UNOWNED_FRAME_HEIGHT_RATIO = 0.093333               # 9.33% of window height
-
 
 # =============================================================================
 # WINDOWS API CONSTANTS
@@ -380,11 +294,8 @@ INTERESTING_PHASES = {
 # DEFAULT ARGUMENTS
 # =============================================================================
 
-# Data Dragon language
-DEFAULT_DD_LANG = "en_US"          # Data Dragon language
 
 # Boolean flags
 DEFAULT_VERBOSE = False
-DEFAULT_WEBSOCKET_ENABLED = True
 DEFAULT_DOWNLOAD_SKINS = True
 DEFAULT_FORCE_UPDATE_SKINS = False
