@@ -203,11 +203,7 @@ class LCUSkinScraper:
         if not use_levenshtein:
             return None
         
-        try:
-            from rapidfuzz.distance import Levenshtein
-        except ImportError:
-            log.warning("[LCU-SCRAPER] rapidfuzz not available for fuzzy matching")
-            return None
+        from utils.normalization import levenshtein_distance
         
         best_match = None
         best_distance = float('inf')
@@ -221,7 +217,7 @@ class LCUSkinScraper:
             skin_name_no_spaces = skin_name.replace(" ", "")
             
             # Calculate Levenshtein distance
-            distance = Levenshtein.distance(text_no_spaces, skin_name_no_spaces)
+            distance = levenshtein_distance(text_no_spaces, skin_name_no_spaces)
             max_len = max(len(text_no_spaces), len(skin_name_no_spaces))
             similarity = 1.0 - (distance / max_len) if max_len > 0 else 0.0
             
