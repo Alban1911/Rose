@@ -13,3 +13,6 @@
 [submodule "Pengu Loader/plugins/ROSE-RandomSkin"]
 	path = Pengu Loader/plugins/ROSE-RandomSkin
 	url = https://github.com/FlorentTariolle/ROSE-RandomSkin
+[submodule "Pengu Loader/plugins/ROSE-SettingsPanel"]
+	path = Pengu Loader/plugins/ROSE-SettingsPanel
+	url = https://github.com/FlorentTariolle/ROSE-SettingsPanel
