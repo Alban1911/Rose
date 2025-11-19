@@ -9,6 +9,7 @@ from ctypes import wintypes
 import os
 import tempfile
 import threading
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -16,7 +17,7 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     Image = None  # type: ignore
 
-from config import get_config_float, set_config_option
+from config import get_config_float, get_config_option, set_config_option
 from utils.admin_utils import (
     is_admin,
     is_registered_for_autostart,
@@ -61,6 +62,18 @@ BM_SETCHECK = 0x00F1
 BST_UNCHECKED = 0x0000
 BST_CHECKED = 0x0001
 
+# Edit control constants
+ES_LEFT = 0x0000
+ES_MULTILINE = 0x0004
+ES_AUTOVSCROLL = 0x0040
+ES_AUTOHSCROLL = 0x0080
+ES_NOHIDESEL = 0x0100
+WM_GETTEXT = 0x000D
+WM_GETTEXTLENGTH = 0x000E
+WM_SETTEXT = 0x000C
+EN_CHANGE = 0x0300
+EN_UPDATE = 0x0400
+
 
 class InjectionSettingsWindow(Win32Window):
     TRACKBAR_ID = 3101
@@ -68,13 +81,16 @@ class InjectionSettingsWindow(Win32Window):
     SAVE_ID = 3103
     CANCEL_ID = 3104
     AUTOSTART_ID = 3106
+    GAME_PATH_EDIT_ID = 3107
+    GAME_PATH_LABEL_ID = 3108
+    GAME_PATH_STATUS_ID = 3109
 
     def __init__(self, initial_threshold: float) -> None:
         super().__init__(
             class_name="RoseSettingsDialog",
             window_title="Settings",
             width=360,
-            height=265,
+            height=380,
             style=WS_CAPTION | WS_SYSMENU,
         )
         self.initial_threshold = max(0.3, min(2.0, float(initial_threshold)))
@@ -82,12 +98,16 @@ class InjectionSettingsWindow(Win32Window):
         self.trackbar_hwnd: Optional[int] = None
         self.value_label_hwnd: Optional[int] = None
         self.autostart_checkbox_hwnd: Optional[int] = None
+        self.game_path_edit_hwnd: Optional[int] = None
+        self.game_path_status_hwnd: Optional[int] = None
         self.result: Optional[float] = None
         self.autostart_result: Optional[bool] = None
+        self.game_path_result: Optional[str] = None
         self._done = threading.Event()
         self._icon_temp_path: Optional[str] = None
         self._icon_source_path: Optional[str] = self._prepare_window_icon()
         self._autostart_initial, self._autostart_enabled = self._load_autostart_status()
+        self._initial_game_path = self._load_game_path()
         init_common_controls()
 
     @staticmethod
@@ -162,6 +182,49 @@ class InjectionSettingsWindow(Win32Window):
             log.debug(f"[TraySettings] Failed to load autostart status: {exc}")
             return False, False
 
+    def _load_game_path(self) -> str:
+        """Load game path from config"""
+        try:
+            path = get_config_option("General", "leaguePath")
+            return path or ""
+        except Exception as exc:  # noqa: BLE001
+            log.debug(f"[TraySettings] Failed to load game path: {exc}")
+            return ""
+
+    def _validate_game_path(self, path: str) -> bool:
+        """Validate that the game path exists and contains League of Legends.exe"""
+        if not path or not path.strip():
+            return False
+        try:
+            game_dir = Path(path.strip())
+            if not game_dir.exists() or not game_dir.is_dir():
+                return False
+            league_exe = game_dir / "League of Legends.exe"
+            return league_exe.exists() and league_exe.is_file()
+        except Exception:
+            return False
+
+    def _update_path_status(self, path: str = None) -> None:
+        """Update the status indicator based on path validation"""
+        if path is None:
+            # Get current text from edit control
+            if not self.game_path_edit_hwnd:
+                return
+            length = self.send_message(self.game_path_edit_hwnd, WM_GETTEXTLENGTH, 0, 0)
+            if length == 0:
+                path = ""
+            else:
+                buffer = ctypes.create_unicode_buffer(length + 1)
+                self.send_message(self.game_path_edit_hwnd, WM_GETTEXT, length + 1, ctypes.addressof(buffer))
+                path = buffer.value
+        
+        if not self.game_path_status_hwnd:
+            return
+        
+        is_valid = self._validate_game_path(path)
+        status_text = "✅" if is_valid else "❌"
+        user32.SetWindowTextW(self.game_path_status_hwnd, status_text)
+
     def on_create(self) -> Optional[int]:
         margin_x = 20
         margin_y = 18
@@ -227,12 +290,56 @@ class InjectionSettingsWindow(Win32Window):
         if self._autostart_enabled:
             self.send_message(autostart_checkbox, BM_SETCHECK, BST_CHECKED, 0)
 
+        # Game path section
+        game_path_y = margin_y + 162
+        self.create_control(
+            "STATIC",
+            "League of Legends Game Path:",
+            WS_CHILD | WS_VISIBLE,
+            0,
+            margin_x,
+            game_path_y,
+            content_width,
+            20,
+            self.GAME_PATH_LABEL_ID,
+        )
+
+        # Edit control for game path
+        game_path_edit = self.create_control(
+            "EDIT",
+            self._initial_game_path,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_LEFT | ES_AUTOHSCROLL,
+            WS_EX_CLIENTEDGE,
+            margin_x,
+            game_path_y + 24,
+            content_width - 30,
+            22,
+            self.GAME_PATH_EDIT_ID,
+        )
+        self.game_path_edit_hwnd = game_path_edit
+
+        # Status indicator (emoji)
+        status_indicator = self.create_control(
+            "STATIC",
+            "",
+            WS_CHILD | WS_VISIBLE,
+            0,
+            margin_x + content_width - 25,
+            game_path_y + 24,
+            20,
+            22,
+            self.GAME_PATH_STATUS_ID,
+        )
+        self.game_path_status_hwnd = status_indicator
+        # Initial validation
+        self._update_path_status(self._initial_game_path)
+
         if self.hwnd:
             self.set_window_ex_styles(self.hwnd, add=WS_EX_TOOLWINDOW, remove=WS_EX_APPWINDOW)
             if self._icon_source_path:
                 self.set_window_icon(self._icon_source_path)
 
-        button_y = margin_y + 162
+        button_y = margin_y + 218
         self.create_control(
             "BUTTON",
             "Save",
@@ -262,12 +369,22 @@ class InjectionSettingsWindow(Win32Window):
             self._update_threshold_from_trackbar()
             self.result = self.current_threshold
             self.autostart_result = self._autostart_enabled
+            # Get game path from edit control
+            if self.game_path_edit_hwnd:
+                length = self.send_message(self.game_path_edit_hwnd, WM_GETTEXTLENGTH, 0, 0)
+                if length > 0:
+                    buffer = ctypes.create_unicode_buffer(length + 1)
+                    self.send_message(self.game_path_edit_hwnd, WM_GETTEXT, length + 1, ctypes.addressof(buffer))
+                    self.game_path_result = buffer.value.strip()
+                else:
+                    self.game_path_result = ""
             self._done.set()
             user32.DestroyWindow(self.hwnd)
             return 0
         if command_id == self.CANCEL_ID and notification_code == 0:
             self.result = None
             self.autostart_result = None
+            self.game_path_result = None
             self._done.set()
             user32.DestroyWindow(self.hwnd)
             return 0
@@ -276,6 +393,10 @@ class InjectionSettingsWindow(Win32Window):
             return 0
         if command_id == self.AUTOSTART_ID and notification_code == 0:
             self._handle_autostart_toggle()
+            return 0
+        if command_id == self.GAME_PATH_EDIT_ID and notification_code == EN_CHANGE:
+            # Path changed, update validation status
+            self._update_path_status()
             return 0
         return None
 
@@ -321,10 +442,11 @@ def show_injection_settings_dialog() -> None:
     Show the injection threshold settings dialog and persist changes.
     """
     current_threshold = get_config_float("General", "injection_threshold", 0.5)
-    result_holder: dict[str, Optional[float | bool]] = {
+    result_holder: dict[str, Optional[float | bool | str]] = {
         "threshold": None,
         "autostart": None,
         "autostart_initial": None,
+        "game_path": None,
     }
     done_event = threading.Event()
 
@@ -346,6 +468,7 @@ def show_injection_settings_dialog() -> None:
                 result_holder["threshold"] = window.result
                 result_holder["autostart"] = window.autostart_result
                 result_holder["autostart_initial"] = window.autostart_initial
+                result_holder["game_path"] = window.game_path_result
         finally:
             done_event.set()
 
@@ -369,6 +492,20 @@ def show_injection_settings_dialog() -> None:
             MB_OK | MB_ICONERROR | MB_TOPMOST,
         )
         # Even if threshold save fails, fall through to process auto-start changes.
+
+    # Save game path if provided
+    game_path = result_holder["game_path"]
+    if game_path is not None:
+        try:
+            if game_path.strip():
+                set_config_option("General", "leaguePath", game_path.strip())
+                log.info(f"[TraySettings] Game path updated to: {game_path.strip()}")
+            else:
+                # Empty path means clear the manual path (will use auto-detection)
+                set_config_option("General", "leaguePath", "")
+                log.info("[TraySettings] Game path cleared, will use auto-detection")
+        except Exception as exc:  # noqa: BLE001
+            log.error(f"[TraySettings] Failed to save game path: {exc}")
 
     autostart_new = result_holder["autostart"]
     autostart_initial = result_holder["autostart_initial"]
