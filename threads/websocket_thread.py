@@ -58,7 +58,6 @@ class WSEventThread(threading.Thread):
         self.app_status = app_status  # Store app_status to check if app is ready
         self.ticker: Optional[LoadoutTicker] = None
         self.last_locked_champion_id = None  # Track previously locked champion for exchange detection
-        self._injection_42003_done = False  # Track if injection 42003 has been done
 
     def _handle_champion_exchange(self, old_champ_id: int, new_champ_id: int, new_champ_label: str):
         """Handle champion exchange by resetting all state and reinitializing for new champion"""
@@ -538,103 +537,6 @@ class WSEventThread(threading.Thread):
         if self.app_status_callback:
             self.app_status_callback()
         
-        # Inject skin 42003 when websocket connects (runs in background, waits for app to be ready)
-        if not self._injection_42003_done and self.injection_manager:
-            def injection_42003_thread():
-                """Background thread to inject skin 42003 when websocket connects"""
-                try:
-                    # Wait for app to be ready (with timeout)
-                    max_wait_app_ready = 60  # Wait up to 60 seconds for app to be ready
-                    wait_start = time.time()
-                    while (not self.app_status or not self.app_status.is_ready) and \
-                          (time.time() - wait_start < max_wait_app_ready):
-                        time.sleep(0.5)  # Check every 500ms
-                    
-                    if not self.app_status or not self.app_status.is_ready:
-                        log.warning("[INJECT] App not ready within timeout, skipping skin 42003 injection")
-                        return
-                    
-                    # Ensure injection system is initialized
-                    if not self.injection_manager._initialized:
-                        self.injection_manager._ensure_initialized()
-                    
-                    # Wait for initialization if needed
-                    max_wait_init = 5
-                    wait_start_init = time.time()
-                    while (not self.injection_manager._initialized or 
-                           not self.injection_manager.injector or 
-                           not self.injection_manager.injector.game_dir) and \
-                          (time.time() - wait_start_init < max_wait_init):
-                        time.sleep(0.1)
-                    
-                    if (not self.injection_manager._initialized or 
-                        not self.injection_manager.injector or 
-                        not self.injection_manager.injector.game_dir):
-                        log.warning("[INJECT] Injection system not ready, skipping skin 42003 injection")
-                        return
-                    
-                    # Ensure tools folder is set up in game directory (tools_RANDOMVALUE)
-                    log.info("[INJECT] Setting up tools folder in game directory...")
-                    try:
-                        self.injection_manager.rename_tools_folder()
-                    except Exception as e:
-                        log.warning(f"[INJECT] Failed to set up tools folder: {e}")
-                        return
-                    
-                    log.info("[INJECT] Injecting skin 42003 on websocket connection...")
-                    # Inject using skin ID format (hardcoded, not using shared state)
-                    skin_id = 42003
-                    from utils.utilities import get_champion_id_from_skin_id
-                    champion_id = get_champion_id_from_skin_id(skin_id)
-                    skin_name = f"skin_{skin_id}"
-                    
-                    # Start injection in a separate thread since it's blocking
-                    def injection_exec_thread():
-                        try:
-                            self.injection_manager.injector.inject_skin(
-                                skin_name, 
-                                injection_manager=self.injection_manager, 
-                                champion_id=champion_id
-                            )
-                        except Exception as e:
-                            log.error(f"[INJECT] Injection thread error: {e}")
-                    
-                    threading.Thread(target=injection_exec_thread, daemon=True).start()
-                    
-                    # Wait for overlay process to start (poll for it)
-                    max_wait_overlay = 30  # Wait up to 30 seconds for overlay to start
-                    wait_start_overlay = time.time()
-                    overlay_started = False
-                    while time.time() - wait_start_overlay < max_wait_overlay:
-                        if (self.injection_manager.injector and 
-                            self.injection_manager.injector.current_overlay_process is not None):
-                            overlay_started = True
-                            log.info("[INJECT] Overlay process started, waiting 1 second before killing...")
-                            break
-                        time.sleep(0.1)  # Check every 100ms
-                    
-                    if overlay_started:
-                        # Wait 1 second after overlay starts
-                        time.sleep(1.0)
-                        log.info("[INJECT] Killing overlay process after 1 second...")
-                        self.injection_manager.stop_overlay_process()
-                        
-                        # Rename tools folder after injection (cleanup)
-                        log.info("[INJECT] Renaming tools folder after injection...")
-                        try:
-                            self.injection_manager.rename_tools_folder()
-                        except Exception as e:
-                            log.warning(f"[INJECT] Failed to rename tools folder after injection: {e}")
-                        
-                        self._injection_42003_done = True  # Mark as done to prevent re-injection
-                    else:
-                        log.warning("[INJECT] Overlay process did not start within timeout")
-                except Exception as e:
-                    log.error(f"[INJECT] Error in skin 42003 injection thread: {e}")
-            
-            # Start injection thread (non-blocking)
-            threading.Thread(target=injection_42003_thread, daemon=True).start()
-        
         try: 
             ws.send('[5,"OnJsonApiEvent"]')
         except Exception as e: 
@@ -669,9 +571,6 @@ class WSEventThread(threading.Thread):
         
         # Mark WebSocket as disconnected
         self.is_connected = False
-        
-        # Reset injection flag so it can run again on next connection
-        self._injection_42003_done = False
         
         # Update app status to reflect LCU disconnection
         if self.app_status_callback:
