@@ -1218,6 +1218,8 @@ class PenguSkinMonitorThread(threading.Thread):
                                     self.send_header("Content-Type", "image/png")
                                 elif file_path.suffix.lower() in [".jpg", ".jpeg"]:
                                     self.send_header("Content-Type", "image/jpeg")
+                                elif file_path.suffix.lower() == ".ttf":
+                                    self.send_header("Content-Type", "font/ttf")
                                 else:
                                     self.send_header("Content-Type", "application/octet-stream")
                                 self.send_header("Access-Control-Allow-Origin", "*")
