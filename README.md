@@ -1,4 +1,4 @@
-# 🌹 Rose - Automatic Skin Changer for League of Legends
+# 🌹 Rose - Seamless Skin Changer for LoL
 
 <div align="center">
 
