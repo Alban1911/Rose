@@ -125,6 +125,23 @@ def auto_update(
         status_callback("Invalid update package")
         return False
 
+    # Download hash file if available in release assets
+    hash_asset = next((a for a in assets if a.get("name", "").lower() == "hashes.game.txt"), None)
+    if hash_asset:
+        status_callback("Downloading hash file...")
+        hash_download_url = hash_asset.get("browser_download_url")
+        hash_target_path = extracted_root / "injection" / "tools" / "hashes.game.txt"
+        try:
+            hash_target_path.parent.mkdir(parents=True, exist_ok=True)
+            with requests.get(hash_download_url, stream=True, timeout=30) as r:
+                r.raise_for_status()
+                with open(hash_target_path, "wb") as fh:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            fh.write(chunk)
+        except Exception as exc:  # noqa: BLE001
+            status_callback(f"Warning: failed to download hash file: {exc}")
+
     status_callback("Installing update")
     install_dir = Path(sys.executable).resolve().parent
     exe_name = Path(sys.executable).name
