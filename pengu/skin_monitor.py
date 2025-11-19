@@ -29,6 +29,10 @@ from utils.utilities import get_champion_id_from_skin_id
 
 log = logging.getLogger(__name__)
 
+# Suppress websockets library DEBUG logs (reduces noise from message sends)
+logging.getLogger("websockets.server").setLevel(logging.WARNING)
+logging.getLogger("websockets.protocol").setLevel(logging.WARNING)
+
 SPECIAL_BASE_SKIN_IDS = {
     99007,  # Elementalist Lux
     145070,  # Risen Legend Kai'Sa
