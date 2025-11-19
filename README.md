@@ -37,17 +37,17 @@ Rose consists of two main components:
 ### Pengu Loader Plugins
 Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
-- **ROSE-UI**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
-- **ROSE-SkinMonitor**: Monitors skin hover events and sends them to the Python backend via WebSocket
-- **ROSE-ChromaWheel**: Enhanced chroma selection interface for choosing any chroma variant
-- **ROSE-SettingsPanel**: In-client settings panel accessible from the League Client UI
-- **ROSE-RandomSkin**: Random skin selection feature
-- **ROSE-HistoricMode**: Access to historic and legacy skin variants
+- **[ROSE-UI](https://github.com/Alban1911/ROSE-UI)**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
+- **[ROSE-SkinMonitor](https://github.com/Alban1911/ROSE-SkinMonitor)**: Monitors skin hover events and sends them to the Python backend via WebSocket
+- **[ROSE-ChromaWheel](https://github.com/Alban1911/ROSE-ChromaWheel)**: Enhanced chroma selection interface for choosing any chroma variant
+- **[ROSE-SettingsPanel](https://github.com/FlorentTariolle/ROSE-SettingsPanel)**: In-client settings panel accessible from the League Client UI
+- **[ROSE-RandomSkin](https://github.com/FlorentTariolle/ROSE-RandomSkin)**: Random skin selection feature
+- **[ROSE-HistoricMode](https://github.com/FlorentTariolle/ROSE-HistoricMode)**: Access to historic and legacy skin variants
 
 ## How It Works
 
 1. **League Client Integration**: Rose activates **Pengu Loader** on startup, which injects the JavaScript plugins into the League Client
-2. **Skin Detection**: When you hover over a skin in champion select, `ROSE-SkinMonitor` detects the selection and sends it to the Python backend
+2. **Skin Detection**: When you hover over a skin in champion select, [`ROSE-SkinMonitor`](https://github.com/Alban1911/ROSE-SkinMonitor) detects the selection and sends it to the Python backend
 3. **Skin Preparation**: The backend downloads the skin (if needed) from the LeagueSkins repository and prepares it for injection
 4. **Game Injection**: Using CSLOL tools, Rose injects the selected skin when the game loads, suspending the game process temporarily during injection
 5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact
@@ -89,10 +89,10 @@ conda create -n rose python=3.11 -y
 conda activate rose
 
 # Clone the repository
-git clone https://github.com/Alban1911/ROSE.git
+git clone https://github.com/Alban1911/Rose.git
 
 # Navigate to project directory
-cd ROSE-source
+cd Rose
 
 # Switch to dev branch
 git checkout dev
@@ -109,7 +109,7 @@ pip install -r requirements.txt
 ## Project Structure
 
 ```
-ROSE-source/
+Rose/
 ├── main.py                 # Application entry point
 ├── config.py              # Configuration constants
 ├── requirements.txt       # Python dependencies
@@ -141,12 +141,12 @@ ROSE-source/
 └── Pengu Loader/          # Pengu Loader and plugins
     ├── Pengu Loader.exe   # Pengu Loader executable
     └── plugins/           # JavaScript plugins
-        ├── ROSE-UI/
-        ├── ROSE-SkinMonitor/
-        ├── ROSE-ChromaWheel/
-        ├── ROSE-SettingsPanel/
-        ├── ROSE-RandomSkin/
-        └── ROSE-HistoricMode/
+        ├── [ROSE-UI](https://github.com/Alban1911/ROSE-UI)/
+        ├── [ROSE-SkinMonitor](https://github.com/Alban1911/ROSE-SkinMonitor)/
+        ├── [ROSE-ChromaWheel](https://github.com/Alban1911/ROSE-ChromaWheel)/
+        ├── [ROSE-SettingsPanel](https://github.com/FlorentTariolle/ROSE-SettingsPanel)/
+        ├── [ROSE-RandomSkin](https://github.com/FlorentTariolle/ROSE-RandomSkin)/
+        └── [ROSE-HistoricMode](https://github.com/FlorentTariolle/ROSE-HistoricMode)/
 ```
 
 ## Usage
