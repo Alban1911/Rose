@@ -375,12 +375,25 @@ class PenguSkinMonitorThread(threading.Thread):
                 autostart = is_registered_for_autostart()
                 game_path = get_config_option("General", "leaguePath") or ""
                 
+                # Validate the game path
+                path_valid = False
+                if game_path:
+                    from pathlib import Path
+                    try:
+                        game_dir = Path(game_path.strip())
+                        if game_dir.exists() and game_dir.is_dir():
+                            league_exe = game_dir / "League of Legends.exe"
+                            path_valid = league_exe.exists() and league_exe.is_file()
+                    except Exception:
+                        path_valid = False
+                
                 # Send settings data back to JavaScript
                 payload = {
                     "type": "settings-data",
                     "threshold": threshold,
                     "autostart": autostart,
-                    "gamePath": game_path
+                    "gamePath": game_path,
+                    "gamePathValid": path_valid
                 }
                 message = json.dumps(payload)
                 try:
@@ -393,9 +406,47 @@ class PenguSkinMonitorThread(threading.Thread):
                 else:
                     asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
                 
-                log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, autostart={autostart}, gamePath={game_path}")
+                log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, autostart={autostart}, gamePath={game_path}, valid={path_valid}")
             except Exception as e:
                 log.error(f"[SkinMonitor] Failed to handle settings request: {e}")
+            return
+
+        if payload_type == "path-validate":
+            # Handle path validation request from JavaScript plugin
+            try:
+                from pathlib import Path
+                game_path = payload.get("gamePath", "")
+                path_valid = False
+                
+                if game_path and game_path.strip():
+                    try:
+                        game_dir = Path(game_path.strip())
+                        if game_dir.exists() and game_dir.is_dir():
+                            league_exe = game_dir / "League of Legends.exe"
+                            path_valid = league_exe.exists() and league_exe.is_file()
+                    except Exception:
+                        path_valid = False
+                
+                # Send validation result back to JavaScript
+                validation_payload = {
+                    "type": "path-validation-result",
+                    "gamePath": game_path,
+                    "valid": path_valid
+                }
+                message = json.dumps(validation_payload)
+                try:
+                    running_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    running_loop = None
+
+                if running_loop is self._loop:
+                    self._loop.create_task(self._broadcast(message))
+                else:
+                    asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                
+                log.debug(f"[SkinMonitor] Path validation result: path={game_path}, valid={path_valid}")
+            except Exception as e:
+                log.error(f"[SkinMonitor] Failed to handle path validation: {e}")
             return
 
         if payload_type == "settings-save":
