@@ -364,6 +364,194 @@ class PenguSkinMonitorThread(threading.Thread):
                 log.error(f"[SkinMonitor] Failed to handle dice button click: {e}")
             return
 
+        if payload_type == "settings-request":
+            # Handle settings request from JavaScript plugin
+            try:
+                from config import get_config_float, get_config_option
+                from utils.admin_utils import is_registered_for_autostart
+                
+                # Load current settings
+                threshold = get_config_float("General", "injection_threshold", 0.5)
+                autostart = is_registered_for_autostart()
+                game_path = get_config_option("General", "leaguePath") or ""
+                
+                # Send settings data back to JavaScript
+                payload = {
+                    "type": "settings-data",
+                    "threshold": threshold,
+                    "autostart": autostart,
+                    "gamePath": game_path
+                }
+                message = json.dumps(payload)
+                try:
+                    running_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    running_loop = None
+
+                if running_loop is self._loop:
+                    self._loop.create_task(self._broadcast(message))
+                else:
+                    asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                
+                log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, autostart={autostart}, gamePath={game_path}")
+            except Exception as e:
+                log.error(f"[SkinMonitor] Failed to handle settings request: {e}")
+            return
+
+        if payload_type == "settings-save":
+            # Handle settings save from JavaScript plugin
+            try:
+                from config import set_config_option
+                from utils.admin_utils import (
+                    is_admin,
+                    is_registered_for_autostart,
+                    register_autostart,
+                    unregister_autostart,
+                )
+                
+                threshold = payload.get("threshold", 0.5)
+                autostart = payload.get("autostart", False)
+                game_path = payload.get("gamePath", "")
+                
+                # Clamp threshold between 0.3 and 2.0
+                threshold = max(0.3, min(2.0, float(threshold)))
+                
+                # Save threshold
+                set_config_option("General", "injection_threshold", f"{threshold:.2f}")
+                log.info(f"[SkinMonitor] Injection threshold updated to {threshold:.2f}s")
+                
+                # Save game path
+                if game_path and game_path.strip():
+                    set_config_option("General", "leaguePath", game_path.strip())
+                    log.info(f"[SkinMonitor] Game path updated to: {game_path.strip()}")
+                else:
+                    # Empty path means clear the manual path (will use auto-detection)
+                    set_config_option("General", "leaguePath", "")
+                    log.info("[SkinMonitor] Game path cleared, will use auto-detection")
+                
+                # Handle autostart
+                autostart_current = is_registered_for_autostart()
+                if autostart != autostart_current:
+                    if autostart:
+                        # Enable autostart
+                        if not is_admin():
+                            log.warning("[SkinMonitor] Auto-start enable blocked - not running as administrator")
+                            # Send error response
+                            error_payload = {
+                                "type": "settings-saved",
+                                "success": False,
+                                "error": "Administrator privileges are required to enable auto-start."
+                            }
+                            message = json.dumps(error_payload)
+                            try:
+                                running_loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                running_loop = None
+                            if running_loop is self._loop:
+                                self._loop.create_task(self._broadcast(message))
+                            else:
+                                asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                            return
+                        
+                        success, message_text = register_autostart()
+                        if success:
+                            log.info("[SkinMonitor] Auto-start registered via settings panel")
+                        else:
+                            log.error(f"[SkinMonitor] Failed to register auto-start: {message_text}")
+                            # Send error response
+                            error_payload = {
+                                "type": "settings-saved",
+                                "success": False,
+                                "error": f"Failed to enable auto-start: {message_text}"
+                            }
+                            message = json.dumps(error_payload)
+                            try:
+                                running_loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                running_loop = None
+                            if running_loop is self._loop:
+                                self._loop.create_task(self._broadcast(message))
+                            else:
+                                asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                            return
+                    else:
+                        # Disable autostart
+                        if not is_admin():
+                            log.warning("[SkinMonitor] Auto-start disable blocked - not running as administrator")
+                            # Send error response
+                            error_payload = {
+                                "type": "settings-saved",
+                                "success": False,
+                                "error": "Administrator privileges are required to disable auto-start."
+                            }
+                            message = json.dumps(error_payload)
+                            try:
+                                running_loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                running_loop = None
+                            if running_loop is self._loop:
+                                self._loop.create_task(self._broadcast(message))
+                            else:
+                                asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                            return
+                        
+                        success, message_text = unregister_autostart()
+                        if success:
+                            log.info("[SkinMonitor] Auto-start unregistered via settings panel")
+                        else:
+                            log.error(f"[SkinMonitor] Failed to unregister auto-start: {message_text}")
+                            # Send error response
+                            error_payload = {
+                                "type": "settings-saved",
+                                "success": False,
+                                "error": f"Failed to disable auto-start: {message_text}"
+                            }
+                            message = json.dumps(error_payload)
+                            try:
+                                running_loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                running_loop = None
+                            if running_loop is self._loop:
+                                self._loop.create_task(self._broadcast(message))
+                            else:
+                                asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                            return
+                
+                # Send success response
+                success_payload = {
+                    "type": "settings-saved",
+                    "success": True
+                }
+                message = json.dumps(success_payload)
+                try:
+                    running_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    running_loop = None
+                if running_loop is self._loop:
+                    self._loop.create_task(self._broadcast(message))
+                else:
+                    asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+                
+                log.info("[SkinMonitor] Settings saved successfully")
+            except Exception as e:
+                log.error(f"[SkinMonitor] Failed to handle settings save: {e}")
+                # Send error response
+                error_payload = {
+                    "type": "settings-saved",
+                    "success": False,
+                    "error": str(e)
+                }
+                message = json.dumps(error_payload)
+                try:
+                    running_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    running_loop = None
+                if running_loop is self._loop:
+                    self._loop.create_task(self._broadcast(message))
+                else:
+                    asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
+            return
+
         skin_name = payload.get("skin")
         if not isinstance(skin_name, str) or not skin_name.strip():
             return

@@ -196,8 +196,6 @@ class TrayManager:
         return pystray.Menu(
             pystray.MenuItem("Rose", None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Settings", self._on_settings),
-            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._on_quit)
         )
     
