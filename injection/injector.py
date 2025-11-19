@@ -74,27 +74,12 @@ class SkinInjector:
             # Running as Python script
             injection_dir = Path(__file__).parent
         
-        # If tools_dir is provided, use it (might be renamed)
+        # If tools_dir is provided, use it
         if tools_dir:
             self.tools_dir = tools_dir
         else:
-            # Check for renamed tools folder first (tools_* pattern)
-            tools_dir_found = None
-            try:
-                if injection_dir.exists():
-                    for item in injection_dir.iterdir():
-                        if item.is_dir() and item.name.startswith("tools_"):
-                            tools_dir_found = item
-                            log.debug(f"Found renamed tools folder: {item.name}")
-                            break
-            except (OSError, PermissionError) as e:
-                log.debug(f"Could not iterate injection directory: {e}")
-            
-            # Use renamed folder if found, otherwise use default "tools"
-            if tools_dir_found:
-                self.tools_dir = tools_dir_found
-            else:
-                self.tools_dir = injection_dir / "tools"
+            # Use default "tools" folder
+            self.tools_dir = injection_dir / "tools"
         # Use user data directory for mods and skins to avoid permission issues
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
         self.zips_dir = zips_dir or get_skins_dir()

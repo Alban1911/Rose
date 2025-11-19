@@ -8,9 +8,7 @@ Manages the injection process and coordinates with UI detection system
 # Standard library imports
 import threading
 import time
-import random
 import sys
-import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -58,10 +56,6 @@ class InjectionManager:
         self._monitor_thread = None
         self._suspended_game_process = None
         self._runoverlay_started = False  # Flag to prevent suspending after runoverlay starts
-        
-        # Tools folder renaming
-        self._tools_renamed = False  # Track if tools folder has been renamed
-        self._tools_random_value = None  # Store the random value used for renaming
 
     def _refresh_injection_threshold(self) -> None:
         """Reload injection threshold from config so tray changes apply immediately."""
@@ -98,11 +92,8 @@ class InjectionManager:
         if not self._initialized:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock
-                    # Use renamed tools_dir if available, otherwise use the default
-                    tools_dir_to_use = self.tools_dir if self.tools_dir else None
-                    
                     log_action(log, "Initializing injection system...", "💉")
-                    self.injector = SkinInjector(tools_dir_to_use, self.mods_dir, self.zips_dir, self.game_dir)
+                    self.injector = SkinInjector(None, self.mods_dir, self.zips_dir, self.game_dir)
                     # Only mark as initialized if we have a valid game directory
                     if self.injector.game_dir is not None:
                         self._initialized = True
@@ -582,123 +573,3 @@ class InjectionManager:
             injection_dir = Path(__file__).parent.parent / "injection"
         
         return injection_dir
-    
-    def rename_tools_folder(self) -> bool:
-        """Handle tools folder in League of Legends game directory.
-        Checks for tools_RANDOMVALUE in game directory, renames if exists, or copies from app root if not.
-        This is called every time we enter ChampSelect, generating a new random value each time.
-        
-        The tools folder in the app root is used as a blueprint and is never renamed.
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            # First, verify config.ini exists
-            config_path = get_config_file_path()
-            
-            if not config_path.exists():
-                log.warning(f"[INJECT] config.ini not found at {config_path}, skipping tools folder operation")
-                return False
-            
-            # Ensure injector is initialized to get game directory
-            self._ensure_initialized()
-            
-            if not self._initialized or self.injector is None or self.injector.game_dir is None:
-                log.warning("[INJECT] Cannot handle tools folder - game directory not available")
-                return False
-            
-            game_dir = self.injector.game_dir
-            injection_dir = self._get_injection_dir()
-            
-            # Get the blueprint tools folder from app root (never rename this)
-            blueprint_tools_dir = injection_dir / "tools"
-            if not blueprint_tools_dir.exists():
-                log.warning(f"[INJECT] Blueprint tools folder not found in {injection_dir}")
-                return False
-            
-            # Check in game directory for existing tools_RANDOMVALUE folder
-            existing_tools_dir = None
-            try:
-                if game_dir.exists():
-                    for item in game_dir.iterdir():
-                        if item.is_dir() and item.name.startswith("tools_"):
-                            existing_tools_dir = item
-                            break
-            except (OSError, PermissionError) as e:
-                log.warning(f"[INJECT] Could not check game directory: {e}")
-                return False
-            
-            # Generate new random 10-digit number (retry if collision occurs)
-            max_retries = 10
-            random_value = None
-            new_tools_dir = None
-            for _ in range(max_retries):
-                random_value = random.randint(1000000000, 9999999999)
-                new_tools_dir = game_dir / f"tools_{random_value}"
-                if not new_tools_dir.exists():
-                    break
-            else:
-                log.error(f"[INJECT] Failed to generate unique tools folder name after {max_retries} attempts")
-                return False
-            
-            # If tools_RANDOMVALUE exists in game directory, rename it
-            if existing_tools_dir is not None:
-                # Make sure we don't try to rename to the same name
-                if existing_tools_dir.name == new_tools_dir.name:
-                    log.debug(f"[INJECT] Tools folder already has the same name: {new_tools_dir.name}")
-                    self._tools_renamed = True
-                    self._tools_random_value = str(random_value)
-                    self.tools_dir = existing_tools_dir
-                    if self.injector is not None:
-                        self.injector.tools_dir = existing_tools_dir
-                    return True
-                
-                try:
-                    existing_tools_dir.rename(new_tools_dir)
-                    self._tools_renamed = True
-                    self._tools_random_value = str(random_value)
-                    self.tools_dir = new_tools_dir
-                    
-                    log_success(log, f"Renamed tools folder from {existing_tools_dir.name} to tools_{random_value} in game directory", "🔄")
-                    
-                    # Update injector's tools_dir if already initialized
-                    if self.injector is not None:
-                        self.injector.tools_dir = new_tools_dir
-                        log.debug(f"[INJECT] Updated injector's tools_dir to {new_tools_dir}")
-                    
-                    return True
-                except OSError as e:
-                    log.error(f"[INJECT] Failed to rename tools folder in game directory: {e}")
-                    return False
-            else:
-                # Tools folder doesn't exist in game directory - copy from blueprint
-                try:
-                    shutil.copytree(blueprint_tools_dir, new_tools_dir)
-                    self._tools_renamed = True
-                    self._tools_random_value = str(random_value)
-                    self.tools_dir = new_tools_dir
-                    
-                    log_success(log, f"Copied tools folder to game directory as tools_{random_value}", "📋")
-                    
-                    # Update injector's tools_dir if already initialized
-                    if self.injector is not None:
-                        self.injector.tools_dir = new_tools_dir
-                        log.debug(f"[INJECT] Updated injector's tools_dir to {new_tools_dir}")
-                    
-                    return True
-                except OSError as e:
-                    log.error(f"[INJECT] Failed to copy tools folder to game directory: {e}")
-                    return False
-                
-        except Exception as e:
-            log.error(f"[INJECT] Error handling tools folder: {e}")
-            import traceback
-            log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
-            return False
-    
-    def reset_tools_rename_flag(self):
-        """Reset the tools rename flag when leaving ChampSelect"""
-        self._tools_renamed = False
-        self._tools_random_value = None
-        log.debug("[INJECT] Reset tools rename flag")
