@@ -1,4 +1,4 @@
-# 🌹 Rose - Seamless Skin Changer for LoL
+# 🌹 Rose - Effortless Skin Changer for LoL
 
 <div align="center">
 
@@ -50,9 +50,9 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 1. **League Client Integration**: Rose activates **[Pengu Loader](https://github.com/FlorentTariolle/ROSE-Pengu)** on startup, which injects the JavaScript plugins into the League Client
 2. **Skin Detection**: When you hover over a skin in champion select, [`ROSE-SkinMonitor`](https://github.com/Alban1911/ROSE-SkinMonitor) detects the selection and sends it to the Python backend
-3. **Skin Preparation**: The backend downloads the skin (if needed) from the LeagueSkins repository and prepares it for injection
-4. **Game Injection**: Using CSLOL tools, Rose injects the selected skin when the game loads, suspending the game process temporarily during injection
-5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact
+3. **Game Opening Delay**: To make sure the injection has time to occur we suspend League of Legend's game process as long as the overlay is not ran
+4. **Game Injection**: Using CSLOL tools, Rose injects the selected skin when the game starts
+5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact (Rose will never provide any feature that gives a competitive advantage to its users)
 
 ## Features
 
@@ -60,28 +60,25 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **All Skins Accessible**: Access to every skin for every champion
 - **Chroma Support**: Select any chroma variant through the enhanced UI
 - **Random Skin Mode**: Automatically select random skins
-- **Historic Mode**: Access legacy and historic skin variants
+- **Historic Mode**: Access last used skin on every champion
 - **Smart Injection**: Never injects skins you already own
 - **Safe & Compatible**: Uses CSLOL injection tools compatible with Riot Vanguard
 - **Multi-Language Support**: Works with any client language
 - **Open Source**: Fully open source and extensible
+- **Free**: If you bought this software, you got scammed 💀
 
 ## Requirements
 
 - **Windows 10/11**
-- **Python 3.11+** (for development)
 - **League of Legends** installed
-- **Administrator privileges** (required for skin injection)
 
 ## Installation
-
-### Using the Installer
 
 1. Download the latest installer from [Releases](https://github.com/Alban1911/Rose/releases/latest)
 2. Run the installer as Administrator
 3. Launch Rose from the Start Menu or desktop shortcut
 
-### Setting up dev environment
+## Setting up dev environment
 
 ```powershell
 # Create conda environment with Python 3.11 
@@ -150,14 +147,6 @@ Rose/
         ├── ROSE-RandomSkin/
         └── ROSE-HistoricMode/
 ```
-
-## Usage
-
-1. **Launch Rose** - The application runs in the system tray
-2. **Start League of Legends** - Rose automatically detects and integrates
-3. **Enter Champion Select** - Select your champion normally
-4. **Hover Over Skins** - Simply hover over any skin (even locked ones)
-5. **Game Loads** - Your selected skin is automatically injected
 
 ## Development
 
