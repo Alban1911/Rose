@@ -265,7 +265,8 @@ class PenguSkinMonitorThread(threading.Thread):
                     
                     if asset_file and asset_file.exists():
                         # Serve via HTTP instead of file:// (browsers block file:// URLs)
-                        http_url = f"http://{self.host}:{self._http_port}/asset/{asset_path.replace(chr(92), '/')}"  # Replace backslashes with forward slashes
+                        # Use localhost instead of 127.0.0.1 to help with mixed content policies
+                        http_url = f"http://localhost:{self._http_port}/asset/{asset_path.replace(chr(92), '/')}"  # Replace backslashes with forward slashes
                         log.debug(f"[SkinMonitor] Local asset found: {asset_file} -> {http_url}")
                         
                         # Send the HTTP URL back to JavaScript
@@ -819,17 +820,33 @@ class PenguSkinMonitorThread(threading.Thread):
             def __init__(self, *args, **kwargs):
                 self.skins_dir = get_skins_dir()
                 try:
-                    # Get assets directory
+                    # Get assets directory by getting the parent of any asset path
                     test_asset = get_asset_path("dummy")
                     self.assets_dir = test_asset.parent if test_asset else None
-                except:
+                    if self.assets_dir:
+                        log.debug(f"[SkinMonitor] Assets directory initialized: {self.assets_dir}")
+                    else:
+                        log.warning("[SkinMonitor] Assets directory not found")
+                except Exception as e:
+                    log.warning(f"[SkinMonitor] Failed to initialize assets directory: {e}")
                     self.assets_dir = None
                 super().__init__(*args, **kwargs)
+
+            def do_OPTIONS(self):
+                """Handle CORS preflight requests"""
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "*")
+                self.send_header("Access-Control-Max-Age", "86400")
+                self.end_headers()
 
             def do_GET(self):
                 try:
                     parsed_path = urlparse(self.path)
                     path = unquote(parsed_path.path)
+                    
+                    log.debug(f"[SkinMonitor] HTTP GET request: {path}")
                     
                     # Handle preview requests: /preview/{champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
                     if path.startswith("/preview/"):
@@ -848,20 +865,26 @@ class PenguSkinMonitorThread(threading.Thread):
                                 file_path = self.skins_dir / champion_id / skin_id / chroma_id / f"{chroma_id}.png"
                             
                             if file_path.exists():
+                                log.debug(f"[SkinMonitor] Serving preview: {file_path}")
                                 self.send_response(200)
                                 self.send_header("Content-Type", "image/png")
                                 self.send_header("Access-Control-Allow-Origin", "*")
+                                self.send_header("Cache-Control", "public, max-age=3600")
                                 self.end_headers()
                                 with open(file_path, "rb") as f:
                                     self.wfile.write(f.read())
                                 return
+                            else:
+                                log.debug(f"[SkinMonitor] Preview not found: {file_path}")
                     
-                    # Handle asset requests: /asset/elementalist_buttons/{form_id}.png
+                    # Handle asset requests: /asset/{asset_name}
                     elif path.startswith("/asset/"):
-                        asset_path = path.replace("/asset/", "").replace("/", chr(92))  # Convert to Windows path
+                        asset_path = path.replace("/asset/", "")
+                        # Keep forward slashes as-is for Path operations (Path handles both / and \)
                         if self.assets_dir:
                             file_path = self.assets_dir / asset_path
                             if file_path.exists():
+                                log.debug(f"[SkinMonitor] Serving asset: {file_path} (requested: {path})")
                                 self.send_response(200)
                                 # Determine content type from extension
                                 if file_path.suffix.lower() == ".png":
@@ -871,22 +894,30 @@ class PenguSkinMonitorThread(threading.Thread):
                                 else:
                                     self.send_header("Content-Type", "application/octet-stream")
                                 self.send_header("Access-Control-Allow-Origin", "*")
+                                self.send_header("Cache-Control", "public, max-age=3600")
                                 self.end_headers()
                                 with open(file_path, "rb") as f:
                                     self.wfile.write(f.read())
                                 return
+                            else:
+                                log.debug(f"[SkinMonitor] Asset not found: {file_path} (requested: {path}, assets_dir: {self.assets_dir})")
+                        else:
+                            log.debug(f"[SkinMonitor] Assets directory not initialized")
                     
                     # 404 for unknown paths
+                    log.debug(f"[SkinMonitor] HTTP 404 for path: {path}")
                     self.send_response(404)
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                 except Exception as e:
-                    log.debug(f"[SkinMonitor] HTTP server error: {e}")
+                    log.warning(f"[SkinMonitor] HTTP server error: {e}", exc_info=True)
                     self.send_response(500)
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
 
             def log_message(self, format, *args):
-                # Suppress default logging
-                pass
+                # Log HTTP requests for debugging
+                log.debug(f"[SkinMonitor] HTTP: {format % args}")
 
         try:
             self._http_server = HTTPServer((self.host, self._http_port), LocalFileHandler)
