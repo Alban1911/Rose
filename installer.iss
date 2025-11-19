@@ -5,7 +5,7 @@
 #define MyAppVersion "1.0.0"
 #define MyAppVersionInfo "1.0.0.0"
 #define MyAppPublisher "Rose Team"
-#define MyAppURL "https://github.com/Alban1911/LeagueUnlocked"
+#define MyAppURL "https://github.com/Alban1911/Rose"
 #define MyAppExeName "Rose.exe"
 #define MyAppDescription "Effortless skin changer for League of Legends"
 
