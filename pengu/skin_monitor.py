@@ -17,15 +17,13 @@ import logging
 import threading
 import time
 from typing import Optional, Set
-
-from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol, serve
 
 from utils.paths import get_user_data_dir, get_skins_dir, get_asset_path
-from utils.utilities import get_champion_id_from_skin_id
+from utils.utilities import get_champion_id_from_skin_id, find_free_port
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +57,7 @@ class PenguSkinMonitorThread(threading.Thread):
         skin_scraper=None,
         injection_manager=None,
         host: str = "127.0.0.1",
-        port: int = 3000,
+        port: Optional[int] = None,
     ) -> None:
         super().__init__(daemon=True, name="PenguSkinMonitor")
         self.shared_state = shared_state
@@ -67,7 +65,17 @@ class PenguSkinMonitorThread(threading.Thread):
         self.skin_scraper = skin_scraper
         self.injection_manager = injection_manager
         self.host = host
-        self.port = port
+        
+        # Find free port if not specified
+        if port is None:
+            free_port = find_free_port(start_port=3000)
+            if free_port is None:
+                log.error("[SkinMonitor] Failed to find a free port, using default 3000")
+                self.port = 3000
+            else:
+                self.port = free_port
+        else:
+            self.port = port
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._server = None
@@ -82,10 +90,6 @@ class PenguSkinMonitorThread(threading.Thread):
         self.skin_id_mapping: dict[str, int] = {}
         self.skin_mapping_loaded = False
         self.last_skin_name: Optional[str] = None
-
-        # HTTP server for serving local files
-        self._http_server: Optional[HTTPServer] = None
-        self._http_port = 3001  # Different port from WebSocket
         
         # Ready event to signal when servers are initialized
         self.ready_event = threading.Event()
@@ -96,30 +100,30 @@ class PenguSkinMonitorThread(threading.Thread):
         asyncio.set_event_loop(self._loop)
         self._shutdown_event = asyncio.Event()
 
-        # Start HTTP server for serving local files
-        self._start_http_server()
-
         try:
+            # Create combined server that handles both HTTP and WebSocket
             self._server = self._loop.run_until_complete(
-                serve(self._handler, self.host, self.port, ping_interval=None)
+                serve(
+                    self._handler, 
+                    self.host, 
+                    self.port, 
+                    ping_interval=None,
+                    process_request=self._process_http_request
+                )
             )
             log.info(
-                "[SkinMonitor] Listening for Pengu Loader events on ws://%s:%s",
+                "[SkinMonitor] Server started on http://%s:%s (HTTP) and ws://%s:%s (WebSocket)",
+                self.host,
+                self.port,
                 self.host,
                 self.port,
             )
-            log.info(
-                "[SkinMonitor] HTTP server for local files on http://%s:%s",
-                self.host,
-                self._http_port,
-            )
-            # Signal that servers are ready
+            # Signal that server is ready
             self.ready_event.set()
             self._loop.run_until_complete(self._shutdown_event.wait())
         except Exception as exc:  # noqa: BLE001
             log.error("[SkinMonitor] Server stopped unexpectedly: %s", exc)
         finally:
-            self._stop_http_server()
             self._loop.run_until_complete(self._shutdown())
             self._loop.close()
             log.info("[SkinMonitor] Thread terminated")
@@ -144,7 +148,6 @@ class PenguSkinMonitorThread(threading.Thread):
 
     def stop(self) -> None:
         self._stop_event.set()
-        self._stop_http_server()
         if self._loop and self._shutdown_event:
             try:
                 asyncio.run_coroutine_threadsafe(
@@ -193,6 +196,146 @@ class PenguSkinMonitorThread(threading.Thread):
         finally:
             self._connections.discard(websocket)
 
+    async def _process_http_request(self, path: str, request_headers) -> Optional[tuple]:
+        """Process HTTP requests (serves files and handles /port endpoint)
+        
+        Returns:
+            Tuple of (status_code, headers_dict, body_bytes) for HTTP responses
+            None to let WebSocket handshake proceed
+        """
+        try:
+            parsed_path = urlparse(path)
+            path_clean = unquote(parsed_path.path)
+            
+            log.debug(f"[SkinMonitor] HTTP request: {path_clean}")
+            
+            # Handle /port endpoint - return port number as plain text
+            if path_clean == "/port":
+                return (
+                    200,
+                    {"Content-Type": "text/plain", "Access-Control-Allow-Origin": "*"},
+                    str(self.port).encode('utf-8')
+                )
+            
+            # Handle preview requests: /preview/{champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
+            if path_clean.startswith("/preview/"):
+                parts = path_clean.replace("/preview/", "").split("/")
+                if len(parts) >= 4:
+                    champion_id = parts[0]
+                    skin_id = parts[1]
+                    chroma_id = parts[2]
+                    
+                    skins_dir = get_skins_dir()
+                    # Construct file path
+                    if chroma_id == skin_id:
+                        # Base skin preview
+                        file_path = skins_dir / champion_id / skin_id / f"{skin_id}.png"
+                    else:
+                        # Chroma preview
+                        file_path = skins_dir / champion_id / skin_id / chroma_id / f"{chroma_id}.png"
+                    
+                    if file_path.exists():
+                        log.debug(f"[SkinMonitor] Serving preview: {file_path}")
+                        with open(file_path, "rb") as f:
+                            file_data = f.read()
+                        return (
+                            200,
+                            {
+                                "Content-Type": "image/png",
+                                "Access-Control-Allow-Origin": "*",
+                                "Cache-Control": "public, max-age=3600"
+                            },
+                            file_data
+                        )
+            
+            # Handle asset requests: /asset/{asset_name}
+            elif path_clean.startswith("/asset/"):
+                asset_path = path_clean.replace("/asset/", "")
+                asset_file = get_asset_path(asset_path)
+                
+                if asset_file and asset_file.exists():
+                    log.debug(f"[SkinMonitor] Serving asset: {asset_file}")
+                    # Determine content type from extension
+                    content_type = "application/octet-stream"
+                    suffix = asset_file.suffix.lower()
+                    if suffix == ".png":
+                        content_type = "image/png"
+                    elif suffix in [".jpg", ".jpeg"]:
+                        content_type = "image/jpeg"
+                    elif suffix == ".ttf":
+                        content_type = "font/ttf"
+                    elif suffix == ".ogg":
+                        content_type = "audio/ogg"
+                    
+                    with open(asset_file, "rb") as f:
+                        file_data = f.read()
+                    return (
+                        200,
+                        {
+                            "Content-Type": content_type,
+                            "Access-Control-Allow-Origin": "*",
+                            "Cache-Control": "public, max-age=3600"
+                        },
+                        file_data
+                    )
+            
+            # Handle plugin file requests: /plugin/{plugin_name}/{file_name}
+            elif path_clean.startswith("/plugin/"):
+                plugin_path = path_clean.replace("/plugin/", "")
+                parts = plugin_path.split("/", 1)
+                if len(parts) == 2:
+                    plugin_name, file_name = parts
+                    try:
+                        from utils.paths import get_app_dir
+                        app_dir = get_app_dir()
+                        plugins_dir = app_dir.parent / "Pengu Loader" / "plugins"
+                        if not plugins_dir.exists():
+                            plugins_dir = app_dir / "Pengu Loader" / "plugins"
+                        
+                        if plugins_dir.exists():
+                            file_path = plugins_dir / plugin_name / file_name
+                            if file_path.exists():
+                                log.debug(f"[SkinMonitor] Serving plugin file: {file_path}")
+                                # Determine content type from extension
+                                content_type = "application/octet-stream"
+                                suffix = file_path.suffix.lower()
+                                if suffix == ".png":
+                                    content_type = "image/png"
+                                elif suffix in [".jpg", ".jpeg"]:
+                                    content_type = "image/jpeg"
+                                elif suffix == ".ttf":
+                                    content_type = "font/ttf"
+                                elif suffix == ".ogg":
+                                    content_type = "audio/ogg"
+                                elif suffix == ".js":
+                                    content_type = "application/javascript"
+                                elif suffix == ".css":
+                                    content_type = "text/css"
+                                
+                                with open(file_path, "rb") as f:
+                                    file_data = f.read()
+                                return (
+                                    200,
+                                    {
+                                        "Content-Type": content_type,
+                                        "Access-Control-Allow-Origin": "*",
+                                        "Cache-Control": "public, max-age=3600"
+                                    },
+                                    file_data
+                                )
+                    except Exception as e:
+                        log.debug(f"[SkinMonitor] Failed to serve plugin file: {e}")
+            
+            # Return None to let WebSocket handshake proceed for WebSocket requests
+            return None
+        except Exception as e:
+            log.warning(f"[SkinMonitor] HTTP request error: {e}", exc_info=True)
+            return (
+                500,
+                {"Access-Control-Allow-Origin": "*"},
+                b"Internal Server Error"
+            )
+
     def _handle_message(self, message: str) -> None:
         try:
             payload = json.loads(message)
@@ -229,7 +372,7 @@ class PenguSkinMonitorThread(threading.Thread):
                     
                     if preview_path and preview_path.exists():
                         # Serve via HTTP instead of file:// (browsers block file:// URLs)
-                        http_url = f"http://{self.host}:{self._http_port}/preview/{champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png"
+                        http_url = f"http://localhost:{self.port}/preview/{champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png"
                         log.debug(f"[SkinMonitor] Local preview found: {preview_path} -> {http_url}")
                         
                         # Send the HTTP URL back to JavaScript
@@ -270,7 +413,7 @@ class PenguSkinMonitorThread(threading.Thread):
                     if asset_file and asset_file.exists():
                         # Serve via HTTP instead of file:// (browsers block file:// URLs)
                         # Use localhost instead of 127.0.0.1 to help with mixed content policies
-                        http_url = f"http://localhost:{self._http_port}/asset/{asset_path.replace(chr(92), '/')}"  # Replace backslashes with forward slashes
+                        http_url = f"http://localhost:{self.port}/asset/{asset_path.replace(chr(92), '/')}"  # Replace backslashes with forward slashes
                         log.debug(f"[SkinMonitor] Local asset found: {asset_file} -> {http_url}")
                         
                         # Send the HTTP URL back to JavaScript
@@ -1150,191 +1293,17 @@ class PenguSkinMonitorThread(threading.Thread):
         else:
             asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
 
+    
     def _start_http_server(self) -> None:
-        """Start HTTP server for serving local preview images and assets"""
-        class LocalFileHandler(SimpleHTTPRequestHandler):
-            def __init__(self, *args, **kwargs):
-                self.skins_dir = get_skins_dir()
-                try:
-                    # Get assets directory by getting the parent of any asset path
-                    test_asset = get_asset_path("dummy")
-                    self.assets_dir = test_asset.parent if test_asset else None
-                    if self.assets_dir:
-                        log.debug(f"[SkinMonitor] Assets directory initialized: {self.assets_dir}")
-                    else:
-                        log.warning("[SkinMonitor] Assets directory not found")
-                except Exception as e:
-                    log.warning(f"[SkinMonitor] Failed to initialize assets directory: {e}")
-                    self.assets_dir = None
-                
-                # Get plugins directory (Pengu Loader/plugins/)
-                try:
-                    from utils.paths import get_app_dir
-                    app_dir = get_app_dir()
-                    # Pengu Loader is typically at the same level as the app directory
-                    self.plugins_dir = app_dir.parent / "Pengu Loader" / "plugins"
-                    if not self.plugins_dir.exists():
-                        # Try alternative location
-                        self.plugins_dir = app_dir / "Pengu Loader" / "plugins"
-                    if self.plugins_dir.exists():
-                        log.debug(f"[SkinMonitor] Plugins directory initialized: {self.plugins_dir}")
-                    else:
-                        log.debug(f"[SkinMonitor] Plugins directory not found: {self.plugins_dir}")
-                        self.plugins_dir = None
-                except Exception as e:
-                    log.warning(f"[SkinMonitor] Failed to initialize plugins directory: {e}")
-                    self.plugins_dir = None
-                
-                super().__init__(*args, **kwargs)
-
-            def do_OPTIONS(self):
-                """Handle CORS preflight requests"""
-                self.send_response(200)
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-                self.send_header("Access-Control-Allow-Headers", "*")
-                self.send_header("Access-Control-Max-Age", "86400")
-                self.end_headers()
-
-            def do_GET(self):
-                try:
-                    parsed_path = urlparse(self.path)
-                    path = unquote(parsed_path.path)
-                    
-                    log.debug(f"[SkinMonitor] HTTP GET request: {path}")
-                    
-                    # Handle preview requests: /preview/{champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
-                    if path.startswith("/preview/"):
-                        parts = path.replace("/preview/", "").split("/")
-                        if len(parts) >= 4:
-                            champion_id = parts[0]
-                            skin_id = parts[1]
-                            chroma_id = parts[2]
-                            
-                            # Construct file path
-                            if chroma_id == skin_id:
-                                # Base skin preview
-                                file_path = self.skins_dir / champion_id / skin_id / f"{skin_id}.png"
-                            else:
-                                # Chroma preview
-                                file_path = self.skins_dir / champion_id / skin_id / chroma_id / f"{chroma_id}.png"
-                            
-                            if file_path.exists():
-                                log.debug(f"[SkinMonitor] Serving preview: {file_path}")
-                                self.send_response(200)
-                                self.send_header("Content-Type", "image/png")
-                                self.send_header("Access-Control-Allow-Origin", "*")
-                                self.send_header("Cache-Control", "public, max-age=3600")
-                                self.end_headers()
-                                with open(file_path, "rb") as f:
-                                    self.wfile.write(f.read())
-                                return
-                            else:
-                                log.debug(f"[SkinMonitor] Preview not found: {file_path}")
-                    
-                    # Handle asset requests: /asset/{asset_name}
-                    elif path.startswith("/asset/"):
-                        asset_path = path.replace("/asset/", "")
-                        # Keep forward slashes as-is for Path operations (Path handles both / and \)
-                        if self.assets_dir:
-                            file_path = self.assets_dir / asset_path
-                            if file_path.exists():
-                                log.debug(f"[SkinMonitor] Serving asset: {file_path} (requested: {path})")
-                                self.send_response(200)
-                                # Determine content type from extension
-                                if file_path.suffix.lower() == ".png":
-                                    self.send_header("Content-Type", "image/png")
-                                elif file_path.suffix.lower() in [".jpg", ".jpeg"]:
-                                    self.send_header("Content-Type", "image/jpeg")
-                                elif file_path.suffix.lower() == ".ttf":
-                                    self.send_header("Content-Type", "font/ttf")
-                                elif file_path.suffix.lower() == ".ogg":
-                                    self.send_header("Content-Type", "audio/ogg")
-                                else:
-                                    self.send_header("Content-Type", "application/octet-stream")
-                                self.send_header("Access-Control-Allow-Origin", "*")
-                                self.send_header("Cache-Control", "public, max-age=3600")
-                                self.end_headers()
-                                with open(file_path, "rb") as f:
-                                    self.wfile.write(f.read())
-                                return
-                            else:
-                                log.debug(f"[SkinMonitor] Asset not found: {file_path} (requested: {path}, assets_dir: {self.assets_dir})")
-                        else:
-                            log.debug(f"[SkinMonitor] Assets directory not initialized")
-                    
-                    # Handle plugin file requests: /plugin/{plugin_name}/{file_name}
-                    elif path.startswith("/plugin/"):
-                        plugin_path = path.replace("/plugin/", "")
-                        # Split into plugin name and file name
-                        parts = plugin_path.split("/", 1)
-                        if len(parts) == 2:
-                            plugin_name, file_name = parts
-                            if self.plugins_dir:
-                                file_path = self.plugins_dir / plugin_name / file_name
-                                if file_path.exists():
-                                    log.debug(f"[SkinMonitor] Serving plugin file: {file_path} (requested: {path})")
-                                    self.send_response(200)
-                                    # Determine content type from extension
-                                    if file_path.suffix.lower() == ".png":
-                                        self.send_header("Content-Type", "image/png")
-                                    elif file_path.suffix.lower() in [".jpg", ".jpeg"]:
-                                        self.send_header("Content-Type", "image/jpeg")
-                                    elif file_path.suffix.lower() == ".ttf":
-                                        self.send_header("Content-Type", "font/ttf")
-                                    elif file_path.suffix.lower() == ".ogg":
-                                        self.send_header("Content-Type", "audio/ogg")
-                                    elif file_path.suffix.lower() == ".js":
-                                        self.send_header("Content-Type", "application/javascript")
-                                    elif file_path.suffix.lower() == ".css":
-                                        self.send_header("Content-Type", "text/css")
-                                    else:
-                                        self.send_header("Content-Type", "application/octet-stream")
-                                    self.send_header("Access-Control-Allow-Origin", "*")
-                                    self.send_header("Cache-Control", "public, max-age=3600")
-                                    self.end_headers()
-                                    with open(file_path, "rb") as f:
-                                        self.wfile.write(f.read())
-                                    return
-                                else:
-                                    log.debug(f"[SkinMonitor] Plugin file not found: {file_path} (requested: {path})")
-                            else:
-                                log.debug(f"[SkinMonitor] Plugins directory not initialized")
-                    
-                    # 404 for unknown paths
-                    log.debug(f"[SkinMonitor] HTTP 404 for path: {path}")
-                    self.send_response(404)
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-                except Exception as e:
-                    log.warning(f"[SkinMonitor] HTTP server error: {e}", exc_info=True)
-                    self.send_response(500)
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-
-            def log_message(self, format, *args):
-                # Log HTTP requests for debugging
-                log.debug(f"[SkinMonitor] HTTP: {format % args}")
-
-        try:
-            self._http_server = HTTPServer((self.host, self._http_port), LocalFileHandler)
-            http_thread = threading.Thread(target=self._http_server.serve_forever, daemon=True)
-            http_thread.start()
-            log.info(f"[SkinMonitor] HTTP server started on http://{self.host}:{self._http_port}")
-        except Exception as e:
-            log.warning(f"[SkinMonitor] Failed to start HTTP server: {e}")
+        """DEPRECATED: HTTP is now handled by the WebSocket server"""
+        # This method is kept for backward compatibility but does nothing
+        # HTTP is now served through process_request in the WebSocket server
+        pass
 
     def _stop_http_server(self) -> None:
-        """Stop HTTP server"""
-        if self._http_server:
-            try:
-                self._http_server.shutdown()
-                self._http_server.server_close()
-                log.info("[SkinMonitor] HTTP server stopped")
-            except Exception as e:
-                log.debug(f"[SkinMonitor] Error stopping HTTP server: {e}")
-            finally:
-                self._http_server = None
+        """DEPRECATED: HTTP is now handled by the WebSocket server"""
+        # This method is kept for backward compatibility but does nothing
+        pass
 
     def _skin_has_chromas(self, skin_id: Optional[int]) -> bool:
         if skin_id is None:

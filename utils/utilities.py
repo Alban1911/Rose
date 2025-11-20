@@ -7,6 +7,7 @@ Contains common functions that are used across multiple modules
 """
 
 # Standard library imports
+import socket
 from typing import Optional
 
 # Local imports
@@ -180,3 +181,29 @@ def is_base_skin_owned(skin_id: int, owned_skin_ids: set, chroma_id_map: Optiona
 
 
 # No longer converting to English - using LCU localized names directly
+
+
+def find_free_port(start_port: int = 3000, max_attempts: int = 100) -> Optional[int]:
+    """
+    Find a free port starting from start_port.
+    
+    Args:
+        start_port: The starting port number to check (default: 3000)
+        max_attempts: Maximum number of ports to try (default: 100)
+        
+    Returns:
+        A free port number, or None if no free port found
+    """
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', port))
+                # Port is free, return it
+                log.debug(f"[UTILITIES] Found free port: {port}")
+                return port
+        except OSError:
+            # Port is in use, try next one
+            continue
+    
+    log.warning(f"[UTILITIES] No free port found in range {start_port}-{start_port + max_attempts - 1}")
+    return None
