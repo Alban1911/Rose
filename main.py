@@ -629,6 +629,20 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
             injection_manager.injection_threshold = max(0.0, injection_threshold)
         log.info("✓ Injection manager initialized")
         injection_manager.initialize_when_ready()
+        
+        # Ensure hashes.game.txt exists and is up to date
+        try:
+            from utils.hashes_downloader import ensure_hashes_file
+            # Get the tools directory path
+            injection_dir = injection_manager._get_injection_dir()
+            tools_dir = injection_dir / "tools"
+            log.info("Checking hashes.game.txt...")
+            if ensure_hashes_file(tools_dir):
+                log_success(log, "hashes.game.txt is ready", "✅")
+            else:
+                log.warning("Failed to ensure hashes.game.txt (non-critical, continuing)")
+        except Exception as e:
+            log.warning(f"Failed to check/update hashes.game.txt: {e} (non-critical, continuing)")
     except Exception as e:
         log.error("=" * 80)
         log.error("FATAL ERROR DURING INJECTION MANAGER INITIALIZATION")

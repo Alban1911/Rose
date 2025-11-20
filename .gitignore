@@ -79,4 +79,6 @@ htmlcov/
 *.bak
 *.backup
 
+license.dat
 config.ini
+injection/tools/hashes.game.txt

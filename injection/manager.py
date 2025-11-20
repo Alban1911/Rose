@@ -92,11 +92,8 @@ class InjectionManager:
         if not self._initialized:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock
-                    # Use renamed tools_dir if available, otherwise use the default
-                    tools_dir_to_use = self.tools_dir if self.tools_dir else None
-                    
                     log_action(log, "Initializing injection system...", "💉")
-                    self.injector = SkinInjector(tools_dir_to_use, self.mods_dir, self.zips_dir, self.game_dir)
+                    self.injector = SkinInjector(None, self.mods_dir, self.zips_dir, self.game_dir)
                     # Only mark as initialized if we have a valid game directory
                     if self.injector.game_dir is not None:
                         self._initialized = True
