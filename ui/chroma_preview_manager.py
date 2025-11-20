@@ -116,4 +116,3 @@ def get_preview_manager(db=None) -> ChromaPreviewManager:
         # Update existing instance with database if not already set
         _preview_manager.db = db
     return _preview_manager
-

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-System tray manager for LeagueUnlocked
+System tray manager for Rose
 """
 
 import threading
@@ -21,7 +21,7 @@ log = get_logger()
 
 
 class TrayManager:
-    """Manages the system tray icon for LeagueUnlocked"""
+    """Manages the system tray icon for Rose"""
     
     def __init__(self, quit_callback: Optional[Callable] = None):
         """
@@ -45,7 +45,7 @@ class TrayManager:
         image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
         
-        # Draw a simple "SC" logo (LeagueUnlocked)
+        # Draw a simple "SC" logo (Rose)
         # Background circle (scaled 2x)
         draw.ellipse(TRAY_ICON_ELLIPSE_COORDS, fill=(0, 100, 200, 255), outline=(0, 50, 100, 255), width=TRAY_ICON_BORDER_WIDTH)
         
@@ -69,15 +69,15 @@ class TrayManager:
         return image
     
     def _load_icon_from_file(self, icon_name: str) -> Optional[Image.Image]:
-        """Try to load icon from icons folder
+        """Try to load icon from assets folder
         
         Args:
-            icon_name: Name of the icon file (e.g., "locked_tray.png", "golden_unlocked_tray.png")
+            icon_name: Name of the icon file (e.g., "tray_starting.png", "tray_ready.png")
         """
         try:
-            # Use proper icon path resolution for PyInstaller compatibility
-            from utils.paths import get_icon_path
-            icon_path = get_icon_path(icon_name)
+            # Use proper asset path resolution for PyInstaller compatibility
+            from utils.paths import get_asset_path
+            icon_path = get_asset_path(icon_name)
             
             if icon_path.exists():
                 log.debug(f"Loading tray icon from: {icon_path}")
@@ -95,10 +95,10 @@ class TrayManager:
     def _load_icons(self):
         """Load locked and unlocked icons"""
         # Load locked icon
-        self._locked_icon_image = self._load_icon_from_file("tray_locked.png")
+        self._locked_icon_image = self._load_icon_from_file("tray_starting.png")
         
         # Load golden unlocked icon
-        self._unlocked_icon_image = self._load_icon_from_file("tray_golden_unlocked.png")
+        self._unlocked_icon_image = self._load_icon_from_file("tray_ready.png")
         
         # Fallback to icon.png if none exist
         if not self._locked_icon_image and not self._unlocked_icon_image:
@@ -185,7 +185,7 @@ class TrayManager:
 
                 show_message_box_threaded(
                     f"Failed to open settings dialog:\n\n{e}",
-                    "LeagueUnlocked Settings",
+                    "Rose Settings",
                     0x10,  # MB_ICONERROR
                 )
             except Exception:
@@ -194,9 +194,7 @@ class TrayManager:
     def _create_menu(self) -> pystray.Menu:
         """Create the context menu for the tray icon"""
         return pystray.Menu(
-            pystray.MenuItem("LeagueUnlocked", None, enabled=False),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Settings", self._on_settings),
+            pystray.MenuItem("Rose", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._on_quit)
         )
@@ -210,9 +208,9 @@ class TrayManager:
             menu = self._create_menu()
             
             self.icon = pystray.Icon(
-                "LeagueUnlocked",
+                "Rose",
                 icon_image,
-                "LeagueUnlocked",
+                "Rose",
                 menu,
                 default_action=self._on_icon_click
             )
@@ -288,12 +286,12 @@ class TrayManager:
                 # Show locked icon
                 if self._locked_icon_image:
                     self.icon.icon = self._locked_icon_image
-                    log.info("Locked icon shown")
+                    log.info("Wilted icon shown")
             elif status == "unlocked":
                 # Show golden unlocked icon
                 if self._unlocked_icon_image:
                     self.icon.icon = self._unlocked_icon_image
-                    log.info("Golden unlocked icon shown")
+                    log.info("Bloomed icon shown")
             else:
                 log.warning(f"Unknown status: {status}")
         except Exception as e:

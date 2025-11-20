@@ -60,5 +60,3 @@ def write_historic_entry(champion_id: int, skin_or_chroma_id: int) -> None:
     except Exception:
         # Silently ignore write errors; feature is best-effort
         pass
-
-

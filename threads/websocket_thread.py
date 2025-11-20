@@ -36,6 +36,9 @@ log = get_logger()
 # Disable websocket ping logs
 logging.getLogger("websocket").setLevel(logging.WARNING)
 
+SWIFTPLAY_LOCKED_CHAMPION_DELAY = 0.1
+SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
+
 
 class WSEventThread(threading.Thread):
     """WebSocket event thread with WAMP + lock counter + timer"""
@@ -91,23 +94,15 @@ class WSEventThread(threading.Thread):
             self.state.historic_mode_active = False
             self.state.historic_skin_id = None
             self.state.historic_first_detection_done = False
-            # Hide Historic flag if it was visible
-            try:
-                from ui.user_interface import get_user_interface
-                ui = get_user_interface(self.state, self.skin_scraper)
-                ui.hide_historic_flag()
-            except Exception:
-                pass
         except Exception:
             pass
 
-        # Clear UIA cache to detect new champion's skin
+        # Clear cache to detect new champion's skin
         if self.state.ui_skin_thread:
             try:
                 self.state.ui_skin_thread.clear_cache()
-                log.debug("[exchange] UIA cache cleared")
             except Exception as e:
-                log.error(f"[exchange] Failed to clear UIA cache: {e}")
+                log.error(f"[exchange] Failed to clear cache: {e}")
         
         # Trigger UI hiding in main thread by setting flag
         self.state.champion_exchange_triggered = True
@@ -191,13 +186,12 @@ class WSEventThread(threading.Thread):
             log.info(f"   📋 ID: {champion_id}")
             log.info(separator)
             
-            # Clear UIA cache to ensure fresh detection (prevents using stale cached elements)
+            # Clear cache to ensure fresh detection (prevents using stale cached elements)
             if self.state.ui_skin_thread:
                 try:
                     self.state.ui_skin_thread.clear_cache()
-                    log.debug("[lock:champ] UIA cache cleared")
                 except Exception as e:
-                    log.error(f"[lock:champ] Failed to clear UIA cache: {e}")
+                    log.error(f"[lock:champ] Failed to clear cache: {e}")
             
             # Scrape skins for this champion from LCU
             if self.skin_scraper:
@@ -222,16 +216,26 @@ class WSEventThread(threading.Thread):
                 except Exception as e:
                     log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
             
-            # Create ClickCatchers on champion lock (when not in Swiftplay)
-            from ui.user_interface import get_user_interface
-            user_interface = get_user_interface(self.state, self.skin_scraper)
-            if user_interface:
-                try:
-                    user_interface.create_click_catchers()
-                    log.debug(f"[lock:champ] Requested ClickCatcher creation for {champion_label}")
-                except Exception as e:
-                    log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
-
+            # Reset historic mode state for new champion lock (always deactivate before checking)
+            self.state.historic_mode_active = False
+            self.state.historic_skin_id = None
+            self.state.historic_first_detection_done = False
+            log.debug(f"[lock:champ] Reset historic mode state for new champion lock")
+            
+            # Broadcast deactivated state to JavaScript (hide flag)
+            try:
+                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                    self.state.ui_skin_thread._broadcast_historic_state()
+            except Exception as e:
+                log.debug(f"[lock:champ] Failed to broadcast historic state reset: {e}")
+            
+            # Broadcast champion lock state to JavaScript
+            try:
+                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                    self.state.ui_skin_thread._broadcast_champion_locked(True)
+            except Exception as e:
+                log.debug(f"[lock:champ] Failed to broadcast champion lock state: {e}")
+            
     def _maybe_start_timer(self, sess: dict):
         """Start timer if conditions are met - ONLY on FINALIZATION phase"""
         t = (sess.get("timer") or {})
@@ -336,6 +340,13 @@ class WSEventThread(threading.Thread):
                         # Reset champion lock state for new game
                         self.state.locked_champ_id = None
                         self.state.locked_champ_timestamp = 0.0  # Reset timestamp for new game
+                        self.state.own_champion_locked = False
+                        # Broadcast champion unlock state to JavaScript
+                        try:
+                            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                self.state.ui_skin_thread._broadcast_champion_locked(False)
+                        except Exception as e:
+                            log.debug(f"[ws] Failed to broadcast champion unlock state: {e}")
                         # Reset random skin state
                         self.state.random_skin_name = None
                         self.state.random_skin_id = None
@@ -506,7 +517,7 @@ class WSEventThread(threading.Thread):
             for cid in removed:
                 ch = self.state.locks_by_cell.get(cid, 0)
                 champ_label = f"#{ch}"
-                log_event(log, f"Champion unlocked: {champ_label}", "🔓", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
+                log_event(log, f"Champion unlocked: {champ_label}", "🥀", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
             
             self.state.locks_by_cell = new_locks
             
@@ -686,7 +697,10 @@ class WSEventThread(threading.Thread):
             
             # Update is_swiftplay_mode flag based on detected game mode
             # This ensures the flag is correct when entering ChampSelect
-            self.state.is_swiftplay_mode = (game_mode == "SWIFTPLAY")
+            if isinstance(game_mode, str) and game_mode.upper() in SWIFTPLAY_MODES:
+                self.state.is_swiftplay_mode = True
+            else:
+                self.state.is_swiftplay_mode = False
             
             if old_swiftplay_mode != self.state.is_swiftplay_mode:
                 log.info(f"[WS] Swiftplay mode flag updated: {old_swiftplay_mode} → {self.state.is_swiftplay_mode}")
@@ -699,9 +713,9 @@ class WSEventThread(threading.Thread):
                 log.info("[WS] ARAM mode detected - chroma panel will use ARAM background")
             elif map_id == 11 or game_mode == "CLASSIC":
                 log.info("[WS] Summoner's Rift mode detected - chroma panel will use SR background")
-            elif game_mode == "SWIFTPLAY":
-                log.info("[WS] Swiftplay mode detected - will trigger early skin detection in lobby")
-                log.info("[WS] Swiftplay mode: Champion selection and skin detection will happen in lobby phase")
+            elif isinstance(game_mode, str) and game_mode.upper() in SWIFTPLAY_MODES:
+                log.info(f"[WS] {game_mode} mode detected - will trigger early skin detection in lobby")
+                log.info("[WS] Swiftplay-like mode: Champion selection and skin detection will happen in lobby phase")
             else:
                 log.info(f"[WS] Unknown game mode ({game_mode}, Map ID: {map_id}) - defaulting to SR background")
                 

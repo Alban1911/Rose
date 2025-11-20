@@ -1,2 +1,2 @@
-# LeagueUnlocked - Modular Skin Injector
+# Rose - Modular Skin Injector
 # Main package initialization

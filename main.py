@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Main entry point for the modularized LeagueUnlocked
+Main entry point for the modularized Rose
 """
 
 # Standard library imports
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Optional, Tuple
 MIN_PYTHON = (3, 11)
 if sys.version_info < MIN_PYTHON:
     raise RuntimeError(
-        f"LeagueUnlocked requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer. "
+        f"Rose requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer. "
         "Please upgrade your interpreter and rebuild the application."
     )
 
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from state.app_status import AppStatus
     from threads.phase_thread import PhaseThread
     from threads.champ_thread import ChampThread
-    from uia import UISkinThread
+    from pengu.skin_monitor import PenguSkinMonitorThread
     from threads.websocket_thread import WSEventThread
     from threads.lcu_monitor_thread import LCUMonitorThread
     from utils.tray_manager import TrayManager
@@ -185,7 +185,7 @@ from state.shared_state import SharedState
 from state.app_status import AppStatus
 from threads.phase_thread import PhaseThread
 from threads.champ_thread import ChampThread
-from uia import UISkinThread
+from pengu import PenguSkinMonitorThread
 from threads.websocket_thread import WSEventThread
 from threads.lcu_monitor_thread import LCUMonitorThread
 
@@ -193,7 +193,7 @@ from threads.lcu_monitor_thread import LCUMonitorThread
 from utils.logging import setup_logging, get_logger, log_section, log_success, log_status, get_log_mode
 from utils.tray_manager import TrayManager
 from utils.thread_manager import ThreadManager, create_daemon_thread
-from utils.license_flow import check_license
+from utils import pengu_loader
 
 # Local imports - UI and injection
 from ui.user_interface import get_user_interface
@@ -202,7 +202,6 @@ from injection.manager import InjectionManager
 # Local imports - configuration
 from config import (
     APP_VERSION,
-    DEFAULT_DD_LANG,
     DEFAULT_VERBOSE,
     PHASE_HZ_DEFAULT,
     WS_PING_INTERVAL_DEFAULT,
@@ -216,7 +215,6 @@ from config import (
     PHASE_POLL_INTERVAL_DEFAULT,
     WS_PING_TIMEOUT_DEFAULT,
     CHROMA_PANEL_PROCESSING_THRESHOLD_S,
-    QT_EVENT_PROCESSING_THRESHOLD_S,
     MAIN_LOOP_SLEEP,
     THREAD_JOIN_TIMEOUT_S,
     THREAD_FORCE_EXIT_TIMEOUT_S,
@@ -241,8 +239,11 @@ def signal_handler(signum, frame):
     _app_state.shutting_down = True
     
     print(f"\nReceived signal {signum}, initiating graceful shutdown...")
+    try:
+        pengu_loader.deactivate_on_exit()
+    except Exception:
+        pass
     # Force exit if we're stuck
-    import os
     os._exit(0)
 
 def force_quit_handler():
@@ -252,6 +253,10 @@ def force_quit_handler():
     _app_state.shutting_down = True
     
     print("\nForce quit initiated...")
+    try:
+        pengu_loader.deactivate_on_exit()
+    except Exception:
+        pass
     os._exit(0)
 
 # Set up signal handlers
@@ -259,49 +264,7 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-# Set Qt environment variables BEFORE anything else
-os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
-os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
-# Tell Qt to not print DPI warnings and suppress QWindowsContext COM errors
-os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false;qt.qpa.windows.debug=false'
-
-# Import PyQt6 for chroma wheel
-PYQT6_AVAILABLE = False
-QApplication = None
-QTimer = None
-Qt = None
-
-# Third-party imports - PyQt6
-try:
-    # Set Qt plugin path for frozen executables BEFORE import
-    if getattr(sys, 'frozen', False):
-        # Try multiple possible plugin paths
-        possible_paths = [
-            Path(sys.executable).parent / "PyQt6" / "Qt6" / "plugins",
-            Path(sys.executable).parent / "PyQt6" / "Qt" / "plugins",
-            Path(sys.executable).parent / "qt6" / "plugins",
-        ]
-        for path in possible_paths:
-            if path.exists():
-                os.environ['QT_PLUGIN_PATH'] = str(path)
-                break
-    
-    # Suppress Qt DPI warnings during import
-    with contextlib.redirect_stderr(io.StringIO()):
-        from PyQt6.QtWidgets import QApplication
-        from PyQt6.QtCore import QTimer, Qt
-    
-    PYQT6_AVAILABLE = True
-except ImportError as e:
-    # PyQt6 not installed
-    PYQT6_AVAILABLE = False
-except Exception as e:
-    # Qt platform plugin or other error
-    PYQT6_AVAILABLE = False
-    import traceback
-    # Don't log yet, logger not initialized
-    print(f"Warning: PyQt6 import failed: {e}")
-    print(f"Traceback: {traceback.format_exc()}")
+# PyQt6 removed - chroma UI is now handled by JavaScript plugins
 
 log = get_logger()
 
@@ -377,7 +340,7 @@ def create_lock_file():
         state_dir = get_state_dir()
         state_dir.mkdir(parents=True, exist_ok=True)
         
-        lock_file_path = state_dir / "leagueunlocked.lock"
+        lock_file_path = state_dir / "rose.lock"
         _app_state.lock_file_path = lock_file_path
         
         # Windows-only approach using file creation
@@ -466,17 +429,17 @@ def check_single_instance():
                 # = 0x50010 - Ensures dialog appears on top and gets focus
                 ctypes.windll.user32.MessageBoxW(
                     0, 
-                    "Another instance of LeagueUnlocked is already running!\n\nPlease close the existing instance before starting a new one.",
-                    "LeagueUnlocked - Instance Already Running",
+                    "Another instance of Rose is already running!\n\nPlease close the existing instance before starting a new one.",
+                    "Rose - Instance Already Running",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
             except (OSError, AttributeError) as e:
                 # Fallback to logging if MessageBox fails
                 log.error(f"Failed to show message box: {e}")
-                log.error("Another instance of LeagueUnlocked is already running!")
+                log.error("Another instance of Rose is already running!")
                 log.error("Please close the existing instance before starting a new one.")
         else:
-            log.error("Another instance of LeagueUnlocked is already running!")
+            log.error("Another instance of Rose is already running!")
             log.error("Please close the existing instance before starting a new one.")
         sys.exit(1)
 
@@ -488,12 +451,8 @@ def check_single_instance():
 def setup_arguments() -> argparse.Namespace:
     """Parse and return command line arguments"""
     ap = argparse.ArgumentParser(
-        description="LeagueUnlocked - Windows UI API skin detection"
+        description="Rose - Windows UI API skin detection"
     )
-    
-    # Database arguments
-    ap.add_argument("--dd-lang", type=str, default=DEFAULT_DD_LANG, 
-                   help="DDragon language(s): 'fr_FR' | 'fr_FR,en_US,es_ES' | 'all'")
     
     # General arguments
     ap.add_argument("--verbose", action="store_true", default=DEFAULT_VERBOSE,
@@ -530,10 +489,6 @@ def setup_arguments() -> argparse.Namespace:
     
     # Log management arguments (none - retention managed by age in utils.logging)
     
-    # Development arguments
-    ap.add_argument("--dev", action="store_true", default=False,
-                   help="Development mode - disable log sanitization (shows full paths, ports, PIDs)")
-    
     return ap.parse_args()
 
 
@@ -543,23 +498,6 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     from utils.logging import cleanup_logs
     cleanup_logs()
     
-    # Check if running as frozen executable (PyInstaller)
-    is_frozen = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
-    
-    # Force production mode in frozen builds (disable dev/verbose/debug)
-    if is_frozen:
-        original_dev = args.dev
-        original_verbose = args.verbose
-        original_debug = args.debug
-        
-        args.dev = False
-        args.verbose = False
-        args.debug = False
-        
-        # Log if flags were overridden
-        if original_dev or original_verbose or original_debug:
-            print("[WARNING] Development flags disabled in frozen build (--dev, --verbose, --debug ignored)")
-    
     # Determine log mode based on flags
     if args.debug:
         log_mode = 'debug'
@@ -568,15 +506,8 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     else:
         log_mode = 'customer'
     
-    # Determine production mode (--dev disables sanitization)
-    production_mode = not args.dev  # False if --dev, True otherwise
-    
-    # Setup logging first
-    setup_logging(log_mode, production_mode)
-    
-    # Log dev mode status after logging is set up
-    if args.dev:
-        log.info("🛠️  Development mode enabled - log sanitization disabled")
+    # Setup logging
+    setup_logging(log_mode)
     
     # Suppress PIL/Pillow debug messages for optional image plugins
     logging.getLogger("PIL").setLevel(logging.INFO)
@@ -587,7 +518,7 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
         pass  # Already shown in setup_logging()
     else:
         # Detailed startup for verbose/debug
-        log_section(log, "LeagueUnlocked Starting", "🚀", {
+        log_section(log, "Rose Starting", "🚀", {
             "Verbose Mode": "Enabled" if args.verbose else "Disabled",
             "Download Skins": "Enabled" if args.download_skins else "Disabled"
         })
@@ -618,60 +549,8 @@ def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
         return None
 
 
-def initialize_qt_and_chroma(skin_scraper, state: SharedState, db=None, app_status: Optional[AppStatus] = None, lcu=None):
-    """Initialize PyQt6 and chroma selector"""
-    qt_app = None
-    chroma_selector = None
-    
-    if not PYQT6_AVAILABLE:
-        log.info("PyQt6 not available - chroma selector will be disabled")
-        return qt_app, chroma_selector
-    
-    try:
-        log.debug("Checking for existing QApplication instance...")
-        # Try to get existing QApplication or create new one
-        existing_app = QApplication.instance()
-        
-        if existing_app is None:
-            log.debug("Creating new QApplication instance...")
-            # Set Qt platform plugin path explicitly for frozen executables
-            if getattr(sys, 'frozen', False):
-                import os
-                qt_plugin_path = Path(sys.executable).parent / "PyQt6" / "Qt6" / "plugins"
-                if qt_plugin_path.exists():
-                    os.environ['QT_PLUGIN_PATH'] = str(qt_plugin_path)
-                    log.debug(f"Set QT_PLUGIN_PATH: {qt_plugin_path}")
-            
-            try:
-                qt_app = QApplication([sys.argv[0]])
-                log_success(log, "PyQt6 QApplication created for chroma wheel", "🎨")
-            except Exception as qapp_error:
-                log.error(f"Failed to create QApplication: {qapp_error}")
-                log.error("This is usually due to missing Qt platform plugins")
-                log.warning("Chroma selector will be disabled")
-                return None, None
-        else:
-            qt_app = existing_app
-            log_success(log, "Using existing QApplication instance for chroma panel", "🎨")
-        
-        # UI will be initialized when entering ChampSelect phase
-        chroma_selector = None
-            
-    except Exception as e:
-        log.warning(f"Failed to initialize PyQt6: {e}")
-        log.warning("Chroma panel will be disabled, but app will continue normally")
-        import traceback
-        log.debug(f"PyQt6 init traceback: {traceback.format_exc()}")
-        qt_app = None
-        chroma_selector = None
-    
-    return qt_app, chroma_selector
-
-
-
-
 def run_league_unlock(injection_threshold: Optional[float] = None):
-    """Run the core LeagueUnlocked application startup and main loop."""
+    """Run the core Rose application startup and main loop."""
     set_config_option("General", "installed_version", APP_VERSION)
     # Check for admin rights FIRST (required for injection to work)
     from utils.admin_utils import ensure_admin_rights
@@ -685,9 +564,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
     
     # Setup logging and cleanup
     setup_logging_and_cleanup(args)
-    
-    # Check license validity before continuing
-    check_license()
+    pengu_loader.activate_on_start()
     
     # Initialize system tray manager immediately to hide console
     tray_manager = initialize_tray_manager(args)
@@ -704,8 +581,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
         log.info("Initializing LCU client...")
         lcu = LCU(args.lockfile)
         log.info("✓ LCU client initialized")
-        
-        
+
         log.info("Initializing skin scraper...")
         skin_scraper = LCUSkinScraper(lcu)
         log.info("✓ Skin scraper initialized")
@@ -729,8 +605,8 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                 # ctypes already imported at top of file
                 ctypes.windll.user32.MessageBoxW(
                     0,
-                    f"LeagueUnlocked failed to initialize:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
-                    "LeagueUnlocked - Initialization Error",
+                    f"Rose failed to initialize:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
+                    "Rose - Initialization Error",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
             except Exception:
@@ -740,25 +616,10 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
     # Database initialization no longer needed - LCU provides all skin and champion data
     db = None
 
-    # Initialize PyQt6 (UI will be initialized when entering ChampSelect)
-    try:
-        log.info("Initializing PyQt6...")
-        qt_app, chroma_selector = initialize_qt_and_chroma(skin_scraper, state, db, app_status, lcu)
-        log.info("✓ PyQt6 initialized (UI will be created when entering ChampSelect)")
-    except Exception as e:
-        log.error("=" * 80)
-        log.error("ERROR DURING PYQT6 INITIALIZATION")
-        log.error("=" * 80)
-        log.error(f"Failed to initialize PyQt6: {e}")
-        log.error(f"Error type: {type(e).__name__}")
-        import traceback
-        log.error(f"Traceback:\n{traceback.format_exc()}")
-        log.error("=" * 80)
-        log.warning("Continuing without PyQt6...")
-        qt_app = None
-        chroma_selector = None
-    
-    
+    # PyQt6 removed - chroma UI is now handled by JavaScript plugins
+    qt_app = None
+    chroma_selector = None
+
     # Initialize injection manager with database (lazy initialization)
     try:
         log.info("Initializing injection manager...")
@@ -798,16 +659,16 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                 # ctypes already imported at top of file
                 ctypes.windll.user32.MessageBoxW(
                     0,
-                    f"LeagueUnlocked failed to initialize injection system:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
-                    "LeagueUnlocked - Injection Error",
+                    f"Rose failed to initialize injection system:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
+                    "Rose - Injection Error",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
             except Exception:
                 pass
         sys.exit(1)
     
-    # Launcher now handles skin downloads; ensure status reflects ready state
-    app_status.mark_download_process_complete()
+    # Launcher now handles skin downloads; mark complete will be called after all initialization
+    # app_status.mark_download_process_complete()  # Moved to after "System ready"
     
     # Multi-language support is no longer needed - we use LCU scraper + English DB
     # Skin names are matched using: Windows UI API (client lang) → LCU scraper → skinId → English DB
@@ -924,7 +785,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                 state.ui_skin_thread.detection_available = False
                 state.ui_skin_thread.detection_attempts = 0
             except Exception as e:
-                log.debug(f"[Main] Failed to reset UISkinThread after disconnection: {e}")
+                log.debug(f"[Main] Failed to reset skin monitor thread after disconnection: {e}")
 
         # Tear down any existing UI overlay so it can be recreated cleanly
         try:
@@ -965,9 +826,9 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                          log_transitions=False, injection_manager=injection_manager, skin_scraper=skin_scraper, db=db)
     thread_manager.register("Phase", t_phase)
     
-    t_ui = UISkinThread(state, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
+    t_ui = PenguSkinMonitorThread(state, lcu, skin_scraper=skin_scraper, injection_manager=injection_manager)
     state.ui_skin_thread = t_ui  # Store reference for access during champion exchange
-    thread_manager.register("UIA Detection", t_ui)
+    thread_manager.register("Pengu Skin Monitor", t_ui, stop_method=t_ui.stop)
     
     t_ws = WSEventThread(lcu, state, ping_interval=args.ws_ping, 
                         ping_timeout=WS_PING_TIMEOUT_DEFAULT, timer_hz=args.timer_hz, 
@@ -994,7 +855,14 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
     # Start all threads
     thread_manager.start_all()
 
-    log.info("System ready - UIA Detection active only in Champion Select")
+    log.info("System ready")
+    
+    # Wait for PenguSkinMonitor thread to be ready (servers started)
+    if t_ui and hasattr(t_ui, 'ready_event'):
+        t_ui.ready_event.wait(timeout=5.0)  # Wait up to 5 seconds for servers to start
+    
+    # Mark app as fully ready after all threads and servers are initialized
+    app_status.mark_download_process_complete()
 
     last_phase = None
     last_loop_time = time.time()
@@ -1018,162 +886,123 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                 last_phase = ph
             
             
-            # Process Qt events if available (process ALL pending events)
-            if qt_app:
-                try:
-                    # Check for skin changes and notify UI (modular architecture)
-                    # For Swiftplay mode, use ui_skin_id and calculate champion_id from skin_id
-                    # For regular mode, use last_hovered_skin_id and locked_champ_id
-                    if state.is_swiftplay_mode and state.ui_skin_id:
-                        current_skin_id = state.ui_skin_id
-                        current_skin_name = state.ui_last_text or f"Skin {current_skin_id}"
-                        # Calculate champion ID from skin ID for Swiftplay
-                        from utils.utilities import get_champion_id_from_skin_id
-                        champion_id = get_champion_id_from_skin_id(current_skin_id)
-                        champion_name = None
-                        # Load champion data if not already loaded
-                        if skin_scraper:
-                            if not skin_scraper.cache.is_loaded_for_champion(champion_id):
-                                skin_scraper.scrape_champion_skins(champion_id)
-                            if skin_scraper.cache.is_loaded_for_champion(champion_id):
-                                champion_name = skin_scraper.cache.champion_name
-                    elif state.last_hovered_skin_id and state.locked_champ_id:
-                        current_skin_id = state.last_hovered_skin_id
-                        current_skin_name = state.last_hovered_skin_key
-                        
-                        # Get champion name from LCU skin scraper cache
-                        champion_name = None
-                        if skin_scraper and skin_scraper.cache.is_loaded_for_champion(state.locked_champ_id):
+            # Check for skin changes and notify UI (modular architecture)
+            try:
+                # For Swiftplay mode, use ui_skin_id and calculate champion_id from skin_id
+                # For regular mode, use last_hovered_skin_id and locked_champ_id
+                if state.is_swiftplay_mode and state.ui_skin_id:
+                    current_skin_id = state.ui_skin_id
+                    current_skin_name = state.ui_last_text or f"Skin {current_skin_id}"
+                    # Calculate champion ID from skin ID for Swiftplay
+                    from utils.utilities import get_champion_id_from_skin_id
+                    champion_id = get_champion_id_from_skin_id(current_skin_id)
+                    champion_name = None
+                    # Load champion data if not already loaded
+                    if skin_scraper:
+                        if not skin_scraper.cache.is_loaded_for_champion(champion_id):
+                            skin_scraper.scrape_champion_skins(champion_id)
+                        if skin_scraper.cache.is_loaded_for_champion(champion_id):
                             champion_name = skin_scraper.cache.champion_name
-                    else:
-                        current_skin_id = None
-                        champion_id = None
-                        champion_name = None
-                        current_skin_name = None
+                elif state.last_hovered_skin_id and state.locked_champ_id:
+                    current_skin_id = state.last_hovered_skin_id
+                    current_skin_name = state.last_hovered_skin_key
                     
-                    # Check if UI should be hidden in Swiftplay mode when detection is lost
-                    if state.is_swiftplay_mode and state.ui_skin_id is None:
-                        # Use a flag to avoid spamming hide() calls
-                        if not hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
-                            try:
-                                from ui.user_interface import get_user_interface
-                                user_interface = get_user_interface()
-                                if user_interface.is_ui_initialized():
-                                    if user_interface.chroma_ui:
-                                        user_interface.chroma_ui.hide()
-                                    if user_interface.unowned_frame:
-                                        user_interface.unowned_frame.hide()
-                                    run_league_unlock._swiftplay_ui_hidden = True
-                                    log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode")
-                            except Exception as e:
-                                log.debug(f"[MAIN] Error hiding UI: {e}")
-                    
-                    if current_skin_id:
-                        # Check if we need to reset skin notification debouncing
-                        if state.reset_skin_notification:
-                            if hasattr(run_league_unlock, '_last_notified_skin_id'):
-                                delattr(run_league_unlock, '_last_notified_skin_id')
-                            state.reset_skin_notification = False
-                            log.debug("[MAIN] Reset skin notification debouncing for new ChampSelect")
-                        
-                        # Check if this is a new skin (debouncing at main loop level)
-                        last_notified = getattr(run_league_unlock, '_last_notified_skin_id', None)
-                        should_notify = (last_notified is None or last_notified != current_skin_id)
-                        
-                        if should_notify:
-                            # Notify UserInterface of the skin change
-                            try:
-                                # Get the user interface that was already initialized
-                                from ui.user_interface import get_user_interface
-                                user_interface = get_user_interface()
-                                if user_interface.is_ui_initialized():
-                                    # Use the correct champion_id (either from Swiftplay or regular mode)
-                                    champ_id_for_ui = champion_id if state.is_swiftplay_mode else state.locked_champ_id
-                                    user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name, champ_id_for_ui)
-                                    log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
-                                    # Track the last notified skin
-                                    run_league_unlock._last_notified_skin_id = current_skin_id
-                                    # Reset hide flag since we're showing a skin
-                                    if hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
-                                        delattr(run_league_unlock, '_swiftplay_ui_hidden')
-                                        log.debug("[MAIN] Reset UI hide flag - skin detected")
-                                else:
-                                    # Only log once per skin to avoid spam
-                                    if not hasattr(run_league_unlock, '_ui_not_initialized_logged') or run_league_unlock._ui_not_initialized_logged != current_skin_id:
-                                        log.debug(f"[MAIN] UI not initialized yet - skipping skin notification for {current_skin_id}")
-                                        run_league_unlock._ui_not_initialized_logged = current_skin_id
-                            except Exception as e:
-                                log.error(f"[MAIN] Failed to notify UI: {e}")
-                    
-                    # Process pending UI initialization and requests
-                    from ui.user_interface import get_user_interface
-                    user_interface = get_user_interface()
-                    
-                    # Process pending UI operations first (must be done in main thread)
-                    if user_interface.has_pending_operations():
-                        log.debug("[MAIN] Processing pending UI operations")
-                    user_interface.process_pending_operations()
-                    
-                    # Handle champion exchange - hide UI elements (must be done in main thread)
-                    if state.champion_exchange_triggered:
+                    # Get champion name from LCU skin scraper cache
+                    champion_name = None
+                    if skin_scraper and skin_scraper.cache.is_loaded_for_champion(state.locked_champ_id):
+                        champion_name = skin_scraper.cache.champion_name
+                else:
+                    current_skin_id = None
+                    champion_id = None
+                    champion_name = None
+                    current_skin_name = None
+                
+                # Check if UI should be hidden in Swiftplay mode when detection is lost
+                if state.is_swiftplay_mode and state.ui_skin_id is None:
+                    # Use a flag to avoid spamming hide() calls
+                    if not hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
                         try:
-                            state.champion_exchange_triggered = False  # Reset flag
+                            from ui.user_interface import get_user_interface
+                            user_interface = get_user_interface()
                             if user_interface.is_ui_initialized():
-                                log.info("[MAIN] Champion exchange detected - hiding UI elements")
-                                
-                                # Hide UnownedFrame by setting opacity to 0
-                                if user_interface.unowned_frame and hasattr(user_interface.unowned_frame, 'opacity_effect'):
-                                    user_interface.unowned_frame.opacity_effect.setOpacity(0.0)
-                                    log.debug("[exchange] UnownedFrame hidden")
-                                
-                                # Hide Chroma Opening Button by hiding it
-                                if (user_interface.chroma_ui and 
-                                    user_interface.chroma_ui.chroma_selector and 
-                                    user_interface.chroma_ui.chroma_selector.panel and
-                                    user_interface.chroma_ui.chroma_selector.panel.reopen_button):
-                                    button = user_interface.chroma_ui.chroma_selector.panel.reopen_button
-                                    button.hide()
-                                    log.debug("[exchange] Chroma Opening Button hidden")
-                                
-                                # Hide RandomFlag (random mode is disabled on champion swap)
-                                if user_interface.random_flag:
-                                    try:
-                                        user_interface.random_flag.hide_flag()
-                                        log.debug("[exchange] RandomFlag hidden")
-                                    except Exception as e:
-                                        log.debug(f"[exchange] Failed to hide RandomFlag: {e}")
-
-                                # Ensure ClickBlocker is visible during exchange (create if missing)
-                                try:
-                                    user_interface._show_click_blocker_on_main_thread()
-                                except Exception:
-                                    pass
+                                if user_interface.chroma_ui:
+                                    user_interface.chroma_ui.hide()
+                                run_league_unlock._swiftplay_ui_hidden = True
+                                log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode")
                         except Exception as e:
-                            log.error(f"[MAIN] Failed to hide UI during champion exchange: {e}")
+                            log.debug(f"[MAIN] Error hiding UI: {e}")
+                
+                if current_skin_id:
+                    # Check if we need to reset skin notification debouncing
+                    if state.reset_skin_notification:
+                        if hasattr(run_league_unlock, '_last_notified_skin_id'):
+                            delattr(run_league_unlock, '_last_notified_skin_id')
+                        state.reset_skin_notification = False
+                        log.debug("[MAIN] Reset skin notification debouncing for new ChampSelect")
                     
-                    if user_interface.is_ui_initialized() and user_interface.chroma_ui and user_interface.chroma_ui.chroma_selector and user_interface.chroma_ui.chroma_selector.panel:
-                        chroma_start = time.time()
-                        user_interface.chroma_ui.chroma_selector.panel.process_pending()
-                        # Update positions to follow League window
-                        user_interface.chroma_ui.chroma_selector.panel.update_positions()
-                        # Refresh z-order for all UI components
-                        user_interface.refresh_z_order()
-                        chroma_elapsed = time.time() - chroma_start
-                        if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
-                            log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
+                    # Check if this is a new skin (debouncing at main loop level)
+                    last_notified = getattr(run_league_unlock, '_last_notified_skin_id', None)
+                    should_notify = (last_notified is None or last_notified != current_skin_id)
                     
-                    # Check for resolution changes and update UI components
-                    if user_interface.is_ui_initialized():
-                        user_interface.check_resolution_and_update()
-                    
-                    # Process all Qt events
-                    qt_start = time.time()
-                    qt_app.processEvents()
-                    qt_elapsed = time.time() - qt_start
-                    if qt_elapsed > QT_EVENT_PROCESSING_THRESHOLD_S:
-                        log.warning(f"[WATCHDOG] Qt event processing took {qt_elapsed:.2f}s")
-                except Exception as e:
-                    log.debug(f"Qt event processing error: {e}")
+                    if should_notify:
+                        # Notify UserInterface of the skin change
+                        try:
+                            # Get the user interface that was already initialized
+                            from ui.user_interface import get_user_interface
+                            user_interface = get_user_interface()
+                            if user_interface.is_ui_initialized():
+                                # Use the correct champion_id (either from Swiftplay or regular mode)
+                                champ_id_for_ui = champion_id if state.is_swiftplay_mode else state.locked_champ_id
+                                user_interface.show_skin(current_skin_id, current_skin_name or f"Skin {current_skin_id}", champion_name, champ_id_for_ui)
+                                log.info(f"[MAIN] Notified UI of skin change: {current_skin_id} - '{current_skin_name}'")
+                                # Track the last notified skin
+                                run_league_unlock._last_notified_skin_id = current_skin_id
+                                # Reset hide flag since we're showing a skin
+                                if hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
+                                    delattr(run_league_unlock, '_swiftplay_ui_hidden')
+                                    log.debug("[MAIN] Reset UI hide flag - skin detected")
+                            else:
+                                # Only log once per skin to avoid spam
+                                if not hasattr(run_league_unlock, '_ui_not_initialized_logged') or run_league_unlock._ui_not_initialized_logged != current_skin_id:
+                                    log.debug(f"[MAIN] UI not initialized yet - skipping skin notification for {current_skin_id}")
+                                    run_league_unlock._ui_not_initialized_logged = current_skin_id
+                        except Exception as e:
+                            log.error(f"[MAIN] Failed to notify UI: {e}")
+                
+                # Process pending UI initialization and requests
+                from ui.user_interface import get_user_interface
+                user_interface = get_user_interface()
+                
+                # Process pending UI operations first (must be done in main thread)
+                if user_interface.has_pending_operations():
+                    log.debug("[MAIN] Processing pending UI operations")
+                user_interface.process_pending_operations()
+                
+                # Handle champion exchange - hide UI elements (must be done in main thread)
+                if state.champion_exchange_triggered:
+                    try:
+                        state.champion_exchange_triggered = False  # Reset flag
+                        if user_interface.is_ui_initialized():
+                            log.info("[MAIN] Champion exchange detected - hiding UI elements")
+                            
+                            # Chroma button is handled by JavaScript plugin - no need to hide Python button
+                    except Exception as e:
+                        log.error(f"[MAIN] Failed to hide UI during champion exchange: {e}")
+                
+                if user_interface.is_ui_initialized() and user_interface.chroma_ui and user_interface.chroma_ui.chroma_selector and user_interface.chroma_ui.chroma_selector.panel:
+                    chroma_start = time.time()
+                    user_interface.chroma_ui.chroma_selector.panel.process_pending()
+                    # Update positions to follow League window
+                    user_interface.chroma_ui.chroma_selector.panel.update_positions()
+                    chroma_elapsed = time.time() - chroma_start
+                    if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
+                        log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
+                
+                # Check for resolution changes and update UI components
+                if user_interface.is_ui_initialized():
+                    user_interface.check_resolution_and_update()
+            except Exception as e:
+                log.debug(f"UI processing error: {e}")
             
             time.sleep(MAIN_LOOP_SLEEP)
     except KeyboardInterrupt:
@@ -1185,6 +1014,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
         state.stop = True
         
         log_section(log, "Cleanup", "🧹")
+        pengu_loader.deactivate_on_exit()
         
         # Stop system tray
         if tray_manager:
@@ -1216,13 +1046,6 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
         # Clean up lock file on exit
         cleanup_lock_file()
         
-        # Clean up z-order manager
-        try:
-            from ui.z_order_manager import cleanup_z_order_manager
-            cleanup_z_order_manager()
-            log.debug("[MAIN] Z-order manager cleaned up")
-        except Exception as e:
-            log.debug(f"[MAIN] Error cleaning up z-order manager: {e}")
         
         # Clean up console if we allocated one
         if sys.platform == "win32":
@@ -1236,7 +1059,7 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
 
 
 def main():
-    """Program entry point that prepares and launches LeagueUnlocked."""
+    """Program entry point that prepares and launches Rose."""
     if sys.platform == "win32":
         try:
             from launcher.launcher import run_launcher
@@ -1260,7 +1083,7 @@ if __name__ == "__main__":
         
         error_msg = f"""
 ================================================================================
-FATAL ERROR - LeagueUnlocked Crashed
+FATAL ERROR - Rose Crashed
 ================================================================================
 Error: {e}
 Type: {type(e).__name__}
@@ -1270,7 +1093,7 @@ Traceback:
 ================================================================================
 
 This error has been logged. Please report this issue with the log file.
-Log location: Check %LOCALAPPDATA%\\LeagueUnlocked\\logs\\
+Log location: Check %LOCALAPPDATA%\\Rose\\logs\\
 ================================================================================
 """
         
@@ -1289,8 +1112,8 @@ Log location: Check %LOCALAPPDATA%\\LeagueUnlocked\\logs\\
                 # ctypes already imported at top of file
                 ctypes.windll.user32.MessageBoxW(
                     0,
-                    f"LeagueUnlocked crashed with an unhandled error:\n\n{str(e)}\n\nError type: {type(e).__name__}\n\nPlease check the log file in:\n%LOCALAPPDATA%\\LeagueUnlocked\\logs\\",
-                    "LeagueUnlocked - Fatal Error",
+                    f"Rose crashed with an unhandled error:\n\n{str(e)}\n\nError type: {type(e).__name__}\n\nPlease check the log file in:\n%LOCALAPPDATA%\\Rose\\logs\\",
+                    "Rose - Fatal Error",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
             except Exception:

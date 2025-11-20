@@ -152,7 +152,7 @@ class LoadoutTicker(threading.Thread):
                 # Check if random mode is active
                 random_mode_active = getattr(self.state, 'random_mode_active', False)
                 random_skin_name = getattr(self.state, 'random_skin_name', None)
-                log.debug(f"[inject] Random mode check: active={random_mode_active}, name={random_skin_name}")
+                log.debug(f"[INJECT] Random mode check: active={random_mode_active}, name={random_skin_name}")
                 
                 # Historic mode override: if active, prefer historic last skin
                 if getattr(self.state, 'historic_mode_active', False) and getattr(self.state, 'historic_skin_id', None):
@@ -194,19 +194,19 @@ class LoadoutTicker(threading.Thread):
                         if is_base_skin(skin_id, chroma_id_map):
                             # This is a base skin - use the skin ID directly
                             name = f"skin_{skin_id}"
-                            log.debug(f"[inject] Using base skin ID from state: '{name}' (ID: {skin_id})")
+                            log.debug(f"[INJECT] Using base skin ID from state: '{name}' (ID: {skin_id})")
                         else:
                             # This is a chroma - use the chroma ID directly with chroma_ prefix
                             name = f"chroma_{skin_id}"
-                            log.debug(f"[inject] Using chroma ID from state: '{name}' (chroma: {skin_id})")
+                            log.debug(f"[INJECT] Using chroma ID from state: '{name}' (chroma: {skin_id})")
                     else:
                         # No skin ID available - this is an error condition
-                        log.error(f"[inject] No skin ID available for injection - this should not happen")
-                        log.error(f"[inject] State: last_hovered_skin_id={getattr(self.state, 'last_hovered_skin_id', None)}")
-                        log.error(f"[inject] State: last_hovered_skin_key={getattr(self.state, 'last_hovered_skin_key', None)}")
+                        log.error(f"[INJECT] No skin ID available for injection - this should not happen")
+                        log.error(f"[INJECT] State: last_hovered_skin_id={getattr(self.state, 'last_hovered_skin_id', None)}")
+                        log.error(f"[INJECT] State: last_hovered_skin_key={getattr(self.state, 'last_hovered_skin_key', None)}")
                         name = None
                 
-                log.debug(f"[inject] Final name variable: '{name}'")
+                log.debug(f"[INJECT] Final name variable: '{name}'")
                 
                 if name:
                     # Mark that we've processed the last hovered skin for injection
@@ -222,24 +222,25 @@ class LoadoutTicker(threading.Thread):
                         lcu_skin_id = self.state.selected_skin_id
                         owned_skin_ids = self.state.owned_skin_ids
                         
-                        # Skip injection for base skins
+                        # Skip injection for base skins - inject mods only instead
                         if ui_skin_id == 0:
-                            log.info(f"[inject] skipping base skin injection (skinId=0)")
-                            # Resume game if persistent monitor suspended it
+                            log.info(f"[INJECT] skipping base skin injection (skinId=0) - injecting mods only")
+                            # Inject mods only (no skin)
                             if self.injection_manager:
                                 try:
-                                    self.injection_manager.resume_if_suspended()
+                                    self.injection_manager._check_and_inject_mods_only()
                                 except Exception as e:
-                                    log.warning(f"[inject] Failed to resume game after skipping base skin: {e}")
+                                    log.warning(f"[INJECT] Failed to inject mods only: {e}")
+                                    self.injection_manager.resume_if_suspended()
                         # Force owned skins/chromas instead of injecting (since owned, we can select them normally)
                         elif ui_skin_id in owned_skin_ids:
-                            log.info(f"[inject] User owns this skin/chroma (skinId={ui_skin_id}), forcing selection via LCU")
+                            log.info(f"[INJECT] User owns this skin/chroma (skinId={ui_skin_id}), forcing selection via LCU")
                             
                             # Force the owned skin/chroma using LCU API (same mechanism as base skin forcing)
                             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                             if champ_id and self.lcu:
                                 target_skin_id = ui_skin_id
-                                log.info(f"[inject] Forcing owned skin/chroma (skinId={target_skin_id})")
+                                log.info(f"[INJECT] Forcing owned skin/chroma (skinId={target_skin_id})")
                                 
                                 forced_successfully = False
                                 
@@ -263,10 +264,10 @@ class LoadoutTicker(threading.Thread):
                                                 if not is_action_completed:
                                                     if action_id is not None:
                                                         if self.lcu.set_selected_skin(action_id, target_skin_id):
-                                                            log.info(f"[inject] ✓ Owned skin/chroma forced via action")
+                                                            log.info(f"[INJECT] ✓ Owned skin/chroma forced via action")
                                                             forced_successfully = True
                                                         else:
-                                                            log.debug(f"[inject] Action-based approach failed")
+                                                            log.debug(f"[INJECT] Action-based approach failed")
                                                 break
                                         if action_found:
                                             break
@@ -274,10 +275,10 @@ class LoadoutTicker(threading.Thread):
                                     # If action-based approach failed, try my-selection endpoint
                                     if not forced_successfully:
                                         if self.lcu.set_my_selection_skin(target_skin_id):
-                                            log.info(f"[inject] ✓ Owned skin/chroma forced via my-selection")
+                                            log.info(f"[INJECT] ✓ Owned skin/chroma forced via my-selection")
                                             forced_successfully = True
                                         else:
-                                            log.warning(f"[inject] ✗ Failed to force owned skin/chroma")
+                                            log.warning(f"[INJECT] ✗ Failed to force owned skin/chroma")
                                     
                                     # Verify the change was applied
                                     if forced_successfully:
@@ -290,22 +291,22 @@ class LoadoutTicker(threading.Thread):
                                                 if player.get("cellId") == my_cell:
                                                     current_skin = player.get("selectedSkinId")
                                                     if current_skin == target_skin_id:
-                                                        log.info(f"[inject] ✓ Owned skin/chroma verified: {current_skin}")
+                                                        log.info(f"[INJECT] ✓ Owned skin/chroma verified: {current_skin}")
                                                     else:
-                                                        log.warning(f"[inject] Verification failed: {current_skin} != {target_skin_id}")
+                                                        log.warning(f"[INJECT] Verification failed: {current_skin} != {target_skin_id}")
                                                     break
                                         else:
-                                            log.info(f"[inject] Skipping verification wait in random mode")
+                                            log.info(f"[INJECT] Skipping verification wait in random mode")
                                     
                                 except Exception as e:
-                                    log.warning(f"[inject] Error forcing owned skin/chroma: {e}")
+                                    log.warning(f"[INJECT] Error forcing owned skin/chroma: {e}")
                             
                             # Resume game if persistent monitor suspended it
                             if self.injection_manager:
                                 try:
                                     self.injection_manager.resume_if_suspended()
                                 except Exception as e:
-                                    log.warning(f"[inject] Failed to resume game after forcing owned skin: {e}")
+                                    log.warning(f"[INJECT] Failed to resume game after forcing owned skin: {e}")
                         # Inject if user doesn't own the hovered skin
                         elif self.injection_manager:
                             try:
@@ -332,44 +333,44 @@ class LoadoutTicker(threading.Thread):
                                                     actual_lcu_skin_id = int(actual_lcu_skin_id)
                                                 break
                                     except Exception as e:
-                                        log.debug(f"[inject] Failed to read actual LCU skin ID: {e}")
+                                        log.debug(f"[INJECT] Failed to read actual LCU skin ID: {e}")
                                     
                                     # Only force base skin if current ACTUAL selection is not already base skin
                                     if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
-                                        log.info(f"[inject] Forcing base skin (skinId={base_skin_id}, was {actual_lcu_skin_id})")
+                                        log.info(f"[INJECT] Forcing base skin (skinId={base_skin_id}, was {actual_lcu_skin_id})")
                                         
                                         # Hide chroma border/wheel immediately when forcing base skin
-                                        log.debug(f"[inject] About to hide UI components")
+                                        log.debug(f"[INJECT] About to hide UI components")
                                         try:
-                                            log.debug(f"[inject] Importing user_interface")
+                                            log.debug(f"[INJECT] Importing user_interface")
                                             from ui.user_interface import get_user_interface
-                                            log.debug(f"[inject] Getting user interface instance")
+                                            log.debug(f"[INJECT] Getting user interface instance")
                                             user_interface = get_user_interface(self.state, self.skin_scraper)
-                                            log.debug(f"[inject] Checking if UI is initialized: {user_interface.is_ui_initialized()}")
+                                            log.debug(f"[INJECT] Checking if UI is initialized: {user_interface.is_ui_initialized()}")
                                             if user_interface.is_ui_initialized():
-                                                log.debug(f"[inject] Scheduling hide_all() on main thread")
+                                                log.debug(f"[INJECT] Scheduling hide_all() on main thread")
                                                 # Schedule UI hiding on main thread to avoid PyQt6 thread issues
                                                 user_interface._schedule_hide_all_on_main_thread()
-                                                log.debug(f"[inject] hide_all() scheduled")
+                                                log.debug(f"[INJECT] hide_all() scheduled")
                                                 
-                                                log.info("[inject] UI hiding scheduled - base skin forced for injection")
+                                                log.info("[INJECT] UI hiding scheduled - base skin forced for injection")
                                             else:
-                                                log.debug(f"[inject] UI not initialized, skipping hide")
+                                                log.debug(f"[INJECT] UI not initialized, skipping hide")
                                         except Exception as e:
-                                            log.warning(f"[inject] Failed to schedule UI hide: {e}")
+                                            log.warning(f"[INJECT] Failed to schedule UI hide: {e}")
                                             import traceback
-                                            log.warning(f"[inject] UI hide traceback: {traceback.format_exc()}")
+                                            log.warning(f"[INJECT] UI hide traceback: {traceback.format_exc()}")
                                         
-                                        log.debug(f"[inject] UI hiding block completed")
+                                        log.debug(f"[INJECT] UI hiding block completed")
                                         
                                         base_skin_set_successfully = False
                                         
-                                        log.debug(f"[inject] Starting base skin forcing process")
-                                        log.debug(f"[inject] LCU ok: {self.lcu.ok}, phase: {self.state.phase}")
+                                        log.debug(f"[INJECT] Starting base skin forcing process")
+                                        log.debug(f"[INJECT] LCU ok: {self.lcu.ok}, phase: {self.state.phase}")
                                         # Find the user's action ID to update
                                         try:
                                             sess = self.lcu.session or {}  # session is a property, not a method!
-                                            log.debug(f"[inject] Got LCU session, actions: {sess.get('actions')}")
+                                            log.debug(f"[INJECT] Got LCU session, actions: {sess.get('actions')}")
                                             actions = sess.get("actions") or []
                                             my_cell = self.state.local_cell_id
                                             
@@ -387,10 +388,10 @@ class LoadoutTicker(threading.Thread):
                                                         if not is_action_completed:
                                                             if action_id is not None:
                                                                 if self.lcu.set_selected_skin(action_id, base_skin_id):
-                                                                    log.info(f"[inject] ✓ Base skin forced via action")
+                                                                    log.info(f"[INJECT] ✓ Base skin forced via action")
                                                                     base_skin_set_successfully = True
                                                                 else:
-                                                                    log.debug(f"[inject] Action-based approach failed")
+                                                                    log.debug(f"[INJECT] Action-based approach failed")
                                                         break
                                                 if action_found:
                                                     break
@@ -398,10 +399,10 @@ class LoadoutTicker(threading.Thread):
                                             # If action-based approach failed, try my-selection endpoint
                                             if not base_skin_set_successfully:
                                                 if self.lcu.set_my_selection_skin(base_skin_id):
-                                                    log.info(f"[inject] ✓ Base skin forced via my-selection")
+                                                    log.info(f"[INJECT] ✓ Base skin forced via my-selection")
                                                     base_skin_set_successfully = True
                                                 else:
-                                                    log.warning(f"[inject] ✗ Failed to force base skin")
+                                                    log.warning(f"[INJECT] ✗ Failed to force base skin")
                                             
                                             # Verify the change was applied
                                             if base_skin_set_successfully:
@@ -414,21 +415,21 @@ class LoadoutTicker(threading.Thread):
                                                         if player.get("cellId") == my_cell:
                                                             current_skin = player.get("selectedSkinId")
                                                             if current_skin != base_skin_id:
-                                                                log.warning(f"[inject] Base skin verification failed: {current_skin} != {base_skin_id}")
+                                                                log.warning(f"[INJECT] Base skin verification failed: {current_skin} != {base_skin_id}")
                                                             else:
-                                                                log.info(f"[inject] ✓ Base skin verified: {current_skin}")
+                                                                log.info(f"[INJECT] ✓ Base skin verified: {current_skin}")
                                                             break
                                                 else:
-                                                    log.info(f"[inject] Skipping base skin verification wait in random mode")
+                                                    log.info(f"[INJECT] Skipping base skin verification wait in random mode")
                                             else:
-                                                log.warning(f"[inject] Failed to force base skin - injection may fail")
+                                                log.warning(f"[INJECT] Failed to force base skin - injection may fail")
                                                 
                                         except Exception as e:
-                                            log.error(f"[inject] ✗ Error forcing base skin: {e}")
+                                            log.error(f"[INJECT] ✗ Error forcing base skin: {e}")
                                             import traceback
-                                            log.error(f"[inject] Traceback: {traceback.format_exc()}")
+                                            log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
                                 
-                                log.debug(f"[inject] Base skin forcing block completed, continuing to injection")
+                                log.debug(f"[INJECT] Base skin forcing block completed, continuing to injection")
                                 # Track if we've been in InProgress phase
                                 has_been_in_progress = False
                                 
@@ -446,7 +447,7 @@ class LoadoutTicker(threading.Thread):
                                     return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
                                 
                                 # Inject skin in a separate thread to avoid blocking the ticker
-                                log.info(f"[inject] Starting injection: {name}")
+                                log.info(f"[INJECT] Starting injection: {name}")
                                 
                                 # Capture champion ID now to avoid it becoming None later (phase changes)
                                 champ_id_for_history = self.state.locked_champ_id
@@ -455,7 +456,7 @@ class LoadoutTicker(threading.Thread):
                                     try:
                                         # Check if LCU is still valid before starting injection
                                         if not self.lcu.ok:
-                                            log.warning(f"[inject] LCU not available, skipping injection")
+                                            log.warning(f"[INJECT] LCU not available, skipping injection")
                                             return
                                         
                                         success = self.injection_manager.inject_skin_immediately(
@@ -499,7 +500,7 @@ class LoadoutTicker(threading.Thread):
                                             log.error("=" * LOG_SEPARATOR_WIDTH)
                                             log.error(f"❌ INJECTION FAILED >>> {name.upper()} <<<")
                                             log.error("=" * LOG_SEPARATOR_WIDTH)
-                                            log.error(f"[inject] Skin will likely NOT appear in-game")
+                                            log.error(f"[INJECT] Skin will likely NOT appear in-game")
                                         
                                         # Request UI destruction after injection completes
                                         try:
@@ -508,18 +509,18 @@ class LoadoutTicker(threading.Thread):
                                             user_interface.request_ui_destruction()
                                             log_action(log, "UI destruction requested after injection completion", "🧹")
                                         except Exception as e:
-                                            log.warning(f"[inject] Failed to request UI destruction after injection: {e}")
+                                            log.warning(f"[INJECT] Failed to request UI destruction after injection: {e}")
                                     except Exception as e:
-                                        log.error(f"[inject] injection thread error: {e}")
+                                        log.error(f"[INJECT] injection thread error: {e}")
                                 
                                 injection_thread = threading.Thread(target=run_injection, daemon=True, name="InjectionThread")
                                 injection_thread.start()
                                 
                                 # Removed injection timeout that interfered with the timer ticker
                             except Exception as e:
-                                log.error(f"[inject] injection error: {e}")
+                                log.error(f"[INJECT] injection error: {e}")
                         else:
-                            log.warning(f"[inject] no injection manager available")
+                            log.warning(f"[INJECT] no injection manager available")
                     except Exception as e:
                         log.warning(f"[loadout #{self.ticker_id}] injection setup failed: {e}")
                 else:

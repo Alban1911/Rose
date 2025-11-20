@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Build script for LeagueUnlocked using PyInstaller
+Build script for Rose using PyInstaller
 Fast builds with Windows UI API support
 """
 
@@ -15,7 +15,7 @@ from pathlib import Path
 MIN_PYTHON = (3, 11)
 if sys.version_info < MIN_PYTHON:
     sys.stderr.write(
-        f"LeagueUnlocked build scripts require Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer.\n"
+        f"Rose build scripts require Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer.\n"
         "Please re-run using an updated interpreter.\n"
     )
     sys.exit(1)
@@ -74,7 +74,7 @@ def build_with_pyinstaller():
         "pyinstaller",
         "--clean",
         "--noconfirm",
-        "LeagueUnlocked.spec",
+        "Rose.spec",
     ]
     
     print(f"Running: {' '.join(cmd)}\n")
@@ -92,7 +92,7 @@ def organize_output():
     """Organize output files and verify"""
     print_step(3, 3, "Organizing Output & Verification")
     
-    dist_folder = Path("dist/LeagueUnlocked")
+    dist_folder = Path("dist/Rose")
     
     if not dist_folder.exists():
         print("[ERROR] Build output not found!")
@@ -103,7 +103,7 @@ def organize_output():
 
 def main():
     """Main build process"""
-    print_header("LeagueUnlocked - PyInstaller Build")
+    print_header("Rose - PyInstaller Build")
     
     start_time = time.time()
     
@@ -124,7 +124,7 @@ def main():
     
     print_header("[OK] BUILD COMPLETED SUCCESSFULLY!")
     
-    exe_path = Path("dist/LeagueUnlocked/LeagueUnlocked.exe")
+    exe_path = Path("dist/Rose/Rose.exe")
     
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
@@ -135,7 +135,6 @@ def main():
         print(f"\nYour application is ready!")
         print(f"\nMode: STANDALONE (folder with all dependencies)")
         print(f"  - All DLLs and dependencies included")
-        print(f"  - Windows UI API should be fully functional!")
         print(f"  - CSLOL tools included")
         
         print(f"\nProtection:")
@@ -144,12 +143,8 @@ def main():
         print(f"  - Good enough against casual theft")
         
         print(f"\nTo test:")
-        print(f"  cd dist\\LeagueUnlocked")
-        print(f"  LeagueUnlocked.exe")
-        
-        print(f"\nIMPORTANT: Check the log file after running!")
-        print(f"  Look for: 'UIA Detection: Thread ready' message")
-        print(f"  If you see that, Windows UI API is working!")
+        print(f"  cd dist\\Rose")
+        print(f"  Rose.exe")
     else:
         print("[ERROR] Executable not found!")
         sys.exit(1)

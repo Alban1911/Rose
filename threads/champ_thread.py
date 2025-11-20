@@ -57,23 +57,15 @@ class ChampThread(threading.Thread):
             self.state.historic_mode_active = False
             self.state.historic_skin_id = None
             self.state.historic_first_detection_done = False
-            # Hide Historic flag if it was visible
-            try:
-                from ui.user_interface import get_user_interface
-                ui = get_user_interface(self.state, self.skin_scraper)
-                ui.hide_historic_flag()
-            except Exception:
-                pass
         except Exception:
             pass
 
-        # Clear UIA cache to detect new champion's skin
+        # Clear cache to detect new champion's skin
         if self.state.ui_skin_thread:
             try:
                 self.state.ui_skin_thread.clear_cache()
-                log.debug("[exchange] UIA cache cleared")
             except Exception as e:
-                log.error(f"[exchange] Failed to clear UIA cache: {e}")
+                log.error(f"[exchange] Failed to clear cache: {e}")
         
         # Trigger UI hiding in main thread by setting flag
         self.state.champion_exchange_triggered = True
@@ -169,21 +161,26 @@ class ChampThread(threading.Thread):
                             except Exception as e:
                                 log.error(f"[lock:champ] Failed to request chroma panel creation: {e}")
                         
-                        # Create ClickCatchers on champion lock (when not in Swiftplay)
-                        from ui.user_interface import get_user_interface
-                        user_interface = get_user_interface(self.state, self.skin_scraper)
-                        if user_interface:
-                            try:
-                                user_interface.create_click_catchers()
-                                log.debug(f"[lock:champ] Requested ClickCatcher creation for {nm}")
-                            except Exception as e:
-                                log.error(f"[lock:champ] Failed to create ClickCatchers: {e}")
-                    
                     # Always update the state, even for the same champion
+                    old_lock = self.last_lock
                     self.state.locked_champ_id = locked
                     self.state.locked_champ_timestamp = time.time()  # Record lock time
                     self.last_lock = locked
                     self.last_locked_champion_id = locked  # Update tracking for next comparison
+                    
+                    # Reset historic mode state for new champion lock (if champion changed)
+                    if old_lock != locked:
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        self.state.historic_first_detection_done = False
+                        log.debug(f"[lock:champ] Reset historic mode state for new champion lock")
+                        
+                        # Broadcast deactivated state to JavaScript (hide flag)
+                        try:
+                            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                self.state.ui_skin_thread._broadcast_historic_state()
+                        except Exception as e:
+                            log.debug(f"[lock:champ] Failed to broadcast historic state reset: {e}")
             except Exception:
                 pass
             time.sleep(self.interval)
