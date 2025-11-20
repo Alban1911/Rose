@@ -8,6 +8,7 @@ Handles the actual skin injection using CSLOL tools
 import subprocess
 import time
 import configparser
+import threading
 from pathlib import Path
 from typing import List, Dict, Optional
 import zipfile
@@ -22,7 +23,7 @@ except ImportError:
     psutil = None
 
 from utils.logging import get_logger, log_action, log_success, log_event
-from utils.paths import get_skins_dir, get_injection_dir
+from utils.paths import get_skins_dir, get_injection_dir, get_user_data_dir
 from config import (
     PROCESS_TERMINATE_TIMEOUT_S, 
     PROCESS_TERMINATE_WAIT_S,
@@ -78,7 +79,6 @@ class SkinInjector:
         if tools_dir:
             self.tools_dir = tools_dir
         else:
-            # Use default "tools" folder
             self.tools_dir = injection_dir / "tools"
         # Use user data directory for mods and skins to avoid permission issues
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
@@ -274,7 +274,7 @@ class SkinInjector:
             skin_name: Optional base skin name for chroma lookup
             champion_id: Optional champion ID for path construction.
         """
-        log.debug(f"[inject] Resolving zip for: '{zip_arg}' (chroma_id: {chroma_id}, skin_name: {skin_name})")
+        log.debug(f"[INJECT] Resolving zip for: '{zip_arg}' (chroma_id: {chroma_id}, skin_name: {skin_name})")
         cand = Path(zip_arg)
         if cand.exists():
             return cand
@@ -286,7 +286,7 @@ class SkinInjector:
             # Format: skin_{skin_id} - check if this is actually a chroma
             skin_id = int(zip_arg.split('_')[1])
             if not champion_id:
-                log.warning(f"[inject] No champion_id provided for skin ID: {skin_id}")
+                log.warning(f"[INJECT] No champion_id provided for skin ID: {skin_id}")
                 return None
             
             # If chroma_id is provided, this is actually a chroma (Swiftplay case)
@@ -294,7 +294,7 @@ class SkinInjector:
                 # Look for chroma: {champion_id}/{base_skin_id}/{chroma_id}/{chroma_id}.zip
                 champion_dir = self.zips_dir / str(champion_id)
                 if not champion_dir.exists():
-                    log.warning(f"[inject] Champion directory not found: {champion_dir}")
+                    log.warning(f"[INJECT] Champion directory not found: {champion_dir}")
                     return None
                 
                 # Search through all skin directories for this champion to find the chroma
@@ -312,21 +312,21 @@ class SkinInjector:
                     if chroma_dir.exists():
                         chroma_zip_path = chroma_dir / f"{chroma_id}.zip"
                         if chroma_zip_path.exists():
-                            log.debug(f"[inject] Found chroma ZIP: {chroma_zip_path}")
+                            log.debug(f"[INJECT] Found chroma ZIP: {chroma_zip_path}")
                             return chroma_zip_path
                 
-                log.warning(f"[inject] Chroma ZIP not found for ID: {chroma_id}")
+                log.warning(f"[INJECT] Chroma ZIP not found for ID: {chroma_id}")
                 return None
             
             # This is a base skin - Look for {champion_id}/{skin_id}/{skin_id}.zip
             skin_zip_path = self.zips_dir / str(champion_id) / str(skin_id) / f"{skin_id}.zip"
             if skin_zip_path.exists():
-                log.debug(f"[inject] Found skin ZIP: {skin_zip_path}")
+                log.debug(f"[INJECT] Found skin ZIP: {skin_zip_path}")
                 return skin_zip_path
             else:
                 # Not found as base skin - might be a chroma that was incorrectly labeled as skin_
                 # Try searching for it as a chroma in any base skin directory
-                log.debug(f"[inject] Base skin not found, checking if {skin_id} is a chroma...")
+                log.debug(f"[INJECT] Base skin not found, checking if {skin_id} is a chroma...")
                 champion_dir = self.zips_dir / str(champion_id)
                 if champion_dir.exists():
                     for skin_dir in champion_dir.iterdir():
@@ -342,23 +342,23 @@ class SkinInjector:
                         if chroma_dir.exists():
                             chroma_zip_path = chroma_dir / f"{skin_id}.zip"
                             if chroma_zip_path.exists():
-                                log.debug(f"[inject] Found chroma ZIP (mislabeled as skin_): {chroma_zip_path}")
+                                log.debug(f"[INJECT] Found chroma ZIP (mislabeled as skin_): {chroma_zip_path}")
                                 return chroma_zip_path
                 
-                log.warning(f"[inject] Skin ZIP not found: {skin_zip_path}")
+                log.warning(f"[INJECT] Skin ZIP not found: {skin_zip_path}")
                 return None
         
         elif zip_arg.startswith('chroma_'):
             # Format: chroma_{chroma_id} - this is a chroma
             chroma_id = int(zip_arg.split('_')[1])
             if not champion_id:
-                log.warning(f"[inject] No champion_id provided for chroma ID: {chroma_id}")
+                log.warning(f"[INJECT] No champion_id provided for chroma ID: {chroma_id}")
                 return None
             
             # Look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
             champion_dir = self.zips_dir / str(champion_id)
             if not champion_dir.exists():
-                log.warning(f"[inject] Champion directory not found: {champion_dir}")
+                log.warning(f"[INJECT] Champion directory not found: {champion_dir}")
                 return None
             
             # Search through all skin directories for this champion to find the chroma
@@ -377,21 +377,21 @@ class SkinInjector:
                 if chroma_dir.exists():
                     chroma_zip_path = chroma_dir / f"{chroma_id}.zip"
                     if chroma_zip_path.exists():
-                        log.debug(f"[inject] Found chroma ZIP: {chroma_zip_path}")
+                        log.debug(f"[INJECT] Found chroma ZIP: {chroma_zip_path}")
                         return chroma_zip_path
             
-            log.warning(f"[inject] Chroma ZIP not found for ID: {chroma_id}")
+            log.warning(f"[INJECT] Chroma ZIP not found for ID: {chroma_id}")
             return None
 
         # For base skins (no chroma_id), we need skin_id
         if chroma_id is None and skin_name:
             if not champion_id:
-                log.warning(f"[inject] No champion_id provided for skin lookup: {skin_name}")
+                log.warning(f"[INJECT] No champion_id provided for skin lookup: {skin_name}")
                 return None
             
             # The UIA system should have already resolved skin_name to skin_id
             # If we're here, it means skin_id wasn't provided, which shouldn't happen
-            log.warning(f"[inject] No skin_id provided for skin '{skin_name}' - UIA should have resolved this")
+            log.warning(f"[INJECT] No skin_id provided for skin '{skin_name}' - UIA should have resolved this")
             return None
 
         # If chroma_id is provided, look in chroma subdirectory structure
@@ -399,7 +399,7 @@ class SkinInjector:
         if chroma_id is not None:
             # Special handling for Elementalist Lux forms (fake IDs 99991-99999)
             if 99991 <= chroma_id <= 99999:
-                log.info(f"[inject] Detected Elementalist Lux form fake ID: {chroma_id}")
+                log.info(f"[INJECT] Detected Elementalist Lux form fake ID: {chroma_id}")
                 
                 # Map fake IDs to form names
                 form_names = {
@@ -415,7 +415,7 @@ class SkinInjector:
                 }
                 
                 form_name = form_names.get(chroma_id, 'Unknown')
-                log.info(f"[inject] Looking for Elementalist Lux {form_name} form")
+                log.info(f"[INJECT] Looking for Elementalist Lux {form_name} form")
                 
                 # Look for the form file in the Lux directory
                 form_pattern = f"Lux Elementalist {form_name}.zip"
@@ -424,12 +424,12 @@ class SkinInjector:
                     log_success(log, f"Found Elementalist Lux {form_name} form: {form_files[0].name}", "✨")
                     return form_files[0]
                 else:
-                    log.warning(f"[inject] Elementalist Lux {form_name} form file not found: {form_pattern}")
+                    log.warning(f"[INJECT] Elementalist Lux {form_name} form file not found: {form_pattern}")
                     return None
             
             # For regular chromas, look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
             if not champion_id:
-                log.warning(f"[inject] No champion_id provided for chroma lookup: {chroma_id}")
+                log.warning(f"[INJECT] No champion_id provided for chroma lookup: {chroma_id}")
                 return None
             
             # For chromas, we need to find which skin they belong to
@@ -437,7 +437,7 @@ class SkinInjector:
             # through all skin directories for this champion to find the chroma
             champion_dir = self.zips_dir / str(champion_id)
             if not champion_dir.exists():
-                log.warning(f"[inject] Champion directory not found: {champion_dir}")
+                log.warning(f"[INJECT] Champion directory not found: {champion_dir}")
                 return None
             
             # Search through all skin directories for this champion
@@ -460,12 +460,12 @@ class SkinInjector:
                     # Not a skin directory, skip
                     continue
             
-            log.warning(f"[inject] Chroma {chroma_id} not found in any skin directory for champion {champion_id}")
+            log.warning(f"[INJECT] Chroma {chroma_id} not found in any skin directory for champion {champion_id}")
             return None
 
         # For regular skin files (no chroma_id), we need to find by skin_id
         # This is a simplified approach - in practice, you'd want to use LCU data
-        log.warning(f"[inject] Base skin lookup by name not fully implemented for new structure: {zip_arg}")
+        log.warning(f"[INJECT] Base skin lookup by name not fully implemented for new structure: {zip_arg}")
         return None
     
     def _clean_mods_dir(self):
@@ -488,9 +488,9 @@ class SkinInjector:
         if overlay_dir.exists():
             try:
                 shutil.rmtree(overlay_dir, ignore_errors=True)
-                log.debug("[inject] Cleaned overlay directory")
+                log.debug("[INJECT] Cleaned overlay directory")
             except Exception as e:
-                log.warning(f"[inject] Failed to clean overlay directory: {e}")
+                log.warning(f"[INJECT] Failed to clean overlay directory: {e}")
         overlay_dir.mkdir(parents=True, exist_ok=True)
     
     def _extract_zip_to_mod(self, zp: Path) -> Path:
@@ -504,7 +504,113 @@ class SkinInjector:
         log_success(log, f"Extracted {zp.name}", "📦")
         return target
     
-    def _mk_run_overlay(self, mod_names: List[str], timeout: int = 60, stop_callback=None, injection_manager=None) -> int:
+    def _get_user_mods_dir(self) -> Path:
+        """Get the user mods directory (AppData\\Local\\Rose\\mods)"""
+        return get_user_data_dir() / "mods"
+    
+    def _get_installed_mods_dir(self) -> Path:
+        """Get the installed mods directory (AppData\\Local\\Rose\\mods\\installed)"""
+        return self._get_user_mods_dir() / "installed"
+    
+    def _extract_user_mods(self) -> List[str]:
+        """Check for ZIPs and .fantome files in AppData\\Local\\Rose\\mods and extract them to installed subfolder.
+        
+        Returns:
+            List of extracted mod folder names (relative to mods_dir)
+        """
+        user_mods_dir = self._get_user_mods_dir()
+        installed_dir = self._get_installed_mods_dir()
+        
+        # Create directories if they don't exist
+        user_mods_dir.mkdir(parents=True, exist_ok=True)
+        installed_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Find all ZIP and .fantome files in the user mods directory
+        zip_files = list(user_mods_dir.glob("*.zip"))
+        fantome_files = list(user_mods_dir.glob("*.fantome"))
+        all_files = zip_files + fantome_files
+        
+        if not all_files:
+            log.debug("[INJECT] No ZIP or .fantome files found in user mods directory")
+            return []
+        
+        log.info(f"[INJECT] Found {len(zip_files)} ZIP file(s) and {len(fantome_files)} .fantome file(s) in user mods directory")
+        extracted_mods = []
+        
+        for mod_file in all_files:
+            try:
+                # Extract to installed directory
+                target = installed_dir / mod_file.stem
+                if target.exists():
+                    # Remove existing extraction if it exists
+                    shutil.rmtree(target, ignore_errors=True)
+                target.mkdir(parents=True, exist_ok=True)
+                
+                # .fantome files are like ZIP files, so we can extract them the same way
+                with zipfile.ZipFile(mod_file, "r") as zf:
+                    zf.extractall(target)
+                
+                file_type = "ZIP" if mod_file.suffix == ".zip" else ".fantome"
+                log_success(log, f"Extracted user mod ({file_type}): {mod_file.name}", "📦")
+                extracted_mods.append(target.name)
+                
+                # Delete the source file after successful extraction to avoid re-extracting every game
+                try:
+                    mod_file.unlink()
+                    log.debug(f"[INJECT] Deleted source file: {mod_file.name}")
+                except Exception as e:
+                    log.warning(f"[INJECT] Failed to delete source file {mod_file.name}: {e}")
+                
+            except Exception as e:
+                log.warning(f"[INJECT] Failed to extract {mod_file.name}: {e}")
+                continue
+        
+        return extracted_mods
+    
+    def _copy_installed_mods_to_mods_dir(self) -> List[str]:
+        """Copy mods from installed directory to the injection mods directory.
+        
+        Returns:
+            List of mod folder names that were copied (for use in mkoverlay)
+        """
+        installed_dir = self._get_installed_mods_dir()
+        
+        if not installed_dir.exists():
+            log.debug("[INJECT] Installed mods directory does not exist")
+            return []
+        
+        # Find all directories in installed folder
+        mod_dirs = [d for d in installed_dir.iterdir() if d.is_dir()]
+        
+        if not mod_dirs:
+            log.debug("[INJECT] No mods found in installed directory")
+            return []
+        
+        log.info(f"[INJECT] Copying {len(mod_dirs)} mod(s) from installed directory")
+        copied_mods = []
+        
+        for mod_dir in mod_dirs:
+            try:
+                # Copy to injection mods directory
+                target = self.mods_dir / mod_dir.name
+                if target.exists():
+                    # Remove existing mod if it exists
+                    shutil.rmtree(target, ignore_errors=True)
+                
+                shutil.copytree(mod_dir, target)
+                copied_mods.append(mod_dir.name)
+                log.debug(f"[INJECT] Copied mod: {mod_dir.name}")
+                
+            except Exception as e:
+                log.warning(f"[INJECT] Failed to copy mod {mod_dir.name}: {e}")
+                continue
+        
+        if copied_mods:
+            log_success(log, f"Copied {len(copied_mods)} mod(s) to injection directory", "📦")
+        
+        return copied_mods
+    
+    def _mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback=None, injection_manager=None) -> int:
         """Create and run overlay
         
         Args:
@@ -532,12 +638,15 @@ class SkinInjector:
         gpath = str(self.game_dir)
 
         # Create overlay (this is the actual injection work)
+        # Based on CSLOL source: flags.contains("--ignoreConflict") in main_mod_tools.cpp:332
+        # Documentation: mod-tools.md shows --ignoreConflict flag (camelCase, no --opts: prefix)
         cmd = [
             str(exe), "mkoverlay", str(self.mods_dir), str(overlay_dir),
-            f"--game:{gpath}", f"--mods:{names_str}", "--noTFT"
+            f"--game:{gpath}", f"--mods:{names_str}", "--noTFT",
+            "--ignoreConflict"
         ]
         
-        log.debug(f"[inject] Creating overlay: {' '.join(cmd)}")
+        log.debug(f"[INJECT] Creating overlay: {' '.join(cmd)}")
         mkoverlay_start = time.time()
         try:
             # Hide console window on Windows
@@ -547,25 +656,61 @@ class SkinInjector:
                 import subprocess
                 creationflags = subprocess.CREATE_NO_WINDOW
             
-            # Don't capture stdout to avoid pipe buffer deadlock - send to devnull instead
+            # Capture both stdout and stderr - CSLOL uses logi() which may write to stdout
             import os
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, text=True, bufsize=1)
             
             # Boost process priority to maximize CPU contention if enabled
             if ENABLE_PRIORITY_BOOST and PSUTIL_AVAILABLE:
                 try:
                     p = psutil.Process(proc.pid)
                     p.nice(psutil.HIGH_PRIORITY_CLASS)
-                    log.debug(f"[inject] Boosted mkoverlay process priority (PID={proc.pid})")
+                    log.debug(f"[INJECT] Boosted mkoverlay process priority (PID={proc.pid})")
                 except Exception as e:
-                    log.debug(f"[inject] Could not boost process priority: {e}")
+                    log.debug(f"[INJECT] Could not boost process priority: {e}")
             
-            # Wait for process to complete (no stdout to read, so no deadlock)
-            proc.wait(timeout=timeout)
+            # Wait for process to complete with timeout
+            # Read both stdout and stderr in separate threads to see what mkoverlay is doing
+            output_lines = []
+            error_lines = []
+            
+            def read_output(pipe, lines_list, prefix):
+                try:
+                    for line in pipe:
+                        if line:
+                            stripped = line.strip()
+                            if stripped:
+                                lines_list.append(stripped)
+                                log.debug(f"[INJECT] mkoverlay {prefix}: {stripped}")
+                except Exception as e:
+                    log.debug(f"[INJECT] Error reading {prefix}: {e}")
+            
+            stdout_thread = threading.Thread(target=read_output, args=(proc.stdout, output_lines, "stdout"), daemon=True)
+            stderr_thread = threading.Thread(target=read_output, args=(proc.stderr, error_lines, "stderr"), daemon=True)
+            stdout_thread.start()
+            stderr_thread.start()
+            
+            try:
+                proc.wait(timeout=timeout)
+                # Give threads a moment to finish reading
+                stdout_thread.join(timeout=1.0)
+                stderr_thread.join(timeout=1.0)
+                if output_lines or error_lines:
+                    log.debug(f"[INJECT] mkoverlay completed - {len(output_lines)} stdout, {len(error_lines)} stderr lines")
+            except subprocess.TimeoutExpired:
+                # Process timed out - log what we have so far
+                all_lines = output_lines + error_lines
+                if all_lines:
+                    log.warning(f"[INJECT] mkoverlay timeout - last output: {'; '.join(all_lines[-10:])}")  # Last 10 lines
+                else:
+                    log.warning("[INJECT] mkoverlay timeout - no output captured")
+                proc.kill()
+                proc.wait()
+                raise
             mkoverlay_duration = time.time() - mkoverlay_start
             
             if proc.returncode != 0:
-                log.error(f"[inject] mkoverlay failed with return code: {proc.returncode}")
+                log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
                 return proc.returncode
             else:
                 log_success(log, f"mkoverlay completed in {mkoverlay_duration:.2f}s", "⚡")
@@ -579,10 +724,10 @@ class SkinInjector:
                 log_event(log, "mkoverlay done - keeping game frozen until runoverlay starts", "❄️")
                 
         except subprocess.TimeoutExpired:
-            log.error("[inject] mkoverlay timeout - monitor will auto-resume if needed")
+            log.error("[INJECT] mkoverlay timeout - monitor will auto-resume if needed")
             return 124
         except Exception as e:
-            log.error(f"[inject] mkoverlay error: {e} - monitor will auto-resume if needed")
+            log.error(f"[INJECT] mkoverlay error: {e} - monitor will auto-resume if needed")
             return 1
 
         # Run overlay
@@ -611,15 +756,15 @@ class SkinInjector:
                 try:
                     p = psutil.Process(proc.pid)
                     p.nice(psutil.HIGH_PRIORITY_CLASS)
-                    log.debug(f"[inject] Boosted runoverlay process priority (PID={proc.pid})")
+                    log.debug(f"[INJECT] Boosted runoverlay process priority (PID={proc.pid})")
                 except Exception as e:
-                    log.debug(f"[inject] Could not boost process priority: {e}")
+                    log.debug(f"[INJECT] Could not boost process priority: {e}")
             
             self.current_overlay_process = proc
             
             # Resume game NOW - runoverlay started, game can load while runoverlay hooks in
             if injection_manager:
-                log.info("[inject] runoverlay started - resuming game")
+                log.info("[INJECT] runoverlay started - resuming game")
                 injection_manager.resume_game()
             
             # Monitor process with stop callback
@@ -627,7 +772,7 @@ class SkinInjector:
             while proc.poll() is None:
                 # Check if we should stop (game ended)
                 if stop_callback and stop_callback():
-                    log.info("[inject] Game ended, stopping overlay process")
+                    log.info("[INJECT] Game ended, stopping overlay process")
                     proc.terminate()
                     try:
                         proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
@@ -642,13 +787,13 @@ class SkinInjector:
             # Process completed normally (no stdout captured)
             self.current_overlay_process = None
             if proc.returncode != 0:
-                log.error(f"[inject] runoverlay failed with return code: {proc.returncode}")
+                log.error(f"[INJECT] runoverlay failed with return code: {proc.returncode}")
                 return proc.returncode
             else:
-                log.debug(f"[inject] runoverlay completed successfully")
+                log.debug(f"[INJECT] runoverlay completed successfully")
                 return 0
         except Exception as e:
-            log.error(f"[inject] runoverlay error: {e}")
+            log.error(f"[INJECT] runoverlay error: {e}")
             return 1
     
     def _mk_overlay_only(self, mod_names: List[str], timeout: int = 60) -> int:
@@ -660,6 +805,7 @@ class SkinInjector:
             
         try:
             # Build mkoverlay command
+            # Based on CSLOL source: flags.contains("--ignoreConflict") in main_mod_tools.cpp:332
             cmd = [
                 str(self.tools_dir / "mod-tools.exe"),
                 "mkoverlay",
@@ -667,10 +813,11 @@ class SkinInjector:
                 str(self.mods_dir.parent / "overlay"),
                 f"--game:{self.game_dir}",
                 f"--mods:{','.join(mod_names)}",
-                "--noTFT"
+                "--noTFT",
+                "--ignoreConflict"
             ]
             
-            log.debug(f"[inject] Creating overlay (mkoverlay only): {' '.join(cmd)}")
+            log.debug(f"[INJECT] Creating overlay (mkoverlay only): {' '.join(cmd)}")
             mkoverlay_start = time.time()
             
             # Set creation flags for Windows
@@ -687,10 +834,10 @@ class SkinInjector:
                 mkoverlay_duration = time.time() - mkoverlay_start
                 
                 if proc.returncode != 0:
-                    log.error(f"[inject] mkoverlay failed with return code: {proc.returncode}")
+                    log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
                     return proc.returncode
                 else:
-                    log.debug(f"[inject] mkoverlay completed in {mkoverlay_duration:.2f}s")
+                    log.debug(f"[INJECT] mkoverlay completed in {mkoverlay_duration:.2f}s")
                     self.last_injection_timing = {
                         'mkoverlay_duration': mkoverlay_duration,
                         'timestamp': time.time()
@@ -698,18 +845,18 @@ class SkinInjector:
                     return 0
                     
             except subprocess.TimeoutExpired:
-                log.error(f"[inject] mkoverlay timed out after {timeout}s")
+                log.error(f"[INJECT] mkoverlay timed out after {timeout}s")
                 proc.kill()
                 return -1
             except Exception as e:
-                log.error(f"[inject] mkoverlay failed with exception: {e}")
+                log.error(f"[INJECT] mkoverlay failed with exception: {e}")
                 return -1
                 
         except Exception as e:
-            log.error(f"[inject] Failed to create mkoverlay command: {e}")
+            log.error(f"[INJECT] Failed to create mkoverlay command: {e}")
             return -1
     
-    def inject_skin(self, skin_name: str, timeout: int = 60, stop_callback=None, injection_manager=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
+    def inject_skin(self, skin_name: str, timeout: int = 120, stop_callback=None, injection_manager=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
         """Inject a single skin (with optional chroma)
         
         Args:
@@ -732,30 +879,41 @@ class SkinInjector:
         
         zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name, champion_id=champion_id)
         if not zp:
-            log.error(f"[inject] Skin '{skin_name}' not found in {self.zips_dir}")
+            log.error(f"[INJECT] Skin '{skin_name}' not found in {self.zips_dir}")
             avail = list(self.zips_dir.rglob('*.zip'))
             if avail:
-                log.info("[inject] Available skins (first 10):")
+                log.info("[INJECT] Available skins (first 10):")
                 for a in avail[:10]:
                     log.info(f"  - {a.name}")
             return False
         
-        log.debug(f"[inject] Using skin file: {zp}")
+        log.debug(f"[INJECT] Using skin file: {zp}")
         
         # Clean mods and overlay directories, then extract new skin
         clean_start = time.time()
         self._clean_mods_dir()
         self._clean_overlay_dir()
         clean_duration = time.time() - clean_start
-        log.debug(f"[inject] Directory cleanup took {clean_duration:.2f}s")
+        log.debug(f"[INJECT] Directory cleanup took {clean_duration:.2f}s")
         
         extract_start = time.time()
         mod_folder = self._extract_zip_to_mod(zp)
         extract_duration = time.time() - extract_start
-        log.debug(f"[inject] ZIP extraction took {extract_duration:.2f}s")
+        log.debug(f"[INJECT] ZIP extraction took {extract_duration:.2f}s")
+        
+        # Copy installed mods to mods directory
+        installed_mods = self._copy_installed_mods_to_mods_dir()
+        
+        # Create list of mods to inject (skin + installed mods)
+        mod_names = [mod_folder.name]
+        if installed_mods:
+            mod_names.extend(installed_mods)
+            log.info(f"[INJECT] Injecting skin + {len(installed_mods)} installed mod(s)")
+        else:
+            log.debug("[INJECT] Injecting skin only (no installed mods)")
         
         # Create and run overlay
-        result = self._mk_run_overlay([mod_folder.name], timeout, stop_callback, injection_manager)
+        result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
         
         # Get mkoverlay duration from stored timing data
         mkoverlay_duration = self.last_injection_timing.get('mkoverlay_duration', 0.0) if self.last_injection_timing else 0.0
@@ -765,24 +923,67 @@ class SkinInjector:
         
         # Log timing breakdown
         if result == 0:
-            log.info(f"[inject] Completed in {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s, runoverlay: {runoverlay_duration:.2f}s)")
+            log.info(f"[INJECT] Completed in {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s, runoverlay: {runoverlay_duration:.2f}s)")
         else:
-            log.warning(f"[inject] Failed - timeout or error after {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s)")
+            log.warning(f"[INJECT] Failed - timeout or error after {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s)")
+        
+        return result == 0
+    
+    def inject_mods_only(self, timeout: int = 60, stop_callback=None, injection_manager=None) -> bool:
+        """Inject only installed mods (no skin)
+        
+        Args:
+            timeout: Timeout for injection process
+            stop_callback: Callback to check if injection should stop
+            injection_manager: InjectionManager instance to call resume_game()
+        """
+        injection_start_time = time.time()
+        
+        # Clean mods and overlay directories
+        clean_start = time.time()
+        self._clean_mods_dir()
+        self._clean_overlay_dir()
+        clean_duration = time.time() - clean_start
+        log.debug(f"[INJECT] Directory cleanup took {clean_duration:.2f}s")
+        
+        # Copy installed mods to mods directory
+        installed_mods = self._copy_installed_mods_to_mods_dir()
+        
+        if not installed_mods:
+            log.warning("[INJECT] No installed mods to inject")
+            return False
+        
+        log.info(f"[INJECT] Injecting {len(installed_mods)} installed mod(s): {', '.join(installed_mods)}")
+        
+        # Create and run overlay
+        result = self._mk_run_overlay(installed_mods, timeout, stop_callback, injection_manager)
+        
+        # Get mkoverlay duration from stored timing data
+        mkoverlay_duration = self.last_injection_timing.get('mkoverlay_duration', 0.0) if self.last_injection_timing else 0.0
+        
+        total_duration = time.time() - injection_start_time
+        runoverlay_duration = total_duration - clean_duration - mkoverlay_duration
+        
+        # Log timing breakdown
+        if result == 0:
+            log.info(f"[INJECT] Mods injection completed in {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s, runoverlay: {runoverlay_duration:.2f}s)")
+        else:
+            log.warning(f"[INJECT] Mods injection failed - timeout or error after {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s)")
         
         return result == 0
     
     def inject_skin_for_testing(self, skin_name: str) -> bool:
         """Inject a skin for testing - stops overlay immediately after mkoverlay"""
         try:
-            log.debug(f"[inject] Starting test injection for: {skin_name}")
+            log.debug(f"[INJECT] Starting test injection for: {skin_name}")
             
             # Find the skin ZIP
             zp = self._resolve_zip(skin_name)
             if not zp:
-                log.error(f"[inject] Skin '{skin_name}' not found in {self.zips_dir}")
+                log.error(f"[INJECT] Skin '{skin_name}' not found in {self.zips_dir}")
                 return False
             
-            log.debug(f"[inject] Using skin file: {zp}")
+            log.debug(f"[INJECT] Using skin file: {zp}")
             
             # Clean and extract
             injection_start_time = time.time()
@@ -794,7 +995,7 @@ class SkinInjector:
             extract_duration = time.time() - extract_start_time
             
             if not mod_folder:
-                log.error(f"[inject] Failed to extract skin: {skin_name}")
+                log.error(f"[INJECT] Failed to extract skin: {skin_name}")
                 return False
             
             # Run mkoverlay only (no runoverlay)
@@ -805,27 +1006,27 @@ class SkinInjector:
             total_duration = time.time() - injection_start_time
             
             if result == 0:
-                log.info(f"[inject] Test injection completed in {total_duration:.2f}s (clean: {clean_duration:.2f}s, extract: {extract_duration:.2f}s, mkoverlay: {mkoverlay_duration:.2f}s)")
+                log.info(f"[INJECT] Test injection completed in {total_duration:.2f}s (clean: {clean_duration:.2f}s, extract: {extract_duration:.2f}s, mkoverlay: {mkoverlay_duration:.2f}s)")
                 return True
             else:
-                log.error(f"[inject] Test injection failed with code: {result}")
+                log.error(f"[INJECT] Test injection failed with code: {result}")
                 return False
                 
         except Exception as e:
-            log.error(f"[inject] Test injection failed: {e}")
+            log.error(f"[INJECT] Test injection failed: {e}")
             return False
     
     def _run_overlay_from_path(self, overlay_path: Path) -> bool:
         """Run overlay from an overlay directory"""
         try:
-            log.info(f"[inject] Running overlay from: {overlay_path}")
+            log.info(f"[INJECT] Running overlay from: {overlay_path}")
             
             # Check what's in the overlay directory
             overlay_contents = list(overlay_path.iterdir())
-            log.debug(f"[inject] Overlay contents: {[f.name for f in overlay_contents]}")
+            log.debug(f"[INJECT] Overlay contents: {[f.name for f in overlay_contents]}")
             
             if not overlay_contents:
-                log.error(f"[inject] Overlay directory is empty: {overlay_path}")
+                log.error(f"[INJECT] Overlay directory is empty: {overlay_path}")
                 return False
             
             # Copy overlay to the main overlay directory
@@ -837,18 +1038,18 @@ class SkinInjector:
             main_overlay_dir.mkdir(parents=True, exist_ok=True)
             
             # Copy overlay contents
-            log.debug(f"[inject] Copying from {overlay_path} to {main_overlay_dir}")
+            log.debug(f"[INJECT] Copying from {overlay_path} to {main_overlay_dir}")
             for item in overlay_path.iterdir():
                 if item.is_file():
                     shutil.copy2(item, main_overlay_dir / item.name)
-                    log.debug(f"[inject] Copied file: {item.name}")
+                    log.debug(f"[INJECT] Copied file: {item.name}")
                 elif item.is_dir():
                     shutil.copytree(item, main_overlay_dir / item.name)
-                    log.debug(f"[inject] Copied directory: {item.name}")
+                    log.debug(f"[INJECT] Copied directory: {item.name}")
             
             # Log what's in the main overlay directory after copying
             overlay_files = list(main_overlay_dir.iterdir())
-            log.debug(f"[inject] Main overlay directory contents: {[f.name for f in overlay_files]}")
+            log.debug(f"[INJECT] Main overlay directory contents: {[f.name for f in overlay_files]}")
             
             # Run overlay using runoverlay command
             tools = self._detect_tools()
@@ -871,7 +1072,7 @@ class SkinInjector:
                 f"--game:{gpath}", "--opts:configless"
             ]
             
-            log.info(f"[inject] Running overlay: {' '.join(cmd)}")
+            log.info(f"[INJECT] Running overlay: {' '.join(cmd)}")
             
             try:
                 # Hide console window on Windows
@@ -888,15 +1089,15 @@ class SkinInjector:
                 
                 # For pre-built overlays, we don't need to monitor the process long-term
                 # Just start it and let it run in the background
-                log.info("[inject] Pre-built overlay process started successfully")
+                log.info("[INJECT] Pre-built overlay process started successfully")
                 return True
                 
             except Exception as e:
-                log.error(f"[inject] Error running overlay process: {e}")
+                log.error(f"[INJECT] Error running overlay process: {e}")
                 return False
                 
         except Exception as e:
-            log.error(f"[inject] Error running pre-built overlay: {e}")
+            log.error(f"[INJECT] Error running pre-built overlay: {e}")
             return False
     
     def clean_system(self) -> bool:
@@ -907,17 +1108,17 @@ class SkinInjector:
             overlay_dir = self.mods_dir.parent / "overlay"
             if overlay_dir.exists():
                 shutil.rmtree(overlay_dir, ignore_errors=True)
-            log.debug("[inject] System cleaned successfully")
+            log.debug("[INJECT] System cleaned successfully")
             return True
         except Exception as e:
-            log.error(f"[inject] Failed to clean system: {e}")
+            log.error(f"[INJECT] Failed to clean system: {e}")
             return False
     
     def stop_overlay_process(self):
         """Stop the current overlay process"""
         if self.current_overlay_process and self.current_overlay_process.poll() is None:
             try:
-                log.info("[inject] Stopping current overlay process")
+                log.info("[INJECT] Stopping current overlay process")
                 self.current_overlay_process.terminate()
                 try:
                     self.current_overlay_process.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
@@ -925,11 +1126,11 @@ class SkinInjector:
                     self.current_overlay_process.kill()
                     self.current_overlay_process.wait()
                 self.current_overlay_process = None
-                log.info("[inject] Overlay process stopped successfully")
+                log.info("[INJECT] Overlay process stopped successfully")
             except Exception as e:
-                log.warning(f"[inject] Failed to stop overlay process: {e}")
+                log.warning(f"[INJECT] Failed to stop overlay process: {e}")
         else:
-            log.debug("[inject] No active overlay process to stop")
+            log.debug("[INJECT] No active overlay process to stop")
     
     def kill_all_runoverlay_processes(self):
         """Kill all runoverlay processes (for ChampSelect cleanup)"""
@@ -945,13 +1146,13 @@ class SkinInjector:
             
             # Only get pid and name initially to avoid slow cmdline lookups
             if not PSUTIL_AVAILABLE:
-                log.debug("[inject] psutil not available, skipping process cleanup")
+                log.debug("[INJECT] psutil not available, skipping process cleanup")
                 return
                 
             for proc in psutil.process_iter(['pid', 'name']):
                 # Check timeout to prevent indefinite hangs
                 if time.time() - start_time > timeout:
-                    log.warning(f"[inject] Process enumeration timeout after {timeout}s - some processes may not be killed")
+                    log.warning(f"[INJECT] Process enumeration timeout after {timeout}s - some processes may not be killed")
                     break
                 
                 try:
@@ -967,7 +1168,7 @@ class SkinInjector:
                         cmdline = p.cmdline()
                         
                         if cmdline and any('runoverlay' in arg for arg in cmdline):
-                            log.info(f"[inject] Killing runoverlay process PID {proc.info['pid']}")
+                            log.info(f"[INJECT] Killing runoverlay process PID {proc.info['pid']}")
                             try:
                                 # Try graceful termination first
                                 p.terminate()
@@ -981,12 +1182,12 @@ class SkinInjector:
                                 try:
                                     p.kill()  # Force kill on any error
                                 except (psutil.NoSuchProcess, psutil.AccessDenied) as kill_e:
-                                    log.debug(f"[inject] Process already gone or inaccessible: {kill_e}")
+                                    log.debug(f"[INJECT] Process already gone or inaccessible: {kill_e}")
                                 except Exception as kill_e:
-                                    log.debug(f"[inject] Unexpected error force killing process: {kill_e}")
+                                    log.debug(f"[INJECT] Unexpected error force killing process: {kill_e}")
                             killed_count += 1
                     except psutil.TimeoutExpired:
-                        log.debug(f"[inject] Timeout fetching cmdline for PID {proc.info['pid']}")
+                        log.debug(f"[INJECT] Timeout fetching cmdline for PID {proc.info['pid']}")
                         continue
                     
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -994,15 +1195,15 @@ class SkinInjector:
                     pass
                 except Exception as e:
                     # Log but continue with other processes
-                    log.debug(f"[inject] Error processing PID {proc.info.get('pid', '?')}: {e}")
+                    log.debug(f"[INJECT] Error processing PID {proc.info.get('pid', '?')}: {e}")
             
             if killed_count > 0:
-                log.info(f"[inject] Killed {killed_count} runoverlay process(es)")
+                log.info(f"[INJECT] Killed {killed_count} runoverlay process(es)")
             else:
-                log.debug("[inject] No runoverlay processes found to kill")
+                log.debug("[INJECT] No runoverlay processes found to kill")
                 
         except Exception as e:
-            log.warning(f"[inject] Failed to kill runoverlay processes: {e}")
+            log.warning(f"[INJECT] Failed to kill runoverlay processes: {e}")
         
         # Also stop our tracked process if it exists
         self.stop_overlay_process()

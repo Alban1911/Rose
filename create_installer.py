@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Create Windows installer for LeagueUnlocked using Inno Setup
+Create Windows installer for Rose using Inno Setup
 """
 
 import sys
@@ -9,10 +9,16 @@ import subprocess
 import shutil
 from pathlib import Path
 
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 MIN_PYTHON = (3, 11)
 if sys.version_info < MIN_PYTHON:
     sys.stderr.write(
-        f"LeagueUnlocked build scripts require Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer.\n"
+        f"Rose build scripts require Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer.\n"
         "Please re-run using an updated interpreter.\n"
     )
     sys.exit(1)
@@ -22,7 +28,7 @@ def create_installer():
     """Create Windows installer using Inno Setup"""
     
     print("=" * 60)
-    print("Creating LeagueUnlocked Windows Installer")
+    print("Creating Rose Windows Installer")
     print("=" * 60)
     
     # Check if Inno Setup is installed
@@ -48,8 +54,8 @@ def create_installer():
     print(f"Found Inno Setup: {iscc_path}")
     
     # Check if dist directory exists
-    if not Path("dist/LeagueUnlocked").exists():
-        print("\nError: dist/LeagueUnlocked directory not found!")
+    if not Path("dist/Rose").exists():
+        print("\nError: dist/Rose directory not found!")
         print("Please run 'python build_pyinstaller.py' first to create the executable.")
         return False
     
@@ -64,12 +70,38 @@ def create_installer():
     
     print("\n[1/3] Preparing installer files...")
     
+    # Convert tray_ready.png to ICO format for installer
+    # Inno Setup requires ICO format for SetupIconFile
+    png_icon = Path("assets/tray_ready.png")
+    ico_icon = Path("assets/icon.ico")
+    
+    if png_icon.exists() and PIL_AVAILABLE:
+        try:
+            # Convert PNG to ICO with multiple sizes for best compatibility
+            with Image.open(png_icon) as img:
+                ico_icon.parent.mkdir(exist_ok=True)
+                img.save(
+                    ico_icon,
+                    format="ICO",
+                    sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)]
+                )
+            print(f"Converted {png_icon} to {ico_icon}")
+        except Exception as e:
+            print(f"Warning: Could not convert {png_icon} to ICO: {e}")
+            if not ico_icon.exists():
+                print("Error: No valid icon file available!")
+                return False
+    elif not ico_icon.exists():
+        print(f"Error: Icon file not found at {ico_icon}")
+        if not png_icon.exists():
+            print(f"  Source PNG also not found at {png_icon}")
+        return False
+    
     # Copy icon file to dist directory if it doesn't exist
-    icon_src = Path("assets/icon.ico")
-    icon_dst = Path("dist/LeagueUnlocked/icon.ico")
-    if icon_src.exists() and not icon_dst.exists():
-        shutil.copy2(icon_src, icon_dst)
-        print(f"Copied {icon_src} to {icon_dst}")
+    icon_dst = Path("dist/Rose/icon.ico")
+    if ico_icon.exists() and not icon_dst.exists():
+        shutil.copy2(ico_icon, icon_dst)
+        print(f"Copied {ico_icon} to {icon_dst}")
     
     print("\n[2/3] Compiling installer...")
     
@@ -88,7 +120,7 @@ def create_installer():
     print("\n[3/3] Installer created successfully!")
     
     # Check if installer was created
-    installer_files = list(installer_dir.glob("LeagueUnlocked_Setup*.exe"))
+    installer_files = list(installer_dir.glob("Rose_Setup*.exe"))
     if installer_files:
         installer_file = installer_files[0]
         size_mb = installer_file.stat().st_size / (1024 * 1024)

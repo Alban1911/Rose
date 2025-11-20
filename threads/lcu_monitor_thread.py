@@ -210,6 +210,19 @@ class LCUMonitorThread(threading.Thread):
                     self.state.locked_champ_id = locked_champ_id
                     self.state.locked_champ_timestamp = time.time()
                     
+                    # Reset historic mode state for new champion lock (always deactivate before checking)
+                    self.state.historic_mode_active = False
+                    self.state.historic_skin_id = None
+                    self.state.historic_first_detection_done = False
+                    log.debug(f"[init-state] Reset historic mode state for initial champion lock")
+                    
+                    # Broadcast deactivated state to JavaScript (hide flag)
+                    try:
+                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                            self.state.ui_skin_thread._broadcast_historic_state()
+                    except Exception as e:
+                        log.debug(f"[init-state] Failed to broadcast historic state reset: {e}")
+                    
                     # Scrape skins for this champion from LCU
                     if self.skin_scraper:
                         try:
@@ -225,16 +238,6 @@ class LCUMonitorThread(threading.Thread):
                             self.injection_manager.on_champion_locked(champ_name, locked_champ_id, self.state.owned_skin_ids)
                         except Exception as e:
                             log.debug(f"[init-state] Failed to notify injection manager: {e}")
-                    
-                    # Create ClickCatchers on champion lock (when not in Swiftplay)
-                    from ui.user_interface import get_user_interface
-                    user_interface = get_user_interface(self.state, self.skin_scraper)
-                    if user_interface:
-                        try:
-                            user_interface.create_click_catchers()
-                            log.debug(f"[init-state] Requested ClickCatcher creation for {champ_name}")
-                        except Exception as e:
-                            log.debug(f"[init-state] Failed to create ClickCatchers: {e}")
                     
                     log.info(f"[init-state] App will start after initialization (champion: {champ_name})")
         except Exception as e:

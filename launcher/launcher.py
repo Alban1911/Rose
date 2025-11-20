@@ -1,11 +1,10 @@
 """
-Native Win32 startup dialog used to prepare LeagueUnlocked before launching.
+Native Win32 startup dialog used to prepare Rose before launching.
 
 This replaces the former PyQt-based launcher with a lightweight Steam-style
 progress window that:
     1. Checks for application updates and applies them if needed.
     2. Verifies local skin data and downloads missing content.
-    3. Validates the license and prompts for activation when required.
 
 Once all checks succeed, the dialog closes automatically and the main
 application continues bootstrapping.
@@ -30,11 +29,10 @@ except ImportError:
 from config import APP_VERSION
 from launcher.updater import auto_update
 from state.app_status import AppStatus
-from utils.license_flow import check_license
 from utils.logging import get_logger, get_named_logger
 from utils.paths import get_asset_path
 from utils.skin_downloader import download_skins_on_startup
-from utils.hashes_downloader import ensure_hashes_file
+from utils.hash_updater import update_hash_files
 from utils.win32_base import (
     PBS_MARQUEE,
     PBM_SETRANGE,
@@ -69,8 +67,8 @@ class UpdateDialog(Win32Window):
 
     def __init__(self) -> None:
         super().__init__(
-            class_name="LeagueUnlockedUpdateDialog",
-            window_title=f"LeagueUnlocked {APP_VERSION}",
+            class_name="RoseUpdateDialog",
+            window_title=f"Rose {APP_VERSION}",
             width=420,
             height=120,
             style=WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
@@ -101,7 +99,7 @@ class UpdateDialog(Win32Window):
 
         detail_hwnd = self.create_control(
             "STATIC",
-            "Preparing LeagueUnlocked…",
+            "Preparing Rose…",
             WS_CHILD | WS_VISIBLE,
             0,
             x_pos,
@@ -250,11 +248,11 @@ class UpdateDialog(Win32Window):
     def _prepare_window_icon(self) -> Optional[str]:
         png_path: Optional[Path] = None
         try:
-            png_candidate = get_asset_path("icon.png")
+            png_candidate = get_asset_path("tray_ready.png")
             if png_candidate.exists():
                 png_path = png_candidate
         except Exception as exc:  # noqa: BLE001
-            updater_log.warning(f"Failed to resolve icon.png asset: {exc}")
+            updater_log.warning(f"Failed to resolve tray_ready.png icon: {exc}")
 
         if png_path is not None and Image is not None:
             try:
@@ -270,7 +268,7 @@ class UpdateDialog(Win32Window):
                 self._icon_temp_path = tmp_path
                 return tmp_path
             except Exception as exc:  # noqa: BLE001
-                updater_log.warning(f"Failed to convert icon.png to .ico: {exc}")
+                updater_log.warning(f"Failed to convert tray_ready.png to .ico: {exc}")
 
         try:
             ico_candidate = get_asset_path("icon.ico")
@@ -336,7 +334,7 @@ class UpdateDialog(Win32Window):
     def _render_status_text(self) -> None:
         if not self.detail_hwnd or not self.status_hwnd:
             return
-        header = self._status_text or self._current_status or "Preparing LeagueUnlocked…"
+        header = self._status_text or self._current_status or "Preparing Rose…"
         user32.SetWindowTextW(self.detail_hwnd, header)
         user32.InvalidateRect(self.detail_hwnd, None, True)
         user32.SetWindowTextW(self.status_hwnd, self._transfer_text or "")
@@ -348,7 +346,7 @@ def _show_error(message: str) -> None:
         user32.MessageBoxW(
             None,
             message,
-            "LeagueUnlocked - Launcher",
+            "Rose - Launcher",
             MB_OK | MB_ICONERROR | MB_TOPMOST,
         )
         updater_log.error(f"Error dialog shown to user: {message}")
@@ -414,6 +412,38 @@ def _perform_update(dialog: UpdateDialog) -> bool:
     dialog.pump_messages()
     updater_log.info("No update applied; continuing startup.")
     return False
+
+
+def _perform_hash_check(dialog: UpdateDialog) -> None:
+    """Check and update game hash files if needed"""
+    updater_log.info("Starting game hash verification sequence.")
+    dialog.clear_transfer_text()
+    dialog.set_detail("Verifying game hashes…")
+    dialog.set_status("Checking game hashes…")
+    dialog.set_marquee(True)
+    dialog.pump_messages()
+    
+    def status_callback(message: str) -> None:
+        dialog.set_status(message)
+        dialog.pump_messages()
+        updater_log.info(f"Hash check status: {message}")
+    
+    try:
+        updated = update_hash_files(status_callback=status_callback)
+        if updated:
+            updater_log.info("Game hashes updated successfully")
+        else:
+            updater_log.info("Game hashes are up to date")
+    except Exception as exc:  # noqa: BLE001
+        log.error(f"Hash check failed: {exc}")
+        dialog.set_status(f"Hash check failed: {exc}")
+        dialog.pump_messages()
+        updater_log.exception("Hash check raised an exception", exc_info=True)
+    
+    dialog.set_marquee(False)
+    dialog.reset_progress()
+    dialog.clear_transfer_text()
+    dialog.pump_messages()
 
 
 def _perform_skin_sync(dialog: UpdateDialog) -> None:
@@ -482,100 +512,6 @@ def _perform_skin_sync(dialog: UpdateDialog) -> None:
         updater_log.warning("Skin download failed; continuing without new skins.")
 
 
-def _get_injection_tools_dir() -> Path:
-    """Get the injection/tools directory path (works in both frozen and development environments)"""
-    import sys
-    if getattr(sys, 'frozen', False):
-        # Running as compiled executable (PyInstaller)
-        # Handle both onefile (_MEIPASS) and onedir (_internal) modes
-        if hasattr(sys, '_MEIPASS'):
-            # One-file mode: tools are in _MEIPASS (temporary extraction directory)
-            base_path = Path(sys._MEIPASS)
-            injection_dir = base_path / "injection"
-        else:
-            # One-dir mode: tools are alongside executable
-            base_dir = Path(sys.executable).parent
-            possible_injection_dirs = [
-                base_dir / "injection",  # Direct path
-                base_dir / "_internal" / "injection",  # _internal folder
-            ]
-            
-            injection_dir = None
-            for dir_path in possible_injection_dirs:
-                if dir_path.exists():
-                    injection_dir = dir_path
-                    break
-            
-            if not injection_dir:
-                injection_dir = possible_injection_dirs[0]
-    else:
-        # Running as Python script
-        # Get the launcher directory and go up to root, then to injection
-        launcher_dir = Path(__file__).parent
-        injection_dir = launcher_dir.parent / "injection"
-    
-    return injection_dir / "tools"
-
-
-def _perform_hashes_check(dialog: UpdateDialog) -> None:
-    updater_log.info("Starting hashes file check sequence.")
-    dialog.clear_transfer_text()
-    dialog.set_detail("Checking hashes file…")
-    dialog.set_status("Verifying hashes.game.txt…")
-    dialog.set_marquee(True)
-    dialog.pump_messages()
-
-    try:
-        tools_dir = _get_injection_tools_dir()
-        updater_log.info(f"Tools directory: {tools_dir}")
-        
-        dialog.set_status("Checking for updates…")
-        dialog.pump_messages()
-        
-        success = ensure_hashes_file(tools_dir)
-        
-        if success:
-            dialog.set_marquee(False)
-            dialog.set_progress(100)
-            dialog.set_status("Hashes file ready.")
-            dialog.pump_messages()
-            time.sleep(0.3)
-            updater_log.info("Hashes file check completed successfully.")
-        else:
-            dialog.set_marquee(False)
-            dialog.set_progress(0)
-            dialog.set_status("Continuing without updating hashes file.")
-            dialog.pump_messages()
-            updater_log.warning("Hashes file check failed; continuing anyway (non-critical).")
-    except Exception as exc:  # noqa: BLE001
-        log.error(f"Hashes check failed: {exc}")
-        dialog.set_status(f"Hashes check failed: {exc}")
-        dialog.set_progress(0)
-        dialog.pump_messages()
-        updater_log.exception("Hashes check raised an exception", exc_info=True)
-
-
-def _perform_license_check(dialog: UpdateDialog) -> None:
-    updater_log.info("Starting license validation sequence.")
-    dialog.set_detail("Validating license…")
-    dialog.set_status("Checking license status…")
-    dialog.set_marquee(True)
-    dialog.pump_messages()
-
-    def status_callback(message: str) -> None:
-        dialog.set_status(message)
-        dialog.pump_messages()
-        updater_log.info(f"License status: {message}")
-
-    check_license(status_callback=status_callback)
-    dialog.set_marquee(False)
-    dialog.set_progress(100)
-    dialog.set_status("License valid.")
-    dialog.pump_messages()
-    time.sleep(0.3)
-    updater_log.info("License validation completed successfully.")
-
-
 def run_launcher() -> None:
     """Display the Win32 update dialog and perform startup checks."""
     if sys.platform != "win32":
@@ -595,12 +531,11 @@ def run_launcher() -> None:
         def worker():
             try:
                 _perform_update(dialog)
-                _perform_hashes_check(dialog)
+                _perform_hash_check(dialog)
                 _perform_skin_sync(dialog)
-                _perform_license_check(dialog)
 
                 dialog.set_detail("All checks complete.")
-                dialog.set_status("Launching LeagueUnlocked…")
+                dialog.set_status("Launching Rose…")
                 dialog.set_progress(100)
                 dialog.pump_messages()
                 time.sleep(0.4)
@@ -611,7 +546,7 @@ def run_launcher() -> None:
             except Exception as exc:  # noqa: BLE001
                 result["error"] = exc
                 log.error(f"Launcher error: {exc}", exc_info=True)
-                _show_error(f"Failed to prepare LeagueUnlocked:\n\n{exc}")
+                _show_error(f"Failed to prepare Rose:\n\n{exc}")
                 updater_log.exception("Launcher sequence crashed", exc_info=True)
             finally:
                 dialog.allow_close()
@@ -633,4 +568,3 @@ def run_launcher() -> None:
     finally:
         dialog.destroy_window()
         updater_log.info("Update dialog resources released.")
-

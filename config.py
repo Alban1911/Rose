@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Global constants for LeagueUnlocked
+Global constants for Rose
 All arbitrary values are centralized here for easy tracking and modification
 """
 
@@ -16,8 +16,8 @@ from utils.paths import get_user_data_dir
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "Beta_1.3.1"                        # Application version
-APP_USER_AGENT = f"LeagueUnlocked/{APP_VERSION}"  # User-Agent header for HTTP requests
+APP_VERSION = "1.0.0"                          # Application version
+APP_USER_AGENT = f"Rose/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 _CONFIG = configparser.ConfigParser()
 
@@ -83,31 +83,12 @@ def set_config_option(section: str, option: str, value: str) -> None:
         pass
 
 
-# Production mode - controls logging verbosity and sensitive data exposure
-# Set to True for releases to prevent reverse engineering via logs
-# Set to False for development to get full debug information
-PRODUCTION_MODE = False
-
-
 # =============================================================================
 # UI DETECTION CONSTANTS
 # =============================================================================
 
-# UI detection polling
-UI_POLL_INTERVAL = 0.01  # Seconds between UI detection checks
-UI_DETECTION_TIMEOUT = 5.0  # Timeout for finding UI elements
-UIA_DELAY_MS = 5 # Milliseconds to wait after champion lock before starting UIA Detection
-
-# UIA Detection coordinates (percentage-based, resolution-independent)
-# THESE ARE THE CORRECT VALUES - DO NOT CHANGE WITHOUT TESTING
-UI_DETECTION_SKIN_NAME_X_RATIO = 0.4925    # X position as percentage of window width (50% = center)
-UI_DETECTION_SKIN_NAME_Y_RATIO = 0.6395  # Y position as percentage of window height (63.9% = constant for all skins of top pixel, +0.05% for safety)
-
 # Skin matching
 SKIN_NAME_MIN_SIMILARITY = 0.7  # Minimum similarity for fuzzy skin name matching
-
-
-
 
 # =============================================================================
 # THREAD POLLING INTERVALS
@@ -211,7 +192,6 @@ LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g
 PROCESS_TERMINATE_TIMEOUT_S = 5         # Timeout for process.wait() after terminate/kill
 PROCESS_TERMINATE_WAIT_S = 0.3          # Short timeout for process wait after terminate() before kill()
 PROCESS_ENUM_TIMEOUT_S = 2.0            # Timeout for process enumeration when finding runoverlay
-MKOVERLAY_PROCESS_TIMEOUT_S = 60        # Timeout for mkoverlay process execution
 THREAD_JOIN_TIMEOUT_S = 2               # Timeout for thread.join() on shutdown (increased from 1.0s)
 THREAD_FORCE_EXIT_TIMEOUT_S = 4         # Total timeout before forcing app exit
 INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
@@ -219,7 +199,6 @@ INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
 # Main loop watchdog timeouts (seconds)
 MAIN_LOOP_STALL_THRESHOLD_S = 5.0       # Threshold for detecting main loop stalls
 MAIN_LOOP_FORCE_QUIT_TIMEOUT_S = 2.0    # Timeout before forcing quit when stop flag is set
-QT_EVENT_PROCESSING_THRESHOLD_S = 1.0   # Warning threshold for Qt event processing
 CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel processing
 
 # Process priority settings
@@ -229,7 +208,6 @@ CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel 
 # API request timeouts (seconds)
 LCU_API_TIMEOUT_S = 2.0                 # Timeout for LCU API requests
 LCU_SKIN_SCRAPER_TIMEOUT_S = 3.0        # Timeout for LCU skin scraper requests
-DATA_DRAGON_API_TIMEOUT_S = 8           # Timeout for Data Dragon API requests
 CHROMA_DOWNLOAD_TIMEOUT_S = 10          # Timeout for chroma preview downloads
 DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S = 30    # Timeout for skin downloads
 SKIN_DOWNLOAD_STREAM_TIMEOUT_S = 60     # Timeout for streaming skin downloads
@@ -244,10 +222,6 @@ PROCESS_MONITOR_SLEEP_S = 0.5           # Sleep during process monitoring loop
 WINDOW_CHECK_SLEEP_S = 1                # Sleep between window existence checks
 API_POLITENESS_DELAY_S = 0.5            # Delay between API calls to be polite
 CONSOLE_BUFFER_CLEAR_INTERVAL_S = 0.5   # Interval to clear console buffer on Windows
-
-# UI animation delays (milliseconds)
-UI_QTIMER_CALLBACK_DELAY_MS = 50        # Delay before executing QTimer callbacks
-
 
 # =============================================================================
 # SYSTEM TRAY CONSTANTS
@@ -269,168 +243,6 @@ TRAY_ICON_FONT_SIZE = 40                # Font size for "SC" text on icon
 TRAY_ICON_TEXT_X = 36                   # X position for text
 TRAY_ICON_TEXT_Y = 44                   # Y position for text
 TRAY_ICON_DOT_SIZE = 70                 # Size of status indicator dot
-
-
-# =============================================================================
-# CHROMA PANEL UI CONSTANTS - RESOLUTION ADAPTIVE
-# =============================================================================
-
-# Reference resolution (UI designed for this resolution)
-CHROMA_UI_REFERENCE_WIDTH = 1600
-CHROMA_UI_REFERENCE_HEIGHT = 900
-
-# Hard-coded configurations for three supported resolutions
-# All values are fixed pixel values relative to League window
-CHROMA_PANEL_CONFIGS = {
-    (1600, 900): {
-        'preview_width': 380,
-        'preview_height': 394,
-        'circle_radius': 14,
-        'window_width': 384,
-        'window_height': 464,  # Increased from 438 to accommodate 68px button height
-        'circle_spacing': 34,
-        'button_size': 54,
-        'button_width': 380,
-        'button_height': 68,
-        'screen_edge_margin': 32,
-        'preview_x': 2,
-        'preview_y': 2,
-        'row_y_offset': 42,
-        'panel_x': 608,  # X position from left edge of League window
-        'panel_y': 227,  # Y position from top edge of League window
-        # Swiftplay mode specific positions
-        'swiftplay_panel_x': 872,  # X position for Swiftplay mode
-        'swiftplay_panel_y': 271,  # Y position for Swiftplay mode
-    },
-    (1280, 720): {
-        'preview_width': 304,      # 380 * (1280/1600) = 304
-        'preview_height': 315,     # 394 * (720/900) = 315.2 ≈ 315
-        'circle_radius': 11,       # 14 * (720/900) = 11.2 ≈ 11
-        'window_width': 307,       # 384 * (1280/1600) = 307.2 ≈ 307
-        'window_height': 371,      # 464 * (720/900) = 371.2 ≈ 371
-        'circle_spacing': 27,      # 34 * (720/900) = 27.2 ≈ 27
-        'button_size': 43,         # 54 * (720/900) = 43.2 ≈ 43
-        'button_width': 304,       # 380 * (1280/1600) = 304
-        'button_height': 54,       # 68 * (720/900) = 54.4 ≈ 54
-        'screen_edge_margin': 26,  # 32 * (720/900) = 25.6 ≈ 26
-        'preview_x': 2,            # 2 * (1280/1600) = 1.6 ≈ 2
-        'preview_y': 2,            # 2 * (720/900) = 1.6 ≈ 2
-        'row_y_offset': 34,        # 42 * (720/900) = 33.6 ≈ 34
-        'panel_x': 487,            # 608 * (1280/1600) = 486.4 ≈ 486
-        'panel_y': 180,            # 222 * (720/900) = 177.6 ≈ 178
-        # Swiftplay mode specific positions
-        'swiftplay_panel_x': 698,  # X position for Swiftplay mode
-        'swiftplay_panel_y': 216,  # Y position for Swiftplay mode
-    },
-    (1024, 576): {
-        'preview_width': 243,      # 380 * (1024/1600) = 243.2 ≈ 243
-        'preview_height': 252,     # 394 * (576/900) = 252.16 ≈ 252
-        'circle_radius': 9,        # 14 * (576/900) = 8.96 ≈ 9
-        'window_width': 246,       # 384 * (1024/1600) = 245.76 ≈ 246
-        'window_height': 296,      # 464 * (576/900) = 296.96 ≈ 297
-        'circle_spacing': 22,      # 34 * (576/900) = 21.76 ≈ 22
-        'button_size': 35,         # 54 * (576/900) = 34.56 ≈ 35
-        'button_width': 243,       # 380 * (1024/1600) = 243.2 ≈ 243
-        'button_height': 43,       # 68 * (576/900) = 43.52 ≈ 43
-        'screen_edge_margin': 20,  # 32 * (576/900) = 20.48 ≈ 20
-        'preview_x': 1,            # 2 * (1024/1600) = 1.28 ≈ 1
-        'preview_y': 1,            # 2 * (576/900) = 1.28 ≈ 1
-        'row_y_offset': 27,        # 42 * (576/900) = 26.88 ≈ 27
-        'panel_x': 389,            # 608 * (1024/1600) = 389.12 ≈ 389
-        'panel_y': 141,            # 222 * (576/900) = 142.08 ≈ 142
-        # Swiftplay mode specific positions
-        'swiftplay_panel_x': 558,  # X position for Swiftplay mode
-        'swiftplay_panel_y': 170,  # Y position for Swiftplay mode
-    }
-}
-
-# Chroma panel button visual effects (not scaled)
-CHROMA_PANEL_GLOW_ALPHA = 60                     # Alpha value for gold glow effect on hover
-
-# Legacy constants for backward compatibility (at reference resolution)
-CHROMA_PANEL_PREVIEW_WIDTH = 380
-CHROMA_PANEL_PREVIEW_HEIGHT = 394
-CHROMA_PANEL_CIRCLE_RADIUS = 9
-CHROMA_PANEL_WINDOW_WIDTH = 275
-CHROMA_PANEL_WINDOW_HEIGHT = 346
-CHROMA_PANEL_CIRCLE_SPACING = 21
-CHROMA_PANEL_BUTTON_SIZE = 33
-CHROMA_PANEL_SCREEN_EDGE_MARGIN = 20
-CHROMA_PANEL_PREVIEW_X = 2
-CHROMA_PANEL_PREVIEW_Y = 2
-CHROMA_PANEL_ROW_Y_OFFSET = 26
-CHROMA_PANEL_GOLD_BORDER_PX = 2
-CHROMA_PANEL_DARK_BORDER_PX = 3
-CHROMA_PANEL_GRADIENT_RING_PX = 4
-CHROMA_PANEL_INNER_DISK_RADIUS_PX = 2.5
-
-# =============================================================================
-# CHROMA UI POSITIONING - FINALIZED POSITIONS
-# =============================================================================
-#
-# 🎯 Reference Point: Opening Button Center (locked position)
-#
-# Positioning uses percentage ratios for resolution-independent placement:
-#   - X ratios relative to window WIDTH  (0.0 = center, -0.5 = far left, 0.5 = far right)
-#   - Y ratios relative to window HEIGHT (0.0 = center, -0.5 = top, 0.5 = bottom)
-#
-# Current Setup:
-#   - Button: Horizontally centered, positioned ~30% down from League window center
-#   - Panel: Horizontally aligned with button, positioned ~22% above button
-#
-# ⚠️ WARNING: These values are LOCKED. Changing them requires app restart.
-#             Widgets are parented to League window as child windows.
-#             Position updates only occur during resolution changes (auto-rebuild).
-#
-# =============================================================================
-
-# Button position (center of League window, 30% down)
-CHROMA_UI_ANCHOR_OFFSET_X_RATIO = 0.0           # Horizontally centered
-CHROMA_UI_ANCHOR_OFFSET_Y_RATIO = 0.3035        # ~273px down from center at 900p (near bottom)
-
-# Button offset from anchor (keep at 0,0 - button IS the anchor point)
-CHROMA_UI_BUTTON_OFFSET_X_RATIO = 0.0           # No horizontal offset
-CHROMA_UI_BUTTON_OFFSET_Y_RATIO = 0.0           # No vertical offset
-
-# Panel offset from anchor (positions panel relative to button)
-CHROMA_UI_PANEL_OFFSET_X_RATIO = 0.0            # Horizontally aligned with button center
-CHROMA_UI_PANEL_OFFSET_Y_BASE_RATIO = -0.22     # ~198px above button at 900p
-
-# Chroma UI fade timing (milliseconds)
-CHROMA_FADE_IN_DURATION_MS = 500                # Duration of fade in animation (with gentle logarithmic ease-out curve)
-CHROMA_FADE_OUT_DURATION_MS = 50                # Duration of fade out animation (linear, fast)
-CHROMA_FADE_DELAY_BEFORE_SHOW_MS = 100          # Wait time between end of fade out and start of fade in
-
-# Legacy constant for backward compatibility (uses fade-in duration)
-CHROMA_FADE_DURATION_MS = CHROMA_FADE_IN_DURATION_MS
-
-# Chroma button Lock configuration (fades based on ownership - shown when NOT owned)
-CHROMA_BUTTON_LOCK_SIZE_RATIO = 1.7                # Lock size as ratio of button visual size
-CHROMA_BUTTON_LOCK_OFFSET_X_RATIO = -0.014         # Lock X offset as ratio of button size (0.0 = centered)
-CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO = -0.83          # Lock Y offset as ratio of button size (0.0 = centered)
-
-# Chroma button OutlineGold configuration (carousel border, behind Lock - shown when NOT owned)
-CHROMA_BUTTON_OUTLINE_GOLD_SIZE_RATIO = 3.63        # OutlineGold size as ratio of button visual size (keeps aspect ratio)
-CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_X_RATIO = CHROMA_BUTTON_LOCK_OFFSET_X_RATIO  # OutlineGold X offset as ratio of button size
-CHROMA_BUTTON_OUTLINE_GOLD_OFFSET_Y_RATIO = CHROMA_BUTTON_LOCK_OFFSET_Y_RATIO  # OutlineGold Y offset as ratio of button size
-
-# Chroma button image size (button-chroma.png dimensions at 1600x900 resolution)
-CHROMA_BUTTON_IMAGE_WIDTH_PIXELS = 22               # Fixed width in pixels at 1600x900 resolution
-CHROMA_BUTTON_IMAGE_HEIGHT_PIXELS = 22              # Fixed height in pixels at 1600x900 resolution
-
-
-# =============================================================================
-# UNOWNED FRAME UI POSITIONING - INDEPENDENT FROM CHROMA BUTTON
-# =============================================================================
-
-# UnownedFrame position (ratios based on 1600x900 resolution)
-UNOWNED_FRAME_ANCHOR_OFFSET_X_RATIO = 726/1600      # 726/1600 = 0.45375 (45.375% of window width)
-UNOWNED_FRAME_ANCHOR_OFFSET_Y_RATIO = 642/900       # 642/900 = 0.713333 (71.33% of window height)
-
-# UnownedFrame size (specific pixel dimensions as ratios)
-UNOWNED_FRAME_WIDTH_RATIO = 148/1600                # 148/1600 = 0.0925 (9.25% of window width)
-UNOWNED_FRAME_HEIGHT_RATIO = 84/900                 # 84/900 = 0.093333 (9.33% of window height)
-
 
 # =============================================================================
 # WINDOWS API CONSTANTS
@@ -454,10 +266,10 @@ WINDOWS_DPI_AWARENESS_SYSTEM = 1         # PROCESS_SYSTEM_DPI_AWARE
 # =============================================================================
 
 # Lock file name
-LOCK_FILE_NAME = "leagueunlocked.lock"
+LOCK_FILE_NAME = "rose.lock"
 
-# Log file pattern (handles both .log and .log.enc files)
-LOG_FILE_PATTERN = "leagueunlocked_*.log*"
+# Log file pattern (handles .log files)
+LOG_FILE_PATTERN = "rose_*.log*"
 LOG_TIMESTAMP_FORMAT = "%d-%m-%Y_%H-%M-%S"  # European format, Windows-compatible
 
 
@@ -482,12 +294,8 @@ INTERESTING_PHASES = {
 # DEFAULT ARGUMENTS
 # =============================================================================
 
-# Data Dragon language
-DEFAULT_DD_LANG = "en_US"          # Data Dragon language
 
 # Boolean flags
 DEFAULT_VERBOSE = False
-DEFAULT_WEBSOCKET_ENABLED = True
-DEFAULT_MULTILANG_ENABLED = False  # DEPRECATED - Using LCU scraper instead
 DEFAULT_DOWNLOAD_SKINS = True
 DEFAULT_FORCE_UPDATE_SKINS = False

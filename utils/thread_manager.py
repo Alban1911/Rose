@@ -160,4 +160,3 @@ def create_daemon_thread(target: Callable, name: str = None) -> threading.Thread
     """
     thread = threading.Thread(target=target, daemon=True, name=name)
     return thread
-

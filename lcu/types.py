@@ -61,4 +61,3 @@ class LockfileData(TypedDict):
     port: int
     password: str
     protocol: str
-

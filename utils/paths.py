@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Path utilities for LeagueUnlocked
+Path utilities for Rose
 Handles user data directories and permissions
 """
 
@@ -19,12 +19,12 @@ def get_user_data_dir() -> Path:
         # Use %LOCALAPPDATA% for user-specific data (logs, cache, etc.)
         localappdata = os.environ.get("LOCALAPPDATA")
         if localappdata:
-            return Path(localappdata) / "LeagueUnlocked"
+            return Path(localappdata) / "Rose"
         else:
             # Fallback to user profile
             userprofile = os.environ.get("USERPROFILE")
             if userprofile:
-                return Path(userprofile) / "AppData" / "Local" / "LeagueUnlocked"
+                return Path(userprofile) / "AppData" / "Local" / "Rose"
             else:
                 # Last resort: current directory
                 return Path.cwd() / "skins"
@@ -32,15 +32,15 @@ def get_user_data_dir() -> Path:
         # Use XDG_DATA_HOME or fallback to ~/.local/share
         xdg_data_home = os.environ.get("XDG_DATA_HOME")
         if xdg_data_home:
-            return Path(xdg_data_home) / "LeagueUnlocked"
+            return Path(xdg_data_home) / "Rose"
         else:
             # Use pathlib for home directory
-            return Path.home() / ".local" / "share" / "LeagueUnlocked"
+            return Path.home() / ".local" / "share" / "Rose"
 
 
 def get_appdata_dir() -> Path:
     """
-    Get the LeagueUnlocked AppData directory.
+    Get the Rose AppData directory.
     Alias for get_user_data_dir() for backwards compatibility.
     """
     return get_user_data_dir()
@@ -114,33 +114,6 @@ def get_asset_path(asset_name: str) -> Path:
         # Running as script
         app_dir = get_app_dir()
         return app_dir / "assets" / asset_name
-
-
-def get_icon_path(icon_name: str) -> Path:
-    """
-    Get the path to an icon file in the icons directory.
-    Works in both development and frozen (PyInstaller) environments.
-    
-    Args:
-        icon_name: Name of the icon file (e.g., "tray_locked.png")
-        
-    Returns:
-        Path to the icon file
-    """
-    if getattr(sys, 'frozen', False):
-        # Running as compiled executable
-        # PyInstaller extracts data files to _MEIPASS (onefile) or _internal (onedir)
-        if hasattr(sys, '_MEIPASS'):
-            # One-file mode: use _MEIPASS
-            base_path = Path(sys._MEIPASS)
-        else:
-            # One-dir mode: use _internal folder
-            base_path = Path(sys.executable).parent / "_internal"
-        return base_path / "icons" / icon_name
-    else:
-        # Running as script
-        app_dir = get_app_dir()
-        return app_dir / "icons" / icon_name
 
 
 def ensure_write_permissions(path: Path) -> bool:

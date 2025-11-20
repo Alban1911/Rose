@@ -1,4 +1,4 @@
-"""Launcher auto-update logic for LeagueUnlocked.
+"""Launcher auto-update logic for Rose.
 
 Downloads the latest release ZIP from GitHub, stages it under the
 user data directory, and replaces the current installation when running
@@ -20,7 +20,7 @@ import requests
 
 from config import APP_VERSION, get_config_file_path
 
-GITHUB_RELEASE_API = "https://api.github.com/repos/Alban1911/LeagueUnlocked/releases/latest"
+GITHUB_RELEASE_API = "https://api.github.com/repos/Alban1911/Rose/releases/latest"
 PERSISTENT_ROOT_FILES = ("icon.ico", "unins000.exe", "unins000.dat")
 
 
@@ -179,7 +179,7 @@ def auto_update(
             batch.write('echo [%date% %time%] Update start > "%LOG%"\n')
             batch.write("ping 127.0.0.1 -n 4 >nul\n")
             batch.write('echo [%date% %time%] Mirroring files >> "%LOG%"\n')
-            batch.write('robocopy "%SOURCE%" "%DEST%" /MIR /NFL /NDL /NJH /NJS /XD __pycache__ /XF config.ini license.dat >> "%LOG%" 2>&1\n')
+            batch.write('robocopy "%SOURCE%" "%DEST%" /MIR /NFL /NDL /NJH /NJS /XD __pycache__ /XF config.ini >> "%LOG%" 2>&1\n')
             batch.write("if %ERRORLEVEL% GEQ 8 goto :robofail\n")
             batch.write(f'start "" /D "{install_dir}" "{install_dir / exe_name}"\n')
             batch.write('echo [%date% %time%] Cleaning staging >> "%LOG%"\n')
@@ -218,7 +218,3 @@ def _resolve_extracted_root(staging_dir: Path) -> Optional[Path]:
     if len(candidates) == 1 and candidates[0].is_dir():
         return candidates[0]
     return staging_dir
-
-
-def _replace_tree(src: Path, dest: Path) -> None:
-    raise NotImplementedError("_replace_tree is deprecated in favour of batch updater")

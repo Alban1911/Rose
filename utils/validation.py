@@ -113,4 +113,3 @@ def validated_method(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         return func(*args, **kwargs)
     return wrapper
-

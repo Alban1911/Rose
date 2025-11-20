@@ -121,6 +121,62 @@ class InjectionManager:
                 log_section(log, "Game Process Monitor Started", "👁️")
                 suspension_start_time = None
                 
+                # Immediately check for existing game process when monitor starts
+                # This prevents the game from starting before we can suspend it
+                # Do multiple rapid checks to catch the game as soon as it starts
+                log.debug("[monitor] Starting immediate game process checks...")
+                for immediate_check in range(10):  # Check 10 times immediately (very fast)
+                    if not self._monitor_active:
+                        break
+                    try:
+                        for proc in psutil.process_iter(['name', 'pid']):
+                            if not self._monitor_active:
+                                break
+                            if proc.info['name'] == 'League of Legends.exe':
+                                try:
+                                    game_proc = psutil.Process(proc.info['pid'])
+                                    # Check if already suspended
+                                    if game_proc.status() == psutil.STATUS_STOPPED:
+                                        # Already suspended, just track it
+                                        if self._suspended_game_process is None:
+                                            self._suspended_game_process = game_proc
+                                            suspension_start_time = time.time()
+                                            log_event(log, "Game already suspended - tracking", "⏸️", {"PID": proc.info['pid']})
+                                        break
+                                    
+                                    log_event(log, "Game process found - suspending immediately", "🎮", {"PID": proc.info['pid']})
+                                    
+                                    try:
+                                        game_proc.suspend()
+                                        self._suspended_game_process = game_proc
+                                        suspension_start_time = time.time()
+                                        log_event(log, "Game suspended immediately", "⏸️", {
+                                            "PID": proc.info['pid'],
+                                            "Auto-resume": f"{PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s"
+                                        })
+                                        break
+                                    except psutil.AccessDenied:
+                                        log.error("[monitor] ACCESS DENIED - Cannot suspend game")
+                                        log.error("[monitor] Try running Rose as Administrator")
+                                        self._monitor_active = False
+                                        break
+                                    except Exception as e:
+                                        log.error(f"[monitor] Failed to suspend existing game: {e}")
+                                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                    continue
+                                except Exception as e:
+                                    log.debug(f"[monitor] Error checking existing process: {e}")
+                    except Exception as e:
+                        log.debug(f"[monitor] Error in immediate check {immediate_check}: {e}")
+                    
+                    # If we found and suspended the game, break out of immediate checks
+                    if self._suspended_game_process is not None:
+                        break
+                    
+                    # Very short sleep between immediate checks (5ms)
+                    if immediate_check < 9:  # Don't sleep after last check
+                        time.sleep(0.005)
+                
                 while self._monitor_active:
                     # Don't suspend if runoverlay has already started - exit monitor entirely
                     if self._runoverlay_started:
@@ -158,53 +214,58 @@ class InjectionManager:
                                 self._monitor_active = False
                                 break
                         
-                    # Keep monitoring while game is suspended (wait for runoverlay to finish)
-                    time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
-                    continue
+                        # Keep monitoring while game is suspended (wait for runoverlay to finish)
+                        time.sleep(PERSISTENT_MONITOR_IDLE_INTERVAL_S)
+                        continue
                     
-                # Look for game process
-                for proc in psutil.process_iter(['name', 'pid']):
-                    if not self._monitor_active:
-                        break
-                    
-                    if proc.info['name'] == 'League of Legends.exe':
-                        try:
-                            game_proc = psutil.Process(proc.info['pid'])
-                            log_event(log, "Game process found", "🎮", {"PID": proc.info['pid']})
-                            
-                            # Try to suspend immediately
-                            try:
-                                game_proc.suspend()
-                                self._suspended_game_process = game_proc
-                                suspension_start_time = time.time()  # Start safety timer
-                                log_event(log, "Game suspended", "⏸️", {
-                                    "PID": proc.info['pid'],
-                                    "Auto-resume": f"{PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s"
-                                })
-                                break
-                            except psutil.AccessDenied:
-                                log.error("[monitor] ACCESS DENIED - Cannot suspend game")
-                                log.error("[monitor] Try running LeagueUnlocked as Administrator")
-                                self._monitor_active = False
-                                # Clear reference if we couldn't suspend (game is running anyway)
-                                self._suspended_game_process = None
-                                break
-                            except Exception as e:
-                                log.error(f"[monitor] Failed to suspend: {e}")
-                                # Clear reference on error (game might not be suspended)
-                                self._suspended_game_process = None
-                                break
-                                
-                        except psutil.NoSuchProcess:
-                            continue
-                        except Exception as e:
-                            log.error(f"[monitor] Error: {e}")
-                            # Clear reference on error to prevent leaving game suspended
-                            self._suspended_game_process = None
+                    # Look for game process (in case it starts after monitor begins)
+                    found_processes = []
+                    for proc in psutil.process_iter(['name', 'pid']):
+                        if not self._monitor_active:
                             break
-                
-                # Sleep after checking all processes (not after each process)
-                time.sleep(PERSISTENT_MONITOR_CHECK_INTERVAL_S)
+                        
+                        # Log all processes for debugging (first few iterations only)
+                        if len(found_processes) < 5:
+                            found_processes.append(proc.info.get('name', 'unknown'))
+                        
+                        if proc.info['name'] == 'League of Legends.exe':
+                            try:
+                                game_proc = psutil.Process(proc.info['pid'])
+                                log_event(log, "Game process found", "🎮", {"PID": proc.info['pid']})
+                                
+                                # Try to suspend immediately
+                                try:
+                                    game_proc.suspend()
+                                    self._suspended_game_process = game_proc
+                                    suspension_start_time = time.time()  # Start safety timer
+                                    log_event(log, "Game suspended", "⏸️", {
+                                        "PID": proc.info['pid'],
+                                        "Auto-resume": f"{PERSISTENT_MONITOR_AUTO_RESUME_S:.0f}s"
+                                    })
+                                    break
+                                except psutil.AccessDenied:
+                                    log.error("[monitor] ACCESS DENIED - Cannot suspend game")
+                                    log.error("[monitor] Try running Rose as Administrator")
+                                    self._monitor_active = False
+                                    # Clear reference if we couldn't suspend (game is running anyway)
+                                    self._suspended_game_process = None
+                                    break
+                                except Exception as e:
+                                    log.error(f"[monitor] Failed to suspend: {e}")
+                                    # Clear reference on error (game might not be suspended)
+                                    self._suspended_game_process = None
+                                    break
+                                
+                            except psutil.NoSuchProcess:
+                                continue
+                            except Exception as e:
+                                log.error(f"[monitor] Error: {e}")
+                                # Clear reference on error to prevent leaving game suspended
+                                self._suspended_game_process = None
+                                break
+                    
+                    # Sleep after checking all processes (not after each process)
+                    time.sleep(PERSISTENT_MONITOR_CHECK_INTERVAL_S)
                 
                 log.debug("[monitor] Stopped")
                 
@@ -229,9 +290,9 @@ class InjectionManager:
                         self._suspended_game_process.resume()
                         log_success(log, "Resumed suspended game on cleanup", "▶️")
                 except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as e:
-                    log.debug(f"[inject] Could not resume suspended process: {e}")
+                    log.debug(f"[INJECT] Could not resume suspended process: {e}")
                 except Exception as e:
-                    log.debug(f"[inject] Unexpected error resuming process: {e}")
+                    log.debug(f"[INJECT] Unexpected error resuming process: {e}")
                 
             self._suspended_game_process = None
     
@@ -321,6 +382,8 @@ class InjectionManager:
     def update_skin(self, skin_name: str):
         """Update the current skin and potentially trigger injection"""
         if not skin_name:
+            # If no skin name, check if we should inject mods only
+            self._check_and_inject_mods_only()
             return
         
         self._ensure_initialized()
@@ -339,6 +402,12 @@ class InjectionManager:
                 log.debug(f"[INJECT] Skipping injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
                 return
 
+            # Extract user mods when injection threshold triggers
+            try:
+                self.injector._extract_user_mods()
+            except Exception as e:
+                log.warning(f"[INJECT] Failed to extract user mods: {e}")
+
             # Disconnect from UIA window when injection threshold triggers
             # (launcher closes when game starts, so the window is gone)
             if self.shared_state and self.shared_state.ui_skin_thread:
@@ -346,12 +415,73 @@ class InjectionManager:
                     self.shared_state.ui_skin_thread.force_disconnect()
                 except Exception as e:
                     log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
+            
+            # Start monitor now (only when injection actually happens)
+            if not self._monitor_active:
+                log.info("[INJECT] Starting game monitor for injection")
+                self._start_monitor()
 
-            success = self.injector.inject_skin(skin_name)
+            success = self.injector.inject_skin(
+                skin_name,
+                stop_callback=None,
+                injection_manager=self
+            )
 
             if success:
                 self.last_skin_name = skin_name
                 self.last_injection_time = current_time
+            
+            # Stop monitor after injection completes
+            self._stop_monitor()
+    
+    def _check_and_inject_mods_only(self):
+        """Check if there are installed mods and inject them if no skin is being injected"""
+        self._ensure_initialized()
+        self.refresh_injection_threshold()
+        
+        # Don't attempt injection if system isn't properly initialized
+        if not self._initialized or self.injector is None or self.injector.game_dir is None:
+            return
+        
+        # Extract user mods first
+        try:
+            self.injector._extract_user_mods()
+        except Exception as e:
+            log.warning(f"[INJECT] Failed to extract user mods: {e}")
+        
+        # Check if there are installed mods
+        installed_dir = self.injector._get_installed_mods_dir()
+        if not installed_dir.exists():
+            return
+        
+        mod_dirs = [d for d in installed_dir.iterdir() if d.is_dir()]
+        if not mod_dirs:
+            return
+        
+        # Inject mods only (no skin)
+        with self.injection_lock:
+            current_time = time.time()
+            elapsed = current_time - self.last_injection_time
+            if self.last_injection_time and elapsed < self.injection_threshold:
+                remaining = self.injection_threshold - elapsed
+                log.debug(f"[INJECT] Skipping mods injection (cooldown {remaining:.2f}s remaining)")
+                return
+            
+            # Start monitor if not already active
+            if not self._monitor_active:
+                log.info("[INJECT] Starting game monitor for mods injection")
+                self._start_monitor()
+            
+            success = self.injector.inject_mods_only(
+                stop_callback=None,
+                injection_manager=self
+            )
+            
+            if success:
+                self.last_injection_time = current_time
+            
+            # Stop monitor after injection completes
+            self._stop_monitor()
     
     def on_loadout_countdown(self, seconds_remaining: int):
         """Called during loadout countdown - no longer used (monitor starts with injection)"""
@@ -367,6 +497,27 @@ class InjectionManager:
             stop_callback: Callback to check if injection should stop
             chroma_id: Optional chroma ID for chroma variant
         """
+        # Check if this is a base skin (skin_0 or skin name ending with base/default indicators)
+        # If skin_name starts with "skin_" and the ID is 0 or matches base skin pattern, inject mods only
+        if skin_name and skin_name.startswith("skin_"):
+            try:
+                skin_id_str = skin_name.split("_")[1] if "_" in skin_name else None
+                if skin_id_str:
+                    skin_id = int(skin_id_str)
+                    # Check if this is a base skin (skin ID 0 or champion's base skin ID like 36000 for champ 36)
+                    # Base skins typically have ID = champion_id * 1000
+                    if skin_id == 0:
+                        log.info(f"[INJECT] Base skin detected (skinId=0) - injecting mods only instead")
+                        self._check_and_inject_mods_only()
+                        return False
+                    # Check if it matches base skin pattern (champion_id * 1000)
+                    if champion_id and skin_id == champion_id * 1000:
+                        log.info(f"[INJECT] Base skin detected (skinId={skin_id} for champion {champion_id}) - injecting mods only instead")
+                        self._check_and_inject_mods_only()
+                        return False
+            except (ValueError, IndexError):
+                pass  # Not a numeric skin ID, continue with normal injection
+        
         self._ensure_initialized()
         self.refresh_injection_threshold()
         
@@ -397,6 +548,12 @@ class InjectionManager:
                 remaining = self.injection_threshold - elapsed
                 log.debug(f"[INJECT] Skipping immediate injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
                 return False
+
+            # Extract user mods when injection threshold triggers
+            try:
+                self.injector._extract_user_mods()
+            except Exception as e:
+                log.warning(f"[INJECT] Failed to extract user mods: {e}")
 
             # Disconnect from UIA window when injection happens
             # (launcher closes when game starts, so the window is gone)
@@ -502,7 +659,7 @@ class InjectionManager:
         try:
             self.injector.stop_overlay_process()
         except Exception as e:
-            log.warning(f"[inject] Failed to stop overlay process: {e}")
+            log.warning(f"[INJECT] Failed to stop overlay process: {e}")
     
     def kill_all_runoverlay_processes(self):
         """Kill all runoverlay processes (for ChampSelect cleanup)"""
@@ -533,7 +690,7 @@ class InjectionManager:
                 self.injector.kill_all_runoverlay_processes()
                 log.debug("[INJECT] Cleanup thread completed")
             except Exception as e:
-                log.warning(f"[inject] Cleanup thread failed: {e}")
+                log.warning(f"[INJECT] Cleanup thread failed: {e}")
             finally:
                 # Clear flag when done
                 with self._cleanup_lock:

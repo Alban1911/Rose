@@ -112,6 +112,19 @@ class ChromaSelector:
                             self.state.swiftplay_skin_tracking[champion_id] = chroma_id  # Store the fake form ID
                             log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> Elementalist form {chroma_id}")
                         
+                        # Disable HistoricMode if active (chroma swap deactivates historic mode)
+                        if self.state.historic_mode_active:
+                            self.state.historic_mode_active = False
+                            self.state.historic_skin_id = None
+                            log.info(f"[HISTORIC] Historic mode DISABLED due to Elementalist Lux form selection (formId={chroma_id})")
+                            
+                            # Broadcast deactivated state to JavaScript (hide flag)
+                            try:
+                                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                    self.state.ui_skin_thread._broadcast_historic_state()
+                            except Exception as e:
+                                log.debug(f"[CHROMA] Failed to broadcast historic state on form selection: {e}")
+                        
                         # Update the skin name to include the Form name for injection
                         if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                             base_skin_name = self.panel.current_skin_name
@@ -138,6 +151,19 @@ class ChromaSelector:
                         self.state.swiftplay_skin_tracking[champion_id] = chroma_id  # Store the chroma ID
                         log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> HOL chroma {chroma_id}")
                     
+                    # Disable HistoricMode if active (chroma swap deactivates historic mode)
+                    if self.state.historic_mode_active:
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        log.info(f"[HISTORIC] Historic mode DISABLED due to HOL chroma selection (chromaId={chroma_id})")
+                        
+                        # Broadcast deactivated state to JavaScript (hide flag)
+                        try:
+                            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                self.state.ui_skin_thread._broadcast_historic_state()
+                        except Exception as e:
+                            log.debug(f"[CHROMA] Failed to broadcast historic state on HOL chroma selection: {e}")
+                    
                     # Update the skin name to include the HOL chroma name for injection
                     if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                         base_skin_name = self.panel.current_skin_name
@@ -163,6 +189,19 @@ class ChromaSelector:
                         champion_id = get_champion_id_from_skin_id(103086)  # Get champion ID from Ahri skin
                         self.state.swiftplay_skin_tracking[champion_id] = chroma_id  # Store the chroma ID
                         log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> HOL chroma {chroma_id}")
+                    
+                    # Disable HistoricMode if active (chroma swap deactivates historic mode)
+                    if self.state.historic_mode_active:
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        log.info(f"[HISTORIC] Historic mode DISABLED due to Ahri HOL chroma selection (chromaId={chroma_id})")
+                        
+                        # Broadcast deactivated state to JavaScript (hide flag)
+                        try:
+                            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                self.state.ui_skin_thread._broadcast_historic_state()
+                        except Exception as e:
+                            log.debug(f"[CHROMA] Failed to broadcast historic state on Ahri HOL chroma selection: {e}")
                     
                     # Update the skin name to include the HOL chroma name for injection
                     if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
@@ -216,6 +255,19 @@ class ChromaSelector:
                         self.state.swiftplay_skin_tracking[champion_id] = chroma_id
                         log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> skin {chroma_id}")
                     
+                    # Disable HistoricMode if active (chroma swap deactivates historic mode)
+                    if self.state.historic_mode_active:
+                        self.state.historic_mode_active = False
+                        self.state.historic_skin_id = None
+                        log.info(f"[HISTORIC] Historic mode DISABLED due to chroma selection (chromaId={chroma_id})")
+                        
+                        # Broadcast deactivated state to JavaScript (hide flag)
+                        try:
+                            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                self.state.ui_skin_thread._broadcast_historic_state()
+                        except Exception as e:
+                            log.debug(f"[CHROMA] Failed to broadcast historic state on chroma selection: {e}")
+                    
                     # Also update the skin key to include chroma ID for injection path
                     # Format: "{base_skin_name} {chroma_id}" for injection system
                     if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
@@ -255,7 +307,8 @@ class ChromaSelector:
                     
                     log.info(f"[CHROMA] Updated last_hovered_skin_id from {self.current_skin_id} to {chroma_id}")
                 
-                # Disable HistoricMode if active and chroma/skin is selected (not base skin)
+                # Safety check: Disable HistoricMode if active and chroma/skin is selected (not base skin)
+                # This is a fallback in case the above checks didn't catch it
                 try:
                     if self.state.historic_mode_active and self.state.locked_champ_id is not None and self.state.last_hovered_skin_id is not None:
                         base_skin_id = self.state.locked_champ_id * 1000
@@ -265,15 +318,15 @@ class ChromaSelector:
                             self.state.historic_mode_active = False
                             self.state.historic_skin_id = None
                             log.info(f"[HISTORIC] Historic mode DISABLED due to chroma selection (selectedId={selected_skin_id} vs baseId={base_skin_id})")
-                            # Hide the historic flag
+                            
+                            # Broadcast deactivated state to JavaScript (hide flag)
                             try:
-                                from ui.user_interface import get_user_interface
-                                ui = get_user_interface(self.state, self.skin_scraper)
-                                ui.hide_historic_flag()
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
+                                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                                    self.state.ui_skin_thread._broadcast_historic_state()
+                            except Exception as e:
+                                log.debug(f"[CHROMA] Failed to broadcast historic state in safety check: {e}")
+                except Exception as e:
+                    log.debug(f"[CHROMA] Error disabling historic mode: {e}")
                 
                 self.state.pending_chroma_selection = False
         except Exception as e:
@@ -377,11 +430,10 @@ class ChromaSelector:
                         owned_count += 1
             
             # Show button regardless of whether chromas exist
-            # The UnownedFrame (golden border + lock) will be shown for unowned skins
             if chromas:
                 log.debug(f"[CHROMA] Updating button for {skin_name} ({len(chromas)} total chromas, {owned_count} owned, {len(chromas) - owned_count} unowned)")
             else:
-                log.debug(f"[CHROMA] Showing button for {skin_name} (no chromas - UnownedFrame only)")
+                log.debug(f"[CHROMA] Showing button for {skin_name} (no chromas)")
             
             # Check if this is a chroma selection for the same base skin
             is_chroma_selection = False
@@ -429,10 +481,9 @@ class ChromaSelector:
                 log.error(f"[CHROMA] Failed to show button: {e}")
     
     def hide(self):
-        """Hide the chroma panel and reopen button"""
+        """Hide the chroma panel (JavaScript plugin handles button)"""
         with self.lock:
             self.panel.hide()
-            self.panel.hide_reopen_button()
             self.state.pending_chroma_selection = False
             self.current_skin_id = None
     

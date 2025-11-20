@@ -56,6 +56,5 @@ class ChromaUI:
             try:
                 if self.chroma_selector:
                     self.chroma_selector.cleanup()
-                log.debug("[ChromaUI] Cleaned up")
             except Exception as e:
                 log.debug(f"[ChromaUI] Error during cleanup: {e}")
