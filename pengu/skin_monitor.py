@@ -1157,6 +1157,25 @@ class PenguSkinMonitorThread(threading.Thread):
                 except Exception as e:
                     log.warning(f"[SkinMonitor] Failed to initialize assets directory: {e}")
                     self.assets_dir = None
+                
+                # Get plugins directory (Pengu Loader/plugins/)
+                try:
+                    from utils.paths import get_app_dir
+                    app_dir = get_app_dir()
+                    # Pengu Loader is typically at the same level as the app directory
+                    self.plugins_dir = app_dir.parent / "Pengu Loader" / "plugins"
+                    if not self.plugins_dir.exists():
+                        # Try alternative location
+                        self.plugins_dir = app_dir / "Pengu Loader" / "plugins"
+                    if self.plugins_dir.exists():
+                        log.debug(f"[SkinMonitor] Plugins directory initialized: {self.plugins_dir}")
+                    else:
+                        log.debug(f"[SkinMonitor] Plugins directory not found: {self.plugins_dir}")
+                        self.plugins_dir = None
+                except Exception as e:
+                    log.warning(f"[SkinMonitor] Failed to initialize plugins directory: {e}")
+                    self.plugins_dir = None
+                
                 super().__init__(*args, **kwargs)
 
             def do_OPTIONS(self):
@@ -1220,6 +1239,8 @@ class PenguSkinMonitorThread(threading.Thread):
                                     self.send_header("Content-Type", "image/jpeg")
                                 elif file_path.suffix.lower() == ".ttf":
                                     self.send_header("Content-Type", "font/ttf")
+                                elif file_path.suffix.lower() == ".ogg":
+                                    self.send_header("Content-Type", "audio/ogg")
                                 else:
                                     self.send_header("Content-Type", "application/octet-stream")
                                 self.send_header("Access-Control-Allow-Origin", "*")
@@ -1232,6 +1253,44 @@ class PenguSkinMonitorThread(threading.Thread):
                                 log.debug(f"[SkinMonitor] Asset not found: {file_path} (requested: {path}, assets_dir: {self.assets_dir})")
                         else:
                             log.debug(f"[SkinMonitor] Assets directory not initialized")
+                    
+                    # Handle plugin file requests: /plugin/{plugin_name}/{file_name}
+                    elif path.startswith("/plugin/"):
+                        plugin_path = path.replace("/plugin/", "")
+                        # Split into plugin name and file name
+                        parts = plugin_path.split("/", 1)
+                        if len(parts) == 2:
+                            plugin_name, file_name = parts
+                            if self.plugins_dir:
+                                file_path = self.plugins_dir / plugin_name / file_name
+                                if file_path.exists():
+                                    log.debug(f"[SkinMonitor] Serving plugin file: {file_path} (requested: {path})")
+                                    self.send_response(200)
+                                    # Determine content type from extension
+                                    if file_path.suffix.lower() == ".png":
+                                        self.send_header("Content-Type", "image/png")
+                                    elif file_path.suffix.lower() in [".jpg", ".jpeg"]:
+                                        self.send_header("Content-Type", "image/jpeg")
+                                    elif file_path.suffix.lower() == ".ttf":
+                                        self.send_header("Content-Type", "font/ttf")
+                                    elif file_path.suffix.lower() == ".ogg":
+                                        self.send_header("Content-Type", "audio/ogg")
+                                    elif file_path.suffix.lower() == ".js":
+                                        self.send_header("Content-Type", "application/javascript")
+                                    elif file_path.suffix.lower() == ".css":
+                                        self.send_header("Content-Type", "text/css")
+                                    else:
+                                        self.send_header("Content-Type", "application/octet-stream")
+                                    self.send_header("Access-Control-Allow-Origin", "*")
+                                    self.send_header("Cache-Control", "public, max-age=3600")
+                                    self.end_headers()
+                                    with open(file_path, "rb") as f:
+                                        self.wfile.write(f.read())
+                                    return
+                                else:
+                                    log.debug(f"[SkinMonitor] Plugin file not found: {file_path} (requested: {path})")
+                            else:
+                                log.debug(f"[SkinMonitor] Plugins directory not initialized")
                     
                     # 404 for unknown paths
                     log.debug(f"[SkinMonitor] HTTP 404 for path: {path}")
