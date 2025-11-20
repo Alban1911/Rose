@@ -22,7 +22,7 @@ except ImportError:
     psutil = None
 
 from utils.logging import get_logger, log_action, log_success, log_event
-from utils.paths import get_skins_dir, get_injection_dir
+from utils.paths import get_skins_dir, get_injection_dir, get_user_data_dir
 from config import (
     PROCESS_TERMINATE_TIMEOUT_S, 
     PROCESS_TERMINATE_WAIT_S,
@@ -503,6 +503,112 @@ class SkinInjector:
         log_success(log, f"Extracted {zp.name}", "📦")
         return target
     
+    def _get_user_mods_dir(self) -> Path:
+        """Get the user mods directory (AppData\\Local\\Rose\\mods)"""
+        return get_user_data_dir() / "mods"
+    
+    def _get_installed_mods_dir(self) -> Path:
+        """Get the installed mods directory (AppData\\Local\\Rose\\mods\\installed)"""
+        return self._get_user_mods_dir() / "installed"
+    
+    def _extract_user_mods(self) -> List[str]:
+        """Check for ZIPs and .fantome files in AppData\\Local\\Rose\\mods and extract them to installed subfolder.
+        
+        Returns:
+            List of extracted mod folder names (relative to mods_dir)
+        """
+        user_mods_dir = self._get_user_mods_dir()
+        installed_dir = self._get_installed_mods_dir()
+        
+        # Create directories if they don't exist
+        user_mods_dir.mkdir(parents=True, exist_ok=True)
+        installed_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Find all ZIP and .fantome files in the user mods directory
+        zip_files = list(user_mods_dir.glob("*.zip"))
+        fantome_files = list(user_mods_dir.glob("*.fantome"))
+        all_files = zip_files + fantome_files
+        
+        if not all_files:
+            log.debug("[INJECT] No ZIP or .fantome files found in user mods directory")
+            return []
+        
+        log.info(f"[INJECT] Found {len(zip_files)} ZIP file(s) and {len(fantome_files)} .fantome file(s) in user mods directory")
+        extracted_mods = []
+        
+        for mod_file in all_files:
+            try:
+                # Extract to installed directory
+                target = installed_dir / mod_file.stem
+                if target.exists():
+                    # Remove existing extraction if it exists
+                    shutil.rmtree(target, ignore_errors=True)
+                target.mkdir(parents=True, exist_ok=True)
+                
+                # .fantome files are like ZIP files, so we can extract them the same way
+                with zipfile.ZipFile(mod_file, "r") as zf:
+                    zf.extractall(target)
+                
+                file_type = "ZIP" if mod_file.suffix == ".zip" else ".fantome"
+                log_success(log, f"Extracted user mod ({file_type}): {mod_file.name}", "📦")
+                extracted_mods.append(target.name)
+                
+                # Delete the source file after successful extraction to avoid re-extracting every game
+                try:
+                    mod_file.unlink()
+                    log.debug(f"[INJECT] Deleted source file: {mod_file.name}")
+                except Exception as e:
+                    log.warning(f"[INJECT] Failed to delete source file {mod_file.name}: {e}")
+                
+            except Exception as e:
+                log.warning(f"[INJECT] Failed to extract {mod_file.name}: {e}")
+                continue
+        
+        return extracted_mods
+    
+    def _copy_installed_mods_to_mods_dir(self) -> List[str]:
+        """Copy mods from installed directory to the injection mods directory.
+        
+        Returns:
+            List of mod folder names that were copied (for use in mkoverlay)
+        """
+        installed_dir = self._get_installed_mods_dir()
+        
+        if not installed_dir.exists():
+            log.debug("[INJECT] Installed mods directory does not exist")
+            return []
+        
+        # Find all directories in installed folder
+        mod_dirs = [d for d in installed_dir.iterdir() if d.is_dir()]
+        
+        if not mod_dirs:
+            log.debug("[INJECT] No mods found in installed directory")
+            return []
+        
+        log.info(f"[INJECT] Copying {len(mod_dirs)} mod(s) from installed directory")
+        copied_mods = []
+        
+        for mod_dir in mod_dirs:
+            try:
+                # Copy to injection mods directory
+                target = self.mods_dir / mod_dir.name
+                if target.exists():
+                    # Remove existing mod if it exists
+                    shutil.rmtree(target, ignore_errors=True)
+                
+                shutil.copytree(mod_dir, target)
+                copied_mods.append(mod_dir.name)
+                log.debug(f"[INJECT] Copied mod: {mod_dir.name}")
+                
+            except Exception as e:
+                log.warning(f"[INJECT] Failed to copy mod {mod_dir.name}: {e}")
+                continue
+        
+        if copied_mods:
+            log_success(log, f"Copied {len(copied_mods)} mod(s) to injection directory", "📦")
+        
+        return copied_mods
+    
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 60, stop_callback=None, injection_manager=None) -> int:
         """Create and run overlay
         
@@ -753,8 +859,19 @@ class SkinInjector:
         extract_duration = time.time() - extract_start
         log.debug(f"[INJECT] ZIP extraction took {extract_duration:.2f}s")
         
+        # Copy installed mods to mods directory
+        installed_mods = self._copy_installed_mods_to_mods_dir()
+        
+        # Create list of mods to inject (skin + installed mods)
+        mod_names = [mod_folder.name]
+        if installed_mods:
+            mod_names.extend(installed_mods)
+            log.info(f"[INJECT] Injecting skin + {len(installed_mods)} installed mod(s)")
+        else:
+            log.debug("[INJECT] Injecting skin only (no installed mods)")
+        
         # Create and run overlay
-        result = self._mk_run_overlay([mod_folder.name], timeout, stop_callback, injection_manager)
+        result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
         
         # Get mkoverlay duration from stored timing data
         mkoverlay_duration = self.last_injection_timing.get('mkoverlay_duration', 0.0) if self.last_injection_timing else 0.0
@@ -767,6 +884,49 @@ class SkinInjector:
             log.info(f"[INJECT] Completed in {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s, runoverlay: {runoverlay_duration:.2f}s)")
         else:
             log.warning(f"[INJECT] Failed - timeout or error after {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s)")
+        
+        return result == 0
+    
+    def inject_mods_only(self, timeout: int = 60, stop_callback=None, injection_manager=None) -> bool:
+        """Inject only installed mods (no skin)
+        
+        Args:
+            timeout: Timeout for injection process
+            stop_callback: Callback to check if injection should stop
+            injection_manager: InjectionManager instance to call resume_game()
+        """
+        injection_start_time = time.time()
+        
+        # Clean mods and overlay directories
+        clean_start = time.time()
+        self._clean_mods_dir()
+        self._clean_overlay_dir()
+        clean_duration = time.time() - clean_start
+        log.debug(f"[INJECT] Directory cleanup took {clean_duration:.2f}s")
+        
+        # Copy installed mods to mods directory
+        installed_mods = self._copy_installed_mods_to_mods_dir()
+        
+        if not installed_mods:
+            log.warning("[INJECT] No installed mods to inject")
+            return False
+        
+        log.info(f"[INJECT] Injecting {len(installed_mods)} installed mod(s): {', '.join(installed_mods)}")
+        
+        # Create and run overlay
+        result = self._mk_run_overlay(installed_mods, timeout, stop_callback, injection_manager)
+        
+        # Get mkoverlay duration from stored timing data
+        mkoverlay_duration = self.last_injection_timing.get('mkoverlay_duration', 0.0) if self.last_injection_timing else 0.0
+        
+        total_duration = time.time() - injection_start_time
+        runoverlay_duration = total_duration - clean_duration - mkoverlay_duration
+        
+        # Log timing breakdown
+        if result == 0:
+            log.info(f"[INJECT] Mods injection completed in {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s, runoverlay: {runoverlay_duration:.2f}s)")
+        else:
+            log.warning(f"[INJECT] Mods injection failed - timeout or error after {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s)")
         
         return result == 0
     

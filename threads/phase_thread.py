@@ -662,6 +662,12 @@ class PhaseThread(threading.Thread):
                 log.error("[phase] Injector not initialized")
                 return
             
+            # Extract user mods first (ZIPs in mods folder)
+            try:
+                self.injection_manager.injector._extract_user_mods()
+            except Exception as e:
+                log.warning(f"[phase] Failed to extract user mods: {e}")
+            
             # Clean mods directory first
             self.injection_manager.injector._clean_mods_dir()
             self.injection_manager.injector._clean_overlay_dir()
@@ -703,13 +709,22 @@ class PhaseThread(threading.Thread):
                     import traceback
                     log.debug(f"[phase] Traceback: {traceback.format_exc()}")
             
-            if not extracted_mods:
-                log.warning("[phase] No skins extracted - cannot inject")
+            # Copy installed mods to mods directory
+            installed_mods = self.injection_manager.injector._copy_installed_mods_to_mods_dir()
+            
+            # Combine skin mods and installed mods
+            all_mods = extracted_mods + installed_mods
+            
+            if not all_mods:
+                log.warning("[phase] No mods extracted - cannot inject")
                 return
             
             # Store extracted mods for later injection on GameStart
-            self.state.swiftplay_extracted_mods = extracted_mods
-            log.info(f"[phase] Extracted {len(extracted_mods)} mod(s) - will inject on GameStart: {', '.join(extracted_mods)}")
+            self.state.swiftplay_extracted_mods = all_mods
+            if installed_mods:
+                log.info(f"[phase] Extracted {len(extracted_mods)} skin(s) + {len(installed_mods)} installed mod(s) - will inject on GameStart: {', '.join(all_mods)}")
+            else:
+                log.info(f"[phase] Extracted {len(extracted_mods)} skin(s) - will inject on GameStart: {', '.join(extracted_mods)}")
             
             # Don't run overlay yet - wait for GameStart phase
                 
