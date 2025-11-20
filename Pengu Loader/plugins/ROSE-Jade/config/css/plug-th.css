@@ -1,0 +1,305 @@
+/*===================================================================================================================*/
+@import url('https://fonts.googleapis.com/css2?family=Poiret+One&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+
+:root {
+	--plug-transform1: scale(1) rotate(0deg);
+	--plug-transform2: scale(1.075) rotate(1deg);
+	/*------------------------------------------*/
+	--plug-filter1: drop-shadow(0 0 0 rgb(66 60 40 / 0%));
+	--plug-filter2: drop-shadow(0 0 12px rgb(66 59 40 / 80%));
+	/*------------------------------------------*/
+	--plug-color1: #423828;
+	--plug-color2: #fcf0d7;
+	/*------------------------------------------*/
+	--plug-box-shadow1: 0 0 0 rgb(66 58 40 / 0%);
+	--plug-box-shadow2: 0 0 12px rgb(66 55 40 / 80%), 
+                   inset 0 0 12px rgb(66 56 40 / 40%);
+	/*------------------------------------------*/
+	--plug-color-button: #857a72;
+	--plug-color-buttonDisabled: #72655a;
+	--plug-color-buttonHover: #a89d8f;
+	/*------------------------------------------*/
+	--plug-selected-item-border: 2px solid #7d644b;
+	--plug-selected-item-box-shadow: 0 0 10px rgb(194 129 68 / 50%);
+	/*------------------------------------------*/
+	--plug-smoothGlow-box-shadow0:0 0 8px rgb(66 55 40 / 40%), 0 0 12px rgb(66 54 40 / 20%);
+	--plug-smoothGlow-box-shadow25:0 0 10px rgb(66 55 40 / 50%), 0 0 16px rgb(66 57 40 / 10%), 0 0 30px rgb(66 55 40 / 20%);
+	--plug-smoothGlow-box-shadow50:0 0 12px rgb(66 56 40 / 60%), 0 0 20px rgb(66 54 40 / 30%), 0 0 30px rgb(66 55 40 / 10%);
+	--plug-smoothGlow-box-shadow75:0 0 10px rgb(66 55 40 / 50%), 0 0 16px rgb(66 56 40 / 10%), 0 0 30px rgb(66 54 40 / 20%);
+	--plug-smoothGlow-box-shadow100:0 0 8px rgb(66 58 40 / 40%), 0 0 12px rgb(66 56 40 / 20%);
+	/*------------------------------------------*/
+	--plug-search-input-border: 1px solid #533e1c;
+	--plug-search-inputFocus-border-color: #81602b;
+	--plug-search-inputFocus-box-shadow: 0 0 10px rgba(84, 58, 96, 0.3);
+	/*------------------------------------------*/
+	--plug-jsbutton-color: 2px solid #81602b; /* #81602b lol color*/
+	/*------------------------------------------*/
+	--plug-soft-text-glow-kda1: rgb(255 155 0) 0px 0px 17px;
+	--plug-soft-text-glow-kda2: rgb(255 143 0 / 37%) 0px 0px 76px;
+	--plug-scrollable-color: #785a28;
+}
+
+/*===================================================================================================================*/
+@keyframes scaleUp {
+    from {
+        transform: var(--plug-transform1);
+        filter: var(--plug-filter1);
+    }
+    to {
+        transform: var(--plug-transform2);
+        filter: var(--plug-filter2);
+    }
+}
+
+@keyframes scaleDown {
+    from {
+        transform: var(--plug-transform2);
+        filter: var(--plug-filter2);
+    }
+    to {
+        transform: var(--plug-transform1);
+        filter: var(--plug-filter1);
+    }
+}
+
+@keyframes BorderColorUp {
+    from {
+        border-color: transparent;
+        box-shadow: var(--plug-box-shadow1);
+    }
+    to {
+        border-color: var(--plug-color1);
+        box-shadow: var(--plug-box-shadow2);
+    }
+}
+
+@keyframes BorderColorDown {
+    from {
+        border-color: var(--plug-color1);
+        box-shadow: var(--plug-box-shadow2);
+    }
+    to {
+        border-color: transparent;
+        box-shadow: var(--plug-box-shadow1);
+    }
+}
+
+@keyframes smoothGlow {
+    0% {
+        box-shadow: var(--plug-smoothGlow-box-shadow0);
+    }
+	25% {
+        box-shadow: var(--plug-smoothGlow-box-shadow25);
+    }
+    50% {
+        box-shadow: var(--plug-smoothGlow-box-shadow50);
+    }
+	75% {
+        box-shadow: var(--plug-smoothGlow-box-shadow75);
+    }
+    100% {
+        box-shadow: var(--plug-smoothGlow-box-shadow100);
+    }
+}
+
+@keyframes ColorUp {
+    from {
+        background-color: var(--plug-color1);
+    }
+    to {
+        background-color: var(--plug-color2);
+    }
+}
+
+@keyframes ColorDown {
+    from {
+        background-color: var(--plug-color2);
+    }
+    to {
+        background-color: var(--plug-color1);
+    }
+}
+
+@keyframes ColorUpYellow {
+    from {
+        background-color: #423e28;
+    }
+    to {
+        background-color: #fcfcd5;
+    }
+}
+
+@keyframes ColorDownYellow {
+    from {
+        background-color: #fcfcd5;
+    }
+    to {
+        background-color: #423e28;
+    }
+}
+
+@keyframes logoGlow {
+	from {
+		filter: 
+			drop-shadow(0 0 15px rgb(66 57 40 / 50%))
+			drop-shadow(0 0 30px rgb(66 58 40 / 70%))
+			brightness(1.6);
+	}
+}
+
+@keyframes softTextGlow {
+  from {
+    text-shadow: 
+      0 0 15px rgba(40, 66, 63, 0.7),
+      0 0 30px rgba(40, 66, 63, 0.5);
+  }
+  to {
+    text-shadow: 
+      0 0 25px rgba(40, 66, 63, 0.9),
+      0 0 50px rgba(40, 66, 63, 0.7),
+      0 0 75px rgba(40, 66, 63, 0.4);
+  }
+}
+		  
+.soft-text-glow {
+	animation: softTextGlow 4s ease-in-out infinite alternate;
+}
+
+@keyframes soft-text-glow-wins {
+  from {
+		text-shadow: rgba(0,200,235,1) 0px 0px 17px;
+  }
+  to {
+		text-shadow: rgba(0,200,235,0.37) 0px 0px 76px;
+  }
+}
+
+@keyframes soft-text-glow-lose {
+  from {
+    text-shadow: rgba(255, 0, 0, 1) 0px 0px 32px;
+  }
+  to {
+    text-shadow: rgba(255, 0, 0, 1) 0px 0px 76px;
+  }
+}
+
+@keyframes soft-text-glow-winrate {
+  from {
+    text-shadow: rgba(245, 222, 179, 1) 0px 0px 17px;
+  }
+  to {
+    text-shadow: rgba(245, 222, 179, 0.37) 0px 0px 76px;
+  }
+}
+
+@keyframes soft-text-glow-kda {
+  from {
+    text-shadow: var(--plug-soft-text-glow-kda1);
+  }
+  to {
+    text-shadow: var(--plug-soft-text-glow-kda2);
+  }
+}
+
+.style-profile-skin-picker-button{
+	display: none;
+}
+
+.search-input {
+    background-color: #21211F;
+    border: var(--plug-search-input-border);
+    border-radius: 13px;
+    color: #ffffff;
+    padding: 5px 20px;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 12px;
+    transition: all 0.3s ease;
+    outline: none;
+    width: 190px;
+}
+.search-input:focus {
+    border-color: var(--plug-search-inputFocus-border-color);
+    box-shadow: var(--plug-search-inputFocus-box-shadow);
+}
+.search-input::placeholder {
+    color: #888888;
+}
+
+.selected-title {
+	color: #6b7280 !important;
+}
+.selected-item-img {
+    filter: grayscale(100%) !important;
+    transform: scale(1.05) !important;
+}
+.selected-item-border {
+	border: var(--plug-selected-item-border) !important;
+    box-shadow: var(--plug-selected-item-box-shadow) !important;
+    animation: smoothGlow 2s ease-in-out infinite alternate !important;
+}
+
+.rose-scrollable::-webkit-scrollbar {
+	width: 8px;
+}
+.rose-scrollable::-webkit-scrollbar-track {
+	background: transparent;
+	border-radius: 10px;
+	margin: 5px;
+}
+.rose-scrollable::-webkit-scrollbar-thumb {
+	background: var(--plug-scrollable-color);
+	border-radius: 10px;
+	border: 2px solid transparent;
+}
+
+
+.pagination-button {
+  background-color: transparent;
+  border: transparent;
+  width: 51px;
+  height: 24px;
+  color: var(--plug-color-button);
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  font-family: Montserrat, sans-serif;
+}
+.pagination-button:hover:not(.disabled) {
+  background-color: transparent;
+  border: transparent;
+  color: var(--plug-color-buttonHover);
+  transform: scale(1.1);
+}
+.pagination-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: transparent;
+  border: transparent;
+  color: var(--plug-color-buttonDisabled);
+}
+.pagination-button.disabled:hover {
+  transform: none;
+  background-color: transparent;
+  border: transparent;
+  color: var(--plug-color-buttonDisabled);
+}
+
+.v2-banner-component .lobby-banner,
+.v2-banner-placeholder .placeholder-invited-container
+{
+    position: relative;
+    -webkit-mask: linear-gradient(to bottom, 
+        transparent 0%, 
+		rgba(0,0,0,0) 10%,
+        rgba(0,0,0,0.7) 25%,
+        black 40%);
+}
+
+.style-profile-emblem-header-subtitle {
+	display: none;
+}
