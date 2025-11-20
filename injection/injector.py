@@ -5,32 +5,22 @@ CSLOL Skin Injector
 Handles the actual skin injection using CSLOL tools
 """
 
-import subprocess
+import sys
 import time
-import configparser
-import threading
-from pathlib import Path
-from typing import List, Dict, Optional
-import zipfile
 import shutil
+from pathlib import Path
+from typing import List, Optional
 
-# Import psutil with fallback for development environments
-try:
-    import psutil
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    PSUTIL_AVAILABLE = False
-    psutil = None
+from utils.logging import get_logger, log_action, log_success
+from utils.paths import get_skins_dir, get_injection_dir
 
-from utils.logging import get_logger, log_action, log_success, log_event
-from utils.paths import get_skins_dir, get_injection_dir, get_user_data_dir
-from config import (
-    PROCESS_TERMINATE_TIMEOUT_S, 
-    PROCESS_TERMINATE_WAIT_S,
-    PROCESS_ENUM_TIMEOUT_S,
-    PROCESS_MONITOR_SLEEP_S, 
-    ENABLE_PRIORITY_BOOST
-)
+from .config_manager import ConfigManager
+from .game_detector import GameDetector
+from .tools_manager import ToolsManager
+from .zip_resolver import ZipResolver
+from .mod_manager import ModManager
+from .overlay_manager import OverlayManager
+from .process_manager import ProcessManager
 
 log = get_logger()
 
@@ -41,7 +31,6 @@ class SkinInjector:
     def __init__(self, tools_dir: Path = None, mods_dir: Path = None, zips_dir: Path = None, game_dir: Optional[Path] = None):
         # Use injection folder as base if paths not provided
         # Handle both frozen (PyInstaller) and development environments
-        import sys
         if getattr(sys, 'frozen', False):
             # Running as compiled executable (PyInstaller)
             # Handle both onefile (_MEIPASS) and onedir (_internal) modes
@@ -80,781 +69,84 @@ class SkinInjector:
             self.tools_dir = tools_dir
         else:
             self.tools_dir = injection_dir / "tools"
+        
         # Use user data directory for mods and skins to avoid permission issues
         self.mods_dir = mods_dir or get_injection_dir() / "mods"
         self.zips_dir = zips_dir or get_skins_dir()
+        
+        # Initialize managers
+        self.config_manager = ConfigManager()
+        self.game_detector = GameDetector(self.config_manager)
+        
         # Only detect if game_dir not provided - never use invalid fallback paths
         if game_dir is not None:
             self.game_dir = game_dir
         else:
-            self.game_dir = self._detect_game_dir()
-        # Database no longer needed - LCU provides all data
+            self.game_dir = self.game_detector.detect_game_dir()
         
         # Create directories if they don't exist
         self.mods_dir.mkdir(parents=True, exist_ok=True)
         self.zips_dir.mkdir(parents=True, exist_ok=True)
         
-        # Track current overlay process
-        self.current_overlay_process = None
+        # Initialize managers
+        self.tools_manager = ToolsManager(self.tools_dir)
+        self.zip_resolver = ZipResolver(self.zips_dir)
+        self.mod_manager = ModManager(self.mods_dir)
+        self.process_manager = ProcessManager()
+        # Pass process_manager to overlay_manager so they share the process reference
+        self.overlay_manager = OverlayManager(self.tools_dir, self.mods_dir, self.game_dir, self.process_manager)
         
         # Store last injection timing data
         self.last_injection_timing = None
         
         # Check for CSLOL tools
-        self._download_cslol_tools()
-        
-    def _get_config_path(self) -> Path:
-        """Get the path to the config.ini file"""
-        from config import get_config_file_path
-
-        return get_config_file_path()
+        self.tools_manager.check_tools_available()
     
-    def _load_config(self) -> Optional[str]:
-        """Load League path from config.ini file"""
-        config_path = self._get_config_path()
-        if not config_path.exists():
-            log.debug("Config file not found, will create one")
-            return None
-        
-        try:
-            config = configparser.ConfigParser()
-            config.read(config_path)
-            if 'General' in config and 'leaguePath' in config['General']:
-                league_path = config['General']['leaguePath']
-                log.debug(f"Loaded League path from config: {league_path}")
-                return league_path
-        except Exception as e:
-            log.warning(f"Failed to read config file: {e}")
-        
-        return None
-    
-    def _save_config(self, league_path: str):
-        """Save League path to config.ini file"""
-        config_path = self._get_config_path()
-        try:
-            config = configparser.ConfigParser()
-            
-            # Load existing config if it exists
-            if config_path.exists():
-                config.read(config_path)
-            
-            # Ensure General section exists
-            if 'General' not in config:
-                config.add_section('General')
-            
-            # Set the League path
-            config.set('General', 'leaguePath', league_path)
-            
-            # Write to file
-            with open(config_path, 'w') as f:
-                config.write(f)
-            
-            log.debug(f"Saved League path to config: {league_path}")
-        except Exception as e:
-            log.warning(f"Failed to save config file: {e}")
-    
-    def _detect_game_dir(self) -> Optional[Path]:
-        """Auto-detect League of Legends Game directory using config and LeagueClient.exe detection.
-        Returns None if game directory cannot be found - never saves invalid paths to config."""
-        
-        # First, try to load from config
-        config_path = self._load_config()
-        if config_path:
-            config_game_dir = Path(config_path)
-            if config_game_dir.exists() and (config_game_dir / "League of Legends.exe").exists():
-                log_success(log, f"Using League path from config: {config_game_dir}", "📂")
-                return config_game_dir
-            else:
-                log.warning(f"Config League path is invalid: {config_path}")
-        
-        # If no valid config, try to detect via LeagueClient.exe
-        log.debug("Config not found or invalid, detecting via LeagueClient.exe")
-        detected_path = self._detect_via_leagueclient()
-        if detected_path:
-            # Save the detected path to config only if we actually found a valid path
-            self._save_config(str(detected_path))
-            return detected_path
-        
-        # No fallbacks - if we can't detect it, return None
-        log.warning("Could not detect League of Legends game directory. Please ensure League Client is running or manually set the path in config.ini")
-        return None
-    
-    def _detect_via_leagueclient(self) -> Optional[Path]:
-        """Detect League path by finding running LeagueClient.exe process"""
-        if not PSUTIL_AVAILABLE:
-            log.debug("psutil not available, skipping LeagueClient.exe detection")
-            return None
-            
-        try:
-            log.debug("Looking for LeagueClient.exe process...")
-            
-            # Find LeagueClient.exe process
-            for proc in psutil.process_iter(['pid', 'name', 'exe']):
-                try:
-                    if proc.info['name'] == 'LeagueClient.exe':
-                        exe_path = proc.info['exe']
-                        if exe_path:
-                            log.debug(f"Found LeagueClient.exe at: {exe_path}")
-                            
-                            # Convert to Path and get parent directory
-                            client_path = Path(exe_path)
-                            client_dir = client_path.parent
-                            
-                            # League should be in the same directory + "Game" subdirectory
-                            league_dir = client_dir / "Game"
-                            league_exe = league_dir / "League of Legends.exe"
-                            
-                            log.debug(f"Checking for League at: {league_exe}")
-                            if league_exe.exists():
-                                log_success(log, f"Found League via LeagueClient.exe: {league_dir}", "📂")
-                                return league_dir
-                            else:
-                                log.debug(f"League not found at expected location: {league_exe}")
-                                
-                                # Try parent directory structure (for different installers)
-                                parent_dir = client_dir.parent
-                                parent_league_dir = parent_dir / "League of Legends" / "Game"
-                                parent_league_exe = parent_league_dir / "League of Legends.exe"
-                                
-                                log.debug(f"Trying parent directory structure: {parent_league_exe}")
-                                if parent_league_exe.exists():
-                                    log_success(log, f"Found League via parent directory: {parent_league_dir}", "📂")
-                                    return parent_league_dir
-                                
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    continue
-            
-            log.debug("No LeagueClient.exe process found")
-            return None
-            
-        except Exception as e:
-            log.warning(f"Error detecting via LeagueClient.exe: {e}")
-            return None
-    
-    def _download_cslol_tools(self):
-        """Download CSLOL tools if not present"""
-        required_tools = [
-            "mod-tools.exe",
-            "cslol-diag.exe", 
-            "cslol-dll.dll",
-            "wad-extract.exe",
-            "wad-make.exe"
-        ]
-        
-        missing_tools = []
-        for tool in required_tools:
-            if not (self.tools_dir / tool).exists():
-                missing_tools.append(tool)
-        
-        if missing_tools:
-            log.warning(f"Missing CSLOL tools: {missing_tools}")
-            log.warning("Please download CSLOL tools manually and place them in injection/tools/")
-            log.warning("Download from: https://github.com/CommunityDragon/CDTB")
-            return False
-        
-        return True
-    
-    def _detect_tools(self) -> Dict[str, Path]:
-        """Detect CSLOL tools"""
-        tools = {
-            "diag": self.tools_dir / "cslol-diag.exe",
-            "modtools": self.tools_dir / "mod-tools.exe",
-        }
-        for name, exe in tools.items():
-            if not exe.exists():
-                log.error(f"[INJECTOR] Missing tool: {exe}")
-        return tools
-    
-    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Path | None:
-        """Resolve a ZIP by name or path with fuzzy matching, supporting new merged structure
-        
-        Args:
-            zip_arg: Skin name or path to search for
-            chroma_id: Optional chroma ID to look for in chroma subdirectory
-            skin_name: Optional base skin name for chroma lookup
-            champion_id: Optional champion ID for path construction.
-        """
-        log.debug(f"[INJECT] Resolving zip for: '{zip_arg}' (chroma_id: {chroma_id}, skin_name: {skin_name})")
-        cand = Path(zip_arg)
-        if cand.exists():
-            return cand
-
-        self.zips_dir.mkdir(parents=True, exist_ok=True)
-
-        # Handle ID-based naming convention from random selection
-        if zip_arg.startswith('skin_'):
-            # Format: skin_{skin_id} - check if this is actually a chroma
-            skin_id = int(zip_arg.split('_')[1])
-            if not champion_id:
-                log.warning(f"[INJECT] No champion_id provided for skin ID: {skin_id}")
-                return None
-            
-            # If chroma_id is provided, this is actually a chroma (Swiftplay case)
-            if chroma_id is not None:
-                # Look for chroma: {champion_id}/{base_skin_id}/{chroma_id}/{chroma_id}.zip
-                champion_dir = self.zips_dir / str(champion_id)
-                if not champion_dir.exists():
-                    log.warning(f"[INJECT] Champion directory not found: {champion_dir}")
-                    return None
-                
-                # Search through all skin directories for this champion to find the chroma
-                for skin_dir in champion_dir.iterdir():
-                    if not skin_dir.is_dir():
-                        continue
-                    
-                    try:
-                        base_skin_id = int(skin_dir.name)
-                    except ValueError:
-                        continue
-                    
-                    # Look for chroma in this skin's chroma directory
-                    chroma_dir = skin_dir / str(chroma_id)
-                    if chroma_dir.exists():
-                        chroma_zip_path = chroma_dir / f"{chroma_id}.zip"
-                        if chroma_zip_path.exists():
-                            log.debug(f"[INJECT] Found chroma ZIP: {chroma_zip_path}")
-                            return chroma_zip_path
-                
-                log.warning(f"[INJECT] Chroma ZIP not found for ID: {chroma_id}")
-                return None
-            
-            # This is a base skin - Look for {champion_id}/{skin_id}/{skin_id}.zip
-            skin_zip_path = self.zips_dir / str(champion_id) / str(skin_id) / f"{skin_id}.zip"
-            if skin_zip_path.exists():
-                log.debug(f"[INJECT] Found skin ZIP: {skin_zip_path}")
-                return skin_zip_path
-            else:
-                # Not found as base skin - might be a chroma that was incorrectly labeled as skin_
-                # Try searching for it as a chroma in any base skin directory
-                log.debug(f"[INJECT] Base skin not found, checking if {skin_id} is a chroma...")
-                champion_dir = self.zips_dir / str(champion_id)
-                if champion_dir.exists():
-                    for skin_dir in champion_dir.iterdir():
-                        if not skin_dir.is_dir():
-                            continue
-                        try:
-                            base_skin_id = int(skin_dir.name)
-                        except ValueError:
-                            continue
-                        
-                        # Look for chroma in this skin's chroma directory
-                        chroma_dir = skin_dir / str(skin_id)
-                        if chroma_dir.exists():
-                            chroma_zip_path = chroma_dir / f"{skin_id}.zip"
-                            if chroma_zip_path.exists():
-                                log.debug(f"[INJECT] Found chroma ZIP (mislabeled as skin_): {chroma_zip_path}")
-                                return chroma_zip_path
-                
-                log.warning(f"[INJECT] Skin ZIP not found: {skin_zip_path}")
-                return None
-        
-        elif zip_arg.startswith('chroma_'):
-            # Format: chroma_{chroma_id} - this is a chroma
-            chroma_id = int(zip_arg.split('_')[1])
-            if not champion_id:
-                log.warning(f"[INJECT] No champion_id provided for chroma ID: {chroma_id}")
-                return None
-            
-            # Look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
-            champion_dir = self.zips_dir / str(champion_id)
-            if not champion_dir.exists():
-                log.warning(f"[INJECT] Champion directory not found: {champion_dir}")
-                return None
-            
-            # Search through all skin directories for this champion to find the chroma
-            for skin_dir in champion_dir.iterdir():
-                if not skin_dir.is_dir():
-                    continue
-                
-                # Check if this is a skin directory (numeric name)
-                try:
-                    skin_id = int(skin_dir.name)
-                except ValueError:
-                    continue
-                
-                # Look for chroma in this skin's chroma directory
-                chroma_dir = skin_dir / str(chroma_id)
-                if chroma_dir.exists():
-                    chroma_zip_path = chroma_dir / f"{chroma_id}.zip"
-                    if chroma_zip_path.exists():
-                        log.debug(f"[INJECT] Found chroma ZIP: {chroma_zip_path}")
-                        return chroma_zip_path
-            
-            log.warning(f"[INJECT] Chroma ZIP not found for ID: {chroma_id}")
-            return None
-
-        # For base skins (no chroma_id), we need skin_id
-        if chroma_id is None and skin_name:
-            if not champion_id:
-                log.warning(f"[INJECT] No champion_id provided for skin lookup: {skin_name}")
-                return None
-            
-            # The UIA system should have already resolved skin_name to skin_id
-            # If we're here, it means skin_id wasn't provided, which shouldn't happen
-            log.warning(f"[INJECT] No skin_id provided for skin '{skin_name}' - UIA should have resolved this")
-            return None
-
-        # If chroma_id is provided, look in chroma subdirectory structure
-        # New structure: {champion_id}/{chroma_id}/{chroma_id}.zip
-        if chroma_id is not None:
-            # Special handling for Elementalist Lux forms (fake IDs 99991-99999)
-            if 99991 <= chroma_id <= 99999:
-                log.info(f"[INJECT] Detected Elementalist Lux form fake ID: {chroma_id}")
-                
-                # Map fake IDs to form names
-                form_names = {
-                    99991: 'Air',
-                    99992: 'Dark', 
-                    99993: 'Ice',
-                    99994: 'Magma',
-                    99995: 'Mystic',
-                    99996: 'Nature',
-                    99997: 'Storm',
-                    99998: 'Water',
-                    99999: 'Fire'
-                }
-                
-                form_name = form_names.get(chroma_id, 'Unknown')
-                log.info(f"[INJECT] Looking for Elementalist Lux {form_name} form")
-                
-                # Look for the form file in the Lux directory
-                form_pattern = f"Lux Elementalist {form_name}.zip"
-                form_files = list(self.zips_dir.rglob(f"**/{form_pattern}"))
-                if form_files:
-                    log_success(log, f"Found Elementalist Lux {form_name} form: {form_files[0].name}", "✨")
-                    return form_files[0]
-                else:
-                    log.warning(f"[INJECT] Elementalist Lux {form_name} form file not found: {form_pattern}")
-                    return None
-            
-            # For regular chromas, look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
-            if not champion_id:
-                log.warning(f"[INJECT] No champion_id provided for chroma lookup: {chroma_id}")
-                return None
-            
-            # For chromas, we need to find which skin they belong to
-            # Since chromas are stored under their base skin directory, we need to search
-            # through all skin directories for this champion to find the chroma
-            champion_dir = self.zips_dir / str(champion_id)
-            if not champion_dir.exists():
-                log.warning(f"[INJECT] Champion directory not found: {champion_dir}")
-                return None
-            
-            # Search through all skin directories for this champion
-            for skin_dir in champion_dir.iterdir():
-                if not skin_dir.is_dir():
-                    continue
-                
-                # Check if this is a skin directory (numeric name)
-                try:
-                    int(skin_dir.name)  # If this succeeds, it's a skin ID directory
-                    
-                    # Check if chroma directory exists
-                    chroma_dir = skin_dir / str(chroma_id)
-                    if chroma_dir.exists():
-                        chroma_zip = chroma_dir / f"{chroma_id}.zip"
-                        if chroma_zip.exists():
-                            log_success(log, f"Found chroma: {chroma_zip.name}", "🎨")
-                            return chroma_zip
-                except ValueError:
-                    # Not a skin directory, skip
-                    continue
-            
-            log.warning(f"[INJECT] Chroma {chroma_id} not found in any skin directory for champion {champion_id}")
-            return None
-
-        # For regular skin files (no chroma_id), we need to find by skin_id
-        # This is a simplified approach - in practice, you'd want to use LCU data
-        log.warning(f"[INJECT] Base skin lookup by name not fully implemented for new structure: {zip_arg}")
-        return None
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Optional[Path]:
+        """Resolve a ZIP by name or path with fuzzy matching"""
+        return self.zip_resolver.resolve_zip(zip_arg, chroma_id, skin_name, champion_name, champion_id)
     
     def _clean_mods_dir(self):
         """Clean the mods directory"""
-        if not self.mods_dir.exists():
-            self.mods_dir.mkdir(parents=True, exist_ok=True)
-            return
-        for p in self.mods_dir.iterdir():
-            if p.is_dir():
-                shutil.rmtree(p, ignore_errors=True)
-            else:
-                try:
-                    p.unlink()
-                except Exception:
-                    pass
+        self.mod_manager.clean_mods_dir()
     
     def _clean_overlay_dir(self):
         """Clean the overlay directory to prevent file lock issues"""
-        overlay_dir = self.mods_dir.parent / "overlay"
-        if overlay_dir.exists():
-            try:
-                shutil.rmtree(overlay_dir, ignore_errors=True)
-                log.debug("[INJECT] Cleaned overlay directory")
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to clean overlay directory: {e}")
-        overlay_dir.mkdir(parents=True, exist_ok=True)
+        self.mod_manager.clean_overlay_dir()
     
     def _extract_zip_to_mod(self, zp: Path) -> Path:
         """Extract ZIP to mod directory"""
-        target = self.mods_dir / zp.stem
-        if target.exists():
-            shutil.rmtree(target, ignore_errors=True)
-        target.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zp, "r") as zf:
-            zf.extractall(target)
-        log_success(log, f"Extracted {zp.name}", "📦")
-        return target
+        return self.mod_manager.extract_zip_to_mod(zp)
     
     def _get_user_mods_dir(self) -> Path:
         """Get the user mods directory (AppData\\Local\\Rose\\mods)"""
-        return get_user_data_dir() / "mods"
+        return self.mod_manager._get_user_mods_dir()
     
     def _get_installed_mods_dir(self) -> Path:
         """Get the installed mods directory (AppData\\Local\\Rose\\mods\\installed)"""
-        return self._get_user_mods_dir() / "installed"
+        return self.mod_manager._get_installed_mods_dir()
     
     def _extract_user_mods(self) -> List[str]:
-        """Check for ZIPs and .fantome files in AppData\\Local\\Rose\\mods and extract them to installed subfolder.
-        
-        Returns:
-            List of extracted mod folder names (relative to mods_dir)
-        """
-        user_mods_dir = self._get_user_mods_dir()
-        installed_dir = self._get_installed_mods_dir()
-        
-        # Create directories if they don't exist
-        user_mods_dir.mkdir(parents=True, exist_ok=True)
-        installed_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Find all ZIP and .fantome files in the user mods directory
-        zip_files = list(user_mods_dir.glob("*.zip"))
-        fantome_files = list(user_mods_dir.glob("*.fantome"))
-        all_files = zip_files + fantome_files
-        
-        if not all_files:
-            log.debug("[INJECT] No ZIP or .fantome files found in user mods directory")
-            return []
-        
-        log.info(f"[INJECT] Found {len(zip_files)} ZIP file(s) and {len(fantome_files)} .fantome file(s) in user mods directory")
-        extracted_mods = []
-        
-        for mod_file in all_files:
-            try:
-                # Extract to installed directory
-                target = installed_dir / mod_file.stem
-                if target.exists():
-                    # Remove existing extraction if it exists
-                    shutil.rmtree(target, ignore_errors=True)
-                target.mkdir(parents=True, exist_ok=True)
-                
-                # .fantome files are like ZIP files, so we can extract them the same way
-                with zipfile.ZipFile(mod_file, "r") as zf:
-                    zf.extractall(target)
-                
-                file_type = "ZIP" if mod_file.suffix == ".zip" else ".fantome"
-                log_success(log, f"Extracted user mod ({file_type}): {mod_file.name}", "📦")
-                extracted_mods.append(target.name)
-                
-                # Delete the source file after successful extraction to avoid re-extracting every game
-                try:
-                    mod_file.unlink()
-                    log.debug(f"[INJECT] Deleted source file: {mod_file.name}")
-                except Exception as e:
-                    log.warning(f"[INJECT] Failed to delete source file {mod_file.name}: {e}")
-                
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to extract {mod_file.name}: {e}")
-                continue
-        
-        return extracted_mods
+        """Check for ZIPs and .fantome files and extract them"""
+        return self.mod_manager.extract_user_mods()
     
     def _copy_installed_mods_to_mods_dir(self) -> List[str]:
-        """Copy mods from installed directory to the injection mods directory.
-        
-        Returns:
-            List of mod folder names that were copied (for use in mkoverlay)
-        """
-        installed_dir = self._get_installed_mods_dir()
-        
-        if not installed_dir.exists():
-            log.debug("[INJECT] Installed mods directory does not exist")
-            return []
-        
-        # Find all directories in installed folder
-        mod_dirs = [d for d in installed_dir.iterdir() if d.is_dir()]
-        
-        if not mod_dirs:
-            log.debug("[INJECT] No mods found in installed directory")
-            return []
-        
-        log.info(f"[INJECT] Copying {len(mod_dirs)} mod(s) from installed directory")
-        copied_mods = []
-        
-        for mod_dir in mod_dirs:
-            try:
-                # Copy to injection mods directory
-                target = self.mods_dir / mod_dir.name
-                if target.exists():
-                    # Remove existing mod if it exists
-                    shutil.rmtree(target, ignore_errors=True)
-                
-                shutil.copytree(mod_dir, target)
-                copied_mods.append(mod_dir.name)
-                log.debug(f"[INJECT] Copied mod: {mod_dir.name}")
-                
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to copy mod {mod_dir.name}: {e}")
-                continue
-        
-        if copied_mods:
-            log_success(log, f"Copied {len(copied_mods)} mod(s) to injection directory", "📦")
-        
-        return copied_mods
+        """Copy mods from installed directory to the injection mods directory"""
+        return self.mod_manager.copy_installed_mods_to_mods_dir()
     
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback=None, injection_manager=None) -> int:
-        """Create and run overlay
-        
-        Args:
-            mod_names: List of mod names to inject
-            timeout: Unused (kept for backward compatibility) - overlay runs until explicitly killed
-            stop_callback: Optional callback to check if game ended
-            injection_manager: Optional injection manager for game resume
-        """
-        if self.game_dir is None:
-            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
-            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
-            return 127
-            
-        tools = self._detect_tools()
-        exe = tools.get("modtools")
-        if not exe or not exe.exists():
-            log.error(f"[INJECTOR] Missing mod-tools.exe in {self.tools_dir}")
-            return 127
-            
-        # Use overlay directory (should already be clean from _clean_overlay_dir)
-        overlay_dir = self.mods_dir.parent / "overlay"
-        overlay_dir.mkdir(parents=True, exist_ok=True)
-        
-        names_str = "/".join(mod_names)
-        gpath = str(self.game_dir)
-
-        # Create overlay (this is the actual injection work)
-        # Based on CSLOL source: flags.contains("--ignoreConflict") in main_mod_tools.cpp:332
-        # Documentation: mod-tools.md shows --ignoreConflict flag (camelCase, no --opts: prefix)
-        cmd = [
-            str(exe), "mkoverlay", str(self.mods_dir), str(overlay_dir),
-            f"--game:{gpath}", f"--mods:{names_str}", "--noTFT",
-            "--ignoreConflict"
-        ]
-        
-        log.debug(f"[INJECT] Creating overlay: {' '.join(cmd)}")
-        mkoverlay_start = time.time()
-        try:
-            # Hide console window on Windows
-            import sys
-            creationflags = 0
-            if sys.platform == "win32":
-                import subprocess
-                creationflags = subprocess.CREATE_NO_WINDOW
-            
-            # Capture both stdout and stderr - CSLOL uses logi() which may write to stdout
-            import os
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, text=True, bufsize=1)
-            
-            # Boost process priority to maximize CPU contention if enabled
-            if ENABLE_PRIORITY_BOOST and PSUTIL_AVAILABLE:
-                try:
-                    p = psutil.Process(proc.pid)
-                    p.nice(psutil.HIGH_PRIORITY_CLASS)
-                    log.debug(f"[INJECT] Boosted mkoverlay process priority (PID={proc.pid})")
-                except Exception as e:
-                    log.debug(f"[INJECT] Could not boost process priority: {e}")
-            
-            # Wait for process to complete with timeout
-            # Read both stdout and stderr in separate threads to see what mkoverlay is doing
-            output_lines = []
-            error_lines = []
-            
-            def read_output(pipe, lines_list, prefix):
-                try:
-                    for line in pipe:
-                        if line:
-                            stripped = line.strip()
-                            if stripped:
-                                lines_list.append(stripped)
-                                log.debug(f"[INJECT] mkoverlay {prefix}: {stripped}")
-                except Exception as e:
-                    log.debug(f"[INJECT] Error reading {prefix}: {e}")
-            
-            stdout_thread = threading.Thread(target=read_output, args=(proc.stdout, output_lines, "stdout"), daemon=True)
-            stderr_thread = threading.Thread(target=read_output, args=(proc.stderr, error_lines, "stderr"), daemon=True)
-            stdout_thread.start()
-            stderr_thread.start()
-            
-            try:
-                proc.wait(timeout=timeout)
-                # Give threads a moment to finish reading
-                stdout_thread.join(timeout=1.0)
-                stderr_thread.join(timeout=1.0)
-                if output_lines or error_lines:
-                    log.debug(f"[INJECT] mkoverlay completed - {len(output_lines)} stdout, {len(error_lines)} stderr lines")
-            except subprocess.TimeoutExpired:
-                # Process timed out - log what we have so far
-                all_lines = output_lines + error_lines
-                if all_lines:
-                    log.warning(f"[INJECT] mkoverlay timeout - last output: {'; '.join(all_lines[-10:])}")  # Last 10 lines
-                else:
-                    log.warning("[INJECT] mkoverlay timeout - no output captured")
-                proc.kill()
-                proc.wait()
-                raise
-            mkoverlay_duration = time.time() - mkoverlay_start
-            
-            if proc.returncode != 0:
-                log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
-                return proc.returncode
-            else:
-                log_success(log, f"mkoverlay completed in {mkoverlay_duration:.2f}s", "⚡")
-                # Store timing data for external access
-                self.last_injection_timing = {
-                    'mkoverlay_duration': mkoverlay_duration,
-                    'timestamp': time.time()
-                }
-                
-                # DON'T resume game yet - keep it frozen until runoverlay starts
-                log_event(log, "mkoverlay done - keeping game frozen until runoverlay starts", "❄️")
-                
-        except subprocess.TimeoutExpired:
-            log.error("[INJECT] mkoverlay timeout - monitor will auto-resume if needed")
-            return 124
-        except Exception as e:
-            log.error(f"[INJECT] mkoverlay error: {e} - monitor will auto-resume if needed")
-            return 1
-
-        # Run overlay
-        cfg = overlay_dir / "cslol-config.json"
-        cmd = [
-            str(exe), "runoverlay", str(overlay_dir), str(cfg),
-            f"--game:{gpath}", "--opts:configless"
-        ]
-        
-        log_action(log, f"Running overlay: {' '.join(cmd)}", "🚀")
-        
-        try:
-            # Hide console window on Windows
-            import sys
-            import os
-            creationflags = 0
-            if sys.platform == "win32":
-                import subprocess
-                creationflags = subprocess.CREATE_NO_WINDOW
-            
-            # Don't capture stdout to avoid pipe buffer deadlock - send to devnull instead
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
-            
-            # Boost process priority to maximize CPU contention if enabled
-            if ENABLE_PRIORITY_BOOST and PSUTIL_AVAILABLE:
-                try:
-                    p = psutil.Process(proc.pid)
-                    p.nice(psutil.HIGH_PRIORITY_CLASS)
-                    log.debug(f"[INJECT] Boosted runoverlay process priority (PID={proc.pid})")
-                except Exception as e:
-                    log.debug(f"[INJECT] Could not boost process priority: {e}")
-            
-            self.current_overlay_process = proc
-            
-            # Resume game NOW - runoverlay started, game can load while runoverlay hooks in
-            if injection_manager:
-                log.info("[INJECT] runoverlay started - resuming game")
-                injection_manager.resume_game()
-            
-            # Monitor process with stop callback
-            # No timeout - overlay will run until explicitly killed or game ends
-            while proc.poll() is None:
-                # Check if we should stop (game ended)
-                if stop_callback and stop_callback():
-                    log.info("[INJECT] Game ended, stopping overlay process")
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                        proc.wait()
-                    self.current_overlay_process = None
-                    return 0  # Success - overlay ran through game
-                
-                time.sleep(PROCESS_MONITOR_SLEEP_S)
-            
-            # Process completed normally (no stdout captured)
-            self.current_overlay_process = None
-            if proc.returncode != 0:
-                log.error(f"[INJECT] runoverlay failed with return code: {proc.returncode}")
-                return proc.returncode
-            else:
-                log.debug(f"[INJECT] runoverlay completed successfully")
-                return 0
-        except Exception as e:
-            log.error(f"[INJECT] runoverlay error: {e}")
-            return 1
+        """Create and run overlay"""
+        result = self.overlay_manager.mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
+        # Sync timing data
+        self.last_injection_timing = self.overlay_manager.last_injection_timing
+        return result
     
     def _mk_overlay_only(self, mod_names: List[str], timeout: int = 60) -> int:
         """Create overlay using mkoverlay only (no runoverlay) - for testing"""
-        if self.game_dir is None:
-            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
-            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
-            return 127
-            
-        try:
-            # Build mkoverlay command
-            # Based on CSLOL source: flags.contains("--ignoreConflict") in main_mod_tools.cpp:332
-            cmd = [
-                str(self.tools_dir / "mod-tools.exe"),
-                "mkoverlay",
-                str(self.mods_dir),
-                str(self.mods_dir.parent / "overlay"),
-                f"--game:{self.game_dir}",
-                f"--mods:{','.join(mod_names)}",
-                "--noTFT",
-                "--ignoreConflict"
-            ]
-            
-            log.debug(f"[INJECT] Creating overlay (mkoverlay only): {' '.join(cmd)}")
-            mkoverlay_start = time.time()
-            
-            # Set creation flags for Windows
-            import sys
-            import os
-            creationflags = 0
-            if sys.platform == "win32":
-                creationflags = subprocess.CREATE_NO_WINDOW
-            
-            try:
-                # Don't capture stdout to avoid pipe buffer deadlock - send to devnull instead
-                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
-                proc.wait(timeout=timeout)
-                mkoverlay_duration = time.time() - mkoverlay_start
-                
-                if proc.returncode != 0:
-                    log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
-                    return proc.returncode
-                else:
-                    log.debug(f"[INJECT] mkoverlay completed in {mkoverlay_duration:.2f}s")
-                    self.last_injection_timing = {
-                        'mkoverlay_duration': mkoverlay_duration,
-                        'timestamp': time.time()
-                    }
-                    return 0
-                    
-            except subprocess.TimeoutExpired:
-                log.error(f"[INJECT] mkoverlay timed out after {timeout}s")
-                proc.kill()
-                return -1
-            except Exception as e:
-                log.error(f"[INJECT] mkoverlay failed with exception: {e}")
-                return -1
-                
-        except Exception as e:
-            log.error(f"[INJECT] Failed to create mkoverlay command: {e}")
-            return -1
+        result = self.overlay_manager.mk_overlay_only(mod_names, timeout)
+        # Sync timing data
+        self.last_injection_timing = self.overlay_manager.last_injection_timing
+        return result
     
     def inject_skin(self, skin_name: str, timeout: int = 120, stop_callback=None, injection_manager=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
         """Inject a single skin (with optional chroma)
@@ -1018,87 +310,7 @@ class SkinInjector:
     
     def _run_overlay_from_path(self, overlay_path: Path) -> bool:
         """Run overlay from an overlay directory"""
-        try:
-            log.info(f"[INJECT] Running overlay from: {overlay_path}")
-            
-            # Check what's in the overlay directory
-            overlay_contents = list(overlay_path.iterdir())
-            log.debug(f"[INJECT] Overlay contents: {[f.name for f in overlay_contents]}")
-            
-            if not overlay_contents:
-                log.error(f"[INJECT] Overlay directory is empty: {overlay_path}")
-                return False
-            
-            # Copy overlay to the main overlay directory
-            main_overlay_dir = self.mods_dir.parent / "overlay"
-            
-            # Clean main overlay directory
-            if main_overlay_dir.exists():
-                shutil.rmtree(main_overlay_dir, ignore_errors=True)
-            main_overlay_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Copy overlay contents
-            log.debug(f"[INJECT] Copying from {overlay_path} to {main_overlay_dir}")
-            for item in overlay_path.iterdir():
-                if item.is_file():
-                    shutil.copy2(item, main_overlay_dir / item.name)
-                    log.debug(f"[INJECT] Copied file: {item.name}")
-                elif item.is_dir():
-                    shutil.copytree(item, main_overlay_dir / item.name)
-                    log.debug(f"[INJECT] Copied directory: {item.name}")
-            
-            # Log what's in the main overlay directory after copying
-            overlay_files = list(main_overlay_dir.iterdir())
-            log.debug(f"[INJECT] Main overlay directory contents: {[f.name for f in overlay_files]}")
-            
-            # Run overlay using runoverlay command
-            tools = self._detect_tools()
-            exe = tools.get("modtools")
-            if not exe or not exe.exists():
-                log.error(f"[INJECTOR] Missing mod-tools.exe in {self.tools_dir}")
-                return False
-            
-            # Create configuration file path
-            if self.game_dir is None:
-                log.error("[INJECTOR] Cannot run overlay - League game directory not found")
-                log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
-                return False
-                
-            cfg = main_overlay_dir / "cslol-config.json"
-            gpath = str(self.game_dir)
-            
-            cmd = [
-                str(exe), "runoverlay", str(main_overlay_dir), str(cfg),
-                f"--game:{gpath}", "--opts:configless"
-            ]
-            
-            log.info(f"[INJECT] Running overlay: {' '.join(cmd)}")
-            
-            try:
-                # Hide console window on Windows
-                import sys
-                import os
-                creationflags = 0
-                if sys.platform == "win32":
-                    import subprocess
-                    creationflags = subprocess.CREATE_NO_WINDOW
-                
-                # Don't capture stdout to avoid pipe buffer issues - send to devnull instead
-                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
-                self.current_overlay_process = proc
-                
-                # For pre-built overlays, we don't need to monitor the process long-term
-                # Just start it and let it run in the background
-                log.info("[INJECT] Pre-built overlay process started successfully")
-                return True
-                
-            except Exception as e:
-                log.error(f"[INJECT] Error running overlay process: {e}")
-                return False
-                
-        except Exception as e:
-            log.error(f"[INJECT] Error running pre-built overlay: {e}")
-            return False
+        return self.overlay_manager.run_overlay_from_path(overlay_path)
     
     def clean_system(self) -> bool:
         """Clean the injection system"""
@@ -1116,94 +328,9 @@ class SkinInjector:
     
     def stop_overlay_process(self):
         """Stop the current overlay process"""
-        if self.current_overlay_process and self.current_overlay_process.poll() is None:
-            try:
-                log.info("[INJECT] Stopping current overlay process")
-                self.current_overlay_process.terminate()
-                try:
-                    self.current_overlay_process.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    self.current_overlay_process.kill()
-                    self.current_overlay_process.wait()
-                self.current_overlay_process = None
-                log.info("[INJECT] Overlay process stopped successfully")
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to stop overlay process: {e}")
-        else:
-            log.debug("[INJECT] No active overlay process to stop")
+        # Since they share the same reference, stopping via process_manager updates both
+        self.process_manager.stop_overlay_process()
     
     def kill_all_runoverlay_processes(self):
         """Kill all runoverlay processes (for ChampSelect cleanup)"""
-        import psutil
-        import signal
-        killed_count = 0
-        
-        try:
-            # Find all processes with "runoverlay" in command line
-            # Use a timeout to prevent hanging on process_iter
-            start_time = time.time()
-            timeout = PROCESS_ENUM_TIMEOUT_S
-            
-            # Only get pid and name initially to avoid slow cmdline lookups
-            if not PSUTIL_AVAILABLE:
-                log.debug("[INJECT] psutil not available, skipping process cleanup")
-                return
-                
-            for proc in psutil.process_iter(['pid', 'name']):
-                # Check timeout to prevent indefinite hangs
-                if time.time() - start_time > timeout:
-                    log.warning(f"[INJECT] Process enumeration timeout after {timeout}s - some processes may not be killed")
-                    break
-                
-                try:
-                    # Skip if not mod-tools.exe (avoid expensive cmdline check on unrelated processes)
-                    if proc.info.get('name') != 'mod-tools.exe':
-                        continue
-                    
-                    # Only fetch cmdline for mod-tools.exe processes with a timeout
-                    try:
-                        # Create Process object for cmdline access
-                        p = psutil.Process(proc.info['pid'])
-                        # Use a short timeout on cmdline() to prevent hanging
-                        cmdline = p.cmdline()
-                        
-                        if cmdline and any('runoverlay' in arg for arg in cmdline):
-                            log.info(f"[INJECT] Killing runoverlay process PID {proc.info['pid']}")
-                            try:
-                                # Try graceful termination first
-                                p.terminate()
-                                # Give it a brief moment, then force kill if needed
-                                try:
-                                    p.wait(timeout=PROCESS_TERMINATE_WAIT_S)
-                                except (psutil.TimeoutExpired, psutil.NoSuchProcess) as wait_e:
-                                    p.kill()  # Force kill if terminate didn't work
-                                    log.debug(f"Process wait timeout or process gone, force killing: {wait_e}")
-                            except Exception as e:
-                                try:
-                                    p.kill()  # Force kill on any error
-                                except (psutil.NoSuchProcess, psutil.AccessDenied) as kill_e:
-                                    log.debug(f"[INJECT] Process already gone or inaccessible: {kill_e}")
-                                except Exception as kill_e:
-                                    log.debug(f"[INJECT] Unexpected error force killing process: {kill_e}")
-                            killed_count += 1
-                    except psutil.TimeoutExpired:
-                        log.debug(f"[INJECT] Timeout fetching cmdline for PID {proc.info['pid']}")
-                        continue
-                    
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    # Process might have already ended or we don't have access
-                    pass
-                except Exception as e:
-                    # Log but continue with other processes
-                    log.debug(f"[INJECT] Error processing PID {proc.info.get('pid', '?')}: {e}")
-            
-            if killed_count > 0:
-                log.info(f"[INJECT] Killed {killed_count} runoverlay process(es)")
-            else:
-                log.debug("[INJECT] No runoverlay processes found to kill")
-                
-        except Exception as e:
-            log.warning(f"[INJECT] Failed to kill runoverlay processes: {e}")
-        
-        # Also stop our tracked process if it exists
-        self.stop_overlay_process()
+        self.process_manager.kill_all_runoverlay_processes()
