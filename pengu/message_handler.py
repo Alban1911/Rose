@@ -113,7 +113,7 @@ class MessageHandler:
         
         if champion_id and skin_id and chroma_id:
             try:
-                from ui.chroma_preview_manager import get_preview_manager
+                from ui.chroma.preview_manager import get_preview_manager
                 preview_manager = get_preview_manager()
                 
                 preview_path = preview_manager.get_preview_path(
@@ -174,7 +174,7 @@ class MessageHandler:
         chroma_name = payload.get("chromaName") or "Unknown"
         
         if chroma_id is not None:
-            from ui.chroma_selector import get_chroma_selector
+            from ui.chroma.selector import get_chroma_selector
             chroma_selector = get_chroma_selector()
             
             if chroma_selector:
@@ -196,7 +196,7 @@ class MessageHandler:
                 log.info(f"[SkinMonitor] Chroma selected (fallback): {chroma_name} (ID: {chroma_id})")
                 
                 try:
-                    from ui.chroma_panel import get_chroma_panel
+                    from ui.chroma.panel import get_chroma_panel
                     panel = get_chroma_panel(state=self.shared_state)
                     if panel:
                         panel._on_chroma_selected_wrapper(chroma_id, chroma_name)
@@ -212,7 +212,7 @@ class MessageHandler:
         log.info(f"[SkinMonitor] Dice button clicked from JavaScript: state={button_state}")
         
         try:
-            from ui.user_interface import get_user_interface
+            from ui.core.user_interface import get_user_interface
             ui = get_user_interface(self.shared_state, self.skin_scraper)
             
             if button_state == "disabled":

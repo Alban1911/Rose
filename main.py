@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from threads.websocket_thread import WSEventThread
     from threads.lcu_monitor_thread import LCUMonitorThread
     from utils.tray_manager import TrayManager
-    from ui.user_interface import UserInterface
+    from ui.core.user_interface import UserInterface
     from injection.manager import InjectionManager
 
 
@@ -196,7 +196,7 @@ from utils.thread_manager import ThreadManager, create_daemon_thread
 from utils import pengu_loader
 
 # Local imports - UI and injection
-from ui.user_interface import get_user_interface
+from ui.core.user_interface import get_user_interface
 from injection.manager import InjectionManager
 
 # Local imports - configuration
@@ -922,8 +922,8 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                     # Use a flag to avoid spamming hide() calls
                     if not hasattr(run_league_unlock, '_swiftplay_ui_hidden'):
                         try:
-                            from ui.user_interface import get_user_interface
-                            user_interface = get_user_interface()
+                            from ui.core.user_interface import get_user_interface
+                            user_interface = get_user_interface(state, skin_scraper)
                             if user_interface.is_ui_initialized():
                                 if user_interface.chroma_ui:
                                     user_interface.chroma_ui.hide()
@@ -948,8 +948,8 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                         # Notify UserInterface of the skin change
                         try:
                             # Get the user interface that was already initialized
-                            from ui.user_interface import get_user_interface
-                            user_interface = get_user_interface()
+                            from ui.core.user_interface import get_user_interface
+                            user_interface = get_user_interface(state, skin_scraper)
                             if user_interface.is_ui_initialized():
                                 # Use the correct champion_id (either from Swiftplay or regular mode)
                                 champ_id_for_ui = champion_id if state.is_swiftplay_mode else state.locked_champ_id
@@ -970,8 +970,8 @@ def run_league_unlock(injection_threshold: Optional[float] = None):
                             log.error(f"[MAIN] Failed to notify UI: {e}")
                 
                 # Process pending UI initialization and requests
-                from ui.user_interface import get_user_interface
-                user_interface = get_user_interface()
+                from ui.core.user_interface import get_user_interface
+                user_interface = get_user_interface(state, skin_scraper)
                 
                 # Process pending UI operations first (must be done in main thread)
                 if user_interface.has_pending_operations():

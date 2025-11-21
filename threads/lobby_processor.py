@@ -126,7 +126,7 @@ class LobbyProcessor:
                         log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
 
                 try:
-                    from ui.user_interface import get_user_interface
+                    from ui.core.user_interface import get_user_interface
                     user_interface = get_user_interface(self.state, self.skin_scraper)
                     user_interface.request_ui_destruction()
                     log_action(log, "UI destruction requested for Lobby", "🏠")

@@ -9,7 +9,7 @@ import threading
 from lcu.client import LCU
 from state.shared_state import SharedState
 from utils.logging import get_logger
-from ui.chroma_selector import get_chroma_selector
+from ui.chroma.selector import get_chroma_selector
 from config import CHAMP_POLL_INTERVAL
 
 log = get_logger()
@@ -83,7 +83,7 @@ class ChampThread(threading.Thread):
 
         # Show ClickBlocker during local champion exchange to prevent accidental clicks
         try:
-            from ui.user_interface import get_user_interface
+            from ui.core.user_interface import get_user_interface
             ui = get_user_interface(self.state, self.skin_scraper)
             if ui:
                 ui._try_show_click_blocker()

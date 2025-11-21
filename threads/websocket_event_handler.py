@@ -167,7 +167,7 @@ class WebSocketEventHandler:
         
         # Request UI initialization when entering ChampSelect
         try:
-            from ui.user_interface import get_user_interface
+            from ui.core.user_interface import get_user_interface
             user_interface = get_user_interface(self.state, None)  # skin_scraper not needed here
             user_interface.reset_skin_state()
             user_interface._force_reinitialize = True

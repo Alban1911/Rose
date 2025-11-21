@@ -8,7 +8,7 @@ Handles chroma selection callbacks and state updates
 from typing import Optional
 from state.shared_state import SharedState
 from utils.logging import get_logger
-from .chroma_special_cases import ChromaSpecialCases
+from ui.chroma.special_cases import ChromaSpecialCases
 
 log = get_logger()
 

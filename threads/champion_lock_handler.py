@@ -12,7 +12,7 @@ from typing import Optional
 from lcu.client import LCU
 from lcu.utils import compute_locked
 from state.shared_state import SharedState
-from ui.chroma_selector import get_chroma_selector
+from ui.chroma.selector import get_chroma_selector
 from utils.logging import get_logger, log_status, log_event
 
 log = get_logger()
@@ -166,7 +166,7 @@ class ChampionLockHandler:
         
         # Show ClickBlocker
         try:
-            from ui.user_interface import get_user_interface
+            from ui.core.user_interface import get_user_interface
             ui = get_user_interface(self.state, self.skin_scraper)
             if ui:
                 ui._try_show_click_blocker()

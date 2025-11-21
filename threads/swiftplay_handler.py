@@ -157,7 +157,7 @@ class SwiftplayHandler:
             
             # Initialize UI for Swiftplay mode
             try:
-                from ui.user_interface import get_user_interface
+                from ui.core.user_interface import get_user_interface
                 user_interface = get_user_interface(self.state, self.skin_scraper)
                 if not user_interface.is_ui_initialized():
                     log.info("[phase] Initializing UI components for Swiftplay mode")

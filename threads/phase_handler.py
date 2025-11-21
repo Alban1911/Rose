@@ -8,7 +8,7 @@ Handles phase-specific logic and UI management
 import logging
 from lcu.client import LCU
 from state.shared_state import SharedState
-from ui.chroma_selector import get_chroma_selector
+from ui.chroma.selector import get_chroma_selector
 from utils.logging import get_logger, log_action
 
 log = get_logger()
@@ -66,7 +66,7 @@ class PhaseHandler:
                 
                 # Backup UI initialization
                 try:
-                    from ui.user_interface import get_user_interface
+                    from ui.core.user_interface import get_user_interface
                     user_interface = get_user_interface(self.state, self.skin_scraper)
                     if not user_interface.is_ui_initialized() and not user_interface._pending_ui_initialization:
                         log.info("[phase] ChampSelect detected - requesting UI initialization (backup)")
@@ -101,7 +101,7 @@ class PhaseHandler:
     def _handle_in_progress(self):
         """Handle InProgress phase"""
         try:
-            from ui.user_interface import get_user_interface
+            from ui.core.user_interface import get_user_interface
             user_interface = get_user_interface(self.state, self.skin_scraper)
             user_interface.request_ui_destruction()
             log_action(log, "UI destruction requested for InProgress", "🎮")
@@ -120,7 +120,7 @@ class PhaseHandler:
     def _handle_end_of_game(self):
         """Handle EndOfGame phase"""
         try:
-            from ui.user_interface import get_user_interface
+            from ui.core.user_interface import get_user_interface
             user_interface = get_user_interface(self.state, self.skin_scraper)
             user_interface.request_ui_destruction()
             log_action(log, "UI destruction requested for EndOfGame", "🏁")
@@ -137,7 +137,7 @@ class PhaseHandler:
     def _request_ui_destruction(self):
         """Request UI destruction"""
         try:
-            from ui.user_interface import get_user_interface
+            from ui.core.user_interface import get_user_interface
             user_interface = get_user_interface(self.state, self.skin_scraper)
             user_interface.request_ui_destruction()
             log_action(log, "UI destruction requested", "🔄")

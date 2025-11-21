@@ -113,7 +113,7 @@ class ChromaPanelManager:
             # Fallback: get chroma data from skin scraper cache if not in current_chromas
             if not chroma_data and chroma_id != 0:
                 try:
-                    from ui.chroma_selector import get_chroma_selector
+                    from ui.chroma.selector import get_chroma_selector
                     chroma_selector = get_chroma_selector()
                     if chroma_selector and chroma_selector.skin_scraper and chroma_selector.skin_scraper.cache:
                         chroma_data = chroma_selector.skin_scraper.cache.chroma_id_map.get(chroma_id)

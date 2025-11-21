@@ -8,7 +8,7 @@ Manages UI component initialization, destruction, and pending operations
 import threading
 import time
 from state.shared_state import SharedState
-from ui.chroma_ui import ChromaUI
+from ui.chroma.ui import ChromaUI
 from utils.logging import get_logger
 
 log = get_logger()
@@ -188,7 +188,7 @@ class UILifecycleManager:
                     
                     # Also clear global instances
                     try:
-                        from ui.chroma_panel import clear_global_panel_manager
+                        from ui.chroma.panel import clear_global_panel_manager
                         clear_global_panel_manager()
                         log.debug("[UI] Global instances cleared")
                     except Exception as e:
@@ -231,7 +231,7 @@ class UILifecycleManager:
                 log.warning("[UI] No references obtained, attempting global cleanup")
                 try:
                     # Try to cleanup global chroma panel manager
-                    from ui.chroma_panel import _chroma_panel_manager
+                    from ui.chroma.panel import _chroma_panel_manager
                     if _chroma_panel_manager:
                         log.debug("[UI] Cleaning up global chroma panel manager")
                         _chroma_panel_manager.cleanup()

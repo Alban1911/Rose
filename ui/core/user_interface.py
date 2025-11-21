@@ -10,13 +10,13 @@ Manages ChromaUI and UnownedFrame as separate components
 import threading
 
 # Local imports
-from ui.chroma_ui import ChromaUI
+from ui.chroma.ui import ChromaUI
 from utils.logging import get_logger
 
-from .historic_mode_handler import HistoricModeHandler
-from .randomization_handler import RandomizationHandler
-from .skin_display_handler import SkinDisplayHandler
-from .ui_lifecycle_manager import UILifecycleManager
+from ui.handlers.historic_mode_handler import HistoricModeHandler
+from ui.handlers.randomization_handler import RandomizationHandler
+from ui.handlers.skin_display_handler import SkinDisplayHandler
+from ui.core.lifecycle_manager import UILifecycleManager
 
 log = get_logger()
 
@@ -85,7 +85,7 @@ class UserInterface:
             # Show skin using display handler
             # Ensure display handler has chroma_ui reference
             if not self.skin_display_handler and self.lifecycle_manager.chroma_ui:
-                from .skin_display_handler import SkinDisplayHandler
+                from ui.handlers.skin_display_handler import SkinDisplayHandler
                 self.skin_display_handler = SkinDisplayHandler(
                     self.state, self.skin_scraper, self.lifecycle_manager.chroma_ui
                 )
@@ -117,6 +117,16 @@ class UserInterface:
             self.historic_handler.check_and_activate(skin_id)
             
             # Historic mode deactivation: if skin changes from default to non-default, deactivate historic mode
+            # Calculate base_skin_id if not provided by display handler
+            if new_base_skin_id is None and self.skin_scraper and self.skin_scraper.cache:
+                from utils.utilities import is_base_skin, get_base_skin_id_for_chroma
+                chroma_id_map = self.skin_scraper.cache.chroma_id_map
+                if is_base_skin(skin_id, chroma_id_map):
+                    new_base_skin_id = skin_id
+                else:
+                    new_base_skin_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
+            
+            # Always check for deactivation when skin changes (if we have a base skin ID)
             if new_base_skin_id is not None:
                 self.historic_handler.check_and_deactivate(skin_id, new_base_skin_id)
     
@@ -170,7 +180,7 @@ class UserInterface:
         initialized = self.lifecycle_manager.process_pending_operations()
         # Update skin display handler reference after initialization
         if initialized and self.lifecycle_manager.chroma_ui and not self.skin_display_handler:
-            from .skin_display_handler import SkinDisplayHandler
+            from ui.handlers.skin_display_handler import SkinDisplayHandler
             self.skin_display_handler = SkinDisplayHandler(
                 self.state, self.skin_scraper, self.lifecycle_manager.chroma_ui
             )
@@ -330,14 +340,29 @@ def get_user_interface(state=None, skin_scraper=None) -> UserInterface:
     """Get or create global user interface instance"""
     global _user_interface
     if _user_interface is None:
+        if state is None:
+            raise ValueError("state parameter is required when creating a new UserInterface instance")
         _user_interface = UserInterface(state, skin_scraper)
     else:
         # Update the existing instance with new parameters if they were provided
-        if state is not None and _user_interface.state != state:
-            _user_interface.state = state
-        if skin_scraper is not None and _user_interface.skin_scraper != skin_scraper:
-            _user_interface.skin_scraper = skin_scraper
-            # Also update lifecycle manager's skin_scraper
-            if _user_interface.lifecycle_manager:
-                _user_interface.lifecycle_manager.skin_scraper = skin_scraper
+        if state is not None:
+            if _user_interface.state is None or _user_interface.state != state:
+                _user_interface.state = state
+                # Also update state in handlers
+                if _user_interface.historic_handler:
+                    _user_interface.historic_handler.state = state
+                if _user_interface.randomization_handler:
+                    _user_interface.randomization_handler.state = state
+                if _user_interface.skin_display_handler:
+                    _user_interface.skin_display_handler.state = state
+                if _user_interface.lifecycle_manager:
+                    _user_interface.lifecycle_manager.state = state
+        if skin_scraper is not None:
+            if _user_interface.skin_scraper is None or _user_interface.skin_scraper != skin_scraper:
+                _user_interface.skin_scraper = skin_scraper
+                # Also update skin_scraper in handlers
+                if _user_interface.randomization_handler:
+                    _user_interface.randomization_handler.skin_scraper = skin_scraper
+                if _user_interface.lifecycle_manager:
+                    _user_interface.lifecycle_manager.skin_scraper = skin_scraper
     return _user_interface

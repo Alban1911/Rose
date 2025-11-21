@@ -77,7 +77,7 @@ class Broadcaster:
             return
         
         # Get chroma state from ChromaPanelManager
-        from ui.chroma_panel import get_chroma_panel
+        from ui.chroma.panel import get_chroma_panel
         panel = get_chroma_panel(state=self.shared_state)
         
         if panel:

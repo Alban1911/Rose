@@ -10,9 +10,9 @@ import threading
 from typing import TYPE_CHECKING, Optional
 
 # Local imports
-from ui.chroma_panel import get_chroma_panel
-from ui.chroma_special_cases import ChromaSpecialCases
-from ui.chroma_selection_handler import ChromaSelectionHandler
+from ui.chroma.panel import get_chroma_panel
+from ui.chroma.special_cases import ChromaSpecialCases
+from ui.chroma.selection_handler import ChromaSelectionHandler
 from utils.logging import get_logger
 from utils.utilities import is_owned
 from utils.validation import validate_skin_id, validate_skin_name
