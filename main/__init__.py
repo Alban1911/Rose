@@ -130,7 +130,7 @@ def main() -> None:
     """Program entry point that prepares and launches Rose."""
     if sys.platform == "win32":
         try:
-            from launcher.launcher import run_launcher
+            from launcher import run_launcher
             run_launcher()
         except ModuleNotFoundError as err:
             print(f"[Launcher] Unable to import launcher module: {err}")

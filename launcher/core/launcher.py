@@ -25,10 +25,10 @@ from utils.system.win32_base import (
     user32,
 )
 
-from .update_dialog import UpdateDialog
-from .update_sequence import UpdateSequence
-from .hash_check_sequence import HashCheckSequence
-from .skin_sync_sequence import SkinSyncSequence
+from ..ui.update_dialog import UpdateDialog
+from ..update.update_sequence import UpdateSequence
+from ..sequences.hash_check_sequence import HashCheckSequence
+from ..sequences.skin_sync_sequence import SkinSyncSequence
 
 log = get_logger()
 updater_log = get_named_logger("updater", prefix="log_updater")
