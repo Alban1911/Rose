@@ -81,7 +81,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 ## Setting up dev environment
 
 ```powershell
-# Create conda environment with Python 3.11 
+# Create conda environment with Python 3.11
 conda create -n rose python=3.11 -y
 
 # Activate the environment
@@ -111,31 +111,156 @@ pip install -r requirements.txt
 Rose/
 ├── main.py                 # Application entry point
 ├── config.py              # Configuration constants
-├── requirements.txt       # Python dependencies
+├── requirements.txt        # Python dependencies
+├── assets/                 # Application assets (icons, fonts, images)
+│
+├── main/                   # Main application package
+│   ├── core/              # Core initialization and lifecycle
+│   │   ├── initialization.py
+│   │   ├── threads.py
+│   │   ├── state.py
+│   │   ├── signals.py
+│   │   ├── lockfile.py
+│   │   ├── lcu_handler.py
+│   │   └── cleanup.py
+│   ├── setup/             # Application setup and configuration
+│   │   ├── console.py
+│   │   ├── arguments.py
+│   │   └── initialization.py
+│   └── runtime/           # Main runtime loop
+│       └── loop.py
 │
 ├── injection/             # CSLOL injection system
-│   ├── injector.py       # CSLOL skin injector
-│   ├── manager.py        # Injection manager & coordination
-│   └── tools/            # CSLOL tools (cslol-dll.dll, mod-tools.exe, etc.)
+│   ├── core/              # Core injection logic
+│   │   ├── manager.py    # Injection manager & coordination
+│   │   └── injector.py   # CSLOL skin injector
+│   ├── game/              # Game detection and monitoring
+│   │   ├── game_detector.py
+│   │   └── game_monitor.py
+│   ├── config/            # Configuration management
+│   │   ├── config_manager.py
+│   │   └── threshold_manager.py
+│   ├── mods/              # Mod management
+│   │   ├── mod_manager.py
+│   │   └── zip_resolver.py
+│   ├── overlay/           # Overlay process management
+│   │   ├── overlay_manager.py
+│   │   └── process_manager.py
+│   └── tools/             # CSLOL tools (cslol-dll.dll, mod-tools.exe, etc.)
+│       └── tools_manager.py
 │
 ├── lcu/                   # League Client API integration
-│   ├── client.py         # LCU API client
-│   ├── skin_scraper.py   # Skin data scraper
-│   └── utils.py          # LCU utilities
+│   ├── core/              # Core LCU client components
+│   │   ├── client.py      # Main LCU client orchestrator
+│   │   ├── lcu_api.py     # LCU API wrapper
+│   │   ├── lcu_connection.py
+│   │   └── lockfile.py
+│   ├── data/              # Data management
+│   │   ├── skin_scraper.py
+│   │   ├── skin_cache.py
+│   │   ├── types.py
+│   │   └── utils.py
+│   └── features/          # LCU feature implementations
+│       ├── lcu_properties.py
+│       ├── lcu_skin_selection.py
+│       ├── lcu_game_mode.py
+│       └── lcu_swiftplay.py
 │
 ├── threads/               # Background threads
-│   ├── websocket_thread.py    # WebSocket bridge server
-│   ├── phase_thread.py        # Game phase monitoring
-│   ├── champ_thread.py        # Champion select monitoring
-│   └── lcu_monitor_thread.py  # LCU connection monitoring
+│   ├── core/              # Core thread implementations
+│   │   ├── websocket_thread.py
+│   │   ├── phase_thread.py
+│   │   └── lcu_monitor_thread.py
+│   ├── handlers/         # Event handlers
+│   │   ├── champ_thread.py
+│   │   ├── champion_lock_handler.py
+│   │   ├── game_mode_detector.py
+│   │   ├── injection_trigger.py
+│   │   ├── lobby_processor.py
+│   │   ├── phase_handler.py
+│   │   └── swiftplay_handler.py
+│   ├── utilities/         # Thread utilities
+│   │   ├── timer_manager.py
+│   │   ├── loadout_ticker.py
+│   │   └── skin_name_resolver.py
+│   └── websocket/         # WebSocket components
+│       ├── websocket_connection.py
+│       └── websocket_event_handler.py
 │
 ├── utils/                 # Utility modules
-│   ├── pengu_loader.py        # Pengu Loader integration
-│   ├── skin_downloader.py     # Skin repository downloader
-│   └── tray_manager.py        # System tray interface
+│   ├── core/              # Core utilities
+│   │   ├── logging.py
+│   │   ├── paths.py
+│   │   ├── utilities.py
+│   │   ├── validation.py
+│   │   ├── normalization.py
+│   │   └── historic.py
+│   ├── download/          # Download utilities
+│   │   ├── skin_downloader.py
+│   │   ├── smart_skin_downloader.py
+│   │   ├── repo_downloader.py
+│   │   ├── hashes_downloader.py
+│   │   └── hash_updater.py
+│   ├── integration/       # External integrations
+│   │   ├── pengu_loader.py
+│   │   ├── tray_manager.py
+│   │   └── tray_settings.py
+│   ├── system/            # System utilities
+│   │   ├── admin_utils.py
+│   │   ├── win32_base.py
+│   │   ├── window_utils.py
+│   │   └── resolution_utils.py
+│   └── threading/         # Threading utilities
+│       └── thread_manager.py
+│
+├── ui/                    # UI components
+│   ├── core/              # Core UI management
+│   │   ├── user_interface.py
+│   │   └── lifecycle_manager.py
+│   ├── chroma/            # Chroma selection UI
+│   │   ├── selector.py
+│   │   ├── ui.py
+│   │   ├── panel.py
+│   │   ├── preview_manager.py
+│   │   ├── selection_handler.py
+│   │   └── special_cases.py
+│   └── handlers/          # UI feature handlers
+│       ├── historic_mode_handler.py
+│       ├── randomization_handler.py
+│       └── skin_display_handler.py
+│
+├── pengu/                 # Pengu Loader integration
+│   ├── core/              # Core Pengu functionality
+│   │   ├── websocket_server.py
+│   │   ├── http_handler.py
+│   │   └── skin_monitor.py
+│   ├── communication/     # Communication layer
+│   │   ├── message_handler.py
+│   │   └── broadcaster.py
+│   └── processing/        # Data processing
+│       ├── skin_processor.py
+│       ├── skin_mapping.py
+│       └── flow_controller.py
 │
 ├── state/                 # Shared application state
-│   └── shared_state.py   # Thread-safe state management
+│   └── core/
+│       ├── shared_state.py
+│       └── app_status.py
+│
+├── launcher/              # Application launcher and updater
+│   ├── core/
+│   │   └── launcher.py
+│   ├── sequences/         # Launch sequences
+│   │   ├── hash_check_sequence.py
+│   │   └── skin_sync_sequence.py
+│   ├── update/            # Update system
+│   │   ├── update_sequence.py
+│   │   ├── update_downloader.py
+│   │   ├── update_installer.py
+│   │   └── github_client.py
+│   ├── ui/
+│   │   └── update_dialog.py
+│   └── updater.py
 │
 └── Pengu Loader/          # Pengu Loader and plugins
     ├── Pengu Loader.exe   # Pengu Loader executable
