@@ -13,3 +13,4 @@ from .github_client import GitHubClient
 __all__ = ['UpdateSequence', 'UpdateDownloader', 'UpdateInstaller', 'GitHubClient']
 
 
+
