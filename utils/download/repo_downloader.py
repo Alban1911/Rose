@@ -498,7 +498,7 @@ class RepoDownloader:
                         if file_info.is_dir():
                             continue
 
-                        label = "Extracting skins..." if entry_type == "skin" else "Extracting resources..."
+                        label = "Extracting skins..." if entry_type == "skin" else "Extracting skin ID mapping..."
                         relative_path = file_info.filename.replace('LeagueSkins-main/', '')
                         is_zip = relative_path.endswith('.zip')
                         is_png = relative_path.endswith('.png')
@@ -576,18 +576,21 @@ class RepoDownloader:
     def download_incremental_updates(self, force_update: bool = False) -> bool:
         """Download only changed files since last update"""
         try:
-            self._emit_progress(0, "Checking repository state...")
+            self._emit_progress(0, "Checking skins repository state...")
             # Check if repository has changed
             skins_changed = force_update or self.has_repository_changed()
+            
+            self._emit_progress(5, "Checking skin ID mapping repository state...")
             resources_changed = force_update or self.has_resources_changed()
             
             if not skins_changed and not resources_changed:
-                self._emit_progress(100, "Skins already up to date")
+                self._emit_progress(100, "Skins and skin ID mapping already up to date")
                 return True
             
             # If resources changed, we need to download ZIP to extract resources
             if resources_changed:
                 log.info("Resources folder changed, will download ZIP to update resources")
+                self._emit_progress(10, "Skin ID mapping needs update, downloading...")
                 return self.download_and_extract_skins(force_update=force_update)
             
             # Only skins changed, continue with incremental update
@@ -745,15 +748,19 @@ class RepoDownloader:
                 existing_skins = list(self.target_dir.rglob("*.zip"))
                 if existing_skins:
                     # Still check if resources need updating
+                    self._emit_progress(2, "Checking skin ID mapping...")
                     resources_need_update = self.has_resources_changed()
                     if not resources_need_update:
                         log.info(f"Found {len(existing_skins)} existing skins and resources are up to date, skipping download")
-                        self._emit_progress(100, "Skins already up to date")
+                        self._emit_progress(100, "Skins and skin ID mapping already up to date")
                         return True
                     else:
                         log.info(f"Found {len(existing_skins)} existing skins, but resources need updating")
+                        self._emit_progress(5, "Skin ID mapping needs update, downloading...")
             
             # Check if resources need updating (separate from skins)
+            if not force_update:
+                self._emit_progress(2, "Checking skin ID mapping...")
             resources_need_update = force_update or self.has_resources_changed()
             if resources_need_update:
                 log.info("Resources folder needs updating")
