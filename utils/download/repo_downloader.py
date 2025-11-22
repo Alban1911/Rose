@@ -327,9 +327,9 @@ class RepoDownloader:
         progress_start: float = 70.0,
         progress_end: float = 100.0,
     ) -> bool:
-        """Extract skins, previews, and skin_id mappings from the new merged LeagueSkins repository ZIP"""
+        """Extract skins, previews, and resources folder from the LeagueSkins repository ZIP"""
         try:
-            log.info("Extracting skins, previews, and skin_id mappings from merged LeagueSkins repository ZIP...")
+            log.info("Extracting skins, previews, and resources folder from LeagueSkins repository ZIP...")
             
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 # Find all files in the skins/ directory
@@ -350,36 +350,33 @@ class RepoDownloader:
                         elif file_info.filename.endswith('.png'):
                             png_count += 1
                 
-                # Find all files in the resources/skinid_mapping/ directory
-                mapping_files = []
-                json_count = 0
+                # Find all files in the resources/ directory (entire folder)
+                resources_files = []
+                resources_count = 0
                 
                 for file_info in zip_ref.filelist:
-                    # Look for files in resources/skinid_mapping/ directory
-                    if (file_info.filename.startswith('LeagueSkins-main/resources/skinid_mapping/') and 
-                        file_info.filename != 'LeagueSkins-main/resources/skinid_mapping/' and
+                    # Look for files in resources/ directory (entire folder)
+                    if (file_info.filename.startswith('LeagueSkins-main/resources/') and 
+                        file_info.filename != 'LeagueSkins-main/resources/' and
                         not file_info.filename.endswith('/')):
-                        mapping_files.append(file_info)
-                        
-                        # Count JSON files
-                        if file_info.filename.endswith('.json'):
-                            json_count += 1
+                        resources_files.append(file_info)
+                        resources_count += 1
                 
                 if not skins_files:
                     log.error("No skins folder found in repository ZIP")
                     return False
                 
-                log.info(f"Found {zip_count} skin .zip files, {png_count} preview .png files, and {json_count} skin ID mapping files in repository")
+                log.info(f"Found {zip_count} skin .zip files, {png_count} preview .png files, and {resources_count} resource files in repository")
                 
-                # Extract all skins and mapping files with byte-level progress tracking
+                # Extract all skins and resource files with byte-level progress tracking
                 extracted_zip_count = 0
                 extracted_png_count = 0
-                extracted_json_count = 0
+                extracted_resources_count = 0
                 skipped_skin_count = 0
-                skipped_json_count = 0
+                skipped_resources_count = 0
 
                 entries: List[Tuple[str, zipfile.ZipInfo]] = [("skin", info) for info in skins_files]
-                entries.extend(("mapping", info) for info in mapping_files)
+                entries.extend(("resource", info) for info in resources_files)
 
                 def _info_size(info: zipfile.ZipInfo) -> int:
                     return info.file_size or info.compress_size or 0
@@ -390,6 +387,7 @@ class RepoDownloader:
                 processed_bytes = 0
 
                 from utils.core.paths import get_user_data_dir
+                # Place the entire resources folder as skinid_mapping
                 mapping_target_dir = get_user_data_dir() / "skinid_mapping"
 
                 def update_progress(label: str):
@@ -416,8 +414,10 @@ class RepoDownloader:
                                 relative_path = relative_path.replace('skins/', '', 1)
                             extract_path = self.target_dir / relative_path
                         else:
-                            if relative_path.startswith('resources/skinid_mapping/'):
-                                relative_path = relative_path.replace('resources/skinid_mapping/', '', 1)
+                            # Extract entire resources folder structure, removing 'resources/' prefix
+                            # so it becomes the skinid_mapping folder
+                            if relative_path.startswith('resources/'):
+                                relative_path = relative_path.replace('resources/', '', 1)
                             extract_path = mapping_target_dir / relative_path
 
                         extract_path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,7 +428,7 @@ class RepoDownloader:
                             if entry_type == "skin":
                                 skipped_skin_count += 1
                             else:
-                                skipped_json_count += 1
+                                skipped_resources_count += 1
                             processed_bytes += file_bytes
                             update_progress(label)
                             continue
@@ -448,7 +448,7 @@ class RepoDownloader:
                             elif is_png:
                                 extracted_png_count += 1
                         else:
-                            extracted_json_count += 1
+                            extracted_resources_count += 1
 
                     except Exception as e:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
@@ -456,12 +456,12 @@ class RepoDownloader:
                         update_progress("Extracting...")
 
                 log.info(f"Extracted {extracted_zip_count} new skin .zip files, {extracted_png_count} preview .png files, "
-                        f"and {extracted_json_count} skin ID mapping files (skipped {skipped_skin_count} existing skin files, "
-                        f"{skipped_json_count} existing mapping files)")
+                        f"and {extracted_resources_count} resource files (skipped {skipped_skin_count} existing skin files, "
+                        f"{skipped_resources_count} existing resource files)")
 
                 total_mb = _format_size(total_bytes)
                 self._emit_progress(progress_end, f"Extraction complete ({_format_size(processed_bytes)} / {total_mb})")
-                return (extracted_zip_count + extracted_png_count + extracted_json_count) > 0
+                return (extracted_zip_count + extracted_png_count + extracted_resources_count) > 0
                 
         except zipfile.BadZipFile:
             log.error("Invalid ZIP file")
