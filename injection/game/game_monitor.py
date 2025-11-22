@@ -13,9 +13,17 @@ from typing import Optional
 try:
     import psutil
     PSUTIL_AVAILABLE = True
+    # Define constants for safe access
+    STATUS_STOPPED = psutil.STATUS_STOPPED
+    NoSuchProcess = psutil.NoSuchProcess
+    AccessDenied = psutil.AccessDenied
 except ImportError:
     PSUTIL_AVAILABLE = False
     psutil = None
+    # Define fallback constants when psutil is not available
+    STATUS_STOPPED = 'stopped'  # String fallback for comparison
+    NoSuchProcess = Exception  # Fallback exception type
+    AccessDenied = PermissionError  # Fallback exception type
 
 from config import (
     PERSISTENT_MONITOR_CHECK_INTERVAL_S,
@@ -79,7 +87,7 @@ class GameMonitor:
                                 try:
                                     game_proc = psutil.Process(proc.info['pid'])
                                     # Check if already suspended
-                                    if game_proc.status() == psutil.STATUS_STOPPED:
+                                    if game_proc.status() == STATUS_STOPPED:
                                         # Already suspended, just track it
                                         if self._suspended_game_process is None:
                                             self._suspended_game_process = game_proc
@@ -99,14 +107,14 @@ class GameMonitor:
                                             "Auto-resume": f"{auto_resume_timeout:.0f}s"
                                         })
                                         break
-                                    except psutil.AccessDenied:
+                                    except AccessDenied:
                                         log.error("[monitor] ACCESS DENIED - Cannot suspend game")
                                         log.error("[monitor] Try running Rose as Administrator")
                                         self._monitor_active = False
                                         break
                                     except Exception as e:
                                         log.error(f"[monitor] Failed to suspend existing game: {e}")
-                                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                except (NoSuchProcess, AccessDenied):
                                     continue
                                 except Exception as e:
                                     log.debug(f"[monitor] Error checking existing process: {e}")
@@ -145,7 +153,7 @@ class GameMonitor:
                                     # Try to resume one more time, but don't block on it
                                     try:
                                         # Check if process still exists
-                                        if self._suspended_game_process.status() == psutil.STATUS_STOPPED:
+                                        if PSUTIL_AVAILABLE and self._suspended_game_process.status() == STATUS_STOPPED:
                                             self._suspended_game_process.resume()
                                             log.info("[monitor] Auto-resume retry succeeded")
                                     except Exception as retry_e:
@@ -188,7 +196,7 @@ class GameMonitor:
                                         "Auto-resume": f"{auto_resume_timeout:.0f}s"
                                     })
                                     break
-                                except psutil.AccessDenied:
+                                except AccessDenied:
                                     log.error("[monitor] ACCESS DENIED - Cannot suspend game")
                                     log.error("[monitor] Try running Rose as Administrator")
                                     self._monitor_active = False
@@ -201,7 +209,7 @@ class GameMonitor:
                                     self._suspended_game_process = None
                                     break
                                 
-                            except psutil.NoSuchProcess:
+                            except NoSuchProcess:
                                 continue
                             except Exception as e:
                                 log.error(f"[monitor] Error: {e}")
@@ -228,12 +236,12 @@ class GameMonitor:
             self._monitor_active = False
             
             # Resume game if still suspended
-            if self._suspended_game_process is not None:
+            if self._suspended_game_process is not None and PSUTIL_AVAILABLE:
                 try:
-                    if self._suspended_game_process.status() == psutil.STATUS_STOPPED:
+                    if self._suspended_game_process.status() == STATUS_STOPPED:
                         self._suspended_game_process.resume()
                         log_success(log, "Resumed suspended game on cleanup", "▶️")
-                except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as e:
+                except (NoSuchProcess, AccessDenied, AttributeError) as e:
                     log.debug(f"[INJECT] Could not resume suspended process: {e}")
                 except Exception as e:
                     log.debug(f"[INJECT] Unexpected error resuming process: {e}")
@@ -249,7 +257,7 @@ class GameMonitor:
         # Set flag to prevent monitor from suspending after runoverlay starts
         self._runoverlay_started = True
         
-        if self._suspended_game_process is not None:
+        if self._suspended_game_process is not None and PSUTIL_AVAILABLE:
             try:
                 game_proc = self._suspended_game_process
                 
@@ -259,7 +267,7 @@ class GameMonitor:
                 status_before = None
                 try:
                     status_before = game_proc.status()
-                except (psutil.NoSuchProcess, AttributeError):
+                except (NoSuchProcess, AttributeError):
                     log.debug("[monitor] Game process no longer exists")
                     self._suspended_game_process = None
                     self._monitor_active = False
@@ -272,7 +280,7 @@ class GameMonitor:
                         
                         # If already running, log but still try resume() once to be safe
                         # This handles cases where status is misleading
-                        if current_status != psutil.STATUS_STOPPED:
+                        if current_status != STATUS_STOPPED:
                             if attempt == 1:
                                 log.debug(f"[monitor] Game status is {current_status} (not stopped) - attempting resume anyway to be safe")
                             else:
@@ -285,7 +293,7 @@ class GameMonitor:
                         time.sleep(GAME_RESUME_VERIFICATION_WAIT_S)
                         
                         status_after = game_proc.status()
-                        if status_after != psutil.STATUS_STOPPED:
+                        if status_after != STATUS_STOPPED:
                             if attempt == 1:
                                 log_success(log, f"Game resumed (PID={game_proc.pid}, status={status_after})", "▶️")
                             else:
@@ -299,7 +307,7 @@ class GameMonitor:
                                 log.error(f"[monitor] Failed to resume after {GAME_RESUME_MAX_ATTEMPTS} attempts - game may be stuck")
                                 # Force clear reference even on failure to prevent permanent lock
                                 log.warning("[monitor] Clearing suspended process reference - auto-resume will handle if needed")
-                    except psutil.NoSuchProcess:
+                    except NoSuchProcess:
                         log.debug("[monitor] Game process ended during resume")
                         break
                     except Exception as e:
@@ -318,6 +326,11 @@ class GameMonitor:
                 # If resume failed, stop() will try again later
                 self._suspended_game_process = None
                 self._monitor_active = False
+        elif self._suspended_game_process is not None and not PSUTIL_AVAILABLE:
+            # Clear reference if psutil is not available
+            log.warning("[monitor] Cannot resume game - psutil not available")
+            self._suspended_game_process = None
+            self._monitor_active = False
     
     def resume_if_suspended(self):
         """Resume game if monitor suspended it (for when injection is skipped)"""
