@@ -56,6 +56,10 @@ class RepoDownloader:
         # State tracking for incremental updates
         self.state_file = self.target_dir / '.repo_state.json'
         self.api_base = "https://api.github.com/repos/Alban1911/LeagueSkins"
+        
+        # State tracking for resources folder (skinid_mapping)
+        from utils.core.paths import get_user_data_dir
+        self.resources_state_file = get_user_data_dir() / "skinid_mapping" / ".resources_state.json"
     
     def _emit_progress(self, percent: float, message: Optional[str] = None):
         if not self.progress_callback:
@@ -64,19 +68,27 @@ class RepoDownloader:
         self.progress_callback(int(bounded), message)
     
     def get_repo_state(self) -> Dict:
-        """Get current repository state from GitHub API
+        """Get current repository state from GitHub API (skins folder only)
         Returns Dict with 'rate_limited' key set to True if rate limited"""
         try:
-            # Get the latest commit info
-            response = self.session.get(f"{self.api_base}/commits/main")
+            # Get the latest commit that touched the skins directory
+            response = self.session.get(
+                f"{self.api_base}/commits",
+                params={'sha': 'main', 'path': 'skins', 'per_page': 1}
+            )
             response.raise_for_status()
-            commit_data = response.json()
+            commits = response.json()
             
-            return {
-                'last_commit_sha': commit_data['sha'],
-                'last_commit_date': commit_data['commit']['committer']['date'],
-                'last_checked': None  # Will be set when we save state
-            }
+            if commits and len(commits) > 0:
+                commit_data = commits[0]
+                return {
+                    'last_commit_sha': commit_data['sha'],
+                    'last_commit_date': commit_data['commit']['committer']['date'],
+                    'last_checked': None  # Will be set when we save state
+                }
+            
+            log.warning("No commits found for skins folder")
+            return {}
         except requests.HTTPError as e:
             if e.response and e.response.status_code in (403, 429):
                 log.warning(f"GitHub API rate limit exceeded: {e}")
@@ -119,6 +131,88 @@ class RepoDownloader:
                 json.dump(state, f, indent=2)
         except IOError as e:
             log.warning(f"Failed to save local state: {e}")
+    
+    def get_resources_state(self) -> Dict:
+        """Get current resources folder state from GitHub API
+        Returns Dict with 'rate_limited' key set to True if rate limited"""
+        try:
+            # Get the latest commit that touched the resources directory
+            response = self.session.get(
+                f"{self.api_base}/commits",
+                params={'sha': 'main', 'path': 'resources', 'per_page': 1}
+            )
+            response.raise_for_status()
+            commits = response.json()
+            
+            if commits and len(commits) > 0:
+                commit_data = commits[0]
+                return {
+                    'last_commit_sha': commit_data['sha'],
+                    'last_commit_date': commit_data['commit']['committer']['date'],
+                    'last_checked': None  # Will be set when we save state
+                }
+            
+            log.warning("No commits found for resources folder")
+            return {}
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code in (403, 429):
+                log.warning(f"GitHub API rate limit exceeded for resources check: {e}")
+                return {'rate_limited': True}
+            else:
+                log.error(f"Failed to get resources state: {e}")
+                return {}
+        except requests.RequestException as e:
+            log.error(f"Failed to get resources state: {e}")
+            return {}
+    
+    def load_resources_state(self) -> Dict:
+        """Load local resources state from state file"""
+        if not self.resources_state_file.exists():
+            return {}
+        
+        try:
+            with open(self.resources_state_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            log.warning(f"Failed to load resources state: {e}")
+            return {}
+    
+    def save_resources_state(self, state: Dict):
+        """Save local resources state to state file"""
+        try:
+            self.resources_state_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.resources_state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+        except IOError as e:
+            log.warning(f"Failed to save resources state: {e}")
+    
+    def has_resources_changed(self) -> bool:
+        """Check if resources folder has changed since last update"""
+        local_state = self.load_resources_state()
+        if not local_state:
+            log.info("No local resources state found, resources will be downloaded")
+            return True
+        
+        current_state = self.get_resources_state()
+        if not current_state:
+            log.warning("Failed to get current resources state, assuming no changes")
+            return False
+        
+        # Check if rate limited - if so, force update via ZIP
+        if current_state.get('rate_limited'):
+            log.info("Rate limited detected for resources, will force ZIP download")
+            return True
+        
+        # Compare commit SHAs
+        local_sha = local_state.get('last_commit_sha')
+        current_sha = current_state.get('last_commit_sha')
+        
+        if local_sha != current_sha:
+            log.info(f"Resources folder changed: {local_sha[:8] if local_sha else 'None'} -> {current_sha[:8] if current_sha else 'None'}")
+            return True
+        
+        log.info("Resources folder unchanged, skipping download")
+        return False
     
     def has_repository_changed(self) -> bool:
         """Check if repository has changed since last update"""
@@ -459,6 +553,15 @@ class RepoDownloader:
                         f"and {extracted_resources_count} resource files (skipped {skipped_skin_count} existing skin files, "
                         f"{skipped_resources_count} existing resource files)")
 
+                # Save resources state after successful extraction
+                # Save state if we processed any resources files (extracted or skipped)
+                # or if we found resources files in the ZIP (even if none were processed)
+                if extracted_resources_count > 0 or skipped_resources_count > 0 or resources_count > 0:
+                    resources_state = self.get_resources_state()
+                    if resources_state and not resources_state.get('rate_limited'):
+                        resources_state['last_checked'] = resources_state.get('last_commit_date')
+                        self.save_resources_state(resources_state)
+
                 total_mb = _format_size(total_bytes)
                 self._emit_progress(progress_end, f"Extraction complete ({_format_size(processed_bytes)} / {total_mb})")
                 return (extracted_zip_count + extracted_png_count + extracted_resources_count) > 0
@@ -475,9 +578,19 @@ class RepoDownloader:
         try:
             self._emit_progress(0, "Checking repository state...")
             # Check if repository has changed
-            if not force_update and not self.has_repository_changed():
+            skins_changed = force_update or self.has_repository_changed()
+            resources_changed = force_update or self.has_resources_changed()
+            
+            if not skins_changed and not resources_changed:
                 self._emit_progress(100, "Skins already up to date")
                 return True
+            
+            # If resources changed, we need to download ZIP to extract resources
+            if resources_changed:
+                log.info("Resources folder changed, will download ZIP to update resources")
+                return self.download_and_extract_skins(force_update=force_update)
+            
+            # Only skins changed, continue with incremental update
             
             local_state = self.load_local_state()
             current_state = self.get_repo_state()
@@ -631,9 +744,21 @@ class RepoDownloader:
             if not force_update and self.target_dir.exists():
                 existing_skins = list(self.target_dir.rglob("*.zip"))
                 if existing_skins:
-                    log.info(f"Found {len(existing_skins)} existing skins, skipping download")
-                    self._emit_progress(100, "Skins already up to date")
-                    return True
+                    # Still check if resources need updating
+                    resources_need_update = self.has_resources_changed()
+                    if not resources_need_update:
+                        log.info(f"Found {len(existing_skins)} existing skins and resources are up to date, skipping download")
+                        self._emit_progress(100, "Skins already up to date")
+                        return True
+                    else:
+                        log.info(f"Found {len(existing_skins)} existing skins, but resources need updating")
+            
+            # Check if resources need updating (separate from skins)
+            resources_need_update = force_update or self.has_resources_changed()
+            if resources_need_update:
+                log.info("Resources folder needs updating")
+            else:
+                log.info("Resources folder is up to date")
             
             # Download repository ZIP
             zip_path = self.download_repo_zip(progress_start=5.0, progress_end=70.0)
@@ -656,6 +781,8 @@ class RepoDownloader:
                     if current_state:
                         current_state['last_checked'] = current_state['last_commit_date']
                         self.save_local_state(current_state)
+                    
+                    # Resources state is saved in extract_skins_from_zip if resources were extracted
                 
                 if success:
                     self._emit_progress(100, "Skins ready")
