@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional, Tuple
 from pathlib import Path
 import configparser
 
-from utils.paths import get_user_data_dir
+from utils.core.paths import get_user_data_dir
 
 # =============================================================================
 # APPLICATION METADATA

@@ -5,8 +5,15 @@ __pycache__/
 *.so
 .Python
 *.pyc
+# Ignore runtime overlay and mods data, but allow Python source files
 injection/overlay/*
+!injection/overlay/
+!injection/overlay/*.py
+!injection/overlay/__init__.py
 injection/mods/*
+!injection/mods/
+!injection/mods/*.py
+!injection/mods/__init__.py
 skins/*
 logs/*
 
@@ -53,8 +60,8 @@ ENV/
 Thumbs.db
 
 # Application specific
-injection/mods/
-injection/overlay/
+# Note: injection/mods/ and injection/overlay/ Python source files are tracked
+# Only runtime data in these directories is ignored (see Python section above)
 injection/tools/hashes.game.txt
 
 state/*.json

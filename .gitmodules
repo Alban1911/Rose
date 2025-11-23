@@ -16,3 +16,6 @@
 [submodule "Pengu Loader/plugins/ROSE-SettingsPanel"]
 	path = Pengu Loader/plugins/ROSE-SettingsPanel
 	url = https://github.com/FlorentTariolle/ROSE-SettingsPanel
+[submodule "Pengu Loader/plugins/ROSE-FormsWheel"]
+	path = Pengu Loader/plugins/ROSE-FormsWheel
+	url = https://github.com/Alban1911/ROSE-FormsWheel

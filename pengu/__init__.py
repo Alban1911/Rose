@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Pengu integration helpers.
+Pengu integration package
+Main entry point for Pengu Loader integration
 """
 
-from .skin_monitor import PenguSkinMonitorThread
+from .core.skin_monitor import PenguSkinMonitorThread
 
 __all__ = ["PenguSkinMonitorThread"]
 

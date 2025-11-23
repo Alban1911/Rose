@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Application Status Manager
+Manages the app state and tray icon status based on initialization checks
+"""
+
+from utils.core.logging import get_logger
+from utils.core.paths import get_skins_dir
+
+log = get_logger()
+
+
+class AppStatus:
+    """
+    Manages application status based on skin download state.
+    
+    Checks:
+    - Skins downloaded from repository
+    - Skin previews downloaded
+    
+    Status:
+    - locked.png: Skins not downloaded OR previews not downloaded
+    - golden unlocked.png: Skins and previews downloaded
+    """
+    
+    def __init__(self, tray_manager=None):
+        """
+        Initialize the AppStatus manager
+        
+        Args:
+            tray_manager: TrayManager instance to update status icon
+        """
+        self.tray_manager = tray_manager
+        self._skins_downloaded = False
+        self._previews_downloaded = False
+        self._download_process_complete = False  # Track if download process is complete
+        self._last_status = None  # Track last status to avoid duplicate logging
+        self._last_update_time = 0  # Throttle updates
+        
+    def check_previews_downloaded(self) -> bool:
+        """
+        Check if skin previews are downloaded from merged database
+        
+        Returns:
+            True if previews are downloaded, False otherwise
+        """
+        try:
+            skins_dir = get_skins_dir()
+            if not skins_dir.exists():
+                return False
+            
+            # Check if there are preview image files in the merged structure
+            # Structure: {champion_id}/{skin_id}/{skin_id}.png and {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
+            preview_files = list(skins_dir.rglob("*.png"))
+            return bool(preview_files)
+        except Exception as e:
+            log.debug(f"Failed to check previews directory: {e}")
+            return False
+    
+    def check_skins_downloaded(self) -> bool:
+        """
+        Check if skins are downloaded from the repository using new merged structure
+        
+        Returns:
+            True if skins directory exists and has content, False otherwise
+        """
+        try:
+            skins_dir = get_skins_dir()
+            
+            # Check if directory exists
+            if not skins_dir.exists():
+                return False
+            
+            # Check if directory has any champion folders with skin files
+            champion_dirs = [d for d in skins_dir.iterdir() if d.is_dir()]
+            if not champion_dirs:
+                return False
+            
+            # Check if at least one champion has skin files in new structure
+            # Structure: {champion_id}/{skin_id}/{skin_id}.zip and {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
+            for champion_dir in champion_dirs:
+                # Check for skin subdirectories
+                for skin_dir in champion_dir.iterdir():
+                    if not skin_dir.is_dir():
+                        continue
+                    
+                    # Check if this is a skin directory (numeric name)
+                    try:
+                        int(skin_dir.name)
+                        
+                        # Check for base skin zip file
+                        skin_zip = skin_dir / f"{skin_dir.name}.zip"
+                        if skin_zip.exists():
+                            return True
+                        
+                        # Check for chroma zip files
+                        for chroma_dir in skin_dir.iterdir():
+                            if chroma_dir.is_dir():
+                                try:
+                                    int(chroma_dir.name)  # Check if it's a chroma directory
+                                    chroma_zip = chroma_dir / f"{chroma_dir.name}.zip"
+                                    if chroma_zip.exists():
+                                        return True
+                                except ValueError:
+                                    continue
+                    except ValueError:
+                        # Not a skin directory, skip
+                        continue
+            
+            return False
+        except Exception as e:
+            log.debug(f"Failed to check skins directory: {e}")
+            return False
+    
+    
+    def update_status(self, force=False):
+        """
+        Update the application status by checking skin download state
+        
+        Args:
+            force: Force update even if throttled (optional)
+        """
+        import time
+        
+        # Throttle updates to prevent spam (max once per second)
+        current_time = time.time()
+        if not force and (current_time - self._last_update_time) < 1.0:
+            return
+        
+        self._last_update_time = current_time
+        
+        # Check each component
+        self._skins_downloaded = self.check_skins_downloaded()
+        self._previews_downloaded = self.check_previews_downloaded()
+        
+        
+        # Determine status level - only show unlocked if download process is complete
+        all_ready = (self._skins_downloaded and self._previews_downloaded and self._download_process_complete)
+        
+        # Determine current status
+        if all_ready:
+            current_status = "unlocked"
+        else:
+            current_status = "locked"
+        
+        # Only log and update if status changed
+        if current_status != self._last_status or force:
+            self._last_status = current_status
+            
+            # Update tray icon
+            if self.tray_manager:
+                self.tray_manager.set_status(current_status)
+            
+            # Log status change
+            separator = "=" * 80
+            if all_ready:
+                log.info(separator)
+                log.info("🌹 APP STATUS: READY")
+                log.info(separator)
+            else:
+                log.info(separator)
+                log.info("🥀 APP STATUS: STARTING")
+                log.info(f"   {'✅' if self._skins_downloaded else '⏳'} Skins: {'Downloaded' if self._skins_downloaded else 'Pending'}")
+                log.info(f"   {'✅' if self._previews_downloaded else '⏳'} Previews: {'Downloaded' if self._previews_downloaded else 'Pending'}")
+                log.info(separator)
+    
+    def mark_skins_downloaded(self):
+        """Mark skins as downloaded and update status"""
+        self._skins_downloaded = True
+        self.update_status(force=True)
+    
+    def mark_previews_downloaded(self):
+        """Mark previews as downloaded and update status"""
+        self._previews_downloaded = True
+        self.update_status(force=True)
+    
+    def mark_download_process_complete(self):
+        """Mark download process as complete and update status"""
+        self._download_process_complete = True
+        self.update_status(force=True)
+    
+    
+    def get_status_summary(self) -> dict:
+        """
+        Get a summary of the current status
+        
+        Returns:
+            Dictionary with status of each component
+        """
+        return {
+            'skins_downloaded': self._skins_downloaded,
+            'previews_downloaded': self._previews_downloaded,
+            'all_ready': (self._skins_downloaded and self._previews_downloaded)
+        }
+    
+    @property
+    def is_ready(self) -> bool:
+        """Check if all components are ready"""
+        return (self._skins_downloaded and self._previews_downloaded)

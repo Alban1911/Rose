@@ -55,12 +55,8 @@ def clean_previous_builds():
     else:
         print("[INFO] No build/ cache found - this will be a full build")
     
-    # Clean injection directories
-    injection_dirs = ["injection/mods", "injection/overlay", "injection/incoming_zips"]
-    for dir_path in injection_dirs:
-        if Path(dir_path).exists():
-            shutil.rmtree(dir_path)
-            print(f"[OK] Removed {dir_path}/")
+    # Note: injection/ directories are no longer cleaned as they contain real scripts
+    # that need to be preserved (tools, config, etc.)
     
     return True
 
