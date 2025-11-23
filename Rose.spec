@@ -40,11 +40,12 @@ injection_binaries = [
     'injection/tools/wad-make.exe',
 ]
 
-# Data files (batch scripts, etc.)
+# Data files (batch scripts, text files, etc.)
 injection_data_files = [
     'injection/tools/wad-extract-multi.bat',
     'injection/tools/wad-make-multi.bat',
     'injection/tools/wxy-extract-multi.bat',
+    'injection/tools/hashes.game.txt',
 ]
 
 # Verify and add injection binaries
@@ -223,6 +224,22 @@ hiddenimports = [
     'ui.handlers.randomization_handler',
     'ui.handlers.skin_display_handler',
     
+    # Launcher module
+    'launcher',
+    'launcher.core',
+    'launcher.core.launcher',
+    'launcher.sequences',
+    'launcher.sequences.hash_check_sequence',
+    'launcher.sequences.skin_sync_sequence',
+    'launcher.ui',
+    'launcher.ui.update_dialog',
+    'launcher.update',
+    'launcher.update.github_client',
+    'launcher.update.update_downloader',
+    'launcher.update.update_installer',
+    'launcher.update.update_sequence',
+    'launcher.updater',
+    
     # Image processing (PIL only)
     'PIL',
     'PIL.Image',
@@ -243,6 +260,9 @@ hiddenimports = [
     
     # Other dependencies
     'psutil',
+    
+    # Top-level modules
+    'config',
 ]
 
 # Exclusions - modules we don't need (reduces size and build time)
