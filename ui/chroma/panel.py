@@ -174,6 +174,11 @@ class ChromaPanelManager:
         Each chroma has an 'is_owned' flag set by ChromaSelector
         """
         with self.lock:
+            # Clear pending_hide flag when showing button (allows panel to be shown after being hidden)
+            if self.pending_hide:
+                self.pending_hide = False
+                log.debug("[CHROMA] Clearing pending_hide flag - showing button for skin")
+            
             # If switching to a different skin, hide the wheel and reset selection
             # But don't reset if it's just a chroma selection for the same base skin
             is_different_skin = (self.current_skin_id is not None and 

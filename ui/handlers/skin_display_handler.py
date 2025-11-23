@@ -48,7 +48,9 @@ class SkinDisplayHandler:
             Tuple of (new_base_skin_id, prev_base_skin_id)
         """
         # Prevent duplicate processing of the same skin
-        if (current_skin_id == skin_id and 
+        # But allow showing again if current_skin_id is None (UI was reset/hidden)
+        if (current_skin_id is not None and
+            current_skin_id == skin_id and 
             current_skin_name == skin_name and 
             current_champion_name == champion_name):
             log.debug(f"[UI] Skipping duplicate skin: {skin_name} (ID: {skin_id})")

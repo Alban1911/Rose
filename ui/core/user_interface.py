@@ -70,11 +70,18 @@ class UserInterface:
         
         with self.lock:
             # Prevent duplicate processing of the same skin
-            if (self.current_skin_id == skin_id and 
+            # But allow showing again if current_skin_id is None (UI was reset/hidden)
+            if (self.current_skin_id is not None and
+                self.current_skin_id == skin_id and 
                 self.current_skin_name == skin_name and 
                 self.current_champion_name == champion_name):
                 log.debug(f"[UI] Skipping duplicate skin: {skin_name} (ID: {skin_id})")
                 return
+            
+            # Capture old values BEFORE updating (needed for SkinDisplayHandler duplicate check)
+            old_skin_id = self.current_skin_id
+            old_skin_name = self.current_skin_name
+            old_champion_name = self.current_champion_name
             
             # Update current skin tracking
             self.current_skin_id = skin_id
@@ -95,9 +102,10 @@ class UserInterface:
                 if self.skin_display_handler.chroma_ui != self.lifecycle_manager.chroma_ui:
                     self.skin_display_handler.chroma_ui = self.lifecycle_manager.chroma_ui
                 
+                # Pass OLD values (before update) to SkinDisplayHandler for duplicate checking
                 new_base_skin_id, prev_base_skin_id = self.skin_display_handler.show_skin(
                     skin_id, skin_name, champion_name, champion_id,
-                    self.current_skin_id, self.current_skin_name, self.current_champion_name
+                    old_skin_id, old_skin_name, old_champion_name
                 )
             else:
                 new_base_skin_id = None

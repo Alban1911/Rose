@@ -99,8 +99,14 @@ def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> Non
                 if user_interface.is_ui_initialized():
                     if user_interface.chroma_ui:
                         user_interface.chroma_ui.hide()
+                    # Reset skin state so skins can be shown again after being hidden
+                    with user_interface.lock:
+                        user_interface.current_skin_id = None
+                        user_interface.current_skin_name = None
+                        user_interface.current_champion_name = None
+                        user_interface.current_champion_id = None
                     _loop_state['swiftplay_ui_hidden'] = True
-                    log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode")
+                    log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode (reset skin state)")
             except Exception as e:
                 log.debug(f"[MAIN] Error hiding UI: {e}")
     
