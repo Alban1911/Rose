@@ -97,6 +97,10 @@ class ZipResolver:
             if chroma_id == 25999:
                 return self._resolve_morgana_form(chroma_id)
             
+            # Special handling for Radiant Sett forms (IDs 875998, 875999)
+            if chroma_id in (875998, 875999):
+                return self._resolve_sett_form(chroma_id)
+            
             # For regular chromas, look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
             if not champion_id:
                 log.warning(f"[INJECT] No champion_id provided for chroma lookup: {chroma_id}")
@@ -230,5 +234,34 @@ class ZipResolver:
             return form_files_fantome[0]
         else:
             log.warning(f"[INJECT] Spirit Blossom Morgana {form_name} form file not found: {form_pattern_zip} or {form_pattern_fantome}")
+            return None
+    
+    def _resolve_sett_form(self, chroma_id: int) -> Optional[Path]:
+        """Resolve Radiant Sett form by chroma ID"""
+        log.info(f"[INJECT] Detected Radiant Sett form ID: {chroma_id}")
+        
+        # Map IDs to form names
+        form_names = {
+            875998: 'Form 2',
+            875999: 'Form 3'
+        }
+        
+        form_name = form_names.get(chroma_id, 'Unknown')
+        log.info(f"[INJECT] Looking for Radiant Sett {form_name} form")
+        
+        # Look for the form file in the Sett directory (check both .zip and .fantome)
+        form_pattern_zip = f"Radiant Sett {form_name}.zip"
+        form_pattern_fantome = f"Radiant Sett {form_name}.fantome"
+        form_files_zip = list(self.zips_dir.rglob(f"**/{form_pattern_zip}"))
+        form_files_fantome = list(self.zips_dir.rglob(f"**/{form_pattern_fantome}"))
+        
+        if form_files_zip:
+            log_success(log, f"Found Radiant Sett {form_name} form: {form_files_zip[0].name}", "✨")
+            return form_files_zip[0]
+        elif form_files_fantome:
+            log_success(log, f"Found Radiant Sett {form_name} form: {form_files_fantome[0].name}", "✨")
+            return form_files_fantome[0]
+        else:
+            log.warning(f"[INJECT] Radiant Sett {form_name} form file not found: {form_pattern_zip} or {form_pattern_fantome}")
             return None
 

@@ -47,6 +47,9 @@ class ChromaSelectionHandler:
             # Check if this is a Spirit Blossom Morgana Form
             elif ChromaSpecialCases.is_morgana_form(chroma_id):
                 self._handle_morgana_form_selection(chroma_id, chroma_name)
+            # Check if this is a Radiant Sett Form
+            elif ChromaSpecialCases.is_sett_form(chroma_id):
+                self._handle_sett_form_selection(chroma_id, chroma_name)
             # Check if this is a HOL chroma
             elif ChromaSpecialCases.is_hol_chroma(chroma_id):
                 self._handle_hol_chroma_selection(chroma_id, chroma_name)
@@ -182,6 +185,45 @@ class ChromaSelectionHandler:
                 log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                 log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                 log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
+    
+    def _handle_sett_form_selection(self, chroma_id: int, chroma_name: str):
+        """Handle Radiant Sett form selection"""
+        log.info(f"[CHROMA] Form selected: {chroma_name} (Real ID: {chroma_id})")
+        
+        # Find the Form data to get the form_path
+        form_data = None
+        if self.current_skin_id == 875066:  # Radiant Sett
+            forms = ChromaSpecialCases.get_sett_forms()
+            for form in forms:
+                if form['id'] == chroma_id:
+                    form_data = form
+                    break
+        
+        if form_data:
+            # Store the Form file path for injection
+            self.state.selected_form_path = form_data['form_path']
+            self.state.selected_chroma_id = chroma_id  # Store the real ID
+            
+            # Update the skin ID to the form ID so injection system treats it as unowned
+            self.state.last_hovered_skin_id = chroma_id
+            
+            # Update Swiftplay tracking dictionary if in Swiftplay mode
+            if self.state.is_swiftplay_mode:
+                champion_id = 875  # Sett champion ID
+                self.state.swiftplay_skin_tracking[champion_id] = chroma_id
+                log.info(f"[CHROMA] Updated Swiftplay tracking: champion {champion_id} -> Sett form {chroma_id}")
+            
+            # Disable HistoricMode if active
+            self._disable_historic_mode(f"Radiant Sett form selection (formId={chroma_id})")
+            
+            # Update the skin name to include the Form name for injection
+            if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
+                base_skin_name = self.panel.current_skin_name
+                form_skin_name = f"{base_skin_name} {chroma_name}"
+                self.state.last_hovered_skin_key = form_skin_name
+                log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
+                log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
+                log.debug(f"[CHROMA] Using real ID {chroma_id} for injection (not owned)")
     
     def _handle_hol_chroma_selection(self, chroma_id: int, chroma_name: str):
         """Handle HOL chroma selection (Kai'Sa or Ahri)"""

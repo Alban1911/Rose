@@ -51,6 +51,16 @@ class ChromaSpecialCases:
         return forms
     
     @staticmethod
+    def get_sett_forms() -> List[Dict]:
+        """Get Radiant Sett Forms data structure (equivalent to chromas)"""
+        forms = [
+            {'id': 875998, 'name': 'Form 2', 'colors': [], 'is_owned': False, 'form_path': 'Sett/Forms/Radiant Sett Form 2.zip'},
+            {'id': 875999, 'name': 'Form 3', 'colors': [], 'is_owned': False, 'form_path': 'Sett/Forms/Radiant Sett Form 3.zip'},
+        ]
+        log.debug(f"[CHROMA] Created {len(forms)} Radiant Sett Forms with real IDs (875998, 875999)")
+        return forms
+    
+    @staticmethod
     def get_hol_chromas() -> List[Dict]:
         """Get Risen Legend Kai'Sa HOL chroma data structure (equivalent to chromas)"""
         chromas = [
@@ -84,6 +94,11 @@ class ChromaSpecialCases:
         return chroma_id == 25999
     
     @staticmethod
+    def is_sett_form(chroma_id: int) -> bool:
+        """Check if chroma_id is a Radiant Sett form"""
+        return chroma_id in (875998, 875999)
+    
+    @staticmethod
     def is_hol_chroma(chroma_id: int) -> bool:
         """Check if chroma_id is a HOL chroma"""
         return chroma_id in (145071, 103086)
@@ -106,6 +121,14 @@ class ChromaSpecialCases:
         # Special case: Spirit Blossom Morgana (skin ID 25080) has Forms instead of chromas
         elif skin_id == 25080:
             return ChromaSpecialCases.get_morgana_forms()
+        
+        # Special case: Radiant Sett (skin ID 875066) has Forms instead of chromas
+        elif skin_id == 875066:
+            return ChromaSpecialCases.get_sett_forms()
+        
+        # Special case: Radiant Sett forms (IDs 875998, 875999) are treated as forms of base skin
+        elif skin_id in (875998, 875999):
+            return ChromaSpecialCases.get_sett_forms()
         
         # Special case: Risen Legend Kai'Sa (skin ID 145070) has HOL chroma instead of regular chromas
         elif skin_id == 145070:
@@ -140,6 +163,9 @@ class ChromaSpecialCases:
         
         if ChromaSpecialCases.is_morgana_form(chroma_id):
             return 25080  # Spirit Blossom Morgana base skin ID
+        
+        if ChromaSpecialCases.is_sett_form(chroma_id):
+            return 875066  # Radiant Sett base skin ID
         
         if chroma_id == 145071:
             return 145070  # Risen Legend Kai'Sa base skin ID

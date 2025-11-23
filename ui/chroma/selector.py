@@ -123,6 +123,10 @@ class ChromaSelector:
             elif ChromaSpecialCases.is_morgana_form(skin_id):
                 base_skin_id = 25080  # Spirit Blossom Morgana base skin ID
                 log.debug(f"[CHROMA] Detected Spirit Blossom Morgana form {skin_id}, using base skin {base_skin_id} for chroma data")
+            # Special handling for Radiant Sett forms (IDs 875998, 875999)
+            elif ChromaSpecialCases.is_sett_form(skin_id):
+                base_skin_id = 875066  # Radiant Sett base skin ID
+                log.debug(f"[CHROMA] Detected Radiant Sett form {skin_id}, using base skin {base_skin_id} for chroma data")
             elif self.skin_scraper and self.skin_scraper.cache:
                 if skin_id in self.skin_scraper.cache.chroma_id_map:
                     # This is a chroma, get its base skin ID
@@ -196,6 +200,13 @@ class ChromaSelector:
         elif current_base_id == 25080:
             current_base_id = 25080
             log.debug(f"[CHROMA] Current skin {self.current_skin_id} is Spirit Blossom Morgana base skin")
+        # Special handling for Radiant Sett forms
+        elif ChromaSpecialCases.is_sett_form(current_base_id):
+            current_base_id = 875066
+            log.debug(f"[CHROMA] Current skin {self.current_skin_id} is Radiant Sett form of base skin {current_base_id}")
+        elif current_base_id == 875066:
+            current_base_id = 875066
+            log.debug(f"[CHROMA] Current skin {self.current_skin_id} is Radiant Sett base skin")
         elif self.skin_scraper and self.skin_scraper.cache and current_base_id in self.skin_scraper.cache.chroma_id_map:
             chroma_data = self.skin_scraper.cache.chroma_id_map[current_base_id]
             current_base_id = chroma_data.get('skinId', current_base_id)
@@ -222,6 +233,13 @@ class ChromaSelector:
         elif new_base_id == 25080:
             new_base_id = 25080
             log.debug(f"[CHROMA] New skin {skin_id} is Spirit Blossom Morgana base skin")
+        # Special handling for Radiant Sett forms
+        elif ChromaSpecialCases.is_sett_form(new_base_id):
+            new_base_id = 875066
+            log.debug(f"[CHROMA] New skin {skin_id} is Radiant Sett form of base skin {new_base_id}")
+        elif new_base_id == 875066:
+            new_base_id = 875066
+            log.debug(f"[CHROMA] New skin {skin_id} is Radiant Sett base skin")
         elif self.skin_scraper and self.skin_scraper.cache and new_base_id in self.skin_scraper.cache.chroma_id_map:
             chroma_data = self.skin_scraper.cache.chroma_id_map[new_base_id]
             new_base_id = chroma_data.get('skinId', new_base_id)
