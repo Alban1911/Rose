@@ -127,6 +127,10 @@ class ChromaSelector:
             elif ChromaSpecialCases.is_sett_form(skin_id):
                 base_skin_id = 875066  # Radiant Sett base skin ID
                 log.debug(f"[CHROMA] Detected Radiant Sett form {skin_id}, using base skin {base_skin_id} for chroma data")
+            # Special handling for KDA Seraphine forms (IDs 147998, 147999)
+            elif ChromaSpecialCases.is_seraphine_form(skin_id):
+                base_skin_id = 147001  # KDA Seraphine base skin ID
+                log.debug(f"[CHROMA] Detected KDA Seraphine form {skin_id}, using base skin {base_skin_id} for chroma data")
             elif self.skin_scraper and self.skin_scraper.cache:
                 if skin_id in self.skin_scraper.cache.chroma_id_map:
                     # This is a chroma, get its base skin ID
@@ -207,6 +211,13 @@ class ChromaSelector:
         elif current_base_id == 875066:
             current_base_id = 875066
             log.debug(f"[CHROMA] Current skin {self.current_skin_id} is Radiant Sett base skin")
+        # Special handling for KDA Seraphine forms
+        elif ChromaSpecialCases.is_seraphine_form(current_base_id):
+            current_base_id = 147001
+            log.debug(f"[CHROMA] Current skin {self.current_skin_id} is KDA Seraphine form of base skin {current_base_id}")
+        elif current_base_id == 147001:
+            current_base_id = 147001
+            log.debug(f"[CHROMA] Current skin {self.current_skin_id} is KDA Seraphine base skin")
         elif self.skin_scraper and self.skin_scraper.cache and current_base_id in self.skin_scraper.cache.chroma_id_map:
             chroma_data = self.skin_scraper.cache.chroma_id_map[current_base_id]
             current_base_id = chroma_data.get('skinId', current_base_id)
@@ -240,6 +251,13 @@ class ChromaSelector:
         elif new_base_id == 875066:
             new_base_id = 875066
             log.debug(f"[CHROMA] New skin {skin_id} is Radiant Sett base skin")
+        # Special handling for KDA Seraphine forms
+        elif ChromaSpecialCases.is_seraphine_form(new_base_id):
+            new_base_id = 147001
+            log.debug(f"[CHROMA] New skin {skin_id} is KDA Seraphine form of base skin {new_base_id}")
+        elif new_base_id == 147001:
+            new_base_id = 147001
+            log.debug(f"[CHROMA] New skin {skin_id} is KDA Seraphine base skin")
         elif self.skin_scraper and self.skin_scraper.cache and new_base_id in self.skin_scraper.cache.chroma_id_map:
             chroma_data = self.skin_scraper.cache.chroma_id_map[new_base_id]
             new_base_id = chroma_data.get('skinId', new_base_id)

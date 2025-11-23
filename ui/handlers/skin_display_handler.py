@@ -87,6 +87,8 @@ class SkinDisplayHandler:
         is_morgana_form = skin_id == 25999
         # Special case: Radiant Sett forms (IDs 875998, 875999) should always show UnownedFrame
         is_sett_form = skin_id in (875998, 875999)
+        # Special case: KDA Seraphine forms (IDs 147002, 147003) should always show UnownedFrame
+        is_seraphine_form = skin_id in (147002, 147003)
         
         # Same-base chroma swap occurs when switching from base skin (or its chroma) to another chroma of same base
         is_same_base_chroma = (not is_base_skin_var) and (prev_base_skin_id is not None) and (new_base_skin_id == prev_base_skin_id)
@@ -94,7 +96,7 @@ class SkinDisplayHandler:
         # Determine what to show
         should_show_chroma_ui = has_chromas
         
-        log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned_var}, is_base_skin={is_base_skin_var}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_mordekaiser_form={is_mordekaiser_form}, is_morgana_form={is_morgana_form}, is_sett_form={is_sett_form}, is_chroma_selection={is_chroma_selection}")
+        log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned_var}, is_base_skin={is_base_skin_var}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_mordekaiser_form={is_mordekaiser_form}, is_morgana_form={is_morgana_form}, is_sett_form={is_sett_form}, is_seraphine_form={is_seraphine_form}, is_chroma_selection={is_chroma_selection}")
         log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}")
         
         # Show/hide ChromaUI based on chromas
@@ -149,6 +151,16 @@ class SkinDisplayHandler:
             # Special case: Radiant Sett forms (IDs 875998, 875999) are considered chromas
             if skin_id in (875998, 875999):
                 log.debug(f"[UI] Radiant Sett form detected - considered as chroma")
+                return True
+            
+            # Special case: KDA Seraphine (skin ID 147001) has Forms instead of chromas
+            if skin_id == 147001:
+                log.debug(f"[UI] KDA Seraphine detected - has Forms instead of chromas")
+                return True
+            
+            # Special case: KDA Seraphine forms (IDs 147002, 147003) are considered chromas
+            if skin_id in (147002, 147003):
+                log.debug(f"[UI] KDA Seraphine form detected - considered as chroma")
                 return True
             
             # Special case: Risen Legend Kai'Sa (skin ID 145070) has HOL chroma instead of regular chromas

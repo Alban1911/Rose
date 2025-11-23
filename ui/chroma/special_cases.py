@@ -61,6 +61,16 @@ class ChromaSpecialCases:
         return forms
     
     @staticmethod
+    def get_seraphine_forms() -> List[Dict]:
+        """Get KDA Seraphine Forms data structure (equivalent to chromas)"""
+        forms = [
+            {'id': 147002, 'name': 'Form 1', 'colors': [], 'is_owned': False, 'form_path': 'Seraphine/Forms/KDA Seraphine Form 1.zip'},
+            {'id': 147003, 'name': 'Form 2', 'colors': [], 'is_owned': False, 'form_path': 'Seraphine/Forms/KDA Seraphine Form 2.zip'},
+        ]
+        log.debug(f"[CHROMA] Created {len(forms)} KDA Seraphine Forms with real IDs (147002, 147003)")
+        return forms
+    
+    @staticmethod
     def get_hol_chromas() -> List[Dict]:
         """Get Risen Legend Kai'Sa HOL chroma data structure (equivalent to chromas)"""
         chromas = [
@@ -99,6 +109,11 @@ class ChromaSpecialCases:
         return chroma_id in (875998, 875999)
     
     @staticmethod
+    def is_seraphine_form(chroma_id: int) -> bool:
+        """Check if chroma_id is a KDA Seraphine form"""
+        return chroma_id in (147002, 147003)
+    
+    @staticmethod
     def is_hol_chroma(chroma_id: int) -> bool:
         """Check if chroma_id is a HOL chroma"""
         return chroma_id in (145071, 103086)
@@ -129,6 +144,14 @@ class ChromaSpecialCases:
         # Special case: Radiant Sett forms (IDs 875998, 875999) are treated as forms of base skin
         elif skin_id in (875998, 875999):
             return ChromaSpecialCases.get_sett_forms()
+        
+        # Special case: KDA Seraphine (skin ID 147001) has Forms instead of chromas
+        elif skin_id == 147001:
+            return ChromaSpecialCases.get_seraphine_forms()
+        
+        # Special case: KDA Seraphine forms (IDs 147002, 147003) are treated as forms of base skin
+        elif skin_id in (147002, 147003):
+            return ChromaSpecialCases.get_seraphine_forms()
         
         # Special case: Risen Legend Kai'Sa (skin ID 145070) has HOL chroma instead of regular chromas
         elif skin_id == 145070:
@@ -166,6 +189,9 @@ class ChromaSpecialCases:
         
         if ChromaSpecialCases.is_sett_form(chroma_id):
             return 875066  # Radiant Sett base skin ID
+        
+        if ChromaSpecialCases.is_seraphine_form(chroma_id):
+            return 147001  # KDA Seraphine base skin ID
         
         if chroma_id == 145071:
             return 145070  # Risen Legend Kai'Sa base skin ID

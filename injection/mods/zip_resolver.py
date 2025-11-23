@@ -101,6 +101,10 @@ class ZipResolver:
             if chroma_id in (875998, 875999):
                 return self._resolve_sett_form(chroma_id)
             
+            # Special handling for KDA Seraphine forms (IDs 147002, 147003)
+            if chroma_id in (147002, 147003):
+                return self._resolve_seraphine_form(chroma_id)
+            
             # For regular chromas, look for {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip
             if not champion_id:
                 log.warning(f"[INJECT] No champion_id provided for chroma lookup: {chroma_id}")
@@ -263,5 +267,34 @@ class ZipResolver:
             return form_files_fantome[0]
         else:
             log.warning(f"[INJECT] Radiant Sett {form_name} form file not found: {form_pattern_zip} or {form_pattern_fantome}")
+            return None
+    
+    def _resolve_seraphine_form(self, chroma_id: int) -> Optional[Path]:
+        """Resolve KDA Seraphine form by chroma ID"""
+        log.info(f"[INJECT] Detected KDA Seraphine form ID: {chroma_id}")
+        
+        # Map IDs to form names
+        form_names = {
+            147002: 'Form 1',
+            147003: 'Form 2'
+        }
+        
+        form_name = form_names.get(chroma_id, 'Unknown')
+        log.info(f"[INJECT] Looking for KDA Seraphine {form_name} form")
+        
+        # Look for the form file in the Seraphine directory (check both .zip and .fantome)
+        form_pattern_zip = f"KDA Seraphine {form_name}.zip"
+        form_pattern_fantome = f"KDA Seraphine {form_name}.fantome"
+        form_files_zip = list(self.zips_dir.rglob(f"**/{form_pattern_zip}"))
+        form_files_fantome = list(self.zips_dir.rglob(f"**/{form_pattern_fantome}"))
+        
+        if form_files_zip:
+            log_success(log, f"Found KDA Seraphine {form_name} form: {form_files_zip[0].name}", "✨")
+            return form_files_zip[0]
+        elif form_files_fantome:
+            log_success(log, f"Found KDA Seraphine {form_name} form: {form_files_fantome[0].name}", "✨")
+            return form_files_fantome[0]
+        else:
+            log.warning(f"[INJECT] KDA Seraphine {form_name} form file not found: {form_pattern_zip} or {form_pattern_fantome}")
             return None
 

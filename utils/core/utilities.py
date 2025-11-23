@@ -65,7 +65,7 @@ def is_chroma_id(skin_id: int, chroma_id_map: Optional[dict]) -> bool:
         True if the skin ID is a chroma, False otherwise
     """
     # Check hardcoded special chroma IDs first (always check these)
-    if skin_id in (145071, 103086, 99991, 99992, 99993, 99994, 99995, 99996, 99997, 99998, 99999, 82998, 82999, 25999, 875998, 875999):
+    if skin_id in (145071, 103086, 99991, 99992, 99993, 99994, 99995, 99996, 99997, 99998, 99999, 82998, 82999, 25999, 875998, 875999, 147002, 147003):
         return True
     
     # Check chroma_id_map if it's not None and not empty
@@ -102,6 +102,10 @@ def get_base_skin_id_for_chroma(chroma_id: int, chroma_id_map: Optional[dict]) -
         if chroma_id in (875998, 875999):
             return 875066  # Radiant Sett base skin ID
         
+        # Check if this is a KDA Seraphine form
+        if chroma_id in (147002, 147003):
+            return 147001  # KDA Seraphine base skin ID
+        
         # Special case: Elementalist Lux base skin (99007)
         if chroma_id == 99007:
             return 99007  # Elementalist Lux base skin ID
@@ -117,6 +121,10 @@ def get_base_skin_id_for_chroma(chroma_id: int, chroma_id_map: Optional[dict]) -
         # Special case: Radiant Sett base skin (875066)
         if chroma_id == 875066:
             return 875066  # Radiant Sett base skin ID
+
+        # Special case: KDA Seraphine base skin (147001)
+        if chroma_id == 147001:
+            return 147001  # KDA Seraphine base skin ID
 
         # Special case: Risen Legend Kai'Sa (145070)
         if chroma_id == 145070:
