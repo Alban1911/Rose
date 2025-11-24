@@ -57,6 +57,15 @@ class PhaseHandler:
                 log.info("[phase] ChampSelect in Swiftplay mode - running overlay injection")
                 if self.swiftplay_handler:
                     self.swiftplay_handler.run_swiftplay_overlay()
+                # Also ensure UI is initialized for Swiftplay mode (needed for overlay detection)
+                try:
+                    from ui.core.user_interface import get_user_interface
+                    user_interface = get_user_interface(self.state, self.skin_scraper)
+                    if not user_interface.is_ui_initialized() and not user_interface._pending_ui_initialization:
+                        log.info("[phase] ChampSelect in Swiftplay mode - requesting UI initialization for overlay detection")
+                        user_interface.request_ui_initialization()
+                except Exception as e:
+                    log.warning(f"[phase] Failed to request UI initialization in Swiftplay ChampSelect: {e}")
             else:
                 # Normal ChampSelect handling
                 self.state.locked_champ_id = None
@@ -94,9 +103,12 @@ class PhaseHandler:
                 self._reset_state()
         
         # Handle lobby exit
+        # Don't cleanup Swiftplay if we're transitioning to Matchmaking/ChampSelect (need extracted mods)
         if previous_phase == "Lobby" and phase != "Lobby":
             if self.state.is_swiftplay_mode and self.swiftplay_handler:
-                self.swiftplay_handler.cleanup_swiftplay_exit()
+                # Only cleanup if we're not going to Matchmaking/ChampSelect (where we need extracted mods)
+                if phase not in ["Matchmaking", "ChampSelect", "FINALIZATION"]:
+                    self.swiftplay_handler.cleanup_swiftplay_exit()
     
     def _handle_in_progress(self):
         """Handle InProgress phase"""

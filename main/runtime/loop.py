@@ -90,25 +90,34 @@ def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> Non
         current_skin_name = None
     
     # Check if UI should be hidden in Swiftplay mode when detection is lost
+    # But only if we don't have extracted mods waiting for overlay injection
+    # (i.e., overlay hasn't been built yet, so we should wait for it)
     if state.is_swiftplay_mode and state.ui_skin_id is None:
-        # Use a flag to avoid spamming hide() calls
-        if not _loop_state.get('swiftplay_ui_hidden'):
-            try:
-                from ui.core.user_interface import get_user_interface
-                user_interface = get_user_interface(state, skin_scraper)
-                if user_interface.is_ui_initialized():
-                    if user_interface.chroma_ui:
-                        user_interface.chroma_ui.hide()
-                    # Reset skin state so skins can be shown again after being hidden
-                    with user_interface.lock:
-                        user_interface.current_skin_id = None
-                        user_interface.current_skin_name = None
-                        user_interface.current_champion_name = None
-                        user_interface.current_champion_id = None
-                    _loop_state['swiftplay_ui_hidden'] = True
-                    log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode (reset skin state)")
-            except Exception as e:
-                log.debug(f"[MAIN] Error hiding UI: {e}")
+        # Don't hide UI if we have extracted mods waiting for overlay injection
+        # This means we're in Matchmaking/ChampSelect and overlay hasn't been built yet
+        has_extracted_mods = state.swiftplay_extracted_mods and len(state.swiftplay_extracted_mods) > 0
+        if not has_extracted_mods:
+            # Use a flag to avoid spamming hide() calls
+            if not _loop_state.get('swiftplay_ui_hidden'):
+                try:
+                    from ui.core.user_interface import get_user_interface
+                    user_interface = get_user_interface(state, skin_scraper)
+                    if user_interface.is_ui_initialized():
+                        if user_interface.chroma_ui:
+                            user_interface.chroma_ui.hide()
+                        # Reset skin state so skins can be shown again after being hidden
+                        with user_interface.lock:
+                            user_interface.current_skin_id = None
+                            user_interface.current_skin_name = None
+                            user_interface.current_champion_name = None
+                            user_interface.current_champion_id = None
+                        _loop_state['swiftplay_ui_hidden'] = True
+                        log.debug("[MAIN] Hiding UI - no skin detected in Swiftplay mode (reset skin state)")
+                except Exception as e:
+                    log.debug(f"[MAIN] Error hiding UI: {e}")
+        else:
+            # Reset the hidden flag if we have extracted mods (overlay might be building)
+            _loop_state['swiftplay_ui_hidden'] = False
     
     if current_skin_id:
         # Check if we need to reset skin notification debouncing
