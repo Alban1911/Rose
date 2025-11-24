@@ -73,13 +73,9 @@ class UpdateSequence:
                 pass
         if not config.has_section("General"):
             config.add_section("General")
-        config.set("General", "installed_version", APP_VERSION)
-        try:
-            with open(config_path, "w", encoding="utf-8") as fh:
-                config.write(fh)
-        except Exception:
-            pass
         
+        # Read installed version without overwriting it
+        # We only update it after a successful update installation
         installed_version = config.get("General", "installed_version", fallback=APP_VERSION)
         
         if remote_version and installed_version == remote_version:
@@ -147,6 +143,15 @@ class UpdateSequence:
         batch_path = updates_root / "apply_update.bat"
         if not self.installer.launch_installer(batch_path, status_callback):
             return False
+        
+        # Update installed_version in config after successful installation
+        if remote_version:
+            config.set("General", "installed_version", remote_version)
+            try:
+                with open(config_path, "w", encoding="utf-8") as fh:
+                    config.write(fh)
+            except Exception:
+                pass
         
         progress_callback(100)
         if bytes_callback and total_size:
