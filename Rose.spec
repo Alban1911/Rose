@@ -85,6 +85,15 @@ if Path('injection/mods_map.json').exists():
 else:
     print("[WARNING] injection/mods_map.json not found")
 
+# Collect Pillow data files (fonts, etc.) to prevent version mismatch issues
+try:
+    pillow_datas = collect_data_files('PIL')
+    if pillow_datas:
+        datas += pillow_datas
+        print(f"[OK] Collected {len(pillow_datas)} Pillow data files")
+except Exception as e:
+    print(f"[WARNING] Could not collect Pillow data files: {e}")
+
 # Include Pengu Loader directory (for Pengu activation/deactivation CLI)
 pengu_loader_dir = Path('Pengu Loader')
 if pengu_loader_dir.exists() and pengu_loader_dir.is_dir():
@@ -240,11 +249,15 @@ hiddenimports = [
     'launcher.update.update_sequence',
     'launcher.updater',
     
-    # Image processing (PIL only)
+    # Image processing (PIL/Pillow)
     'PIL',
     'PIL.Image',
     'PIL.ImageDraw',
     'PIL.ImageFont',
+    # Pillow compiled extensions (fixes version mismatch issues)
+    'PIL._imaging',
+    'PIL._imagingtk',
+    'PIL._tkinter_finder',
     
     # Networking
     'requests',
