@@ -280,10 +280,14 @@ class SwiftplayHandler:
             except Exception:
                 self.state.swiftplay_skin_tracking = {}
 
-            try:
-                self.state.swiftplay_extracted_mods.clear()
-            except Exception:
-                self.state.swiftplay_extracted_mods = []
+            # Don't clear extracted_mods if we're still in Swiftplay mode and haven't built overlay yet
+            # Only clear if we're actually leaving Swiftplay mode (phase is None or not Swiftplay-related)
+            current_phase = getattr(self.state, 'phase', None)
+            if current_phase not in ["Matchmaking", "ChampSelect", "FINALIZATION"]:
+                try:
+                    self.state.swiftplay_extracted_mods.clear()
+                except Exception:
+                    self.state.swiftplay_extracted_mods = []
 
             # Reset UI-related shared state
             self.state.ui_skin_id = None
@@ -448,6 +452,11 @@ class SwiftplayHandler:
             
             extracted_mods = self.state.swiftplay_extracted_mods
             log.info(f"[phase] Running overlay injection for {len(extracted_mods)} mod(s): {', '.join(extracted_mods)}")
+            
+            # Start game monitor to prevent game from starting before overlay is ready
+            if not self.injection_manager._monitor_active:
+                log.info("[phase] Starting game monitor for Swiftplay overlay injection")
+                self.injection_manager._start_monitor()
             
             try:
                 result = self.injection_manager.injector._mk_run_overlay(

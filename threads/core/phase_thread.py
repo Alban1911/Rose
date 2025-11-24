@@ -64,9 +64,12 @@ class PhaseThread(threading.Thread):
             # If phase is unknown (None), skip handling
             if ph is None:
                 self.state.phase = None
-                if self.state.is_swiftplay_mode:
+                # Don't cleanup Swiftplay if we have extracted mods waiting for injection
+                # This can happen during phase transitions (e.g., Matchmaking -> ChampSelect)
+                has_extracted_mods = self.state.swiftplay_extracted_mods and len(self.state.swiftplay_extracted_mods) > 0
+                if self.state.is_swiftplay_mode and not has_extracted_mods:
                     self.swiftplay_handler.cleanup_swiftplay_exit()
-                elif self.state.swiftplay_extracted_mods:
+                elif not self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
                     self.state.swiftplay_extracted_mods = []
 
                 time.sleep(self.interval)
