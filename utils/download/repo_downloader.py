@@ -425,6 +425,89 @@ class RepoDownloader:
             log.error(f"Error downloading repository: {e}")
             return None
     
+    def _cleanup_removed_skin_files(self, zip_file_list: List[zipfile.ZipInfo], target_dir: Path) -> int:
+        """Remove files from target directory that are no longer in the repository ZIP
+        
+        Args:
+            zip_file_list: List of ZipInfo objects from the repository ZIP
+            target_dir: Target directory to clean up
+            
+        Returns:
+            Number of files deleted
+        """
+        if not target_dir.exists():
+            return 0
+        
+        # Guard: Skip cleanup if file list is empty to prevent deleting all files
+        if not zip_file_list:
+            log.debug("Skipping cleanup: no files in ZIP list (empty list would delete all local files)")
+            return 0
+        
+        # Build set of expected file paths from ZIP (as relative paths for comparison)
+        expected_relative_paths = set()
+        for file_info in zip_file_list:
+            if file_info.is_dir():
+                continue
+            
+            # Convert ZIP path to relative path
+            relative_path = file_info.filename.replace('LeagueSkins-main/', '')
+            
+            # Remove 'skins/' or 'resources/' prefix to match local structure
+            if relative_path.startswith('skins/'):
+                relative_path = relative_path.replace('skins/', '', 1)
+            elif relative_path.startswith('resources/'):
+                relative_path = relative_path.replace('resources/', '', 1)
+            
+            # Store as relative path string for comparison (normalize separators and case)
+            normalized_path = relative_path.replace('\\', '/').lower()  # Case-insensitive comparison
+            expected_relative_paths.add(normalized_path)
+        
+        # Guard: Skip cleanup if expected paths set is empty (e.g., all entries were directories)
+        if not expected_relative_paths:
+            log.debug("Skipping cleanup: no file entries found in ZIP list (only directories or empty)")
+            return 0
+        
+        # Find all files in target directory
+        deleted_count = 0
+        for local_file in target_dir.rglob('*'):
+            if not local_file.is_file():
+                continue
+            
+            # Skip state files (like .repo_state.json) but keep other files
+            if local_file.name.startswith('.') and local_file.name.endswith('_state.json'):
+                continue
+            
+            # Get relative path from target_dir
+            try:
+                relative_path = local_file.relative_to(target_dir)
+                # Normalize separators and case for case-insensitive comparison
+                relative_path_str = str(relative_path).replace('\\', '/').lower()
+            except ValueError:
+                # File is not under target_dir (shouldn't happen, but skip if it does)
+                continue
+            
+            # If file exists locally but not in expected set, delete it
+            if relative_path_str not in expected_relative_paths:
+                try:
+                    local_file.unlink()
+                    deleted_count += 1
+                    log.debug(f"Removed obsolete file: {local_file}")
+                except Exception as e:
+                    log.warning(f"Failed to remove {local_file}: {e}")
+        
+        # Clean up empty directories
+        try:
+            for dir_path in sorted(target_dir.rglob('*'), reverse=True):
+                if dir_path.is_dir() and not any(dir_path.iterdir()):
+                    try:
+                        dir_path.rmdir()
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug(f"Error cleaning up empty directories: {e}")
+        
+        return deleted_count
+    
     def extract_skins_from_zip(
         self,
         zip_path: Path,
@@ -505,11 +588,16 @@ class RepoDownloader:
                 # Place the entire resources folder as skinid_mapping
                 mapping_target_dir = get_user_data_dir() / "skinid_mapping"
 
+                # Reserve 5% of progress range for cleanup operations
+                cleanup_reserve = 5.0
+                extraction_end = progress_end - cleanup_reserve
+                
                 def update_progress(label: str):
                     if total_bytes <= 0:
                         return
                     fraction = min(processed_bytes / total_bytes, 1.0)
-                    percent = progress_start + fraction * (progress_end - progress_start)
+                    # Cap extraction progress to leave room for cleanup
+                    percent = progress_start + fraction * (extraction_end - progress_start)
                     current_mb = _format_size(processed_bytes)
                     total_mb = _format_size(total_bytes)
                     self._emit_progress(percent, f"{label} {current_mb} / {total_mb}")
@@ -569,6 +657,32 @@ class RepoDownloader:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
                         processed_bytes += _info_size(file_info) or 1
                         update_progress("Extracting...")
+
+                # Clean up files that exist locally but are no longer in the repository
+                # Only perform cleanup if we have files in the ZIP to compare against
+                # Use the reserved progress range (extraction_end to progress_end)
+                cleanup_progress_start = extraction_end
+                if extract_skins and skins_files:
+                    if extract_resources and resources_files:
+                        # Both cleanups: split the range
+                        self._emit_progress(cleanup_progress_start + 1.0, "Cleaning up removed files...")
+                    else:
+                        # Only skins cleanup
+                        self._emit_progress(cleanup_progress_start + 2.0, "Cleaning up removed files...")
+                    deleted_count = self._cleanup_removed_skin_files(skins_files, self.target_dir)
+                    if deleted_count > 0:
+                        log.info(f"Removed {deleted_count} files that no longer exist in repository")
+                
+                if extract_resources and resources_files:
+                    if extract_skins and skins_files:
+                        # Both cleanups: second one
+                        self._emit_progress(cleanup_progress_start + 3.0, "Cleaning up removed resource files...")
+                    else:
+                        # Only resources cleanup
+                        self._emit_progress(cleanup_progress_start + 2.0, "Cleaning up removed resource files...")
+                    deleted_resources_count = self._cleanup_removed_skin_files(resources_files, mapping_target_dir)
+                    if deleted_resources_count > 0:
+                        log.info(f"Removed {deleted_resources_count} resource files that no longer exist in repository")
 
                 log.info(f"Extracted {extracted_zip_count} new skin .zip files, {extracted_png_count} preview .png files, "
                         f"and {extracted_resources_count} resource files (skipped {skipped_skin_count} existing skin files, "
