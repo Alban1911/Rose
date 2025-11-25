@@ -190,8 +190,10 @@ class InjectionTrigger:
                     self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
+            has_been_in_progress = False
+
             def game_ended_callback():
-                has_been_in_progress = False
+                nonlocal has_been_in_progress
                 phase = self.state.phase
                 if phase == "InProgress":
                     has_been_in_progress = True

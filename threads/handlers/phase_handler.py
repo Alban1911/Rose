@@ -55,8 +55,6 @@ class PhaseHandler:
             log.debug(f"[phase] ChampSelect detected - is_swiftplay_mode={self.state.is_swiftplay_mode}, extracted_mods={len(self.state.swiftplay_extracted_mods)}")
             if self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
                 log.info("[phase] ChampSelect in Swiftplay mode - running overlay injection")
-                if self.swiftplay_handler:
-                    self.swiftplay_handler.run_swiftplay_overlay()
                 # Also ensure UI is initialized for Swiftplay mode (needed for overlay detection)
                 try:
                     from ui.core.user_interface import get_user_interface
@@ -66,6 +64,8 @@ class PhaseHandler:
                         user_interface.request_ui_initialization()
                 except Exception as e:
                     log.warning(f"[phase] Failed to request UI initialization in Swiftplay ChampSelect: {e}")
+                if self.swiftplay_handler:
+                    self.swiftplay_handler.run_swiftplay_overlay()
             else:
                 # Normal ChampSelect handling
                 self.state.locked_champ_id = None
