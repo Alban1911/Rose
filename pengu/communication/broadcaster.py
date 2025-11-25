@@ -25,6 +25,7 @@ SPECIAL_CHROMA_SKIN_IDS = {
     145071,  # Immortalized Legend Kai'Sa
     100001,  # Kai'Sa HOL chroma
     103086,  # Immortalized Legend Ahri
+    103087,  # Form 2 Ahri
     88888,  # Ahri HOL chroma
 }
 

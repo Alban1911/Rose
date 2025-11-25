@@ -84,8 +84,9 @@ class ChromaSpecialCases:
         """Get Risen Legend Ahri HOL chroma data structure (equivalent to chromas)"""
         chromas = [
             {'id': 103086, 'skinId': 103085, 'name': 'Immortalized Legend', 'colors': [], 'is_owned': False},
+            {'id': 103087, 'skinId': 103085, 'name': 'Form 2', 'colors': [], 'is_owned': False},
         ]
-        log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Ahri HOL chromas with real skin ID (103086)")
+        log.debug(f"[CHROMA] Created {len(chromas)} Risen Legend Ahri HOL chromas with real skin IDs (103086, 103087)")
         return chromas
     
     @staticmethod
@@ -116,7 +117,7 @@ class ChromaSpecialCases:
     @staticmethod
     def is_hol_chroma(chroma_id: int) -> bool:
         """Check if chroma_id is a HOL chroma"""
-        return chroma_id in (145071, 103086)
+        return chroma_id in (145071, 103086, 103087)
     
     @staticmethod
     def get_chromas_for_special_skin(skin_id: int) -> Optional[List[Dict]]:
@@ -169,6 +170,10 @@ class ChromaSpecialCases:
         elif skin_id == 103086:
             return ChromaSpecialCases.get_ahri_hol_chromas()
         
+        # Special case: Form 2 Ahri (skin ID 103087) is treated as a chroma of Risen Legend Ahri
+        elif skin_id == 103087:
+            return ChromaSpecialCases.get_ahri_hol_chromas()
+        
         return None
     
     @staticmethod
@@ -197,6 +202,9 @@ class ChromaSpecialCases:
             return 145070  # Risen Legend Kai'Sa base skin ID
         
         if chroma_id == 103086:
+            return 103085  # Risen Legend Ahri base skin ID
+        
+        if chroma_id == 103087:
             return 103085  # Risen Legend Ahri base skin ID
         
         return None

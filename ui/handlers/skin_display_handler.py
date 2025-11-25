@@ -190,6 +190,11 @@ class SkinDisplayHandler:
                 log.debug(f"[UI] Immortalized Legend Ahri detected - treated as chroma of Risen Legend Ahri")
                 return True
             
+            # Special case: Form 2 Ahri (skin ID 103087) is treated as a chroma of Risen Legend Ahri
+            if skin_id == 103087:
+                log.debug(f"[UI] Form 2 Ahri detected - treated as chroma of Risen Legend Ahri")
+                return True
+            
             # Special case: Risen Legend Ahri HOL chroma (fake ID 88888) is considered a chroma
             if skin_id == 88888:
                 log.debug(f"[UI] Risen Legend Ahri HOL chroma detected - considered as chroma")

@@ -65,7 +65,7 @@ def is_chroma_id(skin_id: int, chroma_id_map: Optional[dict]) -> bool:
         True if the skin ID is a chroma, False otherwise
     """
     # Check hardcoded special chroma IDs first (always check these)
-    if skin_id in (145071, 103086, 99991, 99992, 99993, 99994, 99995, 99996, 99997, 99998, 99999, 82998, 82999, 25999, 875998, 875999, 147002, 147003):
+    if skin_id in (145071, 103086, 103087, 99991, 99992, 99993, 99994, 99995, 99996, 99997, 99998, 99999, 82998, 82999, 25999, 875998, 875999, 147002, 147003):
         return True
     
     # Check chroma_id_map if it's not None and not empty
@@ -141,6 +141,10 @@ def get_base_skin_id_for_chroma(chroma_id: int, chroma_id_map: Optional[dict]) -
         # Special case: Immortalized Legend Ahri (103086)
         if chroma_id == 103086:
             return 103085  # Immortalized Legend Ahri base skin ID
+        
+        # Special case: Form 2 Ahri (103087)
+        if chroma_id == 103087:
+            return 103085  # Form 2 Ahri base skin ID
         
         # Check if this chroma ID exists in the cache
         if chroma_id_map is not None:

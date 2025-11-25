@@ -275,6 +275,9 @@ class ChromaSelectionHandler:
         elif chroma_id == 103086:
             log.info(f"[CHROMA] Ahri HOL chroma selected: {chroma_name} (Real ID: {chroma_id})")
             target_skin_id = 103086  # Immortalized Legend Ahri skin ID
+        elif chroma_id == 103087:
+            log.info(f"[CHROMA] Ahri Form 2 selected: {chroma_name} (Real ID: {chroma_id})")
+            target_skin_id = 103087  # Form 2 Ahri skin ID
         else:
             return
         
