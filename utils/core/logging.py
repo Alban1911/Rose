@@ -23,7 +23,10 @@ from urllib3.exceptions import InsecureRequestWarning
 # Local imports
 from config import (
     LOG_MAX_FILE_SIZE_MB_DEFAULT,
-    LOG_FILE_PATTERN, LOG_TIMESTAMP_FORMAT, LOG_SEPARATOR_WIDTH
+    LOG_FILE_PATTERN,
+    LOG_TIMESTAMP_FORMAT,
+    LOG_SEPARATOR_WIDTH,
+    UPDATER_LOG_FILE_PATTERN,
 )
 
 # Add custom TRACE logging level (below DEBUG)
@@ -475,6 +478,7 @@ def cleanup_logs():
     New policy:
         - Delete logs older than 1 day
         - No limit on file count or total size
+        - Also clean up updater logs (`log_updater_*`)
     """
     try:
         from .paths import get_user_data_dir
@@ -482,7 +486,9 @@ def cleanup_logs():
         if not logs_dir.exists():
             return
 
-        log_files = list(logs_dir.glob(LOG_FILE_PATTERN))
+        log_files = []
+        for pattern in (LOG_FILE_PATTERN, UPDATER_LOG_FILE_PATTERN):
+            log_files.extend(logs_dir.glob(pattern))
         now = time.time()
         max_age_seconds = 24 * 60 * 60  # 1 day
 

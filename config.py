@@ -268,8 +268,9 @@ WINDOWS_DPI_AWARENESS_SYSTEM = 1         # PROCESS_SYSTEM_DPI_AWARE
 # Lock file name
 LOCK_FILE_NAME = "rose.lock"
 
-# Log file pattern (handles .log files)
+# Log file patterns (handles .log files)
 LOG_FILE_PATTERN = "rose_*.log*"
+UPDATER_LOG_FILE_PATTERN = "log_updater_*.log*"
 LOG_TIMESTAMP_FORMAT = "%d-%m-%Y_%H-%M-%S"  # European format, Windows-compatible
 
 
