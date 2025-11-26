@@ -41,6 +41,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 - **[ROSE-UI](https://github.com/Alban1911/ROSE-UI)**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
 - **[ROSE-SkinMonitor](https://github.com/Alban1911/ROSE-SkinMonitor)**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket
+- **[ROSE-CustomWheel](https://github.com/Alban1911/ROSE-CustomWheel)**: Displays custom mod metadata for hovered skins and exposes quick access to the mods folder
 - **[ROSE-ChromaWheel](https://github.com/Alban1911/ROSE-ChromaWheel)**: Enhanced chroma selection interface for choosing any chroma variant
 - **[ROSE-FormsWheel](https://github.com/Alban1911/ROSE-FormsWheel)**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
 - **[ROSE-SettingsPanel](https://github.com/FlorentTariolle/ROSE-SettingsPanel)**: In-client settings panel accessible from the League Client UI
@@ -62,6 +63,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **Chroma Support**: Select any chroma variant through the enhanced UI
 - **Random Skin Mode**: Automatically select random skins
 - **Historic Mode**: Access last used skin on every champion
+- **Custom Mod Insights**: ROSE-CustomWheel surfaces installed mods relevant to the skin you're hovering over, along with timestamps and quick folder access
 - **Smart Injection**: Never injects skins you already own
 - **Safe & Compatible**: Uses CSLOL injection tools compatible with Riot Vanguard
 - **Multi-Language Support**: Works with any client language
@@ -270,6 +272,7 @@ Rose/
         ├── ROSE-SkinMonitor/
         ├── ROSE-ChromaWheel/
         ├── ROSE-FormsWheel/
+        ├── ROSE-CustomWheel/
         ├── ROSE-SettingsPanel/
         ├── ROSE-RandomSkin/
         └── ROSE-HistoricMode/
