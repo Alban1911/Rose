@@ -20,11 +20,11 @@ from utils.core.utilities import find_free_port, write_bridge_port, delete_bridg
 from .websocket_server import WebSocketServer
 from .http_handler import HTTPHandler
 from ..communication.message_handler import MessageHandler
+from injection.mods.storage import ModStorageService
 from ..processing.skin_processor import SkinProcessor
 from ..processing.skin_mapping import SkinMapping
 from ..communication.broadcaster import Broadcaster
 from ..processing.flow_controller import FlowController
-
 log = logging.getLogger(__name__)
 
 # Suppress websockets library DEBUG logs
@@ -72,6 +72,7 @@ class PenguSkinMonitorThread(threading.Thread):
         self.skin_mapping = SkinMapping(shared_state)
         self.skin_processor = SkinProcessor(shared_state, skin_scraper, self.skin_mapping)
         self.flow_controller = FlowController(shared_state)
+        self.mod_storage_service = ModStorageService()
         
         # Initialize HTTP handler
         self.http_handler = HTTPHandler(self.port)
@@ -95,6 +96,7 @@ class PenguSkinMonitorThread(threading.Thread):
             skin_processor=self.skin_processor,
             flow_controller=self.flow_controller,
             skin_scraper=skin_scraper,
+            mod_storage=self.mod_storage_service,
             port=self.port,
         )
         

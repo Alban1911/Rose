@@ -13,8 +13,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 from config import get_config_float, get_config_option, set_config_option
+from injection.mods.storage import ModStorageService
 from utils.core.paths import get_user_data_dir, get_asset_path
 from utils.system.admin_utils import (
     is_admin,
@@ -37,6 +39,7 @@ class MessageHandler:
         skin_processor,
         flow_controller,
         skin_scraper=None,
+        mod_storage: Optional[ModStorageService] = None,
         port: int = 50000,
     ):
         """Initialize message handler
@@ -57,6 +60,7 @@ class MessageHandler:
         self.flow_controller = flow_controller
         self.skin_scraper = skin_scraper
         self.port = port
+        self.mod_storage = mod_storage or ModStorageService()
     
     def handle_message(self, message: str) -> None:
         """Handle incoming WebSocket message
@@ -89,6 +93,8 @@ class MessageHandler:
             self._handle_path_validate(payload)
         elif payload_type == "open-mods-folder":
             self._handle_open_mods_folder(payload)
+        elif payload_type == "request-skin-mods":
+            self._handle_request_skin_mods(payload)
         elif payload_type == "open-logs-folder":
             self._handle_open_logs_folder(payload)
         elif payload_type == "open-pengu-loader-ui":
@@ -295,6 +301,47 @@ class MessageHandler:
             log.info(f"[SkinMonitor] Opened mods folder: {mods_folder}")
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to open mods folder: {e}")
+    
+    def _handle_request_skin_mods(self, payload: dict) -> None:
+        """Return the list of custom mods for a specific champion and skin"""
+        if not self.mod_storage:
+            return
+
+        champion_id = payload.get("championId")
+        skin_id = payload.get("skinId")
+        if champion_id is None or skin_id is None:
+            return
+
+        try:
+            entries = self.mod_storage.list_mods_for_skin(champion_id, skin_id)
+        except Exception as exc:
+            log.error(f"[SkinMonitor] Failed to list skin mods: {exc}")
+            entries = []
+
+        mods_payload = []
+        for entry in entries:
+            try:
+                relative_path = entry.path.relative_to(self.mod_storage.mods_root)
+            except Exception:
+                relative_path = entry.path
+
+            mods_payload.append(
+                {
+                    "modName": entry.mod_name,
+                    "description": entry.description,
+                    "updatedAt": int(entry.updated_at * 1000),
+                    "relativePath": str(relative_path).replace("\\", "/"),
+                }
+            )
+
+        response_payload = {
+            "type": "skin-mods-response",
+            "championId": champion_id,
+            "skinId": skin_id,
+            "mods": mods_payload,
+            "timestamp": int(time.time() * 1000),
+        }
+        self._send_response(json.dumps(response_payload))
     
     def _handle_open_logs_folder(self, payload: dict) -> None:
         """Handle open logs folder request"""

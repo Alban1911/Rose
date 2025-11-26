@@ -148,12 +148,6 @@ class InjectionManager:
                 log.debug(f"[INJECT] Skipping injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
                 return
 
-            # Extract user mods when injection threshold triggers
-            try:
-                self.injector._extract_user_mods()
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to extract user mods: {e}")
-
             # Disconnect from UIA window when injection threshold triggers
             # (launcher closes when game starts, so the window is gone)
             if self.shared_state and self.shared_state.ui_skin_thread:
@@ -181,53 +175,8 @@ class InjectionManager:
             self._stop_monitor()
     
     def _check_and_inject_mods_only(self):
-        """Check if there are installed mods and inject them if no skin is being injected"""
-        self._ensure_initialized()
-        self.refresh_injection_threshold()
-        
-        # Don't attempt injection if system isn't properly initialized
-        if not self._initialized or self.injector is None or self.injector.game_dir is None:
-            return
-        
-        # Extract user mods first
-        try:
-            self.injector._extract_user_mods()
-        except Exception as e:
-            log.warning(f"[INJECT] Failed to extract user mods: {e}")
-        
-        # Check if there are installed mods
-        installed_dir = self.injector._get_installed_mods_dir()
-        if not installed_dir.exists():
-            return
-        
-        mod_dirs = [d for d in installed_dir.iterdir() if d.is_dir()]
-        if not mod_dirs:
-            return
-        
-        # Inject mods only (no skin)
-        with self.injection_lock:
-            current_time = time.time()
-            elapsed = current_time - self.last_injection_time
-            if self.last_injection_time and elapsed < self.injection_threshold:
-                remaining = self.injection_threshold - elapsed
-                log.debug(f"[INJECT] Skipping mods injection (cooldown {remaining:.2f}s remaining)")
-                return
-            
-            # Start monitor if not already active
-            if not self._monitor_active:
-                log.info("[INJECT] Starting game monitor for mods injection")
-                self._start_monitor()
-            
-            success = self.injector.inject_mods_only(
-                stop_callback=None,
-                injection_manager=self
-            )
-            
-            if success:
-                self.last_injection_time = current_time
-            
-            # Stop monitor after injection completes
-            self._stop_monitor()
+        """Mods-only injection is disabled because the installed mods directory was removed."""
+        log.info("[INJECT] Mods-only injection skipped (installed mods folder removed)")
     
     def on_loadout_countdown(self, seconds_remaining: int):
         """Called during loadout countdown - no longer used (monitor starts with injection)"""
@@ -294,12 +243,6 @@ class InjectionManager:
                 remaining = self.injection_threshold - elapsed
                 log.debug(f"[INJECT] Skipping immediate injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
                 return False
-
-            # Extract user mods when injection threshold triggers
-            try:
-                self.injector._extract_user_mods()
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to extract user mods: {e}")
 
             # Disconnect from UIA window when injection happens
             # (launcher closes when game starts, so the window is gone)
