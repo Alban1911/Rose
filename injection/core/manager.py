@@ -202,13 +202,11 @@ class InjectionManager:
                     # Check if this is a base skin (skin ID 0 or champion's base skin ID like 36000 for champ 36)
                     # Base skins typically have ID = champion_id * 1000
                     if skin_id == 0:
-                        log.info(f"[INJECT] Base skin detected (skinId=0) - injecting mods only instead")
-                        self._check_and_inject_mods_only()
+                        log.info("[INJECT] Base skin detected (skinId=0) - injection skipped")
                         return False
                     # Check if it matches base skin pattern (champion_id * 1000)
                     if champion_id and skin_id == champion_id * 1000:
-                        log.info(f"[INJECT] Base skin detected (skinId={skin_id} for champion {champion_id}) - injecting mods only instead")
-                        self._check_and_inject_mods_only()
+                        log.info(f"[INJECT] Base skin detected (skinId={skin_id} for champion {champion_id}) - injection skipped")
                         return False
             except (ValueError, IndexError):
                 pass  # Not a numeric skin ID, continue with normal injection

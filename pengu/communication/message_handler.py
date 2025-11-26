@@ -307,16 +307,21 @@ class MessageHandler:
         if not self.mod_storage:
             return
 
-        champion_id = payload.get("championId")
         skin_id = payload.get("skinId")
-        if champion_id is None or skin_id is None:
+        if skin_id is None:
             return
 
         try:
-            entries = self.mod_storage.list_mods_for_skin(champion_id, skin_id)
+            entries = self.mod_storage.list_mods_for_skin(skin_id)
         except Exception as exc:
             log.error(f"[SkinMonitor] Failed to list skin mods: {exc}")
             entries = []
+
+        champion_id = payload.get("championId")
+        if entries:
+            first_entry_champion = entries[0].champion_id
+            if first_entry_champion is not None:
+                champion_id = first_entry_champion
 
         mods_payload = []
         for entry in entries:
