@@ -128,8 +128,7 @@ class InjectionManager:
     def update_skin(self, skin_name: str):
         """Update the current skin and potentially trigger injection"""
         if not skin_name:
-            # If no skin name, check if we should inject mods only
-            self._check_and_inject_mods_only()
+            log.debug("[INJECT] No skin name available - skipping injection (mods-only flow disabled)")
             return
         
         self._ensure_initialized()
