@@ -4,6 +4,7 @@
 Main entry point for Rose
 """
 
+import argparse
 import sys
 from typing import Optional
 
@@ -44,13 +45,14 @@ from config import APP_VERSION, MAIN_LOOP_FORCE_QUIT_TIMEOUT_S, set_config_optio
 log = get_logger()
 
 
-def run_league_unlock(injection_threshold: Optional[float] = None) -> None:
+def run_league_unlock(args: Optional[argparse.Namespace] = None,
+                      injection_threshold: Optional[float] = None) -> None:
     """Run the core Rose application startup and main loop."""
     # Check for single instance before doing anything else
     check_single_instance()
-    
-    # Parse arguments
-    args = setup_arguments()
+    # Parse arguments if they were not provided
+    if args is None:
+        args = setup_arguments()
     
     # Setup logging and cleanup
     setup_logging_and_cleanup(args)
@@ -128,16 +130,18 @@ def run_league_unlock(injection_threshold: Optional[float] = None) -> None:
 
 def main() -> None:
     """Program entry point that prepares and launches Rose."""
+    args = setup_arguments()
     if sys.platform == "win32":
-        try:
-            from launcher import run_launcher
-            run_launcher()
-        except ModuleNotFoundError as err:
-            print(f"[Launcher] Unable to import launcher module: {err}")
-        except Exception as err:  # noqa: BLE001
-            print(f"[Launcher] Launcher encountered an error: {err}")
+        if not args.dev:
+            try:
+                from launcher import run_launcher
+                run_launcher()
+            except ModuleNotFoundError as err:
+                print(f"[Launcher] Unable to import launcher module: {err}")
+            except Exception as err:  # noqa: BLE001
+                print(f"[Launcher] Launcher encountered an error: {err}")
 
-    run_league_unlock()
+    run_league_unlock(args=args)
 
 
 if __name__ == "__main__":
