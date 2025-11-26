@@ -44,7 +44,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **[ROSE-CustomWheel](https://github.com/Alban1911/ROSE-CustomWheel)**: Displays custom mod metadata for hovered skins and exposes quick access to the mods folder
 - **[ROSE-ChromaWheel](https://github.com/Alban1911/ROSE-ChromaWheel)**: Enhanced chroma selection interface for choosing any chroma variant
 - **[ROSE-FormsWheel](https://github.com/Alban1911/ROSE-FormsWheel)**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
-- **[ROSE-SettingsPanel](https://github.com/FlorentTariolle/ROSE-SettingsPanel)**: In-client settings panel accessible from the League Client UI
+- **[ROSE-SettingsPanel](https://github.com/FlorentTariolle/ROSE-SettingsPanel)**: Settings panel accessible from the League of Legends Client
 - **[ROSE-RandomSkin](https://github.com/FlorentTariolle/ROSE-RandomSkin)**: Random skin selection feature
 - **[ROSE-HistoricMode](https://github.com/FlorentTariolle/ROSE-HistoricMode)**: Access to the last used skin for every champion
 
