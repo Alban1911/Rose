@@ -107,9 +107,10 @@ class MessageHandler:
     
     def _handle_chroma_log(self, payload: dict) -> None:
         """Handle chroma log message"""
+        source = payload.get("source", "ChromaWheel")
         event = payload.get("event") or payload.get("message") or "unknown"
         details = payload.get("data") or payload
-        log.info("[ChromaWheel] %s | %s", event, details)
+        log.info("[%s] %s | %s", source, event, details)
     
     def _handle_request_local_preview(self, payload: dict) -> None:
         """Handle request for local preview image"""
