@@ -114,17 +114,18 @@ class UpdateSequence:
         if not extracted_root:
             return False
         
-        # Download hash file if available
-        hash_asset = self.github_client.get_hash_asset(release)
-        if hash_asset:
-            status_callback("Downloading hash file...")
-            hash_download_url = hash_asset.get("browser_download_url")
-            hash_target_path = extracted_root / "injection" / "tools" / "hashes.game.txt"
-            self.downloader.download_hash_file(
-                hash_download_url,
-                hash_target_path,
-                status_callback,
-            )
+        # Download hash file if available (skip in dev mode)
+        if getattr(sys, "frozen", False):
+            hash_asset = self.github_client.get_hash_asset(release)
+            if hash_asset:
+                status_callback("Downloading hash file...")
+                hash_download_url = hash_asset.get("browser_download_url")
+                hash_target_path = extracted_root / "injection" / "tools" / "hashes.game.txt"
+                self.downloader.download_hash_file(
+                    hash_download_url,
+                    hash_target_path,
+                    status_callback,
+                )
         
         # Install update
         status_callback("Installing update")

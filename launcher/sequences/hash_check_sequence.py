@@ -5,6 +5,7 @@ Handles game hash file verification sequence
 
 from __future__ import annotations
 
+import sys
 from typing import Callable
 
 from utils.download.hash_updater import update_hash_files
@@ -23,6 +24,13 @@ class HashCheckSequence:
         Args:
             dialog: UpdateDialog instance for UI updates
         """
+        # Skip hash check in dev mode (when not frozen)
+        if not getattr(sys, "frozen", False):
+            updater_log.info("Hash check skipped (dev environment)")
+            dialog.set_status("Hash check skipped (dev mode)")
+            dialog.pump_messages()
+            return
+        
         updater_log.info("Starting game hash verification sequence.")
         dialog.clear_transfer_text()
         dialog.set_detail("Verifying game hashes…")

@@ -206,6 +206,15 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None) -
     Returns:
         True if files were updated, False otherwise
     """
+    import sys
+    
+    # Skip hash download/verification in dev mode (when not frozen)
+    if not getattr(sys, "frozen", False):
+        log.info("Hash file update skipped (dev environment)")
+        if status_callback:
+            status_callback("Hash check skipped (dev mode)")
+        return False
+    
     if status_callback:
         status_callback("Checking game hashes…")
     
