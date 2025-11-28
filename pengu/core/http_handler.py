@@ -177,8 +177,14 @@ class HTTPHandler:
                             },
                             file_data
                         )
+                    else:
+                        log.info(f"[SkinMonitor] Plugin file not found: {file_path} (plugins_dir: {plugins_dir}, plugin_name: {plugin_name}, file_name: {file_name})")
+                else:
+                    log.info(f"[SkinMonitor] Plugins directory not found: {plugins_dir} (app_dir: {app_dir})")
             except Exception as e:
-                log.debug(f"[SkinMonitor] Failed to serve plugin file: {e}")
+                log.warning(f"[SkinMonitor] Failed to serve plugin file: {e}", exc_info=True)
+        else:
+            log.info(f"[SkinMonitor] Invalid plugin path format: {path_clean} (parts: {parts})")
         return None
     
     def _get_content_type(self, file_path: Path) -> str:
