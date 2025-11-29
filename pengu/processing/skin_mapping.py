@@ -26,6 +26,7 @@ class SkinMapping:
         """
         self.shared_state = shared_state
         self.skin_id_mapping: dict[str, int] = {}
+        self.skin_id_name_mapping: dict[int, str] = {}
         self.skin_mapping_loaded = False
     
     def load_mapping(self) -> bool:
@@ -72,6 +73,7 @@ class SkinMapping:
             normalized = (name or "").strip().lower()
             if normalized and normalized not in self.skin_id_mapping:
                 self.skin_id_mapping[normalized] = skin_id
+                self.skin_id_name_mapping[skin_id] = normalized
         
         self.skin_mapping_loaded = True
         log.info(
@@ -104,7 +106,24 @@ class SkinMapping:
                 return skin_id
         
         return None
-    
+    def find_skin_name_by_skin_id(self, skin_id: int) -> Optional[str]:
+        """Find skin ID by name using mapping
+
+        Args:
+            skin_id: Skin name to look up
+
+        Returns:
+            Skin ID if found, None otherwise
+        """
+        if not self.skin_mapping_loaded:
+            if not self.load_mapping():
+                return None
+
+
+        if skin_id in self.skin_id_name_mapping:
+            return self.skin_id_name_mapping[skin_id]
+        return None
+
     def clear(self) -> None:
         """Clear mapping cache"""
         self.skin_mapping_loaded = False
