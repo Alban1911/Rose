@@ -459,6 +459,19 @@ class MessageHandler:
                 "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
             }
             
+            # Disable HistoricMode if active (custom mod takes priority)
+            if getattr(self.shared_state, 'historic_mode_active', False):
+                self.shared_state.historic_mode_active = False
+                self.shared_state.historic_skin_id = None
+                log.info("[HISTORIC] Historic mode DISABLED due to custom mod selection")
+                
+                # Broadcast deactivated state to JavaScript
+                try:
+                    if self.shared_state and hasattr(self.shared_state, 'ui_skin_thread') and self.shared_state.ui_skin_thread:
+                        self.shared_state.ui_skin_thread._broadcast_historic_state()
+                except Exception as e:
+                    log.debug(f"[SkinMonitor] Failed to broadcast historic state on custom mod selection: {e}")
+            
             log.info(f"[SkinMonitor] Custom mod selected and extracted: {selected_mod.mod_name} (skin {skin_id})")
             log.info(f"[SkinMonitor] Mod ready for injection on threshold trigger")
 
