@@ -99,6 +99,12 @@ class MessageHandler:
             self._handle_open_mods_folder(payload)
         elif payload_type == "request-skin-mods":
             self._handle_request_skin_mods(payload)
+        elif payload_type == "request-maps":
+            self._handle_request_maps(payload)
+        elif payload_type == "request-fonts":
+            self._handle_request_fonts(payload)
+        elif payload_type == "request-announcers":
+            self._handle_request_announcers(payload)
         elif payload_type == "select-skin-mod":
             self._handle_select_skin_mod(payload)
         elif payload_type == "open-logs-folder":
@@ -351,6 +357,60 @@ class MessageHandler:
             "championId": champion_id,
             "skinId": skin_id,
             "mods": mods_payload,
+            "timestamp": int(time.time() * 1000),
+        }
+        self._send_response(json.dumps(response_payload))
+    
+    def _handle_request_maps(self, payload: dict) -> None:
+        """Return the list of maps"""
+        if not self.mod_storage:
+            return
+        
+        try:
+            maps = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_MAPS)
+        except Exception as exc:
+            log.error(f"[SkinMonitor] Failed to list maps: {exc}")
+            maps = []
+        
+        response_payload = {
+            "type": "maps-response",
+            "maps": maps,
+            "timestamp": int(time.time() * 1000),
+        }
+        self._send_response(json.dumps(response_payload))
+    
+    def _handle_request_fonts(self, payload: dict) -> None:
+        """Return the list of fonts"""
+        if not self.mod_storage:
+            return
+        
+        try:
+            fonts = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_FONTS)
+        except Exception as exc:
+            log.error(f"[SkinMonitor] Failed to list fonts: {exc}")
+            fonts = []
+        
+        response_payload = {
+            "type": "fonts-response",
+            "fonts": fonts,
+            "timestamp": int(time.time() * 1000),
+        }
+        self._send_response(json.dumps(response_payload))
+    
+    def _handle_request_announcers(self, payload: dict) -> None:
+        """Return the list of announcers"""
+        if not self.mod_storage:
+            return
+        
+        try:
+            announcers = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_ANNOUNCERS)
+        except Exception as exc:
+            log.error(f"[SkinMonitor] Failed to list announcers: {exc}")
+            announcers = []
+        
+        response_payload = {
+            "type": "announcers-response",
+            "announcers": announcers,
             "timestamp": int(time.time() * 1000),
         }
         self._send_response(json.dumps(response_payload))

@@ -94,6 +94,51 @@ class ModStorageService:
     def has_mods_for_skin(self, skin_id: int | str) -> bool:
         return bool(self.list_mods_for_skin(skin_id))
 
+    def list_mods_for_category(self, category: str) -> List[dict]:
+        """List all mods in a category (maps, fonts, announcers)
+        
+        Args:
+            category: One of CATEGORY_MAPS, CATEGORY_FONTS, CATEGORY_ANNOUNCERS
+            
+        Returns:
+            List of mod dictionaries with name, path, updated_at, description
+        """
+        if category not in {self.CATEGORY_MAPS, self.CATEGORY_FONTS, self.CATEGORY_ANNOUNCERS}:
+            return []
+        
+        category_dir = self.mods_root / category
+        if not category_dir.exists() or not category_dir.is_dir():
+            return []
+        
+        entries = []
+        for candidate in sorted(category_dir.iterdir(), key=lambda p: p.name.lower()):
+            if candidate.is_dir():
+                mod_name = candidate.name
+            elif candidate.is_file() and candidate.suffix.lower() in {".zip", ".fantome"}:
+                mod_name = candidate.stem
+            else:
+                continue
+            
+            try:
+                updated_at = candidate.stat().st_mtime
+            except OSError:
+                updated_at = 0.0
+            
+            try:
+                relative_path = candidate.relative_to(self.mods_root)
+            except Exception:
+                relative_path = candidate
+            
+            entries.append({
+                "id": str(relative_path).replace("\\", "/"),
+                "name": mod_name,
+                "path": str(relative_path).replace("\\", "/"),
+                "updatedAt": updated_at,
+                "description": self._read_mod_description(candidate),
+            })
+        
+        return entries
+
     @staticmethod
     def _to_int(value: int | str) -> Optional[int]:
         try:
