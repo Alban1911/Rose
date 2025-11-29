@@ -58,18 +58,30 @@ class InjectionTrigger:
         
         # Mark that we've processed the last hovered skin
         self.state.last_hover_written = True
+        
+        # Check if custom mod is selected for this skin (before logging)
+        ui_skin_id = self.state.last_hovered_skin_id
+        selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
+        mod_name = None
+        if selected_custom_mod and selected_custom_mod.get("skin_id") == ui_skin_id:
+            mod_name = selected_custom_mod.get("mod_name") or selected_custom_mod.get("mod_folder_name")
+        
+        # Build injection log message with mod name if available
+        if mod_name:
+            injection_label = f"{mod_name} (SKIN_{ui_skin_id})"
+        else:
+            injection_label = name.upper()
+        
         log.info("=" * LOG_SEPARATOR_WIDTH)
-        log.info(f"💉 PREPARING INJECTION >>> {name.upper()} <<<")
+        log.info(f"💉 PREPARING INJECTION >>> {injection_label} <<<")
         log.info(f"   ⏱️  Loadout Timer: #{ticker_id}")
         log.info("=" * LOG_SEPARATOR_WIDTH)
         
         try:
-            ui_skin_id = self.state.last_hovered_skin_id
             lcu_skin_id = self.state.selected_skin_id
             owned_skin_ids = self.state.owned_skin_ids
             
             # Check if custom mod is selected for this skin
-            selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
             if selected_custom_mod and selected_custom_mod.get("skin_id") == ui_skin_id:
                 # Inject custom mod instead of normal skin
                 log.info(f"[INJECT] Custom mod selected for skin {ui_skin_id}, injecting custom mod instead")
