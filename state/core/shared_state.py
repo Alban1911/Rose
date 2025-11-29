@@ -89,4 +89,7 @@ class SharedState:
     champion_exchange_triggered = False  # Flag to hide UI during champion exchange
     
     # Own champion lock tracking
-    own_champion_locked: bool = False  # Flag to track if our champion is locked (triggers detection/UI pipeline)
+    own_champion_locked: bool = False
+    
+    # Custom mod selection
+    selected_custom_mod: Optional[dict] = None  # Selected custom mod for injection: {skin_id, champion_id, mod_name, mod_path, relative_path}  # Flag to track if our champion is locked (triggers detection/UI pipeline)

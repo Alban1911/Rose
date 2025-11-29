@@ -40,6 +40,7 @@ class MessageHandler:
         flow_controller,
         skin_scraper=None,
         mod_storage: Optional[ModStorageService] = None,
+        injection_manager=None,
         port: int = 50000,
     ):
         """Initialize message handler
@@ -51,6 +52,8 @@ class MessageHandler:
             skin_processor: Skin processor instance
             flow_controller: Flow controller instance
             skin_scraper: LCU skin scraper instance
+            mod_storage: Mod storage service instance
+            injection_manager: Injection manager instance
             port: Server port
         """
         self.shared_state = shared_state
@@ -61,6 +64,7 @@ class MessageHandler:
         self.skin_scraper = skin_scraper
         self.port = port
         self.mod_storage = mod_storage or ModStorageService()
+        self.injection_manager = injection_manager
     
     def handle_message(self, message: str) -> None:
         """Handle incoming WebSocket message
@@ -95,6 +99,8 @@ class MessageHandler:
             self._handle_open_mods_folder(payload)
         elif payload_type == "request-skin-mods":
             self._handle_request_skin_mods(payload)
+        elif payload_type == "select-skin-mod":
+            self._handle_select_skin_mod(payload)
         elif payload_type == "open-logs-folder":
             self._handle_open_logs_folder(payload)
         elif payload_type == "open-pengu-loader-ui":
@@ -348,6 +354,118 @@ class MessageHandler:
             "timestamp": int(time.time() * 1000),
         }
         self._send_response(json.dumps(response_payload))
+    
+    def _handle_select_skin_mod(self, payload: dict) -> None:
+        """Handle mod selection for injection over hovered skin"""
+        if not self.mod_storage:
+            log.warning("[SkinMonitor] Cannot handle mod selection - mod storage not available")
+            return
+
+        champion_id = payload.get("championId")
+        skin_id = payload.get("skinId")
+        mod_id = payload.get("modId")
+        mod_data = payload.get("modData", {})
+
+        if not champion_id or not skin_id:
+            log.warning(f"[SkinMonitor] Invalid mod selection payload: championId={champion_id}, skinId={skin_id}")
+            return
+
+        # Handle deselection (mod_id is null)
+        if mod_id is None:
+            # Clear selected mod if it matches this skin
+            if (hasattr(self.shared_state, 'selected_custom_mod') and 
+                self.shared_state.selected_custom_mod and 
+                self.shared_state.selected_custom_mod.get("skin_id") == skin_id):
+                self.shared_state.selected_custom_mod = None
+                log.info(f"[SkinMonitor] Custom mod deselected for skin {skin_id}")
+            return
+
+        try:
+            # Find the mod in storage
+            entries = self.mod_storage.list_mods_for_skin(skin_id)
+            selected_mod = None
+            for entry in entries:
+                # Match by mod name or relative path
+                if (entry.mod_name == mod_id or 
+                    str(entry.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/") == mod_id):
+                    selected_mod = entry
+                    break
+
+            if not selected_mod:
+                log.warning(f"[SkinMonitor] Mod not found: {mod_id} for skin {skin_id}")
+                return
+
+            # Extract mod immediately when selected (not during injection)
+            if not self.injection_manager:
+                log.warning("[SkinMonitor] Cannot extract mod - injection manager not available")
+                return
+                
+            injector = self.injection_manager.injector
+            if not injector:
+                log.warning("[SkinMonitor] Cannot extract mod - injector not available")
+                return
+
+            mod_source = Path(selected_mod.path)
+            if not mod_source.exists():
+                log.error(f"[SkinMonitor] Mod file not found: {mod_source}")
+                return
+
+            # Determine mod folder name
+            if mod_source.is_dir():
+                mod_folder_name = mod_source.name
+            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
+                mod_folder_name = mod_source.stem
+            else:
+                mod_folder_name = mod_source.stem
+
+            # Extract/copy mod to injection mods directory immediately
+            import shutil
+            import zipfile
+            
+            # Clean mods directory first
+            injector._clean_mods_dir()
+            
+            if mod_source.is_dir():
+                mod_dest = injector.mods_dir / mod_source.name
+                shutil.copytree(mod_source, mod_dest, dirs_exist_ok=True)
+                log.info(f"[SkinMonitor] Copied mod directory to: {mod_dest}")
+            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
+                # Extract ZIP or FANTOME file
+                mod_dest = injector.mods_dir / mod_source.stem
+                if mod_dest.exists():
+                    shutil.rmtree(mod_dest, ignore_errors=True)
+                mod_dest.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(mod_source, 'r') as zip_ref:
+                    zip_ref.extractall(mod_dest)
+                file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
+                log.info(f"[SkinMonitor] Extracted {file_type} mod to: {mod_dest}")
+            else:
+                # For other file types, create folder and copy file
+                mod_dest = injector.mods_dir / mod_folder_name
+                if mod_dest.exists():
+                    shutil.rmtree(mod_dest, ignore_errors=True)
+                mod_dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(mod_source, mod_dest / mod_source.name)
+                log.info(f"[SkinMonitor] Copied mod file to folder: {mod_dest}")
+
+            # Store selected mod in shared state for injection trigger
+            # Include the extracted folder name so injection knows what to use
+            self.shared_state.selected_custom_mod = {
+                "skin_id": skin_id,
+                "champion_id": champion_id,
+                "mod_name": selected_mod.mod_name,
+                "mod_path": str(selected_mod.path),
+                "mod_folder_name": mod_folder_name,  # Add this for injection
+                "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
+            }
+            
+            log.info(f"[SkinMonitor] Custom mod selected and extracted: {selected_mod.mod_name} (skin {skin_id})")
+            log.info(f"[SkinMonitor] Mod ready for injection on threshold trigger")
+
+        except Exception as e:
+            log.error(f"[SkinMonitor] Failed to handle mod selection: {e}")
+            import traceback
+            log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
     
     def _handle_open_logs_folder(self, payload: dict) -> None:
         """Handle open logs folder request"""

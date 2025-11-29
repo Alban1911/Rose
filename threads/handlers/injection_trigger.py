@@ -68,6 +68,14 @@ class InjectionTrigger:
             lcu_skin_id = self.state.selected_skin_id
             owned_skin_ids = self.state.owned_skin_ids
             
+            # Check if custom mod is selected for this skin
+            selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
+            if selected_custom_mod and selected_custom_mod.get("skin_id") == ui_skin_id:
+                # Inject custom mod instead of normal skin
+                log.info(f"[INJECT] Custom mod selected for skin {ui_skin_id}, injecting custom mod instead")
+                self._inject_custom_mod(selected_custom_mod)
+                return
+            
             # Skip injection for base skins
             if ui_skin_id == 0:
                 log.info("[INJECT] skipping base skin injection (skinId=0) - no mods-only flow available")
@@ -339,6 +347,83 @@ class InjectionTrigger:
         
         except Exception as e:
             log.error(f"[INJECT] ✗ Error forcing base skin: {e}")
+            import traceback
+            log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
+    
+    def _inject_custom_mod(self, custom_mod: dict):
+        """Inject custom mod from mods storage (mod should already be extracted)"""
+        try:
+            from pathlib import Path
+            
+            if not self.injection_manager:
+                log.error("[INJECT] Cannot inject custom mod - injection manager not available")
+                return
+            
+            injector = self.injection_manager.injector
+            if not injector:
+                log.error("[INJECT] Cannot inject custom mod - injector not available")
+                return
+            
+            mod_name = custom_mod.get("mod_name")
+            mod_folder_name = custom_mod.get("mod_folder_name")
+            skin_id = custom_mod.get("skin_id")
+            
+            if not mod_folder_name:
+                log.error(f"[INJECT] Custom mod folder name not available")
+                return
+            
+            # Verify mod folder exists (should already be extracted when selected)
+            mod_folder = injector.mods_dir / mod_folder_name
+            if not mod_folder.exists():
+                log.error(f"[INJECT] Custom mod folder not found: {mod_folder}")
+                log.error(f"[INJECT] Mod should have been extracted when selected")
+                return
+            
+            log.info(f"[INJECT] Injecting custom mod: {mod_name} for skin {skin_id}")
+            
+            # Force base skin selection via LCU before injecting
+            champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
+            if champion_id:
+                base_skin_id = champion_id * 1000
+                self._force_base_skin(base_skin_id)
+            
+            # Create callback to check if game ended
+            has_been_in_progress = False
+
+            def game_ended_callback():
+                nonlocal has_been_in_progress
+                phase = self.state.phase
+                if phase == "InProgress":
+                    has_been_in_progress = True
+                    return False
+                if phase in ("Reconnect", "GameStart"):
+                    return False
+                return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
+            
+            # Mod is already extracted, create and run overlay (same as normal injection)
+            result = injector.overlay_manager.mk_run_overlay(
+                [mod_folder_name],
+                timeout=120,
+                stop_callback=game_ended_callback,
+                injection_manager=self.injection_manager
+            )
+            
+            if result == 0:
+                log.info("=" * LOG_SEPARATOR_WIDTH)
+                log.info(f"✅ CUSTOM MOD INJECTION COMPLETED >>> {mod_name.upper()} <<<")
+                log.info(f"   ⚠️  Verify in-game - timing determines if mod appears")
+                log.info("=" * LOG_SEPARATOR_WIDTH)
+                
+                # Clear selected custom mod after successful injection
+                self.state.selected_custom_mod = None
+            else:
+                log.error("=" * LOG_SEPARATOR_WIDTH)
+                log.error(f"❌ CUSTOM MOD INJECTION FAILED >>> {mod_name.upper()} <<<")
+                log.error("=" * LOG_SEPARATOR_WIDTH)
+                log.error(f"[INJECT] Mod will likely NOT appear in-game")
+        
+        except Exception as e:
+            log.error(f"[INJECT] ✗ Error injecting custom mod: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
 

@@ -97,6 +97,7 @@ class PenguSkinMonitorThread(threading.Thread):
             flow_controller=self.flow_controller,
             skin_scraper=skin_scraper,
             mod_storage=self.mod_storage_service,
+            injection_manager=self.injection_manager,
             port=self.port,
         )
         
