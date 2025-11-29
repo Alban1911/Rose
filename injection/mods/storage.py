@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Mod storage service
-Handles mods organized by category: skins, maps, fonts, announcers
+Handles mods organized by category: skins, maps, fonts, announcers, others
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ class ModStorageService:
     CATEGORY_MAPS = "maps"
     CATEGORY_FONTS = "fonts"
     CATEGORY_ANNOUNCERS = "announcers"
+    CATEGORY_OTHERS = "others"
 
     def __init__(self, mods_root: Optional[Path] = None):
         self.mods_root = mods_root or (get_user_data_dir() / "mods")
@@ -46,6 +47,7 @@ class ModStorageService:
         (self.mods_root / self.CATEGORY_MAPS).mkdir(parents=True, exist_ok=True)
         (self.mods_root / self.CATEGORY_FONTS).mkdir(parents=True, exist_ok=True)
         (self.mods_root / self.CATEGORY_ANNOUNCERS).mkdir(parents=True, exist_ok=True)
+        (self.mods_root / self.CATEGORY_OTHERS).mkdir(parents=True, exist_ok=True)
 
     @property
     def skins_dir(self) -> Path:
@@ -95,15 +97,15 @@ class ModStorageService:
         return bool(self.list_mods_for_skin(skin_id))
 
     def list_mods_for_category(self, category: str) -> List[dict]:
-        """List all mods in a category (maps, fonts, announcers)
+        """List all mods in a category (maps, fonts, announcers, others)
         
         Args:
-            category: One of CATEGORY_MAPS, CATEGORY_FONTS, CATEGORY_ANNOUNCERS
+            category: One of CATEGORY_MAPS, CATEGORY_FONTS, CATEGORY_ANNOUNCERS, CATEGORY_OTHERS
             
         Returns:
             List of mod dictionaries with name, path, updated_at, description
         """
-        if category not in {self.CATEGORY_MAPS, self.CATEGORY_FONTS, self.CATEGORY_ANNOUNCERS}:
+        if category not in {self.CATEGORY_MAPS, self.CATEGORY_FONTS, self.CATEGORY_ANNOUNCERS, self.CATEGORY_OTHERS}:
             return []
         
         category_dir = self.mods_root / category

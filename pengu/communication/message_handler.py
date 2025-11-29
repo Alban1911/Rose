@@ -105,6 +105,8 @@ class MessageHandler:
             self._handle_request_fonts(payload)
         elif payload_type == "request-announcers":
             self._handle_request_announcers(payload)
+        elif payload_type == "request-others":
+            self._handle_request_others(payload)
         elif payload_type == "select-skin-mod":
             self._handle_select_skin_mod(payload)
         elif payload_type == "select-map":
@@ -113,6 +115,8 @@ class MessageHandler:
             self._handle_select_font(payload)
         elif payload_type == "select-announcer":
             self._handle_select_announcer(payload)
+        elif payload_type == "select-other":
+            self._handle_select_other(payload)
         elif payload_type == "open-logs-folder":
             self._handle_open_logs_folder(payload)
         elif payload_type == "open-pengu-loader-ui":
@@ -421,6 +425,24 @@ class MessageHandler:
         }
         self._send_response(json.dumps(response_payload))
     
+    def _handle_request_others(self, payload: dict) -> None:
+        """Return the list of others"""
+        if not self.mod_storage:
+            return
+        
+        try:
+            others = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_OTHERS)
+        except Exception as exc:
+            log.error(f"[SkinMonitor] Failed to list others: {exc}")
+            others = []
+        
+        response_payload = {
+            "type": "others-response",
+            "others": others,
+            "timestamp": int(time.time() * 1000),
+        }
+        self._send_response(json.dumps(response_payload))
+    
     def _handle_select_skin_mod(self, payload: dict) -> None:
         """Handle mod selection for injection over hovered skin"""
         if not self.mod_storage:
@@ -488,12 +510,13 @@ class MessageHandler:
             import shutil
             import zipfile
             
-            # Check if other mods (map/font/announcer) are already selected
+            # Check if other mods (map/font/announcer/other) are already selected
             # If so, don't clean - just extract the skin mod alongside them
             has_other_mods = (
                 (hasattr(self.shared_state, 'selected_map_mod') and self.shared_state.selected_map_mod) or
                 (hasattr(self.shared_state, 'selected_font_mod') and self.shared_state.selected_font_mod) or
-                (hasattr(self.shared_state, 'selected_announcer_mod') and self.shared_state.selected_announcer_mod)
+                (hasattr(self.shared_state, 'selected_announcer_mod') and self.shared_state.selected_announcer_mod) or
+                (hasattr(self.shared_state, 'selected_other_mod') and self.shared_state.selected_other_mod)
             )
             
             # Only clean mods directory if no other mods are selected
@@ -879,6 +902,114 @@ class MessageHandler:
 
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle announcer selection: {e}")
+            import traceback
+            log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
+    
+    def _handle_select_other(self, payload: dict) -> None:
+        """Handle other mod selection for injection"""
+        if not self.mod_storage:
+            log.warning("[SkinMonitor] Cannot handle other selection - mod storage not available")
+            return
+        
+        other_id = payload.get("otherId")
+        other_data = payload.get("otherData", {})
+        
+        # Handle deselection (other_id is null)
+        if other_id is None:
+            if hasattr(self.shared_state, 'selected_other_mod') and self.shared_state.selected_other_mod:
+                self.shared_state.selected_other_mod = None
+                log.info(f"[SkinMonitor] Other mod deselected")
+            return
+        
+        try:
+            # Find the mod in storage
+            entries = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_OTHERS)
+            selected_mod = None
+            # other_data contains: id (relative path), name, path, updatedAt, description
+            mod_identifier = other_data.get("id") or other_data.get("name") or other_id
+            for entry_dict in entries:
+                # Match by id (relative path) or name
+                if (entry_dict.get("id") == mod_identifier or 
+                    entry_dict.get("name") == mod_identifier):
+                    # Convert dict to Path for extraction
+                    mod_path = self.mod_storage.mods_root / entry_dict["path"].replace("/", "\\")
+                    selected_mod = type('ModEntry', (), {
+                        'mod_name': entry_dict["name"],
+                        'path': mod_path
+                    })()
+                    break
+            
+            if not selected_mod:
+                log.warning(f"[SkinMonitor] Other mod not found: {other_id}")
+                return
+            
+            # Extract mod immediately when selected
+            if not self.injection_manager:
+                log.warning("[SkinMonitor] Cannot extract other mod - injection manager not available")
+                return
+                
+            injector = self.injection_manager.injector
+            if not injector:
+                log.warning("[SkinMonitor] Cannot extract other mod - injector not available")
+                return
+
+            mod_source = Path(selected_mod.path)
+            if not mod_source.exists():
+                log.error(f"[SkinMonitor] Other mod file not found: {mod_source}")
+                return
+
+            # Determine mod folder name
+            if mod_source.is_dir():
+                mod_folder_name = mod_source.name
+            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
+                mod_folder_name = mod_source.stem
+            else:
+                mod_folder_name = mod_source.stem
+
+            # Extract/copy mod to injection mods directory immediately
+            import shutil
+            import zipfile
+            
+            # Don't clean mods directory - we want to keep skin/map/font/announcer mods if they exist
+            
+            if mod_source.is_dir():
+                mod_dest = injector.mods_dir / mod_source.name
+                if mod_dest.exists():
+                    shutil.rmtree(mod_dest, ignore_errors=True)
+                shutil.copytree(mod_source, mod_dest, dirs_exist_ok=True)
+                log.info(f"[SkinMonitor] Copied other mod directory to: {mod_dest}")
+            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
+                # Extract ZIP or FANTOME file
+                mod_dest = injector.mods_dir / mod_source.stem
+                if mod_dest.exists():
+                    shutil.rmtree(mod_dest, ignore_errors=True)
+                mod_dest.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(mod_source, 'r') as zip_ref:
+                    zip_ref.extractall(mod_dest)
+                file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
+                log.info(f"[SkinMonitor] Extracted {file_type} other mod to: {mod_dest}")
+            else:
+                # For other file types, create folder and copy file
+                mod_dest = injector.mods_dir / mod_folder_name
+                if mod_dest.exists():
+                    shutil.rmtree(mod_dest, ignore_errors=True)
+                mod_dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(mod_source, mod_dest / mod_source.name)
+                log.info(f"[SkinMonitor] Copied other mod file to folder: {mod_dest}")
+
+            # Store selected other mod in shared state for injection
+            self.shared_state.selected_other_mod = {
+                "mod_name": selected_mod.mod_name,
+                "mod_path": str(selected_mod.path),
+                "mod_folder_name": mod_folder_name,
+                "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
+            }
+            
+            log.info(f"[SkinMonitor] Other mod selected and extracted: {selected_mod.mod_name}")
+            log.info(f"[SkinMonitor] Other mod ready for injection alongside skin")
+
+        except Exception as e:
+            log.error(f"[SkinMonitor] Failed to handle other selection: {e}")
             import traceback
             log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
     
