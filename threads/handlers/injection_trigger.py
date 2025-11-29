@@ -66,11 +66,31 @@ class InjectionTrigger:
         if selected_custom_mod and selected_custom_mod.get("skin_id") == ui_skin_id:
             mod_name = selected_custom_mod.get("mod_name") or selected_custom_mod.get("mod_folder_name")
         
-        # Build injection log message with mod name if available
+        # Collect all selected mods for log message
+        mod_labels = []
         if mod_name:
-            injection_label = f"{mod_name} (SKIN_{ui_skin_id})"
+            mod_labels.append(f"{mod_name} (SKIN_{ui_skin_id})")
         else:
-            injection_label = name.upper()
+            mod_labels.append(name.upper())
+        
+        # Add map/font/announcer mods if selected
+        selected_map_mod = getattr(self.state, 'selected_map_mod', None)
+        if selected_map_mod:
+            map_name = selected_map_mod.get("mod_name", "Map")
+            mod_labels.append(f"MAP: {map_name}")
+        
+        selected_font_mod = getattr(self.state, 'selected_font_mod', None)
+        if selected_font_mod:
+            font_name = selected_font_mod.get("mod_name", "Font")
+            mod_labels.append(f"FONT: {font_name}")
+        
+        selected_announcer_mod = getattr(self.state, 'selected_announcer_mod', None)
+        if selected_announcer_mod:
+            announcer_name = selected_announcer_mod.get("mod_name", "Announcer")
+            mod_labels.append(f"ANNOUNCER: {announcer_name}")
+        
+        # Build injection log message with all mods
+        injection_label = " + ".join(mod_labels)
         
         log.info("=" * LOG_SEPARATOR_WIDTH)
         log.info(f"💉 PREPARING INJECTION >>> {injection_label} <<<")
@@ -81,14 +101,36 @@ class InjectionTrigger:
             lcu_skin_id = self.state.selected_skin_id
             owned_skin_ids = self.state.owned_skin_ids
             
-            # Check if custom mod is selected for this skin
-            if selected_custom_mod and selected_custom_mod.get("skin_id") == ui_skin_id:
+            # Check if any mods are selected (skin, map, font, or announcer)
+            selected_map_mod = getattr(self.state, 'selected_map_mod', None)
+            selected_font_mod = getattr(self.state, 'selected_font_mod', None)
+            selected_announcer_mod = getattr(self.state, 'selected_announcer_mod', None)
+            
+            has_custom_skin_mod = selected_custom_mod and selected_custom_mod.get("skin_id") == ui_skin_id
+            has_other_mods = selected_map_mod or selected_font_mod or selected_announcer_mod
+            has_any_mods = has_custom_skin_mod or has_other_mods
+            
+            # If custom skin mod is selected, inject it
+            if has_custom_skin_mod:
                 # Inject custom mod instead of normal skin
                 log.info(f"[INJECT] Custom mod selected for skin {ui_skin_id}, injecting custom mod instead")
                 self._inject_custom_mod(selected_custom_mod)
                 return
             
-            # Skip injection for base skins
+            # If only map/font/announcer mods are selected (no custom skin mod), inject them
+            if has_other_mods and not has_custom_skin_mod:
+                # Create a dummy custom mod dict to use the injection path
+                dummy_custom_mod = {
+                    "skin_id": ui_skin_id,
+                    "champion_id": self.state.locked_champ_id or self.state.hovered_champ_id,
+                    "mod_name": name.upper(),
+                    "mod_folder_name": None,  # No custom skin mod, only map/font/announcer
+                }
+                log.info(f"[INJECT] Map/Font/Announcer mods selected, injecting them (skin: {name})")
+                self._inject_custom_mod(dummy_custom_mod)
+                return
+            
+            # Skip injection for base skins (only if no mods are selected)
             if ui_skin_id == 0:
                 log.info("[INJECT] skipping base skin injection (skinId=0) - no mods-only flow available")
                 if self.injection_manager:
@@ -363,7 +405,10 @@ class InjectionTrigger:
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
     
     def _inject_custom_mod(self, custom_mod: dict):
-        """Inject custom mod from mods storage (mod should already be extracted)"""
+        """Inject custom mod from mods storage (mod should already be extracted)
+        
+        Note: custom_mod can have mod_folder_name=None if only map/font/announcer mods are selected
+        """
         try:
             from pathlib import Path
             
@@ -380,18 +425,65 @@ class InjectionTrigger:
             mod_folder_name = custom_mod.get("mod_folder_name")
             skin_id = custom_mod.get("skin_id")
             
-            if not mod_folder_name:
-                log.error(f"[INJECT] Custom mod folder name not available")
+            # Collect all mods to inject (skin + map + font + announcer)
+            mod_folder_names = []
+            mod_names_list = []
+            
+            # Add skin mod if available
+            if mod_folder_name:
+                # Verify mod folder exists (should already be extracted when selected)
+                mod_folder = injector.mods_dir / mod_folder_name
+                if mod_folder.exists():
+                    mod_folder_names.append(mod_folder_name)
+                    mod_names_list.append(mod_name or "Skin")
+                else:
+                    log.warning(f"[INJECT] Custom skin mod folder not found: {mod_folder}")
+                    log.warning(f"[INJECT] Continuing with map/font/announcer mods only")
+            else:
+                log.info(f"[INJECT] No custom skin mod selected, injecting map/font/announcer mods only")
+            
+            # Add map mod if selected
+            selected_map_mod = getattr(self.state, 'selected_map_mod', None)
+            if selected_map_mod and selected_map_mod.get("mod_folder_name"):
+                map_mod_folder = selected_map_mod.get("mod_folder_name")
+                map_mod_path = injector.mods_dir / map_mod_folder
+                if map_mod_path.exists():
+                    mod_folder_names.append(map_mod_folder)
+                    mod_names_list.append(selected_map_mod.get("mod_name", "Map"))
+                    log.info(f"[INJECT] Including map mod: {selected_map_mod.get('mod_name')}")
+            
+            # Add font mod if selected
+            selected_font_mod = getattr(self.state, 'selected_font_mod', None)
+            if selected_font_mod and selected_font_mod.get("mod_folder_name"):
+                font_mod_folder = selected_font_mod.get("mod_folder_name")
+                font_mod_path = injector.mods_dir / font_mod_folder
+                if font_mod_path.exists():
+                    mod_folder_names.append(font_mod_folder)
+                    mod_names_list.append(selected_font_mod.get("mod_name", "Font"))
+                    log.info(f"[INJECT] Including font mod: {selected_font_mod.get('mod_name')}")
+            
+            # Add announcer mod if selected
+            selected_announcer_mod = getattr(self.state, 'selected_announcer_mod', None)
+            if selected_announcer_mod and selected_announcer_mod.get("mod_folder_name"):
+                announcer_mod_folder = selected_announcer_mod.get("mod_folder_name")
+                announcer_mod_path = injector.mods_dir / announcer_mod_folder
+                if announcer_mod_path.exists():
+                    mod_folder_names.append(announcer_mod_folder)
+                    mod_names_list.append(selected_announcer_mod.get("mod_name", "Announcer"))
+                    log.info(f"[INJECT] Including announcer mod: {selected_announcer_mod.get('mod_name')}")
+            
+            # Check if we have any mods to inject
+            if not mod_folder_names:
+                log.warning("[INJECT] No mods available to inject (skin, map, font, or announcer)")
                 return
             
-            # Verify mod folder exists (should already be extracted when selected)
-            mod_folder = injector.mods_dir / mod_folder_name
-            if not mod_folder.exists():
-                log.error(f"[INJECT] Custom mod folder not found: {mod_folder}")
-                log.error(f"[INJECT] Mod should have been extracted when selected")
-                return
+            log.info(f"[INJECT] Injecting mods: {', '.join(mod_names_list)}" + (f" for skin {skin_id}" if skin_id else ""))
             
-            log.info(f"[INJECT] Injecting custom mod: {mod_name} for skin {skin_id}")
+            # Start game monitor to freeze game during overlay creation
+            # This prevents file locks and ensures clean injection
+            if self.injection_manager and not self.injection_manager._monitor_active:
+                log.info("[INJECT] Starting game monitor for custom mod injection")
+                self.injection_manager._start_monitor()
             
             # Force base skin selection via LCU before injecting
             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
@@ -412,27 +504,39 @@ class InjectionTrigger:
                     return False
                 return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
             
-            # Mod is already extracted, create and run overlay (same as normal injection)
+            # All mods are already extracted, create and run overlay with all mods
             result = injector.overlay_manager.mk_run_overlay(
-                [mod_folder_name],
+                mod_folder_names,
                 timeout=120,
                 stop_callback=game_ended_callback,
                 injection_manager=self.injection_manager
             )
             
+            # Stop monitor after injection completes
+            if self.injection_manager:
+                self.injection_manager._stop_monitor()
+            
             if result == 0:
                 log.info("=" * LOG_SEPARATOR_WIDTH)
-                log.info(f"✅ CUSTOM MOD INJECTION COMPLETED >>> {mod_name.upper()} <<<")
+                injection_label = " + ".join([m.upper() for m in mod_names_list])
+                log.info(f"✅ CUSTOM MOD INJECTION COMPLETED >>> {injection_label} <<<")
                 log.info(f"   ⚠️  Verify in-game - timing determines if mod appears")
                 log.info("=" * LOG_SEPARATOR_WIDTH)
                 
-                # Clear selected custom mod after successful injection
+                # Clear all selected mods after successful injection
                 self.state.selected_custom_mod = None
+                if hasattr(self.state, 'selected_map_mod'):
+                    self.state.selected_map_mod = None
+                if hasattr(self.state, 'selected_font_mod'):
+                    self.state.selected_font_mod = None
+                if hasattr(self.state, 'selected_announcer_mod'):
+                    self.state.selected_announcer_mod = None
             else:
                 log.error("=" * LOG_SEPARATOR_WIDTH)
-                log.error(f"❌ CUSTOM MOD INJECTION FAILED >>> {mod_name.upper()} <<<")
+                injection_label = " + ".join([m.upper() for m in mod_names_list])
+                log.error(f"❌ CUSTOM MOD INJECTION FAILED >>> {injection_label} <<<")
                 log.error("=" * LOG_SEPARATOR_WIDTH)
-                log.error(f"[INJECT] Mod will likely NOT appear in-game")
+                log.error(f"[INJECT] Mods will likely NOT appear in-game")
         
         except Exception as e:
             log.error(f"[INJECT] ✗ Error injecting custom mod: {e}")
