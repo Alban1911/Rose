@@ -33,7 +33,7 @@ SPECIAL_CHROMA_SKIN_IDS = {
 class Broadcaster:
     """Broadcasts messages to WebSocket clients"""
     
-    def __init__(self, websocket_server, shared_state, skin_scraper=None):
+    def __init__(self, websocket_server, shared_state, skin_mapping, skin_scraper=None):
         """Initialize broadcaster
         
         Args:
@@ -44,6 +44,7 @@ class Broadcaster:
         self.websocket_server = websocket_server
         self.shared_state = shared_state
         self.skin_scraper = skin_scraper
+        self.skin_mapping = skin_mapping;
     
     def broadcast_skin_state(self, skin_name: str, skin_id: Optional[int]) -> None:
         """Broadcast skin state to clients"""
@@ -117,11 +118,12 @@ class Broadcaster:
         
         historic_mode_active = getattr(self.shared_state, 'historic_mode_active', False)
         historic_skin_id = getattr(self.shared_state, 'historic_skin_id', None)
-        
+        skin_name = self.skin_mapping.find_skin_name_by_skin_id(historic_skin_id)
         payload = {
             "type": "historic-state",
             "active": historic_mode_active,
             "historicSkinId": historic_skin_id,
+            "historicSkinName": skin_name,
             "timestamp": int(time.time() * 1000),
         }
         

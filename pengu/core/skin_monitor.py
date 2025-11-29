@@ -73,7 +73,7 @@ class PenguSkinMonitorThread(threading.Thread):
         self.skin_processor = SkinProcessor(shared_state, skin_scraper, self.skin_mapping)
         self.flow_controller = FlowController(shared_state)
         self.mod_storage_service = ModStorageService()
-        
+
         # Initialize HTTP handler
         self.http_handler = HTTPHandler(self.port)
         
@@ -86,8 +86,8 @@ class PenguSkinMonitorThread(threading.Thread):
         )
         
         # Initialize broadcaster
-        self.broadcaster = Broadcaster(self.websocket_server, shared_state, skin_scraper)
-        
+        self.broadcaster = Broadcaster(self.websocket_server, shared_state, self.skin_mapping, skin_scraper)
+
         # Initialize message handler
         self.message_handler = MessageHandler(
             shared_state=shared_state,
