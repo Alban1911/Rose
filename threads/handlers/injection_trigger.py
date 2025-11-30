@@ -118,9 +118,17 @@ class InjectionTrigger:
             
             # If custom skin mod is selected, inject it
             if has_custom_skin_mod:
-                # Inject custom mod instead of normal skin
-                log.info(f"[INJECT] Custom mod selected for skin {ui_skin_id}, injecting custom mod instead")
-                self._inject_custom_mod(selected_custom_mod)
+                # Check if skin is owned
+                is_skin_owned = ui_skin_id in owned_skin_ids
+                
+                if not is_skin_owned:
+                    # Skin not owned: need to inject base skin ZIP + custom mod
+                    log.info(f"[INJECT] Custom mod selected for unowned skin {ui_skin_id}, injecting base skin ZIP + custom mod")
+                    self._inject_custom_mod(selected_custom_mod, base_skin_name=name, champion_name=cname)
+                else:
+                    # Skin owned: just inject custom mod (base files already in game)
+                    log.info(f"[INJECT] Custom mod selected for owned skin {ui_skin_id}, injecting custom mod only")
+                    self._inject_custom_mod(selected_custom_mod)
                 return
             
             # If only map/font/announcer/other mods are selected (no custom skin mod), inject them
@@ -410,8 +418,13 @@ class InjectionTrigger:
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
     
-    def _inject_custom_mod(self, custom_mod: dict):
+    def _inject_custom_mod(self, custom_mod: dict, base_skin_name: Optional[str] = None, champion_name: str = ""):
         """Inject custom mod from mods storage (mod should already be extracted)
+        
+        Args:
+            custom_mod: Custom mod dictionary
+            base_skin_name: Optional base skin name to extract and inject (for unowned skins)
+            champion_name: Optional champion name for base skin extraction
         
         Note: custom_mod can have mod_folder_name=None if only map/font/announcer mods are selected
         """
@@ -429,61 +442,167 @@ class InjectionTrigger:
             
             mod_name = custom_mod.get("mod_name")
             mod_folder_name = custom_mod.get("mod_folder_name")
+            mod_path = custom_mod.get("mod_path")
             skin_id = custom_mod.get("skin_id")
+            champion_id = custom_mod.get("champion_id")
             
-            # Collect all mods to inject (skin + map + font + announcer + other)
+            # Clean mods directory first (before extracting base skin and custom mod)
+            injector._clean_mods_dir()
+            injector._clean_overlay_dir()
+            
+            # Collect all mods to inject (base skin + custom skin mod + map + font + announcer + other)
             mod_folder_names = []
             mod_names_list = []
             
-            # Add skin mod if available
-            if mod_folder_name:
-                # Verify mod folder exists (should already be extracted when selected)
-                mod_folder = injector.mods_dir / mod_folder_name
-                if mod_folder.exists():
-                    mod_folder_names.append(mod_folder_name)
-                    mod_names_list.append(mod_name or "Skin")
-                else:
-                    log.warning(f"[INJECT] Custom skin mod folder not found: {mod_folder}")
-                    log.warning(f"[INJECT] Continuing with map/font/announcer/other mods only")
+            # Extract and add base skin ZIP if provided (for unowned skins)
+            if base_skin_name:
+                log.info(f"[INJECT] Extracting base skin ZIP: {base_skin_name}")
+                try:
+                    # Resolve the base skin ZIP
+                    zp = injector._resolve_zip(
+                        base_skin_name,
+                        skin_name=base_skin_name,
+                        champion_name=champion_name,
+                        champion_id=champion_id
+                    )
+                    if zp and zp.exists():
+                        # Extract base skin ZIP to mods directory
+                        base_mod_folder = injector._extract_zip_to_mod(zp)
+                        if base_mod_folder:
+                            mod_folder_names.append(base_mod_folder.name)
+                            mod_names_list.append(f"Base Skin ({base_skin_name})")
+                            log.info(f"[INJECT] Base skin ZIP extracted: {base_mod_folder.name}")
+                        else:
+                            log.warning(f"[INJECT] Failed to extract base skin ZIP: {base_skin_name}")
+                    else:
+                        log.warning(f"[INJECT] Base skin ZIP not found: {base_skin_name}")
+                except Exception as e:
+                    log.error(f"[INJECT] Error extracting base skin ZIP: {e}")
+                    import traceback
+                    log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
+            
+            # Re-extract custom skin mod if available (after cleaning mods directory)
+            if mod_folder_name and mod_path:
+                log.info(f"[INJECT] Re-extracting custom mod from: {mod_path}")
+                try:
+                    import shutil
+                    import zipfile
+                    mod_source = Path(mod_path)
+                    if not mod_source.exists():
+                        log.warning(f"[INJECT] Custom mod source not found: {mod_source}")
+                    else:
+                        mod_dest = injector.mods_dir / mod_folder_name
+                        if mod_dest.exists():
+                            shutil.rmtree(mod_dest, ignore_errors=True)
+                        mod_dest.mkdir(parents=True, exist_ok=True)
+                        
+                        if mod_source.is_dir():
+                            shutil.copytree(mod_source, mod_dest, dirs_exist_ok=True)
+                            log.info(f"[INJECT] Custom mod directory copied: {mod_folder_name}")
+                        elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
+                            with zipfile.ZipFile(mod_source, 'r') as zip_ref:
+                                zip_ref.extractall(mod_dest)
+                            log.info(f"[INJECT] Custom mod ZIP extracted: {mod_folder_name}")
+                        else:
+                            shutil.copy2(mod_source, mod_dest / mod_source.name)
+                            log.info(f"[INJECT] Custom mod file copied: {mod_folder_name}")
+                        
+                        # Verify mod folder exists after extraction
+                        if mod_dest.exists():
+                            mod_folder_names.append(mod_folder_name)
+                            mod_names_list.append(mod_name or "Custom Mod")
+                            log.info(f"[INJECT] Custom skin mod ready: {mod_folder_name}")
+                        else:
+                            log.warning(f"[INJECT] Custom mod folder not found after extraction: {mod_dest}")
+                except Exception as e:
+                    log.error(f"[INJECT] Error re-extracting custom mod: {e}")
+                    import traceback
+                    log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
+            elif mod_folder_name:
+                log.warning(f"[INJECT] Custom mod folder name provided but no mod_path - cannot re-extract")
             else:
-                log.info(f"[INJECT] No custom skin mod selected, injecting map/font/announcer/other mods only")
+                log.info(f"[INJECT] No custom skin mod selected, injecting base skin + map/font/announcer/other mods only")
+            
+            # Helper function to re-extract a mod from its source path
+            def re_extract_mod(mod_dict, mod_type_name):
+                """Re-extract a mod from its source path after cleaning"""
+                if not mod_dict or not mod_dict.get("mod_folder_name"):
+                    return None
+                
+                mod_folder_name = mod_dict.get("mod_folder_name")
+                mod_path = mod_dict.get("mod_path")
+                
+                if not mod_path:
+                    log.warning(f"[INJECT] {mod_type_name} mod folder name provided but no mod_path - cannot re-extract")
+                    return None
+                
+                try:
+                    import shutil
+                    import zipfile
+                    mod_source = Path(mod_path)
+                    if not mod_source.exists():
+                        log.warning(f"[INJECT] {mod_type_name} mod source not found: {mod_source}")
+                        return None
+                    
+                    mod_dest = injector.mods_dir / mod_folder_name
+                    if mod_dest.exists():
+                        shutil.rmtree(mod_dest, ignore_errors=True)
+                    mod_dest.mkdir(parents=True, exist_ok=True)
+                    
+                    if mod_source.is_dir():
+                        shutil.copytree(mod_source, mod_dest, dirs_exist_ok=True)
+                        log.info(f"[INJECT] {mod_type_name} mod directory copied: {mod_folder_name}")
+                    elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
+                        with zipfile.ZipFile(mod_source, 'r') as zip_ref:
+                            zip_ref.extractall(mod_dest)
+                        log.info(f"[INJECT] {mod_type_name} mod ZIP extracted: {mod_folder_name}")
+                    else:
+                        shutil.copy2(mod_source, mod_dest / mod_source.name)
+                        log.info(f"[INJECT] {mod_type_name} mod file copied: {mod_folder_name}")
+                    
+                    if mod_dest.exists():
+                        return mod_folder_name
+                    else:
+                        log.warning(f"[INJECT] {mod_type_name} mod folder not found after extraction: {mod_dest}")
+                        return None
+                except Exception as e:
+                    log.error(f"[INJECT] Error re-extracting {mod_type_name} mod: {e}")
+                    import traceback
+                    log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
+                    return None
             
             # Add map mod if selected
             selected_map_mod = getattr(self.state, 'selected_map_mod', None)
-            if selected_map_mod and selected_map_mod.get("mod_folder_name"):
-                map_mod_folder = selected_map_mod.get("mod_folder_name")
-                map_mod_path = injector.mods_dir / map_mod_folder
-                if map_mod_path.exists():
+            if selected_map_mod:
+                map_mod_folder = re_extract_mod(selected_map_mod, "Map")
+                if map_mod_folder:
                     mod_folder_names.append(map_mod_folder)
                     mod_names_list.append(selected_map_mod.get("mod_name", "Map"))
                     log.info(f"[INJECT] Including map mod: {selected_map_mod.get('mod_name')}")
             
             # Add font mod if selected
             selected_font_mod = getattr(self.state, 'selected_font_mod', None)
-            if selected_font_mod and selected_font_mod.get("mod_folder_name"):
-                font_mod_folder = selected_font_mod.get("mod_folder_name")
-                font_mod_path = injector.mods_dir / font_mod_folder
-                if font_mod_path.exists():
+            if selected_font_mod:
+                font_mod_folder = re_extract_mod(selected_font_mod, "Font")
+                if font_mod_folder:
                     mod_folder_names.append(font_mod_folder)
                     mod_names_list.append(selected_font_mod.get("mod_name", "Font"))
                     log.info(f"[INJECT] Including font mod: {selected_font_mod.get('mod_name')}")
             
             # Add announcer mod if selected
             selected_announcer_mod = getattr(self.state, 'selected_announcer_mod', None)
-            if selected_announcer_mod and selected_announcer_mod.get("mod_folder_name"):
-                announcer_mod_folder = selected_announcer_mod.get("mod_folder_name")
-                announcer_mod_path = injector.mods_dir / announcer_mod_folder
-                if announcer_mod_path.exists():
+            if selected_announcer_mod:
+                announcer_mod_folder = re_extract_mod(selected_announcer_mod, "Announcer")
+                if announcer_mod_folder:
                     mod_folder_names.append(announcer_mod_folder)
                     mod_names_list.append(selected_announcer_mod.get("mod_name", "Announcer"))
                     log.info(f"[INJECT] Including announcer mod: {selected_announcer_mod.get('mod_name')}")
             
             # Add other mod if selected
             selected_other_mod = getattr(self.state, 'selected_other_mod', None)
-            if selected_other_mod and selected_other_mod.get("mod_folder_name"):
-                other_mod_folder = selected_other_mod.get("mod_folder_name")
-                other_mod_path = injector.mods_dir / other_mod_folder
-                if other_mod_path.exists():
+            if selected_other_mod:
+                other_mod_folder = re_extract_mod(selected_other_mod, "Other")
+                if other_mod_folder:
                     mod_folder_names.append(other_mod_folder)
                     mod_names_list.append(selected_other_mod.get("mod_name", "Other"))
                     log.info(f"[INJECT] Including other mod: {selected_other_mod.get('mod_name')}")
