@@ -140,8 +140,30 @@ class InjectionTrigger:
                     "mod_name": name.upper(),
                     "mod_folder_name": None,  # No custom skin mod, only map/font/announcer/other
                 }
-                log.info(f"[INJECT] Map/Font/Announcer/Other mods selected, injecting them (skin: {name})")
-                self._inject_custom_mod(dummy_custom_mod)
+                # Build list of selected mod types for logging
+                selected_mod_types = []
+                if selected_map_mod:
+                    selected_mod_types.append("Map")
+                if selected_font_mod:
+                    selected_mod_types.append("Font")
+                if selected_announcer_mod:
+                    selected_mod_types.append("Announcer")
+                if selected_other_mod:
+                    selected_mod_types.append("Other")
+                mod_types_str = "/".join(selected_mod_types) if selected_mod_types else "Map/Font/Announcer/Other"
+                
+                # Check if skin needs to be injected (if unowned, inject base skin ZIP along with map/font/announcer/other mods)
+                is_skin_owned = ui_skin_id in owned_skin_ids
+                base_skin_name_for_injection = None
+                if not is_skin_owned and ui_skin_id != 0:
+                    # Skin is unowned, need to inject base skin ZIP along with map/font/announcer/other mods
+                    base_skin_name_for_injection = name
+                    log.info(f"[INJECT] {mod_types_str} mod(s) selected + unowned skin {ui_skin_id}, injecting base skin ZIP + {mod_types_str.lower()} mod(s)")
+                else:
+                    # Skin is owned - user can select it normally, just inject the mods
+                    log.info(f"[INJECT] {mod_types_str} mod(s) selected, injecting them (skin: {name})")
+                
+                self._inject_custom_mod(dummy_custom_mod, base_skin_name=base_skin_name_for_injection, champion_name=cname)
                 return
             
             # Skip injection for base skins (only if no mods are selected)
@@ -579,6 +601,8 @@ class InjectionTrigger:
                     mod_folder_names.append(map_mod_folder)
                     mod_names_list.append(selected_map_mod.get("mod_name", "Map"))
                     log.info(f"[INJECT] Including map mod: {selected_map_mod.get('mod_name')}")
+                else:
+                    log.warning(f"[INJECT] Map mod selected but failed to extract: {selected_map_mod.get('mod_name', 'Unknown')}")
             
             # Add font mod if selected
             selected_font_mod = getattr(self.state, 'selected_font_mod', None)
@@ -588,6 +612,8 @@ class InjectionTrigger:
                     mod_folder_names.append(font_mod_folder)
                     mod_names_list.append(selected_font_mod.get("mod_name", "Font"))
                     log.info(f"[INJECT] Including font mod: {selected_font_mod.get('mod_name')}")
+                else:
+                    log.warning(f"[INJECT] Font mod selected but failed to extract: {selected_font_mod.get('mod_name', 'Unknown')}")
             
             # Add announcer mod if selected
             selected_announcer_mod = getattr(self.state, 'selected_announcer_mod', None)
@@ -597,6 +623,8 @@ class InjectionTrigger:
                     mod_folder_names.append(announcer_mod_folder)
                     mod_names_list.append(selected_announcer_mod.get("mod_name", "Announcer"))
                     log.info(f"[INJECT] Including announcer mod: {selected_announcer_mod.get('mod_name')}")
+                else:
+                    log.warning(f"[INJECT] Announcer mod selected but failed to extract: {selected_announcer_mod.get('mod_name', 'Unknown')}")
             
             # Add other mod if selected
             selected_other_mod = getattr(self.state, 'selected_other_mod', None)
@@ -606,6 +634,8 @@ class InjectionTrigger:
                     mod_folder_names.append(other_mod_folder)
                     mod_names_list.append(selected_other_mod.get("mod_name", "Other"))
                     log.info(f"[INJECT] Including other mod: {selected_other_mod.get('mod_name')}")
+                else:
+                    log.warning(f"[INJECT] Other mod selected but failed to extract: {selected_other_mod.get('mod_name', 'Unknown')}")
             
             # Check if we have any mods to inject
             if not mod_folder_names:
@@ -620,9 +650,11 @@ class InjectionTrigger:
                 log.info("[INJECT] Starting game monitor for custom mod injection")
                 self.injection_manager._start_monitor()
             
-            # Force base skin selection via LCU before injecting
+            # Force base skin selection via LCU before injecting (only if injecting base skin ZIP)
+            # For owned skins, user can select them normally - no need to force
             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
-            if champion_id:
+            if champion_id and base_skin_name:
+                # Injecting base skin ZIP for unowned skin - force base skin
                 base_skin_id = champion_id * 1000
                 self._force_base_skin(base_skin_id)
             
