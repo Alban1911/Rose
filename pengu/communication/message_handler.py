@@ -368,11 +368,23 @@ class MessageHandler:
                 }
             )
 
+        # Get historic custom mod path for this champion if available
+        historic_mod_path = None
+        try:
+            from utils.core.historic import get_historic_skin_for_champion, is_custom_mod_path, get_custom_mod_path
+            if champion_id:
+                historic_value = get_historic_skin_for_champion(champion_id)
+                if historic_value and is_custom_mod_path(historic_value):
+                    historic_mod_path = get_custom_mod_path(historic_value)
+        except Exception:
+            pass
+
         response_payload = {
             "type": "skin-mods-response",
             "championId": champion_id,
             "skinId": skin_id,
             "mods": mods_payload,
+            "historicMod": historic_mod_path,  # Add historic mod path if available
             "timestamp": int(time.time() * 1000),
         }
         self._send_response(json.dumps(response_payload))

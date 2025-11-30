@@ -106,6 +106,23 @@ class InjectionTrigger:
             lcu_skin_id = self.state.selected_skin_id
             owned_skin_ids = self.state.owned_skin_ids
             
+            # Check if historic mode is active and has a custom mod path
+            historic_custom_mod_path = None
+            if getattr(self.state, 'historic_mode_active', False) and getattr(self.state, 'historic_skin_id', None):
+                from utils.core.historic import is_custom_mod_path, get_custom_mod_path
+                hist_value = self.state.historic_skin_id
+                if is_custom_mod_path(hist_value):
+                    historic_custom_mod_path = get_custom_mod_path(hist_value)
+                    # Try to find and select the custom mod from historic
+                    if not selected_custom_mod and historic_custom_mod_path:
+                        try:
+                            from pengu.communication.message_handler import MessageHandler
+                            # We need mod_storage to find the mod - this will be handled by the frontend
+                            # For now, we'll let the injection proceed and the mod will be auto-selected via frontend
+                            log.info(f"[HISTORIC] Historic custom mod path detected: {historic_custom_mod_path}")
+                        except Exception as e:
+                            log.debug(f"[HISTORIC] Failed to handle historic custom mod: {e}")
+            
             # Check if any mods are selected (skin, map, font, announcer, or other)
             selected_map_mod = getattr(self.state, 'selected_map_mod', None)
             selected_font_mod = getattr(self.state, 'selected_font_mod', None)
@@ -693,6 +710,17 @@ class InjectionTrigger:
                 # Store mod selections in historic before clearing
                 try:
                     from utils.core.mod_historic import write_historic_mod
+                    from utils.core.historic import write_historic_entry
+                    
+                    # Store custom skin mod in historic if selected
+                    selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
+                    if selected_custom_mod and selected_custom_mod.get("relative_path"):
+                        champion_id = selected_custom_mod.get("champion_id") or self.state.locked_champ_id or self.state.hovered_champ_id
+                        if champion_id:
+                            # Store custom mod path with "path:" prefix
+                            custom_mod_path = f"path:{selected_custom_mod['relative_path']}"
+                            write_historic_entry(int(champion_id), custom_mod_path)
+                            log.debug(f"[HISTORIC] Stored custom mod path for champion {champion_id}: {selected_custom_mod['relative_path']}")
                     
                     # Store map mod if selected
                     selected_map_mod = getattr(self.state, 'selected_map_mod', None)

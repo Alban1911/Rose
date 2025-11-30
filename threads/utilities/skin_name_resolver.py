@@ -35,15 +35,32 @@ class SkinNameResolver:
         """
         # Historic mode override
         if getattr(self.state, 'historic_mode_active', False) and getattr(self.state, 'historic_skin_id', None):
-            hist_id = int(self.state.historic_skin_id)
-            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
-            if chroma_id_map and hist_id in chroma_id_map:
-                name = f"chroma_{hist_id}"
-                log.info(f"[HISTORIC] Using historic chroma ID for injection: {hist_id}")
+            from utils.core.historic import is_custom_mod_path, get_custom_mod_path
+            
+            hist_value = self.state.historic_skin_id
+            
+            # Check if it's a custom mod path
+            if is_custom_mod_path(hist_value):
+                custom_mod_path = get_custom_mod_path(hist_value)
+                log.info(f"[HISTORIC] Using historic custom mod path for injection: {custom_mod_path}")
+                # Return None to indicate custom mod should be used instead
+                # The injection trigger will handle custom mod selection
+                return None
             else:
-                name = f"skin_{hist_id}"
-                log.info(f"[HISTORIC] Using historic skin ID for injection: {hist_id}")
-            return name
+                # It's a skin/chroma ID
+                try:
+                    hist_id = int(hist_value)
+                    chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+                    if chroma_id_map and hist_id in chroma_id_map:
+                        name = f"chroma_{hist_id}"
+                        log.info(f"[HISTORIC] Using historic chroma ID for injection: {hist_id}")
+                    else:
+                        name = f"skin_{hist_id}"
+                        log.info(f"[HISTORIC] Using historic skin ID for injection: {hist_id}")
+                    return name
+                except (ValueError, TypeError):
+                    log.warning(f"[HISTORIC] Invalid historic value: {hist_value}")
+                    return None
         
         # Random mode
         random_mode_active = getattr(self.state, 'random_mode_active', False)
