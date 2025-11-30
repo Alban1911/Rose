@@ -1145,6 +1145,43 @@ class MessageHandler:
         payload = {"type": "settings-saved", "success": False, "error": error}
         self._send_response(json.dumps(payload))
     
+    def _cleanup_empty_skin_folders(self) -> None:
+        """Clean up empty skin folders in the mods directory"""
+        try:
+            skins_dir = self.mod_storage.skins_dir
+            if not skins_dir.exists() or not skins_dir.is_dir():
+                return
+            
+            # Get all skin folders
+            empty_folders = []
+            for skin_folder in skins_dir.iterdir():
+                if skin_folder.is_dir():
+                    try:
+                        items = list(skin_folder.iterdir())
+                        if len(items) == 0:
+                            empty_folders.append(skin_folder)
+                    except Exception as e:
+                        log.debug(f"[SkinMonitor] Error checking folder {skin_folder}: {e}")
+            
+            # Delete empty folders
+            for empty_folder in empty_folders:
+                try:
+                    empty_folder.rmdir()
+                    log.info(f"[SkinMonitor] Cleaned up empty skin folder: {empty_folder}")
+                except Exception as e:
+                    log.debug(f"[SkinMonitor] Error deleting empty folder {empty_folder}: {e}")
+            
+            # Check if skins directory itself is now empty (but don't delete it)
+            try:
+                if skins_dir.exists() and skins_dir.is_dir():
+                    remaining_items = list(skins_dir.iterdir())
+                    if len(remaining_items) == 0:
+                        log.debug(f"[SkinMonitor] Skins directory is now empty (kept for future use)")
+            except Exception:
+                pass
+        except Exception as e:
+            log.debug(f"[SkinMonitor] Error during folder cleanup: {e}")
+    
     def _handle_add_custom_mods_category_selected(self, payload: dict) -> None:
         """Handle category selection for custom mods"""
         try:
@@ -1185,6 +1222,9 @@ class MessageHandler:
             action = payload.get("action")
             if action != "list":
                 return
+            
+            # Clean up empty skin folders before showing champion list
+            self._cleanup_empty_skin_folders()
             
             # Check if LCU is available
             if not self.skin_scraper or not self.skin_scraper.lcu or not self.skin_scraper.lcu.ok:
@@ -1356,40 +1396,6 @@ class MessageHandler:
                     subprocess.Popen(["xdg-open" if os.name != "nt" else "explorer", str(skin_folder)])
                 
                 log.info(f"[SkinMonitor] Created and opened skin folder: {skin_folder}")
-                
-                # Schedule folder cleanup check after 8 seconds
-                import threading
-                def check_and_cleanup():
-                    time.sleep(8)
-                    try:
-                        if skin_folder.exists() and skin_folder.is_dir():
-                            # Check if folder is empty
-                            try:
-                                items = list(skin_folder.iterdir())
-                                if len(items) == 0:
-                                    # Folder is empty, delete it
-                                    skin_folder.rmdir()
-                                    log.info(f"[SkinMonitor] Cleaned up empty skin folder: {skin_folder}")
-                                    
-                                    # Check if parent skins directory is also empty
-                                    skins_dir = skin_folder.parent
-                                    if skins_dir.exists() and skins_dir.is_dir():
-                                        try:
-                                            skins_items = list(skins_dir.iterdir())
-                                            if len(skins_items) == 0:
-                                                skins_dir.rmdir()
-                                                log.info(f"[SkinMonitor] Cleaned up empty skins directory: {skins_dir}")
-                                        except Exception:
-                                            pass
-                                else:
-                                    log.info(f"[SkinMonitor] Skin folder contains {len(items)} items, keeping folder")
-                            except Exception as e:
-                                log.debug(f"[SkinMonitor] Error checking folder contents: {e}")
-                    except Exception as e:
-                        log.debug(f"[SkinMonitor] Error during folder cleanup: {e}")
-                
-                cleanup_thread = threading.Thread(target=check_and_cleanup, daemon=True)
-                cleanup_thread.start()
                 
                 response_payload = {
                     "type": "folder-opened-response",
