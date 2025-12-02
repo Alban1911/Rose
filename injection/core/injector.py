@@ -81,8 +81,10 @@ class SkinInjector:
         # Only detect if game_dir not provided - never use invalid fallback paths
         if game_dir is not None:
             self.game_dir = game_dir
+            # If game_dir provided, try to detect client_dir
+            _, self.client_dir = self.game_detector.detect_paths()
         else:
-            self.game_dir = self.game_detector.detect_game_dir()
+            self.game_dir, self.client_dir = self.game_detector.detect_paths()
         
         # Create directories if they don't exist
         self.mods_dir.mkdir(parents=True, exist_ok=True)

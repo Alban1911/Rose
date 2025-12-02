@@ -1161,10 +1161,19 @@ class MessageHandler:
             
             if game_path and game_path.strip():
                 set_config_option("General", "leaguePath", game_path.strip())
-                log.info(f"[SkinMonitor] Game path updated to: {game_path.strip()}")
+                # Try to infer and save client path
+                from injection.config.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                inferred_client_path = config_manager.infer_client_path_from_league_path(game_path.strip())
+                if inferred_client_path:
+                    set_config_option("General", "clientPath", inferred_client_path)
+                    log.info(f"[SkinMonitor] League path updated to: {game_path.strip()}, client path: {inferred_client_path}")
+                else:
+                    log.info(f"[SkinMonitor] League path updated to: {game_path.strip()} (client path could not be inferred)")
             else:
                 set_config_option("General", "leaguePath", "")
-                log.info("[SkinMonitor] Game path cleared, will use auto-detection")
+                set_config_option("General", "clientPath", "")
+                log.info("[SkinMonitor] League path cleared, will use auto-detection")
             
             autostart_current = is_registered_for_autostart()
             if autostart != autostart_current:
