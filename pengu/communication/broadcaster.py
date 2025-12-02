@@ -11,7 +11,7 @@ import logging
 import time
 from typing import Optional
 
-from utils.core.utilities import get_champion_id_from_skin_id
+from utils.core.utilities import get_champion_id_from_skin_id, is_chroma_id
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +118,28 @@ class Broadcaster:
         
         historic_mode_active = getattr(self.shared_state, 'historic_mode_active', False)
         historic_skin_id = getattr(self.shared_state, 'historic_skin_id', None)
-        skin_name = self.skin_mapping.find_skin_name_by_skin_id(historic_skin_id)
+        
+        # Handle chroma IDs - they're not in the skin mapping, need to get from chroma cache
+        skin_name = None
+        if historic_skin_id is not None:
+            # Check if this is a chroma ID
+            chroma_id_map = None
+            if self.skin_scraper and self.skin_scraper.cache:
+                chroma_id_map = getattr(self.skin_scraper.cache, "chroma_id_map", None)
+            
+            if is_chroma_id(historic_skin_id, chroma_id_map):
+                # It's a chroma - get chroma name from cache
+                if chroma_id_map and historic_skin_id in chroma_id_map:
+                    chroma_info = chroma_id_map[historic_skin_id]
+                    chroma_name = chroma_info.get('name', '')
+                    skin_name = chroma_name if chroma_name else None
+                else:
+                    # Chroma ID detected but not in cache - fallback to skin mapping
+                    skin_name = self.skin_mapping.find_skin_name_by_skin_id(historic_skin_id)
+            else:
+                # Not a chroma - use regular skin mapping lookup
+                skin_name = self.skin_mapping.find_skin_name_by_skin_id(historic_skin_id)
+        
         payload = {
             "type": "historic-state",
             "active": historic_mode_active,
@@ -128,9 +149,10 @@ class Broadcaster:
         }
         
         log.debug(
-            "[SkinMonitor] Broadcasting historic state → active=%s historicSkinId=%s",
+            "[SkinMonitor] Broadcasting historic state → active=%s historicSkinId=%s historicSkinName=%s",
             historic_mode_active,
             historic_skin_id,
+            skin_name,
         )
         
         self._send_message(json.dumps(payload))
