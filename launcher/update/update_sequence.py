@@ -35,6 +35,7 @@ class UpdateSequence:
         status_callback: Callable[[str], None],
         progress_callback: Callable[[int], None],
         bytes_callback: Optional[Callable[[int, Optional[int]], None]] = None,
+        dev_mode: bool = False,
     ) -> bool:
         """Perform update check and installation
         
@@ -87,8 +88,8 @@ class UpdateSequence:
             status_callback("Launcher is already up to date")
             return False
         
-        if not getattr(sys, "frozen", False):
-            status_callback("Update skipped (dev environment)")
+        if dev_mode:
+            status_callback("Update skipped (dev mode)")
             return False
         
         # Download update
