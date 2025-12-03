@@ -1365,6 +1365,33 @@ class MessageHandler:
             }
             self._send_response(json.dumps(response_payload))
     
+    def _extract_champions_from_data(self, data, champions_dict):
+        """Recursively extract champion data from nested structures"""
+        if isinstance(data, dict):
+            # Check if this dict itself represents a champion
+            champ_id = data.get("id") or data.get("championId") or data.get("itemId") or data.get("item_id")
+            champ_name = data.get("name") or data.get("title") or data.get("localizedName")
+            
+            # Only extract if we have both ID and name, and ID looks like a champion ID (not a skin ID)
+            if champ_id and champ_name:
+                try:
+                    champ_id_int = int(champ_id)
+                    # Champion IDs are typically < 1000, skin IDs are much higher
+                    # Also check if the name doesn't look like a skin name (contains "Skin" or has very long names)
+                    if champ_id_int < 1000 and "skin" not in champ_name.lower():
+                        champions_dict[champ_id_int] = {"id": champ_id_int, "name": champ_name}
+                except (ValueError, TypeError):
+                    pass
+            
+            # Recursively search in all values
+            for value in data.values():
+                self._extract_champions_from_data(value, champions_dict)
+        
+        elif isinstance(data, list):
+            # Recursively search in all list items
+            for item in data:
+                self._extract_champions_from_data(item, champions_dict)
+    
     def _handle_add_custom_mods_champion_selected(self, payload: dict) -> None:
         """Handle champion list request for custom mods"""
         try:
@@ -1385,53 +1412,52 @@ class MessageHandler:
                 self._send_response(json.dumps(response_payload))
                 return
             
-            # Try to fetch champions list
-            # First try the champions.json endpoint
-            champions_data = self.skin_scraper.lcu.get("/lol-game-data/assets/v1/champions.json", timeout=5.0)
-            
             champions = []
-            if champions_data and isinstance(champions_data, dict):
-                # If it's a dict, it might have champions as values
-                if "champions" in champions_data:
-                    champions_data = champions_data["champions"]
-                
-                # If it's still a dict, iterate over values
-                if isinstance(champions_data, dict):
-                    for champ_id_str, champ_data in champions_data.items():
-                        try:
-                            champ_id = int(champ_id_str)
-                            champ_name = champ_data.get("name", f"Champion {champ_id}")
-                            champions.append({"id": champ_id, "name": champ_name})
-                        except (ValueError, TypeError):
-                            continue
-                elif isinstance(champions_data, list):
-                    # If it's a list, iterate over it
-                    for champ_data in champions_data:
-                        try:
-                            champ_id = champ_data.get("id") or champ_data.get("championId")
-                            champ_name = champ_data.get("name", f"Champion {champ_id}")
-                            if champ_id:
-                                champions.append({"id": int(champ_id), "name": champ_name})
-                        except (ValueError, TypeError, AttributeError):
-                            continue
+            champions_dict = {}  # Use dict to avoid duplicates
             
-            # If we didn't get champions, try alternative approach
-            # We could iterate through known champion IDs, but that's not ideal
-            # For now, return what we have or an error
-            if not champions:
-                # Try to get owned champions as fallback
-                owned_champions = self.skin_scraper.lcu.get("/lol-champions/v1/owned-champions-minimal", timeout=5.0)
-                if owned_champions and isinstance(owned_champions, list):
-                    for champ_data in owned_champions:
-                        try:
-                            champ_id = champ_data.get("id") or champ_data.get("championId")
-                            champ_name = champ_data.get("name", f"Champion {champ_id}")
-                            if champ_id:
-                                champions.append({"id": int(champ_id), "name": champ_name})
-                        except (ValueError, TypeError, AttributeError):
-                            continue
+            # Use shop endpoint to get all champions with retry logic
+            max_retries = 3
+            retry_delay = 0.5  # Wait 0.5 seconds between retries
+            
+            for attempt in range(max_retries):
+                try:
+                    champions_data = self.skin_scraper.lcu.get("/lol-store/v1/champions", timeout=5.0)
+                    
+                    if champions_data:
+                        # Log response type for debugging
+                        if attempt == 0:  # Only log structure on first attempt to avoid spam
+                            log.debug(f"[SkinMonitor] Shop endpoint response type: {type(champions_data).__name__}")
+                            if isinstance(champions_data, dict):
+                                log.debug(f"[SkinMonitor] Shop endpoint response keys: {list(champions_data.keys())[:10]}")
+                            elif isinstance(champions_data, list):
+                                log.debug(f"[SkinMonitor] Shop endpoint response length: {len(champions_data)}")
+                        
+                        # Recursively extract champion data from the response
+                        self._extract_champions_from_data(champions_data, champions_dict)
+                        
+                        # If we found champions, we're done
+                        if len(champions_dict) > 0:
+                            log.debug(f"[SkinMonitor] Successfully fetched {len(champions_dict)} champions from shop endpoint (attempt {attempt + 1})")
+                            break
+                        else:
+                            log.debug(f"[SkinMonitor] Shop endpoint returned data but no champions extracted (attempt {attempt + 1})")
+                    else:
+                        log.debug(f"[SkinMonitor] Shop endpoint returned no data (attempt {attempt + 1})")
+                    
+                    # If we got here and haven't found champions, wait and retry
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        
+                except Exception as e:
+                    log.debug(f"[SkinMonitor] Failed to fetch champions from shop endpoint (attempt {attempt + 1}): {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+            
+            if len(champions_dict) == 0:
+                log.warning(f"[SkinMonitor] Failed to fetch champions from shop endpoint after {max_retries} attempts")
             
             # Sort champions by name
+            champions = list(champions_dict.values())
             champions.sort(key=lambda x: x["name"])
             
             response_payload = {
