@@ -276,3 +276,7 @@ class SkinInjector:
     def kill_all_runoverlay_processes(self):
         """Kill all runoverlay processes (for ChampSelect cleanup)"""
         self.process_manager.kill_all_runoverlay_processes()
+    
+    def kill_all_modtools_processes(self):
+        """Kill all mod-tools.exe processes (for application shutdown)"""
+        self.process_manager.kill_all_modtools_processes()
