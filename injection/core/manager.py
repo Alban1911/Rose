@@ -384,6 +384,16 @@ class InjectionManager:
         cleanup = threading.Thread(target=cleanup_thread, daemon=True, name="CleanupThread")
         cleanup.start()
     
+    def kill_all_modtools_processes(self):
+        """Kill all mod-tools.exe processes (for application shutdown)"""
+        if not self._initialized:
+            return  # Nothing to kill if not initialized
+        
+        try:
+            self.injector.kill_all_modtools_processes()
+        except Exception as e:
+            log.warning(f"[INJECT] Failed to kill mod-tools.exe processes: {e}")
+    
     def _get_injection_dir(self) -> Path:
         """Get the injection directory path (works in both frozen and development environments)"""
         if getattr(sys, 'frozen', False):

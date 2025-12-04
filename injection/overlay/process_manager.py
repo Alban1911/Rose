@@ -124,4 +124,69 @@ class ProcessManager:
         
         # Also stop our tracked process if it exists
         self.stop_overlay_process()
+    
+    def kill_all_modtools_processes(self):
+        """Kill all mod-tools.exe processes (for application shutdown)"""
+        killed_count = 0
+        
+        try:
+            # Use a timeout to prevent hanging on process_iter
+            start_time = time.time()
+            timeout = PROCESS_ENUM_TIMEOUT_S
+            
+            # Only get pid and name initially to avoid slow cmdline lookups
+            if not PSUTIL_AVAILABLE:
+                log.debug("[INJECT] psutil not available, skipping mod-tools cleanup")
+                return
+            
+            for proc in psutil.process_iter(['pid', 'name']):
+                # Check timeout to prevent indefinite hangs
+                if time.time() - start_time > timeout:
+                    log.warning(f"[INJECT] Process enumeration timeout after {timeout}s - some processes may not be killed")
+                    break
+                
+                try:
+                    # Only kill mod-tools.exe processes
+                    if proc.info.get('name') != 'mod-tools.exe':
+                        continue
+                    
+                    # Kill all mod-tools.exe processes regardless of command
+                    log.info(f"[INJECT] Killing mod-tools.exe process PID {proc.info['pid']}")
+                    try:
+                        # Create Process object
+                        p = psutil.Process(proc.info['pid'])
+                        # Try graceful termination first
+                        p.terminate()
+                        # Give it a brief moment, then force kill if needed
+                        try:
+                            p.wait(timeout=PROCESS_TERMINATE_WAIT_S)
+                        except (psutil.TimeoutExpired, psutil.NoSuchProcess) as wait_e:
+                            p.kill()  # Force kill if terminate didn't work
+                            log.debug(f"Process wait timeout or process gone, force killing: {wait_e}")
+                    except Exception as e:
+                        try:
+                            p.kill()  # Force kill on any error
+                        except (psutil.NoSuchProcess, psutil.AccessDenied) as kill_e:
+                            log.debug(f"[INJECT] Process already gone or inaccessible: {kill_e}")
+                        except Exception as kill_e:
+                            log.debug(f"[INJECT] Unexpected error force killing process: {kill_e}")
+                    killed_count += 1
+                    
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    # Process might have already ended or we don't have access
+                    pass
+                except Exception as e:
+                    # Log but continue with other processes
+                    log.debug(f"[INJECT] Error processing PID {proc.info.get('pid', '?')}: {e}")
+            
+            if killed_count > 0:
+                log.info(f"[INJECT] Killed {killed_count} mod-tools.exe process(es)")
+            else:
+                log.debug("[INJECT] No mod-tools.exe processes found to kill")
+                
+        except Exception as e:
+            log.warning(f"[INJECT] Failed to kill mod-tools.exe processes: {e}")
+        
+        # Also stop our tracked process if it exists
+        self.stop_overlay_process()
 

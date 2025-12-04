@@ -205,7 +205,7 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
         run_main_loop(state, skin_scraper)
     finally:
         # Perform cleanup
-        perform_cleanup(state, thread_manager, tray_manager)
+        perform_cleanup(state, thread_manager, tray_manager, injection_manager)
 
 
 def main() -> None:
