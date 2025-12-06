@@ -16,7 +16,7 @@ from utils.core.paths import get_user_data_dir
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "1.0.5"                          # Application version
+APP_VERSION = "1.1.0"                          # Application version
 APP_USER_AGENT = f"Rose/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 _CONFIG = configparser.ConfigParser()
