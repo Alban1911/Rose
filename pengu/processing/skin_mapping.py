@@ -26,6 +26,8 @@ class SkinMapping:
         """
         self.shared_state = shared_state
         self.skin_id_mapping: dict[str, int] = {}
+        self.skin_id_name_mapping: dict[int, str] = {}  # Normalized (lowercase) names for backward compatibility
+        self.skin_id_original_name_mapping: dict[int, str] = {}  # Original names with proper case
         self.skin_mapping_loaded = False
     
     def load_mapping(self) -> bool:
@@ -64,14 +66,18 @@ class SkinMapping:
             return False
         
         self.skin_id_mapping.clear()
+        self.skin_id_original_name_mapping.clear()
         for skin_id_str, name in data.items():
             try:
                 skin_id = int(skin_id_str)
             except (TypeError, ValueError):
                 continue
-            normalized = (name or "").strip().lower()
+            original_name = (name or "").strip()
+            normalized = original_name.lower()
             if normalized and normalized not in self.skin_id_mapping:
                 self.skin_id_mapping[normalized] = skin_id
+                self.skin_id_name_mapping[skin_id] = normalized
+                self.skin_id_original_name_mapping[skin_id] = original_name  # Store original case
         
         self.skin_mapping_loaded = True
         log.info(
@@ -104,9 +110,30 @@ class SkinMapping:
                 return skin_id
         
         return None
-    
+    def find_skin_name_by_skin_id(self, skin_id: int) -> Optional[str]:
+        """Find skin name by id using mapping
+
+        Args:
+            skin_id: Skin id to look up
+
+        Returns:
+            Skin name with original case if found, None otherwise
+        """
+        if not self.skin_mapping_loaded:
+            if not self.load_mapping():
+                return None
+
+        # Return original name with proper case
+        if skin_id in self.skin_id_original_name_mapping:
+            return self.skin_id_original_name_mapping[skin_id]
+        # Fallback to normalized name if original not available (for backward compatibility)
+        if skin_id in self.skin_id_name_mapping:
+            return self.skin_id_name_mapping[skin_id]
+        return None
+
     def clear(self) -> None:
         """Clear mapping cache"""
         self.skin_mapping_loaded = False
         self.skin_id_mapping.clear()
+        self.skin_id_original_name_mapping.clear()
 

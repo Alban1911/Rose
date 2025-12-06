@@ -6,6 +6,7 @@ Thread initialization and management
 
 from threads import PhaseThread, WSEventThread, LCUMonitorThread
 from pengu import PenguSkinMonitorThread
+from analytics import AnalyticsThread
 from utils.threading.thread_manager import ThreadManager
 from utils.core.logging import get_logger
 from config import PHASE_POLL_INTERVAL_DEFAULT, WS_PING_TIMEOUT_DEFAULT
@@ -53,6 +54,10 @@ def initialize_threads(lcu, state, args, injection_manager, skin_scraper, app_st
                                       db=None, skin_scraper=skin_scraper, injection_manager=injection_manager,
                                       disconnect_callback=on_lcu_disconnected)
     thread_manager.register("LCU Monitor", t_lcu_monitor)
+    
+    # Initialize analytics thread
+    t_analytics = AnalyticsThread(state)
+    thread_manager.register("Analytics", t_analytics, stop_method=t_analytics.stop)
     
     # Start all threads
     thread_manager.start_all()

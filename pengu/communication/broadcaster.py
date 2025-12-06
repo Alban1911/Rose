@@ -11,7 +11,7 @@ import logging
 import time
 from typing import Optional
 
-from utils.core.utilities import get_champion_id_from_skin_id
+from utils.core.utilities import get_champion_id_from_skin_id, is_chroma_id
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ SPECIAL_CHROMA_SKIN_IDS = {
 class Broadcaster:
     """Broadcasts messages to WebSocket clients"""
     
-    def __init__(self, websocket_server, shared_state, skin_scraper=None):
+    def __init__(self, websocket_server, shared_state, skin_mapping, skin_scraper=None):
         """Initialize broadcaster
         
         Args:
@@ -44,6 +44,7 @@ class Broadcaster:
         self.websocket_server = websocket_server
         self.shared_state = shared_state
         self.skin_scraper = skin_scraper
+        self.skin_mapping = skin_mapping;
     
     def broadcast_skin_state(self, skin_name: str, skin_id: Optional[int]) -> None:
         """Broadcast skin state to clients"""
@@ -118,17 +119,69 @@ class Broadcaster:
         historic_mode_active = getattr(self.shared_state, 'historic_mode_active', False)
         historic_skin_id = getattr(self.shared_state, 'historic_skin_id', None)
         
+        # Handle chroma IDs - they're not in the skin mapping, need to get from chroma cache
+        skin_name = None
+        if historic_skin_id is not None:
+            # Check if this is a custom mod path
+            from utils.core.historic import is_custom_mod_path, get_custom_mod_path
+            if is_custom_mod_path(historic_skin_id):
+                # Extract mod name from path (e.g., "gwen-battle-queen-edited-chroma_2.1.0" from "skins/887030/gwen-battle-queen-edited-chroma_2.1.0.fantome")
+                custom_mod_path = get_custom_mod_path(historic_skin_id)
+                try:
+                    path_parts = custom_mod_path.replace("\\", "/").split("/")
+                    if len(path_parts) >= 3 and path_parts[0] == "skins":
+                        # Get the mod filename (last part)
+                        mod_filename = path_parts[-1]
+                        # Remove file extension (.fantome, .zip, etc.)
+                        if "." in mod_filename:
+                            mod_name = mod_filename.rsplit(".", 1)[0]
+                        else:
+                            mod_name = mod_filename
+                        skin_name = mod_name
+                    else:
+                        # Fallback: use the last part of the path
+                        mod_filename = path_parts[-1] if path_parts else custom_mod_path
+                        if "." in mod_filename:
+                            mod_name = mod_filename.rsplit(".", 1)[0]
+                        else:
+                            mod_name = mod_filename
+                        skin_name = mod_name
+                except Exception as e:
+                    log.debug(f"[HISTORIC] Failed to extract mod name from path '{custom_mod_path}': {e}")
+                    # Fallback: use the path itself
+                    skin_name = custom_mod_path
+            else:
+                # Check if this is a chroma ID
+                chroma_id_map = None
+                if self.skin_scraper and self.skin_scraper.cache:
+                    chroma_id_map = getattr(self.skin_scraper.cache, "chroma_id_map", None)
+                
+                if is_chroma_id(historic_skin_id, chroma_id_map):
+                    # It's a chroma - get chroma name from cache
+                    if chroma_id_map and historic_skin_id in chroma_id_map:
+                        chroma_info = chroma_id_map[historic_skin_id]
+                        chroma_name = chroma_info.get('name', '')
+                        skin_name = chroma_name if chroma_name else None
+                    else:
+                        # Chroma ID detected but not in cache - fallback to skin mapping
+                        skin_name = self.skin_mapping.find_skin_name_by_skin_id(historic_skin_id)
+                else:
+                    # Not a chroma - use regular skin mapping lookup
+                    skin_name = self.skin_mapping.find_skin_name_by_skin_id(historic_skin_id)
+        
         payload = {
             "type": "historic-state",
             "active": historic_mode_active,
             "historicSkinId": historic_skin_id,
+            "historicSkinName": skin_name,
             "timestamp": int(time.time() * 1000),
         }
         
         log.debug(
-            "[SkinMonitor] Broadcasting historic state → active=%s historicSkinId=%s",
+            "[SkinMonitor] Broadcasting historic state → active=%s historicSkinId=%s historicSkinName=%s",
             historic_mode_active,
             historic_skin_id,
+            skin_name,
         )
         
         self._send_message(json.dumps(payload))

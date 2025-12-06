@@ -81,8 +81,10 @@ class SkinInjector:
         # Only detect if game_dir not provided - never use invalid fallback paths
         if game_dir is not None:
             self.game_dir = game_dir
+            # If game_dir provided, try to detect client_dir
+            _, self.client_dir = self.game_detector.detect_paths()
         else:
-            self.game_dir = self.game_detector.detect_game_dir()
+            self.game_dir, self.client_dir = self.game_detector.detect_paths()
         
         # Create directories if they don't exist
         self.mods_dir.mkdir(parents=True, exist_ok=True)
@@ -117,22 +119,6 @@ class SkinInjector:
     def _extract_zip_to_mod(self, zp: Path) -> Path:
         """Extract ZIP to mod directory"""
         return self.mod_manager.extract_zip_to_mod(zp)
-    
-    def _get_user_mods_dir(self) -> Path:
-        """Get the user mods directory (AppData\\Local\\Rose\\mods)"""
-        return self.mod_manager._get_user_mods_dir()
-    
-    def _get_installed_mods_dir(self) -> Path:
-        """Get the installed mods directory (AppData\\Local\\Rose\\mods\\installed)"""
-        return self.mod_manager._get_installed_mods_dir()
-    
-    def _extract_user_mods(self) -> List[str]:
-        """Check for ZIPs and .fantome files and extract them"""
-        return self.mod_manager.extract_user_mods()
-    
-    def _copy_installed_mods_to_mods_dir(self) -> List[str]:
-        """Copy mods from installed directory to the injection mods directory"""
-        return self.mod_manager.copy_installed_mods_to_mods_dir()
     
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback=None, injection_manager=None) -> int:
         """Create and run overlay"""
@@ -195,16 +181,8 @@ class SkinInjector:
         extract_duration = time.time() - extract_start
         log.debug(f"[INJECT] ZIP extraction took {extract_duration:.2f}s")
         
-        # Copy installed mods to mods directory
-        installed_mods = self._copy_installed_mods_to_mods_dir()
-        
-        # Create list of mods to inject (skin + installed mods)
+        # Create list of mods to inject (skin only)
         mod_names = [mod_folder.name]
-        if installed_mods:
-            mod_names.extend(installed_mods)
-            log.info(f"[INJECT] Injecting skin + {len(installed_mods)} installed mod(s)")
-        else:
-            log.debug("[INJECT] Injecting skin only (no installed mods)")
         
         # Create and run overlay
         result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
@@ -224,47 +202,9 @@ class SkinInjector:
         return result == 0
     
     def inject_mods_only(self, timeout: int = 60, stop_callback=None, injection_manager=None) -> bool:
-        """Inject only installed mods (no skin)
-        
-        Args:
-            timeout: Timeout for injection process
-            stop_callback: Callback to check if injection should stop
-            injection_manager: InjectionManager instance to call resume_game()
-        """
-        injection_start_time = time.time()
-        
-        # Clean mods and overlay directories
-        clean_start = time.time()
-        self._clean_mods_dir()
-        self._clean_overlay_dir()
-        clean_duration = time.time() - clean_start
-        log.debug(f"[INJECT] Directory cleanup took {clean_duration:.2f}s")
-        
-        # Copy installed mods to mods directory
-        installed_mods = self._copy_installed_mods_to_mods_dir()
-        
-        if not installed_mods:
-            log.warning("[INJECT] No installed mods to inject")
-            return False
-        
-        log.info(f"[INJECT] Injecting {len(installed_mods)} installed mod(s): {', '.join(installed_mods)}")
-        
-        # Create and run overlay
-        result = self._mk_run_overlay(installed_mods, timeout, stop_callback, injection_manager)
-        
-        # Get mkoverlay duration from stored timing data
-        mkoverlay_duration = self.last_injection_timing.get('mkoverlay_duration', 0.0) if self.last_injection_timing else 0.0
-        
-        total_duration = time.time() - injection_start_time
-        runoverlay_duration = total_duration - clean_duration - mkoverlay_duration
-        
-        # Log timing breakdown
-        if result == 0:
-            log.info(f"[INJECT] Mods injection completed in {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s, runoverlay: {runoverlay_duration:.2f}s)")
-        else:
-            log.warning(f"[INJECT] Mods injection failed - timeout or error after {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s)")
-        
-        return result == 0
+        """Disabled: installed mods folder removed"""
+        log.warning("[INJECT] Mods-only injection is disabled (installed mods folder removed)")
+        return False
     
     def inject_skin_for_testing(self, skin_name: str) -> bool:
         """Inject a skin for testing - stops overlay immediately after mkoverlay"""
@@ -336,3 +276,7 @@ class SkinInjector:
     def kill_all_runoverlay_processes(self):
         """Kill all runoverlay processes (for ChampSelect cleanup)"""
         self.process_manager.kill_all_runoverlay_processes()
+    
+    def kill_all_modtools_processes(self):
+        """Kill all mod-tools.exe processes (for application shutdown)"""
+        self.process_manager.kill_all_modtools_processes()

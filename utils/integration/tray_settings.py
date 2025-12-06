@@ -183,12 +183,12 @@ class InjectionSettingsWindow(Win32Window):
             return False, False
 
     def _load_game_path(self) -> str:
-        """Load game path from config"""
+        """Load league path from config"""
         try:
             path = get_config_option("General", "leaguePath")
             return path or ""
         except Exception as exc:  # noqa: BLE001
-            log.debug(f"[TraySettings] Failed to load game path: {exc}")
+            log.debug(f"[TraySettings] Failed to load league path: {exc}")
             return ""
 
     def _validate_game_path(self, path: str) -> bool:
@@ -499,11 +499,20 @@ def show_injection_settings_dialog() -> None:
         try:
             if game_path.strip():
                 set_config_option("General", "leaguePath", game_path.strip())
-                log.info(f"[TraySettings] Game path updated to: {game_path.strip()}")
+                # Try to infer and save client path
+                from injection.config.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                inferred_client_path = config_manager.infer_client_path_from_league_path(game_path.strip())
+                if inferred_client_path:
+                    set_config_option("General", "clientPath", inferred_client_path)
+                    log.info(f"[TraySettings] League path updated to: {game_path.strip()}, client path: {inferred_client_path}")
+                else:
+                    log.info(f"[TraySettings] League path updated to: {game_path.strip()} (client path could not be inferred)")
             else:
                 # Empty path means clear the manual path (will use auto-detection)
                 set_config_option("General", "leaguePath", "")
-                log.info("[TraySettings] Game path cleared, will use auto-detection")
+                set_config_option("General", "clientPath", "")
+                log.info("[TraySettings] League path cleared, will use auto-detection")
         except Exception as exc:  # noqa: BLE001
             log.error(f"[TraySettings] Failed to save game path: {exc}")
 
