@@ -13,7 +13,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 try:
     import psutil  # type: ignore
@@ -163,15 +163,44 @@ def _is_league_running() -> bool:
     return False
 
 
-def activate_on_start() -> bool:
+def set_league_path(league_path: str) -> bool:
+    """
+    Set the League path in Pengu Loader configuration.
+    
+    Args:
+        league_path: Path to League of Legends.exe directory
+        
+    Returns True if the command completed successfully.
+    """
+    if not _is_available():
+        log.debug("Pengu Loader not available; skipping set-league-path.")
+        return False
+    
+    if not league_path or not league_path.strip():
+        log.warning("Empty league path provided; skipping set-league-path.")
+        return False
+    
+    log.info("Setting League path in Pengu Loader: %s", league_path)
+    return _run_cli(["--set-league-path", league_path.strip(), "--silent"])
+
+
+def activate_on_start(league_path: Optional[str] = None) -> bool:
     """
     Force activate Pengu Loader when Rose launches.
-
+    
+    Args:
+        league_path: Optional League path to set before activation
+        
     Returns True if the activation command completed successfully.
     """
     if not _is_available():
         log.debug("Pengu Loader not available; skipping activation.")
         return False
+
+    # Set league path if provided
+    if league_path:
+        if not set_league_path(league_path):
+            log.warning("Failed to set league path in Pengu Loader, continuing with activation anyway.")
 
     _terminate_pengu_ui()
     restart_needed = _is_league_running()

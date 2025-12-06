@@ -156,12 +156,13 @@ class SizeRotatingCompositeHandler(logging.Handler):
         except Exception:
             pass
 
-def setup_logging(log_mode: str = 'customer'):
+def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     """
-    Setup logging configuration with three modes
+    Setup logging configuration with three modes.
     
     Args:
         log_mode: 'customer' (clean logs), 'verbose' (developer), or 'debug' (ultra-detailed)
+        write_logs: If False, skip creating log files (useful for --dev runs).
     """
     # Store the log mode globally
     global _CURRENT_LOG_MODE
@@ -291,53 +292,57 @@ def setup_logging(log_mode: str = 'customer'):
     # Wrap in queue handler to prevent blocking
     h = QueueHandler(safe_handler)
     
-    # Setup file logging
-    try:
-        # Create logs directory in user data directory
-        from .paths import get_user_data_dir
-        logs_dir = get_user_data_dir() / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create a unique log file for this session with timestamp
-        # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
-        timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
-        
-        max_bytes = int(LOG_MAX_FILE_SIZE_MB_DEFAULT * 1024 * 1024)
-        log_file = logs_dir / f"rose_{timestamp}.log"
-        def _factory_plain(p: Path):
-            return logging.FileHandler(p, encoding='utf-8')
-        file_handler = SizeRotatingCompositeHandler(log_file, _factory_plain, max_bytes)
-        
-        # File formatter based on log mode
-        if log_mode == 'customer':
-            # Clean format for customer logs
-            file_fmt = "%(_when)s | %(message)s"
-        elif log_mode == 'verbose':
-            # Detailed format for developer logs
-            file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
-        else:  # debug mode
-            # Ultra-detailed format with logger name and function
-            file_fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
-        
-        class _FileFmt(logging.Formatter):
-            def format(self, record):
-                record._when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-                return super().format(record)
-        
-        file_handler.setFormatter(_FileFmt(file_fmt))
-        
-        # File handler logging level based on mode
-        if log_mode == 'debug':
-            file_handler.setLevel(TRACE)  # Show everything including TRACE
-        elif log_mode == 'verbose':
-            file_handler.setLevel(logging.DEBUG)  # Show DEBUG and above
-        else:  # customer mode
-            file_handler.setLevel(logging.INFO)  # Show INFO and above
-        
-    except Exception as e:
-        # If file logging fails, continue without it
-        file_handler = None
-        print(f"Warning: Could not setup file logging: {e}", file=sys.stderr)
+    # Setup file logging (only if dev mode isn't explicitly suppressing it)
+    file_handler = None
+    log_file = None
+    if write_logs:
+        try:
+            # Create logs directory in user data directory
+            from .paths import get_user_data_dir
+            logs_dir = get_user_data_dir() / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create a unique log file for this session with timestamp
+            # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
+            timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
+            
+            max_bytes = int(LOG_MAX_FILE_SIZE_MB_DEFAULT * 1024 * 1024)
+            log_file = logs_dir / f"rose_{timestamp}.log"
+            def _factory_plain(p: Path):
+                return logging.FileHandler(p, encoding='utf-8')
+            file_handler = SizeRotatingCompositeHandler(log_file, _factory_plain, max_bytes)
+            
+            # File formatter based on log mode
+            if log_mode == 'customer':
+                # Clean format for customer logs
+                file_fmt = "%(_when)s | %(message)s"
+            elif log_mode == 'verbose':
+                # Detailed format for developer logs
+                file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
+            else:  # debug mode
+                # Ultra-detailed format with logger name and function
+                file_fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
+            
+            class _FileFmt(logging.Formatter):
+                def format(self, record):
+                    record._when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                    return super().format(record)
+            
+            file_handler.setFormatter(_FileFmt(file_fmt))
+            
+            # File handler logging level based on mode
+            if log_mode == 'debug':
+                file_handler.setLevel(TRACE)  # Show everything including TRACE
+            elif log_mode == 'verbose':
+                file_handler.setLevel(logging.DEBUG)  # Show DEBUG and above
+            else:  # customer mode
+                file_handler.setLevel(logging.INFO)  # Show INFO and above
+            
+        except Exception as e:
+            # If file logging fails, continue without it
+            file_handler = None
+            log_file = None
+            print(f"Warning: Could not setup file logging: {e}", file=sys.stderr)
     
     root = logging.getLogger()
     root.handlers.clear()
@@ -369,20 +374,28 @@ def setup_logging(log_mode: str = 'customer'):
             # Show startup message based on log mode
             if _CURRENT_LOG_MODE == 'customer':
                 # Clean startup for customer mode
-                logger.info(f"✅ Rose Started (Log: {log_file.name})")
+                if log_file:
+                    logger.info(f"✅ Rose Started (Log: {log_file.name})")
+                else:
+                    logger.info("✅ Rose Started (logs disabled)")
             else:
                 # Detailed startup for verbose/debug modes
                 logger.info("=" * LOG_SEPARATOR_WIDTH)
-                logger.info(f"Rose - Starting... (Log file: {log_file.name})")
+                if log_file:
+                    logger.info(f"Rose - Starting... (Log file: {log_file.name})")
+                else:
+                    logger.info("Rose - Starting... (logs disabled)")
                 logger.info("=" * LOG_SEPARATOR_WIDTH)
                 
                 # Log mode information
                 if _CURRENT_LOG_MODE == 'debug':
                     logger.info("Debug mode: ON (ultra-detailed logs with function traces)")
-                    logger.debug(f"Log file location: {log_file.absolute()}")
+                    if log_file:
+                        logger.debug(f"Log file location: {log_file.absolute()}")
                 elif _CURRENT_LOG_MODE == 'verbose':
                     logger.info("Verbose mode: ON (developer logs with technical details)")
-                    logger.debug(f"Log file location: {log_file.absolute()}")
+                    if log_file:
+                        logger.debug(f"Log file location: {log_file.absolute()}")
                     
         except (AttributeError, OSError):
             pass  # stdout is broken, ignore

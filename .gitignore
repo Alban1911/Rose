@@ -89,3 +89,5 @@ htmlcov/
 license.dat
 config.ini
 injection/tools/hashes.game.txt
+Pengu Loader/datastore
+injection/tools/.hashes_state.json

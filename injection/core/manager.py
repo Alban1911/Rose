@@ -128,8 +128,7 @@ class InjectionManager:
     def update_skin(self, skin_name: str):
         """Update the current skin and potentially trigger injection"""
         if not skin_name:
-            # If no skin name, check if we should inject mods only
-            self._check_and_inject_mods_only()
+            log.debug("[INJECT] No skin name available - skipping injection (mods-only flow disabled)")
             return
         
         self._ensure_initialized()
@@ -147,12 +146,6 @@ class InjectionManager:
                 remaining = self.injection_threshold - elapsed
                 log.debug(f"[INJECT] Skipping injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
                 return
-
-            # Extract user mods when injection threshold triggers
-            try:
-                self.injector._extract_user_mods()
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to extract user mods: {e}")
 
             # Disconnect from UIA window when injection threshold triggers
             # (launcher closes when game starts, so the window is gone)
@@ -181,53 +174,8 @@ class InjectionManager:
             self._stop_monitor()
     
     def _check_and_inject_mods_only(self):
-        """Check if there are installed mods and inject them if no skin is being injected"""
-        self._ensure_initialized()
-        self.refresh_injection_threshold()
-        
-        # Don't attempt injection if system isn't properly initialized
-        if not self._initialized or self.injector is None or self.injector.game_dir is None:
-            return
-        
-        # Extract user mods first
-        try:
-            self.injector._extract_user_mods()
-        except Exception as e:
-            log.warning(f"[INJECT] Failed to extract user mods: {e}")
-        
-        # Check if there are installed mods
-        installed_dir = self.injector._get_installed_mods_dir()
-        if not installed_dir.exists():
-            return
-        
-        mod_dirs = [d for d in installed_dir.iterdir() if d.is_dir()]
-        if not mod_dirs:
-            return
-        
-        # Inject mods only (no skin)
-        with self.injection_lock:
-            current_time = time.time()
-            elapsed = current_time - self.last_injection_time
-            if self.last_injection_time and elapsed < self.injection_threshold:
-                remaining = self.injection_threshold - elapsed
-                log.debug(f"[INJECT] Skipping mods injection (cooldown {remaining:.2f}s remaining)")
-                return
-            
-            # Start monitor if not already active
-            if not self._monitor_active:
-                log.info("[INJECT] Starting game monitor for mods injection")
-                self._start_monitor()
-            
-            success = self.injector.inject_mods_only(
-                stop_callback=None,
-                injection_manager=self
-            )
-            
-            if success:
-                self.last_injection_time = current_time
-            
-            # Stop monitor after injection completes
-            self._stop_monitor()
+        """Mods-only injection is disabled because the installed mods directory was removed."""
+        log.info("[INJECT] Mods-only injection skipped (installed mods folder removed)")
     
     def on_loadout_countdown(self, seconds_remaining: int):
         """Called during loadout countdown - no longer used (monitor starts with injection)"""
@@ -253,13 +201,11 @@ class InjectionManager:
                     # Check if this is a base skin (skin ID 0 or champion's base skin ID like 36000 for champ 36)
                     # Base skins typically have ID = champion_id * 1000
                     if skin_id == 0:
-                        log.info(f"[INJECT] Base skin detected (skinId=0) - injecting mods only instead")
-                        self._check_and_inject_mods_only()
+                        log.info("[INJECT] Base skin detected (skinId=0) - injection skipped")
                         return False
                     # Check if it matches base skin pattern (champion_id * 1000)
                     if champion_id and skin_id == champion_id * 1000:
-                        log.info(f"[INJECT] Base skin detected (skinId={skin_id} for champion {champion_id}) - injecting mods only instead")
-                        self._check_and_inject_mods_only()
+                        log.info(f"[INJECT] Base skin detected (skinId={skin_id} for champion {champion_id}) - injection skipped")
                         return False
             except (ValueError, IndexError):
                 pass  # Not a numeric skin ID, continue with normal injection
@@ -294,12 +240,6 @@ class InjectionManager:
                 remaining = self.injection_threshold - elapsed
                 log.debug(f"[INJECT] Skipping immediate injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
                 return False
-
-            # Extract user mods when injection threshold triggers
-            try:
-                self.injector._extract_user_mods()
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to extract user mods: {e}")
 
             # Disconnect from UIA window when injection happens
             # (launcher closes when game starts, so the window is gone)
@@ -443,6 +383,16 @@ class InjectionManager:
         
         cleanup = threading.Thread(target=cleanup_thread, daemon=True, name="CleanupThread")
         cleanup.start()
+    
+    def kill_all_modtools_processes(self):
+        """Kill all mod-tools.exe processes (for application shutdown)"""
+        if not self._initialized:
+            return  # Nothing to kill if not initialized
+        
+        try:
+            self.injector.kill_all_modtools_processes()
+        except Exception as e:
+            log.warning(f"[INJECT] Failed to kill mod-tools.exe processes: {e}")
     
     def _get_injection_dir(self) -> Path:
         """Get the injection directory path (works in both frozen and development environments)"""

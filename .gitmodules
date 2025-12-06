@@ -19,3 +19,9 @@
 [submodule "Pengu Loader/plugins/ROSE-FormsWheel"]
 	path = Pengu Loader/plugins/ROSE-FormsWheel
 	url = https://github.com/Alban1911/ROSE-FormsWheel
+[submodule "Pengu Loader/plugins/ROSE-CustomWheel"]
+	path = Pengu Loader/plugins/ROSE-CustomWheel
+	url = https://github.com/Alban1911/ROSE-CustomWheel
+[submodule "Pengu Loader/plugins/ROSE-Jade"]
+	path = Pengu Loader/plugins/ROSE-Jade
+	url = https://github.com/FlorentTariolle/ROSE-Jade.git

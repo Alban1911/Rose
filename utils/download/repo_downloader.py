@@ -699,7 +699,9 @@ class RepoDownloader:
 
                 total_mb = _format_size(total_bytes)
                 self._emit_progress(progress_end, f"Extraction complete ({_format_size(processed_bytes)} / {total_mb})")
-                return (extracted_zip_count + extracted_png_count + extracted_resources_count) > 0
+                # Return True if extraction completed successfully, regardless of whether new files were extracted
+                # (files may already be up to date, which is still a success)
+                return True
                 
         except zipfile.BadZipFile:
             log.error("Invalid ZIP file")

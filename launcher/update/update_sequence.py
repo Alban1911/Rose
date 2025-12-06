@@ -35,6 +35,7 @@ class UpdateSequence:
         status_callback: Callable[[str], None],
         progress_callback: Callable[[int], None],
         bytes_callback: Optional[Callable[[int, Optional[int]], None]] = None,
+        dev_mode: bool = False,
     ) -> bool:
         """Perform update check and installation
         
@@ -78,12 +79,17 @@ class UpdateSequence:
         # We only update it after a successful update installation
         installed_version = config.get("General", "installed_version", fallback=APP_VERSION)
         
+        # Skip updates for test versions (e.g., version 999)
+        if installed_version == "999":
+            status_callback("Update skipped (test version)")
+            return False
+        
         if remote_version and installed_version == remote_version:
             status_callback("Launcher is already up to date")
             return False
         
-        if not getattr(sys, "frozen", False):
-            status_callback("Update skipped (dev environment)")
+        if dev_mode:
+            status_callback("Update skipped (dev mode)")
             return False
         
         # Download update
@@ -114,17 +120,18 @@ class UpdateSequence:
         if not extracted_root:
             return False
         
-        # Download hash file if available
-        hash_asset = self.github_client.get_hash_asset(release)
-        if hash_asset:
-            status_callback("Downloading hash file...")
-            hash_download_url = hash_asset.get("browser_download_url")
-            hash_target_path = extracted_root / "injection" / "tools" / "hashes.game.txt"
-            self.downloader.download_hash_file(
-                hash_download_url,
-                hash_target_path,
-                status_callback,
-            )
+        # Download hash file if available (skip in dev mode)
+        if getattr(sys, "frozen", False):
+            hash_asset = self.github_client.get_hash_asset(release)
+            if hash_asset:
+                status_callback("Downloading hash file...")
+                hash_download_url = hash_asset.get("browser_download_url")
+                hash_target_path = extracted_root / "injection" / "tools" / "hashes.game.txt"
+                self.downloader.download_hash_file(
+                    hash_download_url,
+                    hash_target_path,
+                    status_callback,
+                )
         
         # Install update
         status_callback("Installing update")

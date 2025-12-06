@@ -33,14 +33,18 @@ class HistoricModeHandler:
         if skin_id == base_skin_id:
             # Check if there's a historic entry for this champion
             try:
-                from utils.core.historic import get_historic_skin_for_champion
-                historic_skin_id = get_historic_skin_for_champion(self.state.locked_champ_id)
+                from utils.core.historic import get_historic_skin_for_champion, is_custom_mod_path
+                historic_value = get_historic_skin_for_champion(self.state.locked_champ_id)
                 
-                if historic_skin_id is not None:
+                if historic_value is not None:
                     # Activate historic mode
                     self.state.historic_mode_active = True
-                    self.state.historic_skin_id = historic_skin_id
-                    log.info(f"[HISTORIC] Historic mode ACTIVATED for champion {self.state.locked_champ_id} (historic skin ID: {historic_skin_id})")
+                    self.state.historic_skin_id = historic_value
+                    
+                    if is_custom_mod_path(historic_value):
+                        log.info(f"[HISTORIC] Historic mode ACTIVATED for champion {self.state.locked_champ_id} (custom mod path: {historic_value})")
+                    else:
+                        log.info(f"[HISTORIC] Historic mode ACTIVATED for champion {self.state.locked_champ_id} (historic skin ID: {historic_value})")
                     
                     # Broadcast state to JavaScript
                     try:

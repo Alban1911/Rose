@@ -35,15 +35,53 @@ class SkinNameResolver:
         """
         # Historic mode override
         if getattr(self.state, 'historic_mode_active', False) and getattr(self.state, 'historic_skin_id', None):
-            hist_id = int(self.state.historic_skin_id)
-            chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
-            if chroma_id_map and hist_id in chroma_id_map:
-                name = f"chroma_{hist_id}"
-                log.info(f"[HISTORIC] Using historic chroma ID for injection: {hist_id}")
+            from utils.core.historic import is_custom_mod_path, get_custom_mod_path
+            
+            hist_value = self.state.historic_skin_id
+            
+            # Check if it's a custom mod path
+            if is_custom_mod_path(hist_value):
+                custom_mod_path = get_custom_mod_path(hist_value)
+                log.info(f"[HISTORIC] Using historic custom mod path for injection: {custom_mod_path}")
+                # Extract skin ID from mod path (format: skins/{skin_id}/{mod_name})
+                # For example: "skins/887030/gwen-battle-queen-edited-chroma_2.1.0.fantome" -> 887030
+                try:
+                    path_parts = custom_mod_path.replace("\\", "/").split("/")
+                    if len(path_parts) >= 2 and path_parts[0] == "skins":
+                        skin_id_str = path_parts[1]
+                        base_skin_id = int(skin_id_str)
+                        base_skin_name = f"skin_{base_skin_id}"
+                        log.info(f"[HISTORIC] Extracted base skin ID {base_skin_id} from mod path, returning: {base_skin_name}")
+                        return base_skin_name
+                    else:
+                        log.warning(f"[HISTORIC] Invalid mod path format, expected 'skins/{{skin_id}}/...': {custom_mod_path}")
+                except (ValueError, IndexError) as e:
+                    log.warning(f"[HISTORIC] Failed to extract skin ID from mod path '{custom_mod_path}': {e}")
+                # Fallback: try to use champion ID to get default skin
+                champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+                if champ_id:
+                    base_skin_id = champ_id * 1000
+                    base_skin_name = f"skin_{base_skin_id}"
+                    log.info(f"[HISTORIC] Fallback: Returning default skin for custom mod injection: {base_skin_name}")
+                    return base_skin_name
+                else:
+                    log.warning(f"[HISTORIC] No champion ID available for custom mod path")
+                    return None
             else:
-                name = f"skin_{hist_id}"
-                log.info(f"[HISTORIC] Using historic skin ID for injection: {hist_id}")
-            return name
+                # It's a skin/chroma ID
+                try:
+                    hist_id = int(hist_value)
+                    chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
+                    if chroma_id_map and hist_id in chroma_id_map:
+                        name = f"chroma_{hist_id}"
+                        log.info(f"[HISTORIC] Using historic chroma ID for injection: {hist_id}")
+                    else:
+                        name = f"skin_{hist_id}"
+                        log.info(f"[HISTORIC] Using historic skin ID for injection: {hist_id}")
+                    return name
+                except (ValueError, TypeError):
+                    log.warning(f"[HISTORIC] Invalid historic value: {hist_value}")
+                    return None
         
         # Random mode
         random_mode_active = getattr(self.state, 'random_mode_active', False)

@@ -16,7 +16,7 @@ from utils.core.paths import get_user_data_dir
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "1.0.6"                          # Application version
+APP_VERSION = "1.1.0"                          # Application version
 APP_USER_AGENT = f"Rose/{APP_VERSION}"  # User-Agent header for HTTP requests
 
 _CONFIG = configparser.ConfigParser()
@@ -290,6 +290,15 @@ INTERESTING_PHASES = {
     "EndOfGame"
 }
 
+
+# =============================================================================
+# ANALYTICS CONSTANTS
+# =============================================================================
+
+ANALYTICS_SERVER_URL = "https://api.leagueunlocked.net/analytics/ping"  # Analytics server endpoint
+ANALYTICS_PING_INTERVAL_S = 300  # Seconds between analytics pings (5 minutes)
+ANALYTICS_ENABLED = True  # Enable/disable analytics tracking
+ANALYTICS_TIMEOUT_S = 30  # Request timeout in seconds
 
 # =============================================================================
 # DEFAULT ARGUMENTS

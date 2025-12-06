@@ -68,8 +68,13 @@ def _with_ui_updates(dialog: UpdateDialog) -> tuple[Callable[[str], None], Calla
     return update_status, update_progress
 
 
-def _perform_update(dialog: UpdateDialog) -> bool:
-    """Perform update check and installation"""
+def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
+    """Perform update check and installation
+    
+    Args:
+        dialog: UpdateDialog instance for UI updates
+        dev_mode: If True, skip update check (for development)
+    """
     updater_log.info("Starting update check sequence.")
     dialog.clear_transfer_text()
     dialog.set_detail("Checking for updates…")
@@ -84,6 +89,7 @@ def _perform_update(dialog: UpdateDialog) -> bool:
             status_cb,
             lambda _: None,
             bytes_callback=lambda downloaded, total: dialog.update_transfer_progress(downloaded, total),
+            dev_mode=dev_mode,
         )
         updater_log.info(f"Auto-update completed. Update installed: {updated}")
     except Exception as exc:  # noqa: BLE001
@@ -113,8 +119,12 @@ def _perform_update(dialog: UpdateDialog) -> bool:
     return False
 
 
-def run_launcher() -> None:
-    """Display the Win32 update dialog and perform startup checks."""
+def run_launcher(dev_mode: bool = False) -> None:
+    """Display the Win32 update dialog and perform startup checks.
+    
+    Args:
+        dev_mode: If True, skip hash checks (for development)
+    """
     if sys.platform != "win32":
         log.debug("Win32 launcher skipped on non-Windows platform.")
         return
@@ -131,10 +141,10 @@ def run_launcher() -> None:
 
         def worker():
             try:
-                _perform_update(dialog)
+                _perform_update(dialog, dev_mode=dev_mode)
                 
                 hash_sequence = HashCheckSequence()
-                hash_sequence.perform_hash_check(dialog)
+                hash_sequence.perform_hash_check(dialog, dev_mode=dev_mode)
                 
                 skin_sequence = SkinSyncSequence()
                 skin_sequence.perform_skin_sync(dialog)

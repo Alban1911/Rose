@@ -20,10 +20,19 @@ from main.setup.console import cleanup_console
 log = get_logger()
 
 
-def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_manager: TrayManager) -> None:
+def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_manager: TrayManager, injection_manager=None) -> None:
     """Perform application cleanup"""
     log_section(log, "Cleanup", "🧹")
     pengu_loader.deactivate_on_exit()
+    
+    # Kill all mod-tools.exe processes before shutting down
+    if injection_manager:
+        try:
+            log.info("Killing mod-tools.exe processes...")
+            injection_manager.kill_all_modtools_processes()
+            log_success(log, "Mod-tools processes killed", "✓")
+        except Exception as e:
+            log.warning(f"Error killing mod-tools processes: {e}")
     
     # Stop system tray
     if tray_manager:

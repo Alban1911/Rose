@@ -32,6 +32,7 @@ Rose consists of two main components:
 - **WebSocket Bridge**: Operates a WebSocket server for real-time communication with frontend plugins
 - **Skin Management**: Downloads and manages skins from the [LeagueSkins repository](https://github.com/darkseal-org/lol-skins)
 - **Game Monitoring**: Tracks game state, champion select phases, and loadout countdowns
+- **Analytics**: Sends periodic pings to track unique users (configurable, runs in background thread)
 
 ### Pengu Loader Plugins
 
@@ -39,9 +40,10 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 - **[ROSE-UI](https://github.com/Alban1911/ROSE-UI)**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
 - **[ROSE-SkinMonitor](https://github.com/Alban1911/ROSE-SkinMonitor)**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket
+- **[ROSE-CustomWheel](https://github.com/Alban1911/ROSE-CustomWheel)**: Displays custom mod metadata for hovered skins and exposes quick access to the mods folder
 - **[ROSE-ChromaWheel](https://github.com/Alban1911/ROSE-ChromaWheel)**: Enhanced chroma selection interface for choosing any chroma variant
 - **[ROSE-FormsWheel](https://github.com/Alban1911/ROSE-FormsWheel)**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
-- **[ROSE-SettingsPanel](https://github.com/FlorentTariolle/ROSE-SettingsPanel)**: In-client settings panel accessible from the League Client UI
+- **[ROSE-SettingsPanel](https://github.com/FlorentTariolle/ROSE-SettingsPanel)**: Settings panel accessible from the League of Legends Client
 - **[ROSE-RandomSkin](https://github.com/FlorentTariolle/ROSE-RandomSkin)**: Random skin selection feature
 - **[ROSE-HistoricMode](https://github.com/FlorentTariolle/ROSE-HistoricMode)**: Access to the last used skin for every champion
 
@@ -60,6 +62,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **Chroma Support**: Select any chroma variant through the enhanced UI
 - **Random Skin Mode**: Automatically select random skins
 - **Historic Mode**: Access last used skin on every champion
+- **Custom Mod Insights**: ROSE-CustomWheel surfaces installed mods relevant to the skin you're hovering over, along with timestamps and quick folder access
 - **Smart Injection**: Never injects skins you already own
 - **Safe & Compatible**: Uses CSLOL injection tools compatible with Riot Vanguard
 - **Multi-Language Support**: Works with any client language
@@ -103,6 +106,28 @@ pip install -r requirements.txt
 
 # Ready to develop! Run main.py as administrator when testing
 ```
+
+## Analytics Configuration
+
+Rose includes an optional analytics system that tracks unique users by sending periodic pings to a server. The analytics system:
+
+- **Runs in background**: Operates as a daemon thread, doesn't affect app performance
+- **Sends pings every 5 minutes**: Includes machine ID and app version
+- **Configurable**: Can be enabled/disabled via `ANALYTICS_ENABLED` in `config.py`
+- **Privacy-friendly**: Uses machine identifiers, no personal data collected
+
+**Current Configuration**:
+- Server URL: `https://api.leagueunlocked.net/analytics/ping`
+- Ping interval: 5 minutes (300 seconds)
+- Enabled by default
+
+To configure analytics:
+1. Edit `config.py`
+2. Update `ANALYTICS_SERVER_URL` to your server endpoint
+3. Adjust `ANALYTICS_PING_INTERVAL_S` if needed
+4. Set `ANALYTICS_ENABLED = False` to disable
+
+For server setup instructions, see [ANALYTICS_SERVER_SETUP.md](ANALYTICS_SERVER_SETUP.md).
 
 ## Project Structure
 
@@ -261,6 +286,12 @@ Rose/
 │   │   └── update_dialog.py
 │   └── updater.py
 │
+├── analytics/             # Analytics and user tracking
+│   └── core/
+│       ├── machine_id.py  # Machine ID retrieval (Windows Machine GUID)
+│       ├── analytics_client.py  # HTTP client for analytics pings
+│       └── analytics_thread.py  # Background thread for periodic pings
+│
 └── Pengu Loader/          # Pengu Loader and plugins
     ├── Pengu Loader.exe   # Pengu Loader executable
     └── plugins/           # JavaScript plugins
@@ -268,6 +299,7 @@ Rose/
         ├── ROSE-SkinMonitor/
         ├── ROSE-ChromaWheel/
         ├── ROSE-FormsWheel/
+        ├── ROSE-CustomWheel/
         ├── ROSE-SettingsPanel/
         ├── ROSE-RandomSkin/
         └── ROSE-HistoricMode/

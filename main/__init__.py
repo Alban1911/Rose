@@ -4,6 +4,7 @@
 Main entry point for Rose
 """
 
+import argparse
 import sys
 from typing import Optional
 
@@ -40,21 +41,99 @@ from state import AppStatus
 from utils.core.logging import get_logger, log_success
 from utils.threading.thread_manager import create_daemon_thread
 from config import APP_VERSION, MAIN_LOOP_FORCE_QUIT_TIMEOUT_S, set_config_option
+from injection.config.config_manager import ConfigManager
+from injection.game.game_detector import GameDetector
+from pathlib import Path
+import time
 
 log = get_logger()
 
 
-def run_league_unlock(injection_threshold: Optional[float] = None) -> None:
+def _setup_pengu_after_lcu_connection(lcu) -> None:
+    """
+    Wait for LCU connection, detect and save leaguepath/clientpath, then setup Pengu Loader.
+    
+    This function:
+    1. Waits for LCU to be connected
+    2. Detects leaguepath/clientpath from lockfile
+    3. Saves paths to config.ini
+    4. Verifies paths are written
+    5. Sets league path in Pengu Loader
+    6. Activates Pengu Loader
+    """
+    # Wait for LCU connection (with timeout)
+    max_wait_time = 60  # seconds
+    wait_interval = 0.5  # seconds
+    elapsed = 0.0
+    
+    log.info("Waiting for LCU connection to setup Pengu Loader...")
+    while not lcu.ok and elapsed < max_wait_time:
+        time.sleep(wait_interval)
+        elapsed += wait_interval
+        lcu.refresh_if_needed()
+    
+    if not lcu.ok:
+        log.warning("LCU connection not available after %d seconds, skipping Pengu setup", max_wait_time)
+        return
+    
+    log.info("LCU connected, detecting League paths...")
+    
+    # Detect paths using GameDetector
+    config_manager = ConfigManager()
+    game_detector = GameDetector(config_manager)
+    league_path, client_path = game_detector.detect_paths()
+    
+    if not league_path or not client_path:
+        log.warning("Could not detect League paths, skipping Pengu setup")
+        return
+    
+    # Save paths to config.ini
+    log.info("Saving League paths to config.ini: league=%s, client=%s", league_path, client_path)
+    config_manager.save_paths(str(league_path), str(client_path))
+    
+    # Verify paths are written to config.ini (with retries)
+    max_verify_attempts = 5
+    verify_interval = 0.2
+    paths_verified = False
+    
+    for attempt in range(max_verify_attempts):
+        saved_league_path = config_manager.load_league_path()
+        saved_client_path = config_manager.load_client_path()
+        
+        if saved_league_path and saved_client_path:
+            # Normalize paths for comparison
+            saved_league_normalized = str(Path(saved_league_path).resolve())
+            saved_client_normalized = str(Path(saved_client_path).resolve())
+            league_normalized = str(league_path.resolve())
+            client_normalized = str(client_path.resolve())
+            
+            if saved_league_normalized == league_normalized and saved_client_normalized == client_normalized:
+                paths_verified = True
+                log.info("Paths verified in config.ini")
+                break
+        
+        if attempt < max_verify_attempts - 1:
+            time.sleep(verify_interval)
+    
+    if not paths_verified:
+        log.warning("Could not verify paths in config.ini, continuing anyway")
+    
+    # Set client path in Pengu Loader and activate
+    log.info("Setting client path in Pengu Loader and activating...")
+    pengu_loader.activate_on_start(str(client_path))
+
+
+def run_league_unlock(args: Optional[argparse.Namespace] = None,
+                      injection_threshold: Optional[float] = None) -> None:
     """Run the core Rose application startup and main loop."""
     # Check for single instance before doing anything else
     check_single_instance()
-    
-    # Parse arguments
-    args = setup_arguments()
+    # Parse arguments if they were not provided
+    if args is None:
+        args = setup_arguments()
     
     # Setup logging and cleanup
     setup_logging_and_cleanup(args)
-    pengu_loader.activate_on_start()
     
     # Initialize system tray manager immediately to hide console
     tray_manager = initialize_tray_manager(args)
@@ -68,6 +147,9 @@ def run_league_unlock(injection_threshold: Optional[float] = None) -> None:
     
     # Initialize core components
     lcu, skin_scraper, state, injection_manager = initialize_core_components(args, injection_threshold)
+    
+    # Wait for LCU connection and setup Pengu Loader
+    _setup_pengu_after_lcu_connection(lcu)
     
     # Configure skin writing based on the final injection threshold (seconds → ms)
     state.skin_write_ms = max(0, int(injection_manager.injection_threshold * 1000))
@@ -123,21 +205,23 @@ def run_league_unlock(injection_threshold: Optional[float] = None) -> None:
         run_main_loop(state, skin_scraper)
     finally:
         # Perform cleanup
-        perform_cleanup(state, thread_manager, tray_manager)
+        perform_cleanup(state, thread_manager, tray_manager, injection_manager)
 
 
 def main() -> None:
     """Program entry point that prepares and launches Rose."""
+    args = setup_arguments()
     if sys.platform == "win32":
-        try:
-            from launcher import run_launcher
-            run_launcher()
-        except ModuleNotFoundError as err:
-            print(f"[Launcher] Unable to import launcher module: {err}")
-        except Exception as err:  # noqa: BLE001
-            print(f"[Launcher] Launcher encountered an error: {err}")
+        if not args.dev:
+            try:
+                from launcher import run_launcher
+                run_launcher(dev_mode=args.dev)
+            except ModuleNotFoundError as err:
+                print(f"[Launcher] Unable to import launcher module: {err}")
+            except Exception as err:  # noqa: BLE001
+                print(f"[Launcher] Launcher encountered an error: {err}")
 
-    run_league_unlock()
+    run_league_unlock(args=args)
 
 
 if __name__ == "__main__":
