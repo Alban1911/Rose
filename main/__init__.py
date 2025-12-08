@@ -51,25 +51,18 @@ log = get_logger()
 
 def _setup_pengu_after_lcu_connection(lcu) -> None:
     """
-    Wait for LCU connection, detect and save leaguepath/clientpath, then setup Pengu Loader.
+    Detect and save leaguepath/clientpath, then setup Pengu Loader.
     
     This function:
-    1. Waits for LCU to be connected
-    2. Detects leaguepath/clientpath from lockfile
-    3. Saves paths to config.ini
-    4. Verifies paths are written
-    5. Sets league path in Pengu Loader
-    6. Activates Pengu Loader
+    1. Detects leaguepath/clientpath from lockfile
+    2. Saves paths to config.ini
+    3. Verifies paths are written
+    4. Sets league path in Pengu Loader
+    5. Activates Pengu Loader
+    
+    Note: LCU is already connected when this is called (WebSocket is active)
     """
-    # Wait for LCU connection
-    wait_interval = 0.5  # seconds
-    
-    log.info("Waiting for LCU connection to setup Pengu Loader...")
-    while not lcu.ok:
-        time.sleep(wait_interval)
-        lcu.refresh_if_needed()
-    
-    log.info("LCU connected, detecting League paths...")
+    log.info("Detecting League paths...")
     
     # Detect paths using GameDetector
     config_manager = ConfigManager()
@@ -141,9 +134,6 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     # Initialize core components
     lcu, skin_scraper, state, injection_manager = initialize_core_components(args, injection_threshold)
     
-    # Wait for LCU connection and setup Pengu Loader
-    _setup_pengu_after_lcu_connection(lcu)
-    
     # Configure skin writing based on the final injection threshold (seconds → ms)
     state.skin_write_ms = max(0, int(injection_manager.injection_threshold * 1000))
     state.inject_batch = getattr(args, 'inject_batch', state.inject_batch) or state.inject_batch
@@ -188,10 +178,20 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
         
         tray_manager.quit_callback = updated_tray_quit_callback
     
-    # Initialize threads
+    # Initialize threads (this starts the WebSocket server)
     thread_manager, t_phase, t_ui, t_ws, t_lcu_monitor = initialize_threads(
         lcu, state, args, injection_manager, skin_scraper, app_status, on_lcu_disconnected
     )
+    
+    # Wait for WebSocket status to be active before activating Pengu Loader
+    log.info("Waiting for WebSocket status to be active before activating Pengu Loader...")
+    while not t_ws.connection.is_connected:
+        time.sleep(0.1)
+    
+    log.info("WebSocket status is active, proceeding with Pengu Loader setup")
+    
+    # Setup Pengu Loader (LCU is already connected when WebSocket is active)
+    _setup_pengu_after_lcu_connection(lcu)
     
     # Run main loop
     try:
