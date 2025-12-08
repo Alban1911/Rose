@@ -49,28 +49,28 @@ import time
 log = get_logger()
 
 
-def _setup_pengu_after_lcu_connection(lcu) -> None:
+def _setup_pengu_and_injection(lcu, injection_manager) -> None:
     """
-    Detect and save leaguepath/clientpath, then setup Pengu Loader.
+    Detect and save leaguepath/clientpath, then setup both Pengu Loader and injection system.
     
     This function:
     1. Detects leaguepath/clientpath from lockfile
     2. Saves paths to config.ini
     3. Verifies paths are written
-    4. Sets league path in Pengu Loader
-    5. Activates Pengu Loader
+    4. Sets league path in Pengu Loader and activates it
+    5. Initializes injection system with detected paths
     
     Note: LCU is already connected when this is called (WebSocket is active)
     """
     log.info("Detecting League paths...")
     
-    # Detect paths using GameDetector
+    # Detect paths using GameDetector (only once)
     config_manager = ConfigManager()
     game_detector = GameDetector(config_manager)
     league_path, client_path = game_detector.detect_paths()
     
     if not league_path or not client_path:
-        log.warning("Could not detect League paths, skipping Pengu setup")
+        log.warning("Could not detect League paths, skipping setup")
         return
     
     # Save paths to config.ini
@@ -107,6 +107,10 @@ def _setup_pengu_after_lcu_connection(lcu) -> None:
     # Set client path in Pengu Loader and activate
     log.info("Setting client path in Pengu Loader and activating...")
     pengu_loader.activate_on_start(str(client_path))
+    
+    # Initialize injection system now (with detected paths already in config.ini)
+    log.info("Initializing injection system...")
+    injection_manager.initialize_when_ready()
 
 
 def run_league_unlock(args: Optional[argparse.Namespace] = None,
@@ -188,10 +192,10 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     while not t_ws.connection.is_connected:
         time.sleep(0.1)
     
-    log.info("WebSocket status is active, proceeding with Pengu Loader setup")
+    log.info("WebSocket status is active, proceeding with Pengu Loader and injection system setup")
     
-    # Setup Pengu Loader (LCU is already connected when WebSocket is active)
-    _setup_pengu_after_lcu_connection(lcu)
+    # Setup Pengu Loader and injection system (LCU is already connected when WebSocket is active)
+    _setup_pengu_and_injection(lcu, injection_manager)
     
     # Run main loop
     try:

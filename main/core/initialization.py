@@ -74,7 +74,8 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
             log.info(f"Launcher override: setting injection threshold to {injection_threshold:.2f}s")
             injection_manager.injection_threshold = max(0.0, injection_threshold)
         log.info("✓ Injection manager initialized")
-        injection_manager.initialize_when_ready()
+        # Don't initialize injection system yet - wait for WebSocket to be active
+        # This will be called in main/__init__.py after WebSocket is ready
         
         # Hash check is now handled by the launcher before the app starts
         # No need to check again here - launcher ensures hashes are ready
