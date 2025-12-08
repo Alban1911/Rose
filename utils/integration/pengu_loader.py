@@ -10,6 +10,7 @@ around the executable bundled alongside Rose.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -21,25 +22,30 @@ except ImportError:  # pragma: no cover - psutil is part of requirements, but gu
     psutil = None  # type: ignore
 
 from utils.core.logging import get_logger
-from utils.core.paths import get_app_dir
+from utils.core.paths import get_app_dir, get_user_data_dir
 
 log = get_logger("pengu_loader")
 
 
-def _resolve_pengu_dir() -> Path:
-    """Locate the Pengu Loader directory in dev and frozen builds."""
-    # 1. PyInstaller onefile/onedir: resources live under _MEIPASS
+def _get_bundled_pengu_dir() -> Optional[Path]:
+    """Locate the bundled Pengu Loader directory (read-only location)."""
+    # 1. PyInstaller onefile: resources live under _MEIPASS
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         candidate = Path(meipass) / "Pengu Loader"
         if candidate.exists():
             return candidate
 
-    # 2. Standard frozen build: alongside executable
-    app_dir = get_app_dir()
-    candidate = app_dir / "Pengu Loader"
-    if candidate.exists():
-        return candidate
+    # 2. PyInstaller onedir: resources in _internal folder
+    if getattr(sys, 'frozen', False):
+        app_dir = get_app_dir()
+        candidate = app_dir / "_internal" / "Pengu Loader"
+        if candidate.exists():
+            return candidate
+        # Fallback: directly alongside executable
+        candidate = app_dir / "Pengu Loader"
+        if candidate.exists():
+            return candidate
 
     # 3. Development environment: relative to project root
     repo_dir = Path(__file__).resolve().parent.parent
@@ -47,8 +53,50 @@ def _resolve_pengu_dir() -> Path:
     if candidate.exists():
         return candidate
 
-    # Fallback to app_dir (even if missing) so logging remains consistent
-    return app_dir / "Pengu Loader"
+    return None
+
+
+def _resolve_pengu_dir() -> Path:
+    """
+    Locate the Pengu Loader directory for execution.
+    
+    For frozen builds, copies Pengu Loader to AppData to ensure write permissions
+    (Program Files is read-only, causing datastore failures).
+    For development, uses the source directory directly.
+    """
+    # Development mode: use source directory directly (it's writable)
+    if not getattr(sys, 'frozen', False):
+        bundled = _get_bundled_pengu_dir()
+        if bundled:
+            return bundled
+        # Fallback
+        return get_app_dir() / "Pengu Loader"
+
+    # Frozen mode: copy to AppData for write permissions
+    bundled_dir = _get_bundled_pengu_dir()
+    if not bundled_dir:
+        log.warning("Bundled Pengu Loader directory not found in frozen build")
+        return get_app_dir() / "Pengu Loader"
+
+    # Runtime location in user data directory
+    runtime_dir = get_user_data_dir() / "Pengu Loader"
+    
+    try:
+        # Always refresh the runtime copy to ensure it's up to date
+        # (simple approach: delete and recopy on each startup)
+        if runtime_dir.exists():
+            shutil.rmtree(runtime_dir, ignore_errors=True)
+        
+        # Copy bundled Pengu Loader to runtime location
+        shutil.copytree(bundled_dir, runtime_dir, dirs_exist_ok=True)
+        log.info("Copied Pengu Loader to runtime directory: %s", runtime_dir)
+        
+    except Exception as exc:
+        log.error("Failed to copy Pengu Loader to runtime directory: %s", exc)
+        # Fallback to bundled directory (will likely fail due to permissions, but better than crashing)
+        return bundled_dir
+
+    return runtime_dir
 
 
 PENGU_DIR = _resolve_pengu_dir()
