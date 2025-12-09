@@ -655,6 +655,62 @@ class InjectionTrigger:
                         except Exception as e:
                             log.debug(f"[HISTORIC] Failed to store historic entry: {e}")
                         
+                        # Clean up missing mods from historic after injection completes
+                        try:
+                            from utils.core.mod_historic import get_historic_mod, clear_historic_mod
+                            from injection.mods.storage import ModStorageService
+                            
+                            mod_storage = ModStorageService()
+                            mods_root = mod_storage.mods_root
+                            
+                            # Helper to check if a mod file exists
+                            def mod_file_exists(relative_path: str) -> bool:
+                                try:
+                                    full_path = mods_root / relative_path.replace("/", "\\")
+                                    return full_path.exists()
+                                except Exception:
+                                    return False
+                            
+                            # Check and clean map mod
+                            historic_map_path = get_historic_mod("map")
+                            if historic_map_path and not mod_file_exists(historic_map_path):
+                                clear_historic_mod("map")
+                                log.info(f"[MOD_HISTORIC] Cleaned missing map mod from historic: {historic_map_path}")
+                            
+                            # Check and clean font mod
+                            historic_font_path = get_historic_mod("font")
+                            if historic_font_path and not mod_file_exists(historic_font_path):
+                                clear_historic_mod("font")
+                                log.info(f"[MOD_HISTORIC] Cleaned missing font mod from historic: {historic_font_path}")
+                            
+                            # Check and clean announcer mod
+                            historic_announcer_path = get_historic_mod("announcer")
+                            if historic_announcer_path and not mod_file_exists(historic_announcer_path):
+                                clear_historic_mod("announcer")
+                                log.info(f"[MOD_HISTORIC] Cleaned missing announcer mod from historic: {historic_announcer_path}")
+                            
+                            # Check and clean other mods
+                            historic_other_paths = get_historic_mod("other")
+                            if historic_other_paths:
+                                if isinstance(historic_other_paths, str):
+                                    historic_other_paths = [historic_other_paths]
+                                elif not isinstance(historic_other_paths, list):
+                                    historic_other_paths = []
+                                
+                                cleaned_paths = [path for path in historic_other_paths if mod_file_exists(path)]
+                                
+                                if len(cleaned_paths) != len(historic_other_paths):
+                                    from utils.core.mod_historic import write_historic_mod
+                                    if cleaned_paths:
+                                        write_historic_mod("other", cleaned_paths)
+                                        removed_count = len(historic_other_paths) - len(cleaned_paths)
+                                        log.info(f"[MOD_HISTORIC] Cleaned {removed_count} missing other mod(s) from historic")
+                                    else:
+                                        clear_historic_mod("other")
+                                        log.info(f"[MOD_HISTORIC] Cleared historic other mods (all were missing)")
+                        except Exception as e:
+                            log.debug(f"[MOD_HISTORIC] Failed to clean up missing mods from historic: {e}")
+                        
                         log.info("=" * LOG_SEPARATOR_WIDTH)
                         log.info(f"✅ INJECTION COMPLETED >>> {name.upper()} <<<")
                         log.info(f"   ⚠️  Verify in-game - timing determines if skin appears")
@@ -794,6 +850,9 @@ class InjectionTrigger:
             mod_folder_names = []
             mod_names_list = []
             # Track missing mods to clean up from historic
+            missing_map_mod_path = None
+            missing_font_mod_path = None
+            missing_announcer_mod_path = None
             missing_other_mod_paths = []
             
             # Extract and add base skin ZIP if provided (for unowned skins)
@@ -922,6 +981,10 @@ class InjectionTrigger:
                     mod_names_list.append(selected_map_mod.get("mod_name", "Map"))
                     log.info(f"[INJECT] Including map mod: {selected_map_mod.get('mod_name')}")
                 else:
+                    # Track missing mod's relative path for cleanup
+                    relative_path = selected_map_mod.get("relative_path")
+                    if relative_path:
+                        missing_map_mod_path = relative_path
                     log.info(f"[INJECT] Map mod not found (may have been deleted), ignoring: {selected_map_mod.get('mod_name', 'Unknown')}")
                     # Clear missing mod from state
                     self.state.selected_map_mod = None
@@ -935,6 +998,10 @@ class InjectionTrigger:
                     mod_names_list.append(selected_font_mod.get("mod_name", "Font"))
                     log.info(f"[INJECT] Including font mod: {selected_font_mod.get('mod_name')}")
                 else:
+                    # Track missing mod's relative path for cleanup
+                    relative_path = selected_font_mod.get("relative_path")
+                    if relative_path:
+                        missing_font_mod_path = relative_path
                     log.info(f"[INJECT] Font mod not found (may have been deleted), ignoring: {selected_font_mod.get('mod_name', 'Unknown')}")
                     # Clear missing mod from state
                     self.state.selected_font_mod = None
@@ -948,6 +1015,10 @@ class InjectionTrigger:
                     mod_names_list.append(selected_announcer_mod.get("mod_name", "Announcer"))
                     log.info(f"[INJECT] Including announcer mod: {selected_announcer_mod.get('mod_name')}")
                 else:
+                    # Track missing mod's relative path for cleanup
+                    relative_path = selected_announcer_mod.get("relative_path")
+                    if relative_path:
+                        missing_announcer_mod_path = relative_path
                     log.info(f"[INJECT] Announcer mod not found (may have been deleted), ignoring: {selected_announcer_mod.get('mod_name', 'Unknown')}")
                     # Clear missing mod from state
                     self.state.selected_announcer_mod = None
@@ -1029,9 +1100,36 @@ class InjectionTrigger:
             )
             
             # Clean up missing mods from historic after overlay starts
-            if missing_other_mod_paths:
-                try:
-                    from utils.core.mod_historic import get_historic_mod, write_historic_mod
+            try:
+                from utils.core.mod_historic import get_historic_mod, write_historic_mod, clear_historic_mod
+                
+                # Normalize paths for comparison (handle both forward and backslashes)
+                def normalize_path(p):
+                    return str(p).replace("\\", "/").lower()
+                
+                # Clean up map mod if it was missing
+                if missing_map_mod_path:
+                    historic_map_path = get_historic_mod("map")
+                    if historic_map_path and normalize_path(historic_map_path) == normalize_path(missing_map_mod_path):
+                        clear_historic_mod("map")
+                        log.info(f"[MOD_HISTORIC] Cleaned missing map mod from historic: {missing_map_mod_path}")
+                
+                # Clean up font mod if it was missing
+                if missing_font_mod_path:
+                    historic_font_path = get_historic_mod("font")
+                    if historic_font_path and normalize_path(historic_font_path) == normalize_path(missing_font_mod_path):
+                        clear_historic_mod("font")
+                        log.info(f"[MOD_HISTORIC] Cleaned missing font mod from historic: {missing_font_mod_path}")
+                
+                # Clean up announcer mod if it was missing
+                if missing_announcer_mod_path:
+                    historic_announcer_path = get_historic_mod("announcer")
+                    if historic_announcer_path and normalize_path(historic_announcer_path) == normalize_path(missing_announcer_mod_path):
+                        clear_historic_mod("announcer")
+                        log.info(f"[MOD_HISTORIC] Cleaned missing announcer mod from historic: {missing_announcer_mod_path}")
+                
+                # Clean up other mods (can be multiple) - same pattern as above
+                if missing_other_mod_paths:
                     historic_other_paths = get_historic_mod("other")
                     if historic_other_paths:
                         # Convert to list if needed
@@ -1039,10 +1137,6 @@ class InjectionTrigger:
                             historic_other_paths = [historic_other_paths]
                         elif not isinstance(historic_other_paths, list):
                             historic_other_paths = []
-                        
-                        # Normalize paths for comparison (handle both forward and backslashes)
-                        def normalize_path(p):
-                            return str(p).replace("\\", "/").lower()
                         
                         normalized_missing = [normalize_path(p) for p in missing_other_mod_paths]
                         
@@ -1059,11 +1153,12 @@ class InjectionTrigger:
                                 removed_count = len(historic_other_paths) - len(cleaned_paths)
                                 log.info(f"[MOD_HISTORIC] Cleaned {removed_count} missing other mod(s) from historic")
                             else:
-                                from utils.core.mod_historic import clear_historic_mod
                                 clear_historic_mod("other")
                                 log.info(f"[MOD_HISTORIC] Cleared historic other mods (all were missing)")
-                except Exception as e:
-                    log.debug(f"[MOD_HISTORIC] Failed to clean up missing mods from historic: {e}")
+            except Exception as e:
+                log.debug(f"[MOD_HISTORIC] Failed to clean up missing mods from historic: {e}")
+                import traceback
+                log.debug(f"[MOD_HISTORIC] Traceback: {traceback.format_exc()}")
             
             # Stop monitor after injection completes
             if self.injection_manager:
