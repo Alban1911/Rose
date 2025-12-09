@@ -1185,6 +1185,22 @@ class InjectionTrigger:
                             custom_mod_path = f"path:{selected_custom_mod['relative_path']}"
                             write_historic_entry(int(champion_id), custom_mod_path)
                             log.debug(f"[HISTORIC] Stored custom mod path for champion {champion_id}: {selected_custom_mod['relative_path']}")
+                    elif base_skin_name:
+                        # Store base skin ID in historic if injecting base skin with mods (no custom mod)
+                        try:
+                            # Extract skin ID from base_skin_name (e.g., "skin_84002" -> 84002)
+                            injected_id = None
+                            if isinstance(base_skin_name, str) and '_' in base_skin_name:
+                                parts = base_skin_name.split('_', 1)
+                                if len(parts) == 2 and parts[1].isdigit():
+                                    injected_id = int(parts[1])
+                            
+                            champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
+                            if champion_id is not None and injected_id is not None:
+                                write_historic_entry(int(champion_id), int(injected_id))
+                                log.info(f"[HISTORIC] Stored last injected ID {injected_id} for champion {champion_id}")
+                        except Exception as e:
+                            log.debug(f"[HISTORIC] Failed to store base skin entry: {e}")
                     
                     # Store map mod if selected
                     selected_map_mod = getattr(self.state, 'selected_map_mod', None)
