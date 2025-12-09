@@ -793,6 +793,8 @@ class InjectionTrigger:
             # Collect all mods to inject (base skin + custom skin mod + map + font + announcer + other)
             mod_folder_names = []
             mod_names_list = []
+            # Track missing mods to clean up from historic
+            missing_other_mod_paths = []
             
             # Extract and add base skin ZIP if provided (for unowned skins)
             if base_skin_name:
@@ -969,6 +971,10 @@ class InjectionTrigger:
                         valid_other_mods.append(selected_other_mod)
                         log.info(f"[INJECT] Including other mod: {selected_other_mod.get('mod_name')}")
                     else:
+                        # Track missing mod's relative path for cleanup
+                        relative_path = selected_other_mod.get("relative_path")
+                        if relative_path:
+                            missing_other_mod_paths.append(relative_path)
                         log.info(f"[INJECT] Other mod not found (may have been deleted), ignoring: {selected_other_mod.get('mod_name', 'Unknown')}")
                 
                 # Update state to only include valid mods
@@ -1021,6 +1027,43 @@ class InjectionTrigger:
                 stop_callback=game_ended_callback,
                 injection_manager=self.injection_manager
             )
+            
+            # Clean up missing mods from historic after overlay starts
+            if missing_other_mod_paths:
+                try:
+                    from utils.core.mod_historic import get_historic_mod, write_historic_mod
+                    historic_other_paths = get_historic_mod("other")
+                    if historic_other_paths:
+                        # Convert to list if needed
+                        if isinstance(historic_other_paths, str):
+                            historic_other_paths = [historic_other_paths]
+                        elif not isinstance(historic_other_paths, list):
+                            historic_other_paths = []
+                        
+                        # Normalize paths for comparison (handle both forward and backslashes)
+                        def normalize_path(p):
+                            return str(p).replace("\\", "/").lower()
+                        
+                        normalized_missing = [normalize_path(p) for p in missing_other_mod_paths]
+                        
+                        # Remove missing mod paths from historic
+                        cleaned_paths = [
+                            path for path in historic_other_paths
+                            if normalize_path(path) not in normalized_missing
+                        ]
+                        
+                        # Update historic if paths were removed
+                        if len(cleaned_paths) != len(historic_other_paths):
+                            if cleaned_paths:
+                                write_historic_mod("other", cleaned_paths)
+                                removed_count = len(historic_other_paths) - len(cleaned_paths)
+                                log.info(f"[MOD_HISTORIC] Cleaned {removed_count} missing other mod(s) from historic")
+                            else:
+                                from utils.core.mod_historic import clear_historic_mod
+                                clear_historic_mod("other")
+                                log.info(f"[MOD_HISTORIC] Cleared historic other mods (all were missing)")
+                except Exception as e:
+                    log.debug(f"[MOD_HISTORIC] Failed to clean up missing mods from historic: {e}")
             
             # Stop monitor after injection completes
             if self.injection_manager:
