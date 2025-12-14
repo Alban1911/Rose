@@ -20,6 +20,7 @@ except ImportError:
     psutil = None
 
 from utils.core.logging import get_logger, log_action, log_success, log_event
+from utils.core.issue_reporter import report_issue
 from config import (
     PROCESS_TERMINATE_TIMEOUT_S,
     PROCESS_MONITOR_SLEEP_S,
@@ -165,9 +166,23 @@ class OverlayManager:
                 
         except subprocess.TimeoutExpired:
             log.error("[INJECT] mkoverlay timeout - monitor will auto-resume if needed")
+            report_issue(
+                "MKOVERLAY_TIMEOUT",
+                "error",
+                "Injection timed out while preparing the overlay (took too long).",
+                details={"timeout_s": timeout},
+                hint="Try increasing Monitor Auto-Resume Timeout and/or using smaller mods.",
+            )
             return 124
         except Exception as e:
             log.error(f"[INJECT] mkoverlay error: {e} - monitor will auto-resume if needed")
+            report_issue(
+                "MKOVERLAY_ERROR",
+                "error",
+                "Injection failed while preparing the overlay.",
+                details={"error": str(e)},
+                hint="Check Rose logs for details, then retry.",
+            )
             return 1
 
         # Run overlay

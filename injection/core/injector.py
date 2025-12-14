@@ -13,6 +13,7 @@ from typing import List, Optional
 
 from utils.core.logging import get_logger, log_action, log_success
 from utils.core.paths import get_skins_dir, get_injection_dir
+from utils.core.issue_reporter import report_issue
 
 from ..config.config_manager import ConfigManager
 from ..game.game_detector import GameDetector
@@ -158,6 +159,13 @@ class SkinInjector:
         zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name, champion_id=champion_id)
         if not zp:
             log.error(f"[INJECT] Skin '{skin_name}' not found in {self.zips_dir}")
+            report_issue(
+                "SKIN_ZIP_NOT_FOUND",
+                "error",
+                "Injection failed: skin file not found on your PC.",
+                details={"skin": skin_name},
+                hint="Download the skin first, or check your skins folder.",
+            )
             avail_zip = list(self.zips_dir.rglob('*.zip'))
             avail_fantome = list(self.zips_dir.rglob('*.fantome'))
             avail = avail_zip + avail_fantome
@@ -198,6 +206,13 @@ class SkinInjector:
             log.info(f"[INJECT] Completed in {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s, runoverlay: {runoverlay_duration:.2f}s)")
         else:
             log.warning(f"[INJECT] Failed - timeout or error after {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s)")
+            report_issue(
+                "INJECTION_FAILED",
+                "warning",
+                "Injection failed.",
+                details={"total_s": f"{total_duration:.2f}", "mkoverlay_s": f"{mkoverlay_duration:.2f}", "skin": skin_name},
+                hint="Check Rose logs for details, then retry.",
+            )
         
         return result == 0
     
