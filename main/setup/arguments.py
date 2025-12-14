@@ -31,6 +31,8 @@ def setup_arguments() -> argparse.Namespace:
                    help="Enable ultra-detailed debug logging (includes function traces and variable dumps)")
     ap.add_argument("--dev", action="store_true", default=False,
                    help="Skip the Windows launcher so Rose runs directly for development")
+    ap.add_argument("--logs", action="store_true", default=False,
+                   help="Force writing log files even in dev mode (overrides --dev log suppression)")
     ap.add_argument("--lockfile", type=str, default=None)
     
     

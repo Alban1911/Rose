@@ -31,8 +31,10 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     else:
         log_mode = 'customer'
     
-    # Setup logging (skip log files in dev mode)
-    setup_logging(log_mode, write_logs=not getattr(args, "dev", False))
+    # Setup logging (skip log files in dev mode unless explicitly forced)
+    force_logs = bool(getattr(args, "logs", False))
+    write_logs = (not bool(getattr(args, "dev", False))) or force_logs
+    setup_logging(log_mode, write_logs=write_logs)
     
     # Suppress PIL/Pillow debug messages for optional image plugins
     logging.getLogger("PIL").setLevel(logging.INFO)
