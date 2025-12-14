@@ -105,8 +105,11 @@ class MessageHandler:
             self._handle_request_fonts(payload)
         elif payload_type == "request-announcers":
             self._handle_request_announcers(payload)
+        elif payload_type == "request-category-mods":
+            self._handle_request_category_mods(payload)
         elif payload_type == "request-others":
-            self._handle_request_others(payload)
+            # Backwards compatible: treat as a request for the "others" category only
+            self._handle_request_category_mods({"category": self.mod_storage.CATEGORY_OTHERS})
         elif payload_type == "select-skin-mod":
             self._handle_select_skin_mod(payload)
         elif payload_type == "select-map":
@@ -1054,26 +1057,17 @@ class MessageHandler:
             return
         
         try:
-            # Find the mod in storage
-            entries = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_OTHERS)
-            selected_mod = None
             # other_data contains: id (relative path), name, path, updatedAt, description
-            mod_identifier = other_data.get("id") or other_data.get("name") or other_id
-            for entry_dict in entries:
-                # Match by id (relative path) or name
-                if (entry_dict.get("id") == mod_identifier or 
-                    entry_dict.get("name") == mod_identifier):
-                    # Convert dict to Path for extraction
-                    mod_path = self.mod_storage.mods_root / entry_dict["path"].replace("/", "\\")
-                    selected_mod = type('ModEntry', (), {
-                        'mod_name': entry_dict["name"],
-                        'path': mod_path
-                    })()
-                    break
-            
-            if not selected_mod:
-                log.warning(f"[SkinMonitor] Other mod not found: {other_id}")
+            rel_path = other_data.get("path") or other_data.get("id") or other_id
+            if not rel_path:
+                log.warning("[SkinMonitor] Other mod selection missing path/id")
                 return
+
+            mod_path = self.mod_storage.mods_root / str(rel_path).replace("/", "\\")
+            selected_mod = type("ModEntry", (), {
+                "mod_name": other_data.get("name") or other_id or mod_path.name,
+                "path": mod_path,
+            })()
             
             # Extract mod immediately when selected
             if not self.injection_manager:
@@ -1157,6 +1151,47 @@ class MessageHandler:
             log.error(f"[SkinMonitor] Failed to handle other selection: {e}")
             import traceback
             log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
+
+    def _handle_request_category_mods(self, payload: dict) -> None:
+        """Return the list of mods for a specific top-level category under %LOCALAPPDATA%\\Rose\\mods."""
+        if not self.mod_storage:
+            return
+
+        category = payload.get("category")
+        if category not in {
+            self.mod_storage.CATEGORY_UI,
+            self.mod_storage.CATEGORY_VOICEOVER,
+            self.mod_storage.CATEGORY_LOADING_SCREEN,
+            self.mod_storage.CATEGORY_VFX,
+            self.mod_storage.CATEGORY_SFX,
+            self.mod_storage.CATEGORY_OTHERS,
+        }:
+            log.warning(f"[SkinMonitor] Invalid category for request-category-mods: {category}")
+            return
+
+        try:
+            mods = self.mod_storage.list_mods_for_category(category)
+        except Exception as exc:
+            log.error(f"[SkinMonitor] Failed to list category {category}: {exc}")
+            mods = []
+
+        historic_other_paths = None
+        try:
+            from utils.core.mod_historic import get_historic_mod
+            historic_other_paths = get_historic_mod("other")
+            if isinstance(historic_other_paths, str):
+                historic_other_paths = [historic_other_paths]
+        except Exception:
+            pass
+
+        response_payload = {
+            "type": "category-mods-response",
+            "category": category,
+            "mods": mods,
+            "historicMod": historic_other_paths,
+            "timestamp": int(time.time() * 1000),
+        }
+        self._send_response(json.dumps(response_payload))
     
     def _handle_open_logs_folder(self, payload: dict) -> None:
         """Handle open logs folder request"""
@@ -1383,7 +1418,10 @@ class MessageHandler:
         try:
             category = payload.get("category")
             if category not in {self.mod_storage.CATEGORY_MAPS, self.mod_storage.CATEGORY_FONTS, 
-                               self.mod_storage.CATEGORY_ANNOUNCERS, self.mod_storage.CATEGORY_OTHERS}:
+                               self.mod_storage.CATEGORY_ANNOUNCERS, self.mod_storage.CATEGORY_OTHERS,
+                               self.mod_storage.CATEGORY_UI, self.mod_storage.CATEGORY_VOICEOVER,
+                               self.mod_storage.CATEGORY_LOADING_SCREEN, self.mod_storage.CATEGORY_VFX,
+                               self.mod_storage.CATEGORY_SFX}:
                 log.warning(f"[SkinMonitor] Invalid category: {category}")
                 return
             
