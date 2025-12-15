@@ -1047,13 +1047,28 @@ class MessageHandler:
                 # Clear all (legacy support)
                 self.shared_state.selected_other_mods = []
                 log.info(f"[SkinMonitor] All other mods deselected")
-                # Clear historic mod when all deselected
-                try:
-                    from utils.core.mod_historic import clear_historic_mod
-                    clear_historic_mod("other")
-                    log.debug("[MOD_HISTORIC] Cleared historic other mod")
-                except Exception as e:
-                    log.debug(f"[MOD_HISTORIC] Failed to clear historic other mod: {e}")
+            # Persist historic selection per category (ui/voiceover/loading_screen/vfx/sfx/others)
+            try:
+                from utils.core.mod_historic import write_historic_mod, clear_historic_mod
+
+                # Rebuild per-category lists from current selection state
+                by_cat = {"ui": [], "voiceover": [], "loading_screen": [], "vfx": [], "sfx": [], "others": []}
+                for m in (self.shared_state.selected_other_mods or []):
+                    rp = str(m.get("relative_path") or "").replace("\\", "/").lstrip("/")
+                    if not rp:
+                        continue
+                    cat = (rp.split("/", 1)[0] if "/" in rp else rp).strip().lower()
+                    if cat not in by_cat:
+                        cat = "others"
+                    by_cat[cat].append(rp)
+
+                for cat, paths in by_cat.items():
+                    if paths:
+                        write_historic_mod(cat, paths)
+                    else:
+                        clear_historic_mod(cat)
+            except Exception as e:
+                log.debug(f"[MOD_HISTORIC] Failed to update category historic after deselect: {e}")
             return
         
         try:
@@ -1147,6 +1162,28 @@ class MessageHandler:
             else:
                 log.info(f"[SkinMonitor] Other mod already selected: {selected_mod.mod_name}")
 
+            # Persist historic selection per category (ui/voiceover/loading_screen/vfx/sfx/others)
+            try:
+                from utils.core.mod_historic import write_historic_mod, clear_historic_mod
+
+                by_cat = {"ui": [], "voiceover": [], "loading_screen": [], "vfx": [], "sfx": [], "others": []}
+                for m in (self.shared_state.selected_other_mods or []):
+                    rp = str(m.get("relative_path") or "").replace("\\", "/").lstrip("/")
+                    if not rp:
+                        continue
+                    cat = (rp.split("/", 1)[0] if "/" in rp else rp).strip().lower()
+                    if cat not in by_cat:
+                        cat = "others"
+                    by_cat[cat].append(rp)
+
+                for cat, paths in by_cat.items():
+                    if paths:
+                        write_historic_mod(cat, paths)
+                    else:
+                        clear_historic_mod(cat)
+            except Exception as e:
+                log.debug(f"[MOD_HISTORIC] Failed to update category historic after select: {e}")
+
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle other selection: {e}")
             import traceback
@@ -1175,12 +1212,12 @@ class MessageHandler:
             log.error(f"[SkinMonitor] Failed to list category {category}: {exc}")
             mods = []
 
-        historic_other_paths = None
+        historic_paths = None
         try:
             from utils.core.mod_historic import get_historic_mod
-            historic_other_paths = get_historic_mod("other")
-            if isinstance(historic_other_paths, str):
-                historic_other_paths = [historic_other_paths]
+            historic_paths = get_historic_mod(str(category))
+            if isinstance(historic_paths, str):
+                historic_paths = [historic_paths]
         except Exception:
             pass
 
@@ -1188,7 +1225,7 @@ class MessageHandler:
             "type": "category-mods-response",
             "category": category,
             "mods": mods,
-            "historicMod": historic_other_paths,
+            "historicMod": historic_paths,
             "timestamp": int(time.time() * 1000),
         }
         self._send_response(json.dumps(response_payload))
