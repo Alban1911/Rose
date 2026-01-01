@@ -16,6 +16,7 @@ from config import (
     get_config_file_path
 )
 from utils.core.logging import get_logger, log_action, log_success
+from utils.core.issue_reporter import report_issue
 
 from .injector import SkinInjector
 from ..game.game_monitor import GameMonitor
@@ -54,11 +55,11 @@ class InjectionManager:
         """Get monitor auto-resume timeout from config."""
         try:
             from config import get_config_float
-            timeout = get_config_float("General", "monitor_auto_resume_timeout", 20.0)
-            return max(20.0, min(90.0, float(timeout)))  # Clamp between 20 and 90
+            timeout = get_config_float("General", "monitor_auto_resume_timeout", 60.0)
+            return max(20.0, min(180.0, float(timeout)))  # Clamp between 20 and 180
         except Exception as exc:  # noqa: BLE001
             log.debug(f"[INJECT] Failed to get monitor auto-resume timeout: {exc}")
-            return 20.0  # Default fallback
+            return 60.0  # Default fallback
     
     def _refresh_injection_threshold(self) -> None:
         """Reload injection threshold from config so tray changes apply immediately."""
@@ -83,6 +84,12 @@ class InjectionManager:
                     else:
                         log.error("[INJECT] Cannot initialize injection system - League game directory not found")
                         log.error("[INJECT] Please ensure League Client is running or manually set the path in config.ini")
+                        report_issue(
+                            "LEAGUE_DIR_NOT_FOUND",
+                            "error",
+                            "Injection unavailable: League path not found.",
+                            hint="Start League Client, or set the game path in Settings.",
+                        )
                         self._initialized = False
     
     def _start_monitor(self):
@@ -145,6 +152,17 @@ class InjectionManager:
             if self.last_injection_time and elapsed < self.injection_threshold:
                 remaining = self.injection_threshold - elapsed
                 log.debug(f"[INJECT] Skipping injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                report_issue(
+                    "INJECTION_SKIPPED_COOLDOWN",
+                    "info",
+                    "Injection skipped (cooldown still active).",
+                    details={
+                        "remaining_s": f"{remaining:.2f}",
+                        "threshold_s": f"{self.injection_threshold:.2f}",
+                        "skin": skin_name,
+                    },
+                    hint="Wait a bit, or lower the Injection Cooldown/Threshold in Settings.",
+                )
                 return
 
             # Disconnect from UIA window when injection threshold triggers
@@ -202,10 +220,22 @@ class InjectionManager:
                     # Base skins typically have ID = champion_id * 1000
                     if skin_id == 0:
                         log.info("[INJECT] Base skin detected (skinId=0) - injection skipped")
+                        report_issue(
+                            "INJECTION_SKIPPED_BASE_SKIN",
+                            "info",
+                            "Injection skipped (base skin selected).",
+                            details={"skin": skin_name, "skin_id": 0},
+                        )
                         return False
                     # Check if it matches base skin pattern (champion_id * 1000)
                     if champion_id and skin_id == champion_id * 1000:
                         log.info(f"[INJECT] Base skin detected (skinId={skin_id} for champion {champion_id}) - injection skipped")
+                        report_issue(
+                            "INJECTION_SKIPPED_BASE_SKIN",
+                            "info",
+                            "Injection skipped (base skin selected).",
+                            details={"skin": skin_name, "skin_id": skin_id, "champion_id": champion_id},
+                        )
                         return False
             except (ValueError, IndexError):
                 pass  # Not a numeric skin ID, continue with normal injection
@@ -228,6 +258,13 @@ class InjectionManager:
         lock_acquired = self.injection_lock.acquire(timeout=INJECTION_LOCK_TIMEOUT_S)
         if not lock_acquired:
             log.warning(f"[INJECT] Could not acquire injection lock - another injection in progress")
+            report_issue(
+                "INJECTION_LOCK_TIMEOUT",
+                "warning",
+                "Injection skipped (another injection was still running).",
+                details={"lock_timeout_s": f"{INJECTION_LOCK_TIMEOUT_S:.1f}", "skin": skin_name},
+                hint="Try again in a few seconds.",
+            )
             return False
         
         try:
@@ -239,6 +276,17 @@ class InjectionManager:
             if self.last_injection_time and elapsed < self.injection_threshold:
                 remaining = self.injection_threshold - elapsed
                 log.debug(f"[INJECT] Skipping immediate injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                report_issue(
+                    "INJECTION_SKIPPED_COOLDOWN",
+                    "info",
+                    "Injection skipped (cooldown still active).",
+                    details={
+                        "remaining_s": f"{remaining:.2f}",
+                        "threshold_s": f"{self.injection_threshold:.2f}",
+                        "skin": skin_name,
+                    },
+                    hint="Wait a bit, or lower the Injection Cooldown/Threshold in Settings.",
+                )
                 return False
 
             # Disconnect from UIA window when injection happens

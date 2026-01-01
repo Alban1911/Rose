@@ -82,14 +82,16 @@ def _resolve_pengu_dir() -> Path:
     runtime_dir = get_user_data_dir() / "Pengu Loader"
     
     try:
-        # Always refresh the runtime copy to ensure it's up to date
-        # (simple approach: delete and recopy on each startup)
-        if runtime_dir.exists():
-            shutil.rmtree(runtime_dir, ignore_errors=True)
-        
-        # Copy bundled Pengu Loader to runtime location
+        # Keep the runtime directory and overlay updates on top of it.
+        #
+        # IMPORTANT: users can add custom plugins under:
+        #   %LOCALAPPDATA%\Rose\Pengu Loader\plugins
+        # Deleting the runtime directory on each launch wipes those user-installed plugins.
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy bundled Pengu Loader to runtime location (overwrites bundled files, preserves extras)
         shutil.copytree(bundled_dir, runtime_dir, dirs_exist_ok=True)
-        log.info("Copied Pengu Loader to runtime directory: %s", runtime_dir)
+        log.info("Synced Pengu Loader to runtime directory (preserving user files): %s", runtime_dir)
         
     except Exception as exc:
         log.error("Failed to copy Pengu Loader to runtime directory: %s", exc)

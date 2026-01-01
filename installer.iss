@@ -60,6 +60,10 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}} (as Administrator)"; Flags: nowait postinstall skipifsilent shellexec; Verb: runas
 
+[UninstallRun]
+; Always remove the Rose auto-start scheduled task (created via schtasks /TN "Rose")
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN Rose /F"; Flags: runhidden
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\_internal"
 Type: filesandordirs; Name: "{app}\injection\overlay"
@@ -81,5 +85,66 @@ begin
     RegWriteDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'NoModify', 1);
     RegWriteDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'NoRepair', 1);
     RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayIcon', ExpandConstant('{app}\{#MyAppExeName}'));
+  end;
+end;
+
+function _ContainsTextLower(const Haystack: string; const NeedleLower: string): Boolean;
+begin
+  Result := Pos(NeedleLower, LowerCase(Haystack)) > 0;
+end;
+
+procedure _DeleteStartupValuesIfMatch(const RootKey: Integer; const SubKey: string);
+var
+  Names: TArrayOfString;
+  I: Integer;
+  Val: string;
+  ValLower: string;
+begin
+  if not RegGetValueNames(RootKey, SubKey, Names) then
+    exit;
+
+  for I := 0 to GetArrayLength(Names) - 1 do
+  begin
+    if RegQueryStringValue(RootKey, SubKey, Names[I], Val) then
+    begin
+      ValLower := LowerCase(Val);
+
+      { Remove legacy/broken startup entries that invoke rundll32 on Pengu Loader core.dll.
+        This is what produces the RunDLL "module not found" dialog after uninstall. }
+      if (_ContainsTextLower(ValLower, 'rundll32') and _ContainsTextLower(ValLower, 'pengu loader\core.dll')) or
+         _ContainsTextLower(ValLower, '\rose\_internal\pengu loader\core.dll') then
+      begin
+        RegDeleteValue(RootKey, SubKey, Names[I]);
+      end;
+    end;
+  end;
+end;
+
+const
+  RunKey      = 'Software\Microsoft\Windows\CurrentVersion\Run';
+  RunOnceKey  = 'Software\Microsoft\Windows\CurrentVersion\RunOnce';
+  RunKey6432  = 'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run';
+  RunOnce6432 = 'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce';
+
+procedure _CleanupStartupRegistry();
+begin
+  { 64-bit and user/machine startup keys }
+  _DeleteStartupValuesIfMatch(HKCU, RunKey);
+  _DeleteStartupValuesIfMatch(HKLM, RunKey);
+  _DeleteStartupValuesIfMatch(HKCU, RunOnceKey);
+  _DeleteStartupValuesIfMatch(HKLM, RunOnceKey);
+
+  { 32-bit view keys (defensive) }
+  _DeleteStartupValuesIfMatch(HKCU, RunKey6432);
+  _DeleteStartupValuesIfMatch(HKLM, RunKey6432);
+  _DeleteStartupValuesIfMatch(HKCU, RunOnce6432);
+  _DeleteStartupValuesIfMatch(HKLM, RunOnce6432);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    _CleanupStartupRegistry();
   end;
 end;

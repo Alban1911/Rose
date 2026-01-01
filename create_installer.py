@@ -23,6 +23,19 @@ if sys.version_info < MIN_PYTHON:
     )
     sys.exit(1)
 
+ # Avoid UnicodeEncodeError on Windows consoles configured with legacy code pages
+ # (e.g. cp1252 from some Python distributions). This makes output safe.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def create_installer():
     """Create Windows installer using Inno Setup"""
@@ -132,12 +145,12 @@ def create_installer():
         print("=" * 60)
         print(f"File: {installer_file}")
         print("\nFeatures:")
-        print("✓ Windows Apps list integration")
-        print("✓ Start Menu shortcuts")
-        print("✓ Desktop shortcut (optional)")
-        print("✓ Uninstaller included")
-        print("✓ Admin privileges for proper installation")
-        print("✓ Registry entries for Windows recognition")
+        print("- Windows Apps list integration")
+        print("- Start Menu shortcuts")
+        print("- Desktop shortcut (optional)")
+        print("- Uninstaller included")
+        print("- Admin privileges for proper installation")
+        print("- Registry entries for Windows recognition")
         print("\nTo install:")
         print("1. Run the installer as Administrator")
         print("2. Follow the installation wizard")

@@ -13,10 +13,14 @@ from pathlib import Path
 
 from utils.core.logging import get_logger
 from utils.core.paths import get_state_dir
+from config import SINGLE_INSTANCE_MUTEX_NAME, LOCK_FILE_NAME
 
 from .state import get_app_state
 
 log = get_logger()
+
+# Win32 constant
+ERROR_ALREADY_EXISTS = 183
 
 
 class LockFile:
@@ -158,14 +162,60 @@ def create_lock_file() -> bool:
         return False
 
 
+def create_single_instance_mutex() -> bool:
+    """Create a Windows named mutex (kernel-managed) to enforce single instance."""
+    if sys.platform != "win32":
+        return True
+
+    app_state = get_app_state()
+
+    try:
+        handle = ctypes.windll.kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX_NAME)
+        if not handle:
+            log.error("CreateMutexW failed; falling back to lock file.")
+            return True  # allow fallback path to decide
+
+        last_error = ctypes.windll.kernel32.GetLastError()
+        if last_error == ERROR_ALREADY_EXISTS:
+            # Another instance already created it
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return False
+
+        # Keep handle alive for process lifetime
+        app_state.mutex_handle = handle
+
+        # Optional: clean up old stale lock file left from previous versions
+        try:
+            stale_lock_path = get_state_dir() / LOCK_FILE_NAME
+            if stale_lock_path.exists():
+                stale_lock_path.unlink()
+        except Exception:
+            pass
+
+        atexit.register(cleanup_lock_file)  # reuse existing cleanup hook
+        return True
+    except Exception as e:
+        log.error(f"Failed to create mutex: {e}; falling back to lock file.")
+        return True
+
+
 def cleanup_lock_file() -> None:
-    """Clean up the lock file"""
+    """Clean up the lock file (and now also the mutex handle)."""
     try:
         app_state = get_app_state()
+
+        # release mutex handle if we own it
+        if sys.platform == "win32" and app_state.mutex_handle:
+            try:
+                ctypes.windll.kernel32.CloseHandle(app_state.mutex_handle)
+            except Exception:
+                pass
+            app_state.mutex_handle = None
+
         if app_state.lock_file:
             app_state.lock_file.close()
             app_state.lock_file = None
-            
+
         # Remove the lock file
         if app_state.lock_file_path and app_state.lock_file_path.exists():
             app_state.lock_file_path.unlink()
@@ -175,6 +225,23 @@ def cleanup_lock_file() -> None:
 
 def check_single_instance() -> None:
     """Check if another instance is already running"""
+
+    # Prefer OS mutex on Windows
+    if sys.platform == "win32":
+        if not create_single_instance_mutex():
+            try:
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "Another instance of Rose is already running!\n\nPlease close the existing instance before starting a new one.",
+                    "Rose - Instance Already Running",
+                    0x50010,
+                )
+            except Exception:
+                log.error("Another instance of Rose is already running!")
+            sys.exit(1)
+        return
+
+    # Existing behavior for non-Windows
     if not create_lock_file():
         # Show error message using Windows MessageBox since console might not be visible
         if sys.platform == "win32":

@@ -80,7 +80,9 @@ class UpdateSequence:
         installed_version = config.get("General", "installed_version", fallback=APP_VERSION)
         
         # Skip updates for test versions (e.g., version 999)
-        if installed_version == "999":
+        # Note: installed_version can be stale if config.ini was created by a previous build,
+        # so we also check APP_VERSION (the current build's version).
+        if installed_version == "999" or APP_VERSION == "999":
             status_callback("Update skipped (test version)")
             return False
         

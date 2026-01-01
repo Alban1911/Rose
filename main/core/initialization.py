@@ -11,6 +11,7 @@ from typing import Optional, Tuple
 from lcu import LCU, LCUSkinScraper
 from state import SharedState, AppStatus
 from injection import InjectionManager
+from injection.mods.storage import ModStorageService
 from utils.core.logging import get_logger, log_success
 from utils.system.admin_utils import ensure_admin_rights
 from config import APP_VERSION, set_config_option
@@ -29,6 +30,12 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
     
     # Check for admin rights FIRST (required for injection to work)
     ensure_admin_rights()
+
+    # Ensure mods directory layout exists early (and clean unknown root categories)
+    try:
+        ModStorageService()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Failed to initialize mods storage directories: %s", exc)
     
     # Initialize core components with error handling
     try:
