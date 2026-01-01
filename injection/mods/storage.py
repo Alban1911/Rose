@@ -8,6 +8,7 @@ Handles mods organized by category: skins, maps, fonts, announcers, others
 from __future__ import annotations
 
 from dataclasses import dataclass
+import shutil
 from pathlib import Path
 from typing import List, Optional
 
@@ -37,17 +38,56 @@ class ModStorageService:
     CATEGORY_MAPS = "maps"
     CATEGORY_FONTS = "fonts"
     CATEGORY_ANNOUNCERS = "announcers"
+    CATEGORY_UI = "ui"
+    CATEGORY_VOICEOVER = "voiceover"
+    CATEGORY_LOADING_SCREEN = "loading_screen"
+    CATEGORY_VFX = "vfx"
+    CATEGORY_SFX = "sfx"
     CATEGORY_OTHERS = "others"
+    ROOT_CATEGORIES = (
+        CATEGORY_SKINS,
+        CATEGORY_MAPS,
+        CATEGORY_FONTS,
+        CATEGORY_ANNOUNCERS,
+        CATEGORY_UI,
+        CATEGORY_VOICEOVER,
+        CATEGORY_LOADING_SCREEN,
+        CATEGORY_VFX,
+        CATEGORY_SFX,
+        CATEGORY_OTHERS,
+    )
 
     def __init__(self, mods_root: Optional[Path] = None):
         self.mods_root = mods_root or (get_user_data_dir() / "mods")
         self.mods_root.mkdir(parents=True, exist_ok=True)
-        # Create all mod category folders
-        (self.mods_root / self.CATEGORY_SKINS).mkdir(parents=True, exist_ok=True)
-        (self.mods_root / self.CATEGORY_MAPS).mkdir(parents=True, exist_ok=True)
-        (self.mods_root / self.CATEGORY_FONTS).mkdir(parents=True, exist_ok=True)
-        (self.mods_root / self.CATEGORY_ANNOUNCERS).mkdir(parents=True, exist_ok=True)
-        (self.mods_root / self.CATEGORY_OTHERS).mkdir(parents=True, exist_ok=True)
+        self._ensure_mods_root_layout()
+
+    def _ensure_mods_root_layout(self) -> None:
+        """
+        Ensure `%LOCALAPPDATA%\\Rose\\mods` contains only the expected root category folders.
+
+        - Creates missing category folders.
+        - Removes *extra* root-level folders not in our category list.
+          (Does not touch files and does not touch subfolders within valid categories.)
+        """
+        # Create expected root category folders
+        for category in self.ROOT_CATEGORIES:
+            (self.mods_root / category).mkdir(parents=True, exist_ok=True)
+
+        # Remove unknown root-level directories
+        try:
+            for entry in self.mods_root.iterdir():
+                if not entry.is_dir():
+                    continue
+                if entry.name in self.ROOT_CATEGORIES:
+                    continue
+                try:
+                    shutil.rmtree(entry, ignore_errors=True)
+                    log.info("[ModStorage] Removed unknown mods category folder: %s", entry)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("[ModStorage] Failed to remove unknown mods folder %s: %s", entry, exc)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[ModStorage] Failed to scan mods root %s: %s", self.mods_root, exc)
 
     @property
     def skins_dir(self) -> Path:
@@ -105,7 +145,17 @@ class ModStorageService:
         Returns:
             List of mod dictionaries with name, path, updated_at, description
         """
-        if category not in {self.CATEGORY_MAPS, self.CATEGORY_FONTS, self.CATEGORY_ANNOUNCERS, self.CATEGORY_OTHERS}:
+        if category not in {
+            self.CATEGORY_MAPS,
+            self.CATEGORY_FONTS,
+            self.CATEGORY_ANNOUNCERS,
+            self.CATEGORY_UI,
+            self.CATEGORY_VOICEOVER,
+            self.CATEGORY_LOADING_SCREEN,
+            self.CATEGORY_VFX,
+            self.CATEGORY_SFX,
+            self.CATEGORY_OTHERS,
+        }:
             return []
         
         category_dir = self.mods_root / category

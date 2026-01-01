@@ -105,8 +105,11 @@ class MessageHandler:
             self._handle_request_fonts(payload)
         elif payload_type == "request-announcers":
             self._handle_request_announcers(payload)
+        elif payload_type == "request-category-mods":
+            self._handle_request_category_mods(payload)
         elif payload_type == "request-others":
-            self._handle_request_others(payload)
+            # Backwards compatible: treat as a request for the "others" category only
+            self._handle_request_category_mods({"category": self.mod_storage.CATEGORY_OTHERS})
         elif payload_type == "select-skin-mod":
             self._handle_select_skin_mod(payload)
         elif payload_type == "select-map":
@@ -263,7 +266,7 @@ class MessageHandler:
         """Handle settings request"""
         try:
             threshold = get_config_float("General", "injection_threshold", 0.5)
-            monitor_auto_resume_timeout = get_config_float("General", "monitor_auto_resume_timeout", 20.0)
+            monitor_auto_resume_timeout = get_config_float("General", "monitor_auto_resume_timeout", 60.0)
             autostart = is_registered_for_autostart()
             game_path = get_config_option("General", "leaguePath") or ""
             
@@ -1044,36 +1047,42 @@ class MessageHandler:
                 # Clear all (legacy support)
                 self.shared_state.selected_other_mods = []
                 log.info(f"[SkinMonitor] All other mods deselected")
-                # Clear historic mod when all deselected
-                try:
-                    from utils.core.mod_historic import clear_historic_mod
-                    clear_historic_mod("other")
-                    log.debug("[MOD_HISTORIC] Cleared historic other mod")
-                except Exception as e:
-                    log.debug(f"[MOD_HISTORIC] Failed to clear historic other mod: {e}")
+            # Persist historic selection per category (ui/voiceover/loading_screen/vfx/sfx/others)
+            try:
+                from utils.core.mod_historic import write_historic_mod, clear_historic_mod
+
+                # Rebuild per-category lists from current selection state
+                by_cat = {"ui": [], "voiceover": [], "loading_screen": [], "vfx": [], "sfx": [], "others": []}
+                for m in (self.shared_state.selected_other_mods or []):
+                    rp = str(m.get("relative_path") or "").replace("\\", "/").lstrip("/")
+                    if not rp:
+                        continue
+                    cat = (rp.split("/", 1)[0] if "/" in rp else rp).strip().lower()
+                    if cat not in by_cat:
+                        cat = "others"
+                    by_cat[cat].append(rp)
+
+                for cat, paths in by_cat.items():
+                    if paths:
+                        write_historic_mod(cat, paths)
+                    else:
+                        clear_historic_mod(cat)
+            except Exception as e:
+                log.debug(f"[MOD_HISTORIC] Failed to update category historic after deselect: {e}")
             return
         
         try:
-            # Find the mod in storage
-            entries = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_OTHERS)
-            selected_mod = None
             # other_data contains: id (relative path), name, path, updatedAt, description
-            mod_identifier = other_data.get("id") or other_data.get("name") or other_id
-            for entry_dict in entries:
-                # Match by id (relative path) or name
-                if (entry_dict.get("id") == mod_identifier or 
-                    entry_dict.get("name") == mod_identifier):
-                    # Convert dict to Path for extraction
-                    mod_path = self.mod_storage.mods_root / entry_dict["path"].replace("/", "\\")
-                    selected_mod = type('ModEntry', (), {
-                        'mod_name': entry_dict["name"],
-                        'path': mod_path
-                    })()
-                    break
-            
-            if not selected_mod:
-                log.warning(f"[SkinMonitor] Other mod not found: {other_id}")
+            rel_path = other_data.get("path") or other_data.get("id") or other_id
+            if not rel_path:
+                log.warning("[SkinMonitor] Other mod selection missing path/id")
                 return
+
+            mod_path = self.mod_storage.mods_root / str(rel_path).replace("/", "\\")
+            selected_mod = type("ModEntry", (), {
+                "mod_name": other_data.get("name") or other_id or mod_path.name,
+                "path": mod_path,
+            })()
             
             # Extract mod immediately when selected
             if not self.injection_manager:
@@ -1153,10 +1162,73 @@ class MessageHandler:
             else:
                 log.info(f"[SkinMonitor] Other mod already selected: {selected_mod.mod_name}")
 
+            # Persist historic selection per category (ui/voiceover/loading_screen/vfx/sfx/others)
+            try:
+                from utils.core.mod_historic import write_historic_mod, clear_historic_mod
+
+                by_cat = {"ui": [], "voiceover": [], "loading_screen": [], "vfx": [], "sfx": [], "others": []}
+                for m in (self.shared_state.selected_other_mods or []):
+                    rp = str(m.get("relative_path") or "").replace("\\", "/").lstrip("/")
+                    if not rp:
+                        continue
+                    cat = (rp.split("/", 1)[0] if "/" in rp else rp).strip().lower()
+                    if cat not in by_cat:
+                        cat = "others"
+                    by_cat[cat].append(rp)
+
+                for cat, paths in by_cat.items():
+                    if paths:
+                        write_historic_mod(cat, paths)
+                    else:
+                        clear_historic_mod(cat)
+            except Exception as e:
+                log.debug(f"[MOD_HISTORIC] Failed to update category historic after select: {e}")
+
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle other selection: {e}")
             import traceback
             log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
+
+    def _handle_request_category_mods(self, payload: dict) -> None:
+        """Return the list of mods for a specific top-level category under %LOCALAPPDATA%\\Rose\\mods."""
+        if not self.mod_storage:
+            return
+
+        category = payload.get("category")
+        if category not in {
+            self.mod_storage.CATEGORY_UI,
+            self.mod_storage.CATEGORY_VOICEOVER,
+            self.mod_storage.CATEGORY_LOADING_SCREEN,
+            self.mod_storage.CATEGORY_VFX,
+            self.mod_storage.CATEGORY_SFX,
+            self.mod_storage.CATEGORY_OTHERS,
+        }:
+            log.warning(f"[SkinMonitor] Invalid category for request-category-mods: {category}")
+            return
+
+        try:
+            mods = self.mod_storage.list_mods_for_category(category)
+        except Exception as exc:
+            log.error(f"[SkinMonitor] Failed to list category {category}: {exc}")
+            mods = []
+
+        historic_paths = None
+        try:
+            from utils.core.mod_historic import get_historic_mod
+            historic_paths = get_historic_mod(str(category))
+            if isinstance(historic_paths, str):
+                historic_paths = [historic_paths]
+        except Exception:
+            pass
+
+        response_payload = {
+            "type": "category-mods-response",
+            "category": category,
+            "mods": mods,
+            "historicMod": historic_paths,
+            "timestamp": int(time.time() * 1000),
+        }
+        self._send_response(json.dumps(response_payload))
     
     def _handle_open_logs_folder(self, payload: dict) -> None:
         """Handle open logs folder request"""
@@ -1196,7 +1268,7 @@ class MessageHandler:
         """Handle settings save"""
         try:
             threshold = max(0.3, min(2.0, float(payload.get("threshold", 0.5))))
-            monitor_auto_resume_timeout = max(20, min(90, int(payload.get("monitorAutoResumeTimeout", 20))))
+            monitor_auto_resume_timeout = max(20, min(180, int(payload.get("monitorAutoResumeTimeout", 60))))
             autostart = payload.get("autostart", False)
             game_path = payload.get("gamePath", "")
             
@@ -1383,7 +1455,10 @@ class MessageHandler:
         try:
             category = payload.get("category")
             if category not in {self.mod_storage.CATEGORY_MAPS, self.mod_storage.CATEGORY_FONTS, 
-                               self.mod_storage.CATEGORY_ANNOUNCERS, self.mod_storage.CATEGORY_OTHERS}:
+                               self.mod_storage.CATEGORY_ANNOUNCERS, self.mod_storage.CATEGORY_OTHERS,
+                               self.mod_storage.CATEGORY_UI, self.mod_storage.CATEGORY_VOICEOVER,
+                               self.mod_storage.CATEGORY_LOADING_SCREEN, self.mod_storage.CATEGORY_VFX,
+                               self.mod_storage.CATEGORY_SFX}:
                 log.warning(f"[SkinMonitor] Invalid category: {category}")
                 return
             

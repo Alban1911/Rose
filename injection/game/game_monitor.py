@@ -33,6 +33,7 @@ from config import (
     get_config_float
 )
 from utils.core.logging import get_logger, log_section, log_event, log_success
+from utils.core.issue_reporter import report_issue
 
 log = get_logger()
 
@@ -145,6 +146,16 @@ class GameMonitor:
                             if elapsed >= auto_resume_timeout:
                                 log.warning(f"[monitor] AUTO-RESUME after {auto_resume_timeout:.0f}s (safety timeout)")
                                 log.warning(f"[monitor] Injection took too long - releasing game to prevent freeze")
+                                report_issue(
+                                    "AUTO_RESUME_TRIGGERED",
+                                    "warning",
+                                    f"Injection stopped waiting after {auto_resume_timeout:.0f}s (auto-resume safety).",
+                                    details={
+                                        "auto_resume_timeout_s": f"{auto_resume_timeout:.0f}",
+                                        "elapsed_s": f"{elapsed:.1f}",
+                                    },
+                                    hint="Settings → Monitor Auto-Resume Timeout → increase it (ex: 60s).",
+                                )
                                 try:
                                     self._suspended_game_process.resume()
                                     log.info("[monitor] Auto-resumed game successfully")

@@ -228,6 +228,17 @@ if __name__ == "__main__":
         # Top-level exception handler to catch any unhandled crashes
         import traceback
         import ctypes
+        try:
+            from utils.core.issue_reporter import report_issue
+            report_issue(
+                "FATAL_CRASH",
+                "error",
+                "Rose crashed unexpectedly.",
+                details={"type": type(e).__name__, "error": str(e)},
+                hint="Check %LOCALAPPDATA%\\Rose\\logs\\ for details.",
+            )
+        except Exception:
+            pass
         
         error_msg = f"""
 ================================================================================

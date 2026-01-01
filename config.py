@@ -268,6 +268,9 @@ WINDOWS_DPI_AWARENESS_SYSTEM = 1         # PROCESS_SYSTEM_DPI_AWARE
 # Lock file name
 LOCK_FILE_NAME = "rose.lock"
 
+# NEW: Windows named mutex for single-instance (per-user/session)
+SINGLE_INSTANCE_MUTEX_NAME = r"Local\RoseSingleInstance"
+
 # Log file patterns (handles .log files)
 LOG_FILE_PATTERN = "rose_*.log*"
 UPDATER_LOG_FILE_PATTERN = "log_updater_*.log*"
