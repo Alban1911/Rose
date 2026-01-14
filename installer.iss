@@ -2,12 +2,14 @@
 ; This creates a proper Windows installer that registers the app
 
 #define MyAppName "Rose"
-#define MyAppVersion "1.1.3"
-#define MyAppVersionInfo "1.1.3.0"
+#define MyAppVersion "1.1.4"
+#define MyAppVersionInfo "1.1.4.0"
 #define MyAppPublisher "Rose Team"
 #define MyAppURL "https://github.com/Alban1911/Rose"
 #define MyAppExeName "Rose.exe"
 #define MyAppDescription "Effortless skin changer for League of Legends"
+; Must match config.SINGLE_INSTANCE_MUTEX_NAME (used by the app to enforce single-instance)
+#define MyAppMutex "Local\RoseSingleInstance"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
@@ -38,6 +40,8 @@ VersionInfoVersion={#MyAppVersionInfo}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppDescription}
 VersionInfoProductName={#MyAppName}
+; Prevent install/uninstall while Rose is running (mutex is created by the running app)
+AppMutex={#MyAppMutex}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -71,6 +75,24 @@ Type: filesandordirs; Name: "{app}\injection\mods"
 ; Note: State files are now stored in user data directory, not in app directory
 
 [Code]
+function InitializeUninstall(): Boolean;
+begin
+  if CheckForMutexes('{#MyAppMutex}') then
+  begin
+    MsgBox(
+      '{#MyAppName} is currently running.'#13#10 +
+      'Please close it completely (including the tray) and try uninstalling again.',
+      mbCriticalError,
+      MB_OK
+    );
+    Result := False;
+  end
+  else
+  begin
+    Result := True;
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
