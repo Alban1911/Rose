@@ -13,6 +13,7 @@ from typing import Optional
 from config import BASE_SKIN_VERIFICATION_WAIT_S, LOG_SEPARATOR_WIDTH
 from lcu import LCU
 from state import SharedState
+from utils.core.issue_reporter import report_issue
 from utils.core.logging import get_logger, log_action
 
 log = get_logger()
@@ -794,6 +795,9 @@ class InjectionTrigger:
             log.warning(f"[INJECT] UI hide traceback: {traceback.format_exc()}")
         
         base_skin_set_successfully = False
+        # Measure just the "force base skin" operation time (LCU PATCH + champ-select action selection),
+        # not the later verification sleep.
+        t_force0 = time.perf_counter()
         
         try:
             sess = self.lcu.session or {}
@@ -828,6 +832,31 @@ class InjectionTrigger:
                     base_skin_set_successfully = True
                 else:
                     log.warning(f"[INJECT] ✗ Failed to force base skin")
+
+            # Emit timing info (INFO so it shows up in normal customer logs).
+            # Also, if forcing base skin was slow compared to injection threshold, write an issue entry.
+            # This helps diagnose cases where LCU is laggy and skin injection timing gets tight.
+            if base_skin_set_successfully:
+                try:
+                    if self.injection_manager is not None:
+                        threshold_s = float(getattr(self.injection_manager, "injection_threshold", 0.0))
+                    else:
+                        from config import get_config_float
+                        threshold_s = float(get_config_float("General", "injection_threshold", 0.5))
+
+                    dt_force_s = float(time.perf_counter() - t_force0)
+                    log.info(f"[INJECT] Base skin force time: {dt_force_s:.3f}s (threshold: {threshold_s:.3f}s)")
+
+                    if dt_force_s > threshold_s:
+                        report_issue(
+                            "BASE_SKIN_FORCE_SLOW",
+                            "error",
+                            "Base skin forcing took longer than your injection threshold.",
+                            hint=f"Base skin force time: {dt_force_s:.3f}s, injection threshold: {threshold_s:.3f}s. Consider increasing Injection Threshold.",
+                            dedupe_window_s=60.0,
+                        )
+                except Exception:
+                    pass
             
             # Verify the change
             if base_skin_set_successfully:

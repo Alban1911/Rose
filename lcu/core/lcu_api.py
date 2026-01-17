@@ -7,6 +7,7 @@ Handles HTTP requests to LCU API
 
 from typing import Optional
 
+import time
 import requests
 
 from utils.core.logging import get_logger
@@ -83,21 +84,35 @@ class LCUAPI:
                 return None
         
         try:
-            return self.connection.session.patch(
+            t0 = time.perf_counter()
+            resp = self.connection.session.patch(
                 (self.connection.base or "") + path,
                 json=json_data,
-                timeout=timeout
+                timeout=timeout,
             )
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            try:
+                log.debug(f"[LCU] PATCH {path} -> {getattr(resp, 'status_code', 'None')} in {dt_ms:.1f}ms")
+            except Exception:
+                pass
+            return resp
         except requests.exceptions.RequestException:
             self.connection.refresh_if_needed(force=True)
             if not self.connection.ok:
                 return None
             try:
-                return self.connection.session.patch(
+                t0 = time.perf_counter()
+                resp = self.connection.session.patch(
                     (self.connection.base or "") + path,
                     json=json_data,
-                    timeout=timeout
+                    timeout=timeout,
                 )
+                dt_ms = (time.perf_counter() - t0) * 1000.0
+                try:
+                    log.debug(f"[LCU] PATCH(retry) {path} -> {getattr(resp, 'status_code', 'None')} in {dt_ms:.1f}ms")
+                except Exception:
+                    pass
+                return resp
             except requests.exceptions.RequestException:
                 return None
 

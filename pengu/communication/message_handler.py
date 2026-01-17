@@ -12,12 +12,14 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.storage import ModStorageService
 from utils.core.paths import get_user_data_dir, get_asset_path
+from utils.core.issue_reporter import clear_issues, read_issues_tail
 from utils.system.admin_utils import (
     is_admin,
     is_registered_for_autostart,
@@ -122,6 +124,10 @@ class MessageHandler:
             self._handle_select_other(payload)
         elif payload_type == "open-logs-folder":
             self._handle_open_logs_folder(payload)
+        elif payload_type == "diagnostics-request":
+            self._handle_diagnostics_request(payload)
+        elif payload_type == "diagnostics-clear":
+            self._handle_diagnostics_clear(payload)
         elif payload_type == "open-pengu-loader-ui":
             self._handle_open_pengu_loader_ui(payload)
         elif payload_type == "settings-save":
@@ -269,6 +275,7 @@ class MessageHandler:
             monitor_auto_resume_timeout = get_config_float("General", "monitor_auto_resume_timeout", 60.0)
             autostart = is_registered_for_autostart()
             game_path = get_config_option("General", "leaguePath") or ""
+            diagnostics_errors = self._compute_diagnostics_errors()
             
             path_valid = False
             if game_path:
@@ -286,13 +293,130 @@ class MessageHandler:
                 "monitorAutoResumeTimeout": int(monitor_auto_resume_timeout),
                 "autostart": autostart,
                 "gamePath": game_path,
-                "gamePathValid": path_valid
+                "gamePathValid": path_valid,
+                "hasErrors": len(diagnostics_errors) > 0,
+                "errorsCount": len(diagnostics_errors),
             }
             self._send_response(json.dumps(response_payload))
             
             log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, monitor_auto_resume_timeout={monitor_auto_resume_timeout}, autostart={autostart}, gamePath={game_path}, valid={path_valid}")
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle settings request: {e}")
+
+    def _handle_diagnostics_clear(self, payload: dict) -> None:
+        """Clear rose_issues.txt (Diagnostics)"""
+        try:
+            ok = clear_issues()
+            response_payload = {
+                "type": "diagnostics-cleared",
+                "success": bool(ok),
+            }
+            self._send_response(json.dumps(response_payload))
+        except Exception as e:
+            log.error(f"[SkinMonitor] Failed to clear diagnostics: {e}")
+            try:
+                self._send_response(json.dumps({"type": "diagnostics-cleared", "success": False}))
+            except Exception:
+                pass
+
+    def _handle_diagnostics_request(self, payload: dict) -> None:
+        """
+        Return a compact, user-friendly list of recent errors, derived from rose_issues.txt.
+        The goal is "what to change" rather than raw logs.
+        """
+        try:
+            out = self._compute_diagnostics_errors()
+
+            response_payload = {
+                "type": "diagnostics-data",
+                "errors": out,
+                "path": str(get_user_data_dir() / "rose_issues.txt"),
+            }
+            self._send_response(json.dumps(response_payload))
+        except Exception as e:
+            log.error(f"[SkinMonitor] Failed to handle diagnostics request: {e}")
+            try:
+                self._send_response(json.dumps({"type": "diagnostics-data", "errors": [], "path": ""}))
+            except Exception:
+                pass
+
+    def _compute_diagnostics_errors(self) -> list[dict]:
+        """Compute compact diagnostics error list from rose_issues.txt (never raises)."""
+        try:
+            raw_lines = read_issues_tail(max_lines=400)
+            now = datetime.now()
+
+            month_map = {
+                "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+            }
+
+            entries: list[dict] = []
+            i = 0
+            while i < len(raw_lines):
+                line = (raw_lines[i] or "").strip()
+                if " | " in line:
+                    ts_part, msg = line.split(" | ", 1)
+                    fix = None
+                    if i + 1 < len(raw_lines):
+                        nxt = (raw_lines[i + 1] or "").strip()
+                        if nxt.startswith("Fix:"):
+                            fix = nxt
+                            i += 1
+                    entries.append({"ts": ts_part.strip(), "msg": msg.strip(), "fix": (fix or "").strip()})
+                i += 1
+
+            def _format_ts(ts_part: str) -> str:
+                # Input is like "Jan 17 17:41" (no year). We assume current year.
+                try:
+                    parts = ts_part.split()
+                    if len(parts) >= 3:
+                        mon = month_map.get(parts[0].lower())
+                        day = int(parts[1])
+                        hhmm = parts[2]
+                        hh, mm = hhmm.split(":")
+                        dt = datetime(now.year, int(mon), int(day), int(hh), int(mm))
+                        return dt.strftime("%d/%m/%y %H:%M")
+                except Exception:
+                    pass
+                return ts_part
+
+            def _summarize(msg: str, fix: str) -> Optional[str]:
+                ml = (msg or "").lower()
+                fl = (fix or "").lower()
+
+                # Filter out "not actually an error" noise
+                if "injection skipped" in ml and "base skin selected" in ml:
+                    return None
+
+                if "monitor auto-resume timeout" in fl or "auto-resume safety" in ml:
+                    return "Monitor Auto-Resume Timeout → increase"
+                if "injection threshold" in ml or "injection threshold" in fl:
+                    return "Injection Threshold → increase"
+
+                # Fallback: keep it short
+                short = msg.strip()
+                if len(short) > 60:
+                    short = short[:57] + "..."
+                return short or None
+
+            # Keep last N unique summaries (most recent occurrences)
+            seen: set[str] = set()
+            out: list[dict] = []
+            for ent in reversed(entries):
+                summary = _summarize(ent.get("msg", ""), ent.get("fix", ""))
+                if not summary:
+                    continue
+                if summary in seen:
+                    continue
+                seen.add(summary)
+                out.append({"ts": _format_ts(ent.get("ts", "")), "text": summary})
+                if len(out) >= 8:
+                    break
+            out.reverse()
+            return out
+        except Exception:
+            return []
     
     def _handle_path_validate(self, payload: dict) -> None:
         """Handle path validation request"""
@@ -1267,8 +1391,8 @@ class MessageHandler:
     def _handle_settings_save(self, payload: dict) -> None:
         """Handle settings save"""
         try:
-            threshold = max(0.3, min(2.0, float(payload.get("threshold", 0.5))))
-            monitor_auto_resume_timeout = max(20, min(180, int(payload.get("monitorAutoResumeTimeout", 60))))
+            threshold = max(0.0, min(2.0, float(payload.get("threshold", 0.5))))
+            monitor_auto_resume_timeout = max(1, min(180, int(payload.get("monitorAutoResumeTimeout", 60))))
             autostart = payload.get("autostart", False)
             game_path = payload.get("gamePath", "")
             

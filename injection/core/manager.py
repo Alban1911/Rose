@@ -56,7 +56,7 @@ class InjectionManager:
         try:
             from config import get_config_float
             timeout = get_config_float("General", "monitor_auto_resume_timeout", 60.0)
-            return max(20.0, min(180.0, float(timeout)))  # Clamp between 20 and 180
+            return max(1.0, min(180.0, float(timeout)))  # Clamp between 1 and 180
         except Exception as exc:  # noqa: BLE001
             log.debug(f"[INJECT] Failed to get monitor auto-resume timeout: {exc}")
             return 60.0  # Default fallback
