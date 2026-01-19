@@ -128,8 +128,6 @@ To configure analytics:
 3. Adjust `ANALYTICS_PING_INTERVAL_S` if needed
 4. Set `ANALYTICS_ENABLED = False` to disable
 
-For server setup instructions, see [ANALYTICS_SERVER_SETUP.md](ANALYTICS_SERVER_SETUP.md).
-
 ## Project Structure
 
 ```
