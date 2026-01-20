@@ -1622,6 +1622,14 @@ class MessageHandler:
         skin_name = payload.get("skin")
         if not isinstance(skin_name, str) or not skin_name.strip():
             return
+
+        # Always remember last hover text, even if we currently gate payload processing
+        # (e.g. before lock / during phase transitions). This prevents reconnects from
+        # causing "no last hovered skin" at injection time.
+        try:
+            self.shared_state.ui_last_text = skin_name.strip()
+        except Exception:
+            pass
         
         if not self.flow_controller.should_process_payload():
             return

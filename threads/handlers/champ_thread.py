@@ -92,6 +92,32 @@ class ChampThread(threading.Thread):
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
+    def _try_resolve_cached_skin_after_lock(self) -> None:
+        """
+        If the bridge disconnected/reconnected (or hover happened before lock),
+        we may have `state.ui_last_text` but no mapped `last_hovered_skin_id`.
+        Resolve it immediately on champion lock so injection doesn't depend on
+        the user hovering again.
+        """
+        try:
+            if self.state.last_hovered_skin_id is not None:
+                return
+            cached = getattr(self.state, "ui_last_text", None)
+            if not isinstance(cached, str) or not cached.strip():
+                return
+
+            t = getattr(self.state, "ui_skin_thread", None)
+            if not t:
+                return
+            sp = getattr(t, "skin_processor", None)
+            bc = getattr(t, "broadcaster", None)
+            if not sp:
+                return
+
+            sp.process_skin_name(cached.strip(), broadcaster=bc)
+        except Exception:
+            pass
+
     def run(self):
         """Main thread loop"""
         while not self.state.stop:
@@ -167,6 +193,10 @@ class ChampThread(threading.Thread):
                     self.state.locked_champ_timestamp = time.time()  # Record lock time
                     self.last_lock = locked
                     self.last_locked_champion_id = locked  # Update tracking for next comparison
+
+                    # Ensure we don't lose the last hovered skin due to a bridge reconnect:
+                    # if we have cached hover text but no ID yet, resolve it now.
+                    self._try_resolve_cached_skin_after_lock()
                     
                     # Reset historic mode state for new champion lock (if champion changed)
                     if old_lock != locked:
