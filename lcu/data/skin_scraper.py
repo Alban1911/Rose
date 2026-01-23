@@ -158,12 +158,15 @@ class LCUSkinScraper:
         if exact_match:
             return (exact_match['skinId'], exact_match['skinName'], 1.0)
         
-        # Try exact match with normalized names (without parentheses)
-        normalized_text = normalize_skin_name_for_matching(text)
-        for skin in self.cache.skins:
-            normalized_skin_name = normalize_skin_name_for_matching(skin['skinName'])
-            if normalized_text.lower() == normalized_skin_name.lower():
-                return (skin['skinId'], skin['skinName'], 1.0)
+        # Try exact match with normalized names (without parentheses) - only if text has parentheses
+        # This helps with cases like "Mel Wybranka Zimy (Prestiżowa)" matching "Mel Wybranka Zimy"
+        if '(' in text or ')' in text:
+            normalized_text = normalize_skin_name_for_matching(text)
+            for skin in self.cache.skins:
+                normalized_skin_name = normalize_skin_name_for_matching(skin['skinName'])
+                # Case-sensitive comparison to avoid false matches
+                if normalized_text == normalized_skin_name:
+                    return (skin['skinId'], skin['skinName'], 1.0)
         
         # Fuzzy matching with Levenshtein distance
         if not use_levenshtein:
@@ -177,6 +180,7 @@ class LCUSkinScraper:
             skin_name = skin['skinName']
             
             # Normalize both texts: remove parentheses and spaces before comparison
+            # This ensures parentheses don't affect fuzzy matching
             text_normalized = normalize_skin_name_for_matching(text).replace(" ", "")
             skin_name_normalized = normalize_skin_name_for_matching(skin_name).replace(" ", "")
             
