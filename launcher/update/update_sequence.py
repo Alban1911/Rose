@@ -22,6 +22,55 @@ log = get_logger()
 updater_log = get_named_logger("updater", prefix="log_updater")
 
 
+def _parse_semver_like(version: str) -> Optional[tuple[int, ...]]:
+    """
+    Parse a semver-like version string into an integer tuple for comparison.
+
+    Accepts formats like:
+    - "1.2.3"
+    - "v1.2.3"
+    - "1.2.3-beta"  (suffix ignored)
+    - "1.2"         (becomes (1, 2))
+    """
+    if not version:
+        return None
+
+    v = version.strip()
+    if v.lower().startswith("v"):
+        v = v[1:].strip()
+
+    # Drop common suffixes (e.g., "-beta", "+build", " (whatever)")
+    for sep in (" ", "-", "+"):
+        if sep in v:
+            v = v.split(sep, 1)[0]
+
+    parts: list[int] = []
+    for raw in v.split("."):
+        if not raw:
+            break
+        digits = ""
+        for ch in raw:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        if digits == "":
+            break
+        parts.append(int(digits))
+
+    return tuple(parts) if parts else None
+
+
+def _cmp_version(a: Optional[tuple[int, ...]], b: Optional[tuple[int, ...]]) -> Optional[int]:
+    """Return -1/0/1 if comparable, else None."""
+    if a is None or b is None:
+        return None
+    max_len = max(len(a), len(b))
+    aa = a + (0,) * (max_len - len(a))
+    bb = b + (0,) * (max_len - len(b))
+    return (aa > bb) - (aa < bb)
+
+
 class UpdateSequence:
     """Handles the update checking and installation sequence"""
     
@@ -85,8 +134,29 @@ class UpdateSequence:
         if installed_version == "999" or APP_VERSION == "999":
             status_callback("Update skipped (test version)")
             return False
-        
-        if remote_version and installed_version == remote_version:
+
+        # Determine the effective local version (config can be stale, so consider APP_VERSION too).
+        local_candidates = [installed_version, APP_VERSION]
+        local_parsed = [_parse_semver_like(v) for v in local_candidates]
+        remote_parsed = _parse_semver_like(remote_version) if remote_version else None
+
+        # Prevent unintended downgrade: if local > remote, do not update.
+        # This is especially useful for testing builds where APP_VERSION is bumped ahead.
+        effective_local: Optional[tuple[int, ...]] = None
+        for v in local_parsed:
+            if v is None:
+                continue
+            if effective_local is None or _cmp_version(v, effective_local) == 1:
+                effective_local = v
+
+        if _cmp_version(effective_local, remote_parsed) == 1:
+            status_callback("Update skipped (local version is newer)")
+            return False
+
+        # If versions match, we are up to date.
+        if _cmp_version(effective_local, remote_parsed) == 0 or (
+            remote_version and (installed_version == remote_version or APP_VERSION == remote_version)
+        ):
             status_callback("Launcher is already up to date")
             return False
         
