@@ -92,6 +92,87 @@ def _sanitize_plugin_entrypoints(pengu_dir: Path) -> None:
         log.debug("Failed to sanitize plugin entrypoints: %s", exc)
 
 
+def _snapshot_plugin_enable_state(pengu_dir: Path) -> tuple[set[str], set[str]]:
+    """
+    Snapshot the user's enabled/disabled state for plugins before overlay sync.
+
+    Returns:
+        (enabled, disabled) as sets of plugin directory names.
+
+    Notes:
+    - "enabled" means `index.js` exists and `index.js_` does NOT.
+    - "disabled" means `index.js_` exists (regardless of `index.js`).
+    """
+    enabled: set[str] = set()
+    disabled: set[str] = set()
+
+    try:
+        plugins_dir = pengu_dir / "plugins"
+        if not plugins_dir.exists():
+            return enabled, disabled
+
+        for plugin_dir in plugins_dir.iterdir():
+            if not plugin_dir.is_dir():
+                continue
+
+            enabled_entry = plugin_dir / _PLUGIN_ENTRYPOINT
+            disabled_entry = plugin_dir / _PLUGIN_ENTRYPOINT_DISABLED
+
+            if disabled_entry.exists():
+                disabled.add(plugin_dir.name)
+            elif enabled_entry.exists():
+                enabled.add(plugin_dir.name)
+    except Exception as exc:
+        log.debug("Failed to snapshot plugin enable state: %s", exc)
+
+    return enabled, disabled
+
+
+def _restore_plugin_enable_state(pengu_dir: Path, enabled: set[str], disabled: set[str]) -> None:
+    """
+    After overlay sync, restore the user's prior plugin enable/disable choices.
+
+    Problem:
+    - The bundled repo may ship a plugin as disabled (`index.js_` only), but a user may
+      have enabled it locally (`index.js` exists).
+    - Overlay sync can introduce `index.js_` into the runtime dir without deleting the
+      user's `index.js`, leaving both. The old sanitize logic would treat that as disabled.
+    """
+    try:
+        plugins_dir = pengu_dir / "plugins"
+        if not plugins_dir.exists():
+            return
+
+        # If the user had a plugin enabled, prefer enabled state: remove any
+        # reintroduced `index.js_` from the bundle.
+        for plugin_name in enabled:
+            plugin_dir = plugins_dir / plugin_name
+            if not plugin_dir.is_dir():
+                continue
+
+            enabled_entry = plugin_dir / _PLUGIN_ENTRYPOINT
+            disabled_entry = plugin_dir / _PLUGIN_ENTRYPOINT_DISABLED
+            if enabled_entry.exists() and disabled_entry.exists():
+                try:
+                    disabled_entry.unlink()
+                    log.info(
+                        "Preserved enabled plugin state by removing bundled disabled entrypoint: %s",
+                        disabled_entry,
+                    )
+                except Exception as exc:
+                    log.debug(
+                        "Failed to remove bundled disabled entrypoint for enabled plugin %s: %s",
+                        plugin_name,
+                        exc,
+                    )
+
+        # If the user had a plugin disabled, keep disabled state authoritative.
+        # (This also handles the "both files exist" case by parking `index.js`.)
+        _sanitize_plugin_entrypoints(pengu_dir)
+    except Exception as exc:
+        log.debug("Failed to restore plugin enable state: %s", exc)
+
+
 def _get_bundled_pengu_dir() -> Optional[Path]:
     """Locate the bundled Pengu Loader directory (read-only location)."""
     # 1. PyInstaller onefile: resources live under _MEIPASS
@@ -154,12 +235,33 @@ def _resolve_pengu_dir() -> Path:
         # Deleting the runtime directory on each launch wipes those user-installed plugins.
         runtime_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy bundled Pengu Loader to runtime location (overwrites bundled files, preserves extras)
-        shutil.copytree(bundled_dir, runtime_dir, dirs_exist_ok=True)
+        # Snapshot plugin enabled/disabled state BEFORE overlaying bundled files.
+        enabled_plugins, disabled_plugins = _snapshot_plugin_enable_state(runtime_dir)
+
+        # Copy bundled Pengu Loader to runtime location (overwrites bundled files, preserves extras).
+        #
+        # IMPORTANT: preserve the runtime `datastore` file.
+        # Pengu Loader stores plugin/user settings there via `DataStore.*`. Overwriting it on
+        # app update would wipe user preferences (e.g., enabled plugins, selected borders/icons).
+        shutil.copytree(
+            bundled_dir,
+            runtime_dir,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("datastore"),
+        )
+
+        # If this is a fresh runtime directory (no datastore yet), seed it once from bundled.
+        bundled_datastore = bundled_dir / "datastore"
+        runtime_datastore = runtime_dir / "datastore"
+        if (not runtime_datastore.exists()) and bundled_datastore.exists():
+            try:
+                shutil.copy2(bundled_datastore, runtime_datastore)
+            except Exception as exc:
+                log.debug("Failed to seed Pengu Loader datastore: %s", exc)
         log.info("Synced Pengu Loader to runtime directory (preserving user files): %s", runtime_dir)
 
-        # Ensure disabled plugins stay disabled after the overlay sync.
-        _sanitize_plugin_entrypoints(runtime_dir)
+        # Restore plugin enable/disable state after the overlay sync.
+        _restore_plugin_enable_state(runtime_dir, enabled_plugins, disabled_plugins)
         
     except Exception as exc:
         log.error("Failed to copy Pengu Loader to runtime directory: %s", exc)
