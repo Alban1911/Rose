@@ -151,16 +151,26 @@ class LCUSkinScraper:
         if not text or not self.cache.skins:
             return None
         
+        from utils.core.normalization import levenshtein_distance, normalize_skin_name_for_matching
+        
         # Try exact match first
         exact_match = self.cache.get_skin_by_name(text)
         if exact_match:
             return (exact_match['skinId'], exact_match['skinName'], 1.0)
         
+        # Try exact match with normalized names (without parentheses) - only if text has parentheses
+        # This helps with cases like "Mel Wybranka Zimy (Prestiżowa)" matching "Mel Wybranka Zimy"
+        if '(' in text or ')' in text:
+            normalized_text = normalize_skin_name_for_matching(text)
+            for skin in self.cache.skins:
+                normalized_skin_name = normalize_skin_name_for_matching(skin['skinName'])
+                # Case-sensitive comparison to avoid false matches
+                if normalized_text == normalized_skin_name:
+                    return (skin['skinId'], skin['skinName'], 1.0)
+        
         # Fuzzy matching with Levenshtein distance
         if not use_levenshtein:
             return None
-        
-        from utils.core.normalization import levenshtein_distance
         
         best_match = None
         best_distance = float('inf')
@@ -169,13 +179,14 @@ class LCUSkinScraper:
         for skin in self.cache.skins:
             skin_name = skin['skinName']
             
-            # Remove spaces from both texts before comparison
-            text_no_spaces = text.replace(" ", "")
-            skin_name_no_spaces = skin_name.replace(" ", "")
+            # Normalize both texts: remove parentheses and spaces before comparison
+            # This ensures parentheses don't affect fuzzy matching
+            text_normalized = normalize_skin_name_for_matching(text).replace(" ", "")
+            skin_name_normalized = normalize_skin_name_for_matching(skin_name).replace(" ", "")
             
             # Calculate Levenshtein distance
-            distance = levenshtein_distance(text_no_spaces, skin_name_no_spaces)
-            max_len = max(len(text_no_spaces), len(skin_name_no_spaces))
+            distance = levenshtein_distance(text_normalized, skin_name_normalized)
+            max_len = max(len(text_normalized), len(skin_name_normalized))
             similarity = 1.0 - (distance / max_len) if max_len > 0 else 0.0
             
             # Update best match

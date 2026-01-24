@@ -71,6 +71,20 @@ class ChromaSpecialCases:
         return forms
     
     @staticmethod
+    def get_viego_forms() -> List[Dict]:
+        """Get Viego Forms data structure (equivalent to chromas)"""
+        forms = [
+            {'id': 234994, 'name': 'Form 2', 'colors': [], 'is_owned': False, 'form_path': 'Viego/Forms/Viego Form 2.zip'},
+            {'id': 234995, 'name': 'Form 3', 'colors': [], 'is_owned': False, 'form_path': 'Viego/Forms/Viego Form 3.zip'},
+            {'id': 234996, 'name': 'Form 4', 'colors': [], 'is_owned': False, 'form_path': 'Viego/Forms/Viego Form 4.zip'},
+            {'id': 234997, 'name': 'Form 5', 'colors': [], 'is_owned': False, 'form_path': 'Viego/Forms/Viego Form 5.zip'},
+            {'id': 234998, 'name': 'Form 6', 'colors': [], 'is_owned': False, 'form_path': 'Viego/Forms/Viego Form 6.zip'},
+            {'id': 234999, 'name': 'Form 7', 'colors': [], 'is_owned': False, 'form_path': 'Viego/Forms/Viego Form 7.zip'},
+        ]
+        log.debug(f"[CHROMA] Created {len(forms)} Viego Forms with real IDs (234994-234999)")
+        return forms
+    
+    @staticmethod
     def get_hol_chromas() -> List[Dict]:
         """Get Risen Legend Kai'Sa HOL chroma data structure (equivalent to chromas)"""
         chromas = [
@@ -115,6 +129,11 @@ class ChromaSpecialCases:
         return chroma_id in (147002, 147003)
     
     @staticmethod
+    def is_viego_form(chroma_id: int) -> bool:
+        """Check if chroma_id is a Viego form"""
+        return chroma_id in (234994, 234995, 234996, 234997, 234998, 234999)
+    
+    @staticmethod
     def is_hol_chroma(chroma_id: int) -> bool:
         """Check if chroma_id is a HOL chroma"""
         return chroma_id in (145071, 103086, 103087)
@@ -153,6 +172,14 @@ class ChromaSpecialCases:
         # Special case: KDA Seraphine forms (IDs 147002, 147003) are treated as forms of base skin
         elif skin_id in (147002, 147003):
             return ChromaSpecialCases.get_seraphine_forms()
+        
+        # Special case: Viego (skin ID 234043) has Forms instead of chromas
+        elif skin_id == 234043:
+            return ChromaSpecialCases.get_viego_forms()
+        
+        # Special case: Viego forms (IDs 234994-234999) are treated as forms of base skin
+        elif skin_id in (234994, 234995, 234996, 234997, 234998, 234999):
+            return ChromaSpecialCases.get_viego_forms()
         
         # Special case: Risen Legend Kai'Sa (skin ID 145070) has HOL chroma instead of regular chromas
         elif skin_id == 145070:
@@ -197,6 +224,9 @@ class ChromaSpecialCases:
         
         if ChromaSpecialCases.is_seraphine_form(chroma_id):
             return 147001  # KDA Seraphine base skin ID
+        
+        if ChromaSpecialCases.is_viego_form(chroma_id):
+            return 234043  # Viego base skin ID
         
         if chroma_id == 145071:
             return 145070  # Risen Legend Kai'Sa base skin ID

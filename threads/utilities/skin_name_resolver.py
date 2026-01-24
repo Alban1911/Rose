@@ -6,6 +6,7 @@ Resolves skin name for injection based on state (historic, random, or hovered)
 """
 
 import logging
+import time
 from typing import Optional
 
 from state import SharedState
@@ -26,6 +27,47 @@ class SkinNameResolver:
         """
         self.state = state
         self.skin_scraper = skin_scraper
+        # Prevent log spam when UI state is not ready yet (this resolver can be polled frequently).
+        self._no_skin_id_last_log_ts: float = 0.0
+        self._no_skin_id_last_payload = None
+        self._no_skin_id_suppressed: int = 0
+
+    def _log_no_skin_id_available(self) -> None:
+        """Rate-limit 'no skin id' logs to avoid spam in tight polling loops."""
+        # Keep payload small but useful for diagnosis.
+        payload = (
+            getattr(self.state, "last_hovered_skin_id", None),
+            getattr(self.state, "last_hovered_skin_key", None),
+            getattr(self.state, "phase", None),
+        )
+
+        now = time.monotonic()
+        interval_s = 2.0
+
+        # If state changed, log immediately (and flush suppressed count).
+        if payload != self._no_skin_id_last_payload:
+            if self._no_skin_id_suppressed:
+                log.debug(f"[INJECT] (suppressed {self._no_skin_id_suppressed} repeated 'no skin id' messages)")
+            self._no_skin_id_last_payload = payload
+            self._no_skin_id_last_log_ts = now
+            self._no_skin_id_suppressed = 0
+            log.debug(
+                "[INJECT] No skin ID available yet "
+                f"(last_hovered_skin_id={payload[0]}, last_hovered_skin_key={payload[1]}, phase={payload[2]})"
+            )
+            return
+
+        # Same payload: rate limit.
+        if (now - self._no_skin_id_last_log_ts) >= interval_s:
+            suffix = f" (suppressed {self._no_skin_id_suppressed} repeats)" if self._no_skin_id_suppressed else ""
+            self._no_skin_id_last_log_ts = now
+            self._no_skin_id_suppressed = 0
+            log.debug(
+                "[INJECT] No skin ID available yet "
+                f"(last_hovered_skin_id={payload[0]}, last_hovered_skin_key={payload[1]}, phase={payload[2]}){suffix}"
+            )
+        else:
+            self._no_skin_id_suppressed += 1
     
     def resolve_injection_name(self) -> Optional[str]:
         """Resolve injection name based on current state
@@ -114,9 +156,7 @@ class SkinNameResolver:
                 log.debug(f"[INJECT] Using chroma ID from state: '{name}' (chroma: {skin_id})")
             return name
         else:
-            log.error(f"[INJECT] No skin ID available for injection")
-            log.error(f"[INJECT] State: last_hovered_skin_id={getattr(self.state, 'last_hovered_skin_id', None)}")
-            log.error(f"[INJECT] State: last_hovered_skin_key={getattr(self.state, 'last_hovered_skin_key', None)}")
+            self._log_no_skin_id_available()
             return None
     
     def build_skin_label(self) -> Optional[str]:

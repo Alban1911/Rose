@@ -93,7 +93,7 @@ class InjectionSettingsWindow(Win32Window):
             height=380,
             style=WS_CAPTION | WS_SYSMENU,
         )
-        self.initial_threshold = max(0.3, min(2.0, float(initial_threshold)))
+        self.initial_threshold = max(0.0, min(2.0, float(initial_threshold)))
         self.current_threshold = self.initial_threshold
         self.trackbar_hwnd: Optional[int] = None
         self.value_label_hwnd: Optional[int] = None
@@ -136,7 +136,7 @@ class InjectionSettingsWindow(Win32Window):
             pos_int = int(pos)
         except (TypeError, ValueError):
             return
-        self.current_threshold = max(0.3, min(2.0, pos_int / 100.0))
+        self.current_threshold = max(0.0, min(2.0, pos_int / 100.0))
         if self.value_label_hwnd:
             user32.SetWindowTextW(self.value_label_hwnd, f"{self.current_threshold:.2f} s")
 

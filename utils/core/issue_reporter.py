@@ -6,7 +6,7 @@ Issue Reporter
 Writes a small, human-friendly diagnostics file that summarizes important
 errors and "non-error failure reasons" (e.g., timeouts, settings mismatches).
 
-File: %LOCALAPPDATA%\\Rose\\rose_issues.txt
+File: %LOCALAPPDATA%\\Rose\\rose_diagnostics.txt
 """
 
 from __future__ import annotations
@@ -20,11 +20,20 @@ from utils.core.paths import get_user_data_dir
 _LOCK = threading.Lock()
 _LAST: Dict[str, float] = {}  # naive dedupe: key -> last timestamp
 
+# Keep rose_diagnostics.txt focused on the two settings-related tuning problems that commonly
+# confuse users. Everything else should go to the normal logs.
+_ALLOWED_CODES = {
+    'AUTO_RESUME_TRIGGERED',  # Suggest increasing Monitor Auto-Resume Timeout
+    'BASE_SKIN_FORCE_SLOW',   # Suggest increasing Injection Threshold
+    'BASE_SKIN_VERIFY_FAILED',  # Base skin verification mismatch (often causes skin not to show)
+}
+
+
 
 def _issues_path():
     base_dir = get_user_data_dir()
     base_dir.mkdir(parents=True, exist_ok=True)
-    return base_dir / "rose_issues.txt"
+    return base_dir / "rose_diagnostics.txt"
 
 
 def report_issue(
@@ -42,6 +51,11 @@ def report_issue(
     Never raises (safe to call from exception handlers / hot paths).
     """
     try:
+        # Intentionally keep this file minimal and user-actionable.
+        # If you need deeper troubleshooting, use the main log files.
+        if code not in _ALLOWED_CODES:
+            return
+
         now = time.time()
         details = details or {}
 
@@ -77,4 +91,29 @@ def report_issue(
     except Exception:
         return
 
+
+def read_issues_tail(*, max_lines: int = 60) -> list[str]:
+    """Read the last N lines from rose_diagnostics.txt (safe, never raises)."""
+    try:
+        p = _issues_path()
+        if not p.exists():
+            return []
+        with _LOCK:
+            lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if max_lines <= 0:
+            return []
+        return lines[-int(max_lines):]
+    except Exception:
+        return []
+
+
+def clear_issues() -> bool:
+    """Clear rose_diagnostics.txt (safe, never raises). Returns True if cleared."""
+    try:
+        with _LOCK:
+            p = _issues_path()
+            p.write_text("", encoding="utf-8", errors="ignore")
+        return True
+    except Exception:
+        return False
 

@@ -91,6 +91,8 @@ class SkinDisplayHandler:
         is_sett_form = skin_id in (875998, 875999)
         # Special case: KDA Seraphine forms (IDs 147002, 147003) should always show UnownedFrame
         is_seraphine_form = skin_id in (147002, 147003)
+        # Special case: Viego forms (IDs 234994-234999) should always show UnownedFrame
+        is_viego_form = skin_id in (234994, 234995, 234996, 234997, 234998, 234999)
         
         # Same-base chroma swap occurs when switching from base skin (or its chroma) to another chroma of same base
         is_same_base_chroma = (not is_base_skin_var) and (prev_base_skin_id is not None) and (new_base_skin_id == prev_base_skin_id)
@@ -98,7 +100,7 @@ class SkinDisplayHandler:
         # Determine what to show
         should_show_chroma_ui = has_chromas
         
-        log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned_var}, is_base_skin={is_base_skin_var}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_mordekaiser_form={is_mordekaiser_form}, is_morgana_form={is_morgana_form}, is_sett_form={is_sett_form}, is_seraphine_form={is_seraphine_form}, is_chroma_selection={is_chroma_selection}")
+        log.debug(f"[UI] Skin analysis: has_chromas={has_chromas}, is_owned={is_owned_var}, is_base_skin={is_base_skin_var}, base_skin_owned={base_skin_owned}, is_elementalist_form={is_elementalist_form}, is_mordekaiser_form={is_mordekaiser_form}, is_morgana_form={is_morgana_form}, is_sett_form={is_sett_form}, is_seraphine_form={is_seraphine_form}, is_viego_form={is_viego_form}, is_chroma_selection={is_chroma_selection}")
         log.debug(f"[UI] Will show: chroma_ui={should_show_chroma_ui}")
         
         # Show/hide ChromaUI based on chromas
@@ -163,6 +165,16 @@ class SkinDisplayHandler:
             # Special case: KDA Seraphine forms (IDs 147002, 147003) are considered chromas
             if skin_id in (147002, 147003):
                 log.debug(f"[UI] KDA Seraphine form detected - considered as chroma")
+                return True
+            
+            # Special case: Viego (skin ID 234043) has Forms instead of chromas
+            if skin_id == 234043:
+                log.debug(f"[UI] Viego detected - has Forms instead of chromas")
+                return True
+            
+            # Special case: Viego forms (IDs 234994-234999) are considered chromas
+            if skin_id in (234994, 234995, 234996, 234997, 234998, 234999):
+                log.debug(f"[UI] Viego form detected - considered as chroma")
                 return True
             
             # Special case: Risen Legend Kai'Sa (skin ID 145070) has HOL chroma instead of regular chromas

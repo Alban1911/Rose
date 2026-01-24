@@ -62,7 +62,10 @@ class WebSocketServer:
                     self._handler,
                     self.host,
                     self.port,
-                    ping_interval=None,
+                    # Keepalive: reduces random idle WS disconnects on some machines (AV/VPN/web-shields).
+                    # The plugin can reconnect, but we prefer to avoid reconnects in the first place.
+                    ping_interval=20,
+                    ping_timeout=20,
                     process_request=self._process_http_request if self.http_handler else None
                 )
             )

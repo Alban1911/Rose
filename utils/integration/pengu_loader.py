@@ -26,6 +26,71 @@ from utils.core.paths import get_app_dir, get_user_data_dir
 
 log = get_logger("pengu_loader")
 
+_PLUGIN_ENTRYPOINT = "index.js"
+_PLUGIN_ENTRYPOINT_DISABLED = "index.js_"
+_PLUGIN_ENTRYPOINT_BUNDLED_BACKUP = "index.js.bundled"
+
+
+def _sanitize_plugin_entrypoints(pengu_dir: Path) -> None:
+    """
+    Ensure plugin enable/disable state survives Pengu Loader sync.
+
+    Background:
+    - Disabling a plugin renames `index.js` -> `index.js_`
+    - In frozen builds, Rose overlays the bundled `Pengu Loader` onto the runtime directory.
+      `copytree(..., dirs_exist_ok=True)` does not delete extra files, so a disabled plugin
+      can end up with BOTH `index.js_` and a freshly-copied `index.js`, effectively re-enabling
+      (or duplicating) the plugin on next launch.
+
+    Rule:
+    - If `index.js_` exists in a plugin directory, treat it as authoritative (disabled) and
+      remove/park any `index.js` that was reintroduced by the sync.
+    """
+    try:
+        plugins_dir = pengu_dir / "plugins"
+        if not plugins_dir.exists():
+            return
+
+        for plugin_dir in plugins_dir.iterdir():
+            if not plugin_dir.is_dir():
+                continue
+
+            enabled = plugin_dir / _PLUGIN_ENTRYPOINT
+            disabled = plugin_dir / _PLUGIN_ENTRYPOINT_DISABLED
+
+            if not disabled.exists():
+                continue
+
+            if enabled.exists():
+                backup = plugin_dir / _PLUGIN_ENTRYPOINT_BUNDLED_BACKUP
+                try:
+                    if backup.exists():
+                        backup.unlink()
+                    enabled.replace(backup)
+                    log.info(
+                        "Preserved disabled plugin state by parking %s to %s",
+                        enabled,
+                        backup,
+                    )
+                except Exception as exc:
+                    # If we can't park it (locked/permission), at least try to delete it
+                    try:
+                        enabled.unlink()
+                        log.info(
+                            "Removed reintroduced entrypoint for disabled plugin: %s",
+                            enabled,
+                        )
+                    except Exception:
+                        log.debug(
+                            "Failed to remove/park %s for disabled plugin (%s): %s",
+                            plugin_dir.name,
+                            enabled,
+                            exc,
+                        )
+    except Exception as exc:
+        # Non-fatal: never block Rose launch for a best-effort cleanup.
+        log.debug("Failed to sanitize plugin entrypoints: %s", exc)
+
 
 def _get_bundled_pengu_dir() -> Optional[Path]:
     """Locate the bundled Pengu Loader directory (read-only location)."""
@@ -92,6 +157,9 @@ def _resolve_pengu_dir() -> Path:
         # Copy bundled Pengu Loader to runtime location (overwrites bundled files, preserves extras)
         shutil.copytree(bundled_dir, runtime_dir, dirs_exist_ok=True)
         log.info("Synced Pengu Loader to runtime directory (preserving user files): %s", runtime_dir)
+
+        # Ensure disabled plugins stay disabled after the overlay sync.
+        _sanitize_plugin_entrypoints(runtime_dir)
         
     except Exception as exc:
         log.error("Failed to copy Pengu Loader to runtime directory: %s", exc)

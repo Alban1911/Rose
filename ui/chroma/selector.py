@@ -131,6 +131,10 @@ class ChromaSelector:
             elif ChromaSpecialCases.is_seraphine_form(skin_id):
                 base_skin_id = 147001  # KDA Seraphine base skin ID
                 log.debug(f"[CHROMA] Detected KDA Seraphine form {skin_id}, using base skin {base_skin_id} for chroma data")
+            # Special handling for Viego forms (IDs 234994-234999)
+            elif ChromaSpecialCases.is_viego_form(skin_id):
+                base_skin_id = 234043  # Viego base skin ID
+                log.debug(f"[CHROMA] Detected Viego form {skin_id}, using base skin {base_skin_id} for chroma data")
             elif self.skin_scraper and self.skin_scraper.cache:
                 if skin_id in self.skin_scraper.cache.chroma_id_map:
                     # This is a chroma, get its base skin ID
