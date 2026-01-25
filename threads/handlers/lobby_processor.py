@@ -121,7 +121,7 @@ class LobbyProcessor:
                 if self.injection_manager:
                     try:
                         self.injection_manager.kill_all_runoverlay_processes()
-                        log_action(log, "Killed all runoverlay processes for Lobby", "🧹")
+                        log_action(log, "Killed all runoverlay processes for Lobby", "")
                     except Exception as e:
                         log.warning(f"[phase] Failed to kill runoverlay processes: {e}")
 
@@ -129,7 +129,7 @@ class LobbyProcessor:
                     from ui.core.user_interface import get_user_interface
                     user_interface = get_user_interface(self.state, self.skin_scraper)
                     user_interface.request_ui_destruction()
-                    log_action(log, "UI destruction requested for Lobby", "🏠")
+                    log_action(log, "UI destruction requested for Lobby", "")
                 except Exception as e:
                     log.warning(f"[phase] Failed to request UI destruction for Lobby: {e}")
 

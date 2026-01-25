@@ -45,7 +45,7 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
         pass  # Already shown in setup_logging()
     else:
         # Detailed startup for verbose/debug
-        log_section(log, "Rose Starting", "🚀", {
+        log_section(log, "Rose Starting", "", {
             "Verbose Mode": "Enabled" if args.verbose else "Disabled",
             "Download Skins": "Enabled" if args.download_skins else "Disabled"
         })
@@ -61,7 +61,7 @@ def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
         
         tray_manager = TrayManager(quit_callback=tray_quit_callback)
         tray_manager.start()
-        log_success(log, "System tray icon initialized - console hidden", "📍")
+        log_success(log, "System tray icon initialized - console hidden", "")
         
         # Give tray icon a moment to fully initialize
         time.sleep(TRAY_INIT_SLEEP_S)

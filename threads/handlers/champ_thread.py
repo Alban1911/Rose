@@ -33,10 +33,10 @@ class ChampThread(threading.Thread):
         """Handle champion exchange by resetting all state and reinitializing for new champion"""
         separator = "=" * 80
         log.info(separator)
-        log.info("🔄 CHAMPION EXCHANGE DETECTED (ChampThread)")
-        log.info(f"   📋 From: Champion {old_champ_id} (ID: {old_champ_id})")
-        log.info(f"   📋 To: {new_champ_label} (ID: {new_champ_id})")
-        log.info("   🔄 Resetting all state for new champion...")
+        log.info("CHAMPION EXCHANGE DETECTED (ChampThread)")
+        log.info(f"   From: Champion {old_champ_id} (ID: {old_champ_id})")
+        log.info(f"   To: {new_champ_label} (ID: {new_champ_id})")
+        log.info("   Resetting all state for new champion...")
         log.info(separator)
         
         # Reset skin state

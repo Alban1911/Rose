@@ -62,7 +62,7 @@ class TimerManager:
             if self.state.phase == "ChampSelect":
                 if self.state.phase != "FINALIZATION":
                     from utils.core.logging import log_status
-                    log_status(log, "Phase", "FINALIZATION", "🎯")
+                    log_status(log, "Phase", "FINALIZATION", "")
                     self.state.phase = "FINALIZATION"
             
             # If timer value is not ready yet, probe a few times

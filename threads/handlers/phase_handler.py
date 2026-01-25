@@ -116,7 +116,7 @@ class PhaseHandler:
             from ui.core.user_interface import get_user_interface
             user_interface = get_user_interface(self.state, self.skin_scraper)
             user_interface.request_ui_destruction()
-            log_action(log, "UI destruction requested for InProgress", "🎮")
+            log_action(log, "UI destruction requested for InProgress", "")
         except Exception as e:
             log.warning(f"[phase] Failed to request UI destruction for InProgress: {e}")
         
@@ -135,7 +135,7 @@ class PhaseHandler:
             from ui.core.user_interface import get_user_interface
             user_interface = get_user_interface(self.state, self.skin_scraper)
             user_interface.request_ui_destruction()
-            log_action(log, "UI destruction requested for EndOfGame", "🏁")
+            log_action(log, "UI destruction requested for EndOfGame", "")
         except Exception as e:
             log.warning(f"[phase] Failed to request UI destruction for EndOfGame: {e}")
         
@@ -152,7 +152,7 @@ class PhaseHandler:
             from ui.core.user_interface import get_user_interface
             user_interface = get_user_interface(self.state, self.skin_scraper)
             user_interface.request_ui_destruction()
-            log_action(log, "UI destruction requested", "🔄")
+            log_action(log, "UI destruction requested", "")
         except Exception as e:
             log.warning(f"[phase] Failed to request UI destruction: {e}")
     

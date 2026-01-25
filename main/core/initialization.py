@@ -41,15 +41,15 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
     try:
         log.info("Initializing LCU client...")
         lcu = LCU(args.lockfile)
-        log.info("✓ LCU client initialized")
+        log.info("LCU client initialized")
 
         log.info("Initializing skin scraper...")
         skin_scraper = LCUSkinScraper(lcu)
-        log.info("✓ Skin scraper initialized")
+        log.info("Skin scraper initialized")
         
         log.info("Initializing shared state...")
         state = SharedState()
-        log.info("✓ Shared state initialized")
+        log.info("Shared state initialized")
     except Exception as e:
         log.error("=" * 80)
         log.error("FATAL ERROR DURING INITIALIZATION")
@@ -80,7 +80,7 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
         if injection_threshold is not None:
             log.info(f"Launcher override: setting injection threshold to {injection_threshold:.2f}s")
             injection_manager.injection_threshold = max(0.0, injection_threshold)
-        log.info("✓ Injection manager initialized")
+        log.info("Injection manager initialized")
         # Don't initialize injection system yet - wait for WebSocket to be active
         # This will be called in main/__init__.py after WebSocket is ready
         

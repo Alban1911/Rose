@@ -347,7 +347,7 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
         with open(target_path, 'wb') as f:
             f.write(combined_content)
         size_mb = len(combined_content) / (1024 * 1024)
-        log_success(log, f"Successfully created {TARGET_FILE} ({size_mb:.1f} MB)", "📥")
+        log_success(log, f"Successfully created {TARGET_FILE} ({size_mb:.1f} MB)", "")
         updater_log.info(f"Successfully created {TARGET_FILE} ({size_mb:.1f} MB)")
         if status_callback:
             status_callback(f"Successfully created {TARGET_FILE} ({size_mb:.1f} MB)")

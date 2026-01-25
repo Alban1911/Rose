@@ -127,17 +127,17 @@ class LCUMonitorThread(threading.Thread):
         self.last_language_check = time.time()
         
         try:
-            log.info("[LCU] 🔍 Detecting client language...")
+            log.info("[LCU] Detecting client language...")
             new_language = self.lcu.client_language
             if new_language:
                 if new_language != self.last_language:
-                    log.info(f"[LCU] 🌍 Language detected: {new_language}")
+                    log.info(f"[LCU] Language detected: {new_language}")
                 else:
-                    log.info(f"[LCU] 🌍 Language confirmed: {new_language}")
+                    log.info(f"[LCU] Language confirmed: {new_language}")
                 
                 # Update database language if available
                 if self.db:
-                    log.info(f"[LCU] 📥 Updating database for language: {new_language}")
+                    log.info(f"[LCU] Updating database for language: {new_language}")
                     self.db.update_language(new_language)
                 
                 # Always call callback on reconnection to ensure UI detection is reinitialized
@@ -146,9 +146,9 @@ class LCUMonitorThread(threading.Thread):
                 if self.language_callback:
                     self.language_callback(new_language)
             else:
-                log.warning("[LCU] ❌ Failed to get LCU language - client returned None")
+                log.warning("[LCU] Failed to get LCU language - client returned None")
         except Exception as e:
-            log.warning(f"[LCU] ❌ Failed to get LCU language: {e}")
+            log.warning(f"[LCU] Failed to get LCU language: {e}")
     
     def _check_language_change(self):
         """Periodically check if language has changed"""
@@ -157,11 +157,11 @@ class LCUMonitorThread(threading.Thread):
         try:
             current_language = self.lcu.client_language
             if current_language and current_language != self.last_language:
-                log.info(f"[LCU] 🌍 Language changed during session: {self.last_language} → {current_language}")
+                log.info(f"[LCU] Language changed during session: {self.last_language} → {current_language}")
                 
                 # Update database language if available
                 if self.db:
-                    log.info(f"[LCU] 📥 Updating database for language change: {current_language}")
+                    log.info(f"[LCU] Updating database for language change: {current_language}")
                     self.db.update_language(current_language)
                 
                 self.last_language = current_language
@@ -203,7 +203,7 @@ class LCUMonitorThread(threading.Thread):
                 if self.state.locked_champ_id != locked_champ_id:
                     champ_name = f"champ_{locked_champ_id}"  # Use ID since we don't have database
                     
-                    log_status(log, "Initial state: Champion already locked", f"{champ_name} (ID: {locked_champ_id})", "✅")
+                    log_status(log, "Initial state: Champion already locked", f"{champ_name} (ID: {locked_champ_id})", "")
                     
                     # Set the locked champion state
                     self.state.locked_champ_id = locked_champ_id

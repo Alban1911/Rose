@@ -86,31 +86,20 @@ class SkinProcessor:
             log.warning("[SkinMonitor] No skin scraper available")
             return
         
-        skin_id = self._find_skin_id(skin_name)
-        if skin_id is None:
+        result = self._find_skin_id(skin_name)
+        if result is None:
             log.debug(
                 "[SkinMonitor] No skin ID found for '%s' with current data",
                 skin_name,
             )
             return
         
+        skin_id, matched_name = result
         self.shared_state.ui_skin_id = skin_id
         self.shared_state.last_hovered_skin_id = skin_id
         
-        english_skin_name = None
-        try:
-            champ_id = getattr(self.shared_state, "locked_champ_id", None)
-            if (
-                self.skin_scraper
-                and champ_id
-                and self.skin_scraper.cache.is_loaded_for_champion(champ_id)
-            ):
-                skin_data = self.skin_scraper.cache.get_skin_by_id(skin_id)
-                english_skin_name = (skin_data or {}).get("skinName", "").strip()
-        except Exception:
-            english_skin_name = None
-        
-        self.shared_state.last_hovered_skin_key = english_skin_name or skin_name
+        # Use the matched name from the matcher instead of the input
+        self.shared_state.last_hovered_skin_key = matched_name
         log.info(
             "[SkinMonitor] Skin '%s' mapped to ID %s (key=%s)",
             skin_name,
@@ -119,10 +108,15 @@ class SkinProcessor:
         )
         
         if broadcaster:
-            broadcaster.broadcast_skin_state(skin_name, skin_id)
+            # Broadcast the matched name, not the input name
+            broadcaster.broadcast_skin_state(matched_name, skin_id)
     
-    def _find_skin_id(self, skin_name: str) -> Optional[int]:
-        """Find skin ID using skin scraper"""
+    def _find_skin_id(self, skin_name: str) -> Optional[tuple[int, str]]:
+        """Find skin ID and matched name using skin scraper
+        
+        Returns:
+            Tuple of (skin_id, matched_name) if found, None otherwise
+        """
         champ_id = getattr(self.shared_state, "locked_champ_id", None)
         if not champ_id:
             return None
@@ -144,13 +138,18 @@ class SkinProcessor:
         if result:
             skin_id, matched_name, similarity = result
             log.info(
-                "[SkinMonitor] Matched '%s' -> '%s' (ID=%s, similarity=%.2f)",
+                "[SkinMonitor] Matched '%s' -> '%s' (ID=%s, similarity=%.4f)",
                 skin_name,
                 matched_name,
                 skin_id,
                 similarity,
             )
-            return skin_id
+            return (skin_id, matched_name)
+        else:
+            log.warning(
+                "[SkinMonitor] No match found for '%s'",
+                skin_name
+            )
         
         return None
     

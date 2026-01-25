@@ -139,10 +139,10 @@ class ZipResolver:
                     chroma_zip = chroma_dir / f"{chroma_id}.zip"
                     chroma_fantome = chroma_dir / f"{chroma_id}.fantome"
                     if chroma_zip.exists():
-                        log_success(log, f"Found chroma: {chroma_zip.name}", "🎨")
+                        log_success(log, f"Found chroma: {chroma_zip.name}", "")
                         return chroma_zip
                     elif chroma_fantome.exists():
-                        log_success(log, f"Found chroma: {chroma_fantome.name}", "🎨")
+                        log_success(log, f"Found chroma: {chroma_fantome.name}", "")
                         return chroma_fantome
             except ValueError:
                 # Not a skin directory, skip

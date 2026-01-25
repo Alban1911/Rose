@@ -100,7 +100,7 @@ class PhaseThread(threading.Thread):
                 
                 # Log phase transition
                 if ph is not None and self.log_transitions and ph in self.INTERESTING:
-                    log_status(log, "Phase", ph, "🎯")
+                    log_status(log, "Phase", ph, "")
                 
                 # Update phase
                 if ph is not None:

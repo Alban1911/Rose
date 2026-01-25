@@ -22,7 +22,7 @@ log = get_logger()
 
 def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_manager: TrayManager, injection_manager=None) -> None:
     """Perform application cleanup"""
-    log_section(log, "Cleanup", "🧹")
+    log_section(log, "Cleanup", "")
     pengu_loader.deactivate_on_exit()
     
     # Kill all mod-tools.exe processes before shutting down
@@ -30,7 +30,7 @@ def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_mana
         try:
             log.info("Killing mod-tools.exe processes...")
             injection_manager.kill_all_modtools_processes()
-            log_success(log, "Mod-tools processes killed", "✓")
+            log_success(log, "Mod-tools processes killed", "")
         except Exception as e:
             log.warning(f"Error killing mod-tools processes: {e}")
     
@@ -59,7 +59,7 @@ def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_mana
             log.error(f"Forced exit after {elapsed:.1f}s - threads still running")
             os._exit(0)  # Force immediate exit without waiting for threads
     else:
-        log_success(log, f"All threads stopped cleanly in {elapsed:.1f}s", "✓")
+        log_success(log, f"All threads stopped cleanly in {elapsed:.1f}s", "")
     
     # Clean up lock file on exit
     cleanup_lock_file()

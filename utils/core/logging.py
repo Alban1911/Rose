@@ -375,9 +375,9 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
             if _CURRENT_LOG_MODE == 'customer':
                 # Clean startup for customer mode
                 if log_file:
-                    logger.info(f"✅ Rose Started (Log: {log_file.name})")
+                    logger.info(f"Rose Started (Log: {log_file.name})")
                 else:
-                    logger.info("✅ Rose Started (logs disabled)")
+                    logger.info("Rose Started (logs disabled)")
             else:
                 # Detailed startup for verbose/debug modes
                 logger.info("=" * LOG_SEPARATOR_WIDTH)
@@ -543,20 +543,20 @@ def cleanup_logs_on_startup():
 
 # ==================== Pretty Logging Helpers ====================
 
-def log_section(logger: logging.Logger, title: str, icon: str = "📌", details: dict = None, mode: str = None):
+def log_section(logger: logging.Logger, title: str, icon: str = "", details: dict = None, mode: str = None):
     """
     Log a beautiful section with title and optional details
     
     Args:
         logger: Logger instance
         title: Main title text (will be uppercased in verbose/debug mode)
-        icon: Emoji icon to use
+        icon: Icon prefix to use (empty by default)
         details: Optional dict of key-value pairs to display
         mode: 'customer' (simple), 'verbose' (detailed), or 'debug' (ultra-detailed).
               If None, uses current global log mode.
     
     Example:
-        log_section(log, "LCU Connected", "🔗", {"Port": 2999, "Status": "Ready"})
+        log_section(log, "LCU Connected", "", {"Port": 2999, "Status": "Ready"})
     """
     # Use global log mode if not specified
     if mode is None:
@@ -566,69 +566,69 @@ def log_section(logger: logging.Logger, title: str, icon: str = "📌", details:
     if mode == 'customer':
         if details:
             detail_str = ", ".join(f"{k}: {v}" for k, v in details.items())
-            logger.info(f"{icon} {title} ({detail_str})")
+            logger.info(f"{icon} {title} ({detail_str})" if icon else f"{title} ({detail_str})")
         else:
-            logger.info(f"{icon} {title}")
+            logger.info(f"{icon} {title}" if icon else title)
     else:
         # Verbose/debug mode: use full format with separators
         logger.info("=" * LOG_SEPARATOR_WIDTH)
-        logger.info(f"{icon} {title.upper()}")
+        logger.info(f"{icon} {title.upper()}" if icon else title.upper())
         if details:
             for key, value in details.items():
-                logger.info(f"   📋 {key}: {value}")
+                logger.info(f"   {key}: {value}")
         logger.info("=" * LOG_SEPARATOR_WIDTH)
 
 
-def log_event(logger: logging.Logger, event: str, icon: str = "✓", details: dict = None):
+def log_event(logger: logging.Logger, event: str, icon: str = "", details: dict = None):
     """
     Log a single event with optional details
     
     Args:
         logger: Logger instance
         event: Event description
-        icon: Icon/emoji to use
+        icon: Icon prefix to use (empty by default)
         details: Optional dict of key-value pairs
     
     Example:
-        log_event(log, "Game process found", "🎮", {"PID": 12345, "Status": "Suspended"})
+        log_event(log, "Game process found", "", {"PID": 12345, "Status": "Suspended"})
     """
-    logger.info(f"{icon} {event}")
+    logger.info(f"{icon} {event}" if icon else event)
     if details:
         for key, value in details.items():
             logger.info(f"   • {key}: {value}")
 
 
-def log_action(logger: logging.Logger, action: str, icon: str = "⚡"):
+def log_action(logger: logging.Logger, action: str, icon: str = ""):
     """
     Log an action being performed
     
     Args:
         logger: Logger instance
         action: Action description
-        icon: Icon/emoji to use
+        icon: Icon prefix to use (empty by default)
     
     Example:
-        log_action(log, "Injecting skin...", "💉")
+        log_action(log, "Injecting skin...", "")
     """
-    logger.info(f"{icon} {action}")
+    logger.info(f"{icon} {action}" if icon else action)
 
 
-def log_success(logger: logging.Logger, message: str, icon: str = "✅"):
+def log_success(logger: logging.Logger, message: str, icon: str = ""):
     """
     Log a success message
     
     Args:
         logger: Logger instance
         message: Success message
-        icon: Icon/emoji to use
+        icon: Icon prefix to use (empty by default)
     
     Example:
         log_success(log, "Skin injected successfully!")
     """
-    logger.info(f"{icon} {message}")
+    logger.info(f"{icon} {message}" if icon else message)
 
 
-def log_status(logger: logging.Logger, status: str, value: any, icon: str = "ℹ️"):
+def log_status(logger: logging.Logger, status: str, value: any, icon: str = ""):
     """
     Log a status update
     
@@ -636,9 +636,9 @@ def log_status(logger: logging.Logger, status: str, value: any, icon: str = "ℹ
         logger: Logger instance
         status: Status name
         value: Status value
-        icon: Icon/emoji to use
+        icon: Icon prefix to use (empty by default)
     
     Example:
-        log_status(log, "Champion", "Ahri", "🎯")
+        log_status(log, "Champion", "Ahri", "")
     """
-    logger.info(f"{icon} {status}: {value}")
+    logger.info(f"{icon} {status}: {value}" if icon else f"{status}: {value}")

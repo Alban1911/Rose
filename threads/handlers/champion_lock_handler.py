@@ -64,13 +64,13 @@ class ChampionLockHandler:
                     self.state.locked_champ_id != new_champ_id):
                     # Champion exchange
                     champ_label = f"#{new_champ_id}"
-                    log_event(log, f"Champion exchange detected: {champ_label}", "🔄", {"From": self.last_locked_champion_id, "To": new_champ_id})
+                    log_event(log, f"Champion exchange detected: {champ_label}", "", {"From": self.last_locked_champion_id, "To": new_champ_id})
                     self.handle_champion_exchange(self.last_locked_champion_id, new_champ_id, champ_label)
                     self.last_locked_champion_id = new_champ_id
                 else:
                     # New champion lock
                     champ_label = f"#{new_champ_id}"
-                    log.info(f"   📋 Locked: {len(curr_cells)}/{self.state.players_visible}")
+                    log.info(f"   Locked: {len(curr_cells)}/{self.state.players_visible}")
                     
                     old_champ_id = self.state.locked_champ_id
                     
@@ -91,7 +91,7 @@ class ChampionLockHandler:
         for cid in removed:
             ch = self.state.locks_by_cell.get(cid, 0)
             champ_label = f"#{ch}"
-            log_event(log, f"Champion unlocked: {champ_label}", "🥀", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
+            log_event(log, f"Champion unlocked: {champ_label}", "", {"Locked": f"{len(curr_cells)}/{self.state.players_visible}"})
         
         self.state.locks_by_cell = new_locks
         
@@ -108,10 +108,10 @@ class ChampionLockHandler:
         """Handle champion exchange by resetting all state and reinitializing for new champion"""
         separator = "=" * 80
         log.info(separator)
-        log.info("🔄 CHAMPION EXCHANGE DETECTED")
-        log.info(f"   📋 From: Champion {old_champ_id} (ID: {old_champ_id})")
-        log.info(f"   📋 To: {new_champ_label} (ID: {new_champ_id})")
-        log.info("   🔄 Resetting all state for new champion...")
+        log.info("CHAMPION EXCHANGE DETECTED")
+        log.info(f"   From: Champion {old_champ_id} (ID: {old_champ_id})")
+        log.info(f"   To: {new_champ_label} (ID: {new_champ_id})")
+        log.info("   Resetting all state for new champion...")
         log.info(separator)
         
         # Reset skin state
@@ -201,9 +201,9 @@ class ChampionLockHandler:
         if should_trigger:
             separator = "=" * 80
             log.info(separator)
-            log.info(f"🎮 YOUR CHAMPION LOCKED")
-            log.info(f"   📋 Champion: {champion_label}")
-            log.info(f"   📋 ID: {champion_id}")
+            log.info(f"YOUR CHAMPION LOCKED")
+            log.info(f"   Champion: {champion_label}")
+            log.info(f"   ID: {champion_id}")
             log.info(separator)
             
             # Clear cache
