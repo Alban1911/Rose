@@ -77,7 +77,7 @@ class ThreadManager:
         cleanup_start = time.time()
         still_alive = []
         
-        log_action(log, "Stopping all managed threads", "🧹")
+        log_action(log, "Stopping all managed threads", "")
         
         with self.lock:
             threads_copy = list(self.threads)
@@ -101,7 +101,7 @@ class ThreadManager:
                     log.warning(f"{managed.name} thread did not stop within {timeout}s timeout")
                     still_alive.append(managed.name)
                 else:
-                    log_success(log, f"{managed.name} thread stopped", "✓")
+                    log_success(log, f"{managed.name} thread stopped", "")
         
         elapsed = time.time() - cleanup_start
         return still_alive, elapsed

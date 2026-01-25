@@ -52,8 +52,8 @@ class InjectionTrigger:
         """
         if not name:
             log.error("=" * LOG_SEPARATOR_WIDTH)
-            log.error(f"❌ INJECTION FAILED - NO SKIN ID AVAILABLE")
-            log.error(f"   ⏱️  Loadout Timer: #{ticker_id}")
+            log.error(f"INJECTION FAILED - NO SKIN ID AVAILABLE")
+            log.error(f"   Loadout Timer: #{ticker_id}")
             log.error("=" * LOG_SEPARATOR_WIDTH)
             return
         
@@ -105,8 +105,8 @@ class InjectionTrigger:
         injection_label = " + ".join(mod_labels)
         
         log.info("=" * LOG_SEPARATOR_WIDTH)
-        log.info(f"💉 PREPARING INJECTION >>> {injection_label} <<<")
-        log.info(f"   ⏱️  Loadout Timer: #{ticker_id}")
+        log.info(f"PREPARING INJECTION >>> {injection_label} <<<")
+        log.info(f"   Loadout Timer: #{ticker_id}")
         log.info("=" * LOG_SEPARATOR_WIDTH)
         
         try:
@@ -571,7 +571,7 @@ class InjectionTrigger:
                             if not is_action_completed:
                                 if action_id is not None:
                                     if self.lcu.set_selected_skin(action_id, target_skin_id):
-                                        log.info(f"[INJECT] ✓ Owned skin/chroma forced via action")
+                                        log.info(f"[INJECT] Owned skin/chroma forced via action")
                                         forced_successfully = True
                                     else:
                                         log.debug(f"[INJECT] Action-based approach failed")
@@ -582,10 +582,10 @@ class InjectionTrigger:
                 # Try my-selection endpoint if action-based failed
                 if not forced_successfully:
                     if self.lcu.set_my_selection_skin(target_skin_id):
-                        log.info(f"[INJECT] ✓ Owned skin/chroma forced via my-selection")
+                        log.info(f"[INJECT] Owned skin/chroma forced via my-selection")
                         forced_successfully = True
                     else:
-                        log.warning(f"[INJECT] ✗ Failed to force owned skin/chroma")
+                        log.warning(f"[INJECT] Failed to force owned skin/chroma")
                 
                 # Verify the change
                 if forced_successfully:
@@ -597,7 +597,7 @@ class InjectionTrigger:
                             if player.get("cellId") == my_cell:
                                 current_skin = player.get("selectedSkinId")
                                 if current_skin == target_skin_id:
-                                    log.info(f"[INJECT] ✓ Owned skin/chroma verified: {current_skin}")
+                                    log.info(f"[INJECT] Owned skin/chroma verified: {current_skin}")
                                 else:
                                     log.warning(f"[INJECT] Verification failed: {current_skin} != {target_skin_id}")
                                 break
@@ -752,12 +752,12 @@ class InjectionTrigger:
                             log.debug(f"[MOD_HISTORIC] Failed to clean up missing mods from historic: {e}")
                         
                         log.info("=" * LOG_SEPARATOR_WIDTH)
-                        log.info(f"✅ INJECTION COMPLETED >>> {name.upper()} <<<")
-                        log.info(f"   ⚠️  Verify in-game - timing determines if skin appears")
+                        log.info(f"INJECTION COMPLETED >>> {name.upper()} <<<")
+                        log.info(f"   Verify in-game - timing determines if skin appears")
                         log.info("=" * LOG_SEPARATOR_WIDTH)
                     else:
                         log.error("=" * LOG_SEPARATOR_WIDTH)
-                        log.error(f"❌ INJECTION FAILED >>> {name.upper()} <<<")
+                        log.error(f"INJECTION FAILED >>> {name.upper()} <<<")
                         log.error("=" * LOG_SEPARATOR_WIDTH)
                         log.error(f"[INJECT] Skin will likely NOT appear in-game")
                     
@@ -766,7 +766,7 @@ class InjectionTrigger:
                         from ui.core.user_interface import get_user_interface
                         user_interface = get_user_interface(self.state, self.skin_scraper)
                         user_interface.request_ui_destruction()
-                        log_action(log, "UI destruction requested after injection completion", "🧹")
+                        log_action(log, "UI destruction requested after injection completion", "")
                     except Exception as e:
                         log.warning(f"[INJECT] Failed to request UI destruction after injection: {e}")
                 except Exception as e:
@@ -817,7 +817,7 @@ class InjectionTrigger:
                         if not is_action_completed:
                             if action_id is not None:
                                 if self.lcu.set_selected_skin(action_id, base_skin_id):
-                                    log.info(f"[INJECT] ✓ Base skin forced via action")
+                                    log.info(f"[INJECT] Base skin forced via action")
                                     base_skin_set_successfully = True
                                 else:
                                     log.debug(f"[INJECT] Action-based approach failed")
@@ -828,10 +828,10 @@ class InjectionTrigger:
             # Try my-selection endpoint if action-based failed
             if not base_skin_set_successfully:
                 if self.lcu.set_my_selection_skin(base_skin_id):
-                    log.info(f"[INJECT] ✓ Base skin forced via my-selection")
+                    log.info(f"[INJECT] Base skin forced via my-selection")
                     base_skin_set_successfully = True
                 else:
-                    log.warning(f"[INJECT] ✗ Failed to force base skin")
+                    log.warning(f"[INJECT] Failed to force base skin")
 
             # Emit timing info (INFO so it shows up in normal customer logs).
             # Also, if forcing base skin was slow compared to injection threshold, write an issue entry.
@@ -895,7 +895,7 @@ class InjectionTrigger:
                                 except Exception:
                                     pass
                             else:
-                                log.info(f"[INJECT] ✓ Base skin verified: {current_skin}")
+                                log.info(f"[INJECT] Base skin verified: {current_skin}")
                             break
                 else:
                     log.info(f"[INJECT] Skipping base skin verification wait in random mode")
@@ -903,7 +903,7 @@ class InjectionTrigger:
                 log.warning(f"[INJECT] Failed to force base skin - injection may fail")
         
         except Exception as e:
-            log.error(f"[INJECT] ✗ Error forcing base skin: {e}")
+            log.error(f"[INJECT] Error forcing base skin: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
     
@@ -1260,8 +1260,8 @@ class InjectionTrigger:
             if result == 0:
                 log.info("=" * LOG_SEPARATOR_WIDTH)
                 injection_label = " + ".join([m.upper() for m in mod_names_list])
-                log.info(f"✅ CUSTOM MOD INJECTION COMPLETED >>> {injection_label} <<<")
-                log.info(f"   ⚠️  Verify in-game - timing determines if mod appears")
+                log.info(f"CUSTOM MOD INJECTION COMPLETED >>> {injection_label} <<<")
+                log.info(f"   Verify in-game - timing determines if mod appears")
                 log.info("=" * LOG_SEPARATOR_WIDTH)
                 
                 # Store mod selections in historic before clearing
@@ -1344,12 +1344,12 @@ class InjectionTrigger:
             else:
                 log.error("=" * LOG_SEPARATOR_WIDTH)
                 injection_label = " + ".join([m.upper() for m in mod_names_list])
-                log.error(f"❌ CUSTOM MOD INJECTION FAILED >>> {injection_label} <<<")
+                log.error(f"CUSTOM MOD INJECTION FAILED >>> {injection_label} <<<")
                 log.error("=" * LOG_SEPARATOR_WIDTH)
                 log.error(f"[INJECT] Mods will likely NOT appear in-game")
         
         except Exception as e:
-            log.error(f"[INJECT] ✗ Error injecting custom mod: {e}")
+            log.error(f"[INJECT] Error injecting custom mod: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
 

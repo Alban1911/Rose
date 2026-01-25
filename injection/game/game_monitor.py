@@ -70,7 +70,7 @@ class GameMonitor:
                     self._monitor_active = False
                     return
                 
-                log_section(log, "Game Process Monitor Started", "👁️")
+                log_section(log, "Game Process Monitor Started", "")
                 suspension_start_time = None
                 
                 # Immediately check for existing game process when monitor starts
@@ -93,17 +93,17 @@ class GameMonitor:
                                         if self._suspended_game_process is None:
                                             self._suspended_game_process = game_proc
                                             suspension_start_time = time.time()
-                                            log_event(log, "Game already suspended - tracking", "⏸️", {"PID": proc.info['pid']})
+                                            log_event(log, "Game already suspended - tracking", "", {"PID": proc.info['pid']})
                                         break
                                     
-                                    log_event(log, "Game process found - suspending immediately", "🎮", {"PID": proc.info['pid']})
+                                    log_event(log, "Game process found - suspending immediately", "", {"PID": proc.info['pid']})
                                     
                                     try:
                                         game_proc.suspend()
                                         self._suspended_game_process = game_proc
                                         suspension_start_time = time.time()
                                         auto_resume_timeout = self._get_auto_resume_timeout()
-                                        log_event(log, "Game suspended immediately", "⏸️", {
+                                        log_event(log, "Game suspended immediately", "", {
                                             "PID": proc.info['pid'],
                                             "Auto-resume": f"{auto_resume_timeout:.0f}s"
                                         })
@@ -194,7 +194,7 @@ class GameMonitor:
                         if proc.info['name'] == 'League of Legends.exe':
                             try:
                                 game_proc = psutil.Process(proc.info['pid'])
-                                log_event(log, "Game process found", "🎮", {"PID": proc.info['pid']})
+                                log_event(log, "Game process found", "", {"PID": proc.info['pid']})
                                 
                                 # Try to suspend immediately
                                 try:
@@ -202,7 +202,7 @@ class GameMonitor:
                                     self._suspended_game_process = game_proc
                                     suspension_start_time = time.time()  # Start safety timer
                                     auto_resume_timeout = self._get_auto_resume_timeout()
-                                    log_event(log, "Game suspended", "⏸️", {
+                                    log_event(log, "Game suspended", "", {
                                         "PID": proc.info['pid'],
                                         "Auto-resume": f"{auto_resume_timeout:.0f}s"
                                     })
@@ -251,7 +251,7 @@ class GameMonitor:
                 try:
                     if self._suspended_game_process.status() == STATUS_STOPPED:
                         self._suspended_game_process.resume()
-                        log_success(log, "Resumed suspended game on cleanup", "▶️")
+                        log_success(log, "Resumed suspended game on cleanup", "")
                 except (NoSuchProcess, AccessDenied, AttributeError) as e:
                     log.debug(f"[INJECT] Could not resume suspended process: {e}")
                 except Exception as e:
@@ -306,10 +306,10 @@ class GameMonitor:
                         status_after = game_proc.status()
                         if status_after != STATUS_STOPPED:
                             if attempt == 1:
-                                log_success(log, f"Game resumed (PID={game_proc.pid}, status={status_after})", "▶️")
+                                log_success(log, f"Game resumed (PID={game_proc.pid}, status={status_after})", "")
                             else:
-                                log_success(log, f"Game resumed after {attempt} attempts (PID={game_proc.pid})", "▶️")
-                            log_event(log, "Game loading while overlay hooks in...", "⚙️")
+                                log_success(log, f"Game resumed after {attempt} attempts (PID={game_proc.pid})", "")
+                            log_event(log, "Game loading while overlay hooks in...", "")
                             break
                         else:
                             if attempt < GAME_RESUME_MAX_ATTEMPTS:

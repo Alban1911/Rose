@@ -71,7 +71,7 @@ class LCUConnection:
             except (OSError, IOError) as e:
                 log.debug(f"Failed to get lockfile mtime: {e}")
                 self.lf_mtime = time.time()
-            log_section(log, "LCU Connected", "🔗", {"Port": self.port, "Status": "Ready"})
+            log_section(log, "LCU Connected", "", {"Port": self.port, "Status": "Ready"})
         except Exception as e:
             self._disable(f"LCU unavailable: {e}")
     
@@ -115,5 +115,5 @@ class LCUConnection:
             self._init_from_lockfile()
             new = (self.port, self.pw)
             if self.ok and old != new: 
-                log_success(log, f"LCU reloaded (port={self.port})", "🔄")
+                log_success(log, f"LCU reloaded (port={self.port})", "")
 

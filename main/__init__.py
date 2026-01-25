@@ -130,7 +130,7 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     
     # Initialize app status manager
     app_status = AppStatus(tray_manager)
-    log_success(log, "App status manager initialized", "📊")
+    log_success(log, "App status manager initialized", "")
     
     # Check initial status (will show locked until all components are ready)
     app_status.update_status(force=True)

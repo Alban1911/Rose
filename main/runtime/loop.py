@@ -50,7 +50,7 @@ def run_main_loop(state: SharedState, skin_scraper: LCUSkinScraper) -> None:
             
             time.sleep(MAIN_LOOP_SLEEP)
     except KeyboardInterrupt:
-        log_section(log, "Shutting Down (Keyboard Interrupt)", "⚠️")
+        log_section(log, "Shutting Down (Keyboard Interrupt)", "")
         log.debug(f"[DEBUG] Keyboard interrupt - setting state.stop = True")
         state.stop = True
     finally:

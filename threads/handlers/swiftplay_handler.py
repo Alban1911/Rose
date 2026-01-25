@@ -452,9 +452,9 @@ class SwiftplayHandler:
                 )
                 
                 if result == 0:
-                    log.info(f"[phase] ✓ Successfully injected {len(extracted_mods)} skin(s) for Swiftplay")
+                    log.info(f"[phase] Successfully injected {len(extracted_mods)} skin(s) for Swiftplay")
                 else:
-                    log.warning(f"[phase] ✗ Injection completed with non-zero exit code: {result}")
+                    log.warning(f"[phase] Injection completed with non-zero exit code: {result}")
             except Exception as e:
                 log.error(f"[phase] Error during overlay injection: {e}")
                 import traceback

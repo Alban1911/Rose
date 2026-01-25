@@ -129,8 +129,8 @@ class WebSocketConnection:
         
         separator = "=" * 80
         log.info(separator)
-        log.info("🔌 WEBSOCKET CONNECTED")
-        log.info("   📋 Status: Active")
+        log.info("WEBSOCKET CONNECTED")
+        log.info("   Status: Active")
         log.info(separator)
         
         self.is_connected = True
@@ -159,9 +159,9 @@ class WebSocketConnection:
         """WebSocket connection closed"""
         separator = "=" * 80
         log.info(separator)
-        log.info("🔌 WEBSOCKET DISCONNECTED")
-        log.info(f"   📋 Status Code: {status}")
-        log.info(f"   📋 Message: {msg}")
+        log.info("WEBSOCKET DISCONNECTED")
+        log.info(f"   Status Code: {status}")
+        log.info(f"   Message: {msg}")
         log.info(separator)
         
         self.is_connected = False

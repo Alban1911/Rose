@@ -1295,7 +1295,7 @@ def download_skins_from_repo(
             
             # Log completion
             update_type = "incremental" if use_incremental and not force_update else "full"
-            log.info(f"✓ {update_type.title()} database download complete (skins + previews)")
+            log.info(f"{update_type.title()} database download complete (skins + previews)")
         
         return success
         

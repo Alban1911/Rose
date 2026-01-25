@@ -42,7 +42,7 @@ class GameDetector:
             
             if (league_dir.exists() and (league_dir / "League of Legends.exe").exists() and
                 client_dir.exists() and (client_dir / "LeagueClient.exe").exists()):
-                log_success(log, f"Using paths from config: league={league_dir}, client={client_dir}", "📂")
+                log_success(log, f"Using paths from config: league={league_dir}, client={client_dir}", "")
                 return league_dir, client_dir
             else:
                 log.warning(f"Config paths are invalid: league={config_league_path}, client={config_client_path}")
@@ -98,7 +98,7 @@ class GameDetector:
                             
                             log.debug(f"Checking for League at: {league_exe}")
                             if league_exe.exists():
-                                log_success(log, f"Found League via LeagueClient.exe: game={league_dir}, client={client_dir}", "📂")
+                                log_success(log, f"Found League via LeagueClient.exe: game={league_dir}, client={client_dir}", "")
                                 return league_dir, client_dir
                             else:
                                 log.debug(f"League not found at expected location: {league_exe}")
@@ -110,7 +110,7 @@ class GameDetector:
                                 
                                 log.debug(f"Trying parent directory structure: {parent_league_exe}")
                                 if parent_league_exe.exists():
-                                    log_success(log, f"Found League via parent directory: game={parent_league_dir}, client={client_dir}", "📂")
+                                    log_success(log, f"Found League via parent directory: game={parent_league_dir}, client={client_dir}", "")
                                     return parent_league_dir, client_dir
                                 
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):

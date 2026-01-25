@@ -75,12 +75,12 @@ class InjectionManager:
         if not self._initialized:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock
-                    log_action(log, "Initializing injection system...", "💉")
+                    log_action(log, "Initializing injection system...", "")
                     self.injector = SkinInjector(None, self.mods_dir, self.zips_dir, self.game_dir)
                     # Only mark as initialized if we have a valid game directory
                     if self.injector.game_dir is not None:
                         self._initialized = True
-                        log_success(log, "Injection system initialized successfully", "✅")
+                        log_success(log, "Injection system initialized successfully", "")
                     else:
                         log.error("[INJECT] Cannot initialize injection system - League game directory not found")
                         log.error("[INJECT] Please ensure League Client is running or manually set the path in config.ini")

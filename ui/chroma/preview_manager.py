@@ -89,10 +89,10 @@ class ChromaPreviewManager:
                 log.info(f"[CHROMA] Looking for chroma preview at: {preview_path}")
             
             if preview_path.exists():
-                log.info(f"[CHROMA] ✅ Found preview: {preview_path}")
+                log.info(f"[CHROMA] Found preview: {preview_path}")
                 return preview_path
             else:
-                log.warning(f"[CHROMA] ❌ Preview not found at: {preview_path}")
+                log.warning(f"[CHROMA] Preview not found at: {preview_path}")
                 return None
             
         except Exception as e:

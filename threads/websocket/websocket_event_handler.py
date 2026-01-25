@@ -79,7 +79,7 @@ class WebSocketEventHandler:
         # own_champion_locked flag can coexist with any phase
         if isinstance(ph, str) and ph != self.state.phase and ph is not None:
             if ph in INTERESTING_PHASES:
-                log_status(log, "Phase", ph, "🎯")
+                log_status(log, "Phase", ph, "")
             self.state.phase = ph
             
             if ph == "ChampSelect":
@@ -101,7 +101,7 @@ class WebSocketEventHandler:
                     self._handle_champ_select_entry()
             
             elif ph == "FINALIZATION":
-                log_event(log, "Entering FINALIZATION phase", "🎯")
+                log_event(log, "Entering FINALIZATION phase", "")
             
             elif ph == "InProgress":
                 self._handle_in_progress_entry()
@@ -112,7 +112,7 @@ class WebSocketEventHandler:
     
     def _handle_champ_select_entry(self):
         """Handle entering ChampSelect phase"""
-        log_event(log, "Entering ChampSelect - resetting state for new game", "🎮")
+        log_event(log, "Entering ChampSelect - resetting state for new game", "")
         
         # Reset skin detection state
         self.state.last_hovered_skin_key = None
@@ -171,7 +171,7 @@ class WebSocketEventHandler:
             user_interface.reset_skin_state()
             user_interface._force_reinitialize = True
             user_interface.request_ui_initialization()
-            log_event(log, "UI reinitialization requested for ChampSelect", "🎨")
+            log_event(log, "UI reinitialization requested for ChampSelect", "")
         except Exception as e:
             log.warning(f"Failed to request UI initialization for ChampSelect: {e}")
         
@@ -194,7 +194,7 @@ class WebSocketEventHandler:
         from utils.core.logging import log_section
         
         if self.state.last_hovered_skin_key:
-            log_section(log, f"Game Starting - Last Detected Skin: {self.state.last_hovered_skin_key.upper()}", "🎮", {
+            log_section(log, f"Game Starting - Last Detected Skin: {self.state.last_hovered_skin_key.upper()}", "", {
                 "Champion": self.state.last_hovered_skin_slug,
                 "SkinID": self.state.last_hovered_skin_id
             })
@@ -254,7 +254,7 @@ class WebSocketEventHandler:
         count_visible = len(seen)
         if count_visible != self.state.players_visible and count_visible > 0:
             self.state.players_visible = count_visible
-            log_status(log, "Players", count_visible, "👥")
+            log_status(log, "Players", count_visible, "")
         
         # Lock counter: diff cellId → championId
         if self.champion_lock_handler:
