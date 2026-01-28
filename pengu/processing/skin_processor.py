@@ -95,9 +95,24 @@ class SkinProcessor:
             return
         
         skin_id, matched_name = result
+
+        # Reset chroma selection when switching to a different BASE skin
+        # (Not when just navigating within the same skin's chromas)
+        old_skin_id = self.shared_state.last_hovered_skin_id
+        if old_skin_id is not None and old_skin_id != skin_id:
+            # Check if the new skin is a different base skin (not a chroma of the old one)
+            # Chromas are within +100 of base skin ID
+            is_chroma_of_old_skin = (skin_id > old_skin_id and skin_id < old_skin_id + 100)
+            is_old_chroma_of_new_skin = (old_skin_id > skin_id and old_skin_id < skin_id + 100)
+            if not is_chroma_of_old_skin and not is_old_chroma_of_new_skin:
+                # Different base skin - reset chroma selection
+                if self.shared_state.selected_chroma_id is not None:
+                    log.debug(f"[CHROMA] Resetting selected_chroma_id on skin change ({old_skin_id} -> {skin_id})")
+                    self.shared_state.selected_chroma_id = None
+
         self.shared_state.ui_skin_id = skin_id
         self.shared_state.last_hovered_skin_id = skin_id
-        
+
         # Use the matched name from the matcher instead of the input
         self.shared_state.last_hovered_skin_key = matched_name
         log.info(

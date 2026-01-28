@@ -73,10 +73,15 @@ class ChampionLockHandler:
                     log.info(f"   Locked: {len(curr_cells)}/{self.state.players_visible}")
                     
                     old_champ_id = self.state.locked_champ_id
-                    
+
                     self.state.locked_champ_id = new_champ_id
                     self.state.locked_champ_timestamp = time.time()
-                    
+
+                    # Reset chroma selection when champion changes (prevents stale chromas)
+                    if old_champ_id is not None and old_champ_id != new_champ_id:
+                        self.state.selected_chroma_id = None
+                        log.debug(f"[CHROMA] Reset selected_chroma_id on champion change ({old_champ_id} -> {new_champ_id})")
+
                     # Trigger pipeline
                     self.on_own_champion_locked(new_champ_id, champ_label, old_champ_id)
                     
@@ -118,7 +123,11 @@ class ChampionLockHandler:
         self.state.last_hovered_skin_key = None
         self.state.last_hovered_skin_id = None
         self.state.last_hovered_skin_slug = None
-        
+
+        # Reset chroma selection (prevents stale chromas from previous champion)
+        self.state.selected_chroma_id = None
+        log.debug(f"[CHROMA] Reset selected_chroma_id on champion exchange ({old_champ_id} -> {new_champ_id})")
+
         # Reset injection state
         self.state.injection_completed = False
         self.state.last_hover_written = False

@@ -60,9 +60,19 @@ class InjectionTrigger:
         
         # Mark that we've processed the last hovered skin
         self.state.last_hover_written = True
-        
+
         # Check if custom mod is selected for this skin (before logging)
         ui_skin_id = self.state.last_hovered_skin_id
+
+        # Check if a chroma is selected - if so, use the chroma ID for owned skin forcing
+        selected_chroma_id = getattr(self.state, 'selected_chroma_id', None)
+        effective_skin_id = ui_skin_id  # Default to base skin ID
+        if selected_chroma_id and ui_skin_id:
+            # Verify the chroma belongs to this skin (chroma IDs are base_skin_id + offset)
+            # Chromas have IDs like base_skin_id + 1, +2, +3, etc.
+            if selected_chroma_id > ui_skin_id and selected_chroma_id < ui_skin_id + 100:
+                effective_skin_id = selected_chroma_id
+                log.debug(f"[INJECT] Using selected chroma ID {selected_chroma_id} instead of base skin {ui_skin_id}")
         selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
         mod_name = None
         if selected_custom_mod and selected_custom_mod.get("skin_id") == ui_skin_id:
@@ -529,11 +539,17 @@ class InjectionTrigger:
                 log.info("[INJECT] skipping base skin injection (skinId=0) - no mods-only flow available")
                 if self.injection_manager:
                     self.injection_manager.resume_if_suspended()
-            
+
             # Force owned skins/chromas via LCU
-            elif ui_skin_id in owned_skin_ids:
-                self._force_owned_skin(ui_skin_id)
-            
+            # Use effective_skin_id which includes the selected chroma if applicable
+            elif effective_skin_id in owned_skin_ids:
+                self._force_owned_skin(effective_skin_id)
+
+            # Also check if base skin is owned but chroma is selected (for owned chromas)
+            elif ui_skin_id in owned_skin_ids and effective_skin_id != ui_skin_id:
+                # Base skin owned, chroma selected - force the chroma
+                self._force_owned_skin(effective_skin_id)
+
             # Inject if user doesn't own the hovered skin
             elif self.injection_manager:
                 self._inject_unowned_skin(name, cname)
