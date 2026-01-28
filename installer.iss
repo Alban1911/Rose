@@ -172,20 +172,6 @@ begin
   DelTree(ExpandConstant('{localappdata}\Rose'), True, True, True);
 end;
 
-procedure _RunPenguCleanScript();
-var
-  ResultCode: Integer;
-  PSExe: string;
-  Params: string;
-begin
-  PSExe := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
-  Params :=
-    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden ' +
-    '-Command "irm https://pengu.lol/clean | iex"';
-
-  Exec(PSExe, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-end;
-
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
@@ -193,10 +179,8 @@ begin
     _CleanupStartupRegistry();
   end;
 
-  { Run after uninstall cleanup (post phase) }
   if CurUninstallStep = usPostUninstall then
   begin
     _DeleteLocalAppDataRose();
-    _RunPenguCleanScript();
   end;
 end;

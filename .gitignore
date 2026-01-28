@@ -21,6 +21,7 @@ logs/*
 build/
 develop-eggs/
 dist/
+dist_updater/
 downloads/
 eggs/
 .eggs/
@@ -36,11 +37,12 @@ wheels/
 *.csv
 MANIFEST
 
-# PyInstaller
+# PyInstaller / Nuitka build outputs
 main.build/
 main.dist/
 main.exe
 main.bin
+updater.exe
 
 # Virtual Environment
 venv/
