@@ -3,6 +3,12 @@
 """
 Overlay Manager
 Handles overlay creation and execution using CSLOL tools
+
+Security Notes:
+    - subprocess calls use only internal paths (tools_dir, mods_dir, game_dir)
+    - No user-controlled input is passed directly to subprocess commands
+    - All paths are constructed from trusted internal configuration
+    - Commands only execute mod-tools.exe from the verified tools directory
 """
 
 import subprocess

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from utils.core.logging import get_named_logger
+from utils.core.safe_extract import safe_extract, is_safe_path
 
 updater_log = get_named_logger("updater", prefix="log_updater")
 
@@ -56,7 +57,8 @@ class UpdateInstaller:
                 members = zip_file.infolist()
                 total_members = max(len(members), 1)
                 for index, member in enumerate(members, start=1):
-                    zip_file.extract(member, staging_dir)
+                    # Security: Use safe extraction to prevent path traversal attacks
+                    safe_extract(zip_path, member.filename, staging_dir)
                     progress = 40 + int(20 * index / total_members)
                     progress_callback(min(progress, 60))
             

@@ -62,6 +62,12 @@ class LCUConnection:
             self.pw = lockfile_data.password
             self.base = f"https://127.0.0.1:{self.port}"
             self.session = requests.Session()
+            # Security Note: SSL verification is intentionally disabled for LCU connection.
+            # The League Client uses self-signed certificates on localhost (127.0.0.1).
+            # This is safe because:
+            # 1. Connection is only to localhost - no external network exposure
+            # 2. LCU authentication uses riot:password from lockfile (local file only)
+            # 3. This is the standard approach used by all LCU API tools
             self.session.verify = False
             self.session.auth = ("riot", self.pw)
             self.session.headers.update({"Content-Type": "application/json"})
@@ -84,6 +90,7 @@ class LCUConnection:
         self.port = None
         self.pw = None
         self.session = requests.Session()
+        # Security Note: SSL verify=False is safe here - see comment in _init_from_lockfile()
         self.session.verify = False
     
     def refresh_if_needed(self, force: bool = False):

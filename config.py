@@ -7,11 +7,14 @@ All arbitrary values are centralized here for easy tracking and modification
 
 import shutil
 import sys
+import logging
 from typing import TYPE_CHECKING, Optional, Tuple
 from pathlib import Path
 import configparser
 
 from utils.core.paths import get_user_data_dir
+
+log = logging.getLogger(__name__)
 
 # =============================================================================
 # APPLICATION METADATA
@@ -37,13 +40,13 @@ def _reload_config() -> None:
         if legacy_path.exists():
             try:
                 shutil.copy2(legacy_path, config_path)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Failed to migrate legacy config: {e}")
     if config_path.exists():
         try:
             _CONFIG.read(config_path)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"Failed to read config file: {e}")
 
 
 _reload_config()
@@ -72,16 +75,16 @@ def set_config_option(section: str, option: str, value: str) -> None:
     if config_path.exists():
         try:
             config.read(config_path)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to read config for update: {e}")
     if section not in config:
         config.add_section(section)
     config.set(section, option, value)
     try:
         with open(config_path, "w", encoding="utf-8") as fh:
             config.write(fh)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning(f"Failed to write config file: {e}")
 
 
 # =============================================================================

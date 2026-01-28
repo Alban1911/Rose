@@ -5,13 +5,13 @@ Mod Manager
 Handles mod extraction, installation, and management
 """
 
-import zipfile
 import shutil
 from pathlib import Path
 from typing import List
 
 from utils.core.logging import get_logger, log_success
 from utils.core.paths import get_user_data_dir
+from utils.core.safe_extract import safe_extractall
 
 log = get_logger()
 
@@ -50,16 +50,16 @@ class ModManager:
     
     def extract_zip_to_mod(self, zp: Path) -> Path:
         """Extract ZIP or .fantome file to mod directory
-        
-        Note: Both .zip and .fantome files are ZIP-compatible archives
-        and can be extracted using zipfile.ZipFile
+
+        Note: Both .zip and .fantome files are ZIP-compatible archives.
+        Uses safe_extractall to prevent path traversal (zip slip) attacks.
         """
         target = self.mods_dir / zp.stem
         if target.exists():
             shutil.rmtree(target, ignore_errors=True)
         target.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zp, "r") as zf:
-            zf.extractall(target)
+        # Security: Use safe extraction to prevent path traversal attacks
+        safe_extractall(zp, target)
         file_type = "ZIP" if zp.suffix == ".zip" else ".fantome"
         log_success(log, f"Extracted {file_type}: {zp.name}", "📦")
         return target

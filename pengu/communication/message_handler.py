@@ -21,6 +21,7 @@ from config import get_config_float, get_config_option, set_config_option
 from injection.mods.storage import ModStorageService
 from utils.core.paths import get_user_data_dir, get_asset_path
 from utils.core.issue_reporter import clear_issues, read_issues_tail
+from utils.core.safe_extract import safe_extractall
 from utils.system.admin_utils import (
     is_admin,
     is_registered_for_autostart,
@@ -928,7 +929,6 @@ class MessageHandler:
 
             # Extract/copy mod to injection mods directory immediately
             import shutil
-            import zipfile
             
             # Check if other mods (map/font/announcer/other) are already selected
             # If so, don't clean - just extract the skin mod alongside them
@@ -961,8 +961,8 @@ class MessageHandler:
                 if mod_dest.exists():
                     shutil.rmtree(mod_dest, ignore_errors=True)
                 mod_dest.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                    zip_ref.extractall(mod_dest)
+                # Security: Use safe extraction to prevent path traversal attacks
+                safe_extractall(mod_source, mod_dest)
                 file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
                 log.info(f"[SkinMonitor] Extracted {file_type} mod to: {mod_dest}")
             else:
@@ -1076,7 +1076,6 @@ class MessageHandler:
 
             # Extract/copy mod to injection mods directory immediately
             import shutil
-            import zipfile
             
             # Don't clean mods directory - we want to keep skin mod if it exists
             # Just ensure the map mod is extracted
@@ -1093,8 +1092,8 @@ class MessageHandler:
                 if mod_dest.exists():
                     shutil.rmtree(mod_dest, ignore_errors=True)
                 mod_dest.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                    zip_ref.extractall(mod_dest)
+                # Security: Use safe extraction to prevent path traversal attacks
+                safe_extractall(mod_source, mod_dest)
                 file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
                 log.info(f"[SkinMonitor] Extracted {file_type} map mod to: {mod_dest}")
             else:
@@ -1192,7 +1191,6 @@ class MessageHandler:
 
             # Extract/copy mod to injection mods directory immediately
             import shutil
-            import zipfile
             
             # Don't clean mods directory - we want to keep skin/map mods if they exist
             
@@ -1208,8 +1206,8 @@ class MessageHandler:
                 if mod_dest.exists():
                     shutil.rmtree(mod_dest, ignore_errors=True)
                 mod_dest.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                    zip_ref.extractall(mod_dest)
+                # Security: Use safe extraction to prevent path traversal attacks
+                safe_extractall(mod_source, mod_dest)
                 file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
                 log.info(f"[SkinMonitor] Extracted {file_type} font mod to: {mod_dest}")
             else:
@@ -1307,7 +1305,6 @@ class MessageHandler:
 
             # Extract/copy mod to injection mods directory immediately
             import shutil
-            import zipfile
             
             # Don't clean mods directory - we want to keep skin/map/font mods if they exist
             
@@ -1323,8 +1320,8 @@ class MessageHandler:
                 if mod_dest.exists():
                     shutil.rmtree(mod_dest, ignore_errors=True)
                 mod_dest.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                    zip_ref.extractall(mod_dest)
+                # Security: Use safe extraction to prevent path traversal attacks
+                safe_extractall(mod_source, mod_dest)
                 file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
                 log.info(f"[SkinMonitor] Extracted {file_type} announcer mod to: {mod_dest}")
             else:
@@ -1441,7 +1438,6 @@ class MessageHandler:
 
             # Extract/copy mod to injection mods directory immediately
             import shutil
-            import zipfile
             
             # Don't clean mods directory - we want to keep skin/map/font/announcer mods if they exist
             
@@ -1457,8 +1453,8 @@ class MessageHandler:
                 if mod_dest.exists():
                     shutil.rmtree(mod_dest, ignore_errors=True)
                 mod_dest.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                    zip_ref.extractall(mod_dest)
+                # Security: Use safe extraction to prevent path traversal attacks
+                safe_extractall(mod_source, mod_dest)
                 file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
                 log.info(f"[SkinMonitor] Extracted {file_type} other mod to: {mod_dest}")
             else:

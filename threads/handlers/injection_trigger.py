@@ -15,6 +15,7 @@ from lcu import LCU
 from state import SharedState
 from utils.core.issue_reporter import report_issue
 from utils.core.logging import get_logger, log_action
+from utils.core.safe_extract import safe_extractall
 
 log = get_logger()
 
@@ -203,7 +204,6 @@ class InjectionTrigger:
                     from utils.core.mod_historic import load_mod_historic
                     from injection.mods.storage import ModStorageService
                     import shutil
-                    import zipfile
                     
                     mod_storage = ModStorageService()
                     historic_mods = load_mod_historic()
@@ -303,8 +303,8 @@ class InjectionTrigger:
                                         if mod_dest.exists():
                                             shutil.rmtree(mod_dest, ignore_errors=True)
                                         mod_dest.mkdir(parents=True, exist_ok=True)
-                                        with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                                            zip_ref.extractall(mod_dest)
+                                        # Security: Use safe extraction to prevent path traversal attacks
+                                        safe_extractall(mod_source, mod_dest)
                                         file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
                                         log.info(f"[HISTORIC] Extracted {file_type} other mod to: {mod_dest}")
                                     else:
@@ -410,8 +410,8 @@ class InjectionTrigger:
                                 if mod_dest.exists():
                                     shutil.rmtree(mod_dest, ignore_errors=True)
                                 mod_dest.mkdir(parents=True, exist_ok=True)
-                                with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                                    zip_ref.extractall(mod_dest)
+                                # Security: Use safe extraction to prevent path traversal attacks
+                                safe_extractall(mod_source, mod_dest)
                                 file_type = "ZIP" if mod_source.suffix.lower() == ".zip" else "FANTOME"
                                 log.info(f"[HISTORIC] Extracted {file_type} {mod_type} mod to: {mod_dest}")
                             else:
@@ -980,7 +980,6 @@ class InjectionTrigger:
                 log.info(f"[INJECT] Re-extracting custom mod from: {mod_path}")
                 try:
                     import shutil
-                    import zipfile
                     mod_source = Path(mod_path)
                     if not mod_source.exists():
                         log.warning(f"[INJECT] Custom mod source not found: {mod_source}")
@@ -994,8 +993,8 @@ class InjectionTrigger:
                             shutil.copytree(mod_source, mod_dest, dirs_exist_ok=True)
                             log.info(f"[INJECT] Custom mod directory copied: {mod_folder_name}")
                         elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                            with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                                zip_ref.extractall(mod_dest)
+                            # Security: Use safe extraction to prevent path traversal attacks
+                            safe_extractall(mod_source, mod_dest)
                             log.info(f"[INJECT] Custom mod ZIP extracted: {mod_folder_name}")
                         else:
                             shutil.copy2(mod_source, mod_dest / mod_source.name)
@@ -1032,7 +1031,6 @@ class InjectionTrigger:
                 
                 try:
                     import shutil
-                    import zipfile
                     mod_source = Path(mod_path)
                     if not mod_source.exists():
                         log.info(f"[INJECT] {mod_type_name} mod source not found (mod may have been deleted), ignoring: {mod_source}")
@@ -1047,8 +1045,8 @@ class InjectionTrigger:
                         shutil.copytree(mod_source, mod_dest, dirs_exist_ok=True)
                         log.info(f"[INJECT] {mod_type_name} mod directory copied: {mod_folder_name}")
                     elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                        with zipfile.ZipFile(mod_source, 'r') as zip_ref:
-                            zip_ref.extractall(mod_dest)
+                        # Security: Use safe extraction to prevent path traversal attacks
+                        safe_extractall(mod_source, mod_dest)
                         log.info(f"[INJECT] {mod_type_name} mod ZIP extracted: {mod_folder_name}")
                     else:
                         shutil.copy2(mod_source, mod_dest / mod_source.name)

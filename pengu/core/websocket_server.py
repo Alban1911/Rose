@@ -90,8 +90,8 @@ class WebSocketServer:
         for ws in list(self._connections):
             try:
                 await ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[SkinMonitor] Error closing connection during shutdown: {e}")
         
         self._connections.clear()
         
@@ -99,8 +99,8 @@ class WebSocketServer:
             self._server.close()
             try:
                 await self._server.wait_closed()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[SkinMonitor] Error waiting for server close: {e}")
             self._server = None
     
     def stop(self) -> None:
@@ -149,7 +149,8 @@ class WebSocketServer:
         for ws in list(self._connections):
             try:
                 await ws.send(message)
-            except Exception:
+            except Exception as e:
+                log.debug(f"[SkinMonitor] Broadcast failed to client, marking stale: {e}")
                 stale.append(ws)
         for ws in stale:
             self._connections.discard(ws)

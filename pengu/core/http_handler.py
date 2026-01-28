@@ -16,15 +16,40 @@ log = logging.getLogger(__name__)
 
 
 class HTTPHandler:
-    """Handles HTTP requests for file serving"""
-    
+    """Handles HTTP requests for file serving
+
+    Security Note:
+        - CORS is set to wildcard (*) but server binds ONLY to localhost (127.0.0.1)
+        - This is safe because external hosts cannot reach localhost
+        - All file paths are validated with _is_safe_path() to prevent path traversal
+    """
+
     def __init__(self, port: int):
         """Initialize HTTP handler
-        
+
         Args:
             port: Server port for constructing URLs
         """
         self.port = port
+
+    def _is_safe_path(self, base_dir: Path, requested_path: Path) -> bool:
+        """Validate that requested_path is safely within base_dir.
+
+        Prevents path traversal attacks (e.g., ../../etc/passwd).
+
+        Args:
+            base_dir: The allowed base directory
+            requested_path: The path being requested
+
+        Returns:
+            True if path is safe, False if it escapes base_dir
+        """
+        try:
+            base_resolved = base_dir.resolve()
+            target_resolved = requested_path.resolve()
+            return str(target_resolved).startswith(str(base_resolved))
+        except (OSError, ValueError):
+            return False
     
     def handle_request(self, path: str, request_headers: dict) -> Optional[tuple]:
         """Process HTTP requests
@@ -100,7 +125,7 @@ class HTTPHandler:
             champion_id = parts[0]
             skin_id = parts[1]
             chroma_id = parts[2]
-            
+
             skins_dir = get_skins_dir()
             # Construct file path
             if chroma_id == skin_id:
@@ -109,7 +134,12 @@ class HTTPHandler:
             else:
                 # Chroma preview
                 file_path = skins_dir / champion_id / skin_id / chroma_id / f"{chroma_id}.png"
-            
+
+            # Security: Validate path doesn't escape skins directory
+            if not self._is_safe_path(skins_dir, file_path):
+                log.warning(f"[SkinMonitor] Blocked path traversal attempt: {path_clean}")
+                return (403, {"Access-Control-Allow-Origin": "*"}, b"Forbidden")
+
             if file_path.exists():
                 log.debug(f"[SkinMonitor] Serving preview: {file_path}")
                 with open(file_path, "rb") as f:
@@ -162,6 +192,12 @@ class HTTPHandler:
                 
                 if plugins_dir.exists():
                     file_path = plugins_dir / plugin_name / file_name
+
+                    # Security: Validate path doesn't escape plugins directory
+                    if not self._is_safe_path(plugins_dir, file_path):
+                        log.warning(f"[SkinMonitor] Blocked path traversal attempt: {path_clean}")
+                        return (403, {"Access-Control-Allow-Origin": "*"}, b"Forbidden")
+
                     if file_path.exists():
                         log.debug(f"[SkinMonitor] Serving plugin file: {file_path}")
                         content_type = self._get_content_type(file_path)

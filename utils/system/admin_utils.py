@@ -3,6 +3,12 @@
 """
 Admin rights utilities for Windows
 Handles elevation and Task Scheduler registration for auto-start
+
+Security Notes:
+    - subprocess calls use only trusted, hardcoded commands (schtasks)
+    - sys.executable is used for elevation - points to current Python/frozen executable
+    - No user input is passed directly to subprocess commands
+    - All subprocess calls use CREATE_NO_WINDOW to prevent console flashing
 """
 
 import sys
