@@ -1908,11 +1908,15 @@ class MessageHandler:
                                 skin_id = int(champion_id) * 1000 + int(skin_index)
                             
                             skin_name = skin.get("name", f"Skin {skin_id}")
-                            skins.append({
+                            skin_entry = {
                                 "id": skin_id,
                                 "skinId": skin_id,
                                 "name": skin_name,
-                            })
+                            }
+                            tile_path = skin.get("tilePath")
+                            if tile_path:
+                                skin_entry["tilePath"] = tile_path
+                            skins.append(skin_entry)
                         except (ValueError, TypeError, AttributeError):
                             continue
                 
