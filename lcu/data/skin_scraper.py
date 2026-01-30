@@ -140,51 +140,63 @@ class LCUSkinScraper:
     
     def find_skin_by_text(self, text: str, use_levenshtein: bool = True) -> Optional[Tuple[int, str, float]]:
         """Find best matching skin by text using Levenshtein distance
-        
+
         Args:
             text: Text to match
             use_levenshtein: If True, use Levenshtein distance for fuzzy matching
-            
+
         Returns:
             Tuple of (skinId, skinName, similarity_score) if found, None otherwise
         """
         if not text or not self.cache.skins:
             return None
-        
-        # NOTE: Per request, this matcher operates on RAW input and RAW cached skin names.
-        # No normalization (no parenthesis stripping, no whitespace removal, etc.).
+
         from utils.core.normalization import levenshtein_distance
-        
-        # Try exact match first
-        exact_match = self.cache.get_skin_by_name(text)
-        if exact_match:
-            return (exact_match['skinId'], exact_match['skinName'], 1.0)
-        
+
+        # Build candidate input strings.  The League client sometimes appends
+        # a chroma colour as a suffix whose format varies by locale:
+        #   - Portuguese: "SkinName (Renegado)"       → trailing parentheses
+        #   - Russian:    "SkinName – ''Пылкость''"   → em-dash + quoted name
+        # We cannot unconditionally strip these because some real skin names
+        # use parentheses (e.g. prestige skins in Russian).  Instead, we try
+        # both the original and a stripped variant and let the best similarity
+        # score win.
+        import re
+        candidates = [text]
+        stripped = re.sub(r"\s*(?:\([^)]*\)|–\s*'{0,2}[^']+'{0,2})\s*$", "", text)
+        if stripped != text:
+            candidates.append(stripped)
+
+        # Try exact match first (both candidates)
+        for candidate in candidates:
+            exact_match = self.cache.get_skin_by_name(candidate)
+            if exact_match:
+                return (exact_match['skinId'], exact_match['skinName'], 1.0)
+
         # Fuzzy matching with Levenshtein distance
         if not use_levenshtein:
             return None
-        
+
         best_match = None
         best_distance = float('inf')
         best_similarity = 0.0
-        
+
         for skin in self.cache.skins:
             skin_name = skin['skinName']
 
-            # Calculate Levenshtein distance on raw strings
-            distance = levenshtein_distance(text, skin_name)
-            max_len = max(len(text), len(skin_name))
-            similarity = 1.0 - (distance / max_len) if max_len > 0 else 0.0
-            
-            # Update best match
-            if distance < best_distance:
-                best_distance = distance
-                best_similarity = similarity
-                best_match = skin
-        
+            for candidate in candidates:
+                distance = levenshtein_distance(candidate, skin_name)
+                max_len = max(len(candidate), len(skin_name))
+                similarity = 1.0 - (distance / max_len) if max_len > 0 else 0.0
+
+                if distance < best_distance:
+                    best_distance = distance
+                    best_similarity = similarity
+                    best_match = skin
+
         if best_match:
             return (best_match['skinId'], best_match['skinName'], best_similarity)
-        
+
         return None
     
     @property
