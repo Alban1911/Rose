@@ -22,9 +22,11 @@ except ImportError:  # pragma: no cover - psutil is part of requirements, but gu
     psutil = None  # type: ignore
 
 from utils.core.logging import get_logger
-from utils.core.paths import get_app_dir, get_user_data_dir
+from utils.core.paths import get_app_dir, get_state_dir, get_user_data_dir
 
 log = get_logger("pengu_loader")
+
+_ACTIVE_FLAG = get_state_dir() / "pengu_active.flag"
 
 _PLUGIN_ENTRYPOINT = "index.js"
 _PLUGIN_ENTRYPOINT_DISABLED = "index.js_"
@@ -404,6 +406,44 @@ def set_league_path(league_path: str) -> bool:
     return _run_cli(["--set-league-path", league_path.strip(), "--silent"])
 
 
+def _write_active_flag() -> None:
+    """Write the dirty-state flag indicating Pengu is currently activated."""
+    try:
+        _ACTIVE_FLAG.parent.mkdir(parents=True, exist_ok=True)
+        _ACTIVE_FLAG.write_text("active")
+        log.debug("Pengu active flag written: %s", _ACTIVE_FLAG)
+    except OSError as exc:
+        log.debug("Failed to write Pengu active flag: %s", exc)
+
+
+def _clear_active_flag() -> None:
+    """Remove the dirty-state flag after successful deactivation."""
+    try:
+        _ACTIVE_FLAG.unlink(missing_ok=True)
+        log.debug("Pengu active flag cleared.")
+    except OSError as exc:
+        log.debug("Failed to clear Pengu active flag: %s", exc)
+
+
+def cleanup_if_dirty() -> bool:
+    """
+    Check for a leftover active flag from a previous unclean shutdown and
+    deactivate Pengu Loader if found.
+
+    Returns True if cleanup was performed.
+    """
+    if not _ACTIVE_FLAG.exists():
+        return False
+
+    log.info("Detected leftover Pengu active flag — cleaning up from previous session.")
+    deactivated = deactivate_on_exit()
+    # Flag is already cleared inside deactivate_on_exit(); clear explicitly
+    # in case deactivation itself failed but we still want to avoid an
+    # infinite retry loop on every launch.
+    _clear_active_flag()
+    return deactivated
+
+
 def activate_on_start(league_path: Optional[str] = None) -> bool:
     """
     Force activate Pengu Loader when Rose launches.
@@ -426,6 +466,11 @@ def activate_on_start(league_path: Optional[str] = None) -> bool:
     restart_needed = _is_league_running()
 
     log.info("Activating Pengu Loader (restart League client: %s).", restart_needed)
+
+    # Write flag *before* activation so it persists even if the process is
+    # killed mid-activation or the CLI returns an unexpected exit code.
+    _write_active_flag()
+
     activated = _run_cli(["--force-activate", "--silent"])
 
     if activated and restart_needed:
@@ -448,8 +493,10 @@ def deactivate_on_exit() -> bool:
     log.info("Deactivating Pengu Loader (restart League client: %s).", restart_needed)
     deactivated = _run_cli(["--force-deactivate", "--silent"])
 
-    if deactivated and restart_needed:
-        _run_cli(["--restart-client", "--silent"])
+    if deactivated:
+        _clear_active_flag()
+        if restart_needed:
+            _run_cli(["--restart-client", "--silent"])
 
     return deactivated
 

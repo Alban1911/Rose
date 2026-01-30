@@ -118,6 +118,11 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     """Run the core Rose application startup and main loop."""
     # Check for single instance before doing anything else
     check_single_instance()
+
+    # Safety net: if a previous session didn't shut down cleanly, deactivate
+    # Pengu Loader before we re-activate it later in the startup sequence.
+    pengu_loader.cleanup_if_dirty()
+
     # Parse arguments if they were not provided
     if args is None:
         args = setup_arguments()
