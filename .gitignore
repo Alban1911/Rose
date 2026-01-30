@@ -65,6 +65,7 @@ temp_fix.txt
 # OS
 .DS_Store
 Thumbs.db
+nul
 
 # Application specific
 # Note: injection/mods/ and injection/overlay/ Python source files are tracked
