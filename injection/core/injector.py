@@ -9,7 +9,7 @@ import sys
 import time
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from utils.core.logging import get_logger, log_action, log_success
 from utils.core.paths import get_skins_dir, get_injection_dir
@@ -136,8 +136,18 @@ class SkinInjector:
         self.last_injection_timing = self.overlay_manager.last_injection_timing
         return result
     
-    def inject_skin(self, skin_name: str, timeout: int = 120, stop_callback=None, injection_manager=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
-        """Inject a single skin (with optional chroma)
+    def inject_skin(
+        self,
+        skin_name: str,
+        timeout: int = 120,
+        stop_callback=None,
+        injection_manager=None,
+        chroma_id: int = None,
+        champion_name: str = None,
+        champion_id: int = None,
+        extra_mods_callback: Optional[Callable[["SkinInjector"], List[str]]] = None,
+    ) -> bool:
+        """Inject a single skin (with optional chroma and party mods)
         
         Args:
             skin_name: Name of skin to inject
@@ -145,6 +155,7 @@ class SkinInjector:
             stop_callback: Callback to check if injection should stop
             injection_manager: InjectionManager instance to call resume_game()
             chroma_id: Optional chroma ID to inject specific chroma variant
+            extra_mods_callback: Optional callback(injector) -> list of extra mod folder names (e.g. party skins)
         """
         injection_start_time = time.time()
         
@@ -190,9 +201,17 @@ class SkinInjector:
         extract_duration = time.time() - extract_start
         log.debug(f"[INJECT] ZIP extraction took {extract_duration:.2f}s")
         
-        # Create list of mods to inject (skin only)
+        # Create list of mods to inject (our skin + optional party/extra mods)
         mod_names = [mod_folder.name]
-        
+        if extra_mods_callback:
+            try:
+                extra = extra_mods_callback(self)
+                if extra:
+                    mod_names.extend(extra)
+                    log.info(f"[INJECT] Including {len(extra)} party/extra mod(s): {', '.join(extra)}")
+            except Exception as e:
+                log.warning(f"[INJECT] Extra mods callback failed: {e}")
+
         # Create and run overlay
         result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
         

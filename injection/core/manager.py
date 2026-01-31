@@ -304,14 +304,30 @@ class InjectionManager:
                 log.info("[INJECT] Starting game monitor for injection")
                 self._start_monitor()
             
+            # Build optional callback to add party member skins to injection
+            extra_mods_callback = None
+            if self.shared_state:
+                party_manager = getattr(self.shared_state, "party_manager", None)
+                if party_manager and getattr(party_manager, "enabled", False):
+                    try:
+                        from party.integration.injection_hook import PartyInjectionHook
+                        party_hook = PartyInjectionHook(
+                            party_manager, self.shared_state, self
+                        )
+                        if party_hook.is_enabled():
+                            extra_mods_callback = lambda inj: party_hook.prepare_party_mods(inj)
+                    except Exception as e:
+                        log.debug(f"[INJECT] Party injection hook not used: {e}")
+
             # Pass the manager instance so injector can call resume_game()
             success = self.injector.inject_skin(
-                skin_name, 
+                skin_name,
                 stop_callback=stop_callback,
                 injection_manager=self,
                 chroma_id=chroma_id,
                 champion_name=champion_name,
-                champion_id=champion_id
+                champion_id=champion_id,
+                extra_mods_callback=extra_mods_callback,
             )
             
             if success:
