@@ -36,9 +36,10 @@ class PeerEndpoint:
     is_lan: bool = False
 
     def get_addresses(self) -> list[Tuple[str, int]]:
-        """Get list of addresses to try (external first, then internal)"""
+        """Get list of addresses to try (external first, then internal for LAN)"""
         addrs = [(self.external_ip, self.external_port)]
-        if self.internal_ip != self.external_ip:
+        # Only try internal if it's a real LAN address (0.0.0.0 is invalid to send to)
+        if self.internal_ip and self.internal_ip != "0.0.0.0" and self.internal_ip != self.external_ip:
             addrs.append((self.internal_ip, self.internal_port))
         return addrs
 
@@ -223,7 +224,7 @@ class UDPTransport:
                 # Wait a bit between sends
                 await asyncio.sleep(HOLE_PUNCH_INTERVAL)
 
-                # Check if we received a response (reply from other side)
+                # Check if we received a response (reply from other side, or HELLO if they initiated first)
                 try:
                     data, recv_addr = await asyncio.wait_for(
                         self._pending_receives.get(),
@@ -233,6 +234,9 @@ class UDPTransport:
                     # Check if response is from expected peer (or their external address)
                     if recv_addr[0] == addr[0] or recv_addr[0] == endpoint.external_ip:
                         log.info(f"[UDP] Hole punch successful! Connected via {recv_addr}")
+                        # If it's not a PUNCH reply (e.g. encrypted HELLO from them), put back for handshake
+                        if not data.startswith(b"PUNCH"):
+                            await self._pending_receives.put((data, recv_addr))
                         return recv_addr
 
                     # Put back if not from expected peer

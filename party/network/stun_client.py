@@ -242,7 +242,9 @@ class StunClient:
         """Discover external address using the given bound socket (async, no new socket)."""
         loop = asyncio.get_event_loop()
         try:
-            local_ip, local_port = sock.getsockname()[:2]
+            bound_ip, local_port = sock.getsockname()[:2]
+            # Bind address 0.0.0.0 is not valid for token (can't send to it); use real LAN IP
+            local_ip = self._get_local_ip() if bound_ip == "0.0.0.0" else bound_ip
         except OSError:
             local_ip = self._get_local_ip()
             local_port = 0
