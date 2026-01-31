@@ -305,20 +305,33 @@ class PeerConnection:
             )
             await self.send_message(hello_msg)
 
-            # Wait for HELLO or HELLO_ACK
+            # Wait for HELLO or HELLO_ACK (accept same IP if port differs - NAT can change source port)
             start_time = time.time()
             while time.time() - start_time < HANDSHAKE_TIMEOUT:
                 try:
                     data, addr = await self.transport.recv(timeout=1.0)
 
-                    if addr != self._remote_addr:
+                    # Accept from same peer IP (NAT may use different port for responses)
+                    if addr[0] != self._remote_addr[0]:
+                        self.transport.put_back(data, addr)
                         continue
+                    if addr != self._remote_addr:
+                        self._remote_addr = addr  # use actual response address from now on
 
                     if not self._crypto:
                         continue
 
-                    plaintext = self._crypto.decrypt(data)
-                    msg = Message.from_bytes(plaintext)
+                    try:
+                        plaintext = self._crypto.decrypt(data)
+                    except ValueError as e:
+                        log.warning(f"[PEER] Handshake decrypt failed from {addr}: {e}")
+                        continue
+
+                    try:
+                        msg = Message.from_bytes(plaintext)
+                    except ValueError as e:
+                        log.warning(f"[PEER] Handshake message parse failed: {e}")
+                        continue
 
                     if msg.type == MessageType.HELLO:
                         # Peer sent HELLO, respond with HELLO_ACK

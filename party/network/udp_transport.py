@@ -175,6 +175,10 @@ class UDPTransport:
         except asyncio.TimeoutError:
             raise
 
+    def put_back(self, data: bytes, addr: Tuple[str, int]):
+        """Put a packet back for a later recv() (e.g. wrong peer)"""
+        self._pending_receives.put_nowait((data, addr))
+
     def set_handler(self, addr: Tuple[str, int], handler: Callable[[bytes, Tuple[str, int]], None]):
         """Set handler for packets from specific address"""
         self._handlers[addr] = handler
