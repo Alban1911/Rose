@@ -18,6 +18,7 @@ class PartyPeerState:
     summoner_id: int
     summoner_name: str = "Unknown"
     connected: bool = False
+    connection_state: str = "disconnected"  # connecting, handshaking, connected, disconnected, dead
     in_lobby: bool = False
     skin_selection: Optional[SkinSelection] = None
 
@@ -46,17 +47,20 @@ class PartyState:
         summoner_id: int,
         summoner_name: str = "Unknown",
         connected: bool = False,
+        connection_state: str = "disconnected",
     ):
         """Add or update a peer"""
         with self._lock:
             if summoner_id in self.peers:
                 self.peers[summoner_id].summoner_name = summoner_name
                 self.peers[summoner_id].connected = connected
+                self.peers[summoner_id].connection_state = connection_state
             else:
                 self.peers[summoner_id] = PartyPeerState(
                     summoner_id=summoner_id,
                     summoner_name=summoner_name,
                     connected=connected,
+                    connection_state=connection_state,
                 )
 
     def remove_peer(self, summoner_id: int):
@@ -70,6 +74,12 @@ class PartyState:
         with self._lock:
             if summoner_id in self.peers:
                 self.peers[summoner_id].connected = connected
+
+    def update_peer_connection_state(self, summoner_id: int, connection_state: str):
+        """Update peer connection state (connecting, handshaking, connected, disconnected, dead)"""
+        with self._lock:
+            if summoner_id in self.peers:
+                self.peers[summoner_id].connection_state = connection_state
 
     def update_peer_lobby_status(self, summoner_id: int, in_lobby: bool):
         """Update peer lobby status"""
@@ -141,6 +151,7 @@ class PartyState:
                         "summoner_id": p.summoner_id,
                         "summoner_name": p.summoner_name,
                         "connected": p.connected,
+                        "connection_state": p.connection_state,
                         "in_lobby": p.in_lobby,
                         "skin_selection": (
                             p.skin_selection.to_dict() if p.skin_selection else None

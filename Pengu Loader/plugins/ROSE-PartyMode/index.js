@@ -663,26 +663,39 @@
         tokenDisplay.value = partyState.my_token;
       }
 
-      // Update peers list
-      const connectedPeers = partyState.peers.filter((p) => p.connected);
+      // Update peers list (show all peers, including those still connecting)
+      const allPeers = partyState.peers || [];
+      const connectedPeers = allPeers.filter((p) => p.connected);
       peerCountEl.textContent = connectedPeers.length;
 
-      if (connectedPeers.length === 0) {
+      if (allPeers.length === 0) {
         peersList.innerHTML = '<div class="no-peers">No friends connected yet</div>';
       } else {
-        peersList.innerHTML = connectedPeers
+        peersList.innerHTML = allPeers
           .map((peer) => {
+            const cs = (peer.connection_state || "disconnected").toLowerCase();
+            const isWaiting = cs === "connecting" || cs === "handshaking";
+            const statusText = isWaiting
+              ? "Waiting for your friend"
+              : cs === "connected"
+                ? (peer.in_lobby ? "In lobby" : "Connected")
+                : cs === "handshaking"
+                  ? "Handshaking"
+                  : cs === "connecting"
+                    ? "Connecting"
+                    : "Disconnected";
+            const displayName = isWaiting ? "Friend" : escapeHtml(peer.summoner_name);
+            const lobbyStatus = peer.in_lobby ? "in-lobby" : "";
             const skinInfo = peer.skin_selection
               ? `Skin: ${peer.skin_selection.skin_id}`
               : "";
-            const lobbyStatus = peer.in_lobby ? "in-lobby" : "";
-            const lobbyText = peer.in_lobby ? "In lobby" : "Connected";
 
             return `
             <div class="peer-item" data-summoner-id="${peer.summoner_id}">
               <div class="peer-info">
-                <span class="peer-name">${escapeHtml(peer.summoner_name)}</span>
-                <span class="peer-status ${lobbyStatus}">${lobbyText}</span>
+                <span class="peer-name">${displayName}</span>
+                ${isWaiting ? '<span class="peer-status waiting"><span class="spinner"></span> ' : `<span class="peer-status ${lobbyStatus}">`}
+                ${escapeHtml(statusText)}</span>
                 ${skinInfo ? `<span class="peer-skin">${skinInfo}</span>` : ""}
               </div>
               <button class="peer-remove" title="Remove" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
@@ -755,7 +768,7 @@
     }
 
     messageEl.innerHTML =
-      '<div class="success-msg"><span class="spinner"></span> Connecting...</div>';
+      '<div class="success-msg"><span class="spinner"></span> Waiting for your friend...</div>';
     sendBridgeMessage({ type: "party-add-peer", token: token });
     input.value = "";
   }

@@ -522,11 +522,25 @@ class InjectionTrigger:
             # Use effective_skin_id which includes the selected chroma if applicable
             elif effective_skin_id in owned_skin_ids:
                 self._force_owned_skin(effective_skin_id)
+                # Still run injection so overlay is built with our skin + friends' party skins
+                if self.injection_manager:
+                    self.injection_manager.inject_skin_immediately(
+                        name,
+                        champion_name=cname,
+                        champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
+                    )
 
             # Also check if base skin is owned but chroma is selected (for owned chromas)
             elif ui_skin_id in owned_skin_ids and effective_skin_id != ui_skin_id:
                 # Base skin owned, chroma selected - force the chroma
                 self._force_owned_skin(effective_skin_id)
+                # Still run injection so overlay is built with our skin + friends' party skins
+                if self.injection_manager:
+                    self.injection_manager.inject_skin_immediately(
+                        name,
+                        champion_name=cname,
+                        champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
+                    )
 
             # Inject if user doesn't own the hovered skin
             elif self.injection_manager:

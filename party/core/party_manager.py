@@ -262,8 +262,13 @@ class PartyManager:
                 ),
             )
 
-            # Attempt connection
-            self.party_state.add_peer(token.summoner_id, connected=False)
+            # Attempt connection (peer appears as "connecting" until handshake completes)
+            self.party_state.add_peer(
+                token.summoner_id,
+                summoner_name="Unknown",
+                connected=False,
+                connection_state="connecting",
+            )
             self._notify_state_change()
 
             if await peer.connect():
@@ -388,6 +393,7 @@ class PartyManager:
 
     def _handle_peer_state_change(self, summoner_id: int, state: ConnectionState):
         """Handle peer connection state change"""
+        self.party_state.update_peer_connection_state(summoner_id, state.value)
         if state == ConnectionState.CONNECTED:
             self.party_state.update_peer_connection(summoner_id, True)
         elif state in (ConnectionState.DISCONNECTED, ConnectionState.DEAD):
