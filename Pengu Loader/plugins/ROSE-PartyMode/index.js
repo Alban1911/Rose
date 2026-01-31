@@ -902,8 +902,8 @@
       document.querySelector("lol-regalia-parties-v2-element") ||
       document.querySelector(".parties-game-info-panel") ||
       document.querySelector(".lobby-members-container") ||
-      document.querySelector('[class*="parties"]') ||
-      document.querySelector(".ready-check-swap-button")
+      document.querySelector(".ready-check-swap-button") ||
+      document.querySelector(".lobby-header-custom-map-name")
     );
   }
 
