@@ -150,6 +150,10 @@ class PenguSkinMonitorThread(threading.Thread):
     def _broadcast_historic_state(self) -> None:
         """Broadcast historic state (delegates to broadcaster)"""
         self.broadcaster.broadcast_historic_state()
+
+    def _broadcast_custom_mod_state(self) -> None:
+        """Broadcast custom mod state (delegates to broadcaster)"""
+        self.broadcaster.broadcast_custom_mod_state()
     
     def _broadcast_phase_change(self, phase: str) -> None:
         """Broadcast phase change (delegates to broadcaster)"""

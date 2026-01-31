@@ -906,6 +906,13 @@ class MessageHandler:
 
                 self.shared_state.selected_custom_mod = None
                 log.info(f"[SkinMonitor] Custom mod deselected for skin {skin_id}")
+
+                # Broadcast deactivated custom mod state to JavaScript
+                try:
+                    if self.shared_state and hasattr(self.shared_state, 'ui_skin_thread') and self.shared_state.ui_skin_thread:
+                        self.shared_state.ui_skin_thread._broadcast_custom_mod_state()
+                except Exception as e:
+                    log.debug(f"[SkinMonitor] Failed to broadcast custom mod state on deselect: {e}")
             return
 
         try:
@@ -1006,6 +1013,13 @@ class MessageHandler:
             
             log.info(f"[SkinMonitor] Custom mod selected and extracted: {selected_mod.mod_name} (skin {skin_id})")
             log.info(f"[SkinMonitor] Mod ready for injection on threshold trigger")
+
+            # Broadcast custom mod state to JavaScript to show mod name
+            try:
+                if self.shared_state and hasattr(self.shared_state, 'ui_skin_thread') and self.shared_state.ui_skin_thread:
+                    self.shared_state.ui_skin_thread._broadcast_custom_mod_state()
+            except Exception as e:
+                log.debug(f"[SkinMonitor] Failed to broadcast custom mod state on selection: {e}")
 
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle mod selection: {e}")

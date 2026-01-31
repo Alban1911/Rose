@@ -186,6 +186,30 @@ class Broadcaster:
         
         self._send_message(json.dumps(payload))
     
+    def broadcast_custom_mod_state(self) -> None:
+        """Broadcast current custom mod selection state to JavaScript"""
+        if not self.websocket_server.loop or not self.websocket_server.connections:
+            return
+
+        selected_custom_mod = getattr(self.shared_state, 'selected_custom_mod', None)
+        active = selected_custom_mod is not None
+        mod_name = selected_custom_mod.get("mod_name") if selected_custom_mod else None
+
+        payload = {
+            "type": "custom-mod-state",
+            "active": active,
+            "modName": mod_name,
+            "timestamp": int(time.time() * 1000),
+        }
+
+        log.debug(
+            "[SkinMonitor] Broadcasting custom mod state → active=%s modName=%s",
+            active,
+            mod_name,
+        )
+
+        self._send_message(json.dumps(payload))
+
     def broadcast_phase_change(self, phase: str) -> None:
         """Broadcast phase change to JavaScript plugins"""
         if not self.websocket_server.loop or not self.websocket_server.connections:
