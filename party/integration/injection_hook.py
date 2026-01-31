@@ -38,11 +38,11 @@ class PartyInjectionHook:
         self.injection_manager = injection_manager
 
     def is_enabled(self) -> bool:
-        """Check if party injection is enabled"""
+        """Check if party injection is enabled (connected peers; in_lobby can be cleared at injection time)"""
         return (
             self.party_manager is not None
             and self.party_manager.enabled
-            and len(self.party_manager.party_state.get_lobby_peers()) > 0
+            and len(self.party_manager.party_state.get_connected_peers()) > 0
         )
 
     def get_party_skins_for_injection(self) -> List[PartySkinData]:
