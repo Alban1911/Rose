@@ -42,7 +42,7 @@ class RepoDownloader:
     def __init__(
         self,
         target_dir: Path = None,
-        repo_url: str = "https://github.com/Alban1911/LeagueSkinsTest",
+        repo_url: str = "https://github.com/Alban1911/LeagueSkins",
         progress_callback: Optional[ProgressCallback] = None,
     ):
         self.repo_url = repo_url
@@ -57,7 +57,7 @@ class RepoDownloader:
         
         # State tracking for incremental updates
         self.state_file = self.target_dir / '.repo_state.json'
-        self.api_base = "https://api.github.com/repos/Alban1911/LeagueSkinsTest"
+        self.api_base = "https://api.github.com/repos/Alban1911/LeagueSkins"
         
         # State tracking for resources folder (skinid_mapping)
         from utils.core.paths import get_user_data_dir
@@ -457,7 +457,7 @@ class RepoDownloader:
                 continue
             
             # Convert ZIP path to relative path
-            relative_path = file_info.filename.replace('LeagueSkinsTest-main/', '')
+            relative_path = file_info.filename.replace('LeagueSkins-main/', '')
             started_with_skins = relative_path.startswith('skins/')
             
             # Remove 'skins/' or 'resources/' prefix to match local structure
@@ -532,9 +532,9 @@ class RepoDownloader:
         extract_skins: bool = True,
         extract_resources: bool = True,
     ) -> bool:
-        """Extract skins, previews, and resources folder from the LeagueSkinsTest repository ZIP"""
+        """Extract skins, previews, and resources folder from the LeagueSkins repository ZIP"""
         try:
-            log.info("Extracting skins, previews, and resources folder from LeagueSkinsTest repository ZIP...")
+            log.info("Extracting skins, previews, and resources folder from LeagueSkins repository ZIP...")
             
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 converter: Optional[SkinNameConverter] = None
@@ -552,8 +552,8 @@ class RepoDownloader:
                 if extract_skins:
                     for file_info in zip_ref.filelist:
                         # Look for files in skins/ directory, but skip the skins directory itself
-                        if (file_info.filename.startswith('LeagueSkinsTest-main/skins/') and 
-                            file_info.filename != 'LeagueSkinsTest-main/skins/' and
+                        if (file_info.filename.startswith('LeagueSkins-main/skins/') and 
+                            file_info.filename != 'LeagueSkins-main/skins/' and
                             not file_info.filename.endswith('/')):
                             skins_files.append(file_info)
                             
@@ -570,8 +570,8 @@ class RepoDownloader:
                 if extract_resources:
                     for file_info in zip_ref.filelist:
                         # Look for files in resources/ directory (entire folder)
-                        if (file_info.filename.startswith('LeagueSkinsTest-main/resources/') and 
-                            file_info.filename != 'LeagueSkinsTest-main/resources/' and
+                        if (file_info.filename.startswith('LeagueSkins-main/resources/') and 
+                            file_info.filename != 'LeagueSkins-main/resources/' and
                             not file_info.filename.endswith('/')):
                             resources_files.append(file_info)
                             resources_count += 1
@@ -631,7 +631,7 @@ class RepoDownloader:
                             continue
 
                         label = "Extracting skins..." if entry_type == "skin" else "Extracting skin ID mapping..."
-                        relative_path = file_info.filename.replace('LeagueSkinsTest-main/', '')
+                        relative_path = file_info.filename.replace('LeagueSkins-main/', '')
                         is_zip = relative_path.endswith('.zip')
                         is_png = relative_path.endswith('.png')
 
@@ -1122,13 +1122,13 @@ class RepoDownloader:
             log.info(f"Creating ZIP from {len(downloaded_files)} downloaded files...")
             self._emit_progress(progress_end - 5, "Creating ZIP archive...")
             
-            # Create ZIP file with structure: LeagueSkinsTest-main/resources/... (to match extract_skins_from_zip expectations)
+            # Create ZIP file with structure: LeagueSkins-main/resources/... (to match extract_skins_from_zip expectations)
             with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for file_path in resources_local_path.rglob('*'):
                     if file_path.is_file():
-                        # Add LeagueSkinsTest-main/ prefix to match extract_skins_from_zip expectations
+                        # Add LeagueSkins-main/ prefix to match extract_skins_from_zip expectations
                         relative_path = file_path.relative_to(temp_dir_path)
-                        arcname = f"LeagueSkinsTest-main/{relative_path}"
+                        arcname = f"LeagueSkins-main/{relative_path}"
                         zipf.write(file_path, arcname)
             
             # Clean up temp directory

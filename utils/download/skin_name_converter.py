@@ -15,7 +15,7 @@ from typing import Optional
 class SkinNameConverter:
     """Converts skin paths from human-readable names to ID-based paths."""
 
-    SKIN_IDS_PATH = "LeagueSkinsTest-main/resources/default/skin_ids.json"
+    SKIN_IDS_PATH = "LeagueSkins-main/resources/default/skin_ids.json"
 
     # Characters that are invalid in Windows file paths and get stripped from
     # repository folder/file names.
@@ -58,7 +58,7 @@ class SkinNameConverter:
         """Load skin_ids.json from the repository ZIP and return a converter.
 
         Args:
-            zip_ref: Open ZipFile for the LeagueSkinsTest repository.
+            zip_ref: Open ZipFile for the LeagueSkins repository.
 
         Returns:
             SkinNameConverter instance, or None if file missing/invalid/empty.
