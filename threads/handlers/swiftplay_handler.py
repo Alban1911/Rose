@@ -360,6 +360,26 @@ class SwiftplayHandler:
         except Exception as e:
             log.warning(f"[phase] Error while cleaning up Swiftplay state: {e}")
     
+    def _get_active_lobby_champion_ids(self) -> Optional[set]:
+        """Return the set of champion IDs currently in the player's lobby slots.
+
+        Returns None if the data cannot be retrieved (caller should fall back
+        to injecting everything in the tracking dict).
+        """
+        try:
+            dual = self.lcu.get_swiftplay_dual_champion_selection()
+            if not dual or not dual.get("champions"):
+                return None
+            ids = set()
+            for champ in dual["champions"]:
+                cid = champ.get("championId")
+                if cid and int(cid) > 0:
+                    ids.add(int(cid))
+            return ids if ids else None
+        except Exception as e:
+            log.debug(f"[phase] Failed to get active lobby champion IDs: {e}")
+            return None
+
     def trigger_swiftplay_injection(self):
         """Trigger injection system for Swiftplay mode with all tracked skins"""
         try:
@@ -369,8 +389,27 @@ class SwiftplayHandler:
             if not self.state.swiftplay_skin_tracking:
                 log.warning("[phase] No tracked skins - cannot trigger injection")
                 return
-            
-            total_skins = len(self.state.swiftplay_skin_tracking)
+
+            # Filter tracking dict to only include champions currently in lobby slots
+            active_champion_ids = self._get_active_lobby_champion_ids()
+            if active_champion_ids:
+                filtered_tracking = {
+                    cid: sid for cid, sid in self.state.swiftplay_skin_tracking.items()
+                    if cid in active_champion_ids
+                }
+                stale = set(self.state.swiftplay_skin_tracking) - active_champion_ids
+                if stale:
+                    log.info(f"[phase] Pruned {len(stale)} stale champion(s) from tracking: {stale}")
+                self.state.swiftplay_skin_tracking = filtered_tracking
+            else:
+                log.debug("[phase] Could not determine active lobby champions - injecting all tracked skins")
+                filtered_tracking = dict(self.state.swiftplay_skin_tracking)
+
+            if not filtered_tracking:
+                log.warning("[phase] No tracked skins for active champions - cannot trigger injection")
+                return
+
+            total_skins = len(filtered_tracking)
             log.info(f"[phase] Will inject {total_skins} skin(s) from tracking dictionary")
 
             from utils.core.utilities import is_base_skin
@@ -396,7 +435,7 @@ class SwiftplayHandler:
             
             # Extract all skin ZIPs to mods directory
             extracted_mods = []
-            for champion_id, skin_id in self.state.swiftplay_skin_tracking.items():
+            for champion_id, skin_id in filtered_tracking.items():
                 try:
                     is_base = is_base_skin(skin_id, chroma_id_map)
                     if is_base:
