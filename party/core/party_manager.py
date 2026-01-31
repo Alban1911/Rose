@@ -209,7 +209,7 @@ class PartyManager:
         """Add a peer from their party token
 
         Args:
-            token_str: Peer's party token string
+            token_str: Peer's party token string (whitespace and newlines are stripped)
 
         Returns:
             True if peer added and connected successfully
@@ -217,6 +217,9 @@ class PartyManager:
         if not self.party_state.enabled:
             log.warning("[PARTY] Cannot add peer - party mode not enabled")
             return False
+
+        # Normalize token: strip and remove all whitespace (spaces, \n, \r, \t)
+        token_str = "".join(token_str.split())
 
         try:
             # Decode token

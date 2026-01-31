@@ -745,7 +745,8 @@
   function handleAddPeer() {
     const input = document.getElementById("add-peer-input");
     const messageEl = document.getElementById("add-peer-message");
-    const token = input.value.trim();
+    // Strip and remove all whitespace (spaces, newlines, tabs) so pasted tokens work
+    const token = input.value.replace(/\s+/g, "").trim();
 
     if (!token) {
       messageEl.innerHTML =
