@@ -17,8 +17,8 @@ log = get_logger()
 
 # Hole punching configuration
 HOLE_PUNCH_ATTEMPTS = 10
-HOLE_PUNCH_INTERVAL = 0.3  # seconds between attempts
-HOLE_PUNCH_TIMEOUT = 5.0   # total timeout for hole punching
+HOLE_PUNCH_INTERVAL = 0.3   # seconds between attempts
+HOLE_PUNCH_RECV_TIMEOUT = 0.8  # wait for reply (NAT + RTT can be slow)
 
 # Keepalive configuration
 KEEPALIVE_INTERVAL = 15.0  # seconds
@@ -223,11 +223,11 @@ class UDPTransport:
                 # Wait a bit between sends
                 await asyncio.sleep(HOLE_PUNCH_INTERVAL)
 
-                # Check if we received a response
+                # Check if we received a response (reply from other side)
                 try:
                     data, recv_addr = await asyncio.wait_for(
                         self._pending_receives.get(),
-                        timeout=HOLE_PUNCH_INTERVAL,
+                        timeout=HOLE_PUNCH_RECV_TIMEOUT,
                     )
 
                     # Check if response is from expected peer (or their external address)
@@ -252,6 +252,14 @@ class UDPTransport:
             try:
                 data, addr = await loop.sock_recvfrom(self._socket, 65535)
 
+                # Reply to PUNCH so hole punch succeeds (other side gets a response)
+                if data.startswith(b"PUNCH"):
+                    try:
+                        await self.send(data, addr)
+                        log.debug(f"[UDP] Sent punch reply to {addr}")
+                    except Exception as e:
+                        log.debug(f"[UDP] Punch reply failed: {e}")
+
                 # Check for specific handler
                 handler = self._handlers.get(addr)
                 if handler:
@@ -265,7 +273,7 @@ class UDPTransport:
                     except Exception as e:
                         log.warning(f"[UDP] Default handler error: {e}")
                 else:
-                    # Queue for recv() calls
+                    # Queue for recv() calls (e.g. hole punch initiator waiting for reply)
                     await self._pending_receives.put((data, addr))
 
             except asyncio.CancelledError:

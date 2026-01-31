@@ -199,15 +199,17 @@ class StunClient:
         """Discover external IP and port using STUN
 
         Args:
-            local_socket: Optional existing socket to use (ignored, kept for API compatibility)
+            local_socket: When provided, use this socket for the STUN query so the
+                returned external address is the one peers must use to reach us.
 
         Returns:
             StunResult with external and local addresses, or None if discovery fails
         """
         try:
-            local_ip = self._get_local_ip()
+            if local_socket is not None:
+                return await self._discover_with_socket(local_socket)
 
-            # Try each STUN server until one succeeds
+            local_ip = self._get_local_ip()
             for server_host, server_port in STUN_SERVERS:
                 try:
                     result = await self._query_stun_server(
@@ -223,7 +225,7 @@ class StunClient:
                             external_ip=external_ip,
                             external_port=external_port,
                             local_ip=local_ip,
-                            local_port=0,  # Will be assigned when transport binds
+                            local_port=0,
                         )
                 except Exception as e:
                     log.debug(f"[STUN] Failed to query {server_host}: {e}")
@@ -235,6 +237,53 @@ class StunClient:
         except Exception as e:
             log.error(f"[STUN] Discovery error: {e}")
             return None
+
+    async def _discover_with_socket(self, sock: socket.socket) -> Optional[StunResult]:
+        """Discover external address using the given bound socket (async, no new socket)."""
+        loop = asyncio.get_event_loop()
+        try:
+            local_ip, local_port = sock.getsockname()[:2]
+        except OSError:
+            local_ip = self._get_local_ip()
+            local_port = 0
+
+        for server_host, server_port in STUN_SERVERS:
+            try:
+                addr_info = socket.getaddrinfo(
+                    server_host, server_port, socket.AF_INET, socket.SOCK_DGRAM
+                )
+                if not addr_info:
+                    continue
+                server_addr = addr_info[0][4]
+                request, transaction_id = self._create_binding_request()
+
+                await loop.sock_sendto(sock, request, server_addr)
+                data, _ = await asyncio.wait_for(
+                    loop.sock_recvfrom(sock, 1024),
+                    timeout=self.timeout,
+                )
+                result = self._parse_binding_response(data, transaction_id)
+                if result:
+                    external_ip, external_port = result
+                    log.info(
+                        f"[STUN] Discovered external address: {external_ip}:{external_port} "
+                        f"(local: {local_ip}:{local_port}) via {server_host}"
+                    )
+                    return StunResult(
+                        external_ip=external_ip,
+                        external_port=external_port,
+                        local_ip=local_ip,
+                        local_port=local_port,
+                    )
+            except asyncio.TimeoutError:
+                log.debug(f"[STUN] Timeout waiting for response from {server_host}")
+                continue
+            except Exception as e:
+                log.debug(f"[STUN] Failed to query {server_host}: {e}")
+                continue
+
+        log.warning("[STUN] All STUN servers failed (with socket)")
+        return None
 
     async def _query_stun_server(
         self, sock: socket.socket, host: str, port: int
