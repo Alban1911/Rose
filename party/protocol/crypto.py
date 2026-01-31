@@ -13,23 +13,19 @@ from utils.core.logging import get_logger
 
 log = get_logger()
 
-# Try to use cryptography library, fall back to basic XOR if not available
-try:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    HAS_CRYPTOGRAPHY = True
-except ImportError:
-    HAS_CRYPTOGRAPHY = False
-    log.warning("[CRYPTO] cryptography library not available, using basic encryption")
+# Party Mode uses a single wire format (XOR + checksum) so both sides interoperate
+# regardless of whether the cryptography library is installed. No AES-GCM so no
+# mismatch between "has crypto" vs "no crypto" machines.
 
 
 class PartyCrypto:
-    """Handles encryption/decryption for P2P messages"""
+    """Handles encryption/decryption for P2P messages (same format on all peers)"""
 
-    # Nonce size for AES-GCM (96 bits = 12 bytes recommended)
+    # Nonce size (12 bytes)
     NONCE_SIZE = 12
     # Key size (256 bits = 32 bytes)
     KEY_SIZE = 32
-    # Tag size for AES-GCM
+    # Checksum size (same as AES-GCM tag for consistency)
     TAG_SIZE = 16
 
     def __init__(self, key: bytes):
@@ -42,10 +38,6 @@ class PartyCrypto:
             raise ValueError(f"Key must be {self.KEY_SIZE} bytes, got {len(key)}")
 
         self.key = key
-        if HAS_CRYPTOGRAPHY:
-            self._aesgcm = AESGCM(key)
-        else:
-            self._aesgcm = None
 
     @classmethod
     def generate_key(cls) -> bytes:
@@ -57,35 +49,14 @@ class PartyCrypto:
         return os.urandom(cls.KEY_SIZE)
 
     def encrypt(self, plaintext: bytes) -> bytes:
-        """Encrypt data using AES-256-GCM
-
-        Args:
-            plaintext: Data to encrypt
-
-        Returns:
-            Encrypted data: nonce (12 bytes) + ciphertext + tag (16 bytes)
-        """
+        """Encrypt data (nonce + XOR ciphertext + checksum). Same format on all peers."""
         nonce = os.urandom(self.NONCE_SIZE)
-
-        if self._aesgcm:
-            # Use proper AES-GCM
-            ciphertext = self._aesgcm.encrypt(nonce, plaintext, None)
-            return nonce + ciphertext
-        else:
-            # Fallback: XOR cipher (not secure, but functional)
-            ciphertext = self._xor_cipher(plaintext, nonce)
-            # Add a simple checksum as "tag"
-            checksum = self._simple_checksum(plaintext)
-            return nonce + ciphertext + checksum
+        ciphertext = self._xor_cipher(plaintext, nonce)
+        checksum = self._simple_checksum(plaintext)
+        return nonce + ciphertext + checksum
 
     def decrypt(self, data: bytes) -> bytes:
-        """Decrypt data using AES-256-GCM
-
-        Args:
-            data: Encrypted data (nonce + ciphertext + tag)
-
-        Returns:
-            Decrypted plaintext
+        """Decrypt data (nonce + XOR ciphertext + checksum).
 
         Raises:
             ValueError: If decryption fails (invalid data or tampered)
@@ -95,23 +66,16 @@ class PartyCrypto:
 
         nonce = data[: self.NONCE_SIZE]
         ciphertext = data[self.NONCE_SIZE :]
+        if len(ciphertext) < self.TAG_SIZE:
+            raise ValueError("Ciphertext too short")
 
-        if self._aesgcm:
-            try:
-                return self._aesgcm.decrypt(nonce, ciphertext, None)
-            except Exception as e:
-                raise ValueError(f"Decryption failed: {e}")
-        else:
-            # Fallback: XOR cipher
-            if len(ciphertext) < self.TAG_SIZE:
-                raise ValueError("Ciphertext too short")
-            actual_ciphertext = ciphertext[:-self.TAG_SIZE]
-            stored_checksum = ciphertext[-self.TAG_SIZE:]
-            plaintext = self._xor_cipher(actual_ciphertext, nonce)
-            expected_checksum = self._simple_checksum(plaintext)
-            if stored_checksum != expected_checksum:
-                raise ValueError("Checksum mismatch")
-            return plaintext
+        actual_ciphertext = ciphertext[:-self.TAG_SIZE]
+        stored_checksum = ciphertext[-self.TAG_SIZE:]
+        plaintext = self._xor_cipher(actual_ciphertext, nonce)
+        expected_checksum = self._simple_checksum(plaintext)
+        if stored_checksum != expected_checksum:
+            raise ValueError("Checksum mismatch")
+        return plaintext
 
     def _xor_cipher(self, data: bytes, nonce: bytes) -> bytes:
         """Simple XOR cipher fallback (NOT cryptographically secure)"""
