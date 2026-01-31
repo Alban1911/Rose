@@ -129,14 +129,13 @@ class PartyManager:
 
             # Create UDP transport
             self._transport = UDPTransport()
-            local_port = await self._transport.bind()
-            await self._transport.start_receiving()
-
-            # Discover external address via STUN
+            await self._transport.bind()
+            # Discover external address via STUN using our actual socket (so token port matches)
             stun_result = await self._stun_client.discover(self._transport.get_socket())
-
             if not stun_result:
                 raise RuntimeError("STUN discovery failed - check network connection")
+            # Now start receiving (after STUN so response went to us)
+            await self._transport.start_receiving()
 
             # Generate encryption key
             self._my_key = PartyCrypto.generate_key()
