@@ -282,13 +282,53 @@ class Broadcaster:
         
         self._send_message(json.dumps(payload))
     
+    def broadcast_raw(self, message: str) -> None:
+        """Broadcast a raw message string to all clients
+
+        Args:
+            message: JSON string to broadcast
+        """
+        self._send_message(message)
+
+    def broadcast_party_state(self) -> None:
+        """Broadcast party mode state to JavaScript clients"""
+        if not self.websocket_server.loop or not self.websocket_server.connections:
+            return
+
+        party_manager = getattr(self.shared_state, 'party_manager', None)
+        if not party_manager:
+            # Party mode not initialized - send disabled state
+            payload = {
+                "type": "party-state",
+                "enabled": False,
+                "my_token": None,
+                "peers": [],
+                "timestamp": int(time.time() * 1000),
+            }
+        else:
+            # Get state from party manager
+            state_dict = party_manager.get_state_dict()
+            payload = {
+                "type": "party-state",
+                **state_dict,
+                "timestamp": int(time.time() * 1000),
+            }
+
+        log.debug(
+            "[SkinMonitor] Broadcasting party state → enabled=%s peers=%d",
+            payload.get("enabled", False),
+            len(payload.get("peers", [])),
+        )
+
+        self._send_message(json.dumps(payload))
+
     def _send_message(self, message: str) -> None:
         """Send message to all connected clients"""
         try:
             running_loop = asyncio.get_running_loop()
         except RuntimeError:
             running_loop = None
-        
+
         if running_loop is self.websocket_server.loop:
             self.websocket_server.loop.create_task(self.websocket_server.broadcast(message))
         else:

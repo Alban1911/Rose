@@ -93,3 +93,8 @@ class SharedState:
     
     # Custom mod selection
     selected_custom_mod: Optional[dict] = None  # Selected custom mod for injection: {skin_id, champion_id, mod_name, mod_path, relative_path}  # Flag to track if our champion is locked (triggers detection/UI pipeline)
+
+    # Party mode - P2P skin sharing with friends
+    party_mode_enabled: bool = False
+    party_token: Optional[str] = None  # Our party token for sharing
+    party_manager = None  # Reference to PartyManager instance

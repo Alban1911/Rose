@@ -144,6 +144,17 @@ class MessageHandler:
             self._handle_add_custom_mods_skin_selected(payload)
         elif payload_type == "find-match-hover":
             self._handle_find_match_hover(payload)
+        # Party mode messages
+        elif payload_type == "party-enable":
+            self._handle_party_enable(payload)
+        elif payload_type == "party-disable":
+            self._handle_party_disable(payload)
+        elif payload_type == "party-add-peer":
+            self._handle_party_add_peer(payload)
+        elif payload_type == "party-remove-peer":
+            self._handle_party_remove_peer(payload)
+        elif payload_type == "party-get-state":
+            self._handle_party_get_state(payload)
         elif payload.get("skin"):
             # Handle skin detection message
             self._handle_skin_detection(payload)
@@ -2014,3 +2025,216 @@ class MessageHandler:
                 response_payload["skins"] = []
             self._send_response(json.dumps(response_payload))
 
+    # ==================== Party Mode Handlers ====================
+
+    def _handle_party_enable(self, payload: dict) -> None:
+        """Handle party mode enable request"""
+        try:
+            party_manager = getattr(self.shared_state, 'party_manager', None)
+            if not party_manager:
+                # Initialize party manager
+                from party.core.party_manager import PartyManager
+                from lcu import LCU
+
+                # Get LCU instance from skin_scraper
+                lcu = self.skin_scraper.lcu if self.skin_scraper else None
+                if not lcu:
+                    response_payload = {
+                        "type": "party-enabled",
+                        "success": False,
+                        "error": "LCU not available - is League client running?",
+                    }
+                    self._send_response(json.dumps(response_payload))
+                    return
+
+                party_manager = PartyManager(lcu, self.shared_state, self.injection_manager)
+                self.shared_state.party_manager = party_manager
+
+            # Enable party mode (async operation)
+            import asyncio
+
+            async def do_enable():
+                try:
+                    token = await party_manager.enable()
+                    self.shared_state.party_mode_enabled = True
+                    self.shared_state.party_token = token
+                    response_payload = {
+                        "type": "party-enabled",
+                        "success": True,
+                        "token": token,
+                    }
+                    self._send_response(json.dumps(response_payload))
+                    log.info(f"[PARTY] Party mode enabled, token: {token[:30]}...")
+                except Exception as e:
+                    log.error(f"[PARTY] Failed to enable party mode: {e}")
+                    response_payload = {
+                        "type": "party-enabled",
+                        "success": False,
+                        "error": str(e),
+                    }
+                    self._send_response(json.dumps(response_payload))
+
+            # Run in event loop
+            if self.websocket_server and self.websocket_server.loop:
+                asyncio.run_coroutine_threadsafe(do_enable(), self.websocket_server.loop)
+            else:
+                log.warning("[PARTY] No event loop available")
+
+        except Exception as e:
+            log.error(f"[PARTY] Error handling party enable: {e}")
+            response_payload = {
+                "type": "party-enabled",
+                "success": False,
+                "error": str(e),
+            }
+            self._send_response(json.dumps(response_payload))
+
+    def _handle_party_disable(self, payload: dict) -> None:
+        """Handle party mode disable request"""
+        try:
+            party_manager = getattr(self.shared_state, 'party_manager', None)
+            if not party_manager:
+                response_payload = {
+                    "type": "party-disabled",
+                    "success": True,
+                }
+                self._send_response(json.dumps(response_payload))
+                return
+
+            import asyncio
+
+            async def do_disable():
+                try:
+                    await party_manager.disable()
+                    self.shared_state.party_mode_enabled = False
+                    self.shared_state.party_token = None
+                    response_payload = {
+                        "type": "party-disabled",
+                        "success": True,
+                    }
+                    self._send_response(json.dumps(response_payload))
+                    log.info("[PARTY] Party mode disabled")
+                except Exception as e:
+                    log.error(f"[PARTY] Failed to disable party mode: {e}")
+                    response_payload = {
+                        "type": "party-disabled",
+                        "success": False,
+                        "error": str(e),
+                    }
+                    self._send_response(json.dumps(response_payload))
+
+            if self.websocket_server and self.websocket_server.loop:
+                asyncio.run_coroutine_threadsafe(do_disable(), self.websocket_server.loop)
+
+        except Exception as e:
+            log.error(f"[PARTY] Error handling party disable: {e}")
+
+    def _handle_party_add_peer(self, payload: dict) -> None:
+        """Handle add peer request"""
+        try:
+            token = payload.get("token", "")
+            if not token:
+                response_payload = {
+                    "type": "party-peer-added",
+                    "success": False,
+                    "error": "No token provided",
+                }
+                self._send_response(json.dumps(response_payload))
+                return
+
+            party_manager = getattr(self.shared_state, 'party_manager', None)
+            if not party_manager or not party_manager.enabled:
+                response_payload = {
+                    "type": "party-peer-added",
+                    "success": False,
+                    "error": "Party mode not enabled",
+                }
+                self._send_response(json.dumps(response_payload))
+                return
+
+            import asyncio
+
+            async def do_add_peer():
+                try:
+                    success = await party_manager.add_peer(token)
+                    response_payload = {
+                        "type": "party-peer-added",
+                        "success": success,
+                        "error": None if success else "Failed to connect to peer",
+                    }
+                    self._send_response(json.dumps(response_payload))
+                    if success:
+                        log.info("[PARTY] Peer added successfully")
+                    else:
+                        log.warning("[PARTY] Failed to add peer")
+                except Exception as e:
+                    log.error(f"[PARTY] Failed to add peer: {e}")
+                    response_payload = {
+                        "type": "party-peer-added",
+                        "success": False,
+                        "error": str(e),
+                    }
+                    self._send_response(json.dumps(response_payload))
+
+            if self.websocket_server and self.websocket_server.loop:
+                asyncio.run_coroutine_threadsafe(do_add_peer(), self.websocket_server.loop)
+
+        except Exception as e:
+            log.error(f"[PARTY] Error handling add peer: {e}")
+
+    def _handle_party_remove_peer(self, payload: dict) -> None:
+        """Handle remove peer request"""
+        try:
+            summoner_id = payload.get("summoner_id")
+            if not summoner_id:
+                return
+
+            party_manager = getattr(self.shared_state, 'party_manager', None)
+            if not party_manager:
+                return
+
+            import asyncio
+
+            async def do_remove_peer():
+                try:
+                    await party_manager.remove_peer(int(summoner_id))
+                    response_payload = {
+                        "type": "party-peer-removed",
+                        "success": True,
+                        "summoner_id": summoner_id,
+                    }
+                    self._send_response(json.dumps(response_payload))
+                    log.info(f"[PARTY] Peer {summoner_id} removed")
+                except Exception as e:
+                    log.error(f"[PARTY] Failed to remove peer: {e}")
+
+            if self.websocket_server and self.websocket_server.loop:
+                asyncio.run_coroutine_threadsafe(do_remove_peer(), self.websocket_server.loop)
+
+        except Exception as e:
+            log.error(f"[PARTY] Error handling remove peer: {e}")
+
+    def _handle_party_get_state(self, payload: dict) -> None:
+        """Handle get party state request"""
+        try:
+            party_manager = getattr(self.shared_state, 'party_manager', None)
+            if not party_manager:
+                response_payload = {
+                    "type": "party-state",
+                    "enabled": False,
+                    "my_token": None,
+                    "peers": [],
+                    "timestamp": int(time.time() * 1000),
+                }
+            else:
+                state_dict = party_manager.get_state_dict()
+                response_payload = {
+                    "type": "party-state",
+                    **state_dict,
+                    "timestamp": int(time.time() * 1000),
+                }
+
+            self._send_response(json.dumps(response_payload))
+
+        except Exception as e:
+            log.error(f"[PARTY] Error getting party state: {e}")
