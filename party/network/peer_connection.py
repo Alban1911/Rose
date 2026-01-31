@@ -318,6 +318,10 @@ class PeerConnection:
                     if addr != self._remote_addr:
                         self._remote_addr = addr  # use actual response address from now on
 
+                    # Skip plaintext PUNCH packets (other side may be punching to us at same time)
+                    if data.startswith(b"PUNCH"):
+                        continue
+
                     if not self._crypto:
                         continue
 
