@@ -140,9 +140,9 @@ class SkinCollector:
                 )
             )
 
-        # Add peer selections
+        # Add peer selections (require connected; in_lobby may be cleared at injection time when phase changes)
         for peer in peers:
-            if not peer.is_connected or not peer.peer_info.in_lobby:
+            if not peer.is_connected:
                 continue
 
             selection = peer.skin_selection

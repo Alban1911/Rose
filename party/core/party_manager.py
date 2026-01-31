@@ -333,18 +333,19 @@ class PartyManager:
         if not self.enabled or not self._lobby_matcher or not self._skin_collector:
             return []
 
-        # Get team champion mapping
+        # Get team champion mapping (may be empty if session cleared after game start)
         team_champions = self._lobby_matcher.get_team_champion_mapping()
 
-        # Get connected peers in lobby
-        lobby_peers = [
+        # Use connected peers (not just lobby): at injection time phase may be GameStart/InProgress
+        # and lobby check may have cleared in_lobby, so get_lobby_peers() can be empty
+        connected_peers = [
             self._peers[p.summoner_id]
-            for p in self.party_state.get_lobby_peers()
+            for p in self.party_state.get_connected_peers()
             if p.summoner_id in self._peers
         ]
 
         return self._skin_collector.collect_all_skins(
-            peers=lobby_peers,
+            peers=connected_peers,
             my_summoner_id=self.party_state.my_summoner_id,
             my_summoner_name=self.party_state.my_summoner_name,
             team_champions=team_champions,
