@@ -625,8 +625,10 @@
     navItem.addEventListener(
       "click",
       (e) => {
-        e.stopPropagation();
-        e.preventDefault();
+        const lastActiveNavItem = document.querySelector(".main-nav-bar > * > lol-uikit-navigation-item[active]");
+        if (lastActiveNavItem) {
+          lastActiveNavItem.setAttribute("roseLastActive", true);
+        }
 
         // Dispatch event to open settings panel
         const event = new CustomEvent("rose-open-settings", {
@@ -636,12 +638,6 @@
         });
         window.dispatchEvent(event);
         log.info("Dispatched rose-open-settings event from Golden Rose button");
-
-        // Prevent the section from getting active class
-        const section = navItem.querySelector(".section");
-        if (section) {
-          section.classList.remove("active");
-        }
       },
       true
     ); // Use capture phase to intercept early

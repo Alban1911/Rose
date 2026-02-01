@@ -3566,6 +3566,19 @@
   function closeSettingsPanel() {
     if (!settingsPanel) return;
 
+    // Disable selected nav item
+    const navItem = document.querySelector(".menu_item_Golden");
+    if (navItem) {
+      navItem.removeAttribute("active")
+    }
+
+    // Restore last active item
+    const lastActiveNavItem = document.querySelector(".main-nav-bar > * > lol-uikit-navigation-item[roseLastActive]");
+    if (lastActiveNavItem) {
+      lastActiveNavItem.removeAttribute("roseLastActive")
+      lastActiveNavItem.setAttribute("active", true);
+    }
+
     // Cancel any pending reposition timer to avoid a "one-frame" flicker after closing.
     try {
       if (_flyoutRepositionTimer) {
