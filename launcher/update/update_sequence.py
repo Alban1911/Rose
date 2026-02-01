@@ -79,6 +79,24 @@ class UpdateSequence:
         self.downloader = UpdateDownloader()
         self.installer = UpdateInstaller()
     
+    @staticmethod
+    def _revert_installed_version(
+        config: configparser.ConfigParser,
+        config_path: Path,
+        old_version: str,
+    ) -> None:
+        """Revert installed_version in config after a failed updater launch."""
+        try:
+            config.set("General", "installed_version", old_version)
+            with open(config_path, "w", encoding="utf-8") as fh:
+                config.write(fh)
+                fh.flush()
+                os.fsync(fh.fileno())
+        except Exception as exc:
+            updater_log.warning(
+                f"Failed to revert installed_version in config: {exc}"
+            )
+
     def perform_update(
         self,
         status_callback: Callable[[str], None],
@@ -127,7 +145,58 @@ class UpdateSequence:
         # Read installed version without overwriting it
         # We only update it after a successful update installation
         installed_version = config.get("General", "installed_version", fallback=APP_VERSION)
-        
+
+        # ------------------------------------------------------------------
+        # Failed-update detection:  installed_version is persisted to config
+        # BEFORE the updater launches. If the updater fails to copy files,
+        # the config says "1.2.0" but the binary is still "1.1.10".
+        # Detect this mismatch and allow a limited number of retries before
+        # giving up (to avoid an infinite restart loop).
+        # ------------------------------------------------------------------
+        MAX_UPDATE_RETRIES = 3
+        installed_parsed = _parse_semver_like(installed_version)
+        app_parsed = _parse_semver_like(APP_VERSION)
+
+        if _cmp_version(installed_parsed, app_parsed) == 1:
+            # Config claims a newer version than what is actually running —
+            # the previous update's file copy did not succeed.
+            retry_count = config.getint("General", "update_retry_count", fallback=0)
+            if retry_count >= MAX_UPDATE_RETRIES:
+                updater_log.warning(
+                    f"Previous update to {installed_version} failed {retry_count} time(s). "
+                    f"Giving up (still running {APP_VERSION})."
+                )
+                # Clear the retry counter so a *future* release can still be
+                # attempted.  Leave installed_version as-is to suppress
+                # re-downloading the same broken release.
+                config.set("General", "update_retry_count", "0")
+                try:
+                    with open(config_path, "w", encoding="utf-8") as fh:
+                        config.write(fh)
+                        fh.flush()
+                        os.fsync(fh.fileno())
+                except Exception:
+                    pass
+                status_callback("Update failed after retries")
+                return False
+            else:
+                updater_log.warning(
+                    f"Detected failed update: config says {installed_version} but "
+                    f"running {APP_VERSION} (retry {retry_count + 1}/{MAX_UPDATE_RETRIES})"
+                )
+                # Reset installed_version so the version comparison below
+                # sees the real version and proceeds with the update.
+                installed_version = APP_VERSION
+                config.set("General", "installed_version", APP_VERSION)
+                config.set("General", "update_retry_count", str(retry_count + 1))
+                try:
+                    with open(config_path, "w", encoding="utf-8") as fh:
+                        config.write(fh)
+                        fh.flush()
+                        os.fsync(fh.fileno())
+                except Exception:
+                    pass
+
         # Skip updates for test versions (e.g., version 999)
         # Note: installed_version can be stale if config.ini was created by a previous build,
         # so we also check APP_VERSION (the current build's version).
@@ -152,6 +221,16 @@ class UpdateSequence:
         if _cmp_version(effective_local, remote_parsed) == 0 or (
             remote_version and (installed_version == remote_version or APP_VERSION == remote_version)
         ):
+            # Successful update — clear retry counter if it was set.
+            if config.getint("General", "update_retry_count", fallback=0) > 0:
+                config.set("General", "update_retry_count", "0")
+                try:
+                    with open(config_path, "w", encoding="utf-8") as fh:
+                        config.write(fh)
+                        fh.flush()
+                        os.fsync(fh.fileno())
+                except Exception:
+                    pass
             status_callback("Launcher is already up to date")
             return False
         
@@ -204,6 +283,23 @@ class UpdateSequence:
         status_callback("Installing update")
         install_dir = Path(sys.executable).resolve().parent
 
+        # Persist installed_version BEFORE launching the updater.  If the updater
+        # fails to copy files, the next restart will detect the mismatch
+        # (installed_version > APP_VERSION) and retry up to MAX_UPDATE_RETRIES
+        # times before giving up.
+        old_installed_version = installed_version
+        if remote_version:
+            config.set("General", "installed_version", remote_version)
+            try:
+                with open(config_path, "w", encoding="utf-8") as fh:
+                    config.write(fh)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+            except Exception as exc:
+                updater_log.warning(
+                    f"Failed to persist installed_version to config before update: {exc}"
+                )
+
         # Prepare and launch standalone updater (falls back to batch script if needed)
         updater_params = self.installer.prepare_updater_launch(
             extracted_root,
@@ -214,6 +310,8 @@ class UpdateSequence:
             status_callback,
         )
         if not updater_params:
+            # Revert installed_version so the next run retries the update
+            self._revert_installed_version(config, config_path, old_installed_version)
             return False
 
         if not self.installer.launch_updater(
@@ -224,16 +322,9 @@ class UpdateSequence:
             staging_dir,
             status_callback,
         ):
+            # Revert installed_version so the next run retries the update
+            self._revert_installed_version(config, config_path, old_installed_version)
             return False
-        
-        # Update installed_version in config after successful installation
-        if remote_version:
-            config.set("General", "installed_version", remote_version)
-            try:
-                with open(config_path, "w", encoding="utf-8") as fh:
-                    config.write(fh)
-            except Exception:
-                pass
         
         progress_callback(100)
         if bytes_callback and total_size:

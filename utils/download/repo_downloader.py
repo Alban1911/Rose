@@ -13,10 +13,9 @@ import tempfile
 import shutil
 import requests
 from pathlib import Path
-from typing import Callable, Optional, Dict, List, Set, Tuple
+from typing import Callable, Optional, Dict, List, Tuple
 from utils.core.logging import get_logger
 from utils.core.paths import get_skins_dir
-from utils.download.skin_name_converter import SkinNameConverter
 from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
 
 log = get_logger()
@@ -42,7 +41,7 @@ class RepoDownloader:
     def __init__(
         self,
         target_dir: Path = None,
-        repo_url: str = "https://github.com/Alban1911/LeagueSkins",
+        repo_url: str = "https://github.com/Alban1911/RoseSkins",
         progress_callback: Optional[ProgressCallback] = None,
     ):
         self.repo_url = repo_url
@@ -57,7 +56,7 @@ class RepoDownloader:
         
         # State tracking for incremental updates
         self.state_file = self.target_dir / '.repo_state.json'
-        self.api_base = "https://api.github.com/repos/Alban1911/LeagueSkins"
+        self.api_base = "https://api.github.com/repos/Alban1911/RoseSkins"
         
         # State tracking for resources folder (skinid_mapping)
         from utils.core.paths import get_user_data_dir
@@ -288,7 +287,7 @@ class RepoDownloader:
         if not file_info.get('download_url'):
             log.warning(f"No download URL for {file_info['filename']}")
             return False, None
-        
+
         try:
             # Calculate local path
             relative_path = file_info['filename'].replace('skins/', '')
@@ -430,15 +429,13 @@ class RepoDownloader:
         self,
         zip_file_list: List[zipfile.ZipInfo],
         target_dir: Path,
-        converter: Optional[SkinNameConverter] = None,
     ) -> int:
         """Remove files from target directory that are no longer in the repository ZIP
-        
+
         Args:
             zip_file_list: List of ZipInfo objects from the repository ZIP
             target_dir: Target directory to clean up
-            converter: Optional SkinNameConverter; when set, skin paths are converted to ID-based paths before comparison
-            
+
         Returns:
             Number of files deleted
         """
@@ -457,22 +454,14 @@ class RepoDownloader:
                 continue
             
             # Convert ZIP path to relative path
-            relative_path = file_info.filename.replace('LeagueSkins-main/', '')
-            started_with_skins = relative_path.startswith('skins/')
-            
+            relative_path = file_info.filename.replace('RoseSkins-main/', '')
+
             # Remove 'skins/' or 'resources/' prefix to match local structure
             if relative_path.startswith('skins/'):
                 relative_path = relative_path.replace('skins/', '', 1)
             elif relative_path.startswith('resources/'):
                 relative_path = relative_path.replace('resources/', '', 1)
-            
-            # For skin paths with converter, convert name-based path to ID-based
-            if converter is not None and started_with_skins:
-                relative_path = converter.convert_path(relative_path)
-                if relative_path is None:
-                    continue
-                # relative_path is already without skins/ prefix and in ID form
-            
+
             # Store as relative path string for comparison (normalize separators and case)
             normalized_path = relative_path.replace('\\', '/').lower()  # Case-insensitive comparison
             expected_relative_paths.add(normalized_path)
@@ -532,18 +521,11 @@ class RepoDownloader:
         extract_skins: bool = True,
         extract_resources: bool = True,
     ) -> bool:
-        """Extract skins, previews, and resources folder from the LeagueSkins repository ZIP"""
+        """Extract skins, previews, and resources folder from the RoseSkins repository ZIP"""
         try:
-            log.info("Extracting skins, previews, and resources folder from LeagueSkins repository ZIP...")
-            
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                converter: Optional[SkinNameConverter] = None
-                if extract_skins:
-                    converter = SkinNameConverter.from_zip(zip_ref)
-                    if converter is None:
-                        log.error("Could not load skin_ids.json from repository ZIP (resources/default/skin_ids.json); cannot convert skin paths")
-                        return False
+            log.info("Extracting skins, previews, and resources folder from RoseSkins repository ZIP...")
 
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 # Find all files in the skins/ directory
                 skins_files = []
                 zip_count = 0
@@ -552,8 +534,8 @@ class RepoDownloader:
                 if extract_skins:
                     for file_info in zip_ref.filelist:
                         # Look for files in skins/ directory, but skip the skins directory itself
-                        if (file_info.filename.startswith('LeagueSkins-main/skins/') and 
-                            file_info.filename != 'LeagueSkins-main/skins/' and
+                        if (file_info.filename.startswith('RoseSkins-main/skins/') and 
+                            file_info.filename != 'RoseSkins-main/skins/' and
                             not file_info.filename.endswith('/')):
                             skins_files.append(file_info)
                             
@@ -570,8 +552,8 @@ class RepoDownloader:
                 if extract_resources:
                     for file_info in zip_ref.filelist:
                         # Look for files in resources/ directory (entire folder)
-                        if (file_info.filename.startswith('LeagueSkins-main/resources/') and 
-                            file_info.filename != 'LeagueSkins-main/resources/' and
+                        if (file_info.filename.startswith('RoseSkins-main/resources/') and 
+                            file_info.filename != 'RoseSkins-main/resources/' and
                             not file_info.filename.endswith('/')):
                             resources_files.append(file_info)
                             resources_count += 1
@@ -594,7 +576,6 @@ class RepoDownloader:
                 extracted_resources_count = 0
                 skipped_skin_count = 0
                 skipped_resources_count = 0
-                skipped_unconvertible_count = 0
 
                 entries: List[Tuple[str, zipfile.ZipInfo]] = [("skin", info) for info in skins_files]
                 entries.extend(("resource", info) for info in resources_files)
@@ -631,21 +612,13 @@ class RepoDownloader:
                             continue
 
                         label = "Extracting skins..." if entry_type == "skin" else "Extracting skin ID mapping..."
-                        relative_path = file_info.filename.replace('LeagueSkins-main/', '')
+                        relative_path = file_info.filename.replace('RoseSkins-main/', '')
                         is_zip = relative_path.endswith('.zip')
                         is_png = relative_path.endswith('.png')
 
                         if entry_type == "skin":
                             if relative_path.startswith('skins/'):
                                 relative_path = relative_path.replace('skins/', '', 1)
-                            converted_path = converter.convert_path(relative_path)
-                            if converted_path is None:
-                                log.warning(f"Could not convert skin path (skipping): {relative_path}")
-                                skipped_unconvertible_count += 1
-                                processed_bytes += _info_size(file_info) or 1
-                                update_progress(label)
-                                continue
-                            relative_path = converted_path
                             extract_path = self.target_dir / relative_path
                         else:
                             # Extract entire resources folder structure, removing 'resources/' prefix
@@ -700,7 +673,7 @@ class RepoDownloader:
                     else:
                         # Only skins cleanup
                         self._emit_progress(cleanup_progress_start + 2.0, "Cleaning up removed files...")
-                    deleted_count = self._cleanup_removed_skin_files(skins_files, self.target_dir, converter)
+                    deleted_count = self._cleanup_removed_skin_files(skins_files, self.target_dir)
                     if deleted_count > 0:
                         log.info(f"Removed {deleted_count} files that no longer exist in repository")
                 
@@ -717,9 +690,7 @@ class RepoDownloader:
 
                 log.info(f"Extracted {extracted_zip_count} new skin .zip files, {extracted_png_count} preview .png files, "
                         f"and {extracted_resources_count} resource files (skipped {skipped_skin_count} existing skin files, "
-                        f"{skipped_resources_count} existing resource files"
-                        + (f", {skipped_unconvertible_count} unconvertible skin paths" if skipped_unconvertible_count else "")
-                        + ")")
+                        f"{skipped_resources_count} existing resource files)")
 
                 # Save resources state after successful extraction
                 # Save state if we processed any resources files (extracted or skipped)
@@ -756,7 +727,7 @@ class RepoDownloader:
             if not skins_changed and not resources_changed:
                 self._emit_progress(100, "Skins and skin ID mapping already up to date")
                 return True
-            
+
             # If only resources changed (and skins didn't), download ZIP but only extract resources
             if resources_changed and not skins_changed:
                 log.info("Only resources folder changed, will download ZIP to update resources only")
@@ -958,11 +929,6 @@ class RepoDownloader:
             else:
                 log.info("Resources folder is up to date")
             
-            # Determine what needs to be extracted
-            # Check if skins need updating
-            skins_need_update = force_update or self.has_repository_changed()
-            # Check if resources need updating (already checked above)
-            
             # Determine download label for progress messages
             if skins_need_update and resources_need_update:
                 download_label = "both"
@@ -1122,13 +1088,13 @@ class RepoDownloader:
             log.info(f"Creating ZIP from {len(downloaded_files)} downloaded files...")
             self._emit_progress(progress_end - 5, "Creating ZIP archive...")
             
-            # Create ZIP file with structure: LeagueSkins-main/resources/... (to match extract_skins_from_zip expectations)
+            # Create ZIP file with structure: RoseSkins-main/resources/... (to match extract_skins_from_zip expectations)
             with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for file_path in resources_local_path.rglob('*'):
                     if file_path.is_file():
-                        # Add LeagueSkins-main/ prefix to match extract_skins_from_zip expectations
+                        # Add RoseSkins-main/ prefix to match extract_skins_from_zip expectations
                         relative_path = file_path.relative_to(temp_dir_path)
-                        arcname = f"LeagueSkins-main/{relative_path}"
+                        arcname = f"RoseSkins-main/{relative_path}"
                         zipf.write(file_path, arcname)
             
             # Clean up temp directory
