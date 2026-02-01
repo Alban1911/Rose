@@ -65,6 +65,8 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}} (as Administrator)"; Flags: nowait postinstall skipifsilent shellexec; Verb: runas
 
 [UninstallRun]
+; Uninstall Pengu Loader (removes d3d9.dll hook from the League directory)
+Filename: "{localappdata}\Rose\Pengu Loader\Pengu Loader.exe"; Parameters: "--uninstall --silent"; Flags: runhidden waituntilterminated skipifdoesntexist
 ; Always remove the Rose auto-start scheduled task (created via schtasks /TN "Rose")
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN Rose /F"; Flags: runhidden
 
@@ -101,8 +103,26 @@ begin
 end;
 
 function InitializeUninstall(): Boolean;
+var
+  RoseRunning: Boolean;
+  LeagueRunning: Boolean;
 begin
-  if CheckForMutexes('{#MyAppMutex}') then
+  RoseRunning := CheckForMutexes('{#MyAppMutex}');
+  LeagueRunning := _IsLeagueRunning();
+
+  if RoseRunning and LeagueRunning then
+  begin
+    MsgBox(
+      '{#MyAppName} and League of Legends are both currently running.'#13#10 +
+      'Please close both applications and try uninstalling again.',
+      mbCriticalError,
+      MB_OK
+    );
+    Result := False;
+    exit;
+  end;
+
+  if RoseRunning then
   begin
     MsgBox(
       '{#MyAppName} is currently running.'#13#10 +
@@ -114,11 +134,10 @@ begin
     exit;
   end;
 
-  if _IsLeagueRunning() then
+  if LeagueRunning then
   begin
     MsgBox(
       'League of Legends is currently running.'#13#10 +
-      'The Pengu Loader module (core.dll) may be loaded in the League process.'#13#10 +
       'Please close League of Legends and try uninstalling again.',
       mbCriticalError,
       MB_OK
