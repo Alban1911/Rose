@@ -39,19 +39,19 @@ Rose consists of two main components:
 
 Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
-- **[ROSE-UI](https://github.com/Alban1911/ROSE-UI)**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
-- **[ROSE-SkinMonitor](https://github.com/Alban1911/ROSE-SkinMonitor)**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket
-- **[ROSE-CustomWheel](https://github.com/Alban1911/ROSE-CustomWheel)**: Displays custom mod metadata for hovered skins and exposes quick access to the mods folder
-- **[ROSE-ChromaWheel](https://github.com/Alban1911/ROSE-ChromaWheel)**: Enhanced chroma selection interface for choosing any chroma variant
-- **[ROSE-FormsWheel](https://github.com/Alban1911/ROSE-FormsWheel)**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
-- **[ROSE-SettingsPanel](https://github.com/FlorentTariolle/ROSE-SettingsPanel)**: Settings panel accessible from the League of Legends Client
-- **[ROSE-RandomSkin](https://github.com/FlorentTariolle/ROSE-RandomSkin)**: Random skin selection feature
-- **[ROSE-HistoricMode](https://github.com/FlorentTariolle/ROSE-HistoricMode)**: Access to the last used skin for every champion
+- **ROSE-UI**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
+- **ROSE-SkinMonitor**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket
+- **ROSE-CustomWheel**: Displays custom mod metadata for hovered skins and exposes quick access to the mods folder
+- **ROSE-ChromaWheel**: Enhanced chroma selection interface for choosing any chroma variant
+- **ROSE-FormsWheel**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
+- **ROSE-SettingsPanel**: Settings panel accessible from the League of Legends Client
+- **ROSE-RandomSkin**: Random skin selection feature
+- **ROSE-HistoricMode**: Access to the last used skin for every champion
 
 ## How It Works
 
 1. **League Client Integration**: Rose activates **[Pengu Loader](https://github.com/FlorentTariolle/ROSE-Pengu)** on startup, which injects the JavaScript plugins into the League Client
-2. **Skin Detection**: When you hover over a skin in champion select, [`ROSE-SkinMonitor`](https://github.com/Alban1911/ROSE-SkinMonitor) detects the selection and sends it to the Python backend
+2. **Skin Detection**: When you hover over a skin in champion select, `ROSE-SkinMonitor` detects the selection and sends it to the Python backend
 3. **Game Opening Delay**: To make sure the injection has time to occur we suspend League of Legend's game process as long as the overlay is not ran
 4. **Game Injection**: Using CSLOL tools, Rose injects the selected skin when the game starts
 5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact (Rose will never provide any competitive advantage to its users)
@@ -98,9 +98,6 @@ cd Rose
 
 # Switch to dev branch
 git checkout dev
-
-# Initialize and update submodules (Pengu Loader plugins)
-git submodule update --init --recursive
 
 # Install all dependencies
 pip install -r requirements.txt
