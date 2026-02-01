@@ -13,10 +13,7 @@
   const PANEL_ID = "rose-custom-wheel-panel-container";
   const REQUEST_TYPE = "request-skin-mods";
   const EVENT_SKIN_STATE = "lu-skin-monitor-state";
-  const EVENT_MODS_RESPONSE = "rose-custom-wheel-skin-mods";
-  const EVENT_LOCK_STATE = "rose-custom-wheel-champion-locked";
 
-  let emitRetryCount = 0;
   let isOpen = false;
   let panel = null;
   let button = null;
@@ -182,299 +179,22 @@
     }
   }
 
-  // WebSocket bridge for communication
-  let BRIDGE_PORT = 50000;
-  let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-  const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
-  const DISCOVERY_START_PORT = 50000;
-  const DISCOVERY_END_PORT = 50010;
-  let bridgeSocket = null;
-  let bridgeReady = false;
-  let bridgeQueue = [];
+  // Shared bridge API (provided by ROSE-SkinMonitor)
+  let bridge = null;
 
-  // Some environments attach `window.__roseBridgeEmit` late (often after UI loads).
-  // If we emit too early and give up, historic selections won't be applied until the panel is opened.
-  // Queue payloads until the emitter becomes available.
-  const pendingEmitQueue = [];
-  let emitFlushInterval = null;
-  let emitFlushStopTimer = null;
-
-  function tryFlushPendingEmits() {
-    const emitter = window?.__roseBridgeEmit;
-    if (typeof emitter !== "function") return false;
-    emitRetryCount = 0;
-    if (pendingEmitQueue.length) {
-      try {
-        console.log(`${LOG_PREFIX} Bridge emitter ready; flushing ${pendingEmitQueue.length} queued message(s)`);
-      } catch {
-        // ignore
-      }
-    }
-    while (pendingEmitQueue.length) {
-      const next = pendingEmitQueue.shift();
-      try {
-        emitter(next);
-      } catch (e) {
-        // If emitting fails, re-queue and stop flushing for now.
-        pendingEmitQueue.unshift(next);
-        return false;
-      }
-    }
-    return true;
-  }
-
-  function schedulePendingEmitFlush() {
-    if (emitFlushInterval) return;
-
-    // Poll quickly; once the emitter exists we flush everything and stop.
-    emitFlushInterval = setInterval(() => {
-      if (tryFlushPendingEmits()) {
-        clearInterval(emitFlushInterval);
-        emitFlushInterval = null;
-        if (emitFlushStopTimer) {
-          clearTimeout(emitFlushStopTimer);
-          emitFlushStopTimer = null;
-        }
-      }
-    }, 200);
-
-    // Safety stop: if emitter never appears, don't poll forever.
-    emitFlushStopTimer = setTimeout(() => {
-      if (emitFlushInterval) {
-        clearInterval(emitFlushInterval);
-        emitFlushInterval = null;
-      }
-      emitFlushStopTimer = null;
-    }, 5 * 60 * 1000);
-  }
-
-  // Load bridge port with file-based discovery and localStorage caching
-  async function loadBridgePort() {
-    try {
-      const cachedPort = localStorage.getItem(BRIDGE_PORT_STORAGE_KEY);
-      if (cachedPort) {
-        const port = parseInt(cachedPort, 10);
-        if (!isNaN(port) && port > 0) {
-          try {
-            const response = await fetch(`http://127.0.0.1:${port}/bridge-port`, {
-              signal: AbortSignal.timeout(50),
-            });
-            if (response.ok) {
-              const portText = await response.text();
-              const fetchedPort = parseInt(portText.trim(), 10);
-              if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                BRIDGE_PORT = fetchedPort;
-                BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-                return true;
-              }
-            }
-          } catch (e) {
-            localStorage.removeItem(BRIDGE_PORT_STORAGE_KEY);
-          }
-        }
-      }
-
-      // OPTIMIZATION: Try default port 50000 FIRST before scanning all ports
-      try {
-        const response = await fetch(`http://127.0.0.1:50000/bridge-port`, {
-          signal: AbortSignal.timeout(50),
-        });
-        if (response.ok) {
-          const portText = await response.text();
-          const fetchedPort = parseInt(portText.trim(), 10);
-          if (!isNaN(fetchedPort) && fetchedPort > 0) {
-            BRIDGE_PORT = fetchedPort;
-            BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-            localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-            return true;
-          }
-        }
-      } catch (e) {
-        // Port 50000 not ready, continue to discovery
-      }
-
-      // OPTIMIZATION: Try fallback port 50001 SECOND
-      try {
-        const response = await fetch(`http://127.0.0.1:50001/bridge-port`, {
-          signal: AbortSignal.timeout(50),
-        });
-        if (response.ok) {
-          const portText = await response.text();
-          const fetchedPort = parseInt(portText.trim(), 10);
-          if (!isNaN(fetchedPort) && fetchedPort > 0) {
-            BRIDGE_PORT = fetchedPort;
-            BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-            localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-            return true;
-          }
-        }
-      } catch (e) {
-        // Port 50001 not ready, continue to discovery
-      }
-
-      // OPTIMIZATION: Parallel port discovery instead of sequential
-      const portPromises = [];
-      for (let port = DISCOVERY_START_PORT; port <= DISCOVERY_END_PORT; port++) {
-        portPromises.push(
-          fetch(`http://127.0.0.1:${port}/bridge-port`, {
-            signal: AbortSignal.timeout(100),
-          })
-            .then((response) => {
-              if (response.ok) {
-                return response.text().then((portText) => {
-                  const fetchedPort = parseInt(portText.trim(), 10);
-                  if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                    return { port: fetchedPort, sourcePort: port };
-                  }
-                  return null;
-                });
-              }
-              return null;
-            })
-            .catch(() => null)
-        );
-      }
-
-      // Wait for first successful response
-      const results = await Promise.allSettled(portPromises);
-      for (const result of results) {
-        if (result.status === "fulfilled" && result.value) {
-          BRIDGE_PORT = result.value.port;
-          BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-          localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-          return true;
-        }
-      }
-
-      return false;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function setupBridgeSocket() {
-    if (
-      bridgeSocket &&
-      (bridgeSocket.readyState === WebSocket.OPEN ||
-        bridgeSocket.readyState === WebSocket.CONNECTING)
-    ) {
-      return;
-    }
-
-    try {
-      bridgeSocket = new WebSocket(BRIDGE_URL);
-    } catch (error) {
-      scheduleBridgeRetry();
-      return;
-    }
-
-    bridgeSocket.addEventListener("open", () => {
-      bridgeReady = true;
-      flushBridgeQueue();
+  function waitForBridge() {
+    return new Promise((resolve, reject) => {
+      const timeout = 10000;
+      const interval = 50;
+      let elapsed = 0;
+      const check = () => {
+        if (window.__roseBridge) return resolve(window.__roseBridge);
+        elapsed += interval;
+        if (elapsed >= timeout) return reject(new Error("Bridge not available"));
+        setTimeout(check, interval);
+      };
+      check();
     });
-
-    bridgeSocket.addEventListener("message", (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "custom-mod-state" && !payload.active) {
-          // Backend cleared the custom mod (e.g. popup dismiss button)
-          if (selectedModId) {
-            selectedModId = null;
-            selectedModSkinId = null;
-            // Update panel UI if open
-            if (panel && panel._modList) {
-              panel._modList.querySelectorAll("li.selected-row").forEach((li) => {
-                li.classList.remove("selected-row");
-                const btn = li.querySelector(".mod-select-button");
-                if (btn) { btn.textContent = "Select"; btn.classList.remove("selected"); }
-              });
-              updateNoneRow(panel._modList, true);
-            }
-            refreshSummaryValues();
-            refreshButtonBadgeFromSelections();
-          }
-        }
-      } catch (e) {
-        // Ignore parse errors
-      }
-    });
-
-    bridgeSocket.addEventListener("error", () => {
-      bridgeReady = false;
-    });
-
-    bridgeSocket.addEventListener("close", () => {
-      bridgeReady = false;
-      bridgeSocket = null;
-      scheduleBridgeRetry();
-    });
-  }
-
-  function scheduleBridgeRetry() {
-    setTimeout(() => {
-      if (!bridgeReady) {
-        setupBridgeSocket();
-      }
-    }, 3000);
-  }
-
-  function flushBridgeQueue() {
-    if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    while (bridgeQueue.length) {
-      const message = bridgeQueue.shift();
-      try {
-        bridgeSocket.send(message);
-      } catch (error) {
-        bridgeQueue.unshift(message);
-        break;
-      }
-    }
-  }
-
-  function sendToBridge(payload) {
-    const message = JSON.stringify(payload);
-    if (
-      !bridgeSocket ||
-      bridgeSocket.readyState === WebSocket.CLOSING ||
-      bridgeSocket.readyState === WebSocket.CLOSED
-    ) {
-      bridgeQueue.push(message);
-      setupBridgeSocket();
-      return;
-    }
-
-    if (bridgeSocket.readyState === WebSocket.CONNECTING) {
-      bridgeQueue.push(message);
-      return;
-    }
-
-    try {
-      bridgeSocket.send(message);
-    } catch (error) {
-      bridgeQueue.push(message);
-      setupBridgeSocket();
-    }
-  }
-
-  function emit(payload) {
-    const emitter = window?.__roseBridgeEmit;
-    if (typeof emitter !== "function") {
-      // Queue and flush later when the emitter becomes available.
-      // Cap queue size to avoid unbounded growth if something is really wrong.
-      if (pendingEmitQueue.length >= 200) {
-        pendingEmitQueue.shift();
-      }
-      pendingEmitQueue.push(payload);
-      emitRetryCount = Math.min(emitRetryCount + 1, 9999);
-      schedulePendingEmitFlush();
-      return;
-    }
-    emitRetryCount = 0;
-    // Flush anything queued first to preserve ordering, then send the current payload.
-    tryFlushPendingEmits();
-    emitter(payload);
   }
 
   function formatTimestamp(ms) {
@@ -1468,7 +1188,7 @@
       const skinId = Number(state.skinId);
 
       if (championId && skinId) {
-        emit({
+        if (bridge) bridge.send({
           type: "select-skin-mod",
           championId,
           skinId,
@@ -1516,7 +1236,7 @@
           modData,
         };
         console.log(`[ROSE-CustomWheel] Sending mod selection:`, payload);
-        emit(payload);
+        if (bridge) bridge.send(payload);
       } else {
         console.warn(`[ROSE-CustomWheel] Cannot send mod selection - missing championId or skinId:`, { championId, skinId: emitSkinId });
       }
@@ -1584,7 +1304,7 @@
           selectedModId = null;
           selectedModSkinId = null;
           if (championId && skinId) {
-            emit({ type: "select-skin-mod", championId, skinId, modId: null, modData: null });
+            if (bridge) bridge.send({ type: "select-skin-mod", championId, skinId, modId: null, modData: null });
           }
         }
         // Mark None as selected
@@ -1694,7 +1414,7 @@
             prevLi.classList.remove("selected-row");
           }
           selectedMapId = null;
-          emit({ type: "select-map", mapId: null });
+          if (bridge) bridge.send({ type: "select-map", mapId: null });
         }
         noneBtn.textContent = "Selected"; noneBtn.classList.add("selected"); noneItem.classList.add("selected-row");
         refreshSummaryValues(); refreshButtonBadgeFromSelections();
@@ -1791,7 +1511,7 @@
             prevLi.classList.remove("selected-row");
           }
           selectedFontId = null;
-          emit({ type: "select-font", fontId: null });
+          if (bridge) bridge.send({ type: "select-font", fontId: null });
         }
         noneBtn.textContent = "Selected"; noneBtn.classList.add("selected"); noneItem.classList.add("selected-row");
         refreshSummaryValues(); refreshButtonBadgeFromSelections();
@@ -1888,7 +1608,7 @@
             prevLi.classList.remove("selected-row");
           }
           selectedAnnouncerId = null;
-          emit({ type: "select-announcer", announcerId: null });
+          if (bridge) bridge.send({ type: "select-announcer", announcerId: null });
         }
         noneBtn.textContent = "Selected"; noneBtn.classList.add("selected"); noneItem.classList.add("selected-row");
         refreshSummaryValues(); refreshButtonBadgeFromSelections();
@@ -1992,7 +1712,7 @@
         // Emit deselect for each selected id
         const ids = getSelectedIdsForCategory(categoryId);
         for (const id of [...ids]) {
-          emit({ type: "select-other", category: categoryId, otherId: id, otherData: null, action: "deselect" });
+          if (bridge) bridge.send({ type: "select-other", category: categoryId, otherId: id, otherData: null, action: "deselect" });
         }
         ids.length = 0; // clear all
         noneBtn.textContent = "Selected"; noneBtn.classList.add("selected"); noneItem.classList.add("selected-row");
@@ -2053,7 +1773,7 @@
       buttonElement.textContent = "Select";
       buttonElement.classList.remove("selected");
       if (parentLi) parentLi.classList.remove("selected-row");
-      emit({ type: "select-map", mapId: null });
+      if (bridge) bridge.send({ type: "select-map", mapId: null });
     } else {
       if (selectedMapId) {
         const prevLi = panel?._mapsList?.querySelector(
@@ -2072,7 +1792,7 @@
       buttonElement.textContent = "Selected";
       buttonElement.classList.add("selected");
       if (parentLi) parentLi.classList.add("selected-row");
-      emit({ type: "select-map", mapId, mapData });
+      if (bridge) bridge.send({ type: "select-map", mapId, mapData });
     }
 
     updateNoneRow(panel?._mapsList, !selectedMapId);
@@ -2087,7 +1807,7 @@
       buttonElement.textContent = "Select";
       buttonElement.classList.remove("selected");
       if (parentLi) parentLi.classList.remove("selected-row");
-      emit({ type: "select-font", fontId: null });
+      if (bridge) bridge.send({ type: "select-font", fontId: null });
     } else {
       if (selectedFontId) {
         const prevLi = panel?._fontsList?.querySelector(
@@ -2106,7 +1826,7 @@
       buttonElement.textContent = "Selected";
       buttonElement.classList.add("selected");
       if (parentLi) parentLi.classList.add("selected-row");
-      emit({ type: "select-font", fontId, fontData });
+      if (bridge) bridge.send({ type: "select-font", fontId, fontData });
     }
 
     updateNoneRow(panel?._fontsList, !selectedFontId);
@@ -2121,7 +1841,7 @@
       buttonElement.textContent = "Select";
       buttonElement.classList.remove("selected");
       if (parentLi) parentLi.classList.remove("selected-row");
-      emit({ type: "select-announcer", announcerId: null });
+      if (bridge) bridge.send({ type: "select-announcer", announcerId: null });
     } else {
       if (selectedAnnouncerId) {
         const prevLi = panel?._announcersList?.querySelector(
@@ -2140,7 +1860,7 @@
       buttonElement.textContent = "Selected";
       buttonElement.classList.add("selected");
       if (parentLi) parentLi.classList.add("selected-row");
-      emit({ type: "select-announcer", announcerId, announcerData });
+      if (bridge) bridge.send({ type: "select-announcer", announcerId, announcerData });
     }
 
     updateNoneRow(panel?._announcersList, !selectedAnnouncerId);
@@ -2158,14 +1878,14 @@
       buttonElement.textContent = "Select";
       buttonElement.classList.remove("selected");
       if (parentLi) parentLi.classList.remove("selected-row");
-      emit({ type: "select-other", category: categoryId, otherId, otherData, action: "deselect" });
+      if (bridge) bridge.send({ type: "select-other", category: categoryId, otherId, otherData, action: "deselect" });
     } else {
       // Select (add to array)
       selectedIds.push(otherId);
       buttonElement.textContent = "Selected";
       buttonElement.classList.add("selected");
       if (parentLi) parentLi.classList.add("selected-row");
-      emit({ type: "select-other", category: categoryId, otherId, otherData, action: "select" });
+      if (bridge) bridge.send({ type: "select-other", category: categoryId, otherId, otherData, action: "select" });
     }
 
     const listEl = panel?.[`_${categoryId}List`];
@@ -2448,7 +2168,7 @@
       selectedModId = null;
       selectedModSkinId = null;
       // Notify backend so it clears selected_custom_mod and the popup
-      emit({ type: "select-skin-mod", championId, skinId, modId: null });
+      if (bridge) bridge.send({ type: "select-skin-mod", championId, skinId, modId: null });
     }
 
     if (!championId || !skinId) {
@@ -2460,7 +2180,7 @@
       return;
     }
 
-    emit({ type: REQUEST_TYPE, championId, skinId });
+    if (bridge) bridge.send({ type: REQUEST_TYPE, championId, skinId });
 
     if (panel && panel._modsLoading) {
       panel._modsLoading.textContent = "Checking for mods…";
@@ -2471,7 +2191,7 @@
   // Request maps - global (not skin-specific)
   // Backend should look in: %LOCALAPPDATA%\Rose\mods\maps
   function requestMaps() {
-    emit({ type: "request-maps" });
+    if (bridge) bridge.send({ type: "request-maps" });
     if (panel && panel._mapsLoading) {
       panel._mapsLoading.textContent = "Loading maps…";
       panel._mapsLoading.style.display = "block";
@@ -2481,7 +2201,7 @@
   // Request fonts - global (not skin-specific)
   // Backend should look in: %LOCALAPPDATA%\Rose\mods\fonts
   function requestFonts() {
-    emit({ type: "request-fonts" });
+    if (bridge) bridge.send({ type: "request-fonts" });
     if (panel && panel._fontsLoading) {
       panel._fontsLoading.textContent = "Loading fonts…";
       panel._fontsLoading.style.display = "block";
@@ -2491,7 +2211,7 @@
   // Request announcers - global (not skin-specific)
   // Backend should look in: %LOCALAPPDATA%\Rose\mods\announcers
   function requestAnnouncers() {
-    emit({ type: "request-announcers" });
+    if (bridge) bridge.send({ type: "request-announcers" });
     if (panel && panel._announcersLoading) {
       panel._announcersLoading.textContent = "Loading announcers…";
       panel._announcersLoading.style.display = "block";
@@ -2502,7 +2222,7 @@
   // Backend should look in: %LOCALAPPDATA%\Rose\mods\<category>
   function requestCategoryMods(categoryId) {
     if (!categoryId) return;
-    emit({ type: "request-category-mods", category: categoryId });
+    if (bridge) bridge.send({ type: "request-category-mods", category: categoryId });
     if (!panel) return;
 
     const loadingEl = panel[`_${categoryId}Loading`] || panel._othersLoading;
@@ -2598,7 +2318,7 @@
       selectedModId = null;
       selectedModSkinId = null;
       // Notify backend so it clears selected_custom_mod and the popup
-      emit({ type: "select-skin-mod", championId, skinId: liveSkinId, modId: null });
+      if (bridge) bridge.send({ type: "select-skin-mod", championId, skinId: liveSkinId, modId: null });
     }
 
     const mods = Array.isArray(detail.mods) ? detail.mods : [];
@@ -2636,7 +2356,7 @@
       });
       if (autoMod) {
         const emitSkinId = autoMod.skinId ? Number(autoMod.skinId) : skinId;
-        emit({ type: "select-skin-mod", championId, skinId: emitSkinId, modId: selectedModId, modData: autoMod });
+        if (bridge) bridge.send({ type: "select-skin-mod", championId, skinId: emitSkinId, modId: selectedModId, modData: autoMod });
       }
     }
 
@@ -2711,7 +2431,7 @@
           button.textContent = "Selected";
           button.classList.add("selected");
         }
-        emit({ type: "select-map", mapId: selectedMapId, mapData: historicMap });
+        if (bridge) bridge.send({ type: "select-map", mapId: selectedMapId, mapData: historicMap });
       }
     }
   }
@@ -2762,7 +2482,7 @@
           button.textContent = "Selected";
           button.classList.add("selected");
         }
-        emit({ type: "select-font", fontId: selectedFontId, fontData: historicFont });
+        if (bridge) bridge.send({ type: "select-font", fontId: selectedFontId, fontData: historicFont });
       }
     }
   }
@@ -2813,7 +2533,7 @@
           button.textContent = "Selected";
           button.classList.add("selected");
         }
-        emit({ type: "select-announcer", announcerId: selectedAnnouncerId, announcerData: historicAnnouncer });
+        if (bridge) bridge.send({ type: "select-announcer", announcerId: selectedAnnouncerId, announcerData: historicAnnouncer });
       }
     }
   }
@@ -2885,7 +2605,7 @@
             button.textContent = "Selected";
             button.classList.add("selected");
           }
-          emit({ type: "select-other", category: "others", otherId, otherData: historicOther, action: "select" });
+          if (bridge) bridge.send({ type: "select-other", category: "others", otherId, otherData: historicOther, action: "select" });
         }
       }
     }
@@ -2923,7 +2643,7 @@
         const key = `${category}:${otherId}`;
         if (!emittedHistoricSelectionKeys.has(key)) {
           emittedHistoricSelectionKeys.add(key);
-          emit({ type: "select-other", category, otherId, otherData: match, action: "select" });
+          if (bridge) bridge.send({ type: "select-other", category, otherId, otherData: match, action: "select" });
         }
       }
     }
@@ -2993,10 +2713,13 @@
     cb();
   }
 
-  whenReady(() => {
-    loadBridgePort().then(() => {
-      setupBridgeSocket();
-    });
+  whenReady(async () => {
+    try {
+      bridge = await waitForBridge();
+      console.log(`${LOG_PREFIX} Bridge connected`);
+    } catch (e) {
+      console.error(`${LOG_PREFIX} Failed to connect to bridge:`, e);
+    }
 
     injectCSS();
     createButton();
@@ -3004,39 +2727,48 @@
     updateChampionSelectTarget();
     observeChampionSelect();
 
+    // Keep the skin-state window event (published by SkinMonitor via CustomEvent)
     window.addEventListener(EVENT_SKIN_STATE, handleSkinState, {
       passive: true,
     });
-    window.addEventListener(EVENT_MODS_RESPONSE, handleModsResponse, {
-      passive: true,
-    });
-    window.addEventListener("rose-custom-wheel-maps", handleMapsResponse, {
-      passive: true,
-    });
-    window.addEventListener("rose-custom-wheel-fonts", handleFontsResponse, {
-      passive: true,
-    });
-    window.addEventListener("rose-custom-wheel-announcers", handleAnnouncersResponse, {
-      passive: true,
-    });
-    window.addEventListener("rose-custom-wheel-category-mods", handleCategoryModsResponse, {
-      passive: true,
-    });
-    window.addEventListener("rose-custom-wheel-others", handleOthersResponse, {
-      passive: true,
-    });
-    window.addEventListener(EVENT_LOCK_STATE, handleChampionLocked, {
-      passive: true,
-    });
 
-    // Populate Summary selection state early (so first open shows persisted selections)
-    // These requests will return historicMod fields, which we now apply even when closed.
-    requestMaps();
-    requestFonts();
-    requestAnnouncers();
-    for (const t of OTHER_CATEGORY_TABS) {
-      requestCategoryMods(t.id);
+    // Subscribe to bridge messages instead of window CustomEvents
+    if (bridge) {
+      bridge.subscribe("skin-mods-response", (data) => handleModsResponse({ detail: data }));
+      bridge.subscribe("maps-response", (data) => handleMapsResponse({ detail: data }));
+      bridge.subscribe("fonts-response", (data) => handleFontsResponse({ detail: data }));
+      bridge.subscribe("announcers-response", (data) => handleAnnouncersResponse({ detail: data }));
+      bridge.subscribe("category-mods-response", (data) => handleCategoryModsResponse({ detail: data }));
+      bridge.subscribe("others-response", (data) => handleOthersResponse({ detail: data }));
+      bridge.subscribe("champion-locked", (data) => handleChampionLocked({ detail: data }));
+      bridge.subscribe("custom-mod-state", (data) => {
+        if (!data.active && selectedModId) {
+          selectedModId = null;
+          selectedModSkinId = null;
+          if (panel && panel._modList) {
+            panel._modList.querySelectorAll("li.selected-row").forEach((li) => {
+              li.classList.remove("selected-row");
+              const btn = li.querySelector(".mod-select-button");
+              if (btn) { btn.textContent = "Select"; btn.classList.remove("selected"); }
+            });
+            updateNoneRow(panel._modList, true);
+          }
+          refreshSummaryValues();
+          refreshButtonBadgeFromSelections();
+        }
+      });
+
+      // Request initial data on every (re)connect
+      bridge.onReady(() => {
+        requestMaps();
+        requestFonts();
+        requestAnnouncers();
+        for (const t of OTHER_CATEGORY_TABS) {
+          requestCategoryMods(t.id);
+        }
+      });
     }
+
     // Reposition button when skin changes
     const repositionButton = () => {
       // Button is now part of container flow, so no manual repositioning needed

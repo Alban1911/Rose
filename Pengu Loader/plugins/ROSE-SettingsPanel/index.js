@@ -6,11 +6,6 @@
  */
 (function initSettingsPanel() {
   const LOG_PREFIX = "[Rose-SettingsPanel]";
-  let BRIDGE_PORT = 50000; // Default, will be updated from /bridge-port endpoint
-  let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-  const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
-  const DISCOVERY_START_PORT = 50000;
-  const DISCOVERY_END_PORT = 50010;
   const DISCORD_INVITE_URL = "https://discord.gg/PHVUppft";
   const KOFI_URL = "https://ko-fi.com/roseapp";
   const GITHUB_URL = "https://github.com/Alban1911/Rose";
@@ -33,9 +28,23 @@
       .replace(/'/g, '&#039;');
   }
 
-  let bridgeSocket = null;
-  let bridgeReady = false;
-  let bridgeQueue = [];
+  let bridge = null;
+
+  function waitForBridge() {
+    return new Promise((resolve, reject) => {
+      const timeout = 10000;
+      const interval = 50;
+      let elapsed = 0;
+      const check = () => {
+        if (window.__roseBridge) return resolve(window.__roseBridge);
+        elapsed += interval;
+        if (elapsed >= timeout) return reject(new Error("Bridge not available"));
+        setTimeout(check, interval);
+      };
+      check();
+    });
+  }
+
   let settingsPanel = null;
   let currentSettings = {
     threshold: 0.5,
@@ -45,153 +54,6 @@
     gamePathValid: false,
   };
   let pathValidationTimeout = null;
-
-  // Load bridge port with file-based discovery and localStorage caching
-  async function loadBridgePort() {
-    try {
-      // First, check localStorage for cached port
-      const cachedPort = localStorage.getItem(BRIDGE_PORT_STORAGE_KEY);
-      if (cachedPort) {
-        const port = parseInt(cachedPort, 10);
-        if (!isNaN(port) && port > 0) {
-          // Verify cached port is still valid with shorter timeout
-          try {
-            const response = await fetch(`http://127.0.0.1:${port}/bridge-port`, {
-              signal: AbortSignal.timeout(50)
-            });
-            if (response.ok) {
-              const portText = await response.text();
-              const fetchedPort = parseInt(portText.trim(), 10);
-              if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                BRIDGE_PORT = fetchedPort;
-                BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-                console.log(`${LOG_PREFIX} Loaded bridge port from cache: ${BRIDGE_PORT}`);
-                return true;
-              }
-            }
-          } catch (e) {
-            // Cached port invalid, continue to discovery
-            localStorage.removeItem(BRIDGE_PORT_STORAGE_KEY);
-          }
-        }
-      }
-
-      // OPTIMIZATION: Try default port 50000 FIRST before scanning all ports
-      try {
-        const response = await fetch(`http://127.0.0.1:50000/bridge-port`, {
-          signal: AbortSignal.timeout(50)
-        });
-        if (response.ok) {
-          const portText = await response.text();
-          const fetchedPort = parseInt(portText.trim(), 10);
-          if (!isNaN(fetchedPort) && fetchedPort > 0) {
-            BRIDGE_PORT = fetchedPort;
-            BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-            localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-            console.log(`${LOG_PREFIX} Loaded bridge port: ${BRIDGE_PORT}`);
-            return true;
-          }
-        }
-      } catch (e) {
-        // Port 50000 not ready, continue to discovery
-      }
-
-      // OPTIMIZATION: Try fallback port 50001 SECOND
-      try {
-        const response = await fetch(`http://127.0.0.1:50001/bridge-port`, {
-          signal: AbortSignal.timeout(50)
-        });
-        if (response.ok) {
-          const portText = await response.text();
-          const fetchedPort = parseInt(portText.trim(), 10);
-          if (!isNaN(fetchedPort) && fetchedPort > 0) {
-            BRIDGE_PORT = fetchedPort;
-            BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-            localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-            console.log(`${LOG_PREFIX} Loaded bridge port: ${BRIDGE_PORT}`);
-            return true;
-          }
-        }
-      } catch (e) {
-        // Port 50001 not ready, continue to discovery
-      }
-
-      // OPTIMIZATION: Parallel port discovery instead of sequential
-      const portPromises = [];
-      for (let port = DISCOVERY_START_PORT; port <= DISCOVERY_END_PORT; port++) {
-        portPromises.push(
-          fetch(`http://127.0.0.1:${port}/bridge-port`, {
-            signal: AbortSignal.timeout(100)
-          })
-            .then(response => {
-              if (response.ok) {
-                return response.text().then(portText => {
-                  const fetchedPort = parseInt(portText.trim(), 10);
-                  if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                    return { port: fetchedPort, sourcePort: port };
-                  }
-                  return null;
-                });
-              }
-              return null;
-            })
-            .catch(() => null)
-        );
-      }
-
-      // Wait for first successful response
-      const results = await Promise.allSettled(portPromises);
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value) {
-          BRIDGE_PORT = result.value.port;
-          BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-          localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-          console.log(`${LOG_PREFIX} Loaded bridge port: ${BRIDGE_PORT}`);
-          return true;
-        }
-      }
-
-      // Fallback: try old /port endpoint (parallel as well)
-      const legacyPromises = [];
-      for (let port = DISCOVERY_START_PORT; port <= DISCOVERY_END_PORT; port++) {
-        legacyPromises.push(
-          fetch(`http://127.0.0.1:${port}/port`, {
-            signal: AbortSignal.timeout(100)
-          })
-            .then(response => {
-              if (response.ok) {
-                return response.text().then(portText => {
-                  const fetchedPort = parseInt(portText.trim(), 10);
-                  if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                    return { port: fetchedPort, sourcePort: port };
-                  }
-                  return null;
-                });
-              }
-              return null;
-            })
-            .catch(() => null)
-        );
-      }
-
-      const legacyResults = await Promise.allSettled(legacyPromises);
-      for (const result of legacyResults) {
-        if (result.status === 'fulfilled' && result.value) {
-          BRIDGE_PORT = result.value.port;
-          BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-          localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-          console.log(`${LOG_PREFIX} Loaded bridge port (legacy): ${BRIDGE_PORT}`);
-          return true;
-        }
-      }
-
-      console.warn(`${LOG_PREFIX} Failed to load bridge port, using default (50000)`);
-      return false;
-    } catch (e) {
-      console.warn(`${LOG_PREFIX} Error loading bridge port:`, e);
-      return false;
-    }
-  }
 
   function getCSSRules() {
     return `
@@ -208,7 +70,7 @@
 
     @font-face {
       font-family: "Beaufort for LOL";
-      src: url("http://127.0.0.1:${BRIDGE_PORT}/asset/BeaufortforLOL-Regular.ttf") format("truetype");
+      src: url("http://127.0.0.1:${window.__roseBridge ? window.__roseBridge.port : 50000}/asset/BeaufortforLOL-Regular.ttf") format("truetype");
       font-weight: normal;
       font-style: normal;
       font-display: swap;
@@ -216,7 +78,7 @@
     
     @font-face {
       font-family: "Beaufort for LOL";
-      src: url("http://127.0.0.1:${BRIDGE_PORT}/asset/BeaufortforLOL-Bold.ttf") format("truetype");
+      src: url("http://127.0.0.1:${window.__roseBridge ? window.__roseBridge.port : 50000}/asset/BeaufortforLOL-Bold.ttf") format("truetype");
       font-weight: bold;
       font-style: normal;
       font-display: swap;
@@ -360,7 +222,7 @@
     #${FLYOUT_ID} .rose-tooltip-icon {
       width: 14px;
       height: 14px;
-      background-image: url("http://127.0.0.1:${BRIDGE_PORT}/asset/tooltip.png");
+      background-image: url("http://127.0.0.1:${window.__roseBridge ? window.__roseBridge.port : 50000}/asset/tooltip.png");
       background-size: contain;
       background-repeat: no-repeat;
       background-position: center;
@@ -1084,123 +946,6 @@
     consoleMethod(`${LOG_PREFIX} ${message}`, data || "");
   }
 
-  function setupBridgeSocket() {
-    if (bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    try {
-      bridgeSocket = new WebSocket(BRIDGE_URL);
-
-      bridgeSocket.onopen = () => {
-        log("info", "WebSocket bridge connected");
-        bridgeReady = true;
-        flushBridgeQueue();
-        // Keep badges in sync even if Settings flyout isn't opened yet.
-        requestSettings();
-        requestDiagnostics();
-        startBadgeObserver();
-
-        // Poll diagnostics so warnings appear without opening the panel.
-        if (!_diagnosticsPollId) {
-          _diagnosticsPollId = setInterval(() => {
-            try {
-              if (!bridgeReady) return;
-              if (typeof document !== "undefined" && document.hidden) return;
-              requestDiagnostics();
-            } catch (e) {}
-          }, 15000);
-        }
-      };
-
-      bridgeSocket.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          handleBridgeMessage(payload);
-        } catch (e) {
-          log("error", "Failed to parse bridge message", { error: e.message });
-        }
-      };
-
-      bridgeSocket.onerror = (error) => {
-        log("warn", "WebSocket bridge error", {
-          error: error.message || "Unknown error",
-        });
-      };
-
-      bridgeSocket.onclose = () => {
-        log("info", "WebSocket bridge closed, reconnecting...");
-        bridgeReady = false;
-        bridgeSocket = null;
-        if (_diagnosticsPollId) {
-          clearInterval(_diagnosticsPollId);
-          _diagnosticsPollId = null;
-        }
-        scheduleBridgeRetry();
-      };
-    } catch (e) {
-      log("error", "Failed to setup WebSocket bridge", { error: e.message });
-      scheduleBridgeRetry();
-    }
-  }
-
-  function scheduleBridgeRetry() {
-    setTimeout(() => {
-      if (!bridgeReady) {
-        setupBridgeSocket();
-      }
-    }, 3000);
-  }
-
-  function flushBridgeQueue() {
-    if (
-      bridgeQueue.length > 0 &&
-      bridgeReady &&
-      bridgeSocket &&
-      bridgeSocket.readyState === WebSocket.OPEN
-    ) {
-      bridgeQueue.forEach((message) => {
-        bridgeSocket.send(message);
-      });
-      bridgeQueue = [];
-    }
-  }
-
-  function sendToBridge(payload) {
-    const message = JSON.stringify(payload);
-    if (
-      bridgeReady &&
-      bridgeSocket &&
-      bridgeSocket.readyState === WebSocket.OPEN
-    ) {
-      bridgeSocket.send(message);
-    } else {
-      bridgeQueue.push(message);
-      setupBridgeSocket();
-    }
-  }
-
-  function handleBridgeMessage(payload) {
-    if (payload.type === "settings-data") {
-      handleSettingsData(payload);
-    } else if (payload.type === "settings-saved") {
-      handleSettingsSaved(payload);
-    } else if (payload.type === "diagnostics-data") {
-      handleDiagnosticsData(payload);
-    } else if (payload.type === "diagnostics-cleared-category") {
-      // Refresh the view after backend clears matching entries.
-      requestDiagnostics();
-    } else if (payload.type === "path-validation-result") {
-      handlePathValidationResult(payload);
-    } else if (payload.type === "champions-list-response") {
-      handleChampionsListResponse(payload);
-    } else if (payload.type === "champion-skins-response") {
-      handleChampionSkinsResponse(payload);
-    } else if (payload.type === "folder-opened-response") {
-      handleFolderOpenedResponse(payload);
-    }
-  }
-
   function handleSettingsData(payload) {
     currentSettings = {
       threshold: payload.threshold || 0.5,
@@ -1454,7 +1199,7 @@
           badge.style.right = "-10px";
           badge.style.width = "14px";
           badge.style.height = "14px";
-          badge.style.backgroundImage = `url(http://127.0.0.1:${BRIDGE_PORT}/asset/red-warning.png)`;
+          badge.style.backgroundImage = `url(http://127.0.0.1:${window.__roseBridge ? window.__roseBridge.port : 50000}/asset/red-warning.png)`;
           badge.style.backgroundSize = "contain";
           badge.style.backgroundRepeat = "no-repeat";
           badge.style.backgroundPosition = "center";
@@ -1483,7 +1228,7 @@
           warn.style.right = "-9px";
           warn.style.width = "14px";
           warn.style.height = "14px";
-          warn.style.backgroundImage = `url(http://127.0.0.1:${BRIDGE_PORT}/asset/red-warning.png)`;
+          warn.style.backgroundImage = `url(http://127.0.0.1:${window.__roseBridge ? window.__roseBridge.port : 50000}/asset/red-warning.png)`;
           warn.style.backgroundSize = "contain";
           warn.style.backgroundRepeat = "no-repeat";
           warn.style.backgroundPosition = "center";
@@ -1537,7 +1282,7 @@
         if (_pendingSave) {
           const cats = getResolvedCategoriesForSavedValues(_pendingSave);
           if (cats.length > 0) {
-            sendToBridge({ type: "diagnostics-clear-category", categories: cats });
+            if (bridge) bridge.send({ type: "diagnostics-clear-category", categories: cats });
           }
         }
       } catch (e) {}
@@ -2685,14 +2430,14 @@
       return;
     }
 
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "path-validate",
       gamePath: path.trim(),
     });
   }
 
   function requestSettings() {
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "settings-request",
     });
   }
@@ -2720,7 +2465,7 @@
     // Track what we're trying to save; we only clear warnings after the save succeeds.
     _pendingSave = { threshold: clampedThreshold, monitorAutoResumeTimeout: clampedTimeout };
 
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "settings-save",
       threshold: clampedThreshold,
       monitorAutoResumeTimeout: clampedTimeout,
@@ -2864,7 +2609,7 @@
       openChampionSelection();
     } else {
       // Directly open folder for other categories
-      sendToBridge({
+      if (bridge) bridge.send({
         type: "add-custom-mods-category-selected",
         category: category,
       });
@@ -2981,7 +2726,7 @@
     dialog.appendChild(flyoutFrame);
 
     // Request champions list
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "add-custom-mods-champion-selected",
       action: "list",
     });
@@ -3129,7 +2874,7 @@
     dialog.appendChild(flyoutFrame);
 
     // Request skins for champion
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "add-custom-mods-skin-selected",
       action: "list",
       championId: championId,
@@ -3150,7 +2895,7 @@
   function handleSkinSelection(championId, skinId) {
     closeSkinSelection();
 
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "add-custom-mods-skin-selected",
       action: "create",
       championId: championId,
@@ -3274,14 +3019,14 @@
   }
 
   function openLogsFolder() {
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "open-logs-folder",
     });
     log("info", "Open logs folder requested");
   }
 
   function requestDiagnostics() {
-    sendToBridge({ type: "diagnostics-request" });
+    if (bridge) bridge.send({ type: "diagnostics-request" });
   }
 
   function openDiagnosticsDialog() {
@@ -3557,7 +3302,7 @@
   }
 
   function openPenguLoaderUI() {
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "open-pengu-loader-ui",
     });
     log("info", "Open Pengu Loader UI requested");
@@ -3738,12 +3483,40 @@
       }
     }
     try {
-      // Load bridge port before initializing
-      await loadBridgePort();
+      // Wait for the shared bridge to become available
+      bridge = await waitForBridge();
 
-      // Inject CSS after port is loaded (so it has the correct port number)
+      // Inject CSS after bridge is loaded (so it has the correct port number)
       injectCSS();
-      setupBridgeSocket();
+
+      // Subscribe to all message types
+      bridge.subscribe("settings-data", handleSettingsData);
+      bridge.subscribe("settings-saved", handleSettingsSaved);
+      bridge.subscribe("diagnostics-data", handleDiagnosticsData);
+      bridge.subscribe("diagnostics-cleared-category", () => requestDiagnostics());
+      bridge.subscribe("path-validation-result", handlePathValidationResult);
+      bridge.subscribe("champions-list-response", handleChampionsListResponse);
+      bridge.subscribe("champion-skins-response", handleChampionSkinsResponse);
+      bridge.subscribe("folder-opened-response", handleFolderOpenedResponse);
+
+      // On every (re)connect, sync state
+      bridge.onReady(() => {
+        requestSettings();
+        requestDiagnostics();
+        startBadgeObserver();
+
+        // Poll diagnostics so warnings appear without opening the panel.
+        if (!_diagnosticsPollId) {
+          _diagnosticsPollId = setInterval(() => {
+            try {
+              if (!bridge || !bridge.ready) return;
+              if (typeof document !== "undefined" && document.hidden) return;
+              requestDiagnostics();
+            } catch (e) {}
+          }, 15000);
+        }
+      });
+
       log("info", "Settings panel plugin initialized");
       _initialized = true;
       _retryCount = 0; // Reset retry counter on success
