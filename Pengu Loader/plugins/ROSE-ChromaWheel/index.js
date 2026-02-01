@@ -787,7 +787,18 @@
       const gameMode = data.gameMode;
       const mapId = data.mapId;
 
-      if (phase === "ChampSelect" || phase === "FINALIZATION") {
+      if (phase === "ChampSelect") {
+        // Reset stale skin state from previous game so the chroma button
+        // doesn't briefly show the old champion's data at lock-in
+        skinMonitorState = null;
+        pythonChromaState = null;
+
+        const isAram =
+          mapId === 12 ||
+          (typeof gameMode === "string" && gameMode.toUpperCase() === "ARAM");
+
+        isAramFromPython = Boolean(isAram);
+      } else if (phase === "FINALIZATION") {
         const isAram =
           mapId === 12 ||
           (typeof gameMode === "string" && gameMode.toUpperCase() === "ARAM");
