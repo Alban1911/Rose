@@ -63,10 +63,11 @@ class SharedState:
     current_queue_id: Optional[int] = None  # Current queue ID (2400 = ARAM: Mayhem, etc.)
     chroma_panel_skin_name: Optional[str] = None  # Base skin name when panel was opened (to avoid re-detecting same skin)
     is_swiftplay_mode: bool = False  # Flag to indicate if we're in Swiftplay mode
-    
+
     # Swiftplay skin tracking - maps champion ID to last detected skin ID
     swiftplay_skin_tracking: dict = field(default_factory=dict)  # {champion_id: skin_id}
     swiftplay_extracted_mods: list = field(default_factory=list)  # List of extracted mod folder names for Swiftplay injection
+    swiftplay_lock: threading.Lock = field(default_factory=threading.Lock)  # Protects swiftplay state mutations
     
     # UIA Detection
     ui_last_text: Optional[str] = None  # Last detected skin name from UI
