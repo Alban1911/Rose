@@ -182,5 +182,8 @@ begin
   if CurUninstallStep = usPostUninstall then
   begin
     _DeleteLocalAppDataRose();
+    { Remove the entire install directory (Program Files\Rose) in case
+      runtime-generated files (logs, caches, etc.) were left behind. }
+    DelTree(ExpandConstant('{app}'), True, True, True);
   end;
 end;
