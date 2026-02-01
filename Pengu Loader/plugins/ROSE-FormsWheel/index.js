@@ -176,207 +176,24 @@
   let hoverButtonNormalUrl = null;
   let hoverButtonHoverUrl = null;
 
-  // WebSocket bridge for sending chroma selection to Python
-  let BRIDGE_PORT = 50000; // Default, will be updated from /bridge-port endpoint
-  let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-  const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
-  const DISCOVERY_START_PORT = 50000;
-  const DISCOVERY_END_PORT = 50010;
-  let bridgeSocket = null;
-  let bridgeReady = false;
-  let bridgeQueue = [];
+  // Shared bridge API (provided by ROSE-BridgeInit)
+  let bridge = null;
 
-  // Load bridge port with file-based discovery and localStorage caching
-  async function loadBridgePort() {
-    try {
-      // First, check localStorage for cached port
-      const cachedPort = localStorage.getItem(BRIDGE_PORT_STORAGE_KEY);
-      if (cachedPort) {
-        const port = parseInt(cachedPort, 10);
-        if (!isNaN(port) && port > 0) {
-          // Verify cached port is still valid with shorter timeout
-          try {
-            const response = await fetch(
-              `http://127.0.0.1:${port}/bridge-port`,
-              {
-                signal: AbortSignal.timeout(50),
-              }
-            );
-            if (response.ok) {
-              const portText = await response.text();
-              const fetchedPort = parseInt(portText.trim(), 10);
-              if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                BRIDGE_PORT = fetchedPort;
-                BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-                if (window?.console) {
-                  console.log(
-                    `${LOG_PREFIX} Loaded bridge port from cache: ${BRIDGE_PORT}`
-                  );
-                }
-                return true;
-              }
-            }
-          } catch (e) {
-            // Cached port invalid, continue to discovery
-            localStorage.removeItem(BRIDGE_PORT_STORAGE_KEY);
-          }
-        }
-      }
-
-      // OPTIMIZATION: Try default port 50000 FIRST before scanning all ports
-      try {
-        const response = await fetch(`http://127.0.0.1:50000/bridge-port`, {
-          signal: AbortSignal.timeout(50),
-        });
-        if (response.ok) {
-          const portText = await response.text();
-          const fetchedPort = parseInt(portText.trim(), 10);
-          if (!isNaN(fetchedPort) && fetchedPort > 0) {
-            BRIDGE_PORT = fetchedPort;
-            BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-            localStorage.setItem(
-              BRIDGE_PORT_STORAGE_KEY,
-              String(BRIDGE_PORT)
-            );
-            if (window?.console) {
-              console.log(`${LOG_PREFIX} Loaded bridge port: ${BRIDGE_PORT}`);
-            }
-            return true;
-          }
-        }
-      } catch (e) {
-        // Port 50000 not ready, continue to discovery
-      }
-
-      // OPTIMIZATION: Try fallback port 50001 SECOND
-      try {
-        const response = await fetch(`http://127.0.0.1:50001/bridge-port`, {
-          signal: AbortSignal.timeout(50),
-        });
-        if (response.ok) {
-          const portText = await response.text();
-          const fetchedPort = parseInt(portText.trim(), 10);
-          if (!isNaN(fetchedPort) && fetchedPort > 0) {
-            BRIDGE_PORT = fetchedPort;
-            BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-            localStorage.setItem(
-              BRIDGE_PORT_STORAGE_KEY,
-              String(BRIDGE_PORT)
-            );
-            if (window?.console) {
-              console.log(
-                `${LOG_PREFIX} Loaded bridge port (fallback): ${BRIDGE_PORT}`
-              );
-            }
-            return true;
-          }
-        }
-      } catch (e) {
-        // Port 50001 not ready, continue to discovery
-      }
-
-      // OPTIMIZATION: Parallel port discovery instead of sequential
-      const portPromises = [];
-      for (
-        let port = DISCOVERY_START_PORT;
-        port <= DISCOVERY_END_PORT;
-        port++
-      ) {
-        portPromises.push(
-          fetch(`http://127.0.0.1:${port}/bridge-port`, {
-            signal: AbortSignal.timeout(100),
-          })
-            .then((response) => {
-              if (response.ok) {
-                return response.text().then((portText) => {
-                  const fetchedPort = parseInt(portText.trim(), 10);
-                  if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                    return { port: fetchedPort, sourcePort: port };
-                  }
-                  return null;
-                });
-              }
-              return null;
-            })
-            .catch(() => null)
-        );
-      }
-
-      // Wait for first successful response
-      const results = await Promise.allSettled(portPromises);
-      for (const result of results) {
-        if (result.status === "fulfilled" && result.value) {
-          BRIDGE_PORT = result.value.port;
-          BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-          localStorage.setItem(
-            BRIDGE_PORT_STORAGE_KEY,
-            String(BRIDGE_PORT)
-          );
-          if (window?.console) {
-            console.log(`${LOG_PREFIX} Loaded bridge port: ${BRIDGE_PORT}`);
-          }
-          return true;
-        }
-      }
-
-      // Fallback: try old /port endpoint (parallel as well)
-      const legacyPromises = [];
-      for (
-        let port = DISCOVERY_START_PORT;
-        port <= DISCOVERY_END_PORT;
-        port++
-      ) {
-        legacyPromises.push(
-          fetch(`http://127.0.0.1:${port}/port`, {
-            signal: AbortSignal.timeout(100),
-          })
-            .then((response) => {
-              if (response.ok) {
-                return response.text().then((portText) => {
-                  const fetchedPort = parseInt(portText.trim(), 10);
-                  if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                    return { port: fetchedPort, sourcePort: port };
-                  }
-                  return null;
-                });
-              }
-              return null;
-            })
-            .catch(() => null)
-        );
-      }
-
-      const legacyResults = await Promise.allSettled(legacyPromises);
-      for (const result of legacyResults) {
-        if (result.status === "fulfilled" && result.value) {
-          BRIDGE_PORT = result.value.port;
-          BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-          localStorage.setItem(
-            BRIDGE_PORT_STORAGE_KEY,
-            String(BRIDGE_PORT)
-          );
-          if (window?.console) {
-            console.log(
-              `${LOG_PREFIX} Loaded bridge port (legacy): ${BRIDGE_PORT}`
-            );
-          }
-          return true;
-        }
-      }
-
-      if (window?.console) {
-        console.warn(
-          `${LOG_PREFIX} Failed to load bridge port, using default (50000)`
-        );
-      }
-      return false;
-    } catch (e) {
-      if (window?.console) {
-        console.warn(`${LOG_PREFIX} Error loading bridge port:`, e);
-      }
-      return false;
-    }
+  function waitForBridge() {
+    return new Promise((resolve, reject) => {
+      const timeout = 10000;
+      const interval = 50;
+      let elapsed = 0;
+      const check = () => {
+        if (window.__roseBridge) return resolve(window.__roseBridge);
+        elapsed += interval;
+        if (elapsed >= timeout) return reject(new Error("Bridge not available"));
+        setTimeout(check, interval);
+      };
+      check();
+    });
   }
+
 
   // Audio: play official chroma click sound when a chroma panel button is clicked
   // Using the same endpoint the client uses: sfx-cs-button-chromas-click.ogg
@@ -728,160 +545,20 @@
 
   function emitBridgeLog(event, data = {}) {
     try {
-      const emitter = window?.__roseBridgeEmit;
-      if (typeof emitter !== "function") {
-        return;
-      }
-      emitter({
+      const payload = {
         type: "chroma-log",
         source: "FormsWheel",
         event,
         data,
         timestamp: Date.now(),
-      });
+      };
+      if (bridge) bridge.send(payload);
     } catch (error) {
       // Can't use log here since it's not defined yet
       console.debug(`${LOG_PREFIX} Failed to emit bridge log`, error);
     }
   }
 
-  function sendToBridge(payload) {
-    const message = JSON.stringify(payload);
-    if (
-      !bridgeSocket ||
-      bridgeSocket.readyState === WebSocket.CLOSING ||
-      bridgeSocket.readyState === WebSocket.CLOSED
-    ) {
-      bridgeQueue.push(message);
-      setupBridgeSocket();
-      return;
-    }
-
-    if (bridgeSocket.readyState === WebSocket.CONNECTING) {
-      bridgeQueue.push(message);
-      return;
-    }
-
-    try {
-      bridgeSocket.send(message);
-    } catch (error) {
-      log.warn(`${LOG_PREFIX} Bridge send failed`, error);
-      bridgeQueue.push(message);
-      resetBridgeSocket();
-    }
-  }
-
-  function setupBridgeSocket() {
-    if (
-      bridgeSocket &&
-      (bridgeSocket.readyState === WebSocket.OPEN ||
-        bridgeSocket.readyState === WebSocket.CONNECTING)
-    ) {
-      return;
-    }
-
-    try {
-      bridgeSocket = new WebSocket(BRIDGE_URL);
-    } catch (error) {
-      log.debug(`${LOG_PREFIX} Bridge socket setup failed`, error);
-      scheduleBridgeRetry();
-      return;
-    }
-
-    bridgeSocket.addEventListener("open", () => {
-      bridgeReady = true;
-      flushBridgeQueue();
-      log.debug(`${LOG_PREFIX} Bridge socket connected`);
-
-      // Request hover button assets when bridge is ready
-      if (!hoverButtonNormalUrl) {
-        sendToBridge({
-          type: "request-local-asset",
-          assetPath: HOVER_BUTTON_ASSET,
-          timestamp: Date.now(),
-        });
-      }
-      if (!hoverButtonHoverUrl) {
-        sendToBridge({
-          type: "request-local-asset",
-          assetPath: HOVER_BUTTON_HOVER_ASSET,
-          timestamp: Date.now(),
-        });
-      }
-    });
-
-    bridgeSocket.addEventListener("message", (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data && data.type === "chroma-state") {
-          // Handle chroma state update from Python
-          handleChromaStateUpdate(data);
-        } else if (data && data.type === "local-preview-url") {
-          // Handle local preview URL from Python
-          handleLocalPreviewUrl(data);
-        } else if (data && data.type === "local-asset-url") {
-          // Handle local asset URL from Python
-          handleLocalAssetUrl(data);
-        } else if (data && data.type === "champion-locked") {
-          // Handle champion lock state update
-          handleChampionLocked(data);
-        } else if (data && data.type === "phase-change") {
-          // Handle phase change (including game mode info from Python)
-          handlePhaseChangeFromPython(data);
-        }
-      } catch (error) {
-        // Not JSON or invalid - ignore
-      }
-    });
-
-    bridgeSocket.addEventListener("close", () => {
-      bridgeReady = false;
-      scheduleBridgeRetry();
-    });
-
-    bridgeSocket.addEventListener("error", (error) => {
-      log.debug(`${LOG_PREFIX} Bridge socket error`, error);
-      bridgeReady = false;
-      scheduleBridgeRetry();
-    });
-  }
-
-  function flushBridgeQueue() {
-    if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    while (bridgeQueue.length) {
-      const payload = bridgeQueue.shift();
-      try {
-        bridgeSocket.send(payload);
-      } catch (error) {
-        log.warn(`${LOG_PREFIX} Bridge flush failed`, error);
-        bridgeQueue.unshift(payload);
-        resetBridgeSocket();
-        break;
-      }
-    }
-  }
-
-  function resetBridgeSocket() {
-    if (bridgeSocket) {
-      try {
-        bridgeSocket.close();
-      } catch (e) {
-        // Ignore
-      }
-    }
-    bridgeSocket = null;
-    bridgeReady = false;
-    setTimeout(setupBridgeSocket, 1000);
-  }
-
-  function scheduleBridgeRetry() {
-    if (!bridgeReady) {
-      setTimeout(setupBridgeSocket, 1000);
-    }
-  }
 
   // Track pending local preview/asset requests
   const pendingLocalPreviews = new Map(); // chromaId -> { chromaImage, chroma }
@@ -1722,23 +1399,10 @@
       assetPath: ARAM_BACKGROUND_ASSET_PATH,
     });
 
-    if (
-      bridgeReady &&
-      bridgeSocket &&
-      bridgeSocket.readyState === WebSocket.OPEN
-    ) {
-      try {
-        bridgeSocket.send(JSON.stringify(payload));
-      } catch (e) {
-        aramBackgroundRequestPending = false;
-        log.debug(
-          "[FormsWheel] Failed to send ARAM background request, queuing",
-          e
-        );
-        bridgeQueue.push(JSON.stringify(payload));
-      }
+    if (bridge) {
+      bridge.send(payload);
     } else {
-      bridgeQueue.push(JSON.stringify(payload));
+      aramBackgroundRequestPending = false;
     }
   }
 
@@ -2730,15 +2394,15 @@
     button.className = BUTTON_CLASS;
 
     // Request hover button assets from Python
-    if (!hoverButtonNormalUrl && bridgeReady) {
-      sendToBridge({
+    if (!hoverButtonNormalUrl && bridge) {
+      bridge.send({
         type: "request-local-asset",
         assetPath: HOVER_BUTTON_ASSET,
         timestamp: Date.now(),
       });
     }
-    if (!hoverButtonHoverUrl && bridgeReady) {
-      sendToBridge({
+    if (!hoverButtonHoverUrl && bridge) {
+      bridge.send({
         type: "request-local-asset",
         assetPath: HOVER_BUTTON_HOVER_ASSET,
         timestamp: Date.now(),
@@ -4495,7 +4159,7 @@
         const iconPath = `${skinConfig.buttonFolder}/${assetFileName}`;
 
         // Request button icon from Python via bridge
-        sendToBridge({
+        if (bridge) bridge.send({
           type: "request-local-asset",
           assetPath: iconPath,
           chromaId: chroma.id,
@@ -4529,7 +4193,7 @@
         const iconPath = chroma.buttonIconPath.replace("local-asset://", "");
 
         // Request button icon from Python via bridge
-        sendToBridge({
+        if (bridge) bridge.send({
           type: "request-local-asset",
           assetPath: iconPath,
           chromaId: chroma.id,
@@ -4793,7 +4457,7 @@
           const chromaId = pathParts[2];
 
           // Request preview from Python
-          sendToBridge({
+          if (bridge) bridge.send({
             type: "request-local-preview",
             championId: parseInt(championId),
             skinId: parseInt(skinId),
@@ -4878,7 +4542,7 @@
           );
 
           // Request button icon from Python via bridge
-          sendToBridge({
+          if (bridge) bridge.send({
             type: "request-local-asset",
             assetPath: iconPath,
             chromaId: selectedChromaData.id,
@@ -5068,7 +4732,7 @@
     log.info(
       `[FormsWheel] Sending chroma selection to Python: ID=${chroma.id}, championId=${championId}, baseSkinId=${baseSkinId}`
     );
-    sendToBridge({
+    if (bridge) bridge.send({
       type: "chroma-selection",
       skinId: chroma.id,
       chromaId: chroma.id,
@@ -5545,14 +5209,30 @@
       }
     }
     try {
-      // Load bridge port before initializing socket
-      await loadBridgePort();
+      // Wait for shared bridge API
+      bridge = await waitForBridge();
+
+      // Subscribe to bridge message types
+      bridge.subscribe("chroma-state", handleChromaStateUpdate);
+      bridge.subscribe("local-preview-url", handleLocalPreviewUrl);
+      bridge.subscribe("local-asset-url", handleLocalAssetUrl);
+      bridge.subscribe("champion-locked", handleChampionLocked);
+      bridge.subscribe("phase-change", handlePhaseChangeFromPython);
+
+      // Request hover button assets on every (re)connect
+      bridge.onReady(() => {
+        if (!hoverButtonNormalUrl) {
+          bridge.send({ type: "request-local-asset", assetPath: HOVER_BUTTON_ASSET, timestamp: Date.now() });
+        }
+        if (!hoverButtonHoverUrl) {
+          bridge.send({ type: "request-local-asset", assetPath: HOVER_BUTTON_HOVER_ASSET, timestamp: Date.now() });
+        }
+      });
 
       subscribeToSkinMonitor();
       injectCSS();
       scanSkinSelection();
       setupObserver();
-      setupBridgeSocket(); // Initialize WebSocket connection for sending chroma selection to Python
       log.info("fake chroma button creation active");
       _initialized = true;
       _retryCount = 0; // Reset retry counter on success
