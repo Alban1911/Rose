@@ -74,10 +74,13 @@ class PhaseThread(threading.Thread):
 
                 # Only clean up after several consecutive None polls (~1.5-2.5 s)
                 if self._null_phase_streak >= 3:
-                    has_extracted_mods = self.state.swiftplay_extracted_mods and len(self.state.swiftplay_extracted_mods) > 0
-                    if self.state.is_swiftplay_mode and not has_extracted_mods:
+                    if self.state.is_swiftplay_mode:
+                        # Swiftplay flag is still set but LCU returned None for
+                        # several polls — the session is gone.  Full cleanup.
+                        log.info("[phase] Null-phase streak in Swiftplay mode - cleaning up")
                         self.swiftplay_handler.cleanup_swiftplay_exit()
-                    elif not self.state.is_swiftplay_mode and self.state.swiftplay_extracted_mods:
+                    elif self.state.swiftplay_extracted_mods:
+                        # Flag already cleared but orphaned mods remain
                         self.state.swiftplay_extracted_mods = []
 
                 time.sleep(self.interval)
