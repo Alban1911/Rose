@@ -14,6 +14,8 @@ const SKIN_SELECTORS = [
   ".skin-name", // Swiftplay lobby
 ];
 const POLL_INTERVAL_MS = 250;
+const RETRY_BASE_MS = 1000;
+const RETRY_MAX_MS = 30000;
 let BRIDGE_PORT = 50000; // Default, will be updated from /bridge-port endpoint
 let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
 const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
@@ -175,6 +177,47 @@ let bridgeReady = false;
 let bridgeQueue = [];
 let bridgeErrorLogged = false;
 let bridgeSetupWarned = false;
+let retryTimer = null;
+let stopped = false;
+let retryDelay = RETRY_BASE_MS;
+
+// --- Bridge subscription infrastructure ---
+const _subscribers = new Map(); // type -> Set<callback>
+const _readyCallbacks = new Set();
+
+function subscribe(type, cb) {
+  if (!_subscribers.has(type)) _subscribers.set(type, new Set());
+  _subscribers.get(type).add(cb);
+}
+
+function unsubscribe(type, cb) {
+  const subs = _subscribers.get(type);
+  if (subs) subs.delete(cb);
+}
+
+function onReady(cb) {
+  _readyCallbacks.add(cb);
+  if (bridgeReady) cb();
+}
+
+function _notifySubscribers(data) {
+  if (!data || !data.type) return;
+  const subs = _subscribers.get(data.type);
+  if (!subs) return;
+  for (const cb of subs) {
+    try { cb(data); } catch (e) {
+      console.warn(`${LOG_PREFIX} Subscriber error for "${data.type}":`, e);
+    }
+  }
+}
+
+function _notifyReady() {
+  for (const cb of _readyCallbacks) {
+    try { cb(); } catch (e) {
+      console.warn(`${LOG_PREFIX} onReady callback error:`, e);
+    }
+  }
+}
 
 function sanitizeSkinName(name) {
   // Keep the raw UI name intact.
@@ -250,8 +293,10 @@ function sendBridgePayload(obj) {
   }
 }
 
+// window.__roseBridge is exposed in start() after port discovery completes,
+// so that consumer plugins' waitForBridge() won't resolve until the port is known.
 if (typeof window !== "undefined") {
-  window.__roseBridgeEmit = sendBridgePayload;
+  window.__roseBridgeEmit = sendBridgePayload; // backward compat (available early)
 }
 
 function sendToBridge(payload) {
@@ -280,6 +325,10 @@ function sendToBridge(payload) {
 }
 
 function setupBridgeSocket() {
+  if (stopped) {
+    return;
+  }
+
   if (
     bridgeSocket &&
     (bridgeSocket.readyState === WebSocket.OPEN ||
@@ -301,11 +350,17 @@ function setupBridgeSocket() {
 
   bridgeSocket.addEventListener("open", () => {
     bridgeReady = true;
+    retryDelay = RETRY_BASE_MS;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     flushBridgeQueue();
     resyncSkinAfterConnect();
     bridgeErrorLogged = false;
     bridgeSetupWarned = false;
     window.__roseBridgeEmit = sendBridgePayload;
+    _notifyReady();
   });
 
   bridgeSocket.addEventListener("message", (event) => {
@@ -316,6 +371,9 @@ function setupBridgeSocket() {
       console.log(`${LOG_PREFIX} Bridge message: ${event.data}`);
       return;
     }
+
+    // Notify all bridge subscribers
+    _notifySubscribers(data);
 
     if (data && data.type === "skin-state") {
       publishSkinState(data);
@@ -416,11 +474,19 @@ function flushBridgeQueue() {
 }
 
 function scheduleBridgeRetry() {
-  if (bridgeReady) {
+  if (bridgeReady || stopped) {
     return;
   }
 
-  setTimeout(setupBridgeSocket, 1000);
+  if (retryTimer) {
+    return;
+  }
+
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    setupBridgeSocket();
+  }, retryDelay);
+  retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
 }
 
 function resetBridgeSocket() {
@@ -434,7 +500,6 @@ function resetBridgeSocket() {
 
   bridgeSocket = null;
   bridgeReady = false;
-  scheduleBridgeRetry();
 }
 
 function isVisible(element) {
@@ -533,8 +598,24 @@ async function start() {
     return;
   }
 
+  stopped = false;
+  retryDelay = RETRY_BASE_MS;
+
   // Load bridge port before initializing socket
   await loadBridgePort();
+
+  // Expose the shared bridge API now that the port is known.
+  // Consumer plugins poll for this object via waitForBridge().
+  if (typeof window !== "undefined") {
+    window.__roseBridge = Object.freeze({
+      send: sendBridgePayload,
+      subscribe,
+      unsubscribe,
+      onReady,
+      get port() { return BRIDGE_PORT; },
+      get ready() { return bridgeReady; },
+    });
+  }
 
   installFindMatchObserver();
   setupBridgeSocket();
@@ -543,6 +624,13 @@ async function start() {
 }
 
 function stop() {
+  stopped = true;
+
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+
   if (observer) {
     observer.disconnect();
     observer = null;

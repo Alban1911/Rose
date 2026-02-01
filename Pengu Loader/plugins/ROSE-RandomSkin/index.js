@@ -11,15 +11,23 @@
   const DICE_DISABLED_ASSET_PATH = "dice-disabled.png";
   const DICE_ENABLED_ASSET_PATH = "dice-enabled.png";
 
-  // WebSocket bridge for receiving random mode state from Python
-  let BRIDGE_PORT = 50000; // Default, will be updated from /bridge-port endpoint
-  let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-  const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
-  const DISCOVERY_START_PORT = 50000;
-  const DISCOVERY_END_PORT = 50010;
-  let bridgeSocket = null;
-  let bridgeReady = false;
-  let bridgeQueue = [];
+  // Shared bridge (provided by ROSE-SkinMonitor)
+  let bridge = null;
+
+  function waitForBridge() {
+    return new Promise((resolve, reject) => {
+      const timeout = 10000;
+      const interval = 50;
+      let elapsed = 0;
+      const check = () => {
+        if (window.__roseBridge) return resolve(window.__roseBridge);
+        elapsed += interval;
+        if (elapsed >= timeout) return reject(new Error("Bridge not available"));
+        setTimeout(check, interval);
+      };
+      check();
+    });
+  }
 
   /**
    * Escape HTML special characters to prevent XSS (CWE-79)
@@ -34,153 +42,6 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
-  }
-
-  // Load bridge port with file-based discovery and localStorage caching
-  async function loadBridgePort() {
-    try {
-      // First, check localStorage for cached port
-      const cachedPort = localStorage.getItem(BRIDGE_PORT_STORAGE_KEY);
-      if (cachedPort) {
-        const port = parseInt(cachedPort, 10);
-        if (!isNaN(port) && port > 0) {
-          // Verify cached port is still valid with shorter timeout
-          try {
-            const response = await fetch(`http://127.0.0.1:${port}/bridge-port`, {
-              signal: AbortSignal.timeout(50)
-            });
-            if (response.ok) {
-              const portText = await response.text();
-              const fetchedPort = parseInt(portText.trim(), 10);
-              if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                BRIDGE_PORT = fetchedPort;
-                BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-                console.log(`${LOG_PREFIX} Loaded bridge port from cache: ${BRIDGE_PORT}`);
-                return true;
-              }
-            }
-          } catch (e) {
-            // Cached port invalid, continue to discovery
-            localStorage.removeItem(BRIDGE_PORT_STORAGE_KEY);
-          }
-        }
-      }
-
-      // OPTIMIZATION: Try default port 50000 FIRST before scanning all ports
-      try {
-        const response = await fetch(`http://127.0.0.1:50000/bridge-port`, {
-          signal: AbortSignal.timeout(50)
-        });
-        if (response.ok) {
-          const portText = await response.text();
-          const fetchedPort = parseInt(portText.trim(), 10);
-          if (!isNaN(fetchedPort) && fetchedPort > 0) {
-            BRIDGE_PORT = fetchedPort;
-            BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-            localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-            console.log(`${LOG_PREFIX} Loaded bridge port: ${BRIDGE_PORT}`);
-            return true;
-          }
-        }
-      } catch (e) {
-        // Port 50000 not ready, continue to discovery
-      }
-
-      // OPTIMIZATION: Try fallback port 50001 SECOND
-      try {
-        const response = await fetch(`http://127.0.0.1:50001/bridge-port`, {
-          signal: AbortSignal.timeout(50)
-        });
-        if (response.ok) {
-          const portText = await response.text();
-          const fetchedPort = parseInt(portText.trim(), 10);
-          if (!isNaN(fetchedPort) && fetchedPort > 0) {
-            BRIDGE_PORT = fetchedPort;
-            BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-            localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-            console.log(`${LOG_PREFIX} Loaded bridge port: ${BRIDGE_PORT}`);
-            return true;
-          }
-        }
-      } catch (e) {
-        // Port 50001 not ready, continue to discovery
-      }
-
-      // OPTIMIZATION: Parallel port discovery instead of sequential
-      const portPromises = [];
-      for (let port = DISCOVERY_START_PORT; port <= DISCOVERY_END_PORT; port++) {
-        portPromises.push(
-          fetch(`http://127.0.0.1:${port}/bridge-port`, {
-            signal: AbortSignal.timeout(100)
-          })
-            .then(response => {
-              if (response.ok) {
-                return response.text().then(portText => {
-                  const fetchedPort = parseInt(portText.trim(), 10);
-                  if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                    return { port: fetchedPort, sourcePort: port };
-                  }
-                  return null;
-                });
-              }
-              return null;
-            })
-            .catch(() => null)
-        );
-      }
-
-      // Wait for first successful response
-      const results = await Promise.allSettled(portPromises);
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value) {
-          BRIDGE_PORT = result.value.port;
-          BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-          localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-          console.log(`${LOG_PREFIX} Loaded bridge port: ${BRIDGE_PORT}`);
-          return true;
-        }
-      }
-
-      // Fallback: try old /port endpoint (parallel as well)
-      const legacyPromises = [];
-      for (let port = DISCOVERY_START_PORT; port <= DISCOVERY_END_PORT; port++) {
-        legacyPromises.push(
-          fetch(`http://127.0.0.1:${port}/port`, {
-            signal: AbortSignal.timeout(100)
-          })
-            .then(response => {
-              if (response.ok) {
-                return response.text().then(portText => {
-                  const fetchedPort = parseInt(portText.trim(), 10);
-                  if (!isNaN(fetchedPort) && fetchedPort > 0) {
-                    return { port: fetchedPort, sourcePort: port };
-                  }
-                  return null;
-                });
-              }
-              return null;
-            })
-            .catch(() => null)
-        );
-      }
-
-      const legacyResults = await Promise.allSettled(legacyPromises);
-      for (const result of legacyResults) {
-        if (result.status === 'fulfilled' && result.value) {
-          BRIDGE_PORT = result.value.port;
-          BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
-          localStorage.setItem(BRIDGE_PORT_STORAGE_KEY, String(BRIDGE_PORT));
-          console.log(`${LOG_PREFIX} Loaded bridge port (legacy): ${BRIDGE_PORT}`);
-          return true;
-        }
-      }
-
-      console.warn(`${LOG_PREFIX} Failed to load bridge port, using default (50000)`);
-      return false;
-    } catch (e) {
-      console.warn(`${LOG_PREFIX} Error loading bridge port:`, e);
-      return false;
-    }
   }
 
   let randomModeActive = false;
@@ -243,83 +104,11 @@
     };
     if (data) payload.data = data;
 
-    if (bridgeReady && bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
-      bridgeSocket.send(JSON.stringify(payload));
-    } else {
-      bridgeQueue.push(JSON.stringify(payload));
-    }
+    if (bridge) bridge.send(payload);
 
     // Also log to console for debugging
     const consoleMethod = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
     consoleMethod(`${LOG_PREFIX} ${message}`, data || "");
-  }
-
-  function setupBridgeSocket() {
-    if (bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    try {
-      bridgeSocket = new WebSocket(BRIDGE_URL);
-
-      bridgeSocket.onopen = () => {
-        log("info", "WebSocket bridge connected");
-        bridgeReady = true;
-        flushBridgeQueue();
-      };
-
-      bridgeSocket.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          handleBridgeMessage(payload);
-        } catch (e) {
-          log("error", "Failed to parse bridge message", { error: e.message });
-        }
-      };
-
-      bridgeSocket.onerror = (error) => {
-        log("warn", "WebSocket bridge error", { error: error.message || "Unknown error" });
-      };
-
-      bridgeSocket.onclose = () => {
-        log("info", "WebSocket bridge closed, reconnecting...");
-        bridgeReady = false;
-        bridgeSocket = null;
-        scheduleBridgeRetry();
-      };
-    } catch (e) {
-      log("error", "Failed to setup WebSocket bridge", { error: e.message });
-      scheduleBridgeRetry();
-    }
-  }
-
-  function scheduleBridgeRetry() {
-    setTimeout(() => {
-      if (!bridgeReady) {
-        setupBridgeSocket();
-      }
-    }, 3000);
-  }
-
-  function flushBridgeQueue() {
-    if (bridgeQueue.length > 0 && bridgeReady && bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
-      bridgeQueue.forEach((message) => {
-        bridgeSocket.send(message);
-      });
-      bridgeQueue = [];
-    }
-  }
-
-  function handleBridgeMessage(payload) {
-    if (payload.type === "random-mode-state") {
-      handleRandomModeStateUpdate(payload);
-    } else if (payload.type === "local-asset-url") {
-      handleLocalAssetUrl(payload);
-    } else if (payload.type === "phase-change") {
-      handlePhaseChange(payload);
-    } else if (payload.type === "champion-locked") {
-      handleChampionLocked(payload);
-    }
   }
 
   function handleChampionLocked(data) {
@@ -659,11 +448,7 @@
 
       log("debug", "Requesting dice disabled image from Python", { assetPath: DICE_DISABLED_ASSET_PATH });
 
-      if (bridgeReady && bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
-        bridgeSocket.send(JSON.stringify(payload));
-      } else {
-        bridgeQueue.push(JSON.stringify(payload));
-      }
+      if (bridge) bridge.send(payload);
     }
 
     // Request enabled image
@@ -678,11 +463,7 @@
 
       log("debug", "Requesting dice enabled image from Python", { assetPath: DICE_ENABLED_ASSET_PATH });
 
-      if (bridgeReady && bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
-        bridgeSocket.send(JSON.stringify(payload));
-      } else {
-        bridgeQueue.push(JSON.stringify(payload));
-      }
+      if (bridge) bridge.send(payload);
     }
   }
 
@@ -714,11 +495,10 @@
       timestamp: Date.now(),
     };
 
-    if (bridgeReady && bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
-      bridgeSocket.send(JSON.stringify(payload));
+    if (bridge) {
+      bridge.send(payload);
     } else {
-      bridgeQueue.push(JSON.stringify(payload));
-      log("warn", "Bridge not ready, queued dice button click");
+      log("warn", "Bridge not ready, dice button click lost");
     }
   }
 
@@ -735,11 +515,7 @@
 
       log("debug", "Requesting random flag image from Python", { assetPath: RANDOM_FLAG_ASSET_PATH });
 
-      if (bridgeReady && bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
-        bridgeSocket.send(JSON.stringify(payload));
-      } else {
-        bridgeQueue.push(JSON.stringify(payload));
-      }
+      if (bridge) bridge.send(payload);
     }
   }
 
@@ -876,8 +652,8 @@
   async function init() {
     log("info", "Initializing LU-RandomSkin plugin");
 
-    // Load bridge port before initializing socket
-    await loadBridgePort();
+    // Wait for shared bridge
+    bridge = await waitForBridge();
 
     // Ensure random mode starts as inactive
     randomModeActive = false;
@@ -888,8 +664,17 @@
     style.textContent = CSS_RULES;
     document.head.appendChild(style);
 
-    // Setup WebSocket bridge
-    setupBridgeSocket();
+    // Subscribe to bridge message types
+    bridge.subscribe("random-mode-state", handleRandomModeStateUpdate);
+    bridge.subscribe("local-asset-url", handleLocalAssetUrl);
+    bridge.subscribe("phase-change", handlePhaseChange);
+    bridge.subscribe("champion-locked", handleChampionLocked);
+
+    // On bridge (re)connect, re-request assets
+    bridge.onReady(() => {
+      requestRandomFlagImage();
+      requestDiceButtonImages();
+    });
 
     // Watch for DOM changes to find rewards element and dice button location (only when in ChampSelect)
     const observer = new MutationObserver(() => {
@@ -910,12 +695,6 @@
       childList: true,
       subtree: true,
     });
-
-    // Request random flag image on init (for when it's needed)
-    requestRandomFlagImage();
-
-    // Request dice button images on init
-    requestDiceButtonImages();
 
     // Don't try to create elements on init - wait for phase-change message to know if we're in ChampSelect
 
