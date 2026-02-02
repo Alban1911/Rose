@@ -262,6 +262,21 @@ class Broadcaster:
         )
         
         self._send_message(json.dumps(payload))
+
+    def broadcast_skip_base_skin(self) -> None:
+        """Broadcast skip base skin to JavaScript plugins"""
+        if not self.websocket_server.loop or not self.websocket_server.connections:
+            return
+
+        payload = {
+            "type": "skip-base-skin",
+        }
+
+        log.debug(
+            "[SkinMonitor] Broadcasting skip base skin",
+        )
+
+        self._send_message(json.dumps(payload))
     
     def _send_message(self, message: str) -> None:
         """Send message to all connected clients"""

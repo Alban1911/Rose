@@ -166,6 +166,9 @@ class PenguSkinMonitorThread(threading.Thread):
     def _broadcast_random_mode_state(self) -> None:
         """Broadcast random mode state (delegates to broadcaster)"""
         self.broadcaster.broadcast_random_mode_state()
+
+    def _broadcast_skip_base_skin(self) -> None:
+        self.broadcaster.broadcast_skip_base_skin()
     
     # Backward compatibility properties
     @property

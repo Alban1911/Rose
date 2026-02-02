@@ -773,7 +773,10 @@ class InjectionTrigger:
     def _force_base_skin(self, base_skin_id: int):
         """Force base skin selection via LCU"""
         log.info(f"[INJECT] Forcing base skin (skinId={base_skin_id})")
-        
+
+        # Temporarily skip base skin handling in client
+        self.state.ui_skin_thread._broadcast_skip_base_skin()
+
         # Hide chroma border/wheel immediately
         try:
             from ui.core.user_interface import get_user_interface
