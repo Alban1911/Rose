@@ -181,6 +181,7 @@
       justify-content: center;
       pointer-events: none;
       z-index: 4;
+      overflow: hidden;
     }
 
     .skin-selection-carousel .skin-selection-item .${CHROMA_CONTAINER_CLASS} .chroma-button {
