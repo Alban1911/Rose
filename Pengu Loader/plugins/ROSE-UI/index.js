@@ -6,9 +6,7 @@
  */
 (function enableLockedSkinPreview() {
   const LOG_PREFIX = "[Rose-UI][skin-preview]";
-  const STYLE_ID = "lpp-ui-unlock-skins-css";
-  const INLINE_ID = `${STYLE_ID}-inline`;
-  const STYLESHEET_NAME = "style.css";
+  const INLINE_ID = "lpp-ui-unlock-skins-css-inline";
   const BORDER_CLASS = "lpp-skin-border";
   const HIDDEN_CLASS = "lpp-skin-hidden";
   const CHROMA_CONTAINER_CLASS = "lpp-chroma-container";
@@ -187,8 +185,6 @@
       display: none !important;
     }
 
- 
-
     .skin-selection-carousel-container .skin-selection-carousel .skin-selection-item .skin-selection-thumbnail {
       height: 100% !important;
       margin: 0 !important;
@@ -271,6 +267,9 @@
       pointer-events: none !important;
     }
 
+    .skin-selection-carousel-container {
+      clip-path: inset(-3px -9999px -9999px -9999px) !important;
+    }
   `;
 
   const log = {
@@ -278,26 +277,6 @@
     warn: (msg, extra) => console.warn(`${LOG_PREFIX} ${msg}`, extra ?? ""),
     error: (msg, extra) => console.error(`${LOG_PREFIX} ${msg}`, extra ?? ""),
   };
-
-  function resolveStylesheetHref() {
-    try {
-      const script =
-        document.currentScript ||
-        document.querySelector('script[src$="index.js"]') ||
-        document.querySelector('script[src*="LPP-UI"]');
-
-      if (script?.src) {
-        return new URL(STYLESHEET_NAME, script.src).toString();
-      }
-    } catch (error) {
-      log.warn(
-        "failed to resolve stylesheet URL; falling back to relative path",
-        error
-      );
-    }
-
-    return STYLESHEET_NAME;
-  }
 
   function injectInlineRules() {
     if (document.getElementById(INLINE_ID)) {
@@ -308,37 +287,7 @@
     styleTag.id = INLINE_ID;
     styleTag.textContent = INLINE_RULES;
     document.head.appendChild(styleTag);
-    log.warn("applied inline fallback styling");
-  }
-
-  function removeInlineRules() {
-    const existing = document.getElementById(INLINE_ID);
-    if (existing) {
-      existing.remove();
-    }
-  }
-
-  function attachStylesheet() {
-    if (document.getElementById(STYLE_ID)) {
-      return;
-    }
-
-    const link = document.createElement("link");
-    link.id = STYLE_ID;
-    link.rel = "stylesheet";
-    link.href = resolveStylesheetHref();
-
-    link.addEventListener("load", () => {
-      removeInlineRules();
-      log.info("external stylesheet loaded");
-    });
-
-    link.addEventListener("error", () => {
-      link.remove();
-      injectInlineRules();
-    });
-
-    document.head.appendChild(link);
+    log.info("inline styles applied");
   }
 
   function ensureBorderFrame(skinItem) {
@@ -474,6 +423,8 @@
   }
 
   function scanSkinSelection() {
+    injectInlineRules();
+
     document.querySelectorAll(".skin-selection-item").forEach((skinItem) => {
       ensureChromaContainer(skinItem);
       ensureBorderFrame(skinItem);
@@ -797,7 +748,7 @@
       bridge.subscribe("skip-base-skin", handleSkipBaseSkin);
 
       interceptChampSelectWebsocket();
-      attachStylesheet();
+      injectInlineRules();
       scanSkinSelection();
       setupSkinObserver();
       setupNavObserver();
