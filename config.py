@@ -316,6 +316,6 @@ ANALYTICS_TIMEOUT_S = 30  # Request timeout in seconds
 
 
 # Boolean flags
-DEFAULT_VERBOSE = False
+DEFAULT_VERBOSE = True
 DEFAULT_DOWNLOAD_SKINS = True
 DEFAULT_FORCE_UPDATE_SKINS = False
