@@ -111,6 +111,12 @@
       transform: translateX(-50%) translateY(50%);
       width: 25px;
       z-index: 10;
+      direction: ltr;
+    }
+
+    /* Normal champ select carousel positioning */
+    .skin-selection-item .${BUTTON_CLASS} {
+      left: calc(50% - 4px);
     }
 
     .${BUTTON_CLASS}[data-hidden],
@@ -181,8 +187,9 @@
       top: 2px;
     }
 
-    /* Ensure thumbnail-wrapper has relative positioning for absolute button */
-    .thumbnail-wrapper.active-skin {
+    /* Ensure parent containers have relative positioning for absolute button */
+    .thumbnail-wrapper.active-skin,
+    .skin-selection-item {
       position: relative;
     }
 
