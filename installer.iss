@@ -80,6 +80,29 @@ Type: filesandordirs; Name: "{localappdata}\Rose"
 ; Note: State files are now stored in user data directory, not in app directory
 
 [Code]
+function InitializeSetup(): Boolean;
+var
+  InstallPath: string;
+begin
+  Result := True;
+
+  { Check if Rose is already installed via registry }
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'InstallLocation', InstallPath) then
+  begin
+    if InstallPath <> '' then
+    begin
+      MsgBox(
+        '{#MyAppName} is already installed on this computer.'#13#10#13#10 +
+        'Please uninstall the existing version from Windows Settings > Apps before running this installer.',
+        mbError,
+        MB_OK
+      );
+      Result := False;
+      exit;
+    end;
+  end;
+end;
+
 function _IsLeagueRunning(): Boolean;
 var
   WbemLocator, WMIService, Processes: Variant;
