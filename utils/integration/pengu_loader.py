@@ -28,6 +28,42 @@ log = get_logger("pengu_loader")
 
 _ACTIVE_FLAG = get_state_dir() / "pengu_active.flag"
 
+# IFEO registry key used by old Pengu Loader versions
+_IFEO_KEY = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe"
+
+
+def cleanup_old_pengu_ifeo() -> bool:
+    """
+    Clean up old Pengu Loader IFEO (Image File Execution Options) registry entry.
+
+    Old versions of Pengu Loader used IFEO to inject into League, which can cause
+    client crashes with newer versions. This cleanup is equivalent to running:
+    irm https://pengu.lol/clean | iex
+
+    Returns True if cleanup was performed, False otherwise.
+    """
+    if sys.platform != "win32":
+        return False
+
+    try:
+        import winreg
+        try:
+            # Try to open the key - if it exists, delete it
+            winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _IFEO_KEY, 0, winreg.KEY_READ)
+            # Key exists, delete it
+            winreg.DeleteKey(winreg.HKEY_LOCAL_MACHINE, _IFEO_KEY)
+            log.info("Cleaned up old Pengu Loader IFEO registry entry")
+            return True
+        except FileNotFoundError:
+            # Key doesn't exist, nothing to clean up
+            return False
+        except PermissionError:
+            log.debug("No permission to clean up IFEO registry entry (requires admin)")
+            return False
+    except Exception as exc:
+        log.debug("Failed to clean up old Pengu IFEO entry: %s", exc)
+        return False
+
 _PLUGIN_ENTRYPOINT = "index.js"
 _PLUGIN_ENTRYPOINT_DISABLED = "index.js_"
 _PLUGIN_ENTRYPOINT_BUNDLED_BACKUP = "index.js.bundled"
