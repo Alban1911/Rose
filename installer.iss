@@ -149,10 +149,27 @@ begin
   Result := True;
 end;
 
+procedure _CleanupPenguIFEO();
+var
+  IFEOKey: string;
+begin
+  { Clean up old Pengu Loader IFEO (Image File Execution Options) registry entry.
+    This fixes issues where an outdated Pengu Loader installation causes client crashes.
+    Equivalent to: irm https://pengu.lol/clean | iex }
+  IFEOKey := 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe';
+  if RegKeyExists(HKEY_LOCAL_MACHINE, IFEOKey) then
+  begin
+    RegDeleteKeyIncludingSubkeys(HKEY_LOCAL_MACHINE, IFEOKey);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    // Clean up old Pengu Loader IFEO entries that can cause client crashes
+    _CleanupPenguIFEO();
+
     // Create registry entries for Windows Apps list
     RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayName', '{#MyAppName}');
     RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayVersion', '{#MyAppVersion}');
