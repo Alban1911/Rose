@@ -54,7 +54,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 2. **Skin Detection**: When you hover over a skin in champion select, `ROSE-SkinMonitor` detects the selection and sends it to the Python backend
 3. **Game Opening Delay**: To make sure the injection has time to occur we suspend League of Legend's game process as long as the overlay is not ran
 4. **Game Injection**: Using CSLOL tools, Rose injects the selected skin when the game starts
-5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact (Rose will never provide any competitive advantage to its users)
+5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact (**Rose will never provide any competitive advantage to its users**)
 
 ## Features
 
