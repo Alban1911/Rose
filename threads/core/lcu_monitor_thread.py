@@ -35,6 +35,8 @@ class LCUMonitorThread(threading.Thread):
         self.ws_connected = False
         self.language_initialized = False  # Track if language was successfully detected after reconnection
         self.last_language_check = 0.0  # Timestamp of last language check
+        self.language_retry_count = 0  # Track consecutive language detection failures
+        self.max_language_retries = 5  # Force reconnect after this many failures
 
     def run(self):
         """Main monitoring loop"""
@@ -65,17 +67,20 @@ class LCUMonitorThread(threading.Thread):
                 elif current_lcu_ok and current_ws_connected and not self.ws_connected:
                     log.info("WebSocket connected - detecting language...")
                     self.ws_connected = True
-                    
+
                     # Wait longer for WebSocket and LCU to fully stabilize
                     time.sleep(2.0)
-                    
+
+                    # Validate connection is actually responsive before proceeding
+                    if not self._validate_connection():
+                        log.warning("[LCU] Connection validation failed - forcing reconnect...")
+                        self.ws_connected = False
+                        self.lcu.refresh_if_needed(force=True)
+                        continue
+
                     # Try to detect language first (will retry if this fails)
                     self._try_detect_language()
-                    
-                    # Load owned skins after language detection
-                    # WebSocket is connected, so LCU should be ready
-                    self._load_owned_skins()
-                    
+
                     # Check initial champion select state (for issue #29: app starting after lock)
                     self._check_initial_champion_state()
                 
@@ -108,24 +113,26 @@ class LCUMonitorThread(threading.Thread):
                 log.debug(f"LCU monitor error: {e}")
             
             time.sleep(LCU_MONITOR_INTERVAL)
-    
-    def _load_owned_skins(self):
-        """Load owned skins from LCU inventory"""
+
+    def _validate_connection(self) -> bool:
+        """Validate LCU connection is actually responsive (not stale)"""
         try:
-            owned_skins = self.lcu.owned_skins()
-            log.debug(f"[LCU] Raw owned skins response: {owned_skins}")
-            if owned_skins and isinstance(owned_skins, list):
-                self.state.owned_skin_ids = set(owned_skins)
-                log.info(f"[LCU] Loaded {len(self.state.owned_skin_ids)} owned skins from inventory")
+            # Try a simple API call to verify the connection works
+            result = self.lcu.get("/lol-summoner/v1/current-summoner")
+            if result is not None:
+                log.debug("[LCU] Connection validated - API is responsive")
+                return True
             else:
-                log.warning(f"[LCU] Failed to fetch owned skins from LCU - no data returned (response: {owned_skins})")
+                log.debug("[LCU] Connection validation failed - API returned None")
+                return False
         except Exception as e:
-            log.warning(f"[LCU] Error fetching owned skins: {e}")
-    
+            log.debug(f"[LCU] Connection validation error: {e}")
+            return False
+
     def _try_detect_language(self):
         """Try to detect and initialize language from LCU"""
         self.last_language_check = time.time()
-        
+
         try:
             log.info("[LCU] Detecting client language...")
             new_language = self.lcu.client_language
@@ -134,19 +141,29 @@ class LCUMonitorThread(threading.Thread):
                     log.info(f"[LCU] Language detected: {new_language}")
                 else:
                     log.info(f"[LCU] Language confirmed: {new_language}")
-                
+
+                # Reset retry count on success
+                self.language_retry_count = 0
+
                 # Update database language if available
                 if self.db:
                     log.info(f"[LCU] Updating database for language: {new_language}")
                     self.db.update_language(new_language)
-                
+
                 # Always call callback on reconnection to ensure UI detection is reinitialized
                 self.last_language = new_language
                 self.language_initialized = True
                 if self.language_callback:
                     self.language_callback(new_language)
             else:
-                log.warning("[LCU] Failed to get LCU language - client returned None")
+                self.language_retry_count += 1
+                log.warning(f"[LCU] Failed to get LCU language - client returned None (attempt {self.language_retry_count}/{self.max_language_retries})")
+
+                # Force reconnect after too many failures (stale connection)
+                if self.language_retry_count >= self.max_language_retries:
+                    log.warning("[LCU] Too many failed attempts - connection may be stale, forcing reconnect...")
+                    self.language_retry_count = 0
+                    self.lcu.refresh_if_needed(force=True)
         except Exception as e:
             log.warning(f"[LCU] Failed to get LCU language: {e}")
     
