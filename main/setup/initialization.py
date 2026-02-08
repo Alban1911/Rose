@@ -12,6 +12,7 @@ import argparse
 
 from config import TRAY_INIT_SLEEP_S
 from utils.core.logging import setup_logging, get_logger, log_section, log_success
+from utils.core.paths import get_user_data_dir, get_detected_user_info
 from utils.integration.tray_manager import TrayManager
 
 log = get_logger()
@@ -35,10 +36,19 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     force_logs = bool(getattr(args, "logs", False))
     write_logs = (not bool(getattr(args, "dev", False))) or force_logs
     setup_logging(log_mode, write_logs=write_logs)
-    
+
+    # Log user detection info (helps diagnose "Run as Administrator" issues)
+    current_user, target_user, is_mismatch = get_detected_user_info()
+    data_dir = get_user_data_dir()
+    if is_mismatch:
+        log.info(f"User mismatch detected: Running as '{current_user}', using '{target_user}' data directory")
+        log.info(f"Data directory: {data_dir}")
+    else:
+        log.debug(f"User: {current_user}, Data directory: {data_dir}")
+
     # Suppress PIL/Pillow debug messages for optional image plugins
     logging.getLogger("PIL").setLevel(logging.INFO)
-    
+
     # Show startup banner (mode-aware via log_section)
     if log_mode == 'customer':
         # Simple startup for customer mode
