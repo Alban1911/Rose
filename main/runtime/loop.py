@@ -10,7 +10,7 @@ from typing import Any
 from state import SharedState
 from lcu import LCUSkinScraper
 from utils.core.logging import get_logger, log_section
-from config import MAIN_LOOP_SLEEP, MAIN_LOOP_STALL_THRESHOLD_S, CHROMA_PANEL_PROCESSING_THRESHOLD_S
+from config import MAIN_LOOP_SLEEP, MAIN_LOOP_IDLE_SLEEP, MAIN_LOOP_STALL_THRESHOLD_S, CHROMA_PANEL_PROCESSING_THRESHOLD_S
 
 log = get_logger()
 
@@ -22,33 +22,34 @@ def run_main_loop(state: SharedState, skin_scraper: LCUSkinScraper) -> None:
     """Run the main application loop"""
     last_phase = None
     last_loop_time = time.time()
-    
+
     try:
         while not state.stop:
             loop_start = time.time()
-            
+
             # Watchdog: detect if previous loop took too long
             time_since_last_loop = loop_start - last_loop_time
             if time_since_last_loop > MAIN_LOOP_STALL_THRESHOLD_S:
                 log.warning(f"Main loop stall detected: {time_since_last_loop:.1f}s since last iteration")
             last_loop_time = loop_start
-            
+
             # Check if we should stop (extra check with logging)
             if state.stop:
                 log.debug("[DEBUG] Main loop detected stop flag - exiting")
                 break
-            
+
             ph = state.phase
             if ph != last_phase:
                 last_phase = ph
-            
+
             # Check for skin changes and notify UI (modular architecture)
+            ui_activity = False
             try:
-                _process_ui_updates(state, skin_scraper)
+                ui_activity = _process_ui_updates(state, skin_scraper)
             except Exception as e:
                 log.debug(f"UI processing error: {e}")
-            
-            time.sleep(MAIN_LOOP_SLEEP)
+
+            time.sleep(_compute_main_loop_sleep(state, ui_activity))
     except KeyboardInterrupt:
         log_section(log, "Shutting Down (Keyboard Interrupt)", "")
         log.debug(f"[DEBUG] Keyboard interrupt - setting state.stop = True")
@@ -58,8 +59,26 @@ def run_main_loop(state: SharedState, skin_scraper: LCUSkinScraper) -> None:
         state.stop = True
 
 
-def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> None:
-    """Process UI updates in the main loop"""
+def _compute_main_loop_sleep(state: SharedState, ui_activity: bool) -> float:
+    """Return adaptive main-loop sleep based on current activity."""
+    fast_loop = (
+        ui_activity
+        or state.champion_exchange_triggered
+        or state.chroma_panel_open
+        or state.pending_chroma_selection
+    )
+    return MAIN_LOOP_SLEEP if fast_loop else MAIN_LOOP_IDLE_SLEEP
+
+
+def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> bool:
+    """Process UI updates in the main loop.
+
+    Returns:
+        True when this iteration has active UI/chroma work and benefits from
+        high-frequency looping.
+    """
+    ui_activity = False
+
     # For Swiftplay mode, use ui_skin_id and calculate champion_id from skin_id
     # For regular mode, use last_hovered_skin_id and locked_champ_id
     if state.is_swiftplay_mode and state.ui_skin_id:
@@ -78,7 +97,8 @@ def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> Non
     elif state.last_hovered_skin_id and state.locked_champ_id:
         current_skin_id = state.last_hovered_skin_id
         current_skin_name = state.last_hovered_skin_key
-        
+        champion_id = state.locked_champ_id
+
         # Get champion name from LCU skin scraper cache
         champion_name = None
         if skin_scraper and skin_scraper.cache.is_loaded_for_champion(state.locked_champ_id):
@@ -88,7 +108,7 @@ def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> Non
         champion_id = None
         champion_name = None
         current_skin_name = None
-    
+
     # Check if UI should be hidden in Swiftplay mode when detection is lost
     # But only if we don't have extracted mods waiting for overlay injection
     # (i.e., overlay hasn't been built yet, so we should wait for it)
@@ -118,18 +138,20 @@ def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> Non
         else:
             # Reset the hidden flag if we have extracted mods (overlay might be building)
             _loop_state['swiftplay_ui_hidden'] = False
-    
+
     if current_skin_id:
+        ui_activity = True
+
         # Check if we need to reset skin notification debouncing
         if state.reset_skin_notification:
             _loop_state.pop('last_notified_skin_id', None)
             state.reset_skin_notification = False
             log.debug("[MAIN] Reset skin notification debouncing for new ChampSelect")
-        
+
         # Check if this is a new skin (debouncing at main loop level)
         last_notified = _loop_state.get('last_notified_skin_id')
         should_notify = (last_notified is None or last_notified != current_skin_id)
-        
+
         if should_notify:
             # Notify UserInterface of the skin change
             try:
@@ -153,37 +175,54 @@ def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> Non
                         _loop_state['ui_not_initialized_logged'] = current_skin_id
             except Exception as e:
                 log.error(f"[MAIN] Failed to notify UI: {e}")
-    
+
     # Process pending UI initialization and requests
     from ui.core.user_interface import get_user_interface
     user_interface = get_user_interface(state, skin_scraper)
-    
+
     # Process pending UI operations first (must be done in main thread)
-    if user_interface.has_pending_operations():
+    pending_operations = user_interface.has_pending_operations()
+    if pending_operations:
+        ui_activity = True
         log.debug("[MAIN] Processing pending UI operations")
     user_interface.process_pending_operations()
-    
+
     # Handle champion exchange - hide UI elements (must be done in main thread)
     if state.champion_exchange_triggered:
         try:
             state.champion_exchange_triggered = False  # Reset flag
             if user_interface.is_ui_initialized():
+                ui_activity = True
                 log.info("[MAIN] Champion exchange detected - hiding UI elements")
-                
+
                 # Chroma button is handled by JavaScript plugin - no need to hide Python button
         except Exception as e:
             log.error(f"[MAIN] Failed to hide UI during champion exchange: {e}")
-    
+
     if user_interface.is_ui_initialized() and user_interface.chroma_ui and user_interface.chroma_ui.chroma_selector and user_interface.chroma_ui.chroma_selector.panel:
-        chroma_start = time.time()
-        user_interface.chroma_ui.chroma_selector.panel.process_pending()
-        # Update positions to follow League window
-        user_interface.chroma_ui.chroma_selector.panel.update_positions()
-        chroma_elapsed = time.time() - chroma_start
-        if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
-            log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
-    
+        panel = user_interface.chroma_ui.chroma_selector.panel
+        panel_has_work = (
+            state.chroma_panel_open
+            or state.pending_chroma_selection
+            or getattr(panel, "pending_show", None) is not None
+            or getattr(panel, "pending_hide", False)
+            or getattr(panel, "pending_create", False)
+            or getattr(panel, "pending_destroy", False)
+            or getattr(panel, "pending_rebuild", False)
+        )
+
+        if panel_has_work:
+            ui_activity = True
+            chroma_start = time.time()
+            panel.process_pending()
+            # Update positions to follow League window
+            panel.update_positions()
+            chroma_elapsed = time.time() - chroma_start
+            if chroma_elapsed > CHROMA_PANEL_PROCESSING_THRESHOLD_S:
+                log.warning(f"[WATCHDOG] Chroma panel processing took {chroma_elapsed:.2f}s")
+
     # Check for resolution changes and update UI components
     if user_interface.is_ui_initialized():
         user_interface.check_resolution_and_update()
 
+    return ui_activity

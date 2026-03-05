@@ -126,6 +126,7 @@ LCU_MONITOR_INTERVAL = 1.0  # Seconds between LCU connection checks
 
 # Main loop sleep intervals
 MAIN_LOOP_SLEEP = 0.016     # Main loop iteration sleep time (16ms for 60 FPS responsive chroma UI)
+MAIN_LOOP_IDLE_SLEEP = 0.05  # Idle main loop sleep time (50ms when no active UI/chroma work)
 
 
 # =============================================================================
@@ -335,3 +336,4 @@ ANALYTICS_TIMEOUT_S = 30  # Request timeout in seconds
 DEFAULT_VERBOSE = True
 DEFAULT_DOWNLOAD_SKINS = True
 DEFAULT_FORCE_UPDATE_SKINS = False
+
