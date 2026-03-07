@@ -1181,6 +1181,27 @@
     }
     skinChromaCache.set(numericId, Boolean(hasChromas));
   }
+  function hasKnownChromas(skinId) {
+    const numericId = getNumericId(skinId);
+    if (!Number.isFinite(numericId)) {
+      return false;
+    }
+
+    if (isSpecialBaseSkin(numericId) || isSpecialChromaSkin(numericId)) {
+      return true;
+    }
+
+    if (skinChromaCache.get(numericId)) {
+      return true;
+    }
+
+    const baseSkinId = chromaParentMap.get(numericId);
+    return Number.isFinite(baseSkinId)
+      ? Boolean(
+          isSpecialBaseSkin(baseSkinId) || skinChromaCache.get(baseSkinId)
+        )
+      : false;
+  }
 
   function registerChromaChildren(baseSkinId, childSkins) {
     const numericBaseId = getNumericId(baseSkinId);
@@ -1814,7 +1835,7 @@
     }
 
     const hasChromas = Boolean(
-      skinMonitorState?.hasChromas || isSpecialBaseSkin(currentSkinId)
+      skinMonitorState?.hasChromas || hasKnownChromas(currentSkinId)
       // Note: Mordekaiser (82054), Spirit Blossom Morgana (25080), and HOL skins removed - handled by ROSE-FormsWheel
     );
 
@@ -3660,27 +3681,32 @@
     if (window.__roseSkinState) {
       skinMonitorState = window.__roseSkinState;
 
-      // Proactively fetch champion data if initial state has chromas
+      // Warm champion data up front so button visibility can recover even if
+      // the first skin-state payload reports hasChromas=false before caches settle.
       if (
         skinMonitorState &&
-        skinMonitorState.hasChromas &&
         skinMonitorState.championId &&
         skinMonitorState.skinId
       ) {
         const championId = skinMonitorState.championId;
         if (!championSkinCache.has(championId)) {
           log.info(
-            `[ChromaWheel] Proactively fetching champion ${championId} data for initial skin ${skinMonitorState.skinId} with chromas`
+            `[ChromaWheel] Warming champion ${championId} data for initial skin ${skinMonitorState.skinId}`
           );
           fetchChampionSkinData(championId)
             .then(() => {
               log.info(
-                `[ChromaWheel] Successfully fetched champion ${championId} data (initial)`
+                `[ChromaWheel] Successfully warmed champion ${championId} data (initial)`
               );
+              try {
+                scanSkinSelection();
+              } catch (e) {
+                log.debug("Initial scan after champion warmup failed", e);
+              }
             })
             .catch((err) => {
               log.warn(
-                `[ChromaWheel] Failed to proactively fetch champion ${championId} data (initial)`,
+                `[ChromaWheel] Failed to warm champion ${championId} data (initial)`,
                 err
               );
             });
@@ -3710,24 +3736,23 @@
         updateChromaButtonColor(); // Reset button to default image
       }
 
-      // Proactively fetch champion data when a skin with chromas is detected
-      if (detail && detail.hasChromas && detail.championId && detail.skinId) {
+      // Warm champion data once per champion so local caches can correct
+      // intermittent false negatives from the initial skin-state payload.
+      if (detail && detail.championId && detail.skinId) {
         const championId = detail.championId;
         const skinId = detail.skinId;
 
-        // Only fetch if champion data isn't cached yet, or if skin changed
-        const shouldFetch =
-          !championSkinCache.has(championId) ||
-          (prevState && prevState.skinId !== skinId);
+        // Only fetch if champion data isn't cached yet.
+        const shouldFetch = !championSkinCache.has(championId);
 
         if (shouldFetch) {
           log.info(
-            `[ChromaWheel] Proactively fetching champion ${championId} data for skin ${skinId} with chromas`
+            `[ChromaWheel] Warming champion ${championId} data for skin ${skinId}`
           );
           fetchChampionSkinData(championId)
             .then(() => {
               log.info(
-                `[ChromaWheel] Successfully fetched champion ${championId} data`
+                `[ChromaWheel] Successfully warmed champion ${championId} data`
               );
               // Trigger a rescan to update button visibility if needed
               try {
@@ -3738,13 +3763,13 @@
             })
             .catch((err) => {
               log.warn(
-                `[ChromaWheel] Failed to proactively fetch champion ${championId} data`,
+                `[ChromaWheel] Failed to warm champion ${championId} data`,
                 err
               );
             });
         } else {
           log.info(
-            `[ChromaWheel] Champion ${championId} data already cached, skipping proactive fetch`
+            `[ChromaWheel] Champion ${championId} data already cached, skipping warmup`
           );
         }
       }
