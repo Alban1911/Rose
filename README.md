@@ -4,7 +4,7 @@
 
   <img src="./assets/icon.png" alt="Rose Icon" width="128" height="128">
 
-[![Installer](https://img.shields.io/badge/Installer-Windows-32A832)](https://github.com/Alban1911/Rose/releases/latest) [![Ko-Fi](https://img.shields.io/badge/KoFi-Donate-C03030?logo=ko-fi&logoColor=white)](https://ko-fi.com/roseapp) [![Discord](https://img.shields.io/discord/1465467335946272780?color=32A832&logo=discord&logoColor=white&label=Discord)](https://discord.com/invite/roseapp)  [![License](https://img.shields.io/badge/License-Open%20Source-C03030)](LICENSE)
+[![Installer](https://img.shields.io/badge/Installer-Windows-32A832)](https://gitlab.com/Alban1911/Rose/-/releases) [![Ko-Fi](https://img.shields.io/badge/KoFi-Donate-C03030?logo=ko-fi&logoColor=white)](https://ko-fi.com/roseapp) [![Discord](https://img.shields.io/discord/1465467335946272780?color=32A832&logo=discord&logoColor=white&label=Discord)](https://discord.com/invite/roseapp)  [![License](https://img.shields.io/badge/License-Open%20Source-C03030)](LICENSE)
 
 
 </div>
@@ -79,7 +79,7 @@ On first launch, Rose will prompt you to provide this file and open the folder w
 
 ## Installation
 
-1. Download the latest installer from [Releases](https://github.com/Alban1911/Rose/releases/latest)
+1. Download the latest installer from [Releases](https://gitlab.com/Alban1911/Rose/-/releases)
 2. Run the installer as Administrator
 3. Launch Rose from the Start Menu or desktop shortcut
 
