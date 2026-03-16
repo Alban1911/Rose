@@ -11,6 +11,7 @@ import pystray
 from PIL import Image, ImageDraw
 from utils.core.logging import get_logger
 from config import (
+    APP_VERSION,
     TRAY_READY_MAX_WAIT_S, TRAY_READY_CHECK_INTERVAL_S,
     TRAY_THREAD_JOIN_TIMEOUT_S, TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT,
     TRAY_ICON_ELLIPSE_COORDS, TRAY_ICON_BORDER_WIDTH,
@@ -194,7 +195,7 @@ class TrayManager:
     def _create_menu(self) -> pystray.Menu:
         """Create the context menu for the tray icon"""
         return pystray.Menu(
-            pystray.MenuItem("Rose", None, enabled=False),
+            pystray.MenuItem(f"Rose v{APP_VERSION}", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._on_quit)
         )
