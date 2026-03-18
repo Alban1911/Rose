@@ -800,13 +800,15 @@ class RepoDownloader:
                 log.info("Only resources folder changed, will download ZIP to update resources only")
                 self._emit_progress(10, "Skin ID mapping needs update, downloading...")
                 # Download ZIP but only extract resources, skip skins
-                return self._download_and_extract_resources_only(force_update=force_update)
+                # Always overwrite since we detected resources have changed
+                return self._download_and_extract_resources_only(force_update=True)
             
             # If both changed, use normal flow (download ZIP and extract both)
             if resources_changed and skins_changed:
                 log.info("Both skins and resources folders changed, will download ZIP to update both")
                 self._emit_progress(10, "Skins and skin ID mapping need update, downloading...")
-                return self.download_and_extract_skins(force_update=force_update)
+                # Always force update since we detected changes
+                return self.download_and_extract_skins(force_update=True)
             
             # Only skins changed, continue with incremental update
             
@@ -952,7 +954,8 @@ class RepoDownloader:
                         # Only resources need updating, use resources-only method
                         log.info(f"Found {len(existing_skins)} existing skins, but resources need updating")
                         self._emit_progress(5, "Skin ID mapping needs update, downloading...")
-                        return self._download_and_extract_resources_only(force_update=force_update)
+                        # Always overwrite since we detected resources have changed
+                        return self._download_and_extract_resources_only(force_update=True)
                     else:
                         log.info(f"Found {len(existing_skins)} existing skins, but updates needed")
             
@@ -967,7 +970,8 @@ class RepoDownloader:
             if existing_skins and resources_need_update and not skins_need_update:
                 # Only resources need updating, use resources-only method
                 log.info("Only resources folder needs updating (skins already exist)")
-                return self._download_and_extract_resources_only(force_update=force_update)
+                # Always overwrite since we detected resources have changed
+                return self._download_and_extract_resources_only(force_update=True)
             elif resources_need_update:
                 log.info("Resources folder needs updating")
             else:
@@ -989,9 +993,10 @@ class RepoDownloader:
             
             try:
                 # Extract from ZIP (only what needs updating)
+                # Overwrite if either skins or resources need updating (we already checked)
                 success = self.extract_skins_from_zip(
                     zip_path,
-                    overwrite_existing=force_update,
+                    overwrite_existing=skins_need_update or resources_need_update,
                     progress_start=70.0,
                     progress_end=100.0,
                     extract_skins=skins_need_update,
