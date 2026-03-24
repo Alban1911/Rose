@@ -167,6 +167,9 @@ class OverlayManager:
                     'timestamp': time.time()
                 }
 
+                # Wipe decrypted skin files now that mkoverlay is done with them
+                self._wipe_mods_dir()
+
                 # Hide overlay files so they can't be easily browsed
                 self._hide_directory(overlay_dir)
 
@@ -260,6 +263,19 @@ class OverlayManager:
             log.error(f"[INJECT] runoverlay error: {e}")
             return 1
     
+    def _wipe_mods_dir(self):
+        """Delete decrypted skin files immediately after mkoverlay consumes them"""
+        try:
+            import shutil
+            for p in self.mods_dir.iterdir():
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    p.unlink(missing_ok=True)
+            log.debug("[INJECT] Wiped mods directory after mkoverlay")
+        except Exception as e:
+            log.debug(f"[INJECT] Could not wipe mods directory: {e}")
+
     @staticmethod
     def _hide_directory(path: Path):
         """Set hidden + system attributes on a directory and its contents (Windows only)"""
