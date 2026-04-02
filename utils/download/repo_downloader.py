@@ -40,7 +40,7 @@ class RepoDownloader:
     def __init__(
         self,
         target_dir: Path = None,
-        repo_url: str = "https://github.com/Alban1911/RoseTestSkins",
+        repo_url: str = "https://github.com/Alban1911/RoseSkin",
         progress_callback: Optional[ProgressCallback] = None,
     ):
         self.repo_url = repo_url
@@ -54,8 +54,8 @@ class RepoDownloader:
 
         # Version tracking
         self.version_file = self.target_dir / '.skin_version'
-        self.api_base = "https://api.github.com/repos/Alban1911/RoseTestSkins"
-        self.raw_base = "https://raw.githubusercontent.com/Alban1911/RoseTestSkins/main"
+        self.api_base = "https://api.github.com/repos/Alban1911/RoseSkin"
+        self.raw_base = "https://raw.githubusercontent.com/Alban1911/RoseSkin/main"
 
         # If changed files exceed this, use full ZIP instead of individual downloads
         self.incremental_file_threshold = 200
@@ -376,7 +376,7 @@ class RepoDownloader:
                 continue
             
             # Convert ZIP path to relative path
-            relative_path = file_info.filename.replace('RoseTestSkins-main/', '')
+            relative_path = file_info.filename.replace('RoseSkin-main/', '')
 
             # Remove 'skins/' or 'resources/' prefix to match local structure
             if relative_path.startswith('skins/'):
@@ -456,8 +456,8 @@ class RepoDownloader:
                 if extract_skins:
                     for file_info in zip_ref.filelist:
                         # Look for files in skins/ directory, but skip the skins directory itself
-                        if (file_info.filename.startswith('RoseTestSkins-main/skins/') and 
-                            file_info.filename != 'RoseTestSkins-main/skins/' and
+                        if (file_info.filename.startswith('RoseSkin-main/skins/') and 
+                            file_info.filename != 'RoseSkin-main/skins/' and
                             not file_info.filename.endswith('/')):
                             skins_files.append(file_info)
                             
@@ -474,8 +474,8 @@ class RepoDownloader:
                 if extract_resources:
                     for file_info in zip_ref.filelist:
                         # Look for files in resources/ directory (entire folder)
-                        if (file_info.filename.startswith('RoseTestSkins-main/resources/') and 
-                            file_info.filename != 'RoseTestSkins-main/resources/' and
+                        if (file_info.filename.startswith('RoseSkin-main/resources/') and 
+                            file_info.filename != 'RoseSkin-main/resources/' and
                             not file_info.filename.endswith('/')):
                             resources_files.append(file_info)
                             resources_count += 1
@@ -534,7 +534,7 @@ class RepoDownloader:
                             continue
 
                         label = "Extracting skins..." if entry_type == "skin" else "Extracting skin ID mapping..."
-                        relative_path = file_info.filename.replace('RoseTestSkins-main/', '')
+                        relative_path = file_info.filename.replace('RoseSkin-main/', '')
                         is_zip = relative_path.endswith('.rse')
                         is_png = relative_path.endswith('.png')
 
