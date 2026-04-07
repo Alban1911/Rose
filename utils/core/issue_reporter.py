@@ -108,6 +108,47 @@ def read_issues_tail(*, max_lines: int = 60) -> list[str]:
         return []
 
 
+def clear_issue(code: str) -> bool:
+    """Remove all diagnostics lines reported for *code* (safe, never raises)."""
+    try:
+        if code not in _ALLOWED_CODES:
+            return False
+        with _LOCK:
+            p = _issues_path()
+            if not p.exists():
+                return True
+            lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+            # Each report is 1-2 lines: the message line + optional "Fix:" line.
+            # Dedupe key is "code|message", but the file doesn't store the code.
+            # We match on the message text associated with this code.
+            # Simpler approach: remove from _LAST cache so re-reporting works.
+            keys_to_remove = [k for k in _LAST if k.startswith(f"{code}|")]
+            for k in keys_to_remove:
+                _LAST.pop(k, None)
+            # Remove lines containing the code's known messages
+            _CODE_MARKERS = {
+                "SKIN_DECRYPT_KEY_FAILED": "failed to fetch decryption key",
+            }
+            marker = _CODE_MARKERS.get(code)
+            if not marker:
+                return False
+            filtered = []
+            skip_next = False
+            for line in lines:
+                if skip_next and line.startswith("Fix:"):
+                    skip_next = False
+                    continue
+                skip_next = False
+                if marker.lower() in line.lower():
+                    skip_next = True
+                    continue
+                filtered.append(line)
+            p.write_text("\n".join(filtered) + "\n" if filtered else "", encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
 def clear_issues() -> bool:
     """Clear rose_diagnostics.txt (safe, never raises). Returns True if cleared."""
     try:
