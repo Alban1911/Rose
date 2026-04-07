@@ -42,10 +42,51 @@ def _get_tools_dir() -> Path:
         return Path(__file__).parent.parent / "injection" / "tools"
 
 
+_VALID_DLL_HASHES = {
+    "4a009619c6dea691780b2f20cf17e08de478a78b3f11cd72759dd71c00ad1c90",
+}
+
+
+def _check_dll_hash(dll_path) -> bool:
+    """Verify cslol-dll.dll matches a known-good SHA-256 hash."""
+    import hashlib
+    try:
+        sha = hashlib.sha256()
+        with open(dll_path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                sha.update(chunk)
+        return sha.hexdigest() in _VALID_DLL_HASHES
+    except Exception:
+        return False
+
+
+def _show_dll_invalid_dialog(tools_dir) -> bool:
+    """Show a warning that the DLL file is invalid/untrusted."""
+    import ctypes
+    import subprocess
+
+    ctypes.windll.user32.MessageBoxW(
+        0,
+        "The cslol-dll.dll file you provided is not recognized.\n\n"
+        "It may be corrupted, outdated, or from an untrusted source.\n"
+        "Using an unverified DLL can compromise your system.\n\n"
+        "Please replace it with the correct file.\n\n"
+        "This file is NOT available on our Discord. Do not ask for it there.\n"
+        "Asking for or sharing this file will result in a permanent ban.",
+        "Rose - Invalid DLL",
+        0x40010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND
+    )
+    try:
+        subprocess.run(["explorer", str(tools_dir)], check=False)
+    except Exception:
+        pass
+    return False
+
+
 def _check_dll_present() -> bool:
     """
-    Check if cslol-dll.dll is present. If not, show a warning dialog and exit.
-    Returns True if DLL is present, False otherwise (after showing dialog).
+    Check if cslol-dll.dll is present and valid. If not, show a warning dialog and exit.
+    Returns True if DLL is present and hash-verified, False otherwise.
     """
     if sys.platform != "win32":
         return True  # Only relevant on Windows
@@ -54,7 +95,12 @@ def _check_dll_present() -> bool:
     dll_path = tools_dir / "cslol-dll.dll"
 
     if dll_path.exists():
-        return True
+        if _check_dll_hash(dll_path):
+            return True
+        # DLL exists but wrong hash — show specific warning
+        return _show_dll_invalid_dialog(tools_dir)
+
+    # DLL missing
 
     # DLL is missing - show native Windows TaskDialog with clickable link
     import ctypes
@@ -153,11 +199,11 @@ def _check_dll_present() -> bool:
     buttons[1].pszButtonText = "Cancel"
 
     content_text = (
-        "Due to a recent DMCA takedown, Rose can no longer distribute the cslol-dll.dll file.\n\n"
-        "To use Rose, you must provide your own signed cslol-dll.dll file.\n\n"
-        "For more information, join our Discord:\n"
-        "<a href=\"https://discord.gg/roseapp\">https://discord.gg/roseapp</a>\n\n"
-        "Without this file, Rose cannot function."
+        "Due to DMCA restrictions, Rose cannot distribute the cslol-dll.dll file.\n\n"
+        "You must provide your own signed cslol-dll.dll file.\n\n"
+        "This file is NOT available on our Discord. Do not ask for it there.\n"
+        "Asking for or sharing this file on the Discord will result in a permanent ban.\n\n"
+        "<a href=\"https://discord.gg/roseapp\">https://discord.gg/roseapp</a>"
     )
 
     # Configure dialog
@@ -192,9 +238,10 @@ def _check_dll_present() -> bool:
         # Fallback to simple MessageBox
         result = ctypes.windll.user32.MessageBoxW(
             0,
-            "Due to a recent DMCA takedown, Rose can no longer distribute the cslol-dll.dll file.\n\n"
-            "To use Rose, you must provide your own signed cslol-dll.dll file.\n\n"
-            "For more information, join our Discord: https://discord.gg/roseapp\n\n"
+            "Due to DMCA restrictions, Rose cannot distribute the cslol-dll.dll file.\n\n"
+            "You must provide your own signed cslol-dll.dll file.\n\n"
+            "This file is NOT available on our Discord. Do not ask for it there.\n"
+            "Asking for or sharing this file will result in a permanent ban.\n\n"
             "Click OK to open the folder where you should place the DLL.",
             "Rose - DLL Required",
             0x40031  # MB_OKCANCEL | MB_ICONWARNING | MB_SETFOREGROUND
