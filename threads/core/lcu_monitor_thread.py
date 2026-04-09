@@ -4,6 +4,7 @@
 LCU connection monitoring thread for language detection
 """
 
+import json
 import time
 import threading
 from typing import Callable, Optional
@@ -99,9 +100,12 @@ class LCUMonitorThread(threading.Thread):
                 elif not current_lcu_ok and self.waiting_for_connection:
                     # Refresh connection periodically
                     self.lcu.refresh_if_needed()
-                
+
+                if current_lcu_ok and current_ws_connected:
+                    self._maybe_recover_locked_champ_select_state()
+                 
                 self.last_lcu_ok = current_lcu_ok
-                
+                 
             except Exception as e:
                 log.debug(f"LCU monitor error: {e}")
             
@@ -188,6 +192,7 @@ class LCUMonitorThread(threading.Thread):
             my_cell = sess.get("localPlayerCellId")
             if my_cell is None:
                 return
+            self.state.local_cell_id = my_cell
             
             # Check if there are any locked champions
             locked_champions = compute_locked(sess)
@@ -196,48 +201,132 @@ class LCUMonitorThread(threading.Thread):
             if my_cell in locked_champions:
                 locked_champ_id = locked_champions[my_cell]
                 
-                # Only update if not already set (avoid duplicate processing)
-                if self.state.locked_champ_id != locked_champ_id:
-                    champ_name = f"champ_{locked_champ_id}"  # Use ID since we don't have database
-                    
-                    log_status(log, "Initial state: Champion already locked", f"{champ_name} (ID: {locked_champ_id})", "")
-                    
-                    # Set the locked champion state
-                    self.state.locked_champ_id = locked_champ_id
-                    self.state.locked_champ_timestamp = time.time()
-                    
-                    # Reset historic mode state for new champion lock (always deactivate before checking)
-                    self.state.historic_mode_active = False
-                    self.state.historic_skin_id = None
-                    self.state.historic_first_detection_done = False
-                    log.debug(f"[init-state] Reset historic mode state for initial champion lock")
-                    
-                    # Broadcast deactivated state to JavaScript (hide flag)
-                    try:
-                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                            self.state.ui_skin_thread._broadcast_historic_state()
-                    except Exception as e:
-                        log.debug(f"[init-state] Failed to broadcast historic state reset: {e}")
-                    
-                    # Scrape skins for this champion from LCU
-                    if self.skin_scraper:
-                        try:
-                            self.skin_scraper.scrape_champion_skins(locked_champ_id)
-                        except Exception as e:
-                            log.debug(f"[init-state] Failed to scrape champion skins: {e}")
-                    
-                    # English skin names are now loaded by LCU skin scraper
-                    
-                    # Notify injection manager of champion lock
-                    if self.injection_manager:
-                        try:
-                            self.injection_manager.on_champion_locked(champ_name, locked_champ_id, self.state.owned_skin_ids)
-                        except Exception as e:
-                            log.debug(f"[init-state] Failed to notify injection manager: {e}")
-                    
-                    log.info(f"[init-state] App will start after initialization (champion: {champ_name})")
+                if self._needs_late_lock_bootstrap(locked_champ_id):
+                    self._bootstrap_late_locked_champion(
+                        locked_champ_id=locked_champ_id,
+                        locked_champions=locked_champions,
+                    )
         except Exception as e:
             log.debug(f"Error checking initial champion state: {e}")
+
+    def _maybe_recover_locked_champ_select_state(self) -> None:
+        """Retry late-lock recovery while a locked Champ Select session is active."""
+        try:
+            if getattr(self.state, "phase", None) != "ChampSelect":
+                return
+
+            if self.state.own_champion_locked and self.state.locked_champ_id is not None:
+                return
+
+            self._check_initial_champion_state()
+        except Exception as e:
+            log.debug(f"[init-state] Error retrying late lock recovery: {e}")
+
+    def _needs_late_lock_bootstrap(self, locked_champ_id: int) -> bool:
+        """Return True when late-start lock recovery still needs to run."""
+        return (
+            self.state.locked_champ_id != locked_champ_id
+            or not self.state.own_champion_locked
+        )
+
+    def _bootstrap_late_locked_champion(self, locked_champ_id: int, locked_champions: dict) -> None:
+        """Restore the same state a normal champion-lock event would set up."""
+        champ_name = f"champ_{locked_champ_id}"
+        log_status(
+            log,
+            "Initial state: Champion already locked",
+            f"{champ_name} (ID: {locked_champ_id})",
+            "",
+        )
+
+        self.state.phase = "ChampSelect"
+        self.state.locked_champ_id = locked_champ_id
+        self.state.locked_champ_timestamp = time.time()
+        self.state.own_champion_locked = True
+        self.state.locks_by_cell = dict(locked_champions)
+
+        self.state.historic_mode_active = False
+        self.state.historic_skin_id = None
+        self.state.historic_first_detection_done = False
+        log.debug("[init-state] Reset historic mode state for initial champion lock")
+
+        self._broadcast_historic_reset()
+        self._scrape_locked_champion_skins(locked_champ_id)
+        self._notify_injection_manager(champ_name, locked_champ_id)
+        self._sync_ui_for_late_lock()
+
+        log.info(
+            f"[init-state] App will start after initialization (champion: {champ_name})"
+        )
+
+    def _broadcast_historic_reset(self) -> None:
+        """Hide historic-mode UI after late-start lock recovery."""
+        ui_thread = getattr(self.state, "ui_skin_thread", None)
+        if not ui_thread:
+            return
+        try:
+            ui_thread._broadcast_historic_state()
+        except Exception as e:
+            log.debug(f"[init-state] Failed to broadcast historic state reset: {e}")
+
+    def _scrape_locked_champion_skins(self, locked_champ_id: int) -> None:
+        """Warm the skin scraper for the locked champion."""
+        if not self.skin_scraper:
+            return
+        try:
+            self.skin_scraper.scrape_champion_skins(locked_champ_id)
+        except Exception as e:
+            log.debug(f"[init-state] Failed to scrape champion skins: {e}")
+
+    def _notify_injection_manager(self, champ_name: str, locked_champ_id: int) -> None:
+        """Backfill the injection manager with the locked champion."""
+        if not self.injection_manager:
+            return
+        try:
+            self.injection_manager.on_champion_locked(
+                champ_name,
+                locked_champ_id,
+                self.state.owned_skin_ids,
+            )
+        except Exception as e:
+            log.debug(f"[init-state] Failed to notify injection manager: {e}")
+
+    def _sync_ui_for_late_lock(self) -> None:
+        """Broadcast late lock state to JS and replay any cached skin name."""
+        ui_thread = getattr(self.state, "ui_skin_thread", None)
+        if not ui_thread:
+            return
+
+        try:
+            ui_thread._broadcast_phase_change("ChampSelect")
+        except Exception as e:
+            log.debug(f"[init-state] Failed to broadcast ChampSelect phase: {e}")
+
+        try:
+            ui_thread._broadcast_champion_locked(True)
+        except Exception as e:
+            log.debug(f"[init-state] Failed to broadcast champion lock state: {e}")
+
+        self._replay_cached_skin_name(ui_thread)
+
+    def _replay_cached_skin_name(self, ui_thread) -> None:
+        """Replay the cached skin name if the first sync was ignored before lock state existed."""
+        cached_skin_name = (getattr(self.state, "ui_last_text", "") or "").strip()
+        if not cached_skin_name:
+            return
+
+        try:
+            log.info(
+                "[init-state] Replaying cached skin after late lock bootstrap: '%s'",
+                cached_skin_name,
+            )
+            ui_thread.message_handler.handle_message(json.dumps({
+                "skin": cached_skin_name,
+                "originalName": cached_skin_name,
+                "timestamp": int(time.time() * 1000),
+            }))
+        except Exception as e:
+            log.debug(f"[init-state] Failed to replay cached skin state: {e}")
     
     def _is_ws_connected(self) -> bool:
         """Check if WebSocket is connected"""

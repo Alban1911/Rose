@@ -54,6 +54,14 @@ class FlowController:
         
         if getattr(self.shared_state, "own_champion_locked", False):
             return True
+
+        # Late reconnects can briefly restore the locked champion ID before the
+        # full lock pipeline flips own_champion_locked. Accept the cached skin
+        # snapshot in that window so chroma initialization is not missed.
+        if current_phase == "ChampSelect" and getattr(
+            self.shared_state, "locked_champ_id", None
+        ) is not None:
+            return True
         
         if getattr(self.shared_state, "phase", None) == "FINALIZATION":
             return True

@@ -169,6 +169,8 @@
   let selectedChromaData = null; // { id, primaryColor, colors, name }
   let pythonChromaState = null; // { selectedChromaId, chromaColor, chromaColors, currentSkinId }
   let championLocked = false; // Track if a champion is locked
+  // Track the last observed phase so startup replays do not look like a new session.
+  let currentPhase = null;
 
   // Asset paths for custom hover button
   const HOVER_BUTTON_ASSET = "hol-button.png";
@@ -1359,18 +1361,43 @@
     updateChromaButtonColor();
   }
 
+  function resetFrontendSessionState(reason) {
+    // Clear transient frontend state only when a Champ Select session really starts/ends.
+    skinMonitorState = null;
+    pythonChromaState = null;
+    selectedChromaData = null;
+    championLocked = false;
+
+    // Remove stale UI that may still be attached from the previous session.
+    const existingPanel = document.getElementById(PANEL_ID);
+    if (existingPanel) {
+      existingPanel.remove();
+    }
+
+    document.querySelectorAll(BUTTON_SELECTOR).forEach((button) => {
+      button.remove();
+    });
+
+    emitBridgeLog("session_state_reset", { reason });
+  }
+
   function handlePhaseChangeFromPython(data) {
     // Use Python-detected game mode to drive ARAM detection for the JS panel
     try {
       const phase = data.phase;
       const gameMode = data.gameMode;
       const mapId = data.mapId;
+      // Late startup can replay "ChampSelect" after skin-state is already current.
+      // Keep the last seen phase so we only reset on real phase transitions.
+      const previousPhase = currentPhase;
+      currentPhase = phase;
 
       if (phase === "ChampSelect") {
-        // Reset stale skin state from previous game so the chroma button
-        // doesn't briefly show the old champion's data at lock-in
-        skinMonitorState = null;
-        pythonChromaState = null;
+        // Only reset on a real transition into a new Champ Select session.
+        // Startup replays can arrive after a valid skin-state payload.
+        if (previousPhase && previousPhase !== "ChampSelect") {
+          resetFrontendSessionState("phase-entry");
+        }
 
         const isAram =
           mapId === 12 ||
@@ -1385,6 +1412,12 @@
         isAramFromPython = Boolean(isAram);
       } else {
         // Leaving champ select / finalization â€" clear flag
+        if (
+          previousPhase === "ChampSelect" ||
+          previousPhase === "FINALIZATION"
+        ) {
+          resetFrontendSessionState("phase-exit");
+        }
         isAramFromPython = false;
       }
     } catch (e) {
