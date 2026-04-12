@@ -849,6 +849,15 @@
         }
         isAramFromPython = false;
       }
+
+      // Observer lifecycle: stop only during actively-playing InProgress so
+      // Swiftplay skin selection (which happens in Lobby phase) isn't broken.
+      // See GitHub issue #22.
+      if (phase === "InProgress") {
+        stopObserver();
+      } else {
+        startObserver();
+      }
     } catch (e) {
       // Fail silently – fallback to Ember-based detection
     }
@@ -3735,6 +3744,26 @@
     };
   }
 
+  // Observer lifecycle - only run during ChampSelect/FINALIZATION.
+  // See GitHub issue #22: the 500ms poll + MutationObserver steal CPU
+  // from the League game process during matches.
+  let observerCleanup = null;
+
+  function startObserver() {
+    if (observerCleanup) return;
+    observerCleanup = setupObserver();
+  }
+
+  function stopObserver() {
+    if (!observerCleanup) return;
+    try {
+      observerCleanup();
+    } catch (e) {
+      log.debug("Observer cleanup failed", e);
+    }
+    observerCleanup = null;
+  }
+
   function subscribeToSkinMonitor() {
     if (typeof window === "undefined") {
       return;
@@ -3922,7 +3951,9 @@
       subscribeToSkinMonitor();
       injectCSS();
       scanSkinSelection();
-      setupObserver();
+      // Default-on: first phase-change from Python will shut the observer
+      // off again if we're already in-game.  See issue #22.
+      startObserver();
       log.info("fake chroma button creation active");
       _initialized = true;
       _retryCount = 0; // Reset retry counter on success

@@ -479,6 +479,39 @@
     };
   }
 
+  // Observer lifecycle - only run during ChampSelect/FINALIZATION.
+  // See GitHub issue #22: the 500ms poll + MutationObserver steal CPU
+  // from the League game process during matches.
+  let skinObserverCleanup = null;
+
+  function startSkinObserverGated() {
+    if (skinObserverCleanup) return;
+    skinObserverCleanup = setupSkinObserver();
+  }
+
+  function stopSkinObserverGated() {
+    if (!skinObserverCleanup) return;
+    try {
+      skinObserverCleanup();
+    } catch (e) {
+      // ignore cleanup errors
+    }
+    skinObserverCleanup = null;
+  }
+
+  function handlePhaseChangeFromPython(data) {
+    const phase = data && data.phase;
+    if (!phase) return;
+    // Stop only during actively-playing InProgress.  markSkinsAsOwned() is
+    // Swiftplay-specific and runs during Lobby phase, so we can't restrict
+    // to ChampSelect.  See GitHub issue #22.
+    if (phase === "InProgress") {
+      stopSkinObserverGated();
+    } else {
+      startSkinObserverGated();
+    }
+  }
+
   function attachGoldenRoseListeners(navItem) {
     // Check if listeners already attached
     if (navItem.dataset.lppDiscordAttached === "true") {
@@ -746,11 +779,14 @@
 
       // Subscribe to skip-base-skin messages from the shared bridge
       bridge.subscribe("skip-base-skin", handleSkipBaseSkin);
+      bridge.subscribe("phase-change", handlePhaseChangeFromPython);
 
       interceptChampSelectWebsocket();
       injectInlineRules();
       scanSkinSelection();
-      setupSkinObserver();
+      // Default-on: first phase-change from Python will shut the observer
+      // off again if we're already in-game.  See issue #22.
+      startSkinObserverGated();
       setupNavObserver();
       log.info("skin preview overrides active");
       _initialized = true;

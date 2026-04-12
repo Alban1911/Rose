@@ -991,6 +991,17 @@
         // Request updated state
         sendBridgeMessage({ type: "party-get-state" });
         break;
+
+      case "phase-change":
+        // Pause the 500ms DOM monitor during in-game to avoid stealing
+        // CPU from the League game process.  Resume in every other phase
+        // so the party button reattaches if the client re-renders.
+        if (data.phase === "InProgress") {
+          stopGamePhaseMonitor();
+        } else {
+          startGamePhaseMonitor();
+        }
+        break;
     }
   }
 
@@ -1074,9 +1085,14 @@
 
   // Remove all party UI elements
 
-  // Monitor for lobby/champ select
+  // Monitor for lobby/champ select.
+  // Pauses during InProgress phase to avoid stealing CPU from the game.
+  // See GitHub issue #22.
+  let gamePhaseMonitorId = null;
+
   function startGamePhaseMonitor() {
-    setInterval(() => {
+    if (gamePhaseMonitorId) return;
+    gamePhaseMonitorId = setInterval(() => {
       const inChampSelect = isInChampSelect();
       const inLobby = isInLobby();
 
@@ -1105,6 +1121,12 @@
         currentUIMode = "default";
       }
     }, 500);
+  }
+
+  function stopGamePhaseMonitor() {
+    if (!gamePhaseMonitorId) return;
+    clearInterval(gamePhaseMonitorId);
+    gamePhaseMonitorId = null;
   }
 
   // Initialize

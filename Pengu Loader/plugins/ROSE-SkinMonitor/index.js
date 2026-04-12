@@ -574,6 +574,47 @@ function attachObservers() {
   }
 }
 
+// Only phase where monitoring must stop.  During `InProgress` the League game
+// process is actively rendering and the LeagueClientUxRender process is
+// backgrounded — running the 250ms poll + MutationObserver there steals CPU
+// from the game.  In every other phase (Lobby/Matchmaking/ReadyCheck/
+// ChampSelect/FINALIZATION/EndOfGame/...) we keep monitoring so Swiftplay
+// skin selection in the Lobby phase still works.  See GitHub issue #22.
+let monitoring = false;
+
+function startMonitoring() {
+  if (monitoring) return;
+  monitoring = true;
+  console.log(`${LOG_PREFIX} Starting skin monitoring`);
+  attachObservers();
+  reportSkinIfChanged();
+}
+
+function stopMonitoring() {
+  if (!monitoring) return;
+  monitoring = false;
+  console.log(`${LOG_PREFIX} Stopping skin monitoring (out-of-game phase)`);
+  if (observer) {
+    observer.disconnect();
+    observer = null;
+  }
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  lastLoggedSkin = null;
+}
+
+function handlePhaseChange(data) {
+  const phase = data && data.phase;
+  if (!phase) return;
+  if (phase === "InProgress") {
+    stopMonitoring();
+  } else {
+    startMonitoring();
+  }
+}
+
 function installFindMatchObserver() {
   try {
     const po = new PerformanceObserver((list) => {
@@ -619,8 +660,10 @@ async function start() {
 
   installFindMatchObserver();
   setupBridgeSocket();
-  attachObservers();
-  reportSkinIfChanged();
+  subscribe("phase-change", handlePhaseChange);
+  // Default-on: if the first phase broadcast says we're in-game, stopMonitoring()
+  // will fire immediately and shut the 250ms poll back off.
+  startMonitoring();
 }
 
 function stop() {
@@ -630,6 +673,8 @@ function stop() {
     clearTimeout(retryTimer);
     retryTimer = null;
   }
+
+  monitoring = false;
 
   if (observer) {
     observer.disconnect();

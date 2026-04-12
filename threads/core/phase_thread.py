@@ -7,7 +7,7 @@ Phase monitoring thread
 import threading
 import time
 
-from config import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT
+from config import INTERESTING_PHASES, PHASE_POLL_INTERVAL_DEFAULT, PHASE_POLL_INTERVAL_INGAME
 from lcu import LCU
 from state import SharedState
 from utils.core.logging import get_logger, log_status
@@ -92,36 +92,28 @@ class PhaseThread(threading.Thread):
 
             if ph == "Lobby":
                 self.lobby_processor.process_lobby_state(force=phase_changed)
-                # Broadcast phase change to JavaScript plugins
-                if phase_changed:
-                    try:
-                        ui_thread = getattr(self.state, "ui_skin_thread", None)
-                        if ui_thread:
-                            ui_thread._broadcast_phase_change("Lobby")
-                    except Exception as e:
-                        log.debug(f"[phase] Failed to broadcast phase change to JavaScript: {e}")
 
             if phase_changed:
-                # Broadcast phase change to JavaScript plugins
-                if ph in ["ChampSelect", "FINALIZATION", "Lobby"]:
+                # Broadcast every phase transition so JS plugins can pause work during InProgress
+                if ph is not None:
                     try:
                         ui_thread = getattr(self.state, "ui_skin_thread", None)
                         if ui_thread:
                             ui_thread._broadcast_phase_change(ph)
                     except Exception as e:
                         log.debug(f"[phase] Failed to broadcast phase change to JavaScript: {e}")
-                
+
                 # Log phase transition
                 if ph is not None and self.log_transitions and ph in self.INTERESTING:
                     log_status(log, "Phase", ph, "")
-                
+
                 # Update phase
                 if ph is not None:
                     self.state.phase = ph
-                
+
                 # Handle phase change
                 self.phase_handler.handle_phase_change(ph, self.last_phase)
-                
+
                 # Reset lobby tracking when leaving lobby
                 if self.last_phase == "Lobby" and ph != "Lobby":
                     self.lobby_processor.reset_lobby_tracking()
@@ -130,5 +122,8 @@ class PhaseThread(threading.Thread):
             elif ph == "Lobby":
                 # Phase unchanged but still in lobby – continue monitoring
                 self.lobby_processor.process_lobby_state(force=False)
-            
-            time.sleep(self.interval)
+
+            if ph == "InProgress":
+                time.sleep(max(self.interval, PHASE_POLL_INTERVAL_INGAME))
+            else:
+                time.sleep(self.interval)

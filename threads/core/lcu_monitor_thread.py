@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from lcu import LCU, compute_locked
 from state import SharedState
 from utils.core.logging import get_logger, log_status
-from config import LCU_MONITOR_INTERVAL
+from config import LCU_MONITOR_INTERVAL, LCU_MONITOR_INTERVAL_INGAME
 
 log = get_logger()
 
@@ -104,15 +104,17 @@ class LCUMonitorThread(threading.Thread):
                         self._try_detect_language()
                 
                 # Periodic language change check (every 30 seconds when stable)
+                # Skip during InProgress – the client rarely changes language mid-match
+                # and the LCU HTTP call adds needless overhead during gameplay.
                 elif current_lcu_ok and current_ws_connected and self.ws_connected and self.language_initialized:
                     now = time.time()
-                    if now - self.last_language_check >= 30.0:
+                    if now - self.last_language_check >= 30.0 and getattr(self.state, "phase", None) != "InProgress":
                         self._check_language_change()
-                
+
                 # WebSocket disconnected
                 elif not current_ws_connected and self.ws_connected:
                     self.ws_connected = False
-                
+
                 # Still waiting for connection
                 elif not current_lcu_ok and self.waiting_for_connection:
                     # Refresh connection periodically
@@ -120,13 +122,16 @@ class LCUMonitorThread(threading.Thread):
 
                 if current_lcu_ok and current_ws_connected:
                     self._maybe_recover_locked_champ_select_state()
-                 
+
                 self.last_lcu_ok = current_lcu_ok
-                 
+
             except Exception as e:
                 log.debug(f"LCU monitor error: {e}")
-            
-            time.sleep(LCU_MONITOR_INTERVAL)
+
+            if getattr(self.state, "phase", None) == "InProgress":
+                time.sleep(LCU_MONITOR_INTERVAL_INGAME)
+            else:
+                time.sleep(LCU_MONITOR_INTERVAL)
 
     def _try_detect_language(self):
         """Try to detect and initialize language from LCU"""
