@@ -1,6 +1,6 @@
 # Contributing to Rose
 
-Contributions are welcome! Report bugs or suggest features via GitHub Issues, submit pull requests, or join our [Discord](https://discord.com/invite/roseapp) for discussions.
+Contributions are welcome! Report bugs or suggest features via GitHub Issues, submit pull requests, or join our [Discord](https://discord.com/invite/roseskins) for discussions.
 
 ## Setting up dev environment
 
