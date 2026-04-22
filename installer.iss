@@ -2,8 +2,8 @@
 ; This creates a proper Windows installer that registers the app
 
 #define MyAppName "Rose"
-#define MyAppVersion "1.2.5"
-#define MyAppVersionInfo "1.2.5.0"
+#define MyAppVersion "1.2.6"
+#define MyAppVersionInfo "1.2.6.0"
 #define MyAppPublisher "Rose Team"
 #define MyAppURL "https://github.com/Alban1911/Rose"
 #define MyAppExeName "Rose.exe"
