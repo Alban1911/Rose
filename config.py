@@ -231,6 +231,7 @@ CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel 
 
 # API request timeouts (seconds)
 LCU_API_TIMEOUT_S = 2.0                 # Timeout for LCU API requests
+LCU_GET_CACHE_TTL_S = 0.2               # TTL for LCU GET response cache (de-dupes rapid polls across threads)
 LCU_SKIN_SCRAPER_TIMEOUT_S = 3.0        # Timeout for LCU skin scraper requests
 CHROMA_DOWNLOAD_TIMEOUT_S = 10          # Timeout for chroma preview downloads
 DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S = 30    # Timeout for skin downloads
