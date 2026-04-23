@@ -12,6 +12,11 @@ from utils.core.logging import get_logger
 from ui.chroma.selector import get_chroma_selector
 from config import CHAMP_POLL_INTERVAL
 
+# Long sleep when not in ChampSelect — we only need to react when phase returns.
+# 2s is responsive enough: even if phase flips to ChampSelect right after we sleep,
+# the user has ~10s of hover time before locking, so a 2s wake-up delay is invisible.
+CHAMP_POLL_INTERVAL_IDLE = 2.0
+
 log = get_logger()
 
 
@@ -125,7 +130,9 @@ class ChampThread(threading.Thread):
                 # Reset exchange tracking when exiting ChampSelect
                 if self.state.phase != "ChampSelect":
                     self.last_locked_champion_id = None
-                time.sleep(CHAMP_POLL_INTERVAL)
+                # Sleep longer when we have no work — huge CPU/wakeup savings
+                # during InProgress (40-min match = 4800 fewer wakeups).
+                time.sleep(CHAMP_POLL_INTERVAL_IDLE)
                 continue
             
             cid = self.lcu.hovered_champion_id
