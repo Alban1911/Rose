@@ -767,6 +767,22 @@ class MessageHandler:
             except Exception:
                 relative_path = entry.path
 
+            thumbnail_relative_path = None
+            thumbnail_url = None
+            try:
+                if entry.path.is_dir():
+                    thumbnail_path = entry.path / "meta" / "image.png"
+                    if thumbnail_path.exists() and thumbnail_path.is_file():
+                        thumbnail_relative_path = str(
+                            thumbnail_path.relative_to(self.mod_storage.mods_root)
+                        ).replace("\\", "/")
+                        thumbnail_url = (
+                            f"http://127.0.0.1:{self.port}/mod-asset/{thumbnail_relative_path}"
+                        )
+            except Exception:
+                thumbnail_relative_path = None
+                thumbnail_url = None
+
             mods_payload.append(
                 {
                     "modName": entry.mod_name,
@@ -774,6 +790,8 @@ class MessageHandler:
                     "description": entry.description,
                     "updatedAt": int(entry.updated_at * 1000),
                     "relativePath": str(relative_path).replace("\\", "/"),
+                    "thumbnailRelativePath": thumbnail_relative_path,
+                    "thumbnailUrl": thumbnail_url,
                 }
             )
 

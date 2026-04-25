@@ -10,7 +10,7 @@ from typing import Optional
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
-from utils.core.paths import get_skins_dir, get_asset_path, get_state_dir
+from utils.core.paths import get_skins_dir, get_asset_path, get_state_dir, get_user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -103,6 +103,10 @@ class HTTPHandler:
             # Handle asset requests
             elif path_clean.startswith("/asset/"):
                 return self._handle_asset_request(path_clean)
+
+            # Handle mod asset requests (for files under %LOCALAPPDATA%\\Rose\\mods)
+            elif path_clean.startswith("/mod-asset/"):
+                return self._handle_mod_asset_request(path_clean)
             
             # Handle plugin file requests
             elif path_clean.startswith("/plugin/"):
@@ -174,6 +178,32 @@ class HTTPHandler:
                     "Cache-Control": "public, max-age=3600"
                 },
                 file_data
+            )
+        return None
+
+    def _handle_mod_asset_request(self, path_clean: str) -> Optional[tuple]:
+        """Handle mod file requests under the local mods directory."""
+        relative_path = path_clean.replace("/mod-asset/", "")
+        mods_dir = get_user_data_dir() / "mods"
+        requested_path = mods_dir / relative_path
+
+        if not self._is_safe_path(mods_dir, requested_path):
+            log.warning(f"[SkinMonitor] Blocked path traversal attempt: {path_clean}")
+            return (403, {"Access-Control-Allow-Origin": "*"}, b"Forbidden")
+
+        if requested_path.exists() and requested_path.is_file():
+            log.debug(f"[SkinMonitor] Serving mod asset: {requested_path}")
+            content_type = self._get_content_type(requested_path)
+            with open(requested_path, "rb") as f:
+                file_data = f.read()
+            return (
+                200,
+                {
+                    "Content-Type": content_type,
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "public, max-age=3600",
+                },
+                file_data,
             )
         return None
     
