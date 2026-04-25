@@ -113,6 +113,15 @@ class LoadoutTicker(threading.Thread):
             
             # Write last hovered skin at T<=threshold
             thresh = int(getattr(self.state, 'skin_write_ms', SKIN_THRESHOLD_MS_DEFAULT) or SKIN_THRESHOLD_MS_DEFAULT)
+
+            # Restore the selected skin ID a little earlier so League has time
+            # to prepare its official loading-screen label before GameStart.
+            if remain_ms <= max(3000, thresh + 1000) and not getattr(self.state, 'loading_skin_restore_done', False):
+                early_name = self.skin_name_resolver.resolve_injection_name()
+                if early_name:
+                    self.injection_trigger._restore_loading_screen_skin(early_name)
+                    self.state.loading_skin_restore_done = True
+
             if remain_ms <= thresh and not self.state.last_hover_written:
                 # Build skin label
                 final_label = self.skin_name_resolver.build_skin_label()
@@ -133,7 +142,7 @@ class LoadoutTicker(threading.Thread):
                 
                 if name:
                     # Trigger injection
-                    self.injection_trigger.trigger_injection(name, self.ticker_id, cname)
+                    self.injection_trigger.trigger_injection(name, self.ticker_id, cname, display_label=final_label)
 
             if remain_ms <= 0:
                 break

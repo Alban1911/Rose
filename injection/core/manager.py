@@ -201,7 +201,7 @@ class InjectionManager:
         # This prevents unnecessary suspension for base skins and owned skins
         pass
     
-    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
+    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None, loading_label: str = None) -> bool:
         """Immediately inject a specific skin (with optional chroma)
         
         Args:
@@ -328,6 +328,7 @@ class InjectionManager:
                 champion_name=champion_name,
                 champion_id=champion_id,
                 extra_mods_callback=extra_mods_callback,
+                loading_label=loading_label,
             )
             
             if success:

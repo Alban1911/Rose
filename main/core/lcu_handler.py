@@ -30,6 +30,7 @@ def create_lcu_disconnection_handler(state: SharedState, skin_scraper: LCUSkinSc
         state.loadout_left0_ms = 0
         state.last_remain_ms = 0
         state.last_hover_written = False
+        state.loading_skin_restore_done = False
         state.selected_skin_id = None
         state.selected_chroma_id = None
         state.selected_form_path = None
@@ -52,6 +53,7 @@ def create_lcu_disconnection_handler(state: SharedState, skin_scraper: LCUSkinSc
         state.last_hovered_skin_key = None
         state.last_hovered_skin_id = None
         state.last_hovered_skin_slug = None
+        state.selected_skin_display_name = None
         state.champion_exchange_triggered = False
         state.injection_completed = False
 
@@ -118,4 +120,3 @@ def create_lcu_disconnection_handler(state: SharedState, skin_scraper: LCUSkinSc
                 log.debug(f"[Main] Failed to update app status after disconnection: {e}")
     
     return on_lcu_disconnected
-
