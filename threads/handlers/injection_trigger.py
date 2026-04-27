@@ -45,7 +45,7 @@ class InjectionTrigger:
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
     
-    def trigger_injection(self, name: str, ticker_id: int, cname: str = ""):
+    def trigger_injection(self, name: str, ticker_id: int, cname: str = "", display_label: Optional[str] = None):
         """Trigger injection for a skin/chroma
         
         Args:
@@ -80,13 +80,17 @@ class InjectionTrigger:
         if selected_custom_mod:
             mod_name = selected_custom_mod.get("mod_name") or selected_custom_mod.get("mod_folder_name")
         
-        # Collect all selected mods for log message
-        mod_labels = []
+        # Collect all selected mods for log message. Prefer the human-readable
+        # selected skin name so loading/injection output does not show skin_123.
+        selected_skin_label = (
+            display_label
+            or getattr(self.state, "selected_skin_display_name", None)
+            or getattr(self.state, "last_hovered_skin_key", None)
+            or name.upper()
+        )
+        mod_labels = [selected_skin_label]
         if mod_name:
-            mod_target_skin = selected_custom_mod.get("skin_id", ui_skin_id) if selected_custom_mod else ui_skin_id
-            mod_labels.append(f"{mod_name} (SKIN_{mod_target_skin})")
-        else:
-            mod_labels.append(name.upper())
+            mod_labels.append(f"MOD: {mod_name}")
         
         # Add map/font/announcer/other mods if selected
         selected_map_mod = getattr(self.state, 'selected_map_mod', None)
@@ -122,7 +126,7 @@ class InjectionTrigger:
         log.info(f"PREPARING INJECTION >>> {injection_label} <<<")
         log.info(f"   Loadout Timer: #{ticker_id}")
         log.info("=" * LOG_SEPARATOR_WIDTH)
-        
+
         try:
             lcu_skin_id = self.state.selected_skin_id
             owned_skin_ids = self.state.owned_skin_ids
@@ -527,6 +531,7 @@ class InjectionTrigger:
                         name,
                         champion_name=cname,
                         champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
+                        loading_label=selected_skin_label,
                     )
 
             # Also check if base skin is owned but chroma is selected (for owned chromas)
@@ -539,6 +544,7 @@ class InjectionTrigger:
                         name,
                         champion_name=cname,
                         champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
+                        loading_label=selected_skin_label,
                     )
 
             # Inject if user doesn't own the hovered skin
@@ -547,6 +553,65 @@ class InjectionTrigger:
         
         except Exception as e:
             log.warning(f"[loadout #{ticker_id}] injection setup failed: {e}")
+
+    def _get_injection_skin_id(self, name: Optional[str]) -> Optional[int]:
+        """Extract the numeric skin/chroma ID from an injection name."""
+        if not isinstance(name, str) or "_" not in name:
+            return None
+        try:
+            kind, raw_id = name.split("_", 1)
+            if kind not in {"skin", "chroma"} or not raw_id.isdigit():
+                return None
+            return int(raw_id)
+        except Exception:
+            return None
+
+    def _restore_loading_screen_skin(self, name: Optional[str]) -> None:
+        """Best-effort restore of selectedSkinId so the loading screen shows the chosen skin.
+
+        Unowned skin injection needs the base skin briefly selected for the overlay build.
+        After the base skin is confirmed, try to put the chosen skin/chroma ID back into
+        champ-select state before GameStart so League's loading screen can display it.
+        """
+        target_skin_id = self._get_injection_skin_id(name) or getattr(self.state, "last_hovered_skin_id", None)
+        champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+        if not target_skin_id or not champ_id:
+            return
+
+        base_skin_id = int(champ_id) * 1000
+        if int(target_skin_id) == base_skin_id:
+            return
+
+        skin_label = getattr(self.state, "selected_skin_display_name", None) or getattr(self.state, "last_hovered_skin_key", None) or name
+        log.info(
+            "[INJECT] Restoring selected skin for loading screen: %s (skinId=%s)",
+            skin_label,
+            target_skin_id,
+        )
+
+        try:
+            if self.lcu.set_my_selection_skin(int(target_skin_id)):
+                self.state.selected_skin_id = int(target_skin_id)
+                log.info("[INJECT] Loading screen skin restored via my-selection")
+                return
+
+            # Fallback for the rare case where the pick action is still editable.
+            sess = self.lcu.session or {}
+            actions = sess.get("actions") or []
+            my_cell = self.state.local_cell_id
+            for rnd in actions:
+                for act in rnd:
+                    if act.get("actorCellId") == my_cell and act.get("type") == "pick":
+                        action_id = act.get("id")
+                        if action_id is not None and self.lcu.set_selected_skin(action_id, int(target_skin_id)):
+                            self.state.selected_skin_id = int(target_skin_id)
+                            log.info("[INJECT] Loading screen skin restored via action")
+                            return
+                        break
+
+            log.warning("[INJECT] Could not restore loading screen skin; LCU rejected skinId=%s", target_skin_id)
+        except Exception as e:
+            log.warning("[INJECT] Failed to restore loading screen skin: %s", e)
     
     def _force_owned_skin(self, skin_id: int):
         """Force owned skin/chroma selection via LCU"""
@@ -647,6 +712,10 @@ class InjectionTrigger:
                 # Only force base skin if current selection is not already base skin
                 if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
                     self._force_base_skin(base_skin_id)
+
+                # Even when LCU is already on the base skin, try to restore the
+                # selected skin ID for the official loading-screen label.
+                self._restore_loading_screen_skin(name)
             
             # Create callback to check if game ended
             has_been_in_progress = False
@@ -676,7 +745,8 @@ class InjectionTrigger:
                         name,
                         stop_callback=game_ended_callback,
                         champion_name=cname,
-                        champion_id=self.state.locked_champ_id
+                        champion_id=self.state.locked_champ_id,
+                        loading_label=getattr(self.state, "selected_skin_display_name", None) or getattr(self.state, "last_hovered_skin_key", None) or name,
                     )
                     
                     # Clear random state after injection
@@ -1176,6 +1246,7 @@ class InjectionTrigger:
                 # Injecting base skin ZIP for unowned skin - force base skin
                 base_skin_id = champion_id * 1000
                 self._force_base_skin(base_skin_id)
+                self._restore_loading_screen_skin(base_skin_name)
             
             # Create callback to check if game ended
             has_been_in_progress = False
@@ -1348,4 +1419,3 @@ class InjectionTrigger:
             log.error(f"[INJECT] Error injecting custom mod: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
-

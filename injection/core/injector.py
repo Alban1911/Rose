@@ -146,6 +146,7 @@ class SkinInjector:
         champion_name: str = None,
         champion_id: int = None,
         extra_mods_callback: Optional[Callable[["SkinInjector"], List[str]]] = None,
+        loading_label: str = None,
     ) -> bool:
         """Inject a single skin (with optional chroma and party mods)
         
@@ -199,11 +200,48 @@ class SkinInjector:
         
         extract_start = time.time()
         mod_folder = self._extract_zip_to_mod(zp)
+        mod_names = [mod_folder.name]
+
+        # Chroma packages can be tiny and may not contain the loading-screen art.
+        # When the selected package is a chroma, also extract its parent base skin
+        # so we can patch/inject the loadscreen from the base skin WAD.
+        base_mod_folder = None
+        try:
+            selected_id = int(str(zp.stem))
+            parent_dir = zp.parent.parent if zp.parent.name == str(selected_id) else None
+            if parent_dir and parent_dir.name.isdigit():
+                base_id = int(parent_dir.name)
+                if base_id != selected_id:
+                    from injection.mods.zip_resolver import _find_by_extensions
+                    base_zp = _find_by_extensions(parent_dir, str(base_id))
+                    if base_zp and base_zp != zp:
+                        log.info("[LoadingLabel] Chroma package detected; including base skin package %s for loadscreen", base_zp.name)
+                        base_mod_folder = self._extract_zip_to_mod(base_zp)
+                        mod_names.insert(0, base_mod_folder.name)
+        except Exception as e:
+            log.debug("[LoadingLabel] Base skin package detection skipped: %s", e)
+
+        if loading_label:
+            try:
+                from injection.mods.loading_name_stringtable import create_loading_name_stringtable_mod
+                rst_mod = create_loading_name_stringtable_mod(
+                    self.mods_dir,
+                    self.tools_dir,
+                    self.game_dir,
+                    champion_name,
+                    loading_label,
+                )
+                if rst_mod:
+                    mod_names.append(rst_mod)
+                    log.info("[LoadingNameRST] Including stringtable override mod: %s", rst_mod)
+            except Exception as e:
+                log.warning("[LoadingNameRST] Failed to prepare loading name override: %s", e)
+        else:
+            log.info("[LoadingNameRST] No loading label provided for %s", mod_folder.name)
         extract_duration = time.time() - extract_start
         log.debug(f"[INJECT] ZIP extraction took {extract_duration:.2f}s")
         
         # Create list of mods to inject (our skin + optional party/extra mods)
-        mod_names = [mod_folder.name]
         if extra_mods_callback:
             try:
                 extra = extra_mods_callback(self)
