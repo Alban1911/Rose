@@ -10,7 +10,13 @@ from typing import Any
 from state import SharedState
 from lcu import LCUSkinScraper
 from utils.core.logging import get_logger, log_section
-from config import MAIN_LOOP_SLEEP, MAIN_LOOP_IDLE_SLEEP, MAIN_LOOP_STALL_THRESHOLD_S, CHROMA_PANEL_PROCESSING_THRESHOLD_S
+from config import (
+    MAIN_LOOP_SLEEP,
+    MAIN_LOOP_IDLE_SLEEP,
+    MAIN_LOOP_INGAME_SLEEP,
+    MAIN_LOOP_STALL_THRESHOLD_S,
+    CHROMA_PANEL_PROCESSING_THRESHOLD_S,
+)
 
 log = get_logger()
 
@@ -60,14 +66,24 @@ def run_main_loop(state: SharedState, skin_scraper: LCUSkinScraper) -> None:
 
 
 def _compute_main_loop_sleep(state: SharedState, ui_activity: bool) -> float:
-    """Return adaptive main-loop sleep based on current activity."""
+    """Return adaptive main-loop sleep based on current activity.
+
+    Three tiers:
+      - fast (16ms)    : active UI / chroma work — responsive loop needed
+      - idle (50ms)    : in client but nothing happening — stay reactive to hovers
+      - in-game (500ms): player is actually playing a match — yield CPU to the game
+    """
     fast_loop = (
         ui_activity
         or state.champion_exchange_triggered
         or state.chroma_panel_open
         or state.pending_chroma_selection
     )
-    return MAIN_LOOP_SLEEP if fast_loop else MAIN_LOOP_IDLE_SLEEP
+    if fast_loop:
+        return MAIN_LOOP_SLEEP
+    if state.phase == "InProgress":
+        return MAIN_LOOP_INGAME_SLEEP
+    return MAIN_LOOP_IDLE_SLEEP
 
 
 def _process_ui_updates(state: SharedState, skin_scraper: LCUSkinScraper) -> bool:
