@@ -50,6 +50,7 @@
     threshold: 0.5,
     monitorAutoResumeTimeout: 60,
     autostart: false,
+    hideEmptyCategories: false,
     gamePath: "",
     gamePathValid: false,
     version: "",
@@ -952,6 +953,7 @@
       threshold: payload.threshold || 0.5,
       monitorAutoResumeTimeout: payload.monitorAutoResumeTimeout || 60,
       autostart: payload.autostart || false,
+      hideEmptyCategories: payload.hideEmptyCategories || false,
       gamePath: payload.gamePath || "",
       gamePathValid: payload.gamePathValid || false,
       version: payload.version || "",
@@ -1798,6 +1800,30 @@
     autostartSection.appendChild(autostartWrapper);
     form.appendChild(autostartSection);
 
+    // Custom mods wheel section
+    const customWheelSection = document.createElement("div");
+    customWheelSection.className = "settings-section";
+
+    const customWheelLabel = document.createElement("label");
+    customWheelLabel.className = "settings-label";
+    customWheelLabel.textContent = "Custom mods wheel:";
+    customWheelSection.appendChild(customWheelLabel);
+
+    const hideEmptyCategoriesWrapper = document.createElement("div");
+    hideEmptyCategoriesWrapper.className = "settings-checkbox-wrapper";
+
+    const hideEmptyCategoriesCheckbox = document.createElement("input");
+    hideEmptyCategoriesCheckbox.type = "checkbox";
+    hideEmptyCategoriesCheckbox.className = "settings-checkbox";
+    hideEmptyCategoriesCheckbox.id = "hide-empty-categories-checkbox";
+    hideEmptyCategoriesWrapper.appendChild(hideEmptyCategoriesCheckbox);
+
+    const hideEmptyCategoriesText = document.createElement("span");
+    hideEmptyCategoriesText.textContent = "Hide empty mod categories";
+    hideEmptyCategoriesWrapper.appendChild(hideEmptyCategoriesText);
+    customWheelSection.appendChild(hideEmptyCategoriesWrapper);
+    form.appendChild(customWheelSection);
+
     // Game path section
     const pathSection = document.createElement("div");
     pathSection.className = "settings-section";
@@ -2386,6 +2412,7 @@
     const timeoutButton = timeoutSlider?.closest('.lol-settings-slider')?.querySelector('.lol-uikit-slider-button');
     const timeoutFill = timeoutSlider?.closest('.lol-settings-slider')?.querySelector('.lol-uikit-slider-fill');
     const autostartCheckbox = document.getElementById("autostart-checkbox");
+    const hideEmptyCategoriesCheckbox = document.getElementById("hide-empty-categories-checkbox");
     const pathInput = document.getElementById("game-path-input");
 
     if (thresholdSlider && thresholdValue && thresholdButton && thresholdFill) {
@@ -2415,6 +2442,10 @@
 
     if (autostartCheckbox) {
       autostartCheckbox.checked = currentSettings.autostart;
+    }
+
+    if (hideEmptyCategoriesCheckbox) {
+      hideEmptyCategoriesCheckbox.checked = currentSettings.hideEmptyCategories;
     }
 
     if (pathInput) {
@@ -2490,6 +2521,7 @@
     const thresholdSlider = document.getElementById("threshold-slider");
     const timeoutSlider = document.getElementById("timeout-slider");
     const autostartCheckbox = document.getElementById("autostart-checkbox");
+    const hideEmptyCategoriesCheckbox = document.getElementById("hide-empty-categories-checkbox");
     const pathInput = document.getElementById("game-path-input");
 
     const threshold = thresholdSlider
@@ -2499,6 +2531,7 @@
       ? parseInt(timeoutSlider.value)
       : 60;
     const autostart = autostartCheckbox ? autostartCheckbox.checked : false;
+    const hideEmptyCategories = hideEmptyCategoriesCheckbox ? hideEmptyCategoriesCheckbox.checked : false;
     const gamePath = pathInput ? pathInput.value.trim() : "";
 
     // Clamp threshold between 0.30 and 2.0
@@ -2514,6 +2547,7 @@
       threshold: clampedThreshold,
       monitorAutoResumeTimeout: clampedTimeout,
       autostart: autostart,
+      hideEmptyCategories: hideEmptyCategories,
       gamePath: gamePath,
     });
 
@@ -2521,6 +2555,7 @@
       threshold: clampedThreshold,
       monitorAutoResumeTimeout: clampedTimeout,
       autostart,
+      hideEmptyCategories,
       gamePath,
     });
   }

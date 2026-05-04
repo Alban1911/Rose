@@ -27,6 +27,10 @@
   let selectedMapId = null;
   let selectedFontId = null;
   let selectedAnnouncerId = null;
+  let hideEmptyCategories = false;
+  let lastMapsMods = null;
+  let lastFontsMods = null;
+  let lastAnnouncersMods = null;
   // Per-category multi-selection (UI / Voiceover / Loading Screen / VFX / SFX / Others).
   // These are first-class categories in the UI; they just share the same list rendering logic.
   let selectedCategoryIds = Object.create(null);
@@ -133,6 +137,67 @@
     return SUMMARY_TABS.find((t) => t.id === tabId)?.label || String(tabId || "");
   }
 
+  function tabHasInstalledMods(tabId) {
+    if (tabId === "skins") return true;
+    if (tabId === "maps") return Array.isArray(lastMapsMods) && lastMapsMods.length > 0;
+    if (tabId === "fonts") return Array.isArray(lastFontsMods) && lastFontsMods.length > 0;
+    if (tabId === "announcers") return Array.isArray(lastAnnouncersMods) && lastAnnouncersMods.length > 0;
+
+    if (OTHER_CATEGORY_TABS.some((t) => t.id === tabId)) {
+      if (!Object.prototype.hasOwnProperty.call(lastCategoryModsById, tabId)) return false;
+      const mods = lastCategoryModsById[tabId];
+      return Array.isArray(mods) && mods.length > 0;
+    }
+
+    return true;
+  }
+
+  function getVisibleSummaryTabs() {
+    if (!hideEmptyCategories) return SUMMARY_TABS;
+    return SUMMARY_TABS.filter((tab) => tab.id === "skins" || tabHasInstalledMods(tab.id));
+  }
+
+  function isSummaryTabVisible(tabId) {
+    return getVisibleSummaryTabs().some((tab) => tab.id === tabId);
+  }
+
+  function ensureActiveTabVisible() {
+    if (!isSummaryTabVisible(activeTab)) {
+      activeTab = "skins";
+    }
+  }
+
+  function syncActiveTabContent() {
+    if (!panel) return;
+    panel.querySelectorAll(".tab-content").forEach((content) => {
+      if (content && content.dataset && content.dataset.tab === activeTab) {
+        content.classList.add("active");
+      } else if (content) {
+        content.classList.remove("active");
+      }
+    });
+  }
+
+  function syncSummaryRowVisibility() {
+    if (!panel || !panel._summaryRowsByTab) return;
+    const visibleIds = new Set(getVisibleSummaryTabs().map((tab) => tab.id));
+    for (const tab of SUMMARY_TABS) {
+      const row = panel._summaryRowsByTab[tab.id];
+      if (row) {
+        row.style.display = visibleIds.has(tab.id) ? "" : "none";
+      }
+    }
+  }
+
+  function applyVisibleCategoryState() {
+    syncSummaryRowVisibility();
+    if (rightPaneMode === "picker" && !isSummaryTabVisible(activeTab)) {
+      ensureActiveTabVisible();
+      syncActiveTabContent();
+      setRightPaneMode("picker");
+    }
+  }
+
   function refreshSummaryValues() {
     if (!panel || !panel._summaryValuesByTab) return;
     for (const tab of SUMMARY_TABS) {
@@ -151,11 +216,17 @@
         }
       }
     }
+    syncSummaryRowVisibility();
     // Keep the button badge in sync even when the panel is closed.
     refreshButtonBadgeFromSelections();
   }
 
   function setRightPaneMode(mode) {
+    if (mode === "picker") {
+      ensureActiveTabVisible();
+      syncActiveTabContent();
+    }
+
     rightPaneMode = mode;
     if (!panel) return;
 
@@ -767,22 +838,12 @@
     const isOtherCategoryTab = (tabName) => OTHER_CATEGORY_TABS.some((t) => t.id === tabName);
 
     const switchTab = (tabName) => {
+      if (!isSummaryTabVisible(tabName)) {
+        tabName = "skins";
+      }
       activeTab = tabName;
       // Update tab content
-      const allContents = [
-        panel._modsContent,
-        panel._mapsContent,
-        panel._fontsContent,
-        panel._announcersContent,
-        ...OTHER_CATEGORY_TABS.map((t) => panel[`_${t.id}Content`]).filter(Boolean),
-      ];
-      allContents.forEach((content) => {
-        if (content && content.dataset && content.dataset.tab === tabName) {
-          content.classList.add("active");
-        } else if (content) {
-          content.classList.remove("active");
-        }
-      });
+      syncActiveTabContent();
       // Request data for the active tab (always request fresh data)
       if (tabName === "skins") {
         requestModsForCurrentSkin();
@@ -1033,6 +1094,7 @@
       panel._summaryRowsByTab[tab.id] = row;
       summaryView.appendChild(row);
     });
+    syncSummaryRowVisibility();
 
     // Picker view (reuses existing scrollable with tab contents)
     const pickerView = document.createElement("div");
@@ -2034,6 +2096,9 @@
       return;
     }
 
+    // Settings changes are intentionally applied on the next wheel open.
+    requestSettings();
+
     // Create panel if it doesn't exist
     if (!panel.parentNode) {
       document.body.appendChild(panel);
@@ -2049,19 +2114,14 @@
       activeTab = "skins";
       isFirstOpenInSession = false;
     }
+    ensureActiveTabVisible();
 
     // Always start in summary view when opening the panel
     setRightPaneMode("summary");
     refreshSummaryValues();
 
     // Update tab content based on activeTab (generic)
-    panel.querySelectorAll(".tab-content").forEach((content) => {
-      if (content && content.dataset && content.dataset.tab === activeTab) {
-        content.classList.add("active");
-      } else if (content) {
-        content.classList.remove("active");
-      }
-    });
+    syncActiveTabContent();
 
     // Request data for the active tab
     if (activeTab === "skins") {
@@ -2291,11 +2351,29 @@
     updateButtonBadge(getSelectedModsCount());
   }
 
+  function requestSettings() {
+    if (bridge) bridge.send({ type: "settings-request" });
+  }
+
+  function handleSettingsData(event) {
+    const detail = event?.detail;
+    if (!detail || detail.type !== "settings-data") {
+      return;
+    }
+
+    hideEmptyCategories = Boolean(detail.hideEmptyCategories);
+    applyVisibleCategoryState();
+    refreshSummaryValues();
+  }
+
   function handleModsResponse(event) {
     const detail = event?.detail;
     if (!detail || detail.type !== "skin-mods-response") {
       return;
     }
+
+    hideEmptyCategories = Boolean(detail.hideEmptyCategories);
+    applyVisibleCategoryState();
 
     const championId = Number(detail?.championId);
     const skinId = Number(detail?.skinId);
@@ -2389,6 +2467,7 @@
     }
 
     const mapsList = Array.isArray(detail.maps) ? detail.maps : [];
+    lastMapsMods = mapsList;
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
@@ -2411,6 +2490,7 @@
 
     refreshSummaryValues();
     refreshButtonBadgeFromSelections();
+    applyVisibleCategoryState();
 
     if (isOpen && rightPaneMode === "picker" && activeTab === "maps") {
       updateMapsEntries(mapsList);
@@ -2443,6 +2523,7 @@
     }
 
     const fontsList = Array.isArray(detail.fonts) ? detail.fonts : [];
+    lastFontsMods = fontsList;
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
@@ -2462,6 +2543,7 @@
 
     refreshSummaryValues();
     refreshButtonBadgeFromSelections();
+    applyVisibleCategoryState();
 
     if (isOpen && rightPaneMode === "picker" && activeTab === "fonts") {
       updateFontsEntries(fontsList);
@@ -2494,6 +2576,7 @@
     }
 
     const announcersList = Array.isArray(detail.announcers) ? detail.announcers : [];
+    lastAnnouncersMods = announcersList;
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
@@ -2513,6 +2596,7 @@
 
     refreshSummaryValues();
     refreshButtonBadgeFromSelections();
+    applyVisibleCategoryState();
 
     if (isOpen && rightPaneMode === "picker" && activeTab === "announcers") {
       updateAnnouncersEntries(announcersList);
@@ -2578,6 +2662,7 @@
 
     refreshSummaryValues();
     refreshButtonBadgeFromSelections();
+    applyVisibleCategoryState();
 
     if (!isOpen || rightPaneMode !== "picker" || !OTHER_CATEGORY_TABS.some((t) => t.id === activeTab)) {
       return;
@@ -2650,6 +2735,7 @@
 
     refreshSummaryValues();
     refreshButtonBadgeFromSelections();
+    applyVisibleCategoryState();
 
     if (!isOpen || rightPaneMode !== "picker" || activeTab !== category) {
       return;
@@ -2734,6 +2820,7 @@
 
     // Subscribe to bridge messages instead of window CustomEvents
     if (bridge) {
+      bridge.subscribe("settings-data", (data) => handleSettingsData({ detail: data }));
       bridge.subscribe("skin-mods-response", (data) => handleModsResponse({ detail: data }));
       bridge.subscribe("maps-response", (data) => handleMapsResponse({ detail: data }));
       bridge.subscribe("fonts-response", (data) => handleFontsResponse({ detail: data }));
@@ -2758,8 +2845,11 @@
         }
       });
 
+      requestSettings();
+
       // Request initial data on every (re)connect
       bridge.onReady(() => {
+        requestSettings();
         requestMaps();
         requestFonts();
         requestAnnouncers();
