@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, List, Dict, Optional
 from utils.core.logging import get_logger
 from utils.core.paths import get_skins_dir
+from utils.core.safe_extract import is_safe_path
 from config import (
     API_POLITENESS_DELAY_S, APP_USER_AGENT,
     DEFAULT_SKIN_DOWNLOAD_TIMEOUT_S, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
@@ -110,7 +111,11 @@ class SkinDownloader:
         for skin_file in skin_files:
             filename = skin_file['name']
             local_path = champion_dir / filename
-            
+
+            if not is_safe_path(champion_dir, local_path):
+                log.error(f"[SECURITY] Blocked unsafe filename from API: {filename}")
+                continue
+
             # Skip if file exists and we're not forcing update
             if local_path.exists() and not force_update:
                 log.debug(f"Skipping existing file: {filename}")

@@ -149,11 +149,19 @@ class RepoDownloader:
     def _resolve_local_path(self, repo_path: str) -> Optional[Path]:
         """Map a repo-relative path (skins/... or resources/...) to a local path."""
         from utils.core.paths import get_user_data_dir
+        from utils.core.safe_extract import is_safe_path
         if repo_path.startswith('skins/'):
-            return self.target_dir / repo_path[len('skins/'):]
+            base = self.target_dir
+            candidate = base / repo_path[len('skins/'):]
         elif repo_path.startswith('resources/'):
-            return get_user_data_dir() / "resources" / repo_path[len('resources/'):]
-        return None
+            base = get_user_data_dir() / "resources"
+            candidate = base / repo_path[len('resources/'):]
+        else:
+            return None
+        if not is_safe_path(base, candidate):
+            log.error(f"[SECURITY] Blocked unsafe repo path: {repo_path}")
+            return None
+        return candidate
 
     def download_changed_files(self, changed_files: List[Dict]) -> bool:
         """Download changed files individually via raw.githubusercontent.com.
