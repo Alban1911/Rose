@@ -123,6 +123,7 @@ class ChampionLockHandler:
         self.state.last_hovered_skin_key = None
         self.state.last_hovered_skin_id = None
         self.state.last_hovered_skin_slug = None
+        self.state.selected_skin_display_name = None
 
         # Reset chroma selection (prevents stale chromas from previous champion)
         self.state.selected_chroma_id = None
@@ -131,6 +132,7 @@ class ChampionLockHandler:
         # Reset injection state
         self.state.injection_completed = False
         self.state.last_hover_written = False
+        self.state.loading_skin_restore_done = False
         
         # Reset locked champion state
         self.state.locked_champ_id = new_champ_id
@@ -264,4 +266,3 @@ class ChampionLockHandler:
                     self.state.ui_skin_thread._broadcast_champion_locked(True)
             except Exception as e:
                 log.debug(f"[lock:champ] Failed to broadcast champion lock state: {e}")
-

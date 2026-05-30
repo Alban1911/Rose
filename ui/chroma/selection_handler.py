@@ -29,6 +29,10 @@ class ChromaSelectionHandler:
         self.skin_scraper = skin_scraper
         self.panel = panel
         self.current_skin_id = current_skin_id
+
+    def _set_selected_skin_name(self, skin_name: str) -> None:
+        self.state.last_hovered_skin_key = skin_name
+        self.state.selected_skin_display_name = skin_name
     
     def handle_selection(self, chroma_id: int, chroma_name: str):
         """Handle chroma selection callback
@@ -109,7 +113,7 @@ class ChromaSelectionHandler:
             if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                 base_skin_name = self.panel.current_skin_name
                 form_skin_name = f"{base_skin_name} {chroma_name}"
-                self.state.last_hovered_skin_key = form_skin_name
+                self._set_selected_skin_name(form_skin_name)
                 log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                 log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                 log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
@@ -148,7 +152,7 @@ class ChromaSelectionHandler:
             if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                 base_skin_name = self.panel.current_skin_name
                 form_skin_name = f"{base_skin_name} {chroma_name}"
-                self.state.last_hovered_skin_key = form_skin_name
+                self._set_selected_skin_name(form_skin_name)
                 log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                 log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                 log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
@@ -187,7 +191,7 @@ class ChromaSelectionHandler:
             if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                 base_skin_name = self.panel.current_skin_name
                 form_skin_name = f"{base_skin_name} {chroma_name}"
-                self.state.last_hovered_skin_key = form_skin_name
+                self._set_selected_skin_name(form_skin_name)
                 log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                 log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                 log.debug(f"[CHROMA] Using fake ID {chroma_id} for injection (not owned)")
@@ -226,7 +230,7 @@ class ChromaSelectionHandler:
             if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                 base_skin_name = self.panel.current_skin_name
                 form_skin_name = f"{base_skin_name} {chroma_name}"
-                self.state.last_hovered_skin_key = form_skin_name
+                self._set_selected_skin_name(form_skin_name)
                 log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                 log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                 log.debug(f"[CHROMA] Using real ID {chroma_id} for injection (not owned)")
@@ -265,7 +269,7 @@ class ChromaSelectionHandler:
             if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                 base_skin_name = self.panel.current_skin_name
                 form_skin_name = f"{base_skin_name} {chroma_name}"
-                self.state.last_hovered_skin_key = form_skin_name
+                self._set_selected_skin_name(form_skin_name)
                 log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                 log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                 log.debug(f"[CHROMA] Using real ID {chroma_id} for injection (not owned)")
@@ -304,7 +308,7 @@ class ChromaSelectionHandler:
             if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
                 base_skin_name = self.panel.current_skin_name
                 form_skin_name = f"{base_skin_name} {chroma_name}"
-                self.state.last_hovered_skin_key = form_skin_name
+                self._set_selected_skin_name(form_skin_name)
                 log.debug(f"[CHROMA] Form skin name: {form_skin_name}")
                 log.debug(f"[CHROMA] Form path: {form_data['form_path']}")
                 log.debug(f"[CHROMA] Using real ID {chroma_id} for injection (not owned)")
@@ -341,7 +345,7 @@ class ChromaSelectionHandler:
         if hasattr(self.panel, 'current_skin_name') and self.panel.current_skin_name:
             base_skin_name = self.panel.current_skin_name
             hol_skin_name = f"{base_skin_name} {chroma_name}"
-            self.state.last_hovered_skin_key = hol_skin_name
+            self._set_selected_skin_name(hol_skin_name)
             log.debug(f"[CHROMA] HOL skin name: {hol_skin_name}")
             log.debug(f"[CHROMA] HOL skin ID: {target_skin_id}")
             log.debug(f"[CHROMA] Using real ID {chroma_id} for injection (not owned)")
@@ -361,7 +365,7 @@ class ChromaSelectionHandler:
                     english_skin_name = skin_data.get('skinName', '')
             
             # For base skins, use just the skin name (no chroma ID)
-            self.state.last_hovered_skin_key = english_skin_name
+            self._set_selected_skin_name(english_skin_name)
             log.debug(f"[CHROMA] Reset last_hovered_skin_key to: {self.state.last_hovered_skin_key}")
         
         # Update Swiftplay tracking dictionary if in Swiftplay mode
@@ -422,7 +426,8 @@ class ChromaSelectionHandler:
                     english_skin_name = skin_data.get('skinName', '')
             
             # For chromas, append the chroma ID to the clean base skin name
-            self.state.last_hovered_skin_key = f"{english_skin_name} {chroma_id}"
+            chroma_display_name = chroma_name or f"{english_skin_name} {chroma_id}"
+            self._set_selected_skin_name(chroma_display_name)
             log.debug(f"[CHROMA] Updated last_hovered_skin_key to: {self.state.last_hovered_skin_key}")
         
         log.info(f"[CHROMA] Updated last_hovered_skin_id from {self.current_skin_id} to {chroma_id}")
@@ -461,4 +466,3 @@ class ChromaSelectionHandler:
                         log.debug(f"[CHROMA] Failed to broadcast historic state in safety check: {e}")
         except Exception as e:
             log.debug(f"[CHROMA] Error disabling historic mode: {e}")
-

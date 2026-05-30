@@ -136,11 +136,12 @@ class WebSocketEventHandler:
     def _handle_champ_select_entry(self):
         """Handle entering ChampSelect phase"""
         log_event(log, "Entering ChampSelect - resetting state for new game", "")
-        
+
         # Reset skin detection state
         self.state.last_hovered_skin_key = None
         self.state.last_hovered_skin_id = None
         self.state.last_hovered_skin_slug = None
+        self.state.selected_skin_display_name = None
         self.state.ui_last_text = None
         self.state.ui_skin_id = None
         
@@ -148,6 +149,7 @@ class WebSocketEventHandler:
         self.state.selected_skin_id = None
         self.state.owned_skin_ids.clear()
         self.state.last_hover_written = False
+        self.state.loading_skin_restore_done = False
         
         # Reset injection and countdown state
         self.state.injection_completed = False
@@ -220,8 +222,9 @@ class WebSocketEventHandler:
         """Handle entering InProgress phase"""
         from utils.core.logging import log_section
         
-        if self.state.last_hovered_skin_key:
-            log_section(log, f"Game Starting - Last Detected Skin: {self.state.last_hovered_skin_key.upper()}", "", {
+        skin_display_name = self.state.selected_skin_display_name or self.state.last_hovered_skin_key
+        if skin_display_name:
+            log_section(log, f"Game Starting - Selected Skin: {skin_display_name.upper()}", "", {
                 "Champion": self.state.last_hovered_skin_slug,
                 "SkinID": self.state.last_hovered_skin_id
             })
@@ -296,4 +299,3 @@ class WebSocketEventHandler:
         # Timer
         if self.timer_manager:
             self.timer_manager.maybe_start_timer(sess)
-
