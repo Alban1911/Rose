@@ -43,7 +43,7 @@ def _get_tools_dir() -> Path:
 
 
 _VALID_DLL_HASHES = {
-    "4a009619c6dea691780b2f20cf17e08de478a78b3f11cd72759dd71c00ad1c90",
+    "ae12fb633d88cf31a080ef24ec2c08dc398ddc22fd03e5addc45950dfb2f1c28",
 }
 
 
