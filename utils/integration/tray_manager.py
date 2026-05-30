@@ -10,6 +10,7 @@ from typing import Optional, Callable
 import pystray
 from PIL import Image, ImageDraw
 from utils.core.logging import get_logger
+from utils.core.paths import get_user_data_dir, open_folder_in_explorer
 from config import (
     APP_VERSION,
     TRAY_READY_MAX_WAIT_S, TRAY_READY_CHECK_INTERVAL_S,
@@ -191,13 +192,23 @@ class TrayManager:
                 )
             except Exception:
                 log.debug("Unable to show error message box for settings dialog failure")
-    
+
+    def _on_open_mods(self, icon, item):
+        """Open the user mods folder in the file explorer."""
+        log.info("Open Mods Folder requested from system tray")
+        try:
+            open_folder_in_explorer(get_user_data_dir() / "mods")
+        except Exception as e:
+            log.error(f"Failed to open mods folder: {e}")
+
     def _create_menu(self) -> pystray.Menu:
         """Create the context menu for the tray icon"""
         return pystray.Menu(
             pystray.MenuItem(f"Rose v{APP_VERSION}", None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit", self._on_quit)
+            pystray.MenuItem("Open Mods Folder", self._on_open_mods),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Quit", self._on_quit),
         )
     
     def _run_tray(self):

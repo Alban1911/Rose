@@ -6,6 +6,7 @@ Handles user data directories and permissions
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
@@ -235,6 +236,18 @@ def get_injection_dir() -> Path:
     injection_dir = get_user_data_dir() / "injection"
     injection_dir.mkdir(parents=True, exist_ok=True)
     return injection_dir
+
+
+def open_folder_in_explorer(folder: Path) -> None:
+    """
+    Create `folder` if missing and reveal it in the OS file explorer.
+    Raises on failure — callers handle logging/error reporting.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        os.startfile(str(folder))
+    else:
+        subprocess.Popen(["xdg-open", str(folder)])
 
 
 def get_app_dir() -> Path:

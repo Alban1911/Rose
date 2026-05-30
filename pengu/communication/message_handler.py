@@ -20,7 +20,7 @@ from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.storage import ModStorageService
-from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir
+from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.system.admin_utils import (
@@ -764,12 +764,7 @@ class MessageHandler:
         """Handle open mods folder request"""
         try:
             mods_folder = get_user_data_dir() / "mods"
-            mods_folder.mkdir(parents=True, exist_ok=True)
-            
-            if sys.platform == "win32":
-                os.startfile(str(mods_folder))
-            else:
-                subprocess.Popen(["xdg-open" if os.name != "nt" else "explorer", str(mods_folder)])
+            open_folder_in_explorer(mods_folder)
             log.info(f"[SkinMonitor] Opened mods folder: {mods_folder}")
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to open mods folder: {e}")
