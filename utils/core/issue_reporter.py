@@ -26,7 +26,6 @@ _ALLOWED_CODES = {
     'AUTO_RESUME_TRIGGERED',  # Suggest increasing Monitor Auto-Resume Timeout
     'BASE_SKIN_FORCE_SLOW',   # Suggest increasing Injection Threshold
     'BASE_SKIN_VERIFY_FAILED',  # Base skin verification mismatch (often causes skin not to show)
-    'SKIN_DECRYPT_KEY_FAILED',  # Could not fetch decryption key from server
 }
 
 
@@ -126,9 +125,7 @@ def clear_issue(code: str) -> bool:
             for k in keys_to_remove:
                 _LAST.pop(k, None)
             # Remove lines containing the code's known messages
-            _CODE_MARKERS = {
-                "SKIN_DECRYPT_KEY_FAILED": "failed to fetch decryption key",
-            }
+            _CODE_MARKERS = {}
             marker = _CODE_MARKERS.get(code)
             if not marker:
                 return False

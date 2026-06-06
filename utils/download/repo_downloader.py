@@ -40,7 +40,7 @@ class RepoDownloader:
     def __init__(
         self,
         target_dir: Path = None,
-        repo_url: str = "https://github.com/Alban1911/RoseSkin",
+        repo_url: str = "https://github.com/Alban1911/LeagueSkins",
         progress_callback: Optional[ProgressCallback] = None,
     ):
         self.repo_url = repo_url
@@ -54,8 +54,8 @@ class RepoDownloader:
 
         # Version tracking
         self.version_file = self.target_dir / '.skin_version'
-        self.api_base = "https://api.github.com/repos/Alban1911/RoseSkin"
-        self.raw_base = "https://raw.githubusercontent.com/Alban1911/RoseSkin/main"
+        self.api_base = "https://api.github.com/repos/Alban1911/LeagueSkins"
+        self.raw_base = "https://raw.githubusercontent.com/Alban1911/LeagueSkins/main"
 
         # If changed files exceed this, use full ZIP instead of individual downloads
         self.incremental_file_threshold = 200
@@ -376,7 +376,7 @@ class RepoDownloader:
                 continue
             
             # Convert ZIP path to relative path
-            relative_path = file_info.filename.replace('RoseSkin-main/', '')
+            relative_path = file_info.filename.replace('LeagueSkins-main/', '')
 
             # Remove 'skins/' or 'resources/' prefix to match local structure
             if relative_path.startswith('skins/'):
@@ -443,9 +443,9 @@ class RepoDownloader:
         extract_skins: bool = True,
         extract_resources: bool = True,
     ) -> bool:
-        """Extract skins, previews, and resources folder from the RoseSkin repository ZIP"""
+        """Extract skins, previews, and resources folder from the LeagueSkins repository ZIP"""
         try:
-            log.info("Extracting skins, previews, and resources folder from RoseSkin repository ZIP...")
+            log.info("Extracting skins, previews, and resources folder from LeagueSkins repository ZIP...")
 
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 # Find all files in the skins/ directory
@@ -456,13 +456,13 @@ class RepoDownloader:
                 if extract_skins:
                     for file_info in zip_ref.filelist:
                         # Look for files in skins/ directory, but skip the skins directory itself
-                        if (file_info.filename.startswith('RoseSkin-main/skins/') and 
-                            file_info.filename != 'RoseSkin-main/skins/' and
+                        if (file_info.filename.startswith('LeagueSkins-main/skins/') and 
+                            file_info.filename != 'LeagueSkins-main/skins/' and
                             not file_info.filename.endswith('/')):
                             skins_files.append(file_info)
                             
                             # Count file types for accurate reporting
-                            if file_info.filename.endswith('.rse'):
+                            if file_info.filename.endswith(('.zip', '.fantome')):
                                 zip_count += 1
                             elif file_info.filename.endswith('.png'):
                                 png_count += 1
@@ -474,8 +474,8 @@ class RepoDownloader:
                 if extract_resources:
                     for file_info in zip_ref.filelist:
                         # Look for files in resources/ directory (entire folder)
-                        if (file_info.filename.startswith('RoseSkin-main/resources/') and 
-                            file_info.filename != 'RoseSkin-main/resources/' and
+                        if (file_info.filename.startswith('LeagueSkins-main/resources/') and 
+                            file_info.filename != 'LeagueSkins-main/resources/' and
                             not file_info.filename.endswith('/')):
                             resources_files.append(file_info)
                             resources_count += 1
@@ -490,7 +490,7 @@ class RepoDownloader:
                 if extract_resources and not resources_files:
                     log.warning("No resources folder found in repository ZIP, but resources extraction was requested")
                 
-                log.info(f"Found {zip_count} skin .rse files, {png_count} preview .png files, and {resources_count} resource files in repository")
+                log.info(f"Found {zip_count} skin archive files, {png_count} preview .png files, and {resources_count} resource files in repository")
                 
                 # Extract all skins and resource files with byte-level progress tracking
                 extracted_zip_count = 0
@@ -534,8 +534,8 @@ class RepoDownloader:
                             continue
 
                         label = "Extracting skins..." if entry_type == "skin" else "Extracting skin ID mapping..."
-                        relative_path = file_info.filename.replace('RoseSkin-main/', '')
-                        is_zip = relative_path.endswith('.rse')
+                        relative_path = file_info.filename.replace('LeagueSkins-main/', '')
+                        is_zip = relative_path.endswith(('.zip', '.fantome'))
                         is_png = relative_path.endswith('.png')
 
                         if entry_type == "skin":
@@ -610,7 +610,7 @@ class RepoDownloader:
                     if deleted_resources_count > 0:
                         log.info(f"Removed {deleted_resources_count} resource files that no longer exist in repository")
 
-                log.info(f"Extracted {extracted_zip_count} new skin .rse files, {extracted_png_count} preview .png files, "
+                log.info(f"Extracted {extracted_zip_count} new skin archive files, {extracted_png_count} preview .png files, "
                         f"and {extracted_resources_count} resource files (skipped {skipped_skin_count} existing skin files, "
                         f"{skipped_resources_count} existing resource files)")
 
@@ -735,7 +735,7 @@ class RepoDownloader:
         stats = {}
         for champion_dir in self.target_dir.iterdir():
             if champion_dir.is_dir():
-                skin_files = list(champion_dir.glob("*.zip")) + list(champion_dir.glob("*.rse"))
+                skin_files = list(champion_dir.glob("*.zip")) + list(champion_dir.glob("*.fantome"))
                 stats[champion_dir.name] = len(skin_files)
 
         return stats
@@ -774,26 +774,26 @@ class RepoDownloader:
                     
                     # Count base skin files
                     skin_zip = skin_dir / f"{skin_dir.name}.zip"
-                    skin_rse = skin_dir / f"{skin_dir.name}.rse"
+                    skin_fantome = skin_dir / f"{skin_dir.name}.fantome"
                     skin_png = skin_dir / f"{skin_dir.name}.png"
 
-                    if skin_zip.exists() or skin_rse.exists():
+                    if skin_zip.exists() or skin_fantome.exists():
                         total_skins += 1
                     if skin_png.exists():
                         total_previews += 1
 
                     # Count chromas in this skin's chroma subdirectories
-                    # Structure: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip or .rse
+                    # Structure: {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.zip or .fantome
                     for chroma_dir in skin_dir.iterdir():
                         if chroma_dir.is_dir():
                             try:
                                 int(chroma_dir.name)  # If this succeeds, it's a chroma ID directory
 
                                 chroma_zip = chroma_dir / f"{chroma_dir.name}.zip"
-                                chroma_rse = chroma_dir / f"{chroma_dir.name}.rse"
+                                chroma_fantome = chroma_dir / f"{chroma_dir.name}.fantome"
                                 chroma_png = chroma_dir / f"{chroma_dir.name}.png"
 
-                                if chroma_zip.exists() or chroma_rse.exists():
+                                if chroma_zip.exists() or chroma_fantome.exists():
                                     total_chromas += 1
                                 if chroma_png.exists():
                                     total_previews += 1

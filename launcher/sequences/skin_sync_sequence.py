@@ -11,13 +11,9 @@ from typing import Optional
 from state import AppStatus
 from utils.core.logging import get_logger, get_named_logger
 from utils.download.skin_downloader import download_skins_on_startup
-from utils.system.win32_base import user32
 
 log = get_logger()
 updater_log = get_named_logger("updater", prefix="log_updater")
-
-# DownGit link for manual skin download
-DOWNGIT_URL = "https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/Alban1911/RoseSkin"
 
 MB_OK = 0x00000000
 MB_ICONWARNING = 0x00000030

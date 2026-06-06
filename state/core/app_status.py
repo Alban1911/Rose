@@ -89,18 +89,20 @@ class AppStatus:
                     try:
                         int(skin_dir.name)
                         
-                        # Check for base skin file (.rse)
-                        skin_rse = skin_dir / f"{skin_dir.name}.rse"
-                        if skin_rse.exists():
+                        # Check for base skin file (.zip or .fantome)
+                        skin_zip = skin_dir / f"{skin_dir.name}.zip"
+                        skin_fantome = skin_dir / f"{skin_dir.name}.fantome"
+                        if skin_zip.exists() or skin_fantome.exists():
                             return True
 
-                        # Check for chroma files (.rse)
+                        # Check for chroma files (.zip or .fantome)
                         for chroma_dir in skin_dir.iterdir():
                             if chroma_dir.is_dir():
                                 try:
                                     int(chroma_dir.name)  # Check if it's a chroma directory
-                                    chroma_rse = chroma_dir / f"{chroma_dir.name}.rse"
-                                    if chroma_rse.exists():
+                                    chroma_zip = chroma_dir / f"{chroma_dir.name}.zip"
+                                    chroma_fantome = chroma_dir / f"{chroma_dir.name}.fantome"
+                                    if chroma_zip.exists() or chroma_fantome.exists():
                                         return True
                                 except ValueError:
                                     continue

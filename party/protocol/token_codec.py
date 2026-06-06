@@ -6,6 +6,7 @@ Compact, shareable tokens for party connection establishment via WebSocket relay
 """
 
 import base64
+import secrets
 import struct
 import time
 import zlib
@@ -164,10 +165,8 @@ def create_token(
     Returns:
         PartyToken instance
     """
-    from .crypto import PartyCrypto
-
     if encryption_key is None:
-        encryption_key = PartyCrypto.generate_key()
+        encryption_key = secrets.token_bytes(32)
 
     return PartyToken(
         summoner_id=summoner_id,

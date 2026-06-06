@@ -33,38 +33,9 @@ def print_step(step_num, total_steps, description):
     print("-" * 70)
 
 
-def run_cython_compile():
-    """Compile sensitive modules to native code with Cython"""
-    print_step(1, 4, "Compiling Sensitive Modules with Cython")
-
-    result = subprocess.run(
-        [sys.executable, "build_cython.py"],
-        capture_output=False,
-        text=True
-    )
-
-    if result.returncode != 0:
-        print("\n[WARNING] Cython compilation failed - building without native compilation")
-        print("[INFO] Install Cython for stronger protection: pip install cython")
-        return True  # Non-fatal, continue with normal bytecode
-
-    print("\n[OK] Cython compilation completed!")
-    return True
-
-
-def restore_cython_sources():
-    """Restore original .py source files after build"""
-    result = subprocess.run(
-        [sys.executable, "build_cython.py", "restore"],
-        capture_output=False,
-        text=True
-    )
-    return result.returncode == 0
-
-
 def run_build_exe():
     """Run the build_pyinstaller.py script"""
-    print_step(2, 4, "Building Executable with PyInstaller")
+    print_step(1, 3, "Building Executable with PyInstaller")
     
     # Run build_pyinstaller.py as a subprocess
     result = subprocess.run(
@@ -89,7 +60,7 @@ def run_build_exe():
 
 def run_create_installer():
     """Run the create_installer.py script"""
-    print_step(3, 4, "Creating Windows Installer with Inno Setup")
+    print_step(2, 3, "Creating Windows Installer with Inno Setup")
     
     # Run create_installer.py as a subprocess
     result = subprocess.run(
@@ -115,7 +86,7 @@ def run_create_installer():
 
 def check_dependencies():
     """Check if required dependencies are installed"""
-    print_step(0, 4, "Verifying Dependencies")
+    print_step(0, 3, "Verifying Dependencies")
     
     try:
         import requests
@@ -138,7 +109,7 @@ def build_all():
     
     # Step 0: Check dependencies are installed
     if not check_dependencies():
-        print_header("[FAILED] BUILD FAILED AT STEP 0/4")
+        print_header("[FAILED] BUILD FAILED AT STEP 0/3")
         print("Required dependencies are missing.")
         print("\nTroubleshooting:")
         print("1. Install dependencies:")
@@ -146,13 +117,9 @@ def build_all():
         print("2. Run the build again")
         return False
 
-    # Step 1: Cython compile sensitive modules
-    run_cython_compile()  # Non-fatal if Cython not installed
-
-    # Step 2: Build executable
+    # Step 1: Build executable
     if not run_build_exe():
-        restore_cython_sources()
-        print_header("[FAILED] BUILD FAILED AT STEP 2/4")
+        print_header("[FAILED] BUILD FAILED AT STEP 1/3")
         print("The executable build failed. Please check the errors above.")
         print("\nTroubleshooting:")
         print("1. Make sure all dependencies are installed:")
@@ -162,12 +129,9 @@ def build_all():
         print("   pip install pyinstaller")
         return False
 
-    # Restore source files after PyInstaller is done
-    restore_cython_sources()
-
-    # Step 3: Create installer
+    # Step 2: Create installer
     if not run_create_installer():
-        print_header("[WARNING] BUILD PARTIALLY COMPLETED (3/4)")
+        print_header("[WARNING] BUILD PARTIALLY COMPLETED (2/3)")
         print("Executable was built successfully, but installer creation failed.")
         print("\nYou can still use the executable directly from:")
         print("  dist/Rose/Rose.exe")

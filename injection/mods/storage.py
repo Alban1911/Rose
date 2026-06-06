@@ -110,7 +110,7 @@ class ModStorageService:
         for candidate in sorted(skin_dir.iterdir(), key=lambda p: p.name.lower()):
             if candidate.is_dir():
                 mod_name = candidate.name
-            elif candidate.is_file() and candidate.suffix.lower() in {".zip", ".fantome", ".rse"}:
+            elif candidate.is_file() and candidate.suffix.lower() in {".zip", ".fantome"}:
                 mod_name = candidate.stem
             else:
                 continue
@@ -193,7 +193,7 @@ class ModStorageService:
         for candidate in sorted(category_dir.iterdir(), key=lambda p: p.name.lower()):
             if candidate.is_dir():
                 mod_name = candidate.name
-            elif candidate.is_file() and candidate.suffix.lower() in {".zip", ".fantome", ".rse"}:
+            elif candidate.is_file() and candidate.suffix.lower() in {".zip", ".fantome"}:
                 mod_name = candidate.stem
             else:
                 continue

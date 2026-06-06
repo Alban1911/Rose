@@ -167,7 +167,7 @@ class OverlayManager:
                     'timestamp': time.time()
                 }
 
-                # Wipe decrypted skin files now that mkoverlay is done with them
+                # Wipe extracted skin files now that mkoverlay is done with them
                 self._wipe_mods_dir()
 
                 # Hide overlay files so they can't be easily browsed
@@ -277,7 +277,7 @@ class OverlayManager:
             log.debug(f"[INJECT] Could not wipe overlay directory: {e}")
 
     def _wipe_mods_dir(self):
-        """Delete decrypted skin files immediately after mkoverlay consumes them"""
+        """Delete extracted skin files immediately after mkoverlay consumes them"""
         try:
             import shutil
             for p in self.mods_dir.iterdir():

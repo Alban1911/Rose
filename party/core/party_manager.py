@@ -6,6 +6,7 @@ Orchestrator for party mode skin sharing via WebSocket relay.
 """
 
 import asyncio
+import secrets
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -14,7 +15,6 @@ from state import SharedState
 from utils.core.logging import get_logger
 
 from ..network.ws_relay import PartyRelay, compute_room_key
-from ..protocol.crypto import PartyCrypto
 from ..protocol.token_codec import PartyToken, create_token
 from ..protocol.message_types import SkinSelection
 from ..discovery.lobby_matcher import LobbyMatcher
@@ -92,7 +92,7 @@ class PartyManager:
             self.party_state.my_summoner_name = my_summoner_name
 
             # Generate key and token
-            self._my_key = PartyCrypto.generate_key()
+            self._my_key = secrets.token_bytes(32)
             self._my_token = create_token(
                 summoner_id=my_summoner_id,
                 encryption_key=self._my_key,

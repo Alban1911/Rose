@@ -12,7 +12,7 @@ from utils.core.logging import get_logger, log_success
 
 log = get_logger()
 
-SKIN_EXTENSIONS = ('.zip', '.fantome', '.rse')
+SKIN_EXTENSIONS = ('.zip', '.fantome')
 
 
 def _find_by_extensions(base: Path, stem: str) -> Optional[Path]:
@@ -66,7 +66,7 @@ class ZipResolver:
             if chroma_id is not None:
                 return self._resolve_chroma_by_id(champion_id, chroma_id)
             
-            # This is a base skin - Look for {champion_id}/{skin_id}/{skin_id}.zip/.fantome/.rse
+            # This is a base skin - look for {champion_id}/{skin_id}/{skin_id}.zip/.fantome
             skin_dir = self.zips_dir / str(champion_id) / str(skin_id)
             found = _find_by_extensions(skin_dir, str(skin_id))
             if found:

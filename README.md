@@ -26,7 +26,7 @@ Rose consists of three main components:
 - **LCU API Integration**: Communicates with the League Client via the League Client Update (LCU) API
 - **Skin Injection**: Handles skin injection compatible with Riot Vanguard
 - **WebSocket Bridge**: Operates a WebSocket server for real-time communication with frontend plugins
-- **Skin Management**: Downloads and manages encrypted skin files from the [RoseSkin repository](https://github.com/Alban1911/RoseSkin) — files are decrypted at runtime and wiped after use
+- **Skin Management**: Downloads and manages skin files from the [LeagueSkins repository](https://github.com/Alban1911/LeagueSkins)
 - **Party Mode**: Enables skin sharing between friends in the same lobby via a Cloudflare WebSocket relay
 - **Game Monitoring**: Tracks game state, champion select phases, and loadout countdowns
 - **Auto-Updater**: Checks GitHub for new releases and prompts users to install updates
@@ -35,8 +35,6 @@ Rose consists of three main components:
 ### Cloudflare Workers
 
 - **rose-party-relay**: Durable Object-backed WebSocket relay that manages party rooms (max 10 members per room) for real-time skin selection broadcasting between friends
-- **rose-skin-key**: Serves the skin decryption key at runtime
-
 ### Pengu Loader Plugins
 
 Rose includes a suite of JavaScript plugins that extend the League Client UI:
@@ -57,7 +55,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 1. **League Client Integration**: Rose activates **[Pengu Loader](https://github.com/Tariolle/ROSE-Pengu)** on startup, which injects the JavaScript plugins into the League Client
 2. **Skin Detection**: When you hover over a skin in champion select, `ROSE-SkinMonitor` detects the selection and sends it to the Python backend
 3. **Game Opening Delay**: To make sure the injection has time to occur we suspend League of Legend's game process as long as the overlay is not ran
-4. **Game Injection**: Rose decrypts and injects the selected skin when the game starts
+4. **Game Injection**: Rose injects the selected skin when the game starts
 5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact (Rose will **never** provide any competitive advantage to its users)
 
 ## Features
