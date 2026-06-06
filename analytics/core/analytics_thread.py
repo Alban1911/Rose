@@ -5,7 +5,6 @@ Analytics thread for periodic user tracking pings
 """
 
 import threading
-import time
 from typing import Optional
 
 from config import ANALYTICS_PING_INTERVAL_S, APP_VERSION
