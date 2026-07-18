@@ -98,7 +98,7 @@ except Exception as e:
 # Runtime-generated files (logs, per-user state) must be excluded so they don't
 # leak local test data into the shipped installer.
 pengu_loader_dir = Path('Pengu Loader')
-PENGU_LOADER_EXCLUDED_NAMES = {
+PENGU_LOADER_EXCLUDED_ROOT_NAMES = {
     'rose.log',
     'crash.log',
     'config',
@@ -107,9 +107,11 @@ PENGU_LOADER_EXCLUDED_NAMES = {
 PENGU_LOADER_EXCLUDED_SUFFIXES = {'.log'}
 
 def _pengu_path_excluded(rel_path: Path) -> bool:
-    parts_lower = [p.lower() for p in rel_path.parts]
-    if any(p in PENGU_LOADER_EXCLUDED_NAMES for p in parts_lower):
+    # Exclude only from root folder
+    if rel_path.parts and rel_path.parts[0].lower() in PENGU_LOADER_EXCLUDED_ROOT_NAMES:
         return True
+    
+    # Exclude from any folders in /Pengu Loader/*
     if rel_path.suffix.lower() in PENGU_LOADER_EXCLUDED_SUFFIXES:
         return True
     return False
