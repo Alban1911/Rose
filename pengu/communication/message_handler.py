@@ -411,6 +411,7 @@ class MessageHandler:
         Categories:
           - injection_threshold
           - monitor_timeout
+          - disk_space
         """
         try:
             cats = payload.get("categories") or []
@@ -423,6 +424,9 @@ class MessageHandler:
             for c in cats:
                 cl = str(c or "").strip().lower()
                 if not cl:
+                    continue
+                if cl in ('disk_space', 'low_disk_space'):
+                    norm.add('disk_space')
                     continue
                 if cl in ("injection_threshold", "threshold", "injection"):
                     norm.add("injection_threshold")
@@ -526,6 +530,8 @@ class MessageHandler:
                 ml = (msg_line or "").lower()
                 fl = (fix_line or "").lower()
                 # Match the same categories we summarize
+                if 'not enough disk space' in ml or ('disk space' in ml and 'injection failed' in ml):
+                    return 'disk_space'
                 if "auto-resume safety" in ml or "monitor auto-resume timeout" in fl:
                     return "monitor_timeout"
                 if "base skin forcing took longer" in ml or "injection threshold" in ml or "injection threshold" in fl or "base skin force time" in fl or "base skin confirmation" in fl or "verification failed" in ml:
@@ -711,6 +717,13 @@ class MessageHandler:
                     if tracker_samples is not None:
                         result["trackerSamples"] = tracker_samples
                     return result
+
+                # Category: Low disk space during overlay creation
+                if 'not enough disk space' in ml or ('disk space' in ml and 'injection failed' in ml):
+                    return {
+                        'code': 'LOW_DISK_SPACE',
+                        'text': 'Low Disk Space -> free up space',
+                    }
 
                 # Fallback: keep it short
                 short = msg.strip()

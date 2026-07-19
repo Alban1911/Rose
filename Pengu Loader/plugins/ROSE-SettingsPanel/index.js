@@ -990,6 +990,7 @@
   }
 
   function _diagnosticsCategory(e) {
+    if (e?.code === 'LOW_DISK_SPACE') return 'disk_space';
     const raw = String(e?.text || e?.msg || "").trim();
     const code = String(e?.code || "").trim();
 
@@ -3307,6 +3308,18 @@
               timeoutAtMax
                 ? `Fix: you're already at the maximum Monitor Auto-Resume Timeout. This usually means the injection is extremely slow. Try lighter mods, close heavy apps, move League/mods to an SSD, and consider adding antivirus exclusions for the League and Rose folders. Then retry.`
                 : `Fix: increase "Monitor Auto-Resume Timeout (seconds)" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, try again.`,
+            ],
+          };
+        }
+
+        const isLowDiskSpace =
+          code === 'LOW_DISK_SPACE' || /Low Disk Space/i.test(raw) || /not enough disk space/i.test(raw);
+        if (isLowDiskSpace) {
+          return {
+            title: 'Not enough disk space for injection',
+            details: [
+              'What it means: Rose could not create the overlay for the selected skin.',
+              'Fix: free up space on the drive containing Rose injection files, then retry. Map mods can require several GB.',
             ],
           };
         }

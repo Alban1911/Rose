@@ -20,12 +20,14 @@ from utils.core.paths import get_user_data_dir
 _LOCK = threading.Lock()
 _LAST: Dict[str, float] = {}  # naive dedupe: key -> last timestamp
 
-# Keep rose_diagnostics.txt focused on the two settings-related tuning problems that commonly
-# confuse users. Everything else should go to the normal logs.
+# Keep rose_diagnostics.txt focused on actionable tuning problems and critical
+# resource failures that commonly confuse users. Everything else should go to
+# the normal logs.
 _ALLOWED_CODES = {
     'AUTO_RESUME_TRIGGERED',  # Suggest increasing Monitor Auto-Resume Timeout
     'BASE_SKIN_FORCE_SLOW',   # Suggest increasing Injection Threshold
     'BASE_SKIN_VERIFY_FAILED',  # Base skin verification mismatch (often causes skin not to show)
+    'LOW_DISK_SPACE',         # Injection could not build an overlay with available disk space
 }
 
 
