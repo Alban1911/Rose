@@ -11,6 +11,7 @@ Security Notes:
     - Commands only execute mod-tools.exe from the verified tools directory
 """
 
+import shutil
 import subprocess
 import threading
 import time
@@ -36,6 +37,21 @@ from config import (
 
 log = get_logger()
 
+# mkoverlay needs free space for the generated WAD overlay in addition to the
+# extracted mod files. A gigabyte is a conservative lower bound for a normal
+# skin, while the extracted mod size catches larger map/voiceover mods.
+MIN_FREE_SPACE_BYTES = 1 * 1024 * 1024 * 1024
+DISK_SPACE_HEADROOM_BYTES = 512 * 1024 * 1024
+DISK_SPACE_ERROR_MARKERS = (
+    'not enough space',
+    'not enough disk space',
+    'insufficient disk space',
+    'disk full',
+    'no space left',
+    'error 112',
+    'errno 28',
+)
+
 
 class OverlayManager:
     """Manages overlay creation and execution"""
@@ -57,6 +73,81 @@ class OverlayManager:
         """Set current overlay process on process manager"""
         if self.process_manager:
             self.process_manager.current_overlay_process = value
+
+    @staticmethod
+    def _directory_size(directory: Path) -> int:
+        '''Return the best-effort size of files below *directory*.'''
+        total = 0
+        try:
+            for path in directory.rglob('*'):
+                try:
+                    if path.is_file():
+                        total += path.stat().st_size
+                except OSError:
+                    continue
+        except OSError:
+            return 0
+        return total
+
+    @staticmethod
+    def _format_bytes(size: int) -> str:
+        '''Format a byte count for log and diagnostics messages.'''
+        value = float(max(0, size))
+        for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+            if value < 1024 or unit == 'TB':
+                return f'{value:.1f} {unit}'
+            value /= 1024
+        return f'{value:.1f} TB'
+
+    def _report_low_disk_space_failure(
+        self,
+        output_lines: Optional[List[str]] = None,
+        mod_names: Optional[List[str]] = None,
+        result_code: Optional[int] = None,
+    ) -> bool:
+        '''Report a failed overlay when its output drive is out of space.'''
+        output = ' '.join(output_lines or ()).lower()
+        tool_reported_disk_error = (
+            any(marker in output for marker in DISK_SPACE_ERROR_MARKERS)
+            or result_code in (28, 112)
+        )
+
+        free_bytes = None
+        required_bytes = max(MIN_FREE_SPACE_BYTES, DISK_SPACE_HEADROOM_BYTES)
+        try:
+            usage = shutil.disk_usage(self.mods_dir.parent)
+            free_bytes = usage.free
+            extracted_bytes = self._directory_size(self.mods_dir)
+            required_bytes = max(
+                MIN_FREE_SPACE_BYTES,
+                extracted_bytes + DISK_SPACE_HEADROOM_BYTES,
+            )
+        except (OSError, ValueError) as exc:
+            log.debug(f'[INJECT] Could not inspect free disk space after injection failure: {exc}')
+
+        low_disk_space = free_bytes is not None and free_bytes < required_bytes
+        if not low_disk_space and not tool_reported_disk_error:
+            return False
+
+        free_text = self._format_bytes(free_bytes) if free_bytes is not None else 'an unknown amount'
+        required_text = self._format_bytes(required_bytes)
+        log.error(
+            '[INJECT] Injection failed because disk space is too low '
+            f'({free_text} free; approximately {required_text} recommended on {self.mods_dir.parent})'
+        )
+        report_issue(
+            'LOW_DISK_SPACE',
+            'error',
+            f'Injection failed: not enough disk space for the overlay ({free_text} free).',
+            details={
+                'free_bytes': free_bytes,
+                'required_bytes': required_bytes,
+                'overlay_path': str(self.mods_dir.parent),
+                'mods': '/'.join(mod_names or ()),
+            },
+            hint='Free up disk space on the drive containing Rose injection files, then retry the skin.',
+        )
+        return True
     
     def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
         """Create and run overlay
@@ -98,6 +189,8 @@ class OverlayManager:
         
         log.debug(f"[INJECT] Creating overlay: {' '.join(cmd)}")
         mkoverlay_start = time.time()
+        output_lines = []
+        error_lines = []
         try:
             # Hide console window on Windows
             import sys
@@ -119,9 +212,6 @@ class OverlayManager:
             
             # Wait for process to complete with timeout
             # Read both stdout and stderr in separate threads to see what mkoverlay is doing
-            output_lines = []
-            error_lines = []
-            
             def read_output(pipe, lines_list, prefix):
                 try:
                     for line in pipe:
@@ -157,6 +247,11 @@ class OverlayManager:
             mkoverlay_duration = time.time() - mkoverlay_start
             
             if proc.returncode != 0:
+                self._report_low_disk_space_failure(
+                    output_lines + error_lines,
+                    mod_names,
+                    result_code=proc.returncode,
+                )
                 log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
                 return proc.returncode
             else:
@@ -185,6 +280,7 @@ class OverlayManager:
                 details={"timeout_s": timeout},
                 hint="Try increasing Monitor Auto-Resume Timeout and/or using smaller mods.",
             )
+            self._report_low_disk_space_failure(output_lines + error_lines, mod_names)
             return 124
         except Exception as e:
             log.error(f"[INJECT] mkoverlay error: {e} - monitor will auto-resume if needed")
@@ -195,6 +291,7 @@ class OverlayManager:
                 details={"error": str(e)},
                 hint="Check Rose logs for details, then retry.",
             )
+            self._report_low_disk_space_failure(output_lines + error_lines, mod_names)
             return 1
 
         # Run overlay
@@ -256,6 +353,10 @@ class OverlayManager:
             self.current_overlay_process = None
             self._wipe_overlay_dir(overlay_dir)
             if proc.returncode != 0:
+                self._report_low_disk_space_failure(
+                    mod_names=mod_names,
+                    result_code=proc.returncode,
+                )
                 log.error(f"[INJECT] runoverlay failed with return code: {proc.returncode}")
                 return proc.returncode
             else:
@@ -346,6 +447,10 @@ class OverlayManager:
                 mkoverlay_duration = time.time() - mkoverlay_start
                 
                 if proc.returncode != 0:
+                    self._report_low_disk_space_failure(
+                        mod_names=mod_names,
+                        result_code=proc.returncode,
+                    )
                     log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
                     return proc.returncode
                 else:
@@ -359,8 +464,10 @@ class OverlayManager:
             except subprocess.TimeoutExpired:
                 log.error(f"[INJECT] mkoverlay timed out after {timeout}s")
                 proc.kill()
+                self._report_low_disk_space_failure(mod_names=mod_names)
                 return -1
             except Exception as e:
+                self._report_low_disk_space_failure(mod_names=mod_names)
                 log.error(f"[INJECT] mkoverlay failed with exception: {e}")
                 return -1
                 
