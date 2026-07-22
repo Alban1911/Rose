@@ -15,10 +15,14 @@
   let selectedModId = null;
   let selectedModSkinId = null;
   let modsForCurrentSkin = [];
+  let pythonChromaState = null;
+  let currentPhase = null;
   let panel = null;
   let panelButtonRef = null;
   let panelSkinItemRef = null;
   let customButtonIconUrl = null;
+  let selectionRequestCounter = 0;
+  let pendingSelectionRequest = null;
 
   function logInfo(message, extra) {
     console.log(`${LOG_PREFIX} ${message}`, extra ?? "");
@@ -83,7 +87,12 @@
     if (!skinItem) return false;
 
     if (skinItem.classList.contains("skin-selection-item")) {
-      return getSkinOffset(skinItem) === 2;
+      const explicitlyActive = (
+        skinItem.classList.contains("active-skin") ||
+        skinItem.classList.contains("selected") ||
+        skinItem.getAttribute("aria-selected") === "true"
+      );
+      return explicitlyActive || getSkinOffset(skinItem) === 2;
     }
 
     if (skinItem.classList.contains("thumbnail-wrapper")) {
@@ -137,13 +146,84 @@
 
   function getCurrentSkinContext() {
     const championId = Number(skinMonitorState?.championId);
-    const skinId = Number(skinMonitorState?.skinId);
+    let skinId = Number(skinMonitorState?.skinId);
+    const selectedChromaId = Number(pythonChromaState?.selectedChromaId);
+    const currentSkinId = Number(pythonChromaState?.currentSkinId);
+
+    const chromaBelongsToChampion =
+      Number.isFinite(selectedChromaId) &&
+      selectedChromaId > 0 &&
+      Number.isFinite(championId) &&
+      championId > 0 &&
+      Math.floor(selectedChromaId / 1000) === championId;
+    const chromaContextMatches =
+      !Number.isFinite(currentSkinId) ||
+      currentSkinId <= 0 ||
+      Math.floor(currentSkinId / 1000) === championId;
+
+    if (chromaBelongsToChampion && chromaContextMatches) {
+      skinId = selectedChromaId;
+    }
 
     return {
       championId: Number.isFinite(championId) ? championId : null,
       skinId: Number.isFinite(skinId) ? skinId : null,
       skinName: String(skinMonitorState?.name || "Unknown Skin"),
     };
+  }
+
+  function handleChromaStateUpdate(data) {
+    pythonChromaState = data && typeof data === "object" ? data : null;
+    requestModsForCurrentSkin();
+    scanSkinSelection();
+  }
+
+  function resetStaleChromaStateForSkin(skinId) {
+    if (!pythonChromaState) return;
+
+    const incomingSkinId = Number(skinId);
+    const selectedChromaId = Number(pythonChromaState.selectedChromaId);
+    const currentSkinId = Number(pythonChromaState.currentSkinId);
+    if (!Number.isFinite(incomingSkinId) || incomingSkinId <= 0) return;
+
+    const belongsToPreviousChromaContext =
+      incomingSkinId === selectedChromaId ||
+      incomingSkinId === currentSkinId;
+    if (!belongsToPreviousChromaContext) {
+      pythonChromaState = null;
+    }
+  }
+
+  function resetCustomSkinSessionState() {
+    pythonChromaState = null;
+    selectedModId = null;
+    selectedModSkinId = null;
+    pendingSelectionRequest = null;
+    modsForCurrentSkin = [];
+  }
+
+  function handlePhaseChange(data) {
+    const phase = String(data?.phase || "");
+    const previousPhase = currentPhase;
+    currentPhase = phase;
+
+    if (
+      phase === "ChampSelect" &&
+      previousPhase &&
+      previousPhase !== "ChampSelect"
+    ) {
+      resetCustomSkinSessionState();
+    } else if (
+      phase !== "ChampSelect" &&
+      previousPhase === "ChampSelect"
+    ) {
+      resetCustomSkinSessionState();
+    }
+  }
+
+  function createSelectionRequestId() {
+    selectionRequestCounter += 1;
+    return `${LOG_PREFIX}-${Date.now()}-${selectionRequestCounter}`;
   }
 
   function injectCSS() {
@@ -348,18 +428,29 @@
     document.querySelectorAll(BUTTON_SELECTOR).forEach((node) => node.remove());
   }
 
-  function sendDeselect() {
+  function sendDeselect(expectedModId = selectedModId) {
     const { championId, skinId } = getCurrentSkinContext();
     if (!bridge || !championId || !skinId) return;
 
-    bridge.send({ type: "select-skin-mod", championId, skinId, modId: null });
+    const requestId = createSelectionRequestId();
+    pendingSelectionRequest = { requestId, operation: "deselect" };
+    bridge.send({
+      type: "select-skin-mod",
+      championId,
+      skinId,
+      modId: null,
+      expectedModId,
+      requestId,
+    });
   }
 
   function sendSelect(modId, modData) {
     const { championId, skinId } = getCurrentSkinContext();
     if (!bridge || !championId || !skinId) return;
 
-    bridge.send({ type: "select-skin-mod", championId, skinId, modId, modData });
+    const requestId = createSelectionRequestId();
+    pendingSelectionRequest = { requestId, operation: "select", modId };
+    bridge.send({ type: "select-skin-mod", championId, skinId, modId, modData, requestId });
   }
 
   function requestModsForCurrentSkin() {
@@ -480,13 +571,14 @@
 
       const applySelection = () => {
         if (mod._none) {
-          if (selectedModId) sendDeselect();
-          selectedModId = null; selectedModSkinId = null; closePanel(); return;
+          if (selectedModId) sendDeselect(selectedModId);
+          closePanel();
+          return;
         }
         if (selectedModId === modId && Number(selectedModSkinId) === Number(getCurrentSkinContext().skinId)) {
-          sendDeselect(); selectedModId = null; selectedModSkinId = null;
+          sendDeselect(selectedModId);
         } else {
-          selectedModId = modId; selectedModSkinId = Number(getCurrentSkinContext().skinId); sendSelect(modId, mod);
+          sendSelect(modId, mod);
         }
         closePanel();
       };
@@ -570,6 +662,17 @@
 
   function ensureButtonOnItem(skinItem) {
     if (!skinItem) return;
+
+    // Some League builds nest the thumbnail wrapper inside the selection
+    // item. Keep one Rose button per item instead of attaching two buttons to
+    // the same skin during a mutation-observer scan.
+    if (skinItem.classList.contains("thumbnail-wrapper")) {
+      const parentItem = skinItem.closest(".skin-selection-item");
+      if (parentItem && Array.from(parentItem.children).some((child) => child.matches(BUTTON_SELECTOR))) {
+        return;
+      }
+    }
+
     const isCurrent = isCurrentSkinItem(skinItem);
     const matchesState = doesSkinItemMatchSkinState(skinItem);
     let existingButton = skinItem.querySelector(BUTTON_SELECTOR);
@@ -597,10 +700,32 @@
     if (!(panelSkinItemRef && panelSkinItemRef.isConnected && panelSkinItemRef.querySelector(BUTTON_SELECTOR) && modsForCurrentSkin.length > 0)) closePanel();
   }
 
-  function clearSelectedCustomModForSkinSwitch() {
-    const cs = Number(getCurrentSkinContext().skinId);
-    if (!selectedModId || !Number.isFinite(selectedModSkinId)) return;
-    if (cs && selectedModSkinId !== cs) { sendDeselect(); selectedModId = null; selectedModSkinId = null; }
+  function handleSelectionResult(data) {
+    const detail = data?.detail || data;
+    if (!detail || detail.type !== "custom-mod-selection-result") return;
+
+    if (pendingSelectionRequest && detail.requestId && detail.requestId !== pendingSelectionRequest.requestId) {
+      return;
+    }
+
+    const pending = pendingSelectionRequest;
+    pendingSelectionRequest = null;
+
+    if (!detail.success) {
+      console.warn(`${LOG_PREFIX} Custom skin selection failed: ${detail.error || "unknown error"}`);
+      scanSkinSelection();
+      return;
+    }
+
+    if (detail.operation === "deselect") {
+      selectedModId = null;
+      selectedModSkinId = null;
+    } else if (detail.operation === "select") {
+      selectedModId = String(detail.relativePath || detail.modId || pending?.modId || "");
+      selectedModSkinId = Number(detail.skinId || getCurrentSkinContext().skinId);
+    }
+
+    scanSkinSelection();
   }
 
   function handleModsResponse(data) {
@@ -613,15 +738,28 @@
     const rc = Number(detail.championId);
     if (rc && rc !== championId) return;
 
-    modsForCurrentSkin = (Array.isArray(detail.mods) ? detail.mods : []).filter(m => Number(m?.skinId) === skinId);
+    const responseSkinId = Number(detail.skinId);
+    if (!responseSkinId || responseSkinId !== skinId) return;
 
-    if (!modsForCurrentSkin.length && selectedModId && Number(selectedModSkinId) === skinId) {
-      sendDeselect(); selectedModId = null; selectedModSkinId = null;
+    modsForCurrentSkin = (Array.isArray(detail.mods) ? detail.mods : []).filter((mod) => (
+      mod?.availableForRequestedSkin === true ||
+      (mod?.availableForRequestedSkin == null && Number(mod?.skinId) === skinId)
+    ));
+
+    if (selectedModId && !pendingSelectionRequest) {
+      const selectedEntry = modsForCurrentSkin.find((mod) => (
+        String(mod?.relativePath || mod?.modName || "") === String(selectedModId)
+      ));
+      if (!selectedEntry) {
+        sendDeselect(selectedModId);
+      } else {
+        selectedModSkinId = skinId;
+      }
     }
 
-    if (!selectedModId && detail.historicMod) {
+    if (!selectedModId && !pendingSelectionRequest && detail.historicMod) {
       const match = modsForCurrentSkin.find(m => String(m?.relativePath || "").replace(/\\/g, "/") === String(detail.historicMod).replace(/\\/g, "/"));
-      if (match) { selectedModId = normalizeModId(match); selectedModSkinId = skinId; sendSelect(selectedModId, match); }
+      if (match) { sendSelect(normalizeModId(match), match); }
     }
 
     scanSkinSelection();
@@ -631,8 +769,8 @@
   function handleSkinState(event) {
     const detail = event?.detail;
     if (!detail) return;
+    resetStaleChromaStateForSkin(detail.skinId);
     skinMonitorState = detail;
-    clearSelectedCustomModForSkinSwitch();
     requestModsForCurrentSkin();
     scanSkinSelection();
     if (panel && panel.parentNode && panelButtonRef) positionPanel(panel, panelButtonRef);
@@ -657,15 +795,33 @@
 
     if (bridge) {
       bridge.subscribe("skin-mods-response", (data) => handleModsResponse({ detail: data }));
+      bridge.subscribe("custom-mod-selection-result", (data) => handleSelectionResult({ detail: data }));
+      bridge.subscribe("chroma-state", handleChromaStateUpdate);
+      bridge.subscribe("phase-change", handlePhaseChange);
       bridge.subscribe("local-asset-url", (data) => handleLocalAssetUrl(data));
       bridge.subscribe("champion-locked", (data) => {
         championLocked = Boolean(data?.locked);
-        if (!championLocked) { modsForCurrentSkin = []; selectedModId = null; selectedModSkinId = null; closePanel(); }
+        if (!championLocked) {
+          pythonChromaState = null;
+          modsForCurrentSkin = [];
+          selectedModId = null;
+          selectedModSkinId = null;
+          pendingSelectionRequest = null;
+          closePanel();
+        }
         else { requestModsForCurrentSkin(); }
         scanSkinSelection();
       });
       bridge.subscribe("custom-mod-state", (data) => {
-        if (data && data.active === false) { selectedModId = null; selectedModSkinId = null; scanSkinSelection(); }
+        if (!data) return;
+        if (data.active === false) {
+          selectedModId = null;
+          selectedModSkinId = null;
+        } else if (data.relativePath || data.modName) {
+          selectedModId = String(data.relativePath || data.modName);
+          selectedModSkinId = Number(data.skinId) || Number(getCurrentSkinContext().skinId);
+        }
+        scanSkinSelection();
       });
       bridge.onReady(() => {
         bridge.send({ type: "request-local-asset", assetPath: BUTTON_ICON_ASSET_PATH, timestamp: Date.now() });

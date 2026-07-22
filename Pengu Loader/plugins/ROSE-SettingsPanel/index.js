@@ -2833,7 +2833,13 @@
 
   function handleChampionSelection(championId) {
     closeChampionSelection();
-    openSkinSelection(championId);
+
+    if (bridge) bridge.send({
+      type: "add-custom-mods-skin-selected",
+      action: "create",
+      championId: championId,
+    });
+    log("info", "Champion selected for custom mods: champion=" + championId);
   }
 
   function openSkinSelection(championId) {

@@ -23,6 +23,11 @@
   let currentSkinData = null;
   let selectedModId = null; // Track which mod is currently selected
   let selectedModSkinId = null; // Track which skin the selected mod belongs to
+  let pythonChromaState = null;
+  let currentPhase = null;
+  let selectionRequestCounter = 0;
+  let pendingSelectionRequest = null;
+  let currentSkinMods = [];
   let activeTab = "skins"; // Current active tab: "skins", "maps", "fonts", "announcers", "others"
   let selectedMapId = null;
   let selectedFontId = null;
@@ -30,6 +35,82 @@
   // Per-category multi-selection (UI / Voiceover / Loading Screen / VFX / SFX / Others).
   // These are first-class categories in the UI; they just share the same list rendering logic.
   let selectedCategoryIds = Object.create(null);
+
+  function getCurrentSkinContext() {
+    const state = window.__roseSkinState || {};
+    const championId = Number(state.championId);
+    let skinId = Number(state.skinId);
+    const selectedChromaId = Number(pythonChromaState?.selectedChromaId);
+    const currentSkinId = Number(pythonChromaState?.currentSkinId);
+
+    const chromaBelongsToChampion =
+      Number.isFinite(selectedChromaId) &&
+      selectedChromaId > 0 &&
+      Number.isFinite(championId) &&
+      championId > 0 &&
+      Math.floor(selectedChromaId / 1000) === championId;
+    const chromaContextMatches =
+      !Number.isFinite(currentSkinId) ||
+      currentSkinId <= 0 ||
+      Math.floor(currentSkinId / 1000) === championId;
+
+    if (chromaBelongsToChampion && chromaContextMatches) {
+      skinId = selectedChromaId;
+    }
+
+    return { championId, skinId };
+  }
+
+  function handleChromaStateUpdate(data) {
+    pythonChromaState = data && typeof data === "object" ? data : null;
+    requestModsForCurrentSkin();
+    if (isOpen && activeTab === "skins") {
+      refreshSummaryValues();
+    }
+  }
+
+  function resetStaleChromaStateForSkin(skinId) {
+    if (!pythonChromaState) return;
+
+    const incomingSkinId = Number(skinId);
+    const selectedChromaId = Number(pythonChromaState.selectedChromaId);
+    const currentSkinId = Number(pythonChromaState.currentSkinId);
+    if (!Number.isFinite(incomingSkinId) || incomingSkinId <= 0) return;
+
+    const belongsToPreviousChromaContext =
+      incomingSkinId === selectedChromaId ||
+      incomingSkinId === currentSkinId;
+    if (!belongsToPreviousChromaContext) {
+      pythonChromaState = null;
+    }
+  }
+
+  function resetCustomSkinSessionState() {
+    pythonChromaState = null;
+    selectedModId = null;
+    selectedModSkinId = null;
+    pendingSelectionRequest = null;
+    currentSkinMods = [];
+  }
+
+  function handlePhaseChange(data) {
+    const phase = String(data?.phase || "");
+    const previousPhase = currentPhase;
+    currentPhase = phase;
+
+    if (
+      phase === "ChampSelect" &&
+      previousPhase &&
+      previousPhase !== "ChampSelect"
+    ) {
+      resetCustomSkinSessionState();
+    } else if (
+      phase !== "ChampSelect" &&
+      previousPhase === "ChampSelect"
+    ) {
+      resetCustomSkinSessionState();
+    }
+  }
   let lastChampionSelectSession = null; // Track current champ select session
   let isFirstOpenInSession = true; // Track if this is first open in current session
   let lastCategoryModsById = {}; // Cache per category id (ui/voiceover/loading_screen/vfx/sfx/others)
@@ -1180,65 +1261,23 @@
   }
 
   function handleModSelect(modId, listItem, modData) {
+    const { championId, skinId } = getCurrentSkinContext();
+
     if (selectedModId === modId) {
-      selectedModId = null;
-      selectedModSkinId = null;
-      listItem.classList.remove("selected-row");
-
-      const state = window.__roseSkinState || {};
-      const championId = Number(state.championId);
-      const skinId = Number(state.skinId);
-
-      if (championId && skinId) {
-        if (bridge) bridge.send({
-          type: "select-skin-mod",
-          championId,
-          skinId,
-          modId: null,
-          modData: null,
-        });
-      }
+      sendSkinModSelection({
+        championId,
+        skinId,
+        modId: null,
+        expectedModId: selectedModId,
+      });
     } else {
-      if (selectedModId) {
-        const prevLi = panel?._modList?.querySelector(
-          `[data-mod-id="${selectedModId}"]`
-        );
-        if (prevLi) {
-          prevLi.classList.remove("selected-row");
-        }
-      }
-
-      selectedModId = modId;
-      const modTargetSkinId = modData?.skinId ? Number(modData.skinId) : null;
-      const state = window.__roseSkinState || {};
-      selectedModSkinId = modTargetSkinId || Number(state.skinId);
-
-      listItem.classList.add("selected-row");
-
-      const championId = Number(state.championId);
-      const emitSkinId = selectedModSkinId;
-
-      if (championId && emitSkinId) {
-        const payload = {
-          type: "select-skin-mod",
-          championId,
-          skinId: emitSkinId,
-          modId,
-          modData,
-        };
-        console.log(`[ROSE-CustomWheel] Sending mod selection:`, payload);
-        if (bridge) bridge.send(payload);
-      } else {
-        console.warn(`[ROSE-CustomWheel] Cannot send mod selection - missing championId or skinId:`, { championId, skinId: emitSkinId });
-      }
+      console.log(`[ROSE-CustomWheel] Sending mod selection:`, { championId, skinId, modId, modData });
+      sendSkinModSelection({ championId, skinId, modId, modData });
     }
-
-    updateNoneRow(panel?._modList, !selectedModId);
-    refreshSummaryValues();
-    refreshButtonBadgeFromSelections();
   }
 
   function updateModEntries(mods) {
+    currentSkinMods = Array.isArray(mods) ? mods : [];
     if (!panel || !panel._modList || !panel._loadingEl) {
       return;
     }
@@ -1277,22 +1316,14 @@
       }
       noneItem.addEventListener("click", () => {
         if (selectedModId) {
-          const prevLi = modList.querySelector(`[data-mod-id="${selectedModId}"]`);
-          if (prevLi) {
-            prevLi.classList.remove("selected-row");
-          }
-          const state = window.__roseSkinState || {};
-          const championId = Number(state.championId);
-          const skinId = Number(state.skinId);
-          selectedModId = null;
-          selectedModSkinId = null;
-          if (championId && skinId) {
-            if (bridge) bridge.send({ type: "select-skin-mod", championId, skinId, modId: null, modData: null });
-          }
+          const { championId, skinId } = getCurrentSkinContext();
+          sendSkinModSelection({
+            championId,
+            skinId,
+            modId: null,
+            expectedModId: selectedModId,
+          });
         }
-        noneItem.classList.add("selected-row");
-        refreshSummaryValues();
-        refreshButtonBadgeFromSelections();
       });
       noneItem.appendChild(noneRow);
       modList.appendChild(noneItem);
@@ -2020,9 +2051,7 @@
   }
 
   function requestModsForCurrentSkin() {
-    const state = window.__roseSkinState || {};
-    const championId = Number(state.championId);
-    const skinId = Number(state.skinId);
+    const { championId, skinId } = getCurrentSkinContext();
 
     // Skins are only meaningful once a champion is locked in champ select.
     if (!championLocked) {
@@ -2032,14 +2061,6 @@
         panel._modsLoading.style.display = "block";
       }
       return;
-    }
-
-    // Clear selection when navigating to a skin that differs from the mod's target.
-    if (selectedModId && selectedModSkinId != null && Number(selectedModSkinId) !== skinId) {
-      selectedModId = null;
-      selectedModSkinId = null;
-      // Notify backend so it clears selected_custom_mod and the popup
-      if (bridge) bridge.send({ type: "select-skin-mod", championId, skinId, modId: null });
     }
 
     if (!championId || !skinId) {
@@ -2110,6 +2131,8 @@
   }
 
   function handleSkinState(event) {
+    resetStaleChromaStateForSkin(event?.detail?.skinId);
+
     // Always request mods to update badge, even if panel is not open
     requestModsForCurrentSkin();
 
@@ -2162,6 +2185,61 @@
     updateButtonBadge(getSelectedModsCount());
   }
 
+  function createSelectionRequestId() {
+    selectionRequestCounter += 1;
+    return `${LOG_PREFIX}-${Date.now()}-${selectionRequestCounter}`;
+  }
+
+  function sendSkinModSelection({ championId, skinId, modId, modData, expectedModId } = {}) {
+    if (!bridge || !championId || !skinId) return false;
+
+    const requestId = createSelectionRequestId();
+    pendingSelectionRequest = { requestId, operation: modId == null ? "deselect" : "select", modId };
+    bridge.send({
+      type: "select-skin-mod",
+      championId,
+      skinId,
+      modId: modId ?? null,
+      modData: modData ?? null,
+      expectedModId,
+      requestId,
+    });
+    return true;
+  }
+
+  function handleSelectionResult(event) {
+    const detail = event?.detail;
+    if (!detail || detail.type !== "custom-mod-selection-result") return;
+
+    if (pendingSelectionRequest && detail.requestId && detail.requestId !== pendingSelectionRequest.requestId) {
+      return;
+    }
+
+    const pending = pendingSelectionRequest;
+    pendingSelectionRequest = null;
+
+    if (!detail.success) {
+      console.warn(`${LOG_PREFIX} Custom skin selection failed: ${detail.error || "unknown error"}`);
+      refreshSummaryValues();
+      refreshButtonBadgeFromSelections();
+      return;
+    }
+
+    if (detail.operation === "deselect") {
+      selectedModId = null;
+      selectedModSkinId = null;
+    } else if (detail.operation === "select") {
+      selectedModId = String(detail.relativePath || detail.modId || pending?.modId || "");
+      selectedModSkinId = Number(detail.skinId || getCurrentSkinContext().skinId);
+    }
+
+    if (isOpen) {
+      updateModEntries(currentSkinMods);
+    }
+    refreshSummaryValues();
+    refreshButtonBadgeFromSelections();
+  }
+
   function handleModsResponse(event) {
     const detail = event?.detail;
     if (!detail || detail.type !== "skin-mods-response") {
@@ -2182,22 +2260,40 @@
     // Use the LIVE skin state for clearing / auto-select checks.
     // The response's skinId can be stale if the user navigated away while
     // the request was in flight.
-    const liveSkinId = Number((window.__roseSkinState || {}).skinId) || skinId;
-
-    // Clear selection when the currently hovered skin differs from the mod's target skin.
-    if (selectedModId && selectedModSkinId != null && Number(selectedModSkinId) !== liveSkinId) {
-      selectedModId = null;
-      selectedModSkinId = null;
-      // Notify backend so it clears selected_custom_mod and the popup
-      if (bridge) bridge.send({ type: "select-skin-mod", championId, skinId: liveSkinId, modId: null });
+    const liveSkinId = getCurrentSkinContext().skinId || skinId;
+    if (liveSkinId !== skinId) {
+      return;
     }
 
-    const mods = Array.isArray(detail.mods) ? detail.mods : [];
+    // Clear selection when the currently hovered skin differs from the mod's target skin.
+    let mods = (Array.isArray(detail.mods) ? detail.mods : []).filter((mod) => (
+      mod?.availableForRequestedSkin === true ||
+      (mod?.availableForRequestedSkin == null && Number(mod?.skinId) === liveSkinId)
+    ));
+    currentSkinMods = mods;
+
+    if (selectedModId && !pendingSelectionRequest) {
+      const selectedEntry = mods.find((mod) => (
+        String(mod?.relativePath || mod?.modName || "") === String(selectedModId)
+      ));
+      if (!selectedEntry) {
+        // Notify backend so it clears selected_custom_mod and the popup.
+        sendSkinModSelection({
+          championId,
+          skinId: liveSkinId,
+          modId: null,
+          expectedModId: selectedModId,
+        });
+      } else {
+        selectedModSkinId = liveSkinId;
+      }
+    }
 
     // Auto-select the historic mod when the user is hovering the skin it targets.
     const historicMod = detail.historicMod;
     let didAutoSelect = false;
-    if (historicMod && !selectedModId) {
+    let historicSelectionId = null;
+    if (historicMod && !selectedModId && !pendingSelectionRequest) {
       // Find the mod that matches the historic path
       const historicModEntry = mods.find(mod => {
         const modPath = mod.relativePath || "";
@@ -2208,10 +2304,12 @@
       if (historicModEntry) {
         const modTargetSkinId = historicModEntry.skinId ? Number(historicModEntry.skinId) : null;
         // Only auto-select if the user is CURRENTLY on the mod's target skin
-        if (modTargetSkinId && modTargetSkinId === liveSkinId) {
+        if (modTargetSkinId && (
+          modTargetSkinId === liveSkinId ||
+          historicModEntry.availableForRequestedSkin === true
+        )) {
           const modId = historicModEntry.relativePath || historicModEntry.modName || `mod-${Date.now()}-${Math.random()}`;
-          selectedModId = modId;
-          selectedModSkinId = modTargetSkinId;
+          historicSelectionId = modId;
           didAutoSelect = true;
         }
       }
@@ -2223,11 +2321,10 @@
     if (didAutoSelect) {
       const autoMod = mods.find(mod => {
         const modPath = mod.relativePath || mod.modName || "";
-        return modPath === selectedModId || mod.relativePath === selectedModId;
+        return modPath === historicSelectionId || mod.relativePath === historicSelectionId;
       });
       if (autoMod) {
-        const emitSkinId = autoMod.skinId ? Number(autoMod.skinId) : skinId;
-        if (bridge) bridge.send({ type: "select-skin-mod", championId, skinId: emitSkinId, modId: selectedModId, modData: autoMod });
+        sendSkinModSelection({ championId, skinId: liveSkinId, modId: historicSelectionId, modData: autoMod });
       }
     }
 
@@ -2531,6 +2628,12 @@
 
   function handleChampionLocked(event) {
     const locked = Boolean(event?.detail?.locked);
+    if (!locked) {
+      // A dodge/unlock starts a new champ-select lifecycle. Do not let the
+      // previous lobby's chroma selection affect the next lobby.
+      pythonChromaState = null;
+    }
+
     if (locked === championLocked) {
       // Even if state is the same, ensure button is attached if it should be
       if (locked && championSelectRoot && (!button || !button.parentNode)) {
@@ -2542,8 +2645,10 @@
     // If a new champion is being locked, only clear SKIN-specific selections.
     // Global selections (maps/fonts/announcers/UI/VO/VFX/...) should persist across champ locks.
     if (locked && !championLocked) {
+      pythonChromaState = null;
       selectedModId = null;
       selectedModSkinId = null;
+      pendingSelectionRequest = null;
       // New champ select session - reset to first open
       lastChampionSelectSession = championSelectRoot;
       isFirstOpenInSession = true;
@@ -2594,6 +2699,9 @@
     // Subscribe to bridge messages instead of window CustomEvents
     if (bridge) {
       bridge.subscribe("skin-mods-response", (data) => handleModsResponse({ detail: data }));
+      bridge.subscribe("custom-mod-selection-result", (data) => handleSelectionResult({ detail: data }));
+      bridge.subscribe("chroma-state", handleChromaStateUpdate);
+      bridge.subscribe("phase-change", handlePhaseChange);
       bridge.subscribe("maps-response", (data) => handleMapsResponse({ detail: data }));
       bridge.subscribe("fonts-response", (data) => handleFontsResponse({ detail: data }));
       bridge.subscribe("announcers-response", (data) => handleAnnouncersResponse({ detail: data }));
@@ -2601,7 +2709,8 @@
       bridge.subscribe("others-response", (data) => handleOthersResponse({ detail: data }));
       bridge.subscribe("champion-locked", (data) => handleChampionLocked({ detail: data }));
       bridge.subscribe("custom-mod-state", (data) => {
-        if (!data.active && selectedModId) {
+        if (!data) return;
+        if (!data.active) {
           selectedModId = null;
           selectedModSkinId = null;
           if (panel && panel._modList) {
@@ -2610,6 +2719,11 @@
             });
             updateNoneRow(panel._modList, true);
           }
+          refreshSummaryValues();
+          refreshButtonBadgeFromSelections();
+        } else if (data.relativePath || data.modName) {
+          selectedModId = String(data.relativePath || data.modName);
+          selectedModSkinId = Number(data.skinId) || Number(getCurrentSkinContext().skinId);
           refreshSummaryValues();
           refreshButtonBadgeFromSelections();
         }

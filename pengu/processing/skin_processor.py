@@ -8,7 +8,10 @@ Handles processing skin names and mapping to IDs
 import logging
 from typing import Optional
 
-from utils.core.utilities import get_champion_id_from_skin_id
+from utils.core.utilities import (
+    get_base_skin_id_for_chroma,
+    get_champion_id_from_skin_id,
+)
 
 log = logging.getLogger(__name__)
 
@@ -112,15 +115,28 @@ class SkinProcessor:
         
         skin_id, matched_name = result
 
-        # Reset chroma selection when switching to a different BASE skin
-        # (Not when just navigating within the same skin's chromas)
+        # Reset chroma selection when switching to a different BASE skin.
+        # Skin IDs are not numerically contiguous: 161002 and 161004 are
+        # separate Vel'Koz skins, not chromas of one another.
         old_skin_id = self.shared_state.last_hovered_skin_id
         if old_skin_id is not None and old_skin_id != skin_id:
-            # Check if the new skin is a different base skin (not a chroma of the old one)
-            # Chromas are within +100 of base skin ID
-            is_chroma_of_old_skin = (skin_id > old_skin_id and skin_id < old_skin_id + 100)
-            is_old_chroma_of_new_skin = (old_skin_id > skin_id and old_skin_id < skin_id + 100)
-            if not is_chroma_of_old_skin and not is_old_chroma_of_new_skin:
+            chroma_id_map = None
+            if self.skin_scraper and getattr(self.skin_scraper, "cache", None):
+                chroma_id_map = getattr(self.skin_scraper.cache, "chroma_id_map", None)
+
+            def base_skin_id(value: int) -> int:
+                if chroma_id_map and value in chroma_id_map:
+                    return get_base_skin_id_for_chroma(value, chroma_id_map) or value
+                return value
+
+            old_base_skin_id = base_skin_id(int(old_skin_id))
+            new_base_skin_id = base_skin_id(int(skin_id))
+            old_is_chroma = old_base_skin_id != int(old_skin_id)
+            new_is_chroma = new_base_skin_id != int(skin_id)
+            if (
+                old_base_skin_id != new_base_skin_id
+                or (old_is_chroma and not new_is_chroma)
+            ):
                 # Different base skin - reset chroma selection
                 if self.shared_state.selected_chroma_id is not None:
                     log.debug(f"[CHROMA] Resetting selected_chroma_id on skin change ({old_skin_id} -> {skin_id})")

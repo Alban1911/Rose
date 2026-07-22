@@ -8,6 +8,8 @@ Handles mods organized by category: skins, maps, fonts, announcers, others
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import re
 import shutil
 import tempfile
 import threading
@@ -34,6 +36,7 @@ class SkinModEntry:
     path: Path
     updated_at: float
     description: Optional[str] = None
+    affected_skin_ids: tuple[int, ...] = ()
 
 
 class ModStorageService:
@@ -70,6 +73,7 @@ class ModStorageService:
         self._watcher_stop = threading.Event()
         self._watcher_thread: Optional[threading.Thread] = None
         self._failed_archive_signatures: dict[Path, tuple[int, int]] = {}
+        self._affected_skin_cache: dict[Path, tuple[int, int, tuple[int, ...]]] = {}
         self.mods_root.mkdir(parents=True, exist_ok=True)
         self._ensure_mods_root_layout()
 
@@ -224,6 +228,12 @@ class ModStorageService:
             except OSError:
                 updated_at = 0.0
 
+            affected_skin_ids = self._get_affected_skin_ids(
+                candidate,
+                skin_id_int,
+                champion_id,
+            )
+
             entries.append(
                 SkinModEntry(
                     champion_id=champion_id,
@@ -232,6 +242,7 @@ class ModStorageService:
                     path=candidate,
                     updated_at=updated_at,
                     description=self._read_mod_description(candidate),
+                    affected_skin_ids=affected_skin_ids,
                 )
             )
 
@@ -266,6 +277,130 @@ class ModStorageService:
 
     def has_mods_for_skin(self, skin_id: int | str) -> bool:
         return bool(self.list_mods_for_skin(skin_id))
+
+    def _get_affected_skin_ids(
+        self,
+        candidate: Path,
+        storage_skin_id: int,
+        champion_id: Optional[int],
+    ) -> tuple[int, ...]:
+        """Discover the skin IDs touched by a custom mod.
+
+        Mods are stored under one skin directory, but a WAD can contain
+        assets for several skins/chromas. Most CSLOL exports expose those
+        targets as folders such as skins/skin04 and skins/skin05.
+        Optional affected-skin metadata is also supported for mods that do
+        not encode their targets in paths.
+        """
+        try:
+            stat = candidate.stat()
+            signature = (stat.st_mtime_ns, stat.st_size)
+            cached = self._affected_skin_cache.get(candidate)
+            if cached and cached[:2] == signature:
+                return cached[2]
+        except OSError:
+            signature = (0, 0)
+
+        # Prefer targets discovered from the mod itself. This matters for
+        # champion-level imports stored under the base folder: a mod that only
+        # contains skin04 assets must not also appear on the base skin just
+        # because the user selected the champion when importing it.
+        affected: set[int] = set()
+        chroma_only = False
+
+        def add_metadata_ids(value) -> None:
+            values = value.keys() if isinstance(value, dict) else value
+            if values is None or isinstance(values, (str, bytes)):
+                return
+            try:
+                values = iter(values)
+            except TypeError:
+                return
+            for raw_value in values:
+                try:
+                    affected.add(int(raw_value))
+                except (TypeError, ValueError):
+                    continue
+
+        if candidate.is_dir():
+            metadata_paths = (
+                candidate / "META" / "affected_skins.json",
+                candidate / "META" / "info.json",
+                candidate / "META" / "details.json",
+            )
+            for metadata_path in metadata_paths:
+                if not metadata_path.is_file():
+                    continue
+                try:
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError):
+                    continue
+                if not isinstance(metadata, dict):
+                    continue
+                metadata_text = " ".join(
+                    str(metadata.get(key, ""))
+                    for key in ("Name", "name", "Description", "description")
+                )
+                if re.search(
+                    r"\ball\s+chromas?\b|\bchromas?\s+only\b",
+                    metadata_text,
+                    re.IGNORECASE,
+                ):
+                    chroma_only = True
+                for key in (
+                    "affectedSkinIds",
+                    "affectedSkins",
+                    "affected_skin_ids",
+                    "affected_skins",
+                    "skinIds",
+                ):
+                    if key in metadata:
+                        add_metadata_ids(metadata[key])
+
+            if champion_id is not None:
+                try:
+                    for asset_path in candidate.rglob("*"):
+                        try:
+                            parts = asset_path.relative_to(candidate).parts
+                        except ValueError:
+                            continue
+                        for index, part in enumerate(parts[:-1]):
+                            if part.casefold() != "skins":
+                                continue
+                            match = re.fullmatch(
+                                r"skin[_-]?(\d+)",
+                                parts[index + 1],
+                                re.IGNORECASE,
+                            )
+                            if not match:
+                                continue
+                            suffix = int(match.group(1))
+                            affected.add(
+                                suffix if suffix >= 1000 else int(champion_id) * 1000 + suffix
+                            )
+                except OSError:
+                    pass
+
+        # Some chroma-only exports include a small base-skin carrier folder
+        # (for example skin04) even though their actual VFX are in skin05+.
+        # Their metadata commonly calls this out as "All chromas". In that
+        # case, do not expose the lowest skin in the detected family as a
+        # selectable target.
+        if chroma_only and champion_id is not None:
+            champion_skin_ids = sorted(
+                skin_id
+                for skin_id in affected
+                if skin_id // 1000 == int(champion_id)
+            )
+            if len(champion_skin_ids) > 1:
+                affected.discard(champion_skin_ids[0])
+
+        if not affected:
+            affected.add(int(storage_skin_id))
+
+        result = tuple(sorted(affected))
+        self._affected_skin_cache[candidate] = (signature[0], signature[1], result)
+        return result
 
     def list_mods_for_category(self, category: str) -> List[dict]:
         with self._storage_lock:

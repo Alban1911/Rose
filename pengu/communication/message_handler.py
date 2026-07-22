@@ -23,6 +23,7 @@ from injection.mods.storage import ModStorageService
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
+from utils.core.utilities import get_base_skin_id_for_chroma
 from utils.system.admin_utils import (
     is_admin,
     is_registered_for_autostart,
@@ -802,6 +803,8 @@ class MessageHandler:
             log.error(f"[SkinMonitor] Failed to list skin mods: {exc}")
             entries = []
 
+        compatible_skin_ids = self._get_compatible_skin_ids(skin_id)
+
         mods_payload = []
         for entry in entries:
             try:
@@ -827,6 +830,10 @@ class MessageHandler:
                 {
                     "modName": entry.mod_name,
                     "skinId": entry.skin_id,
+                    "affectedSkinIds": list(self._get_entry_affected_skin_ids(entry)),
+                    "availableForRequestedSkin": bool(
+                        self._get_entry_affected_skin_ids(entry) & compatible_skin_ids
+                    ),
                     "description": entry.description,
                     "updatedAt": int(entry.updated_at * 1000),
                     "relativePath": str(relative_path).replace("\\", "/"),
@@ -843,6 +850,21 @@ class MessageHandler:
                 historic_value = get_historic_skin_for_champion(champion_id)
                 if historic_value and is_custom_mod_path(historic_value):
                     historic_mod_path = get_custom_mod_path(historic_value)
+                    historic_identifier = self._normalize_mod_identifier(historic_mod_path)
+                    matching_mod = next(
+                        (
+                            mod
+                            for mod in mods_payload
+                            if self._normalize_mod_identifier(mod.get("relativePath"))
+                            == historic_identifier
+                        ),
+                        None,
+                    )
+                    # A saved mod is only a candidate for the current skin.
+                    # Do not send it to the UI for unrelated skins, otherwise
+                    # the UI can restore it before the user chooses a skin.
+                    if not matching_mod or not matching_mod.get("availableForRequestedSkin"):
+                        historic_mod_path = None
         except Exception:
             pass
 
@@ -852,9 +874,102 @@ class MessageHandler:
             "skinId": skin_id,
             "mods": mods_payload,
             "historicMod": historic_mod_path,  # Add historic mod path if available
+            "compatibleSkinIds": sorted(compatible_skin_ids),
             "timestamp": int(time.time() * 1000),
         }
         self._send_response(json.dumps(response_payload))
+
+    def _get_compatible_skin_ids(self, skin_id: int | str) -> set[int]:
+        """Return storage skin IDs that can be used for a requested skin.
+
+        Most mods are stored under the exact skin ID. Chroma/form IDs are
+        sometimes reported by the client even though their mod is stored
+        under the base skin ID, so include that base ID when it is known.
+        """
+        try:
+            requested_skin_id = int(skin_id)
+        except (TypeError, ValueError):
+            return set()
+
+        compatible_ids = {requested_skin_id}
+        cache = getattr(self.skin_scraper, "cache", None)
+        chroma_id_map = getattr(cache, "chroma_id_map", None)
+        base_skin_id = get_base_skin_id_for_chroma(requested_skin_id, chroma_id_map)
+        if base_skin_id is not None:
+            compatible_ids.add(int(base_skin_id))
+        return compatible_ids
+
+    @staticmethod
+    def _get_entry_affected_skin_ids(entry) -> set[int]:
+        """Return the skin IDs a mod can affect, with legacy fallback."""
+        try:
+            affected = getattr(entry, "affected_skin_ids", ()) or ()
+            result = {int(skin_id) for skin_id in affected}
+        except (TypeError, ValueError):
+            result = set()
+        if not result:
+            try:
+                result.add(int(entry.skin_id))
+            except (AttributeError, TypeError, ValueError):
+                pass
+        return result
+
+    @staticmethod
+    def _normalize_mod_identifier(value: object) -> str:
+        return str(value or "").strip().replace(chr(92), "/").casefold()
+
+    def _mod_matches_identifier(self, entry, mod_id: object) -> bool:
+        """Match a client ID without allowing ambiguous names to win first."""
+        requested = self._normalize_mod_identifier(mod_id)
+        if not requested:
+            return False
+
+        try:
+            relative_path = entry.path.relative_to(self.mod_storage.mods_root)
+        except (ValueError, AttributeError):
+            relative_path = entry.path
+
+        relative_value = self._normalize_mod_identifier(str(relative_path))
+        name_value = self._normalize_mod_identifier(entry.mod_name)
+        return requested in {relative_value, name_value}
+
+    def _send_custom_mod_selection_result(
+        self,
+        payload: dict,
+        *,
+        success: bool,
+        operation: str,
+        error: str | None = None,
+        selected_mod=None,
+    ) -> None:
+        """Tell every UI whether its selection request was applied."""
+        result = {
+            "type": "custom-mod-selection-result",
+            "success": success,
+            "operation": operation,
+            "requestId": payload.get("requestId"),
+            "championId": payload.get("championId"),
+            "skinId": payload.get("skinId"),
+            "modId": payload.get("modId"),
+            "timestamp": int(time.time() * 1000),
+        }
+        if error:
+            result["error"] = error
+        if selected_mod is not None:
+            try:
+                relative_path = selected_mod.path.relative_to(self.mod_storage.mods_root)
+            except (ValueError, AttributeError):
+                relative_path = selected_mod.path
+            result.update(
+                {
+                    "modName": selected_mod.mod_name,
+                    "relativePath": str(relative_path).replace(chr(92), "/"),
+                    "targetSkinId": selected_mod.skin_id,
+                    "storageSkinId": selected_mod.skin_id,
+                    "affectedSkinIds": sorted(self._get_entry_affected_skin_ids(selected_mod)),
+                }
+            )
+        self._send_response(json.dumps(result))
     
     def _handle_request_maps(self, payload: dict) -> None:
         """Return the list of maps"""
@@ -999,26 +1114,77 @@ class MessageHandler:
         """Handle mod selection for injection over hovered skin"""
         if not self.mod_storage:
             log.warning("[SkinMonitor] Cannot handle mod selection - mod storage not available")
+            self._send_custom_mod_selection_result(
+                payload,
+                success=False,
+                operation="select" if payload.get("modId") is not None else "deselect",
+                error="Mod storage is not available",
+            )
             return
 
         champion_id = payload.get("championId")
         skin_id = payload.get("skinId")
         mod_id = payload.get("modId")
-        mod_data = payload.get("modData", {})
 
+        try:
+            champion_id = int(champion_id)
+            skin_id = int(skin_id)
+        except (TypeError, ValueError):
+            champion_id = None
+            skin_id = None
+
+        operation = "select" if mod_id is not None else "deselect"
         if not champion_id or not skin_id:
             log.warning(f"[SkinMonitor] Invalid mod selection payload: championId={champion_id}, skinId={skin_id}")
+            self._send_custom_mod_selection_result(
+                payload,
+                success=False,
+                operation=operation,
+                error="Champion or skin ID is invalid",
+            )
             return
+
+        payload = {**payload, "championId": champion_id, "skinId": skin_id}
 
         # Handle deselection (mod_id is null)
         if mod_id is None:
             # Clear selected mod if it matches this skin, and remove extracted files so it
             # doesn't keep injecting after being unchecked.
-            if (
-                hasattr(self.shared_state, "selected_custom_mod")
-                and self.shared_state.selected_custom_mod
-                and self.shared_state.selected_custom_mod.get("skin_id") == skin_id
-            ):
+            selected_custom_mod = getattr(self.shared_state, "selected_custom_mod", None)
+            selected_affected_skin_ids = set()
+            if selected_custom_mod:
+                try:
+                    selected_affected_skin_ids = {
+                        int(value)
+                        for value in selected_custom_mod.get("affected_skin_ids", ())
+                    }
+                except (TypeError, ValueError):
+                    selected_affected_skin_ids = set()
+            selected_matches_skin = bool(
+                selected_custom_mod
+                and selected_custom_mod.get("champion_id") == champion_id
+                and (
+                    skin_id in selected_affected_skin_ids
+                    or selected_custom_mod.get("skin_id") in self._get_compatible_skin_ids(skin_id)
+                )
+            )
+            requested_mod_id = payload.get("expectedModId") or payload.get("modId")
+            selected_matches_requested_mod = True
+            if selected_custom_mod and requested_mod_id:
+                selected_identifiers = {
+                    self._normalize_mod_identifier(selected_custom_mod.get("relative_path")),
+                    self._normalize_mod_identifier(selected_custom_mod.get("mod_name")),
+                }
+                selected_matches_requested_mod = (
+                    self._normalize_mod_identifier(requested_mod_id) in selected_identifiers
+                )
+
+            should_clear_selection = (
+                selected_custom_mod
+                and selected_matches_requested_mod
+                and (selected_matches_skin or bool(requested_mod_id))
+            )
+            if should_clear_selection:
                 # If this mod was saved as "historic" for auto-selection, clear it too.
                 # Otherwise InjectionTrigger will auto-reselect it at injection time.
                 try:
@@ -1063,6 +1229,25 @@ class MessageHandler:
                         self.shared_state.ui_skin_thread._broadcast_custom_mod_state()
                 except Exception as e:
                     log.debug(f"[SkinMonitor] Failed to broadcast custom mod state on deselect: {e}")
+                self._send_custom_mod_selection_result(
+                    payload,
+                    success=True,
+                    operation="deselect",
+                )
+            elif selected_custom_mod and requested_mod_id and not selected_matches_requested_mod:
+                log.info("[SkinMonitor] Ignoring stale custom mod deselection for %s", requested_mod_id)
+                self._send_custom_mod_selection_result(
+                    payload,
+                    success=False,
+                    operation="deselect",
+                    error="A different custom mod is already selected",
+                )
+            else:
+                self._send_custom_mod_selection_result(
+                    payload,
+                    success=True,
+                    operation="deselect",
+                )
             return
 
         try:
@@ -1080,23 +1265,70 @@ class MessageHandler:
                     selected_mod = entry
                     break
 
+            compatible_skin_ids = self._get_compatible_skin_ids(skin_id)
+            matching_entries = [
+                entry
+                for entry in entries
+                if (
+                    self._get_entry_affected_skin_ids(entry) & compatible_skin_ids
+                    and self._mod_matches_identifier(entry, mod_id)
+                )
+            ]
+            # Prefer a mod whose affected-skin list explicitly contains the
+            # requested skin, then fall back to the first compatible entry.
+            selected_mod = next(
+                (
+                    entry
+                    for entry in matching_entries
+                    if skin_id in self._get_entry_affected_skin_ids(entry)
+                ),
+                matching_entries[0] if matching_entries else None,
+            )
+
             if not selected_mod:
                 log.warning(f"[SkinMonitor] Mod not found: {mod_id} for champion {champion_id}")
+                self._send_custom_mod_selection_result(
+                    payload,
+                    success=False,
+                    operation="select",
+                    error="The selected mod is no longer available for this skin",
+                )
                 return
 
             # Extract mod immediately when selected (not during injection)
             if not self.injection_manager:
                 log.warning("[SkinMonitor] Cannot extract mod - injection manager not available")
+                self._send_custom_mod_selection_result(
+                    payload,
+                    success=False,
+                    operation="select",
+                    error="The injection manager is not ready",
+                    selected_mod=selected_mod,
+                )
                 return
                 
             injector = self.injection_manager.injector
             if not injector:
                 log.warning("[SkinMonitor] Cannot extract mod - injector not available")
+                self._send_custom_mod_selection_result(
+                    payload,
+                    success=False,
+                    operation="select",
+                    error="The injector is not ready",
+                    selected_mod=selected_mod,
+                )
                 return
 
             mod_source = Path(selected_mod.path)
             if not mod_source.exists():
                 log.error(f"[SkinMonitor] Mod file not found: {mod_source}")
+                self._send_custom_mod_selection_result(
+                    payload,
+                    success=False,
+                    operation="select",
+                    error="The mod files are missing",
+                    selected_mod=selected_mod,
+                )
                 return
 
             # Determine mod folder name
@@ -1139,13 +1371,19 @@ class MessageHandler:
             if mod_dest.exists() or is_junction(mod_dest):
                 safe_remove_entry(mod_dest)
             link_or_extract(mod_source, mod_dest, cache_dir=extract_cache_dir)
+            if not (mod_dest.exists() or is_junction(mod_dest)):
+                raise RuntimeError("The mod could not be linked or extracted into the injection folder")
             log.info(f"[SkinMonitor] Linked/extracted mod to: {mod_dest}")
 
-            # Store selected mod in shared state for injection trigger
-            # Use the mod entry's own skin_id (the skin the mod targets), not the
-            # payload's skinId (the skin currently hovered in the UI).
+            # Store the currently affected skin in shared state for injection.
+            # A single mod can affect several skin/chroma IDs, so the hovered
+            # skin is the effective injection target while the storage ID is
+            # retained for diagnostics.
+            affected_skin_ids = self._get_entry_affected_skin_ids(selected_mod)
             self.shared_state.selected_custom_mod = {
-                "skin_id": selected_mod.skin_id,
+                "skin_id": int(skin_id),
+                "storage_skin_id": selected_mod.skin_id,
+                "affected_skin_ids": sorted(affected_skin_ids),
                 "champion_id": champion_id,
                 "mod_name": selected_mod.mod_name,
                 "mod_path": str(selected_mod.path),
@@ -1166,7 +1404,13 @@ class MessageHandler:
                 except Exception as e:
                     log.debug(f"[SkinMonitor] Failed to broadcast historic state on custom mod selection: {e}")
             
-            log.info(f"[SkinMonitor] Custom mod selected and extracted: {selected_mod.mod_name} (target skin {selected_mod.skin_id})")
+            log.info(
+                "[SkinMonitor] Custom mod selected and extracted: %s "
+                "(affected skin %s; storage skin %s)",
+                selected_mod.mod_name,
+                skin_id,
+                selected_mod.skin_id,
+            )
             log.info(f"[SkinMonitor] Mod ready for injection on threshold trigger")
 
             # Broadcast custom mod state to JavaScript to show mod name
@@ -1176,10 +1420,24 @@ class MessageHandler:
             except Exception as e:
                 log.debug(f"[SkinMonitor] Failed to broadcast custom mod state on selection: {e}")
 
+            self._send_custom_mod_selection_result(
+                payload,
+                success=True,
+                operation="select",
+                selected_mod=selected_mod,
+            )
+
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle mod selection: {e}")
             import traceback
             log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
+            self._send_custom_mod_selection_result(
+                payload,
+                success=False,
+                operation="select",
+                error=f"Could not prepare the mod: {e}",
+                selected_mod=selected_mod,
+            )
     
     def _handle_dismiss_custom_mod(self, payload: dict) -> None:
         """Dismiss the active custom mod selection (close-button on popup)"""
@@ -1230,9 +1488,31 @@ class MessageHandler:
 
     def _handle_dismiss_historic(self, payload: dict) -> None:
         """Dismiss historic mode (close-button on popup)"""
+        try:
+            from utils.core.historic import (
+                clear_historic_entry,
+                get_historic_skin_for_champion,
+                is_custom_mod_path,
+            )
+
+            champ_id = (
+                self.shared_state.locked_champ_id
+                or self.shared_state.hovered_champ_id
+            )
+            historic_value = (
+                get_historic_skin_for_champion(int(champ_id))
+                if champ_id is not None
+                else None
+            )
+            if champ_id is not None and is_custom_mod_path(historic_value):
+                clear_historic_entry(int(champ_id))
+                log.info("[Dismiss] Cleared custom historic entry for champion %s", champ_id)
+        except Exception as exc:
+            log.debug("[Dismiss] Failed to clear custom historic entry: %s", exc)
+
         self.shared_state.historic_mode_active = False
         self.shared_state.historic_skin_id = None
-        self.shared_state.historic_first_detection_done = False
+        self.shared_state.historic_first_detection_done = True
         log.info("[Dismiss] Historic mode dismissed via popup close button")
 
         # Broadcast cleared state
@@ -2115,7 +2395,13 @@ class MessageHandler:
             self._send_response(json.dumps(response_payload))
     
     def _handle_add_custom_mods_skin_selected(self, payload: dict) -> None:
-        """Handle skin selection for custom mods"""
+        """Open the champion folder for a new custom skin mod.
+
+        The UI intentionally only asks for a champion. Existing callers that
+        request a skin list remain supported for backwards compatibility, but
+        new imports are stored under the champion's base skin folder so the
+        mod scanner can discover every affected skin/chroma from its contents.
+        """
         try:
             action = payload.get("action")
             champion_id = payload.get("championId")
@@ -2190,29 +2476,39 @@ class MessageHandler:
                 log.info(f"[SkinMonitor] Sent skins list for champion {champion_id}: {len(skins)} skins")
             
             elif action == "create":
-                # Create folder and open
+                # Create the champion-level folder and open it.
                 champion_id = payload.get("championId")
-                skin_id = payload.get("skinId")
                 
-                if not champion_id or not skin_id:
+                if not champion_id:
                     response_payload = {
                         "type": "folder-opened-response",
                         "success": False,
-                        "error": "Champion ID and Skin ID are required",
+                        "error": "Champion ID is required",
                     }
                     self._send_response(json.dumps(response_payload))
                     return
-                if not str(champion_id).isdigit() or not str(skin_id).isdigit():
+                if not str(champion_id).isdigit():
                     response_payload = {
                         "type": "folder-opened-response",
                         "success": False,
-                        "error": "Champion ID and Skin ID must be numeric",
+                        "error": "Champion ID must be numeric",
                     }
                     self._send_response(json.dumps(response_payload))
                     return
                 
-                # Create skin folder
-                skin_folder = self.mod_storage.get_skin_dir(skin_id)
+                champion_id = int(champion_id)
+                if champion_id <= 0:
+                    response_payload = {
+                        "type": "folder-opened-response",
+                        "success": False,
+                        "error": "Champion ID must be positive",
+                    }
+                    self._send_response(json.dumps(response_payload))
+                    return
+
+                # Keep one storage layout for both old and new imports:
+                # champion 161 is stored under its base skin, 161000.
+                skin_folder = self.mod_storage.get_skin_dir(champion_id * 1000)
                 skin_folder.mkdir(parents=True, exist_ok=True)
                 
                 # Open folder
@@ -2221,7 +2517,10 @@ class MessageHandler:
                 else:
                     subprocess.Popen(["xdg-open" if os.name != "nt" else "explorer", str(skin_folder)])
                 
-                log.info(f"[SkinMonitor] Created and opened skin folder: {skin_folder}")
+                log.info(
+                    f"[SkinMonitor] Created and opened champion folder for "
+                    f"{champion_id}: {skin_folder}"
+                )
                 
                 response_payload = {
                     "type": "folder-opened-response",

@@ -187,20 +187,13 @@ class ChromaPanelManager:
             if is_different_skin and not is_chroma_selection:
                 log.debug(f"[CHROMA] Switching skins - hiding wheel and resetting selection")
                 self.pending_hide = True
-                # Only reset if the selected chroma is not for this skin
-                # Check if current_selected_chroma_id belongs to this skin's chromas
-                if self.current_selected_chroma_id and chromas:
-                    chroma_belongs_to_skin = any(c.get('id') == self.current_selected_chroma_id for c in chromas)
-                    if not chroma_belongs_to_skin:
-                        self.current_selected_chroma_id = None  # Reset selection for new skin
-                        self.current_chroma_color = None  # Reset chroma color (for JavaScript plugin)
-                        self.current_chroma_colors = None  # Reset chroma colors (for JavaScript plugin)
-                    else:
-                        log.debug(f"[CHROMA] Preserving selected chroma {self.current_selected_chroma_id} for same base skin")
-                else:
-                    self.current_selected_chroma_id = None  # Reset selection for new skin
-                    self.current_chroma_color = None  # Reset chroma color (for JavaScript plugin)
-                    self.current_chroma_colors = None  # Reset chroma colors (for JavaScript plugin)
+                # The selector has already established that this is a
+                # different base skin. A chroma ID can coincidentally also
+                # exist on the new skin, so membership alone is not enough to
+                # preserve the previous selection.
+                self.current_selected_chroma_id = None
+                self.current_chroma_color = None
+                self.current_chroma_colors = None
             elif is_chroma_selection:
                 log.debug(f"[CHROMA] Chroma selection for same base skin - preserving selection")
             

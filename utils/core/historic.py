@@ -23,6 +23,71 @@ def _historic_file_path() -> Path:
     return data_dir / "historic.json"
 
 
+def _historic_target_file_path() -> Path:
+    data_dir = get_user_data_dir()
+    return data_dir / "historic_targets.json"
+
+
+def load_historic_target_map() -> Dict[str, int]:
+    """Load the exact last skin/chroma target for custom history entries."""
+    try:
+        p = _historic_target_file_path()
+        if not p.exists():
+            return {}
+        with p.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+
+        result: Dict[str, int] = {}
+        for key, value in data.items():
+            try:
+                target_id = int(value)
+                if target_id > 0:
+                    result[str(int(key))] = target_id
+            except (TypeError, ValueError):
+                continue
+        return result
+    except Exception:
+        return {}
+
+
+def get_historic_target_for_champion(champion_id: int) -> Optional[int]:
+    """Return the exact last selected skin/chroma target for a champion."""
+    return load_historic_target_map().get(str(int(champion_id)))
+
+
+def write_historic_target(champion_id: int, target_skin_id: int) -> None:
+    """Persist the exact last selected skin/chroma target for a champion."""
+    try:
+        target_id = int(target_skin_id)
+        if target_id <= 0:
+            return
+        p = _historic_target_file_path()
+        targets = load_historic_target_map()
+        targets[str(int(champion_id))] = target_id
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("w", encoding="utf-8") as f:
+            json.dump(targets, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def clear_historic_target(champion_id: int) -> None:
+    """Remove the exact last selected skin/chroma target for a champion."""
+    try:
+        p = _historic_target_file_path()
+        targets = load_historic_target_map()
+        if str(int(champion_id)) not in targets:
+            return
+        targets.pop(str(int(champion_id)), None)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("w", encoding="utf-8") as f:
+            json.dump(targets, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 def load_historic_map() -> Dict[str, Union[int, str]]:
     """Load the historic mapping. Returns empty dict if missing or invalid.
     
@@ -97,6 +162,7 @@ def clear_historic_entry(champion_id: int) -> None:
     except Exception:
         # Best-effort; ignore errors
         pass
+    clear_historic_target(champion_id)
 
 
 def is_custom_mod_path(value: Union[int, str]) -> bool:

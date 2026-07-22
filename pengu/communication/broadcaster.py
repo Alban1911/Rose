@@ -118,7 +118,13 @@ class Broadcaster:
         
         historic_mode_active = getattr(self.shared_state, 'historic_mode_active', False)
         historic_skin_id = getattr(self.shared_state, 'historic_skin_id', None)
-        
+        locked_champ_id = getattr(self.shared_state, 'locked_champ_id', None)
+        historic_entry_available = bool(historic_mode_active)
+        historic_base_skin_id = (
+            int(locked_champ_id) * 1000
+            if historic_entry_available and locked_champ_id is not None
+            else None
+        )
         # Handle chroma IDs - they're not in the skin mapping, need to get from chroma cache
         skin_name = None
         if historic_skin_id is not None:
@@ -128,7 +134,24 @@ class Broadcaster:
                 # Custom mod popups are handled by the custom-mod-state broadcast
                 # (which goes through ROSE-CustomWheel's skin-matching logic).
                 # Don't show a popup here — it would bypass the skin check.
-                skin_name = None
+                try:
+                    from pathlib import Path
+                    from injection.mods.storage import ModStorageService
+                    from utils.core.historic import get_custom_mod_path
+
+                    custom_path = get_custom_mod_path(historic_skin_id)
+                    storage = ModStorageService()
+                    for entry in storage.list_mods_for_champion(int(locked_champ_id)):
+                        relative_path = str(
+                            entry.path.relative_to(storage.mods_root)
+                        ).replace(chr(92), "/")
+                        if relative_path.casefold() == str(custom_path).casefold():
+                            skin_name = entry.mod_name
+                            break
+                    if skin_name is None:
+                        skin_name = Path(str(custom_path)).name
+                except Exception:
+                    skin_name = None
             else:
                 # Check if this is a chroma ID
                 chroma_id_map = None
@@ -153,6 +176,8 @@ class Broadcaster:
             "active": historic_mode_active,
             "historicSkinId": historic_skin_id,
             "historicSkinName": skin_name,
+            "historicEntryAvailable": historic_entry_available,
+            "historicBaseSkinId": historic_base_skin_id,
             "timestamp": int(time.time() * 1000),
         }
         
@@ -174,12 +199,16 @@ class Broadcaster:
         active = selected_custom_mod is not None
         mod_name = selected_custom_mod.get("mod_name") if selected_custom_mod else None
         skin_id = selected_custom_mod.get("skin_id") if selected_custom_mod else None
+        champion_id = selected_custom_mod.get("champion_id") if selected_custom_mod else None
+        relative_path = selected_custom_mod.get("relative_path") if selected_custom_mod else None
 
         payload = {
             "type": "custom-mod-state",
             "active": active,
             "modName": mod_name,
             "skinId": skin_id,
+            "championId": champion_id,
+            "relativePath": relative_path,
             "timestamp": int(time.time() * 1000),
         }
 

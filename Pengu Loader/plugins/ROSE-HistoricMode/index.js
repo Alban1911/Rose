@@ -49,6 +49,39 @@
   let historicFlagImageUrl = null; // HTTP URL from Python
   const pendingHistoricFlagRequest = new Map(); // Track pending requests
   let isInChampSelect = false; // Track if we're in ChampSelect phase
+  let pythonChromaState = null;
+  let customModTargetSkinId = null;
+  let historicEntryAvailable = false;
+  let historicBaseSkinId = null;
+
+  function getCurrentEffectiveSkinId() {
+    const skinState = window.__roseSkinState || {};
+    const baseSkinId = Number(skinState.skinId);
+    const chromaState = pythonChromaState || {};
+    const selectedChromaId = Number(chromaState.selectedChromaId);
+    const chromaBaseSkinId = Number(chromaState.currentSkinId);
+
+    if (
+      Number.isFinite(selectedChromaId) &&
+      selectedChromaId > 0 &&
+      (!Number.isFinite(chromaBaseSkinId) ||
+        !Number.isFinite(baseSkinId) ||
+        chromaBaseSkinId === baseSkinId)
+    ) {
+      return selectedChromaId;
+    }
+
+    return Number.isFinite(baseSkinId) && baseSkinId > 0 ? baseSkinId : null;
+  }
+
+  function isHistoricHistoryMarkerActive() {
+    if (!historicEntryAvailable || !Number.isFinite(historicBaseSkinId)) {
+      return false;
+    }
+
+    const currentBaseSkinId = Number((window.__roseSkinState || {}).skinId);
+    return currentBaseSkinId === historicBaseSkinId;
+  }
 
   const CSS_RULES = `
     .skin-selection-item-information.loyalty-reward-icon--rewards.lu-historic-flag-active {
@@ -96,6 +129,9 @@
       data.phase === "ChampSelect" || data.phase === "FINALIZATION";
 
     if (isInChampSelect && !wasInChampSelect) {
+      historicModeActive = false;
+      historicEntryAvailable = false;
+      historicBaseSkinId = null;
       log("debug", "Entered ChampSelect phase - enabling plugin");
       // Try to update flag when entering ChampSelect
       if (historicModeActive) {
@@ -107,6 +143,10 @@
       log("debug", "Left ChampSelect phase - disabling plugin");
       // Remove popup and reset flags
       customModPopupActive = false;
+      customModTargetSkinId = null;
+      historicModeActive = false;
+      historicEntryAvailable = false;
+      historicBaseSkinId = null;
       removeHistoricSkinName();
       // Hide flag when leaving ChampSelect
       if (currentRewardsElement) {
@@ -134,7 +174,7 @@
       log("info", "Received historic flag image URL from Python", { url: url });
 
       // Update the flag if it's currently active and we're in ChampSelect
-      if (isInChampSelect && historicModeActive) {
+      if (isInChampSelect && (historicModeActive || isHistoricHistoryMarkerActive())) {
         updateHistoricFlag();
       }
     }
@@ -144,6 +184,12 @@
     handleHistoricSkinNameUpdate(data);
     const wasActive = historicModeActive;
     historicModeActive = data.active === true;
+    historicEntryAvailable = data.historicEntryAvailable === true;
+    const receivedBaseSkinId = Number(data.historicBaseSkinId);
+    historicBaseSkinId =
+      Number.isFinite(receivedBaseSkinId) && receivedBaseSkinId > 0
+        ? receivedBaseSkinId
+        : null;
 
     log("info", "Received historic state update", {
       active: historicModeActive,
@@ -159,7 +205,7 @@
     }, 100);
 
     // Also try again after a longer delay in case DOM updates are delayed
-    if (historicModeActive) {
+    if (historicModeActive || isHistoricHistoryMarkerActive()) {
       setTimeout(() => {
         updateHistoricFlag();
       }, 1000);
@@ -476,6 +522,9 @@
       width: "auto",
       boxSizing: "border-box",
       pointerEvents: "none",
+      visibility: "visible",
+      opacity: "1",
+      zIndex: "1000000",
     });
 
     // Create toast-body div
@@ -849,6 +898,11 @@
   }
 
   const handleHistoricSkinNameUpdate = (payload) => {
+    // A custom-mod popup owns this same visual layer. Historic-state
+    // broadcasts can arrive slightly after the custom-mod selection, so do
+    // not let an inactive historic update erase the custom-mod name.
+    if (customModPopupActive) return;
+
     if (payload.historicSkinName && payload.historicSkinName !== "None") {
       showSkinName(payload.historicSkinName);
     } else {
@@ -857,20 +911,37 @@
   };
 
   function handleCustomModStateUpdate(data) {
+    log("info", "Received custom mod state", {
+      active: data?.active === true,
+      modName: data?.modName || null,
+      skinId: data?.skinId || null,
+      currentSkinId: getCurrentEffectiveSkinId(),
+    });
+
     if (data.active && data.modName) {
-      // Only show popup if the user is currently viewing the mod's target skin
-      const currentSkinId = Number((window.__roseSkinState || {}).skinId);
-      const modSkinId = data.skinId ? Number(data.skinId) : null;
-      if (modSkinId && currentSkinId && modSkinId !== currentSkinId) {
-        // User already navigated away — don't show popup
-        customModPopupActive = false;
-        removeHistoricSkinName();
-        return;
-      }
+      customModTargetSkinId = data.skinId ? Number(data.skinId) : null;
       customModPopupActive = true;
       showSkinName(data.modName);
+      log("info", "Displayed custom mod popup", {
+        modName: data.modName,
+        skinId: customModTargetSkinId,
+      });
     } else {
       customModPopupActive = false;
+      customModTargetSkinId = null;
+      removeHistoricSkinName();
+    }
+  }
+
+  function handleChromaStateUpdate(data) {
+    pythonChromaState = data || null;
+    if (
+      customModPopupActive &&
+      customModTargetSkinId &&
+      getCurrentEffectiveSkinId() !== customModTargetSkinId
+    ) {
+      customModPopupActive = false;
+      customModTargetSkinId = null;
       removeHistoricSkinName();
     }
   }
@@ -878,8 +949,25 @@
   function handleSkinStateUpdate(data) {
     // When the user hovers a different skin, hide the custom mod popup
     if (customModPopupActive) {
+      const nextSkinId = Number(data?.skinId);
+      const currentEffectiveSkinId = getCurrentEffectiveSkinId();
+      if (
+        customModTargetSkinId &&
+        (
+          customModTargetSkinId === currentEffectiveSkinId ||
+          customModTargetSkinId === nextSkinId
+        )
+      ) {
+        return;
+      }
+
       customModPopupActive = false;
+      customModTargetSkinId = null;
       removeHistoricSkinName();
+    }
+
+    if (isInChampSelect) {
+      updateHistoricFlag();
     }
   }
   function removeHistoricSkinName() {
@@ -970,7 +1058,7 @@
       computedStyle.visibility !== "hidden" &&
       computedStyle.opacity !== "0";
 
-    if (historicModeActive) {
+    if (historicModeActive || isHistoricHistoryMarkerActive()) {
       // Request image if we don't have it yet
       if (!historicFlagImageUrl) {
         requestHistoricFlagImage();
@@ -1072,6 +1160,7 @@
     bridge.subscribe("historic-state", handleHistoricStateUpdate);
     bridge.subscribe("custom-mod-state", handleCustomModStateUpdate);
     bridge.subscribe("skin-state", handleSkinStateUpdate);
+    bridge.subscribe("chroma-state", handleChromaStateUpdate);
     bridge.subscribe("local-asset-url", handleLocalAssetUrl);
     bridge.subscribe("phase-change", handlePhaseChange);
 
@@ -1083,7 +1172,10 @@
     // Watch for DOM changes to find rewards element (only when in ChampSelect)
     const observer = new MutationObserver(() => {
       // Only try to update if in ChampSelect and historic mode is active
-      if (isInChampSelect && historicModeActive) {
+      if (
+        isInChampSelect &&
+        (historicModeActive || isHistoricHistoryMarkerActive())
+      ) {
         updateHistoricFlag();
       }
     });

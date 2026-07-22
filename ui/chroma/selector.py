@@ -285,8 +285,13 @@ class ChromaSelector:
             new_base_id = chroma_data.get('skinId', new_base_id)
             log.debug(f"[CHROMA] New skin {skin_id} is chroma of base skin {new_base_id}")
         
-        # If both have the same base skin ID, it's a chroma selection
-        is_chroma_selection = (current_base_id == new_base_id)
+        # A base-skin hover must clear a previous chroma selection. Only
+        # preserve the selection when the newly detected ID is itself a
+        # chroma/form of the same base skin.
+        is_new_chroma = new_base_id != skin_id
+        is_chroma_selection = (
+            current_base_id == new_base_id and is_new_chroma
+        )
         log.debug(f"[CHROMA] Base skin comparison: {current_base_id} == {new_base_id} -> is_chroma_selection={is_chroma_selection}")
         
         return is_chroma_selection
