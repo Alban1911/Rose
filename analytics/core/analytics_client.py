@@ -1,81 +1,74 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Analytics client for sending user tracking pings
-"""
+"""HTTP client for Rose's pseudonymous analytics activity and presence."""
+
+from typing import Literal, Optional
 
 import requests
-from typing import Optional
 
-from config import APP_USER_AGENT, APP_VERSION, ANALYTICS_SERVER_URL, ANALYTICS_TIMEOUT_S, ANALYTICS_ENABLED
+from config import (
+    ANALYTICS_ENABLED,
+    ANALYTICS_SERVER_URL,
+    ANALYTICS_TIMEOUT_S,
+    APP_USER_AGENT,
+    APP_VERSION,
+)
 from utils.core.logging import get_logger
-from .machine_id import get_machine_id
+from .install_id import get_install_id
 
 log = get_logger()
+AnalyticsEvent = Literal["startup", "heartbeat", "close"]
 
 
 class AnalyticsClient:
-    """Client for sending analytics pings to the server"""
-    
-    def __init__(self, server_url: Optional[str] = None, timeout: Optional[float] = None):
-        """
-        Initialize analytics client.
-        
-        Args:
-            server_url: Server endpoint URL (defaults to ANALYTICS_SERVER_URL from config)
-            timeout: Request timeout in seconds (defaults to ANALYTICS_TIMEOUT_S from config)
-        """
+    """Send analytics activity and presence notifications."""
+
+    def __init__(
+        self,
+        server_url: Optional[str] = None,
+        timeout: Optional[float] = None,
+        enabled: Optional[bool] = None,
+    ):
         self.server_url = server_url or ANALYTICS_SERVER_URL
-        self.timeout = timeout or ANALYTICS_TIMEOUT_S
-        self.enabled = ANALYTICS_ENABLED
-    
-    def send_ping(self, app_version: Optional[str] = None) -> bool:
-        """
-        Send a ping to the analytics server with machine ID and app version.
-        
-        Args:
-            app_version: Application version (defaults to APP_VERSION from config)
-            
-        Returns:
-            True if ping was sent successfully, False otherwise
-        """
+        self.timeout = ANALYTICS_TIMEOUT_S if timeout is None else timeout
+        self.enabled = ANALYTICS_ENABLED if enabled is None else enabled
+
+    def send_ping(
+        self,
+        app_version: Optional[str] = None,
+        event: AnalyticsEvent = "heartbeat",
+        timeout: Optional[float] = None,
+    ) -> bool:
+        """Send one activity or presence notification."""
         if not self.enabled:
             log.debug("Analytics is disabled, skipping ping")
             return False
-        
+
+        payload = {
+            "install_id": get_install_id(),
+            "app_version": app_version or APP_VERSION,
+            "event": event,
+        }
+        request_timeout = self.timeout if timeout is None else timeout
+
         try:
-            # Get machine ID
-            machine_id = get_machine_id()
-            
-            # Prepare payload
-            payload = {
-                "machine_id": machine_id,
-                "app_version": app_version or APP_VERSION
-            }
-            
-            # Send POST request
             response = requests.post(
                 self.server_url,
                 json=payload,
                 headers={
                     "User-Agent": APP_USER_AGENT,
-                    "Content-Type": "application/json"
+                    "Accept": "application/json",
                 },
-                timeout=self.timeout
+                timeout=request_timeout,
             )
-            
-            # Check response
             response.raise_for_status()
-            log.debug(f"Analytics ping sent successfully: {response.status_code}")
+            log.debug("Analytics ping sent successfully: %s", response.status_code)
             return True
-            
         except requests.exceptions.Timeout:
-            log.warning(f"Analytics ping timeout after {self.timeout}s")
-            return False
-        except requests.exceptions.RequestException as e:
-            log.warning(f"Analytics ping failed: {e}")
-            return False
-        except Exception as e:
-            log.warning(f"Unexpected error during analytics ping: {e}")
-            return False
+            log.warning("Analytics ping timed out after %ss", request_timeout)
+        except requests.exceptions.RequestException as exc:
+            log.warning("Analytics ping failed: %s", exc)
+        except Exception as exc:
+            log.warning("Unexpected error during analytics ping: %s", exc)
 
+        return False

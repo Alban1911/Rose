@@ -30,7 +30,18 @@ Rose consists of three main components:
 - **Party Mode**: Enables skin sharing between friends in the same lobby via a Cloudflare WebSocket relay
 - **Game Monitoring**: Tracks game state, champion select phases, and loadout countdowns
 - **Auto-Updater**: Checks GitHub for new releases and prompts users to install updates
-- **Analytics**: Sends periodic pings to track unique users (configurable, runs in background thread)
+- **Analytics**: Sends a startup ping, a 15-minute presence heartbeat, and a best-effort close ping (configurable, runs in a background thread)
+
+### Analytics and privacy
+
+Rose sends a pseudonymous, randomly generated installation ID and the app version
+to `https://analytics.rosekeys.site/` when analytics are enabled. The ID is not derived
+from the Windows Machine GUID. Analytics can be disabled with
+`ANALYTICS_ENABLED = False` in `config.py`.
+
+The analytics API and dashboard are maintained separately from this public
+client repository. Only aggregate usage metrics are exposed through the
+dashboard; raw activity and server credentials remain private.
 
 ### Cloudflare Workers
 

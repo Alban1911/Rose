@@ -5,7 +5,6 @@ Analytics thread for periodic user tracking pings
 """
 
 import threading
-import time
 from typing import Optional
 
 from config import ANALYTICS_PING_INTERVAL_S, APP_VERSION
@@ -17,7 +16,7 @@ log = get_logger()
 
 
 class AnalyticsThread(threading.Thread):
-    """Background thread that sends periodic analytics pings"""
+    """Background thread that tracks startup, presence, and shutdown."""
     
     def __init__(self, state: SharedState, ping_interval: Optional[float] = None):
         """
@@ -25,35 +24,33 @@ class AnalyticsThread(threading.Thread):
         
         Args:
             state: SharedState instance for checking stop flag
-            ping_interval: Interval between pings in seconds (defaults to ANALYTICS_PING_INTERVAL_S)
+            ping_interval: Interval between presence heartbeats in seconds (defaults to ANALYTICS_PING_INTERVAL_S)
         """
         super().__init__(daemon=True)
         self.state = state
-        self.ping_interval = ping_interval or ANALYTICS_PING_INTERVAL_S
+        self.ping_interval = ANALYTICS_PING_INTERVAL_S if ping_interval is None else ping_interval
         self.client = AnalyticsClient()
         self._stop_event = threading.Event()
     
     def run(self) -> None:
-        """Main thread loop - sends pings at regular intervals"""
-        log.info(f"Analytics thread started (ping interval: {self.ping_interval}s)")
-        
-        # Send initial ping immediately
-        self.client.send_ping(APP_VERSION)
-        
-        # Then send pings at regular intervals
-        while not self.state.stop and not self._stop_event.is_set():
-            # Wait for the ping interval or until stop is requested
-            if self._stop_event.wait(timeout=self.ping_interval):
-                # Stop event was set
-                break
-            
-            # Check stop flag again before sending ping
-            if self.state.stop:
-                break
-            
-            # Send ping
-            self.client.send_ping(APP_VERSION)
-        
+        """Send a startup ping, periodic heartbeats, and a best-effort close ping."""
+        log.info("Analytics thread started (heartbeat interval: %ss)", self.ping_interval)
+
+        self.client.send_ping(APP_VERSION, event="startup")
+        try:
+            while not self.state.stop and not self._stop_event.is_set():
+                if self._stop_event.wait(timeout=self.ping_interval):
+                    break
+
+                if self.state.stop:
+                    break
+
+                self.client.send_ping(APP_VERSION, event="heartbeat")
+        finally:
+            # This is best-effort; crashes, force-kills, and power loss cannot
+            # reliably send a shutdown notification.
+            self.client.send_ping(APP_VERSION, event="close", timeout=2)
+
         log.info("Analytics thread stopped")
     
     def stop(self) -> None:

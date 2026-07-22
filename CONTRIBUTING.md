@@ -223,9 +223,9 @@ Rose/
 │
 ├── analytics/              # Analytics and user tracking
 │   └── core/
-│       ├── machine_id.py   # Machine ID retrieval (Windows Machine GUID)
-│       ├── analytics_client.py  # HTTP client for analytics pings
-│       └── analytics_thread.py  # Background thread for periodic pings
+│       ├── install_id.py   # Pseudonymous persistent installation UUID
+│       ├── analytics_client.py  # HTTP client for analytics and presence pings
+│       └── analytics_thread.py  # Background thread for startup/heartbeat/close pings
 │
 └── Pengu Loader/           # Pengu Loader and plugins
     ├── Pengu Loader.exe    # Pengu Loader executable
