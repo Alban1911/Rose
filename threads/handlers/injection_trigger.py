@@ -511,11 +511,20 @@ class InjectionTrigger:
                 self._inject_custom_mod(dummy_custom_mod, base_skin_name=base_skin_name_for_injection, champion_name=cname)
                 return
             
-            # Skip injection for base skins (only if no mods are selected)
-            if ui_skin_id == 0:
-                log.info("[INJECT] skipping base skin injection (skinId=0) - no mods-only flow available")
+            # Skip injection for base/default skins (only if no mods are selected and
+            # historic mode is not active — if historic is active, the skin resolver
+            # already overrides to the saved skin and injection should proceed normally)
+            from utils.core.utilities import is_default_skin
+            historic_active = getattr(self.state, 'historic_mode_active', False)
+            if ui_skin_id is not None and is_default_skin(ui_skin_id) and not historic_active:
+                log.info(f"[INJECT] skipping injection for default skin (skinId={ui_skin_id}) - no mods selected")
                 if self.injection_manager:
                     self.injection_manager.resume_if_suspended()
+                champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+                if champ_id:
+                    from utils.core.historic import clear_historic_entry
+                    clear_historic_entry(int(champ_id))
+                    log.info(f"[HISTORIC] Cleared historic entry for champion {champ_id} (default skin played)")
 
             # Force owned skins/chromas via LCU
             # Use effective_skin_id which includes the selected chroma if applicable
