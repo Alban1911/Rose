@@ -28,7 +28,7 @@ _STORAGE_LOCK = threading.RLock()
 
 @dataclass(frozen=True)
 class SkinModEntry:
-    """Metadata for a mod inside mods/skins/{skin_id}"""
+    """Metadata for a mod inside mods/skins/{champion_id}000."""
 
     champion_id: Optional[int]
     skin_id: int
@@ -43,6 +43,7 @@ class ModStorageService:
     """Service exposing the on-disk mods hierarchy."""
 
     ARCHIVE_SCAN_INTERVAL_SECONDS = 1.0
+    LEGACY_TARGET_METADATA = "rose_legacy_targets.json"
 
     CATEGORY_SKINS = "skins"
     CATEGORY_MAPS = "maps"
@@ -76,6 +77,7 @@ class ModStorageService:
         self._affected_skin_cache: dict[Path, tuple[int, int, tuple[int, ...]]] = {}
         self.mods_root.mkdir(parents=True, exist_ok=True)
         self._ensure_mods_root_layout()
+        self._migrate_legacy_skin_layout()
 
         if watch_archives:
             self._watcher_thread = threading.Thread(
@@ -144,6 +146,271 @@ class ModStorageService:
                     log.warning("[ModStorage] Failed to remove unknown mods folder %s: %s", entry, exc)
         except Exception as exc:  # noqa: BLE001
             log.warning("[ModStorage] Failed to scan mods root %s: %s", self.mods_root, exc)
+
+    def _migrate_legacy_skin_layout(self) -> None:
+        """Move old per-skin mod folders into the champion-level layout.
+
+        Older Rose versions stored mods as skins/<skin_id>/<mod>. The current
+        layout stores all mods for a champion under skins/<champion>000/<mod>
+        and discovers affected skins from the mod contents. Keep the old
+        target ID in migration metadata so a skin-specific legacy mod does not
+        become a base-skin mod after it is moved.
+        """
+        moved_paths: dict[str, str] = {}
+        try:
+            with self._storage_lock:
+                for legacy_dir in sorted(
+                    self.skins_dir.iterdir(),
+                    key=lambda path: path.name.casefold(),
+                ):
+                    if not legacy_dir.is_dir():
+                        continue
+
+                    legacy_id = self._to_int(legacy_dir.name)
+                    if legacy_id is None or legacy_id <= 0:
+                        continue
+
+                    # Base folders are already in the new layout. Numeric
+                    # folders below 1000 are handled as the intermediate
+                    # champion/skin layout used by older builds.
+                    if legacy_id >= 1000 and legacy_id % 1000 == 0:
+                        continue
+
+                    if legacy_id < 1000:
+                        destination_root = self.get_skin_dir(legacy_id * 1000)
+                        nested_skin_dirs = [
+                            child
+                            for child in sorted(
+                                legacy_dir.iterdir(),
+                                key=lambda path: path.name.casefold(),
+                            )
+                            if child.is_dir() and self._to_int(child.name) is not None
+                        ]
+
+                        for nested_dir in nested_skin_dirs:
+                            nested_id = int(nested_dir.name)
+                            target_skin_id = (
+                                nested_id
+                                if nested_id >= 1000
+                                else legacy_id * 1000 + nested_id
+                            )
+                            moved_paths.update(
+                                self._migrate_legacy_mod_directory(
+                                    nested_dir,
+                                    destination_root,
+                                    target_skin_id,
+                                )
+                            )
+
+                        moved_paths.update(
+                            self._migrate_legacy_mod_directory(
+                                legacy_dir,
+                                destination_root,
+                                None,
+                            )
+                        )
+                    else:
+                        destination_root = self.get_skin_dir(
+                            (legacy_id // 1000) * 1000
+                        )
+                        moved_paths.update(
+                            self._migrate_legacy_mod_directory(
+                                legacy_dir,
+                                destination_root,
+                                legacy_id,
+                            )
+                        )
+
+                self._rewrite_migrated_historic_paths(moved_paths)
+        except (OSError, ValueError, TypeError) as exc:
+            log.warning("[ModStorage] Legacy mod migration failed: %s", exc)
+
+    def _migrate_legacy_mod_directory(
+        self,
+        source_dir: Path,
+        destination_root: Path,
+        legacy_skin_id: Optional[int],
+    ) -> dict[str, str]:
+        """Move mod entries from one legacy directory into a new root."""
+        if not source_dir.exists() or not source_dir.is_dir():
+            return {}
+
+        self._extract_archives_in_directory(source_dir)
+        destination_root.mkdir(parents=True, exist_ok=True)
+        moved_paths: dict[str, str] = {}
+        archive_suffixes = {".zip", ".fantome"}
+
+        for candidate in sorted(
+            source_dir.iterdir(),
+            key=lambda path: path.name.casefold(),
+        ):
+            if not (
+                candidate.is_dir()
+                or (candidate.is_file() and candidate.suffix.casefold() in archive_suffixes)
+            ):
+                continue
+
+            destination = self._unique_migration_destination(
+                destination_root,
+                candidate,
+                legacy_skin_id,
+            )
+            old_relative_path = self._relative_mod_path(candidate)
+            try:
+                candidate.replace(destination)
+            except OSError as exc:
+                log.warning(
+                    "[ModStorage] Could not migrate legacy mod %s: %s",
+                    candidate,
+                    exc,
+                )
+                continue
+
+            if legacy_skin_id is not None and destination.is_dir():
+                self._write_legacy_target_metadata(destination, legacy_skin_id)
+
+            moved_paths[old_relative_path] = self._relative_mod_path(destination)
+            log.info(
+                "[ModStorage] Migrated legacy mod %s -> %s",
+                old_relative_path,
+                moved_paths[old_relative_path],
+            )
+
+        try:
+            if not any(source_dir.iterdir()):
+                source_dir.rmdir()
+        except OSError:
+            pass
+
+        return moved_paths
+
+    def _unique_migration_destination(
+        self,
+        destination_root: Path,
+        source: Path,
+        legacy_skin_id: Optional[int],
+    ) -> Path:
+        """Return a collision-free destination for a migrated mod."""
+        destination = destination_root / source.name
+        if not destination.exists() and not destination.is_symlink():
+            return destination
+
+        suffix = (
+            f" (legacy {legacy_skin_id})"
+            if legacy_skin_id is not None
+            else " (legacy)"
+        )
+        if source.is_file():
+            candidate = destination_root / (
+                f"{source.stem}{suffix}{source.suffix}"
+            )
+        else:
+            candidate = destination_root / f"{source.name}{suffix}"
+
+        index = 2
+        while candidate.exists() or candidate.is_symlink():
+            if source.is_file():
+                candidate = destination_root / (
+                    f"{source.stem}{suffix} {index}{source.suffix}"
+                )
+            else:
+                candidate = destination_root / f"{source.name}{suffix} {index}"
+            index += 1
+        return candidate
+
+    def _write_legacy_target_metadata(
+        self,
+        mod_directory: Path,
+        legacy_skin_id: int,
+    ) -> None:
+        """Record the old storage skin as an affected target."""
+        metadata_path = (
+            mod_directory / "META" / self.LEGACY_TARGET_METADATA
+        )
+        try:
+            metadata = {}
+            if metadata_path.is_file():
+                loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    metadata = loaded
+
+            existing = metadata.get("affectedSkinIds", [])
+            if isinstance(existing, dict):
+                existing = existing.keys()
+            if isinstance(existing, (str, bytes)):
+                existing = []
+            try:
+                affected = {int(value) for value in existing}
+            except (TypeError, ValueError):
+                affected = set()
+            affected.add(int(legacy_skin_id))
+
+            metadata["affectedSkinIds"] = sorted(affected)
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            metadata_path.write_text(
+                json.dumps(metadata, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            log.warning(
+                "[ModStorage] Could not preserve legacy target %s for %s: %s",
+                legacy_skin_id,
+                mod_directory,
+                exc,
+            )
+
+    def _relative_mod_path(self, path: Path) -> str:
+        try:
+            relative = path.relative_to(self.mods_root)
+        except ValueError:
+            relative = path
+        return str(relative).replace(chr(92), "/")
+
+    def _rewrite_migrated_historic_paths(
+        self,
+        moved_paths: dict[str, str],
+    ) -> None:
+        """Update custom-mod history entries after moving their folders."""
+        if not moved_paths:
+            return
+
+        try:
+            from utils.core.historic import (
+                get_custom_mod_path,
+                is_custom_mod_path,
+                load_historic_map,
+                write_historic_entry,
+            )
+
+            def normalize_path(value: str) -> str:
+                return str(value).replace(chr(92), "/").casefold()
+
+            normalized_paths = {
+                normalize_path(old): new for old, new in moved_paths.items()
+            }
+            for champion_id, historic_value in load_historic_map().items():
+                if not is_custom_mod_path(historic_value):
+                    continue
+                old_path = get_custom_mod_path(historic_value)
+                if not old_path:
+                    continue
+                new_path = normalized_paths.get(normalize_path(old_path))
+                if not new_path:
+                    continue
+                write_historic_entry(
+                    int(champion_id),
+                    f"path:{new_path}",
+                )
+                log.info(
+                    "[ModStorage] Updated historic mod path %s -> %s",
+                    old_path,
+                    new_path,
+                )
+        except (OSError, TypeError, ValueError, ImportError) as exc:
+            log.warning(
+                "[ModStorage] Could not update historic mod paths: %s",
+                exc,
+            )
 
     @property
     def skins_dir(self) -> Path:
@@ -324,6 +591,7 @@ class ModStorageService:
 
         if candidate.is_dir():
             metadata_paths = (
+                candidate / "META" / self.LEGACY_TARGET_METADATA,
                 candidate / "META" / "affected_skins.json",
                 candidate / "META" / "info.json",
                 candidate / "META" / "details.json",
