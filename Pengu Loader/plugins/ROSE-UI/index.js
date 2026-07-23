@@ -12,7 +12,114 @@
   const CHROMA_CONTAINER_CLASS = "lpp-chroma-container";
   const VISIBLE_OFFSETS = new Set([0, 1, 2, 3, 4]);
 
-  const DISCORD_INVITE_URL = "https://discord.gg/cDepnwVS8Z";
+  const DISCORD_INVITE_URL = "https://discord.com/invite/roseskins";
+  const ROSE_DISCORD_GUILD_ID = "1490473857075642621";
+  const ROSE_GITHUB_REPO_API_URL =
+    "https://api.github.com/repos/Alban1911/Rose";
+  const ROSE_GITHUB_BADGE_FALLBACK_URL =
+    "https://img.shields.io/badge/GitHub-Stars-32A832?style=flat&logo=github&logoColor=white";
+  let roseGithubStarsPromise = null;
+
+  // The welcome modal is rendered by Pengu's signed core module. Keep its
+  // links working without modifying the signed binary when external badge
+  // providers change or the embedded server ID becomes stale.
+  function getRoseGithubStars() {
+    if (roseGithubStarsPromise) return roseGithubStarsPromise;
+
+    roseGithubStarsPromise = fetch(ROSE_GITHUB_REPO_API_URL, {
+      cache: "no-store",
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("GitHub API request failed");
+        return response.json();
+      })
+      .then((repository) => {
+        const stars = Number(repository && repository.stargazers_count);
+        return Number.isSafeInteger(stars) && stars >= 0 ? stars : null;
+      })
+      .catch(() => null);
+
+    return roseGithubStarsPromise;
+  }
+
+  function getRoseGithubBadgeUrl(stars) {
+    const message = encodeURIComponent(stars + " stars");
+    return (
+      "https://img.shields.io/badge/GitHub-" +
+      message +
+      "-32A832?style=flat&logo=github&logoColor=white"
+    );
+  }
+
+  function fixPenguWelcomeBadges(shadowRoot) {
+    const badges = shadowRoot.querySelectorAll(
+      'img[src*="img.shields.io/discord/"], img[src*="img.shields.io/github/stars/"]'
+    );
+
+    badges.forEach((badge) => {
+      const source = badge.getAttribute("src") || "";
+
+      if (source.includes("/discord/")) {
+        const fixedSource = source.replace(
+          /\/discord\/\d+/,
+          "/discord/" + ROSE_DISCORD_GUILD_ID
+        );
+        if (fixedSource !== source) {
+          badge.setAttribute("src", fixedSource);
+        }
+        return;
+      }
+
+      if (source.includes("/github/stars/")) {
+        badge.setAttribute("src", ROSE_GITHUB_BADGE_FALLBACK_URL);
+        getRoseGithubStars().then((stars) => {
+          if (stars === null || !badge.isConnected) return;
+          badge.setAttribute("src", getRoseGithubBadgeUrl(stars));
+        });
+      }
+    });
+  }
+
+  function setupPenguWelcomeBadgeFix() {
+    let attachedHost = null;
+    let shadowObserver = null;
+
+    const attach = () => {
+      const host = document.getElementById("pengu-root");
+      const shadowRoot = host && host.shadowRoot;
+      if (!shadowRoot) return false;
+
+      if (attachedHost === host) {
+        fixPenguWelcomeBadges(shadowRoot);
+        return true;
+      }
+
+      if (shadowObserver) shadowObserver.disconnect();
+      attachedHost = host;
+      fixPenguWelcomeBadges(shadowRoot);
+      shadowObserver = new MutationObserver(() => {
+        fixPenguWelcomeBadges(shadowRoot);
+      });
+      shadowObserver.observe(shadowRoot, {
+        attributes: true,
+        attributeFilter: ["src"],
+        childList: true,
+        subtree: true,
+      });
+      return true;
+    };
+
+    if (attach()) return;
+
+    const documentObserver = new MutationObserver(() => {
+      if (attach()) documentObserver.disconnect();
+    });
+    documentObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+    setTimeout(() => documentObserver.disconnect(), 30000);
+  }
 
   function waitForBridge() {
     return new Promise((resolve, reject) => {
@@ -780,6 +887,7 @@
       // Subscribe to skip-base-skin messages from the shared bridge
       bridge.subscribe("skip-base-skin", handleSkipBaseSkin);
       bridge.subscribe("phase-change", handlePhaseChangeFromPython);
+      setupPenguWelcomeBadgeFix();
 
       interceptChampSelectWebsocket();
       injectInlineRules();
