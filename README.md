@@ -4,7 +4,7 @@
 
   <img src="./assets/icon.png" alt="Rose Icon" width="128" height="128">
 
-[![Installer](https://img.shields.io/badge/Installer-Windows-32A832)](https://github.com/Alban1911/Rose/releases/latest) [![Ko-Fi](https://img.shields.io/badge/KoFi-Donate-C03030?logo=ko-fi&logoColor=white)](https://ko-fi.com/roseapp) [![Discord](https://img.shields.io/discord/1490473857075642621?color=32A832&logo=discord&logoColor=white&label=Discord)](https://discord.com/invite/roseskins) [![License](https://img.shields.io/badge/License-MIT-C03030)](LICENSE) [![Downloads](https://img.shields.io/github/downloads/Alban1911/Rose/total?color=32A832&label=Downloads)](https://github.com/Alban1911/Rose/releases/latest)
+[![Installer](https://img.shields.io/badge/Installer-Windows-32A832)](https://github.com/Alban1911/Rose/releases/latest) [![Ko-Fi](https://img.shields.io/badge/KoFi-Donate-C03030?logo=ko-fi&logoColor=white)](https://ko-fi.com/roseapp) [![Discord](https://img.shields.io/discord/1490473857075642621?color=32A832&logo=discord&logoColor=white&label=Discord)](https://discord.com/invite/roseskins) [![License](https://img.shields.io/badge/License-MIT-C03030)](LICENSE) [![Downloads](https://img.shields.io/badge/Downloads-GitHub%20Releases-32A832?logo=github&logoColor=white)](https://github.com/Alban1911/Rose/releases/latest)
 
 
 </div>
@@ -15,7 +15,7 @@
 
 Rose is an open-source automatic skin changer for League of Legends that enables seamless access to all skins in the game. The application runs silently in the system tray and automatically detects skin selections during champion select, injecting the chosen skin when the game loads.
 
-Built on the [Pengu Loader](https://github.com/Tariolle/ROSE-Pengu) framework, Rose integrates JavaScript extensions into the League Client to enable modular UI interactions. It strictly modifies local rendering variables to display custom models and textures. It is designed purely as an exploration of client-side asset management, providing no manipulation of network data, memory states, or gameplay mechanics, thereby **offering zero competitive advantage**.
+Built on the [Pengu Loader](https://github.com/PenguLoader/PenguLoader) framework, Rose integrates JavaScript extensions into the League Client to enable modular UI interactions. It strictly modifies local rendering variables to display custom models and textures. It is designed purely as an exploration of client-side asset management, providing no manipulation of network data, memory states, or gameplay mechanics, thereby **offering zero competitive advantage**.
 
 ## Architecture
 
@@ -63,7 +63,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 ## How It Works
 
-1. **League Client Integration**: Rose activates **[Pengu Loader](https://github.com/Tariolle/ROSE-Pengu)** on startup, which injects the JavaScript plugins into the League Client
+1. **League Client Integration**: Rose activates **[Pengu Loader](https://github.com/PenguLoader/PenguLoader)** on startup, which injects the JavaScript plugins into the League Client
 2. **Skin Detection**: When you hover over a skin in champion select, `ROSE-SkinMonitor` detects the selection and sends it to the Python backend
 3. **Game Opening Delay**: To make sure the injection has time to occur we suspend League of Legend's game process as long as the overlay is not ran
 4. **Game Injection**: Rose injects the selected skin when the game starts
@@ -93,6 +93,65 @@ On first launch, Rose will prompt you to provide this file and open the folder w
 1. Download the latest installer from [Releases](https://github.com/Alban1911/Rose/releases/latest)
 2. Run the installer as Administrator
 3. Launch Rose from the Start Menu or desktop shortcut
+
+## Building from source
+
+Rose builds the Pengu Loader executable from the vendored source in
+`vendor/PenguLoader-1.1.6/` as part of the normal Rose build. You do not need
+to download or commit a prebuilt `Pengu Loader.exe`.
+
+### Prerequisites
+
+- Windows 10/11
+- Python 3.11 or newer
+- Visual Studio Build Tools with the .NET desktop build tools, WPF support,
+  and the .NET Framework 4.7.2 targeting pack
+- Inno Setup 6 if you also want to create the installer
+
+Clone the repository and enter its directory:
+
+```powershell
+git clone https://github.com/Alban1911/Rose.git
+cd Rose
+```
+
+Install the Python dependencies first:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+Build the loader by itself, if needed:
+
+```powershell
+python scripts/build_pengu_loader.py
+```
+
+Build Rose and automatically rebuild the loader:
+
+```powershell
+python build_pyinstaller.py
+```
+
+The packaged application is written to `dist/Rose/`. To build both Rose and
+the Windows installer in one step:
+
+```powershell
+python build_all.py
+```
+
+The installer is written to `installer/Rose_Setup.exe`. Use
+`build_pyinstaller.py` or `build_all.py` instead of invoking
+`pyinstaller Rose.spec` directly, because the Rose build scripts compile
+Pengu Loader first.
+
+## Credits
+
+Rose uses the [official Pengu Loader](https://github.com/PenguLoader/PenguLoader)
+project. Its source is vendored and built as part of Rose, with Rose-specific
+lifecycle integration added around the loader. Please see the
+[official Pengu Loader license](https://github.com/PenguLoader/PenguLoader/blob/main/LICENSE)
+and credit the Pengu Loader contributors.
 
 ## Contributing
 

@@ -26,6 +26,32 @@ pip install -r requirements.txt
 # Ready to develop! Run main.py as administrator when testing
 ```
 
+## Building locally
+
+Rose builds the Pengu Loader executable from the vendored source in
+`vendor/PenguLoader-1.1.6/` during packaging. A prebuilt `Pengu Loader.exe`
+is intentionally not committed to the repository.
+
+In addition to Python 3.11+ and the Python dependencies above, install Visual
+Studio Build Tools with the .NET desktop build tools, WPF support, and the
+.NET Framework 4.7.2 targeting pack. Install Inno Setup 6 only if you also
+want to build the Windows installer.
+
+```powershell
+# Build Pengu Loader only
+python scripts/build_pengu_loader.py
+
+# Build Rose (rebuilds Pengu Loader automatically)
+python build_pyinstaller.py
+
+# Build Rose and the Windows installer
+python build_all.py
+```
+
+`build_pyinstaller.py` is the canonical Rose package build entry point; it
+compiles the loader before invoking PyInstaller. Use it or `build_all.py`
+instead of invoking `pyinstaller Rose.spec` directly.
+
 ## Project Structure
 
 ```
@@ -227,8 +253,8 @@ Rose/
 │       ├── analytics_client.py  # HTTP client for analytics and presence pings
 │       └── analytics_thread.py  # Background thread for startup/heartbeat/close pings
 │
-└── Pengu Loader/           # Pengu Loader and plugins
-    ├── Pengu Loader.exe    # Pengu Loader executable
+└── Pengu Loader/           # Runtime loader files and plugins
+    ├── Pengu Loader.exe    # Generated during builds from vendor/PenguLoader-1.1.6
     └── plugins/            # JavaScript plugins
         ├── ROSE-UI/
         ├── ROSE-SkinMonitor/
@@ -241,3 +267,10 @@ Rose/
         ├── ROSE-PartyMode/
         └── ROSE-Jade/
 ```
+
+## Credits
+
+Rose uses the [official Pengu Loader](https://github.com/PenguLoader/PenguLoader)
+project. Its source is vendored and built as part of Rose, with Rose-specific
+lifecycle integration added around the loader. See the
+[official Pengu Loader license](https://github.com/PenguLoader/PenguLoader/blob/main/LICENSE).
