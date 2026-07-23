@@ -45,6 +45,7 @@ class ModStorageService:
 
     LEGACY_TARGET_METADATA = "rose_legacy_targets.json"
     WAD_TARGET_METADATA = "rose_wad_targets.json"
+    WAD_TARGET_CACHE_VERSION = 1
     ARCHIVE_MANIFEST_NAME = ".rose_archive_manifest.json"
     ARCHIVE_SCAN_INTERVAL_SECONDS = 1.0
     ARCHIVE_SUFFIXES = frozenset({".zip", ".fantome"})
@@ -84,6 +85,9 @@ class ModStorageService:
         self._champion_name_resolver = champion_name_resolver
         self._champion_name_cache: dict[int, str] = {}
         self._pending_extracted_mod_targets: set[Path] = set()
+        self._wad_target_caches: dict[int, dict[str, dict]] = {}
+        self._wad_target_cache_loaded: set[int] = set()
+        self._wad_target_cache_dirty: set[int] = set()
         self._failed_archive_signatures: dict[Path, tuple[int, int]] = {}
         self._affected_skin_cache: dict[Path, tuple[int, int, Optional[str], tuple[int, ...]]] = {}
         self._archive_manifest_path = self.mods_root / self.ARCHIVE_MANIFEST_NAME
@@ -111,6 +115,7 @@ class ModStorageService:
             watcher.join(timeout=2.0)
         self._archive_watcher = None
         with self._storage_lock:
+            self._flush_wad_target_caches()
             self._save_archive_manifest()
 
     def _load_archive_manifest(self) -> Optional[dict[str, dict[str, int]]]:
@@ -225,6 +230,7 @@ class ModStorageService:
             current = self._collect_archive_signatures()
             if self._archive_manifest is None:
                 self._archive_manifest = current
+                self._flush_wad_target_caches()
                 self._save_archive_manifest()
                 log.debug(
                     "[ModStorage] Baselined %d existing archives",
@@ -253,6 +259,7 @@ class ModStorageService:
                     next_manifest[relative_path] = previous_signature
 
             self._archive_manifest = next_manifest
+            self._flush_wad_target_caches()
             self._save_archive_manifest()
 
     def _start_archive_watcher(self) -> None:
@@ -642,26 +649,44 @@ class ModStorageService:
         return champion_name
 
     def _queue_existing_extracted_mod_targets(self) -> None:
-        """Queue existing extracted WAD mods for a lightweight target scan."""
+        """Queue existing extracted WAD mods missing from the champion cache."""
         try:
             champion_directories = tuple(self.skins_dir.iterdir())
         except OSError:
             return
 
         for champion_directory in champion_directories:
-            if not champion_directory.is_dir() or self._to_int(champion_directory.name) is None:
+            if not champion_directory.is_dir():
                 continue
+            storage_skin_id = self._to_int(champion_directory.name)
+            if storage_skin_id is None:
+                continue
+            champion_id = get_champion_id_from_skin_id(storage_skin_id)
+            if champion_id is None:
+                continue
+
             try:
-                mod_directories = tuple(champion_directory.iterdir())
+                mod_directories = tuple(
+                    child for child in champion_directory.iterdir() if child.is_dir()
+                )
             except OSError:
                 continue
+
+            cache = self._load_wad_target_cache(champion_id)
+            active_mod_keys = {
+                self._wad_target_cache_key(mod_directory, champion_id)
+                for mod_directory in mod_directories
+            }
+            for mod_key in tuple(cache):
+                if mod_key not in active_mod_keys:
+                    cache.pop(mod_key, None)
+                    self._wad_target_cache_dirty.add(champion_id)
+
             for mod_directory in mod_directories:
-                if not mod_directory.is_dir():
-                    continue
                 if not (mod_directory / "WAD").is_dir():
                     continue
-                cache_path = mod_directory / "META" / self.WAD_TARGET_METADATA
-                if not cache_path.is_file():
+                mod_key = self._wad_target_cache_key(mod_directory, champion_id)
+                if mod_key not in cache:
                     self._pending_extracted_mod_targets.add(mod_directory)
 
     def _retry_pending_extracted_mod_targets(self) -> None:
@@ -710,7 +735,9 @@ class ModStorageService:
         champion_name: Optional[str] = None,
     ) -> List[SkinModEntry]:
         with self._storage_lock:
-            return self._list_mods_for_skin(skin_id, champion_name)
+            entries = self._list_mods_for_skin(skin_id, champion_name)
+            self._flush_wad_target_caches()
+            return entries
 
     def _list_mods_for_skin(
         self,
@@ -812,11 +839,29 @@ class ModStorageService:
         Optional affected-skin metadata is also supported for mods that do
         not encode their targets in paths.
         """
+        wad_container_present = False
+        if candidate.is_dir():
+            try:
+                wad_container_present = (candidate / "WAD").is_dir()
+                if not wad_container_present:
+                    wad_container_present = any(
+                        path.name.casefold().endswith(".wad.client")
+                        and (path.is_file() or path.is_dir())
+                        for path in candidate.iterdir()
+                    )
+            except OSError:
+                wad_container_present = True
+
         try:
             stat = candidate.stat()
             signature = (stat.st_mtime_ns, stat.st_size)
             cached = self._affected_skin_cache.get(candidate)
-            if cached and cached[:2] == signature and cached[2] == champion_name:
+            if (
+                cached
+                and cached[:2] == signature
+                and cached[2] == champion_name
+                and not wad_container_present
+            ):
                 return cached[3]
         except OSError:
             signature = (0, 0)
@@ -845,7 +890,6 @@ class ModStorageService:
         if candidate.is_dir():
             metadata_paths = (
                 candidate / "META" / self.LEGACY_TARGET_METADATA,
-                candidate / "META" / self.WAD_TARGET_METADATA,
                 candidate / "META" / "affected_skins.json",
                 candidate / "META" / "info.json",
                 candidate / "META" / "details.json",
@@ -980,7 +1024,7 @@ class ModStorageService:
         if not wad_entries:
             return None
 
-        cache_path = candidate / "META" / self.WAD_TARGET_METADATA
+
         current_signatures: dict[str, dict[str, int]] = {}
         packed_wads: list[Path] = []
         extracted_wads: list[Path] = []
@@ -1001,7 +1045,8 @@ class ModStorageService:
             return None
 
         cached_targets = self._read_wad_target_cache(
-            cache_path,
+            int(champion_id),
+            candidate,
             current_signatures,
         )
         if cached_targets is not None:
@@ -1047,8 +1092,9 @@ class ModStorageService:
             )
             return discovered or None
 
-        self._write_wad_target_cache(
-            cache_path,
+        self._record_wad_target_cache(
+            int(champion_id),
+            candidate,
             current_signatures,
             discovered,
         )
@@ -1061,6 +1107,7 @@ class ModStorageService:
         else:
             log.debug("[ModStorage] WAD target scan found no skin IDs: %s", candidate)
         return discovered
+
     @staticmethod
     def _normalized_champion_path_names(champion_name: str) -> tuple[str, ...]:
         compact_name = re.sub(r"[^a-z0-9]", "", str(champion_name).casefold())
@@ -1100,50 +1147,102 @@ class ModStorageService:
                     )
                 )
         return candidates
+
+    def _wad_target_cache_path(self, champion_id: int) -> Path:
+        return self.get_skin_dir(int(champion_id) * 1000) / self.WAD_TARGET_METADATA
+
+    def _wad_target_cache_key(self, candidate: Path, champion_id: int) -> str:
+        champion_root = self.get_skin_dir(int(champion_id) * 1000)
+        try:
+            return candidate.relative_to(champion_root).as_posix()
+        except ValueError:
+            return candidate.name
+
+    def _load_wad_target_cache(self, champion_id: int) -> dict[str, dict]:
+        if champion_id in self._wad_target_cache_loaded:
+            return self._wad_target_caches.setdefault(champion_id, {})
+
+        self._wad_target_cache_loaded.add(champion_id)
+        cache: dict[str, dict] = {}
+        cache_path = self._wad_target_cache_path(champion_id)
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            if (
+                isinstance(payload, dict)
+                and int(payload.get("version", 0)) == self.WAD_TARGET_CACHE_VERSION
+                and int(payload.get("championId", -1)) == int(champion_id)
+                and isinstance(payload.get("mods"), dict)
+            ):
+                for mod_key, entry in payload["mods"].items():
+                    if not isinstance(mod_key, str) or not isinstance(entry, dict):
+                        continue
+                    if not isinstance(entry.get("wadFiles"), dict):
+                        continue
+                    if not isinstance(entry.get("affectedSkinIds"), list):
+                        continue
+                    cache[mod_key] = entry
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+
+        self._wad_target_caches[champion_id] = cache
+        return cache
+
     def _read_wad_target_cache(
         self,
-        cache_path: Path,
+        champion_id: int,
+        candidate: Path,
         signatures: dict[str, dict[str, int]],
     ) -> Optional[set[int]]:
+        cache = self._load_wad_target_cache(champion_id)
+        entry = cache.get(self._wad_target_cache_key(candidate, champion_id))
+        if not isinstance(entry, dict) or entry.get("wadFiles") != signatures:
+            return None
         try:
-            if not cache_path.is_file():
-                return None
-            cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if (
-                not isinstance(cached, dict)
-                or cached.get("wadFiles") != signatures
-                or not isinstance(cached.get("affectedSkinIds"), list)
-            ):
-                return None
-            return {int(value) for value in cached["affectedSkinIds"]}
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return {int(value) for value in entry["affectedSkinIds"]}
+        except (TypeError, ValueError):
             return None
 
-    def _write_wad_target_cache(
+    def _record_wad_target_cache(
         self,
-        cache_path: Path,
+        champion_id: int,
+        candidate: Path,
         signatures: dict[str, dict[str, int]],
         affected_skin_ids: set[int],
     ) -> None:
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(
-                    {
-                        "wadFiles": signatures,
-                        "affectedSkinIds": sorted(affected_skin_ids),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-        except OSError as exc:
-            log.debug(
-                "[ModStorage] Could not cache WAD targets for %s: %s",
-                cache_path.parent,
-                exc,
-            )
+        cache = self._load_wad_target_cache(champion_id)
+        cache[self._wad_target_cache_key(candidate, champion_id)] = {
+            "wadFiles": signatures,
+            "affectedSkinIds": sorted(affected_skin_ids),
+        }
+        self._wad_target_cache_dirty.add(champion_id)
+
+    def _flush_wad_target_caches(self) -> None:
+        for champion_id in tuple(self._wad_target_cache_dirty):
+            cache_path = self._wad_target_cache_path(champion_id)
+            temporary = cache_path.with_name(f".{cache_path.name}.tmp")
+            payload = {
+                "version": self.WAD_TARGET_CACHE_VERSION,
+                "championId": int(champion_id),
+                "mods": self._wad_target_caches.get(champion_id, {}),
+            }
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                temporary.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                temporary.replace(cache_path)
+                self._wad_target_cache_dirty.discard(champion_id)
+            except (OSError, TypeError, ValueError) as exc:
+                log.debug(
+                    "[ModStorage] Could not cache WAD targets for champion %s: %s",
+                    champion_id,
+                    exc,
+                )
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     @staticmethod
     def _relative_candidate_path(candidate: Path, path: Path) -> str:
