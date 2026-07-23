@@ -130,3 +130,6 @@ _cython_setup.py
 relay-worker/node_modules/
 skin-key-worker/node_modules/
 relay-worker/.wrangler/
+
+# Local test suites
+/test/
