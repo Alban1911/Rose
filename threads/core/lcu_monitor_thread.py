@@ -84,12 +84,13 @@ class LCUMonitorThread(threading.Thread):
                     # Check initial champion select state (for issue #29: app starting after lock)
                     self._check_initial_champion_state()
 
-                    # Re-setup Pengu/injection only after a full LCU disconnect→reconnect
-                    # cycle (account swap), not on a simple WebSocket blip
+                    # Refresh Rose's injection/UI state after a full LCU
+                    # disconnect/reconnect cycle (account swap), not on a simple
+                    # WebSocket blip. Pengu stays active through this transition.
                     if self._initial_ws_done and self._lcu_reconnected and self.reconnect_callback:
                         self._lcu_reconnected = False
                         try:
-                            log.info("[LCU Monitor] Account swap detected - re-initializing Pengu and injection...")
+                            log.info("[LCU Monitor] Account swap detected - refreshing Rose state...")
                             self.reconnect_callback()
                         except Exception as e:
                             log.warning(f"[LCU Monitor] Reconnection callback failed: {e}")
