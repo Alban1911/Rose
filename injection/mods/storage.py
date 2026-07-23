@@ -104,7 +104,6 @@ class ModStorageService:
                 continue
             category_dir = self.mods_root / category
             self._extract_archives_in_directory(category_dir)
-            self._extract_wads_in_directory(category_dir)
 
     def _extract_wads_in_directory(self, directory: Path) -> None:
         """Persistently extract newly added WADs in direct mod folders."""
