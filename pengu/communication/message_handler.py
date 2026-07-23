@@ -94,6 +94,21 @@ class MessageHandler:
         self.mod_storage = mod_storage or ModStorageService()
         self.injection_manager = injection_manager
 
+    def _get_cached_champion_name(self, champion_id: int | str) -> Optional[str]:
+        """Return the scraper's champion name only when its cache matches."""
+        cache = getattr(self.skin_scraper, "cache", None)
+        if cache is None:
+            return None
+        try:
+            cached_id = int(getattr(cache, "champion_id", 0) or 0)
+            requested_id = int(champion_id)
+        except (TypeError, ValueError):
+            return None
+        if cached_id != requested_id:
+            return None
+        name = getattr(cache, "champion_name", None)
+        return str(name) if name else None
+
     def _is_valid_local_league_path(self, game_path: str) -> bool:
         """Validate a League install path without touching UNC/network paths."""
         if not isinstance(game_path, str):
@@ -798,7 +813,8 @@ class MessageHandler:
             champion_id = get_champion_id_from_skin_id(int(skin_id))
 
         try:
-            entries = self.mod_storage.list_mods_for_champion(champion_id)
+            champion_name = self._get_cached_champion_name(champion_id)
+            entries = self.mod_storage.list_mods_for_champion(champion_id, champion_name)
         except Exception as exc:
             log.error(f"[SkinMonitor] Failed to list skin mods: {exc}")
             entries = []
@@ -1256,7 +1272,8 @@ class MessageHandler:
                 from utils.core.utilities import get_champion_id_from_skin_id
                 champion_id = get_champion_id_from_skin_id(int(skin_id))
 
-            entries = self.mod_storage.list_mods_for_champion(champion_id)
+            champion_name = self._get_cached_champion_name(champion_id)
+            entries = self.mod_storage.list_mods_for_champion(champion_id, champion_name)
             selected_mod = None
             for entry in entries:
                 # Match by mod name or relative path

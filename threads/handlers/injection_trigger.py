@@ -230,7 +230,7 @@ class InjectionTrigger:
                             from injection.mods.storage import ModStorageService
                             mod_storage = ModStorageService()
                             matching_entry = None
-                            for entry in mod_storage.list_mods_for_champion(champ_id):
+                            for entry in mod_storage.list_mods_for_champion(champ_id, cname):
                                 try:
                                     relative_path = str(
                                         entry.path.relative_to(mod_storage.mods_root)
@@ -278,7 +278,7 @@ class InjectionTrigger:
                         historic_skin_id = int(path_parts[1])
 
                         # Find the mod in storage
-                        entries = mod_storage.list_mods_for_skin(historic_skin_id)
+                        entries = mod_storage.list_mods_for_skin(historic_skin_id, cname)
                         selected_mod_entry = None
                         for entry in entries:
                             # Match by relative path
