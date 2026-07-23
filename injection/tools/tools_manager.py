@@ -20,32 +20,27 @@ class ToolsManager:
         self.tools_dir = tools_dir
     
     def check_tools_available(self) -> bool:
-        """Check if all required CSLOL tools are present"""
+        """Check if the runtime injection tool is present."""
         required_tools = [
             "mod-tools.exe",
-            "cslol-diag.exe", 
             "cslol-dll.dll",
-            "wad-extract.exe",
-            "wad-make.exe"
         ]
-        
         missing_tools = []
         for tool in required_tools:
             if not (self.tools_dir / tool).exists():
                 missing_tools.append(tool)
         
         if missing_tools:
-            log.warning(f"Missing CSLOL tools: {missing_tools}")
-            log.warning("Please download CSLOL tools manually and place them in injection/tools/")
+            log.warning(f"Missing runtime injection dependencies: {missing_tools}")
+            log.warning("Please place mod-tools.exe in injection/tools/")
             log.warning("Download from: https://github.com/CommunityDragon/CDTB")
             return False
         
         return True
     
     def detect_tools(self) -> Dict[str, Path]:
-        """Detect CSLOL tools"""
+        """Detect runtime injection tools."""
         tools = {
-            "diag": self.tools_dir / "cslol-diag.exe",
             "modtools": self.tools_dir / "mod-tools.exe",
         }
         for name, exe in tools.items():

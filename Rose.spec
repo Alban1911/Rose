@@ -35,19 +35,11 @@ import os
 # NOTE: cslol-dll.dll is NOT included - users must provide their own due to DMCA
 injection_binaries = [
     'injection/tools/mod-tools.exe',
-    'injection/tools/cslol-diag.exe',
-    'injection/tools/wad-extract.exe',
-    'injection/tools/wad-make.exe',
 ]
-
-# Data files (batch scripts, text files, etc.)
+# Data files (text files, etc.)
 injection_data_files = [
-    'injection/tools/wad-extract-multi.bat',
-    'injection/tools/wad-make-multi.bat',
-    'injection/tools/wxy-extract-multi.bat',
     'injection/tools/hashes.game.txt',
 ]
-
 # Verify and add injection binaries
 binaries = []
 missing_binaries = []
