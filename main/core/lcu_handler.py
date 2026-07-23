@@ -49,6 +49,10 @@ def create_lcu_disconnection_handler(state: SharedState, skin_scraper: LCUSkinSc
         state.historic_first_detection_done = False
         state.ui_skin_id = None
         state.ui_last_text = None
+        state.ui_last_text_champion_id = None
+        state.ui_last_text_generation = -1
+        state.ui_last_text_timestamp = 0.0
+        state.champ_select_generation = getattr(state, "champ_select_generation", 0) + 1
         state.last_hovered_skin_key = None
         state.last_hovered_skin_id = None
         state.last_hovered_skin_slug = None

@@ -6,7 +6,7 @@ LCU Skin Scraper - Scrape skins for a specific champion from LCU
 
 from typing import Optional, Dict, List, Tuple
 
-from config import LCU_SKIN_SCRAPER_TIMEOUT_S
+from config import LCU_SKIN_SCRAPER_TIMEOUT_S, SKIN_NAME_MIN_SIMILARITY
 from utils.core.logging import get_logger
 
 from .skin_cache import ChampionSkinCache
@@ -194,8 +194,18 @@ class LCUSkinScraper:
                     best_similarity = similarity
                     best_match = skin
 
-        if best_match:
+        if best_match and best_similarity >= SKIN_NAME_MIN_SIMILARITY:
             return (best_match['skinId'], best_match['skinName'], best_similarity)
+
+        if best_match:
+            log.debug(
+                "[LCU-SCRAPER] Rejected weak skin-name match '%s' -> '%s' "
+                "(similarity=%.4f < %.4f)",
+                text,
+                best_match['skinName'],
+                best_similarity,
+                SKIN_NAME_MIN_SIMILARITY,
+            )
 
         return None
     

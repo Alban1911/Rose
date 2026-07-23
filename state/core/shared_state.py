@@ -58,6 +58,7 @@ class SharedState:
     # WebSocket phase handler.
     champ_select_reset_done: bool = False
     reset_last_locked: bool = False
+    champ_select_generation: int = 0
     
     # Language detection
     current_language: Optional[str] = None  # Current client language (e.g., 'en', 'fr', 'de')
@@ -77,6 +78,9 @@ class SharedState:
     # UIA Detection
     ui_last_text: Optional[str] = None  # Last detected skin name from UI
     ui_skin_id: Optional[int] = None  # Last detected skin ID from UI
+    ui_last_text_champion_id: Optional[int] = None  # Champion associated with the cached UI text
+    ui_last_text_generation: int = -1  # ChampSelect generation associated with the cached UI text
+    ui_last_text_timestamp: float = 0.0  # Monotonic timestamp for late-lock replay validation
     
     # Random skin selection
     random_skin_name: Optional[str] = None  # Selected random skin for injection

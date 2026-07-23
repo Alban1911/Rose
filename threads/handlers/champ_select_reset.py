@@ -20,6 +20,7 @@ def perform_champ_select_reset(state, lcu) -> bool:
     if getattr(state, "champ_select_reset_done", False):
         return False
     state.champ_select_reset_done = True
+    state.champ_select_generation = getattr(state, "champ_select_generation", 0) + 1
 
     log.info("[reset] Entering ChampSelect - resetting state for new game")
     state.last_hovered_skin_key = None
@@ -27,6 +28,9 @@ def perform_champ_select_reset(state, lcu) -> bool:
     state.last_hovered_skin_slug = None
     state.ui_last_text = None
     state.ui_skin_id = None
+    state.ui_last_text_champion_id = None
+    state.ui_last_text_generation = -1
+    state.ui_last_text_timestamp = 0.0
     state.selected_skin_id = None
     try:
         state.owned_skin_ids.clear()

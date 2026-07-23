@@ -96,6 +96,16 @@ class InjectionTrigger:
 
         return f"{carrier_prefix}_{carrier_id}"
     
+    @staticmethod
+    def _skin_matches_champion(skin_id: Optional[int], champion_id: Optional[int]) -> bool:
+        """Return whether a skin ID belongs to the locked champion."""
+        if skin_id is None or champion_id is None:
+            return True
+        try:
+            return int(skin_id) // 1000 == int(champion_id)
+        except (TypeError, ValueError):
+            return False
+
     def trigger_injection(self, name: str, ticker_id: int, cname: str = ""):
         """Trigger injection for a skin/chroma
         
@@ -111,11 +121,16 @@ class InjectionTrigger:
             log.error("=" * LOG_SEPARATOR_WIDTH)
             return
         
-        # Mark that we've processed the last hovered skin
-        self.state.last_hover_written = True
-
         # Check if custom mod is selected for this skin (before logging)
         ui_skin_id = self.state.last_hovered_skin_id
+        locked_champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+        if not self._skin_matches_champion(ui_skin_id, locked_champ_id):
+            log.warning(
+                "[INJECT] Refusing to inject skin %s for champion %s: champion mismatch",
+                ui_skin_id,
+                locked_champ_id,
+            )
+            return
 
         # Check if a chroma is selected - if so, use the chroma ID for owned skin forcing
         selected_chroma_id = getattr(self.state, 'selected_chroma_id', None)
@@ -126,6 +141,15 @@ class InjectionTrigger:
             if selected_chroma_id > ui_skin_id and selected_chroma_id < ui_skin_id + 100:
                 effective_skin_id = selected_chroma_id
                 log.debug(f"[INJECT] Using selected chroma ID {selected_chroma_id} instead of base skin {ui_skin_id}")
+        if not self._skin_matches_champion(effective_skin_id, locked_champ_id):
+            log.warning(
+                "[INJECT] Refusing to inject skin %s for champion %s: effective skin mismatch",
+                effective_skin_id,
+                locked_champ_id,
+            )
+            return
+        # Mark that we've processed the validated hovered skin.
+        self.state.last_hover_written = True
         selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
         mod_name = None
         if selected_custom_mod:

@@ -11,7 +11,11 @@ from typing import Callable, Optional
 from lcu import LCU, compute_locked
 from state import SharedState
 from utils.core.logging import get_logger, log_status
-from config import LCU_MONITOR_INTERVAL, LCU_MONITOR_INTERVAL_INGAME
+from config import (
+    LCU_MONITOR_INTERVAL,
+    LCU_MONITOR_INTERVAL_INGAME,
+    LATE_LOCK_SKIN_CACHE_MAX_AGE_S,
+)
 
 log = get_logger()
 
@@ -336,6 +340,43 @@ class LCUMonitorThread(threading.Thread):
         """Replay the cached skin name if the first sync was ignored before lock state existed."""
         cached_skin_name = (getattr(self.state, "ui_last_text", "") or "").strip()
         if not cached_skin_name:
+            return
+
+        locked_champ_id = getattr(self.state, "locked_champ_id", None)
+        cached_champ_id = getattr(self.state, "ui_last_text_champion_id", None)
+        cached_generation = getattr(self.state, "ui_last_text_generation", -1)
+        current_generation = getattr(self.state, "champ_select_generation", 0)
+        cached_timestamp = getattr(self.state, "ui_last_text_timestamp", 0.0)
+
+        if locked_champ_id is None:
+            log.debug("[init-state] Ignoring cached skin replay without a locked champion")
+            return
+
+        if cached_champ_id != locked_champ_id:
+            log.warning(
+                "[init-state] Discarding cached skin '%s': champion mismatch "
+                "(cached=%s, locked=%s)",
+                cached_skin_name,
+                cached_champ_id,
+                locked_champ_id,
+            )
+            return
+
+        if cached_generation != current_generation:
+            log.warning(
+                "[init-state] Discarding cached skin '%s': ChampSelect generation mismatch "
+                "(cached=%s, current=%s)",
+                cached_skin_name,
+                cached_generation,
+                current_generation,
+            )
+            return
+
+        if not cached_timestamp or time.monotonic() - cached_timestamp > LATE_LOCK_SKIN_CACHE_MAX_AGE_S:
+            log.warning(
+                "[init-state] Discarding stale cached skin '%s' before late-lock replay",
+                cached_skin_name,
+            )
             return
 
         try:

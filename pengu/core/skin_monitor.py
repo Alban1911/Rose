@@ -125,6 +125,9 @@ class PenguSkinMonitorThread(threading.Thread):
         self.skin_processor.clear_cache()
         self.shared_state.ui_skin_id = None
         self.shared_state.ui_last_text = None
+        self.shared_state.ui_last_text_champion_id = None
+        self.shared_state.ui_last_text_generation = -1
+        self.shared_state.ui_last_text_timestamp = 0.0
 
     def clear_cache(self) -> None:
         """
@@ -134,6 +137,9 @@ class PenguSkinMonitorThread(threading.Thread):
         self.skin_mapping.clear()
         self.shared_state.ui_skin_id = None
         self.shared_state.ui_last_text = None
+        self.shared_state.ui_last_text_champion_id = None
+        self.shared_state.ui_last_text_generation = -1
+        self.shared_state.ui_last_text_timestamp = 0.0
 
     def _handle_message(self, message: str) -> None:
         """Handle incoming WebSocket message (delegates to message handler)"""

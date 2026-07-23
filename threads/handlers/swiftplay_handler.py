@@ -360,6 +360,9 @@ class SwiftplayHandler:
                 # Reset UI-related shared state
                 self.state.ui_skin_id = None
                 self.state.ui_last_text = None
+                self.state.ui_last_text_champion_id = None
+                self.state.ui_last_text_generation = -1
+                self.state.ui_last_text_timestamp = 0.0
                 self.state.last_hovered_skin_id = None
                 self.state.last_hovered_skin_key = None
 

@@ -6,8 +6,10 @@ Handles processing skin names and mapping to IDs
 """
 
 import logging
+import time
 from typing import Optional
 
+from config import SKIN_NAME_MIN_SIMILARITY
 from utils.core.utilities import (
     get_base_skin_id_for_chroma,
     get_champion_id_from_skin_id,
@@ -42,6 +44,14 @@ class SkinProcessor:
         try:
             log.info("[SkinMonitor] Skin detected: '%s'", skin_name)
             self.shared_state.ui_last_text = skin_name
+            self.shared_state.ui_last_text_champion_id = (
+                getattr(self.shared_state, "locked_champ_id", None)
+                or getattr(self.shared_state, "hovered_champ_id", None)
+            )
+            self.shared_state.ui_last_text_generation = getattr(
+                self.shared_state, "champ_select_generation", 0
+            )
+            self.shared_state.ui_last_text_timestamp = time.monotonic()
             
             if getattr(self.shared_state, "is_swiftplay_mode", False):
                 self._process_swiftplay_skin_name(skin_name, broadcaster)
@@ -184,6 +194,17 @@ class SkinProcessor:
         
         if result:
             skin_id, matched_name, similarity = result
+            if similarity < SKIN_NAME_MIN_SIMILARITY:
+                log.warning(
+                    "[SkinMonitor] Rejecting weak match '%s' -> '%s' "
+                    "(ID=%s, similarity=%.4f < %.4f)",
+                    skin_name,
+                    matched_name,
+                    skin_id,
+                    similarity,
+                    SKIN_NAME_MIN_SIMILARITY,
+                )
+                return None
             log.info(
                 "[SkinMonitor] Matched '%s' -> '%s' (ID=%s, similarity=%.4f)",
                 skin_name,
@@ -205,4 +226,7 @@ class SkinProcessor:
         self.last_skin_name = None
         self.shared_state.ui_skin_id = None
         self.shared_state.ui_last_text = None
+        self.shared_state.ui_last_text_champion_id = None
+        self.shared_state.ui_last_text_generation = -1
+        self.shared_state.ui_last_text_timestamp = 0.0
 
