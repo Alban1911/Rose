@@ -7,6 +7,7 @@ Handles processing skin names and mapping to IDs
 
 import logging
 import time
+import unicodedata
 from typing import Optional
 
 from config import SKIN_NAME_MIN_SIMILARITY
@@ -125,6 +126,22 @@ class SkinProcessor:
         
         skin_id, matched_name = result
 
+        # The normal matcher maps localized chroma labels to their base skin.
+        # Keep the explicitly selected chroma ID when the reported label is
+        # that same chroma, otherwise the UI immediately falls back to the
+        # base skin and the custom-mod wheel refreshes for the wrong target.
+        selected_chroma_id = self._match_selected_chroma_id(skin_name)
+        if selected_chroma_id is not None:
+            chroma_data = self.skin_scraper.cache.chroma_id_map.get(selected_chroma_id, {})
+            skin_id = selected_chroma_id
+            matched_name = chroma_data.get("name") or matched_name
+            log.debug(
+                "[SkinMonitor] Preserving selected chroma %s from UI label '%s'",
+                selected_chroma_id,
+                skin_name,
+            )
+
+
         # Reset chroma selection when switching to a different BASE skin.
         # Skin IDs are not numerically contiguous: 161002 and 161004 are
         # separate Vel'Koz skins, not chromas of one another.
@@ -143,11 +160,24 @@ class SkinProcessor:
             new_base_skin_id = base_skin_id(int(skin_id))
             old_is_chroma = old_base_skin_id != int(old_skin_id)
             new_is_chroma = new_base_skin_id != int(skin_id)
+            selected_chroma_is_current_skin = False
+            try:
+                selected_chroma_is_current_skin = (
+                    int(self.shared_state.selected_chroma_id) == int(skin_id)
+                )
+            except (TypeError, ValueError):
+                pass
+
             if (
-                old_base_skin_id != new_base_skin_id
-                or (old_is_chroma and not new_is_chroma)
+                (
+                    old_base_skin_id != new_base_skin_id
+                    or (old_is_chroma and not new_is_chroma)
+                )
+                and not selected_chroma_is_current_skin
             ):
-                # Different base skin - reset chroma selection
+                # Different base skin - reset chroma selection. A chroma
+                # selected through the Rose wheel is also reported as a skin
+                # change, so preserve it when it is the newly detected skin.
                 if self.shared_state.selected_chroma_id is not None:
                     log.debug(f"[CHROMA] Resetting selected_chroma_id on skin change ({old_skin_id} -> {skin_id})")
                     self.shared_state.selected_chroma_id = None
@@ -168,6 +198,41 @@ class SkinProcessor:
             # Broadcast the matched name, not the input name
             broadcaster.broadcast_skin_state(matched_name, skin_id)
     
+    @staticmethod
+    def _normalize_skin_label(value: object) -> str:
+        """Normalize labels before comparing a selected chroma with UI text."""
+        return " ".join(
+            unicodedata.normalize("NFKC", str(value or "")).casefold().split()
+        )
+
+    def _match_selected_chroma_id(self, skin_name: str) -> Optional[int]:
+        """Return the selected chroma when the UI reports that chroma label.
+
+        The LCU skin matcher intentionally resolves chroma labels to their base
+        skin. That is useful for normal skin tracking, but it must not erase an
+        explicit chroma selection immediately after the chroma wheel reports it.
+        """
+        try:
+            selected_chroma_id = int(self.shared_state.selected_chroma_id)
+        except (TypeError, ValueError):
+            return None
+
+        cache = getattr(self.skin_scraper, "cache", None)
+        chroma_id_map = getattr(cache, "chroma_id_map", None) if cache else None
+        chroma_data = chroma_id_map.get(selected_chroma_id) if chroma_id_map else None
+        if not isinstance(chroma_data, dict):
+            return None
+
+        incoming_label = self._normalize_skin_label(skin_name)
+        known_labels = {
+            self._normalize_skin_label(chroma_data.get("name")),
+            self._normalize_skin_label(chroma_data.get("skinName")),
+        }
+        known_labels.discard("")
+        if incoming_label in known_labels:
+            return selected_chroma_id
+        return None
+
     def _find_skin_id(self, skin_name: str) -> Optional[tuple[int, str]]:
         """Find skin ID and matched name using skin scraper
         

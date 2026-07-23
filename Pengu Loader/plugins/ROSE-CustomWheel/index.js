@@ -7,9 +7,12 @@
 (function createCustomWheel() {
   const LOG_PREFIX = "[ROSE-CustomWheel]";
   console.log(`${LOG_PREFIX} JS Loaded`);
-  const BUTTON_CLASS = "lu-chroma-button";
+  // Keep the custom wheel fully namespaced. The official chroma wheel uses
+  // the lu-chroma-* selectors, and sharing them makes the two panels style
+  // and interfere with one another.
+  const BUTTON_CLASS = "rose-custom-wheel-button";
   const BUTTON_SELECTOR = `.${BUTTON_CLASS}`;
-  const PANEL_CLASS = "lu-chroma-panel";
+  const PANEL_CLASS = "rose-custom-wheel-panel";
   const PANEL_ID = "rose-custom-wheel-panel-container";
   const REQUEST_TYPE = "request-skin-mods";
   const EVENT_SKIN_STATE = "lu-skin-monitor-state";
@@ -26,6 +29,8 @@
   let pythonChromaState = null;
   let currentPhase = null;
   let selectionRequestCounter = 0;
+  let skinModsRequestCounter = 0;
+  let latestSkinModsRequestId = null;
   let pendingSelectionRequest = null;
   let currentSkinMods = [];
   let activeTab = "skins"; // Current active tab: "skins", "maps", "fonts", "announcers", "others"
@@ -90,6 +95,7 @@
     selectedModId = null;
     selectedModSkinId = null;
     pendingSelectionRequest = null;
+    latestSkinModsRequestId = null;
     currentSkinMods = [];
   }
 
@@ -385,7 +391,6 @@
     .${BUTTON_CLASS}.pressed .button-image.default { opacity: 0; }
     .${BUTTON_CLASS}.pressed .button-image.pressed { opacity: 1; }
 
-    .chroma.icon { display: none !important; }
 
     /* Main Panel Container */
     .${PANEL_CLASS} {
@@ -423,7 +428,7 @@
       max-height: calc(100vh - 120px) !important;
     }
     
-    .${PANEL_CLASS} .chroma-modal.chroma-view {
+    .${PANEL_CLASS} .chroma-modal.rose-custom-wheel-modal {
       /* Height handled in base class to ensure consistency */
       overflow: hidden;
     }
@@ -847,7 +852,7 @@
     }
 
     const modal = document.createElement("div");
-    modal.className = "champ-select-chroma-modal chroma-modal chroma-view ember-view";
+    modal.className = "rose-custom-wheel-modal chroma-modal";
 
     // Header Decoration removed as per user request
 
@@ -2072,7 +2077,11 @@
       return;
     }
 
-    if (bridge) bridge.send({ type: REQUEST_TYPE, championId, skinId });
+    if (bridge) {
+      const requestId = `${LOG_PREFIX}-mods-${Date.now()}-${++skinModsRequestCounter}`;
+      latestSkinModsRequestId = requestId;
+      bridge.send({ type: REQUEST_TYPE, championId, skinId, requestId });
+    }
 
     if (panel && panel._modsLoading) {
       panel._modsLoading.textContent = "Checking for mods…";
@@ -2243,6 +2252,14 @@
   function handleModsResponse(event) {
     const detail = event?.detail;
     if (!detail || detail.type !== "skin-mods-response") {
+      return;
+    }
+
+    const responseRequestId = detail?.requestId;
+    if (
+      responseRequestId &&
+      String(responseRequestId) !== String(latestSkinModsRequestId)
+    ) {
       return;
     }
 
@@ -2630,8 +2647,9 @@
     const locked = Boolean(event?.detail?.locked);
     if (!locked) {
       // A dodge/unlock starts a new champ-select lifecycle. Do not let the
-      // previous lobby's chroma selection affect the next lobby.
+      // previous lobby's chroma selection or mod response affect the next lobby.
       pythonChromaState = null;
+      latestSkinModsRequestId = null;
     }
 
     if (locked === championLocked) {
@@ -2646,6 +2664,7 @@
     // Global selections (maps/fonts/announcers/UI/VO/VFX/...) should persist across champ locks.
     if (locked && !championLocked) {
       pythonChromaState = null;
+      latestSkinModsRequestId = null;
       selectedModId = null;
       selectedModSkinId = null;
       pendingSelectionRequest = null;

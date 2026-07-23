@@ -8,6 +8,7 @@ Handles chroma selection callbacks and state updates
 from typing import Optional
 from state import SharedState
 from utils.core.logging import get_logger
+from ui.handlers.historic_mode_handler import historic_custom_mod_affects_skin
 from ui.chroma.special_cases import ChromaSpecialCases
 
 log = get_logger()
@@ -470,34 +471,53 @@ class ChromaSelectionHandler:
         log.info(f"[CHROMA] Updated last_hovered_skin_id from {self.current_skin_id} to {chroma_id}")
     
     def _disable_historic_mode(self, reason: str):
-        """Disable HistoricMode if active"""
-        if self.state.historic_mode_active:
-            self.state.historic_mode_active = False
-            self.state.historic_skin_id = None
-            log.info(f"[HISTORIC] Historic mode DISABLED due to {reason}")
-            
-            # Broadcast deactivated state to JavaScript
-            try:
-                if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                    self.state.ui_skin_thread._broadcast_historic_state()
-            except Exception as e:
-                log.debug(f"[CHROMA] Failed to broadcast historic state: {e}")
-    
-    def _safety_check_historic_mode(self):
-        """Safety check: Disable HistoricMode if active and chroma/skin is selected (not base skin)"""
+        """Disable history unless the selected skin is the saved mod target."""
+        if not self.state.historic_mode_active:
+            return
+
+        selected_skin_id = getattr(self.state, "last_hovered_skin_id", None)
+        if historic_custom_mod_affects_skin(self.state, selected_skin_id):
+            log.debug(
+                "[HISTORIC] Keeping custom-mod history active for selected "
+                "skin/chroma %s (%s)",
+                selected_skin_id,
+                reason,
+            )
+            return
+
+        self.state.historic_mode_active = False
+        self.state.historic_skin_id = None
+        log.info(f"[HISTORIC] Historic mode DISABLED due to {reason}")
+
+        # Broadcast deactivated state to JavaScript
         try:
-            if self.state.historic_mode_active and self.state.locked_champ_id is not None and self.state.last_hovered_skin_id is not None:
+            if self.state and hasattr(self.state, "ui_skin_thread") and self.state.ui_skin_thread:
+                self.state.ui_skin_thread._broadcast_historic_state()
+        except Exception as e:
+            log.debug(f"[CHROMA] Failed to broadcast historic state: {e}")
+
+
+    def _safety_check_historic_mode(self):
+        """Keep custom-mod history while the selected target remains compatible."""
+        try:
+            if (
+                self.state.historic_mode_active
+                and self.state.locked_champ_id is not None
+                and self.state.last_hovered_skin_id is not None
+            ):
                 base_skin_id = self.state.locked_champ_id * 1000
-                # Check if the selected skin/chroma is not the base skin
                 selected_skin_id = self.state.last_hovered_skin_id
-                if selected_skin_id != base_skin_id:
+                if (
+                    selected_skin_id != base_skin_id
+                    and not historic_custom_mod_affects_skin(self.state, selected_skin_id)
+                ):
                     self.state.historic_mode_active = False
                     self.state.historic_skin_id = None
                     log.info(f"[HISTORIC] Historic mode DISABLED due to chroma selection (selectedId={selected_skin_id} vs baseId={base_skin_id})")
-                    
+
                     # Broadcast deactivated state to JavaScript
                     try:
-                        if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
+                        if self.state and hasattr(self.state, "ui_skin_thread") and self.state.ui_skin_thread:
                             self.state.ui_skin_thread._broadcast_historic_state()
                     except Exception as e:
                         log.debug(f"[CHROMA] Failed to broadcast historic state in safety check: {e}")

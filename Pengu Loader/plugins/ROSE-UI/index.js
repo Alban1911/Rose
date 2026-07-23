@@ -347,9 +347,14 @@
     }
 
     .skin-selection-carousel .skin-selection-item .${CHROMA_CONTAINER_CLASS} .chroma-button {
-      pointer-events: auto;
+      display: none !important;
+      pointer-events: none !important;
     }
-
+    /* Rose owns chroma selection; keep the native client flyout closed. */
+    .shared-skin-chroma-modal {
+      display: none !important;
+      pointer-events: none !important;
+    }
     .chroma-button.chroma-selection {
       display: none !important;
     }

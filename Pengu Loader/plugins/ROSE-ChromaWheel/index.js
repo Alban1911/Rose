@@ -1312,6 +1312,46 @@
     return entry.chromas.map((chroma) => ({ ...chroma }));
   }
 
+  function resolveBaseSkinId(skinId) {
+    const numericId = getNumericId(skinId);
+    if (!Number.isFinite(numericId)) {
+      return skinId;
+    }
+
+    const mappedBaseId = chromaParentMap.get(numericId);
+    if (Number.isFinite(mappedBaseId)) {
+      return mappedBaseId;
+    }
+
+    // A selected chroma can arrive before its parent mapping is registered.
+    // Search already-fetched champion data so the wheel never builds a
+    // placeholder wheel for the chroma itself.
+    for (const championCache of championSkinCache.values()) {
+      if (!(championCache instanceof Map)) {
+        continue;
+      }
+      for (const [candidateBaseId, entry] of championCache.entries()) {
+        if (!entry || !Array.isArray(entry.chromas)) {
+          continue;
+        }
+        const matchingChroma = entry.chromas.find((chroma) => {
+          const chromaId =
+            extractSkinIdFromData(chroma) ?? getNumericId(chroma?.id);
+          return chromaId === numericId;
+        });
+        if (matchingChroma) {
+          const resolvedBaseId = getNumericId(candidateBaseId);
+          if (Number.isFinite(resolvedBaseId)) {
+            chromaParentMap.set(numericId, resolvedBaseId);
+            return resolvedBaseId;
+          }
+        }
+      }
+    }
+
+    return numericId;
+  }
+
   function fetchChampionEndpoint(endpoint) {
     return window
       .fetch(endpoint, {
@@ -2304,7 +2344,7 @@
         ? pythonChromaState.selectedChromaId
         : skinMonitorState?.skinId || null;
 
-    const baseSkinId = extractSkinIdFromData(skinData);
+    const baseSkinId = resolveBaseSkinId(extractSkinIdFromData(skinData));
     const resolvedChampionId =
       getChampionIdFromContext(skinData, baseSkinId, null) ||
       skinData.championId ||
@@ -2371,7 +2411,7 @@
       log.debug(
         `[getChromaData] Found ${skinData.chromas.length} chromas directly in skinData (official client method)`
       );
-      const baseSkinId = extractSkinIdFromData(skinData);
+      const baseSkinId = resolveBaseSkinId(extractSkinIdFromData(skinData));
       const championId = getChampionIdFromContext(skinData, baseSkinId, null);
 
       // Include the base skin as the first option (default)
@@ -2425,7 +2465,7 @@
       log.debug(
         `[getChromaData] Found ${childSkins.length} child skins in skinData`
       );
-      const baseSkinId = extractSkinIdFromData(skinData);
+      const baseSkinId = resolveBaseSkinId(extractSkinIdFromData(skinData));
       const championId = getChampionIdFromContext(skinData, baseSkinId, null);
       registerChromaChildren(baseSkinId, childSkins);
 
@@ -3823,8 +3863,23 @@
       skinMonitorState = detail || null;
       maybeInferChampionLockedFromSkinState(skinMonitorState);
 
-      // Reset selected chroma data when skin changes (not just chroma selection)
-      if (prevState && prevState.skinId !== detail?.skinId) {
+      // A selected chroma is reported as a skin-ID change by the client. Keep
+      // the selected button state for that transition, but reset it for real
+      // skin changes.
+      const reportedSkinId = Number(detail?.skinId);
+      const selectedChromaId =
+        pythonChromaState?.selectedChromaId ?? selectedChromaData?.id ?? null;
+      const isSelectedChromaTransition =
+        Number.isFinite(reportedSkinId) &&
+        selectedChromaId !== null &&
+        Number.isFinite(Number(selectedChromaId)) &&
+        Number(selectedChromaId) === reportedSkinId;
+
+      if (
+        prevState &&
+        prevState.skinId !== detail?.skinId &&
+        !isSelectedChromaTransition
+      ) {
         selectedChromaData = null;
         updateChromaButtonColor(); // Reset button to default image
       }

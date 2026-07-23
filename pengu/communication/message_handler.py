@@ -886,6 +886,7 @@ class MessageHandler:
 
         response_payload = {
             "type": "skin-mods-response",
+            "requestId": payload.get("requestId"),
             "championId": champion_id,
             "skinId": skin_id,
             "mods": mods_payload,

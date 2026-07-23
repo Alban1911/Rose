@@ -201,6 +201,16 @@ class Broadcaster:
         skin_id = selected_custom_mod.get("skin_id") if selected_custom_mod else None
         champion_id = selected_custom_mod.get("champion_id") if selected_custom_mod else None
         relative_path = selected_custom_mod.get("relative_path") if selected_custom_mod else None
+        affected_skin_ids = []
+        if selected_custom_mod:
+            try:
+                affected_skin_ids = sorted({
+                    int(value)
+                    for value in selected_custom_mod.get("affected_skin_ids", ())
+                    if int(value) > 0
+                })
+            except (TypeError, ValueError):
+                affected_skin_ids = []
 
         payload = {
             "type": "custom-mod-state",
@@ -209,6 +219,7 @@ class Broadcaster:
             "skinId": skin_id,
             "championId": champion_id,
             "relativePath": relative_path,
+            "affectedSkinIds": affected_skin_ids,
             "timestamp": int(time.time() * 1000),
         }
 

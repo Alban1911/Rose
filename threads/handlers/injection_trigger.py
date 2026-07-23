@@ -608,31 +608,53 @@ class InjectionTrigger:
                     or self.state.locked_champ_id
                     or self.state.hovered_champ_id
                 )
-                carrier_name = self._get_custom_skin_carrier_name(
-                    selected_custom_mod,
-                    fallback_champion_id=custom_mod_champion_id,
-                    selected_chroma_id=selected_chroma_id,
+                # Keep an owned target as the real client-selected skin. The
+                # downloaded Rose carrier is only needed for unowned skins;
+                # using it for an owned skin can move the overlay onto the
+                # carrier's skin0 paths and prevent a mod targeting the actual
+                # owned skin (for example Spirit Blossom Sett) from applying.
+                target_is_owned = (
+                    effective_skin_id in owned_skin_ids
+                    or ui_skin_id in owned_skin_ids
                 )
 
-                if carrier_name:
+                if target_is_owned:
+                    self._force_owned_skin(effective_skin_id)
                     log.info(
-                        "[INJECT] Custom mod targets non-base skin %s; "
-                        "injecting carrier %s + custom mod",
-                        target_skin_id,
-                        carrier_name,
+                        "[INJECT] Custom mod targets owned skin %s; "
+                        "keeping the real owned skin and injecting the mod only",
+                        effective_skin_id,
                     )
                     self._inject_custom_mod(
                         selected_custom_mod,
-                        base_skin_name=carrier_name,
                         champion_name=cname,
                     )
                 else:
-                    log.info(
-                        "[INJECT] Custom mod targets the champion base skin %s; "
-                        "injecting custom mod only",
-                        target_skin_id,
+                    carrier_name = self._get_custom_skin_carrier_name(
+                        selected_custom_mod,
+                        fallback_champion_id=custom_mod_champion_id,
+                        selected_chroma_id=selected_chroma_id,
                     )
-                    self._inject_custom_mod(selected_custom_mod)
+
+                    if carrier_name:
+                        log.info(
+                            "[INJECT] Custom mod targets unowned skin %s; "
+                            "injecting carrier %s + custom mod",
+                            target_skin_id,
+                            carrier_name,
+                        )
+                        self._inject_custom_mod(
+                            selected_custom_mod,
+                            base_skin_name=carrier_name,
+                            champion_name=cname,
+                        )
+                    else:
+                        log.info(
+                            "[INJECT] Custom mod targets the champion base skin %s; "
+                            "injecting custom mod only",
+                            target_skin_id,
+                        )
+                        self._inject_custom_mod(selected_custom_mod)
                 return
             
             # If only map/font/announcer/other mods are selected (no custom skin mod), inject them
