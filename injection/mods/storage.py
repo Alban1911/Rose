@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -44,6 +45,7 @@ class ModStorageService:
 
     ARCHIVE_SCAN_INTERVAL_SECONDS = 1.0
     LEGACY_TARGET_METADATA = "rose_legacy_targets.json"
+    WAD_TARGET_METADATA = "rose_wad_targets.json"
 
     CATEGORY_SKINS = "skins"
     CATEGORY_MAPS = "maps"
@@ -74,6 +76,7 @@ class ModStorageService:
         self._watcher_stop = threading.Event()
         self._watcher_thread: Optional[threading.Thread] = None
         self._failed_archive_signatures: dict[Path, tuple[int, int]] = {}
+        self._wad_scan_signatures: dict[Path, tuple[int, int]] = {}
         self._affected_skin_cache: dict[Path, tuple[int, int, tuple[int, ...]]] = {}
         self.mods_root.mkdir(parents=True, exist_ok=True)
         self._ensure_mods_root_layout()
@@ -94,11 +97,67 @@ class ModStorageService:
             for skin_dir in skins_dir.iterdir():
                 if skin_dir.is_dir():
                     self._extract_archives_in_directory(skin_dir)
+                    self._extract_wads_in_directory(skin_dir)
 
         for category in self.ROOT_CATEGORIES:
             if category == self.CATEGORY_SKINS:
                 continue
-            self._extract_archives_in_directory(self.mods_root / category)
+            category_dir = self.mods_root / category
+            self._extract_archives_in_directory(category_dir)
+            self._extract_wads_in_directory(category_dir)
+
+    def _extract_wads_in_directory(self, directory: Path) -> None:
+        """Persistently extract newly added WADs in direct mod folders."""
+        if not directory.exists() or not directory.is_dir():
+            return
+
+        extractor = Path(__file__).resolve().parents[1] / "tools" / "wad-extract.exe"
+        if not extractor.is_file():
+            return
+
+        try:
+            candidates = [path for path in directory.iterdir() if path.is_dir()]
+        except OSError:
+            return
+
+        for candidate in candidates:
+            try:
+                stat = candidate.stat()
+                signature = (stat.st_mtime_ns, stat.st_size)
+            except OSError:
+                continue
+
+            if self._wad_scan_signatures.get(candidate) == signature:
+                continue
+            self._wad_scan_signatures[candidate] = signature
+
+            try:
+                wad_files = sorted(
+                    (
+                        path
+                        for path in candidate.rglob("*")
+                        if path.is_file()
+                        and path.name.casefold().endswith(".wad.client")
+                    ),
+                    key=lambda path: path.as_posix().casefold(),
+                )
+            except OSError:
+                continue
+
+            for wad_file in wad_files:
+                self._extract_wad_file(wad_file, extractor)
+
+            # Extraction/removal changes the candidate directory timestamp.
+            # Store the new value so the watcher does not rescan this mod on
+            # every tick once all packed WADs have been converted.
+            try:
+                updated = candidate.stat()
+                self._wad_scan_signatures[candidate] = (
+                    updated.st_mtime_ns,
+                    updated.st_size,
+                )
+            except OSError:
+                self._wad_scan_signatures.pop(candidate, None)
 
     def _watch_archives(self) -> None:
         """Watch the mod tree and extract newly added archives."""
@@ -559,11 +618,22 @@ class ModStorageService:
         Optional affected-skin metadata is also supported for mods that do
         not encode their targets in paths.
         """
+        packed_wad_exists = False
+        if candidate.is_dir():
+            try:
+                packed_wad_exists = any(
+                    path.is_file()
+                    and path.name.casefold().endswith(".wad.client")
+                    for path in candidate.rglob("*")
+                )
+            except OSError:
+                packed_wad_exists = True
+
         try:
             stat = candidate.stat()
             signature = (stat.st_mtime_ns, stat.st_size)
             cached = self._affected_skin_cache.get(candidate)
-            if cached and cached[:2] == signature:
+            if cached and cached[:2] == signature and not packed_wad_exists:
                 return cached[2]
         except OSError:
             signature = (0, 0)
@@ -592,6 +662,7 @@ class ModStorageService:
         if candidate.is_dir():
             metadata_paths = (
                 candidate / "META" / self.LEGACY_TARGET_METADATA,
+                candidate / "META" / self.WAD_TARGET_METADATA,
                 candidate / "META" / "affected_skins.json",
                 candidate / "META" / "info.json",
                 candidate / "META" / "details.json",
@@ -636,7 +707,7 @@ class ModStorageService:
                             if part.casefold() != "skins":
                                 continue
                             match = re.fullmatch(
-                                r"skin[_-]?(\d+)",
+                                r"skin[_-]?(\d+)(?:\.[^.]+)?",
                                 parts[index + 1],
                                 re.IGNORECASE,
                             )
@@ -648,6 +719,10 @@ class ModStorageService:
                             )
                 except OSError:
                     pass
+
+        wad_targets = self._get_wad_targets(candidate, champion_id)
+        if wad_targets is not None:
+            affected.update(wad_targets)
 
         # Some chroma-only exports include a small base-skin carrier folder
         # (for example skin04) even though their actual VFX are in skin05+.
@@ -669,6 +744,262 @@ class ModStorageService:
         result = tuple(sorted(affected))
         self._affected_skin_cache[candidate] = (signature[0], signature[1], result)
         return result
+
+    def _get_wad_targets(
+        self,
+        candidate: Path,
+        champion_id: Optional[int],
+    ) -> Optional[set[int]]:
+        """Discover affected skins from packed WAD files.
+
+        WADs hide their asset paths until they are unpacked. Keep the
+        extracted directory beside the source WAD and cache the discovered
+        skin IDs beside the mod. The packed file is removed only after the
+        extraction has completed successfully, so a broken WAD remains
+        available for troubleshooting/retry.
+        """
+        if champion_id is None or not candidate.is_dir():
+            return None
+
+        wad_files = sorted(
+            (
+                path
+                for path in candidate.rglob("*")
+                if path.is_file() and path.name.casefold().endswith(".wad.client")
+            ),
+            key=lambda path: path.as_posix().casefold(),
+        )
+        if not wad_files:
+            return None
+
+        cache_path = candidate / "META" / self.WAD_TARGET_METADATA
+        current_signatures: dict[str, dict[str, int]] = {}
+        readable_wad_files: list[Path] = []
+        for path in wad_files:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            readable_wad_files.append(path)
+            current_signatures[self._relative_candidate_path(candidate, path)] = {
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+            }
+        wad_files = readable_wad_files
+        if not wad_files:
+            return None
+        cached_targets = self._read_wad_target_cache(
+            cache_path,
+            current_signatures,
+        )
+        if cached_targets is not None:
+            return cached_targets
+
+        extractor = Path(__file__).resolve().parents[1] / "tools" / "wad-extract.exe"
+        if not extractor.is_file():
+            log.debug("[ModStorage] WAD extractor unavailable: %s", extractor)
+            return None
+
+        discovered: set[int] = set()
+        extraction_complete = True
+        try:
+            for wad_file in wad_files:
+                extracted_root = self._extract_wad_file(wad_file, extractor)
+                if extracted_root is None:
+                    extraction_complete = False
+                    continue
+                discovered.update(
+                    self._skin_ids_from_extracted_wad(
+                        extracted_root,
+                        int(champion_id),
+                    )
+                )
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            log.debug(
+                "[ModStorage] WAD target scan failed for %s: %s",
+                candidate,
+                exc,
+            )
+            return None
+
+        if not extraction_complete:
+            log.debug(
+                "[ModStorage] WAD target scan incomplete; will retry remaining packed files: %s",
+                candidate,
+            )
+            return discovered
+
+        self._write_wad_target_cache(
+            cache_path,
+            current_signatures,
+            discovered,
+        )
+        if discovered:
+            log.info(
+                "[ModStorage] WAD target scan found skins for %s: %s",
+                candidate.name,
+                sorted(discovered),
+            )
+        else:
+            log.debug("[ModStorage] WAD target scan found no skin IDs: %s", candidate)
+        return discovered
+
+    def _extract_wad_file(
+        self,
+        wad_file: Path,
+        extractor: Path,
+    ) -> Optional[Path]:
+        """Extract one WAD atomically and return its persistent directory."""
+        temporary_dir = Path(
+            tempfile.mkdtemp(
+                prefix=f".{wad_file.stem}.extracting-",
+                dir=str(wad_file.parent),
+            )
+        )
+        try:
+            temporary_wad = temporary_dir / wad_file.name
+            shutil.copy2(wad_file, temporary_wad)
+            result = subprocess.run(
+                [str(extractor), str(temporary_wad)],
+                cwd=str(extractor.parent),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode != 0:
+                log.debug(
+                    "[ModStorage] WAD extraction failed for %s: %s",
+                    wad_file,
+                    result.stderr.strip() or result.stdout.strip(),
+                )
+                return None
+
+            extracted_root = temporary_dir / temporary_wad.stem
+            if not extracted_root.is_dir():
+                log.debug(
+                    "[ModStorage] WAD extractor produced no directory for %s",
+                    wad_file,
+                )
+                return None
+
+            destination = wad_file.with_suffix("")
+            if destination.exists() or destination.is_symlink():
+                safe_remove_entry(destination)
+            extracted_root.replace(destination)
+
+            try:
+                wad_file.unlink()
+            except OSError as exc:
+                # Keeping both representations would make mkoverlay process
+                # the same mod twice. Remove the new representation and keep
+                # the packed source for a later retry instead.
+                safe_remove_entry(destination)
+                log.warning(
+                    "[ModStorage] Could not remove packed WAD after extraction %s: %s",
+                    wad_file,
+                    exc,
+                )
+                return None
+
+            log.info(
+                "[ModStorage] Extracted and removed packed WAD: %s",
+                wad_file,
+            )
+            return destination
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            log.debug("[ModStorage] WAD extraction failed for %s: %s", wad_file, exc)
+            return None
+        finally:
+            safe_remove_entry(temporary_dir)
+
+    def _skin_ids_from_extracted_wad(
+        self,
+        extracted_root: Path,
+        champion_id: int,
+    ) -> set[int]:
+        if not extracted_root.is_dir():
+            return set()
+
+        affected: set[int] = set()
+        for path in extracted_root.rglob("*"):
+            try:
+                parts = path.relative_to(extracted_root).parts
+            except ValueError:
+                continue
+
+            for index, part in enumerate(parts[:-1]):
+                if part.casefold() != "skins":
+                    continue
+                skin_part = parts[index + 1]
+                match = re.fullmatch(
+                    r"skin[_-]?(\d+)(?:\.[^.]+)?",
+                    skin_part,
+                    re.IGNORECASE,
+                )
+                if match:
+                    suffix = int(match.group(1))
+                    affected.add(
+                        suffix
+                        if suffix >= 1000
+                        else champion_id * 1000 + suffix
+                    )
+                elif skin_part.casefold() == "base":
+                    affected.add(champion_id * 1000)
+        return affected
+
+    def _read_wad_target_cache(
+        self,
+        cache_path: Path,
+        signatures: dict[str, dict[str, int]],
+    ) -> Optional[set[int]]:
+        try:
+            if not cache_path.is_file():
+                return None
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(cached, dict)
+                or cached.get("wadFiles") != signatures
+                or not isinstance(cached.get("affectedSkinIds"), list)
+            ):
+                return None
+            return {int(value) for value in cached["affectedSkinIds"]}
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+    def _write_wad_target_cache(
+        self,
+        cache_path: Path,
+        signatures: dict[str, dict[str, int]],
+        affected_skin_ids: set[int],
+    ) -> None:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "wadFiles": signatures,
+                        "affectedSkinIds": sorted(affected_skin_ids),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            log.debug(
+                "[ModStorage] Could not cache WAD targets for %s: %s",
+                cache_path.parent,
+                exc,
+            )
+
+    @staticmethod
+    def _relative_candidate_path(candidate: Path, path: Path) -> str:
+        try:
+            return str(path.relative_to(candidate)).replace(chr(92), "/")
+        except ValueError:
+            return path.name
 
     def list_mods_for_category(self, category: str) -> List[dict]:
         with self._storage_lock:
