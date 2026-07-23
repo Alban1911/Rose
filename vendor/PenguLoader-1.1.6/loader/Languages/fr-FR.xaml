@@ -1,0 +1,19 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:system="clr-namespace:System;assembly=mscorlib">
+
+  <system:String x:Key="t_active_status">Status</system:String>
+  <system:String x:Key="t_options">Options</system:String>
+  <system:String x:Key="t_optimize_client">Optimiser le client</system:String>
+  <system:String x:Key="t_super_potato_mode">Mode Super Low Spec</system:String>
+
+  <system:String x:Key="t_available_plugins">Plugins disponibles</system:String>
+  <system:String x:Key="t_open_plugins">Ouvrir le dossier</system:String>
+  <system:String x:Key="t_refresh">Rafraîchir</system:String>
+
+  <system:String x:Key="t_msg_module_not_found">Le fichier "core.dll" est introuvable, veuillez réinstaller le programme.</system:String>
+  <system:String x:Key="t_msg_restart_client">Voulez-vous redémarrer le client en cours d'exécution pour appliquer les modifications ?</system:String>
+  <system:String x:Key="t_msg_activation_fail" xml:space="preserve">Échec de l'activation.&#13;Veuillez saisir le message d'erreur et cliquer sur Oui pour le signaler.</system:String>
+
+  <system:String x:Key="t_msg_optimize_client_prompt" xml:space="preserve">Il est recommandé d'activer cette option.&#13;&#13;L'activer désactivera certaines choses inutilisées, des tâches d'arrière-plan inutilisées et réduira le décalage.&#13;&#13;Voulez-vous continuer ?</system:String>
+  <system:String x:Key="t_msg_super_potato_mode_prompt" xml:space="preserve">Cette option étend le mode Low Spec par défaut. En l'activant, vous désactivez tous les effets de transition et d'animation, ce qui réduit considérablement le décalage et augmente la vitesse de réponse.&#13;&#13;C'est très utile pour les PC peu puissants, mais cela peut provoquer des bogues. Veuillez nous faire part de vos problèmes pour nous aider à améliorer ce mode.&#13;&#13;Voulez-vous continuer ?</system:String>
+
+</ResourceDictionary>

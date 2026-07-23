@@ -1,0 +1,23 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:system="clr-namespace:System;assembly=mscorlib"
+>
+
+    <system:String x:Key="t_active_status">Aktiflik</system:String>
+    <system:String x:Key="t_options">Ayarlar</system:String>
+    <system:String x:Key="t_optimize_client">İstemciye Uygula</system:String>
+    <system:String x:Key="t_super_potato_mode">Süper Düşük Sistem Gereksinimi Modu</system:String>
+
+    <system:String x:Key="t_available_plugins">Kullanılabilir eklentiler</system:String>
+    <system:String x:Key="t_open_plugins">Dosyayı aç</system:String>
+    <system:String x:Key="t_refresh">Yenile</system:String>
+
+    <system:String x:Key="t_msg_module_not_found">"core.dll" bulunamadı. Lütfen uygulamayı tekrar indiriniz.</system:String>
+    <system:String x:Key="t_msg_restart_client">Değişikliklerin uygulanması için çalışan istemciyi yeniden başlatmak istiyor musunuz?</system:String>
+    <system:String x:Key="t_msg_activation_fail" xml:space="preserve">Aktivasyon gerçekleştirilemedi.&#13;Lütfen hata mesajını yakalayın ve rapor etmek için "Evet"'e tıklayın.</system:String>
+
+    <system:String x:Key="t_msg_optimize_client_prompt" xml:space="preserve">Bu ayarı açmanız tavsiye edilir.&#13;&#13;Bu ayarı etkinleştirdiğinizde gereksiz şeyler devre dışı bırakılır, arkaplanda çalışan gereksiz şeyler kapatılır ve takılmalar giderilir.&#13;&#13;Devam etmek istiyor musunuz?</system:String>
+    <system:String x:Key="t_msg_super_potato_mode_prompt" xml:space="preserve">Bu ayar, varsayılan düşük gereksinim modunun gelişmiş bir versiyonudur. Bu ayarı etkinleştirirseniz, istemcideki geçiş ve animasyon efektleri devre dışı bırakılır, takılmalar önemli ölçüde azalır ve tepki süresi en üst seviyeye çıkar.&#13;&#13;Bilgisayarınız düşük performanslıysa, bu ayarı kullanmanız önerilir; ancak uygulama içinde bazı hatalarla karşılaşabilirsiniz. Herhangi bir hatayla karşılaşırsanız, lütfen bize bildirerek bu modu geliştirmemize yardımcı olun.&#13;&#13;Devam etmek istiyor musunuz?</system:String>
+
+</ResourceDictionary>

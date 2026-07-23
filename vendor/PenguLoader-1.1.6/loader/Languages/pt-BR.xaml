@@ -1,0 +1,23 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:system="clr-namespace:System;assembly=mscorlib"
+>
+
+    <system:String x:Key="t_active_status">Estado Ativo</system:String>
+    <system:String x:Key="t_options">Opções</system:String>
+    <system:String x:Key="t_optimize_client">Otimizar Cliente</system:String>
+    <system:String x:Key="t_super_potato_mode">Modo Super Econômico</system:String>
+
+    <system:String x:Key="t_available_plugins">Plugins Disponíveis</system:String>
+    <system:String x:Key="t_open_plugins">Abrir Pasta</system:String>
+    <system:String x:Key="t_refresh">Atualizar</system:String>
+
+    <system:String x:Key="t_msg_module_not_found">O arquivo "core.dll" não foi encontrado. Por favor, reinstale o programa.</system:String>
+    <system:String x:Key="t_msg_restart_client">Deseja reiniciar o Cliente em execução para aplicar as alterações?</system:String>
+    <system:String x:Key="t_msg_activation_fail" xml:space="preserve">Falha ao realizar a ativação.&#13;Capture a mensagem de erro e clique em Sim para reportá-la.</system:String>
+
+    <system:String x:Key="t_msg_optimize_client_prompt" xml:space="preserve">É recomendável habilitar esta opção.&#13;&#13;Ativá-la desativará alguns recursos não utilizados, tarefas em segundo plano desnecessárias e reduzirá a lentidão.&#13;&#13;Deseja continuar?</system:String>
+    <system:String x:Key="t_msg_super_potato_mode_prompt" xml:space="preserve">Esta opção estende o Modo de Baixo Desempenho padrão. Ativar essa opção desabilitará todos os efeitos de transição e animação, além de reduzir significativamente a lentidão e aumentar a velocidade de resposta.&#13;&#13;É muito útil para computadores com recursos limitados, mas pode causar problemas. Por favor, relate quaisquer problemas para nos ajudar a melhorar este modo.&#13;&#13;Deseja continuar?</system:String>
+
+</ResourceDictionary>

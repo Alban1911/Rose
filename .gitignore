@@ -80,7 +80,11 @@ logs/
 
 # Allow Pengu Loader assets to be tracked
 !Pengu Loader/**
-
+# Pengu Loader is rebuilt from the vendored source during every packaged build.
+Pengu Loader/Pengu Loader.exe
+Pengu Loader/Pengu Loader.exe.config
+vendor/PenguLoader-1.1.6/loader/bin/
+vendor/PenguLoader-1.1.6/loader/obj/
 # Installer
 installer/
 Output/

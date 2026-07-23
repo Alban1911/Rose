@@ -3,16 +3,19 @@
 """
 Helper utilities for interacting with Pengu Loader's command-line interface.
 
-The Pengu Loader CLI is used to force activate/deactivate mods and optionally
+The Pengu Loader CLI manages Pengu's IFEO activation and optionally
 restart the League client when required. This module provides a small wrapper
 around the executable bundled alongside Rose.
 """
 
 from __future__ import annotations
 
+import filecmp
+import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
@@ -27,43 +30,6 @@ from utils.core.paths import get_app_dir, get_state_dir, get_user_data_dir
 log = get_logger("pengu_loader")
 
 _ACTIVE_FLAG = get_state_dir() / "pengu_active.flag"
-
-# IFEO registry key used by old Pengu Loader versions
-_IFEO_KEY = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe"
-
-
-def cleanup_old_pengu_ifeo() -> bool:
-    """
-    Clean up old Pengu Loader IFEO (Image File Execution Options) registry entry.
-
-    Old versions of Pengu Loader used IFEO to inject into League, which can cause
-    client crashes with newer versions. This cleanup is equivalent to running:
-    irm https://pengu.lol/clean | iex
-
-    Returns True if cleanup was performed, False otherwise.
-    """
-    if sys.platform != "win32":
-        return False
-
-    try:
-        import winreg
-        try:
-            # Try to open the key - if it exists, delete it
-            winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _IFEO_KEY, 0, winreg.KEY_READ)
-            # Key exists, delete it
-            winreg.DeleteKey(winreg.HKEY_LOCAL_MACHINE, _IFEO_KEY)
-            log.info("Cleaned up old Pengu Loader IFEO registry entry")
-            return True
-        except FileNotFoundError:
-            # Key doesn't exist, nothing to clean up
-            return False
-        except PermissionError:
-            log.debug("No permission to clean up IFEO registry entry (requires admin)")
-            return False
-    except Exception as exc:
-        log.debug("Failed to clean up old Pengu IFEO entry: %s", exc)
-        return False
-
 _PLUGIN_ENTRYPOINT = "index.js"
 _PLUGIN_ENTRYPOINT_DISABLED = "index.js_"
 _PLUGIN_ENTRYPOINT_BUNDLED_BACKUP = "index.js.bundled"
@@ -320,6 +286,7 @@ _LEAGUE_PROCESSES: set[str] = {
 }
 _PENGU_UI_PROCESS = "Pengu Loader.exe"
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_managed_pengu_process: Optional[subprocess.Popen] = None
 
 
 def _is_windows() -> bool:
@@ -376,6 +343,121 @@ def _run_cli(args: Sequence[str], ok_codes: Iterable[int] = (0,)) -> bool:
         return False
 
     return True
+
+
+def _stop_managed_pengu(deactivate: bool = True) -> bool:
+    """Ask the Rose-owned loader to cleanly deactivate and exit."""
+    global _managed_pengu_process
+
+    process = _managed_pengu_process
+    if process is None:
+        return False
+
+    requested_stop = False
+    forced_termination = False
+    if process.poll() is None:
+        # The child owns the activation state. Signal it so its finally block
+        # removes the IFEO entry before the process exits.
+        if deactivate:
+            requested_stop = _run_cli(["--rose-stop", str(os.getpid()), "--silent"])
+
+        try:
+            process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            log.warning("Rose-owned Pengu Loader did not exit after a graceful stop request.")
+            forced_termination = True
+            try:
+                process.terminate()
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                    process.wait(timeout=2)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            except OSError as exc:
+                log.debug("Failed to terminate Rose-owned Pengu Loader: %s", exc)
+        except OSError as exc:
+            log.debug("Failed to wait for Rose-owned Pengu Loader: %s", exc)
+
+    _managed_pengu_process = None
+
+    # This is a registry-only fallback now that Rose uses Pengu's IFEO mode.
+    # It does not copy or delete a DLL in the League directory.
+    if deactivate and (not requested_stop or forced_termination):
+        return _run_cli(["--force-deactivate", "--silent"])
+
+    return requested_stop
+
+
+def _start_managed_pengu(league_path: Optional[str] = None) -> bool:
+    """Start a loader that owns activation for the lifetime of this Rose process."""
+    global _managed_pengu_process
+
+    command = [str(PENGU_EXE), "--rose-managed", str(os.getpid())]
+    if league_path:
+        command.extend(["--set-league-path", league_path.strip()])
+    command.append("--silent")
+
+    try:
+        _managed_pengu_process = subprocess.Popen(
+            command,
+            cwd=str(PENGU_DIR),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=_CREATE_NO_WINDOW,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        log.warning("Failed to start Rose-owned Pengu Loader: %s", exc)
+        _managed_pengu_process = None
+        return False
+
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        if _managed_pengu_process.poll() is not None:
+            log.warning(
+                "Rose-owned Pengu Loader exited during startup with code %s.",
+                _managed_pengu_process.returncode,
+            )
+            _managed_pengu_process = None
+            return False
+        time.sleep(0.1)
+
+    log.info("Started Rose-owned Pengu Loader (PID %s).", _managed_pengu_process.pid)
+    return True
+
+
+def _remove_legacy_proxy(league_path: Optional[str]) -> bool:
+    """Remove the old Rose proxy only when it exactly matches our core.dll."""
+    if not league_path or not _is_windows():
+        return False
+
+    core_path = PENGU_DIR / "core.dll"
+    proxy_path = Path(league_path) / "d3d9.dll"
+
+    try:
+        if not core_path.exists() or not proxy_path.exists():
+            return False
+        if not filecmp.cmp(core_path, proxy_path, shallow=False):
+            log.warning("Leaving non-Rose League d3d9.dll untouched: %s", proxy_path)
+            return False
+
+        for _ in range(10):
+            try:
+                proxy_path.unlink()
+                log.info("Removed legacy Rose proxy: %s", proxy_path)
+                return True
+            except PermissionError:
+                time.sleep(0.25)
+            except OSError as exc:
+                log.debug("Could not remove legacy Rose proxy %s: %s", proxy_path, exc)
+                return False
+    except OSError as exc:
+        log.debug("Could not inspect legacy Rose proxy %s: %s", proxy_path, exc)
+
+    log.info("Legacy Rose proxy is still in use; will retry after the client closes: %s", proxy_path)
+    return False
 
 
 def _terminate_pengu_ui() -> None:
@@ -482,44 +564,46 @@ def cleanup_if_dirty() -> bool:
 
 def activate_on_start(league_path: Optional[str] = None) -> bool:
     """
-    Force activate Pengu Loader when Rose launches.
-    
-    Args:
-        league_path: Optional League path to set before activation
-        
-    Returns True if the activation command completed successfully.
+    Start Rose-owned Pengu Loader when Rose launches.
+
+    The child loader performs activation, watches Rose's PID, and deactivates
+    itself when Rose exits or crashes.
     """
     if not _is_available():
         log.debug("Pengu Loader not available; skipping activation.")
         return False
 
-    # Set league path if provided
-    if league_path:
-        if not set_league_path(league_path):
-            log.warning("Failed to set league path in Pengu Loader, continuing with activation anyway.")
-
+    # Stop a previous managed instance before killing the legacy UI process
+    # with the broad taskkill fallback.
+    _stop_managed_pengu()
     _terminate_pengu_ui()
+    _remove_legacy_proxy(league_path)
     restart_needed = _is_league_running()
 
-    log.info("Activating Pengu Loader (restart League client: %s).", restart_needed)
+    log.info("Starting Rose-owned Pengu Loader (restart League client: %s).", restart_needed)
 
-    # Write flag *before* activation so it persists even if the process is
-    # killed mid-activation or the CLI returns an unexpected exit code.
+    # Write flag *before* activation so it persists even if Rose is killed
+    # during child startup.
     _write_active_flag()
 
-    activated = _run_cli(["--force-activate", "--silent"])
-
-    if activated and restart_needed:
+    started = _start_managed_pengu(league_path)
+    if started and restart_needed:
         _run_cli(["--restart-client", "--silent"])
+        _remove_legacy_proxy(league_path)
 
-    return activated
+    if not started:
+        _clear_active_flag()
+
+    return started
 
 
 def deactivate_on_exit() -> bool:
     """
-    Force deactivate Pengu Loader when Rose shuts down.
+    Deactivate Pengu Loader when Rose shuts down.
 
-    Returns True if the deactivation command completed successfully.
+    Normal shutdown asks the managed child to stop so it can remove its IFEO
+    entry in its own finally block. If Rose is recovering from an unclean
+    shutdown, the registry-only CLI fallback removes the entry directly.
     """
     if not _is_available():
         return False
@@ -527,7 +611,11 @@ def deactivate_on_exit() -> bool:
     restart_needed = _is_league_running()
 
     log.info("Deactivating Pengu Loader (restart League client: %s).", restart_needed)
-    deactivated = _run_cli(["--force-deactivate", "--silent"])
+    deactivated = _stop_managed_pengu()
+    if not deactivated:
+        # IFEO cleanup is safe while League is running: it only removes the
+        # debugger registration and never replaces a League DLL.
+        deactivated = _run_cli(["--force-deactivate", "--silent"])
 
     if deactivated:
         _clear_active_flag()
@@ -535,5 +623,4 @@ def deactivate_on_exit() -> bool:
             _run_cli(["--restart-client", "--silent"])
 
     return deactivated
-
 

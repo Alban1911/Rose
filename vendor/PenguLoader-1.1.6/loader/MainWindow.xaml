@@ -1,0 +1,68 @@
+﻿<Window
+    x:Class="PenguLoader.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:ui="http://schemas.modernwpf.com/2019"
+    xmlns:local="clr-namespace:PenguLoader"
+    xmlns:views="clr-namespace:PenguLoader.Views"
+    mc:Ignorable="d"
+    Height="320" Width="540"
+    ResizeMode="CanMinimize"
+    BorderThickness="0"
+    WindowStyle="None"
+    WindowStartupLocation="CenterScreen"
+    ui:WindowHelper.UseModernWindowStyle="True"
+    ui:TitleBar.ExtendViewIntoTitleBar="True"
+    WindowChrome.IsHitTestVisibleInChrome="True"
+>
+    <Window.Title>
+        <MultiBinding StringFormat=" {0} v{1}">
+            <Binding Source="{x:Static local:Program.Name}" Path="." />
+            <Binding Source="{x:Static local:Program.VERSION}" Path="." />
+        </MultiBinding>
+    </Window.Title>
+    <Grid>
+        <ui:TitleBarControl
+            VerticalAlignment="Top"
+            Icon="Resources/icon.ico"
+            IsIconVisible="False"
+            IsActive="True"
+            Background="{DynamicResource SystemControlForegroundChromeMediumBrush}"
+        />
+
+        <TabControl
+            Mouse.MouseDown="MouseDragMove"
+            Background="Transparent"
+            Margin="0,-6,0,0"
+            SelectedIndex="0"
+            Focusable="False"
+        >
+            <TabControl.Items>
+                <TabItem Header="Loader" Width="120">
+                    <ui:TabItemHelper.Icon>
+                        <ui:BitmapIcon UriSource="Resources/icon.ico" ShowAsMonochrome="False" />
+                    </ui:TabItemHelper.Icon>
+                    <Frame Source="Views/MainPage.xaml" Focusable="False" />
+                </TabItem>
+                <TabItem Header="Plugins" Width="120">
+                    <ui:TabItemHelper.Icon>
+                        <Image Source="Resources/icon_js.png" />
+                    </ui:TabItemHelper.Icon>
+                    <Frame Source="Views/PluginsPage.xaml" Focusable="False" />
+                </TabItem>
+            </TabControl.Items>
+        </TabControl>
+
+        <ui:TitleBarButton
+            Click="ThemeButtonClick"
+            Margin="0,0,138,0"
+            ToolTip="Change theme"
+            VerticalAlignment="Top"
+            HorizontalAlignment="Right"
+        >
+            <Image Source="Resources/icon_theme.png" Width="16" Height="16" />
+        </ui:TitleBarButton>
+    </Grid>
+</Window>

@@ -94,7 +94,7 @@ try:
 except Exception as e:
     print(f"[WARNING] Could not collect Pillow data files: {e}")
 
-# Include Pengu Loader directory (for Pengu activation/deactivation CLI)
+# Include the source-built Pengu Loader runtime used for Rose activation/deactivation
 # Runtime-generated files (logs, per-user state) must be excluded so they don't
 # leak local test data into the shipped installer.
 pengu_loader_dir = Path('Pengu Loader')
@@ -117,6 +117,9 @@ def _pengu_path_excluded(rel_path: Path) -> bool:
     return False
 
 if pengu_loader_dir.exists() and pengu_loader_dir.is_dir():
+    if not (pengu_loader_dir / 'Pengu Loader.exe').exists():
+        raise RuntimeError("Source-built Pengu Loader.exe is missing. Run build_pyinstaller.py first.")
+
     bundled_count = 0
     skipped = []
     for src in pengu_loader_dir.rglob('*'):

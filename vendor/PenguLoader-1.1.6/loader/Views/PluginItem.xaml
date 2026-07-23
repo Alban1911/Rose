@@ -1,0 +1,21 @@
+﻿<UserControl
+    x:Class="PenguLoader.Views.PluginItem"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+    xmlns:local="clr-namespace:PenguLoader"
+    mc:Ignorable="d"
+>
+    <Grid Width="420" Height="36">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <CheckBox Grid.Column="0" x:Name="tName" Focusable="False">
+            <TextBlock TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+        </CheckBox>
+        <TextBlock Grid.Column="1" x:Name="tLink" VerticalAlignment="Center" HorizontalAlignment="Right"
+            TextAlignment="Right" TextTrimming="CharacterEllipsis"  TextWrapping="NoWrap" />
+    </Grid>
+</UserControl>

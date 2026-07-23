@@ -1,0 +1,23 @@
+﻿<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:system="clr-namespace:System;assembly=mscorlib"
+>
+
+    <system:String x:Key="t_active_status">アクティブな状態</system:String>
+    <system:String x:Key="t_options">オプション</system:String>
+    <system:String x:Key="t_optimize_client">クライアントの最適化</system:String>
+    <system:String x:Key="t_super_potato_mode">スーパーロースペックモード</system:String>
+
+    <system:String x:Key="t_available_plugins">利用可能なプラグイン</system:String>
+    <system:String x:Key="t_open_plugins">開いたフォルダ</system:String>
+    <system:String x:Key="t_refresh">更新</system:String>
+
+    <system:String x:Key="t_msg_module_not_found">「core.dll」が見つかりません。プログラムを再インストールしてください。</system:String>
+    <system:String x:Key="t_msg_restart_client">実行中のクライアントを再起動して変更を適用しますか？</system:String>
+    <system:String x:Key="t_msg_activation_fail" xml:space="preserve">アクティベーションの実行に失敗しました。&#13;エラーメッセージをキャプチャして「はい」をクリックして報告してください。</system:String>
+
+    <system:String x:Key="t_msg_optimize_client_prompt" xml:space="preserve">このオプションを有効にすることをお勧めします。&#13;&#13;有効にすると、未使用の要素やバックグラウンドタスクが無効になり、遅延が軽減されます。&#13;&#13;続行しますか？</system:String>
+    <system:String x:Key="t_msg_super_potato_mode_prompt" xml:space="preserve">このオプションはデフォルトのロースペックモードを拡張します。有効にすると、すべてのトランジションやアニメーション効果が無効になり、遅延が大幅に減少し、応答速度が向上します。&#13;&#13;低スペックのPCに非常に役立ちますが、バグが発生する可能性があります。問題を報告していただければ、このモードの改善に役立ちます。&#13;&#13;続行しますか？</system:String>
+
+</ResourceDictionary>

@@ -1,0 +1,115 @@
+﻿<Page
+    x:Class="PenguLoader.Views.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+    xmlns:root="clr-namespace:PenguLoader"
+    xmlns:main="clr-namespace:PenguLoader.Main"
+    xmlns:local="clr-namespace:PenguLoader.Views"
+    xmlns:sys="clr-namespace:System;assembly=mscorlib"
+    mc:Ignorable="d" 
+    
+    xmlns:ui="http://schemas.modernwpf.com/2019"
+    d:DesignHeight="270" d:DesignWidth="500"
+    
+    Background="{DynamicResource SystemControlPageBackgroundAltHighBrush}"
+    Foreground="{DynamicResource SystemControlPageTextBaseHighBrush}"
+>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="35" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="auto" />
+            <RowDefinition Height="70" />
+        </Grid.RowDefinitions>
+        <Grid Grid.Row="0">
+            <TextBlock HorizontalAlignment="Left" FontSize="14" FontWeight="SemiBold" Height="20" VerticalAlignment="Bottom" Margin="20,0,0,0">
+                <TextBlock.Text>
+                    <MultiBinding StringFormat=" {0} v{1}">
+                        <Binding Source="{x:Static root:Program.Name}" Path="." />
+                        <Binding Source="{x:Static root:Program.VERSION}" Path="." />
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+        </Grid>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <Button Click="HomePageButtonClick" Background="Transparent" BorderBrush="#6888" Focusable="False" HorizontalAlignment="Stretch" Margin="20,5">
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="/Resources/icon_rose.png" Width="16" Height="16" />
+                        <TextBlock Text="Support Rose Team" Margin="8,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Grid Margin="20,5">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Click="DiscordButtonClick" Grid.Column="0" Background="Transparent" BorderBrush="#6888" Focusable="False" HorizontalAlignment="Stretch" Margin="0">
+                        <StackPanel Orientation="Horizontal">
+                            <Image Source="/Resources/icon_discord.png" Width="16" Height="16" />
+                            <TextBlock Text="Discord" Margin="8,0,0,0" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="GitHubButtonClick" Grid.Column="1" Background="Transparent" BorderBrush="#6888" Focusable="False" HorizontalAlignment="Stretch" Margin="5,0,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Image Source="/Resources/icon_github.png" Width="16" Height="16" />
+                            <TextBlock Text="GitHub" Margin="8,0,0,0" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+                <ComboBox
+                    ItemsSource="{Binding Source={x:Static root:App.Languages}}"
+                    SelectedItem="{Binding Path=(root:App.Language), Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    Margin="20,5"
+                    BorderThickness="1"
+                    BorderBrush="#33333333"
+                    HorizontalAlignment="Stretch" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="{DynamicResource t_options}" HorizontalAlignment="Stretch" Margin="20,10" FontSize="14" FontWeight="SemiBold" />
+                <StackPanel VerticalAlignment="Center">
+                    <CheckBox Content="{DynamicResource t_optimize_client}" IsChecked="{Binding Path=OptimizeClient, Mode=TwoWay}" Focusable="False" Margin="20,5" HorizontalAlignment="Stretch" />
+                    <CheckBox Content="{DynamicResource t_super_potato_mode}" IsChecked="{Binding Path=SuperLowSpecMode, Mode=TwoWay}" Focusable="False" Margin="20,5" HorizontalAlignment="Stretch" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+        <Grid Grid.Row="2" x:Name="gLeaguePath" Background="#2AAA" Height="25">
+            <TextBlock
+                FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Bottom" Padding="10,2"
+                Cursor="Hand" MouseEnter="LeaguePath_MouseEnter" MouseLeave="LeaguePath_MouseLeave" MouseUp="LeaguePath_MouseUp"
+            >
+                <TextBlock FontWeight="SemiBold" Text="League path" Margin="0,0,8,0" />
+                <TextBlock x:Name="tLeaguePath" Text="..." />
+            </TextBlock>
+        </Grid>
+        <Grid Grid.Row="3" Background="#2AAA">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid Grid.Column="0">
+                <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center" Text="{DynamicResource t_active_status}" FontSize="24" />
+            </Grid>
+            <Grid Grid.Column="1">
+                <ui:ToggleSwitch
+                    IsOn="{Binding Path=IsActivated, Mode=TwoWay}" OffContent="OFF" OnContent="READY" Focusable="False"
+                    Margin="57,19,51,19" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" RenderTransformOrigin="0.5,0.5">
+                    <ui:ToggleSwitch.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform ScaleX="1.6" ScaleY="1.6"/>
+                            <SkewTransform/>
+                            <RotateTransform/>
+                            <TranslateTransform/>
+                        </TransformGroup>
+                    </ui:ToggleSwitch.RenderTransform>
+                </ui:ToggleSwitch>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>
