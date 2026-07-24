@@ -177,6 +177,67 @@ class WadParserTests(unittest.TestCase):
                 self.assertEqual(len(read_wad_path_hashes(wad_path)), 33)
             finally:
                 service.stop()
+
+    def test_extracted_wad_directory_without_client_suffix_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mods_root = Path(temp_dir) / "mods"
+            mod_dir = mods_root / "skins" / "134000" / "SyndraMod"
+            extracted_wad = mod_dir / "WAD" / "syndra.wad"
+            write_asset(
+                extracted_wad,
+                "assets/characters/syndra/skins/skin07/syndra_skin07.skn",
+            )
+            write_asset(
+                extracted_wad,
+                "assets/characters/syndra/skins/skin07/animations/syndra_skin07_recall.anm",
+            )
+
+            service = ModStorageService(mods_root)
+            try:
+                self.assertEqual(
+                    service._get_wad_targets(mod_dir, 134, "Syndra"),
+                    {134007},
+                )
+            finally:
+                service.stop()
+
+    def test_packed_wad_extraction_fallback_scans_resolved_asset_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            mods_root = root / "mods"
+            mod_dir = mods_root / "skins" / "134000" / "SyndraMod"
+            wad_path = mod_dir / "WAD" / "syndra.wad.client"
+            hashes = root / "missing-hashes.game.txt"
+            wad_path.parent.mkdir(parents=True)
+            write_test_wad(wad_path, 0x5BE1615DC82A7F88)
+            temporary_outputs: list[Path] = []
+
+            def fake_extract(_wad_path: Path, output_directory: Path) -> Path:
+                temporary_outputs.append(output_directory)
+                extracted_root = output_directory / "syndra.wad"
+                write_asset(
+                    extracted_root,
+                    "assets/characters/syndra/skins/skin07/syndra_skin07.skn",
+                )
+                return extracted_root
+
+            with mock.patch(
+                "injection.mods.storage.extract_wad_to_directory",
+                side_effect=fake_extract,
+            ) as extract:
+                service = ModStorageService(mods_root, wad_hash_file=hashes)
+                try:
+                    entries = service.list_mods_for_skin(134000, "Syndra")
+                    self.assertEqual(entries[0].affected_skin_ids, (134007,))
+                    self.assertEqual(extract.call_count, 1)
+                    self.assertFalse(temporary_outputs[0].exists())
+
+                    entries = service.list_mods_for_skin(134000, "Syndra")
+                    self.assertEqual(entries[0].affected_skin_ids, (134007,))
+                    self.assertEqual(extract.call_count, 1)
+                finally:
+                    service.stop()
+
     def test_storage_resolves_wad_targets_without_extracting(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             mods_root = Path(temp_dir) / "mods"
@@ -280,6 +341,9 @@ class WadParserTests(unittest.TestCase):
                 with mock.patch(
                     "injection.mods.storage.resolve_wad_skin_targets",
                     side_effect=fail_resolution,
+                ), mock.patch(
+                    "injection.mods.storage.extract_wad_to_directory",
+                    side_effect=RuntimeError("test extraction failure"),
                 ):
                     entries = service.list_mods_for_skin(901000, "Smolder")
                 self.assertEqual(entries[0].affected_skin_ids, (901000,))

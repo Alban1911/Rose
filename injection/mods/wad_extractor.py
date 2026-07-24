@@ -1,16 +1,18 @@
-"""Resolve packed WAD entries to custom-skin targets without unpacking payloads.
+"""Resolve packed WAD entries to custom-skin targets.
 
 WAD files store xxHash64 values for their original asset paths in the table of
 contents.  The bundled CommunityDragon hash table resolves those values back
 to paths.  Rose only needs matching character/skin paths to identify targets,
 so this module streams the hash table and keeps no full-database index in
-memory.  Unknown paths remain unresolved and are handled by the storage-folder
-fallback.
+memory.  Unknown paths remain unresolved unless the bundled WAD extractor can
+expose their original asset paths.
 """
 
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
@@ -51,6 +53,79 @@ def _default_hash_file() -> Path:
         if candidate.is_file():
             return candidate
     return candidates[0]
+
+
+def _default_wad_extractor() -> Path:
+    """Return the bundled CSLOL WAD extractor location."""
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            candidates.append(
+                Path(sys._MEIPASS) / "injection" / "tools" / "wad-extract.exe"
+            )
+        executable_root = Path(sys.executable).parent
+        candidates.extend(
+            (
+                executable_root / "injection" / "tools" / "wad-extract.exe",
+                executable_root / "_internal" / "injection" / "tools" / "wad-extract.exe",
+            )
+        )
+    else:
+        candidates.append(
+            Path(__file__).resolve().parents[1] / "tools" / "wad-extract.exe"
+        )
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
+def extract_wad_to_directory(
+    wad_path: Path,
+    output_directory: Path,
+    extractor: Optional[Path] = None,
+) -> Path:
+    """Extract a WAD into a temporary directory without changing the source.
+
+    The CSLOL extractor writes a directory beside the input archive using the
+    archive stem (``syndra.wad.client`` becomes ``syndra.wad``).  The source
+    archive is copied into ``output_directory`` first so the user's mod is
+    never modified.
+    """
+    source = Path(wad_path)
+    output = Path(output_directory)
+    tool = Path(extractor) if extractor is not None else _default_wad_extractor()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    if not tool.is_file():
+        raise FileNotFoundError(tool)
+
+    output.mkdir(parents=True, exist_ok=True)
+    temporary_wad = output / source.name
+    shutil.copy2(source, temporary_wad)
+    result = subprocess.run(
+        [str(tool), str(temporary_wad)],
+        cwd=str(tool.parent),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if result.returncode != 0:
+        details = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(
+            f"WAD extractor exited with code {result.returncode}"
+            + (f": {details}" if details else "")
+        )
+
+    extracted_root = output / temporary_wad.stem
+    if not extracted_root.is_dir():
+        raise RuntimeError(f"WAD extractor produced no directory: {extracted_root}")
+    return extracted_root
 
 
 def get_hash_file_signature(
@@ -145,7 +220,7 @@ def resolve_wad_skin_targets(
     file is streamed line by line.  Only rows whose hash occurs in the WAD
     are parsed for a matching data/assets champion skin path.  This does not
     decompress WAD payloads; if all relevant hashes are unknown, the caller
-    must use the storage-folder fallback or explicit metadata.
+    may use the temporary extractor fallback or explicit metadata.
     """
     wanted_hashes = read_wad_path_hashes(Path(wad_path))
     champion_path_names = _normalized_champion_path_names(champion_name)

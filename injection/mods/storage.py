@@ -16,7 +16,11 @@ import threading
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from .wad_extractor import get_hash_file_signature, resolve_wad_skin_targets
+from .wad_extractor import (
+    extract_wad_to_directory,
+    get_hash_file_signature,
+    resolve_wad_skin_targets,
+)
 from .wad_parser import find_matching_wad_paths, read_wad_path_hashes
 from utils.core.junction import safe_remove_entry
 from utils.core.logging import get_logger
@@ -26,6 +30,14 @@ from utils.core.utilities import get_champion_id_from_skin_id
 
 log = get_logger()
 _STORAGE_LOCK = threading.RLock()
+
+
+def _is_wad_entry(path: Path) -> bool:
+    """Return whether *path* is a packed or extracted WAD container."""
+    name = path.name.casefold()
+    if path.is_file():
+        return name.endswith(".wad.client")
+    return path.is_dir() and name.endswith((".wad", ".wad.client"))
 
 
 @dataclass(frozen=True)
@@ -849,8 +861,7 @@ class ModStorageService:
                 wad_container_present = (candidate / "WAD").is_dir()
                 if not wad_container_present:
                     wad_container_present = any(
-                        path.name.casefold().endswith(".wad.client")
-                        and (path.is_file() or path.is_dir())
+                        _is_wad_entry(path)
                         for path in candidate.iterdir()
                     )
             except OSError:
@@ -1077,6 +1088,40 @@ class ModStorageService:
             )
         return targets, True
 
+    def _scan_packed_wad_by_extraction(
+        self,
+        wad_file: Path,
+        champion_id: int,
+        champion_name: str,
+    ) -> tuple[set[int], bool]:
+        """Extract one packed WAD temporarily and scan its asset paths."""
+        try:
+            with tempfile.TemporaryDirectory(prefix="rose-wad-targets-") as temp_dir:
+                extracted_root = extract_wad_to_directory(
+                    wad_file,
+                    Path(temp_dir),
+                )
+                targets = self._skin_ids_from_asset_paths(
+                    extracted_root,
+                    champion_id,
+                    champion_name,
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[ModStorage] WAD extraction failed for %s: %s",
+                wad_file,
+                exc,
+            )
+            return set(), False
+
+        if targets:
+            log.info(
+                "[ModStorage] WAD extraction target scan found skins for %s: %s",
+                wad_file.name,
+                sorted(targets),
+            )
+        return targets, True
+
     def _get_wad_targets(
         self,
         candidate: Path,
@@ -1091,8 +1136,7 @@ class ModStorageService:
             (
                 path
                 for path in candidate.rglob("*")
-                if path.name.casefold().endswith(".wad.client")
-                and (path.is_file() or path.is_dir())
+                if _is_wad_entry(path)
             ),
             key=lambda path: path.as_posix().casefold(),
         )
@@ -1163,7 +1207,27 @@ class ModStorageService:
                 champion_name,
             )
             discovered.update(resolved_targets)
-            if not resolution_complete:
+            if resolved_targets:
+                continue
+
+            if resolution_complete:
+                log.info(
+                    "[ModStorage] Known-path resolution found no targets; extracting %s",
+                    wad_file,
+                )
+            else:
+                log.info(
+                    "[ModStorage] Known-path resolution unavailable; extracting %s",
+                    wad_file,
+                )
+
+            extracted_targets, extraction_complete = self._scan_packed_wad_by_extraction(
+                wad_file,
+                int(champion_id),
+                champion_name,
+            )
+            discovered.update(extracted_targets)
+            if not extraction_complete:
                 scan_complete = False
 
         for wad_directory in extracted_wads:
