@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from .wad_extractor import extract_wad_to_directory
 from .wad_parser import find_matching_wad_paths, read_wad_path_hashes
 from utils.core.junction import safe_remove_entry
 from utils.core.logging import get_logger
@@ -45,7 +46,7 @@ class ModStorageService:
 
     LEGACY_TARGET_METADATA = "rose_legacy_targets.json"
     WAD_TARGET_METADATA = "rose_wad_targets.json"
-    WAD_TARGET_CACHE_VERSION = 1
+    WAD_TARGET_CACHE_VERSION = 2
     ARCHIVE_MANIFEST_NAME = ".rose_archive_manifest.json"
     ARCHIVE_SCAN_INTERVAL_SECONDS = 1.0
     ARCHIVE_SUFFIXES = frozenset({".zip", ".fantome"})
@@ -924,13 +925,18 @@ class ModStorageService:
                         add_metadata_ids(metadata[key])
 
             if champion_id is not None and champion_name:
-                affected.update(
-                    self._skin_ids_from_data_paths(
-                        candidate,
-                        champion_id,
-                        champion_name,
-                    )
+                asset_targets = self._skin_ids_from_asset_paths(
+                    candidate,
+                    champion_id,
+                    champion_name,
                 )
+                if asset_targets:
+                    log.info(
+                        "[ModStorage] Extracted asset path target found for %s: %s",
+                        candidate.name,
+                        sorted(asset_targets),
+                    )
+                affected.update(asset_targets)
         wad_targets = self._get_wad_targets(candidate, champion_id, champion_name)
         if wad_targets is not None:
             affected.update(wad_targets)
@@ -950,6 +956,11 @@ class ModStorageService:
                 affected.discard(champion_skin_ids[0])
 
         if not affected:
+            log.info(
+                "[ModStorage] No target found in mod; using storage skin fallback %s: %s",
+                storage_skin_id,
+                candidate,
+            )
             affected.add(int(storage_skin_id))
 
         result = tuple(sorted(affected))
@@ -957,12 +968,12 @@ class ModStorageService:
         return result
 
     @staticmethod
-    def _skin_ids_from_data_paths(
+    def _skin_ids_from_asset_paths(
         root: Path,
         champion_id: int,
         champion_name: str,
     ) -> set[int]:
-        """Find skin bins below data/characters/<champion>/skins only."""
+        """Find skin IDs below DATA/ASSETS character skin paths."""
         champion_path_names = set(
             ModStorageService._normalized_champion_path_names(champion_name)
         )
@@ -979,14 +990,16 @@ class ModStorageService:
                     continue
                 normalized_parts = tuple(part.casefold() for part in parts)
                 for index in range(len(parts) - 4):
-                    if normalized_parts[index] != "data" or normalized_parts[index + 1] != "characters":
+                    if normalized_parts[index] not in {"data", "assets"}:
+                        continue
+                    if normalized_parts[index + 1] != "characters":
                         continue
                     if normalized_parts[index + 2] not in champion_path_names:
                         continue
                     if normalized_parts[index + 3] != "skins":
                         continue
                     match = re.fullmatch(
-                        r"skin[_-]?(\d+)(?:\.[^.]+)?",
+                        r"skin[_-]?0*(\d+)(?:\.[^.]+)?",
                         parts[index + 4],
                         re.IGNORECASE,
                     )
@@ -1001,6 +1014,67 @@ class ModStorageService:
         except OSError:
             pass
         return affected
+
+    def _scan_packed_wad_toc(
+        self,
+        wad_file: Path,
+        champion_id: int,
+        champion_name: str,
+    ) -> tuple[set[int], bool]:
+        """Run the cheap hash-only scan for one packed WAD."""
+        try:
+            path_hashes = read_wad_path_hashes(wad_file)
+        except (OSError, ValueError) as exc:
+            log.debug(
+                "[ModStorage] WAD TOC scan failed for %s: %s",
+                wad_file,
+                exc,
+            )
+            return set(), False
+
+        targets = find_matching_wad_paths(
+            path_hashes,
+            self._candidate_wad_skin_paths(champion_id, champion_name),
+        )
+        if targets:
+            log.info(
+                "[ModStorage] WAD TOC target scan found skins for %s: %s",
+                wad_file.name,
+                sorted(targets),
+            )
+        return targets, True
+
+    def _scan_packed_wad_by_extraction(
+        self,
+        wad_file: Path,
+        champion_id: int,
+        champion_name: str,
+    ) -> tuple[set[int], bool]:
+        """Resolve a packed WAD into a temporary tree and scan its paths."""
+        try:
+            with tempfile.TemporaryDirectory(prefix="rose-wad-targets-") as temp:
+                extraction_root = Path(temp)
+                extract_wad_to_directory(wad_file, extraction_root)
+                targets = self._skin_ids_from_asset_paths(
+                    extraction_root,
+                    champion_id,
+                    champion_name,
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[ModStorage] WAD extraction failed for %s: %s",
+                wad_file,
+                exc,
+            )
+            return set(), False
+
+        if targets:
+            log.info(
+                "[ModStorage] WAD extraction target scan found skins for %s: %s",
+                wad_file.name,
+                sorted(targets),
+            )
+        return targets, True
 
     def _get_wad_targets(
         self,
@@ -1060,25 +1134,32 @@ class ModStorageService:
 
         discovered: set[int] = set()
         scan_complete = True
-        candidate_paths = list(
-            self._candidate_wad_skin_paths(champion_id, champion_name)
-        )
         for wad_file in packed_wads:
-            try:
-                path_hashes = read_wad_path_hashes(wad_file)
-            except (OSError, ValueError) as exc:
-                scan_complete = False
-                log.debug(
-                    "[ModStorage] WAD TOC scan failed for %s: %s",
-                    wad_file,
-                    exc,
-                )
+            fast_targets, _fast_scan_complete = self._scan_packed_wad_toc(
+                wad_file,
+                int(champion_id),
+                champion_name,
+            )
+            discovered.update(fast_targets)
+            if fast_targets:
                 continue
-            discovered.update(find_matching_wad_paths(path_hashes, candidate_paths))
+
+            log.info(
+                "[ModStorage] WAD TOC scan found no targets; unpacking %s",
+                wad_file,
+            )
+            extracted_targets, extraction_complete = self._scan_packed_wad_by_extraction(
+                wad_file,
+                int(champion_id),
+                champion_name,
+            )
+            discovered.update(extracted_targets)
+            if not extraction_complete:
+                scan_complete = False
 
         for wad_directory in extracted_wads:
             discovered.update(
-                self._skin_ids_from_data_paths(
+                self._skin_ids_from_asset_paths(
                     wad_directory,
                     champion_id,
                     champion_name,
@@ -1131,7 +1212,7 @@ class ModStorageService:
         champion_id: int,
         champion_name: str,
     ) -> list[tuple[str, int]]:
-        """Build data/characters candidates for the champion's skin bins."""
+        """Build finite DATA/ASSETS candidates for skin BINs."""
         names = ModStorageService._normalized_champion_path_names(champion_name)
         if not names:
             return []
@@ -1139,13 +1220,18 @@ class ModStorageService:
         candidates: list[tuple[str, int]] = []
         for skin_number in range(ModStorageService.MAX_WAD_SKIN_NUMBER):
             target_skin_id = int(champion_id) * 1000 + skin_number
+            skin_segments = [f"skin{skin_number}"]
+            if skin_number < 100:
+                skin_segments.append(f"skin{skin_number:02d}")
             for name in names:
-                candidates.append(
-                    (
-                        f"data/characters/{name}/skins/skin{skin_number}.bin",
-                        target_skin_id,
-                    )
-                )
+                for root in ("data", "assets"):
+                    for skin_segment in skin_segments:
+                        candidates.append(
+                            (
+                                f"{root}/characters/{name}/skins/{skin_segment}.bin",
+                                target_skin_id,
+                            )
+                        )
         return candidates
 
     def _wad_target_cache_path(self, champion_id: int) -> Path:
