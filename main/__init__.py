@@ -772,8 +772,8 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     # Keep the Windows "Apps & features" version in sync after auto-updates
     _update_registry_version()
 
-    # Safety net: if a previous session didn't shut down cleanly, deactivate
-    # Pengu Loader before we re-activate it later in the startup sequence.
+    # Safety net: recover a previous session before startup. If League still owns
+    # the loaded module, cleanup_if_dirty adopts the active session instead.
     pengu_loader.cleanup_if_dirty()
 
     # Parse arguments if they were not provided

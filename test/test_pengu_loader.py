@@ -78,6 +78,37 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         activate.assert_called_once_with()
 
     @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.INACTIVE)
+    @patch.object(pengu_loader, 'activate', return_value=True)
+    @patch.object(pengu_loader, '_is_league_running', return_value=True)
+    @patch.object(pengu_loader, 'restart_client', return_value=True)
+    def test_startup_with_running_league_restarts_client(
+        self, restart_client, _running, activate, _status, _available
+    ):
+        self.assertTrue(pengu_loader.activate_on_start())
+        activate.assert_called_once_with()
+        restart_client.assert_called_once_with()
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.ACTIVE)
+    @patch.object(pengu_loader, '_is_league_running', return_value=True)
+    @patch.object(pengu_loader, 'deactivate')
+    @patch.object(pengu_loader, 'activate')
+    def test_stale_active_session_is_adopted_when_league_is_running(
+        self, activate, deactivate, _running, _status, _available
+    ):
+        pengu_loader._write_session(False, True)
+
+        self.assertTrue(pengu_loader.cleanup_if_dirty())
+        self.assertTrue(pengu_loader.activate_on_start())
+
+        activate.assert_not_called()
+        deactivate.assert_not_called()
+        state = json.loads(self.session_file.read_text(encoding='utf-8'))
+        self.assertTrue(state['rose_activated_pengu'])
+        self.assertFalse(state['pengu_was_active_before_rose'])
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
     @patch.object(pengu_loader, '_is_league_running', return_value=False)
     @patch.object(pengu_loader, 'deactivate', return_value=True)
     def test_successful_shutdown_removes_session(self, deactivate, _running, _available):

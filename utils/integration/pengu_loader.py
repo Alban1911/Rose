@@ -502,7 +502,14 @@ def _session_requires_deactivation(session: dict[str, object]) -> bool:
     )
 
 
-def recover_stale_session() -> bool:
+def recover_stale_session(*, adopt_active: bool = False) -> bool:
+    """Recover a previous Rose session.
+
+    During startup, an active Pengu session may still belong to the League
+    process left behind by a crashed Rose instance. If that process is still
+    running, keep the activation in place so the next startup does not try to
+    deactivate and immediately reactivate against a loaded core.dll.
+    """
     with _operation_lock:
         session = _read_session()
         legacy = _ACTIVE_FLAG.exists()
@@ -514,14 +521,30 @@ def recover_stale_session() -> bool:
                 if status is PenguStatus.UNKNOWN:
                     log.error('Cannot recover stale Pengu session because status is unknown.')
                     return False
-                if status is PenguStatus.ACTIVE and not deactivate():
-                    log.error('Failed to recover stale Pengu session; keeping state.')
-                    return False
+                if status is PenguStatus.ACTIVE:
+                    if adopt_active and _is_league_running():
+                        log.info(
+                            'Adopting active stale Pengu session because League is still running.'
+                        )
+                        return True
+                    if not deactivate():
+                        log.error('Failed to recover stale Pengu session; keeping state.')
+                        return False
             _clear_session()
             if legacy:
                 _clear_active_flag()
             return True
         log.info('Detected legacy Pengu active flag; running migration deactivation.')
+        if adopt_active:
+            status = get_status()
+            if status is PenguStatus.UNKNOWN:
+                log.error('Cannot recover legacy Pengu session because status is unknown.')
+                return False
+            if status is PenguStatus.ACTIVE and _is_league_running():
+                log.info(
+                    'Adopting active legacy Pengu session because League is still running.'
+                )
+                return True
         if not deactivate():
             log.error('Legacy Pengu session recovery failed; keeping the active flag.')
             return False
@@ -530,7 +553,7 @@ def recover_stale_session() -> bool:
 
 
 def cleanup_if_dirty() -> bool:
-    return recover_stale_session()
+    return recover_stale_session(adopt_active=True)
 
 
 def activate_on_start(league_path: Optional[str] = None) -> bool:
@@ -538,8 +561,16 @@ def activate_on_start(league_path: Optional[str] = None) -> bool:
         if not _is_available():
             log.error('Pengu Loader executable is unavailable: %s', PENGU_EXE)
             return False
+
+        stale_rose_owned = False
         if _SESSION_FILE.exists() or _ACTIVE_FLAG.exists():
-            if not recover_stale_session():
+            session = _read_session()
+            stale_rose_owned = (
+                _session_requires_deactivation(session)
+                if session is not None
+                else _ACTIVE_FLAG.exists()
+            )
+            if not recover_stale_session(adopt_active=True):
                 return False
 
         initial = get_status()
@@ -554,19 +585,29 @@ def activate_on_start(league_path: Optional[str] = None) -> bool:
 
         restart_needed = initial is PenguStatus.INACTIVE and _is_league_running()
         rose_activated = False
+        activated_now = False
+        was_active_before_rose = initial is PenguStatus.ACTIVE
         if initial is PenguStatus.INACTIVE:
             log.info('Activating Pengu through official CLI (restart League: %s).', restart_needed)
             if not activate():
                 return False
             rose_activated = True
+            activated_now = True
         else:
-            log.info('Pengu was already active before Rose; preserving it.')
+            if stale_rose_owned:
+                log.info('Adopted the active Pengu session from the previous Rose process.')
+                rose_activated = True
+                was_active_before_rose = False
+            else:
+                log.info('Pengu was already active before Rose; preserving it.')
 
-        if not _write_session(initial is PenguStatus.ACTIVE, rose_activated):
-            if rose_activated:
+        if not _write_session(was_active_before_rose, rose_activated):
+            if activated_now:
                 log.error('Could not persist session state; reverting activation.')
                 deactivate()
             return False
+        if _ACTIVE_FLAG.exists():
+            _clear_active_flag()
         if restart_needed and not restart_client():
             log.warning(
                 'Pengu was activated, but League could not be restarted automatically. '
