@@ -42,14 +42,14 @@ want to build the Windows installer.
 python scripts/build_pengu_loader.py
 
 # Build Rose (rebuilds Pengu Loader automatically)
-python build_pyinstaller.py
+python scripts/build_pyinstaller.py
 
 # Build Rose and the Windows installer
-python build_all.py
+python scripts/build_all.py
 ```
 
-`build_pyinstaller.py` is the canonical Rose package build entry point; it
-compiles the loader before invoking PyInstaller. Use it or `build_all.py`
+`scripts/build_pyinstaller.py` is the canonical Rose package build entry point; it
+compiles the loader before invoking PyInstaller. Use it or `scripts/build_all.py`
 instead of invoking `pyinstaller Rose.spec` directly.
 
 ## Project Structure

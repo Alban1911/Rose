@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -23,6 +22,8 @@ namespace PenguLoader
         public const string VERSION = "2.0.0";
 
         private const int ATTACH_PARENT_PROCESS = -1;
+        private const string GUI_MUTEX_NAME = "989d2110-46da-4c8d-84c1-c4a42e43c424";
+        private const string OPERATION_MUTEX_NAME = @"Local\Rose.Pengu.Operation";
         private static bool _consoleAttached;
 
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -83,106 +84,109 @@ namespace PenguLoader
                 return 0;
             }
 
-            using (var mutex = new Mutex(true, "989d2110-46da-4c8d-84c1-c4a42e43c424", out var createdNew))
+            var silent = args.Any(IsSilentArgument);
+            var commandArgs = ExtractCommandArgs(args);
+
+            Logger.Info("Program", $"Silent mode: {silent}, Command args: [{string.Join(", ", commandArgs)}]");
+
+            if (commandArgs.Count == 0)
             {
-                Logger.Info("Program", $"Mutex acquired, createdNew={createdNew}");
+                Logger.Info("Program", "No command args, launching the Pengu graphical interface");
+                return RunApplication();
+            }
 
-                var silent = args.Any(IsSilentArgument);
-                var commandArgs = ExtractCommandArgs(args);
+            var commandKey = commandArgs[0].ToLowerInvariant();
+            Logger.Info("Program", $"Command: {commandKey}");
 
-                Logger.Info("Program", $"Silent mode: {silent}, Command args: [{string.Join(", ", commandArgs)}]");
-
-                if (commandArgs.Count == 0)
-                {
-                    Logger.Info("Program", "No command args, showing help");
+            switch (commandKey)
+            {
+                case "--install":
+                case "/install":
+                case "--activate":
+                    return HandleInstall(true, silent);
+                case "--uninstall":
+                case "/uninstall":
+                case "--deactivate":
+                    return HandleInstall(false, silent);
+                case "--status":
+                    return HandleStatus(silent);
+                case "--list-plugins":
+                    return HandleListPlugins(silent);
+                case "--toggle-plugin":
+                    return HandlePluginCommand(commandArgs, null, silent);
+                case "--enable-plugin":
+                    return HandlePluginCommand(commandArgs, true, silent);
+                case "--disable-plugin":
+                    return HandlePluginCommand(commandArgs, false, silent);
+                case "--set-league-path":
+                    return HandleSetLeaguePath(commandArgs, silent);
+                case "--get-league-path":
+                    return HandleGetLeaguePath(silent);
+                case "--set-option":
+                    return HandleSetOption(commandArgs, silent);
+                case "--restart-client":
+                    return HandleRestartClient(silent);
+                case "--ui":
+                case "/ui":
+                case "--show-ui":
+                    return RunApplication();
+                case "--help":
+                case "-h":
+                case "/?":
                     return ShowHelp(silent);
-                }
-
-                var commandKey = commandArgs[0].ToLowerInvariant();
-                Logger.Info("Program", $"Command: {commandKey}");
-
-                switch (commandKey)
-                {
-                    case "--install":
-                    case "/install":
-                    case "--activate":
-                        return HandleInstall(createdNew, true, silent);
-                    case "--uninstall":
-                    case "/uninstall":
-                    case "--deactivate":
-                        return HandleInstall(createdNew, false, silent);
-                    case "--status":
-                        return HandleStatus(silent);
-                    case "--list-plugins":
-                        return HandleListPlugins(silent);
-                    case "--toggle-plugin":
-                        return HandlePluginCommand(commandArgs, null, silent);
-                    case "--enable-plugin":
-                        return HandlePluginCommand(commandArgs, true, silent);
-                    case "--disable-plugin":
-                        return HandlePluginCommand(commandArgs, false, silent);
-                    case "--set-league-path":
-                        return HandleSetLeaguePath(commandArgs, silent);
-                    case "--get-league-path":
-                        return HandleGetLeaguePath(silent);
-                    case "--set-option":
-                        return HandleSetOption(commandArgs, silent);
-                    case "--restart-client":
-                        return HandleRestartClient(silent);
-                    case "--force-activate":
-                        return HandleForceInstall(true, silent);
-                    case "--force-deactivate":
-                        return HandleForceInstall(false, silent);
-
-                    case "--rose-stop":
-                        return HandleRoseStop(commandArgs, silent);
-                    case "--rose-managed":
-                        return HandleRoseManaged(commandArgs, silent);
-                    case "--ui":
-                    case "/ui":
-                    case "--show-ui":
-                        return RunApplication(createdNew, commandArgs.Contains("--allow-managed"));
-                    case "--help":
-                    case "-h":
-                    case "/?":
-                        return ShowHelp(silent);
-                    default:
-                        return NotifyResult(
-                            $"Unknown command '{commandArgs[0]}'. Use --help to see available commands.",
-                            silent, MessageBoxImage.Warning, -10);
-                }
+                default:
+                    return NotifyResult(
+                        $"Unknown command '{commandArgs[0]}'. Use --help to see available commands.",
+                        silent, MessageBoxImage.Warning, -10);
             }
         }
 
-        private static int RunApplication(bool createdNew, bool allowExistingInstance)
+        private static int RunApplication()
         {
-            Logger.Info("Program", $"RunApplication called, createdNew={createdNew}, allowExistingInstance={allowExistingInstance}");
-
-            if (!createdNew && !allowExistingInstance)
+            using (var mutex = new Mutex(true, GUI_MUTEX_NAME, out var createdNew))
             {
-                Logger.Info("Program", "Another instance is running, focusing previous instance");
-                Native.SetFocusToPreviousInstance();
+                Logger.Info("Program", $"RunApplication called, createdNew={createdNew}");
+
+                if (!createdNew)
+                {
+                    Logger.Info("Program", "Another instance is running, focusing previous instance");
+                    Native.SetFocusToPreviousInstance();
+                    return 0;
+                }
+
+                if (!Environment.Is64BitOperatingSystem)
+                {
+                    Logger.Warn("Program", "32-bit OS detected, showing deprecation warning");
+                    MessageBox.Show("32-BIT CLIENT DEPRECATION\n\nStarting with LoL patch 13.8, 32-bit Windows is no longer supported. Please upgrade your Windows to 64-bit.",
+                        Name, MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return 1;
+                }
+
+                Logger.Info("Program", "Starting WPF application");
+                App.Main();
+                Logger.Info("Program", "WPF application closed");
                 return 0;
             }
-
-            if (!Environment.Is64BitOperatingSystem)
-            {
-                Logger.Warn("Program", "32-bit OS detected, showing deprecation warning");
-                MessageBox.Show("32-BIT CLIENT DEPRECATION\n\nStarting with LoL patch 13.8, 32-bit Windows is no longer supported. Please upgrade your Windows to 64-bit.",
-                    Name, MessageBoxButton.OK, MessageBoxImage.Warning);
-                return 1;
-            }
-
-            Logger.Info("Program", "Starting WPF application");
-            App.Main();
-            Logger.Info("Program", "WPF application closed");
-            return 0;
         }
 
-        private static int HandleInstall(bool createdNew, bool active, bool silent)
+        private static int HandleInstall(bool active, bool silent)
+        {
+            using (var operationMutex = new Mutex(true, OPERATION_MUTEX_NAME, out var createdNew))
+            {
+                if (!createdNew)
+                {
+                    return NotifyResult("Another Pengu activation operation is already in progress.",
+                        silent, MessageBoxImage.Warning, -1);
+                }
+
+                return HandleInstallCore(active, silent);
+            }
+        }
+
+        private static int HandleInstallCore(bool active, bool silent)
         {
             var action = active ? "activate" : "deactivate";
-            Logger.Info("Program", $"HandleInstall called: action={action}, createdNew={createdNew}, silent={silent}");
+            Logger.Info("Program", $"HandleInstall called: action={action}, silent={silent}");
 
             if (!Module.IsFound)
             {
@@ -190,12 +194,18 @@ namespace PenguLoader
                 return NotifyResult($"Unable to {action} Pengu because `core.dll` was not found next to the loader.", silent, MessageBoxImage.Error, -2);
             }
 
-            if (!createdNew || Module.IsLoaded)
+            // Deactivation only removes the IFEO registration and disables the
+            // loader configuration; it is safe while the client still has the
+            // native module loaded. Activation still requires a closed client.
+            if (active && Module.IsLoaded)
             {
-                Logger.Warn("Program", $"Cannot {action}: createdNew={createdNew}, IsLoaded={Module.IsLoaded}");
+                Logger.Warn("Program", $"Cannot activate: IsLoaded={Module.IsLoaded}");
                 return NotifyResult($"Please close the running League Client and Loader menu before you {action} it.",
                     silent, MessageBoxImage.Warning, -1);
             }
+
+            if (!active && Module.IsLoaded)
+                Logger.Info("Program", "Deactivating while the League client is running; the client will be restarted by Rose.");
 
             if (!LCU.IsValidDir(Config.LeaguePath))
             {
@@ -243,174 +253,6 @@ namespace PenguLoader
             return active ? 0 : 1;
         }
 
-        private static int HandleForceInstall(bool active, bool silent)
-        {
-            var action = active ? "activate" : "deactivate";
-            Logger.Info("Program", $"HandleForceInstall called: action={action}, silent={silent}");
-
-            if (!Module.IsFound)
-            {
-                Logger.Error("Program", "Module (core.dll) not found");
-                return NotifyResult($"Unable to {action} Pengu because `core.dll` was not found next to the loader.",
-                    silent, MessageBoxImage.Error, -2);
-            }
-
-            if (!LCU.IsValidDir(Config.LeaguePath))
-            {
-                Logger.Error("Program", $"League path invalid: {Config.LeaguePath}");
-                return NotifyResult($"Unable to {action} Pengu: League path is not set or invalid. Use --set-league-path to configure it.",
-                    silent, MessageBoxImage.Error, -5);
-            }
-
-            try
-            {
-                Logger.Info("Program", $"Calling Module.SetActive({active}) [FORCE]");
-                if (!Module.SetActive(active))
-                {
-                    Logger.Error("Program", $"SetActive returned false! IsActivated={Module.IsActivated}, IsLoaded={Module.IsLoaded}");
-                    LogFailure($"HandleForceInstall SetActive returned false ({action})",
-                        $"IsActivated={Module.IsActivated}, IsLoaded={Module.IsLoaded}");
-                    return NotifyResult($"Failed to {action} Pengu. Make sure League is closed and try again.",
-                        silent, MessageBoxImage.Error, -3);
-                }
-                Logger.Info("Program", "SetActive succeeded");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Program", $"Exception in HandleForceInstall ({action})", ex);
-                LogFailure($"HandleForceInstall ({action})", ex: ex);
-                return NotifyResult($"Failed to {action} Pengu: {ex.Message}",
-                    silent, MessageBoxImage.Error, -3);
-            }
-
-            Logger.Info("Program", $"HandleForceInstall completed successfully: {action}");
-            NotifyResult($"Pengu has been {(active ? "activated" : "deactivated")}.", silent, MessageBoxImage.Information);
-            return 0;
-        }
-
-        private static string RoseStopEventName(int parentPid)
-        {
-            return $@"Local\Rose.Pengu.Stop.{parentPid}";
-        }
-
-        private static int HandleRoseStop(List<string> commandArgs, bool silent)
-        {
-            if (commandArgs.Count < 2 || !int.TryParse(commandArgs[1], out var parentPid) || parentPid <= 0)
-                return NotifyResult("Usage: --rose-stop <rose-pid>", silent, MessageBoxImage.Warning, -25);
-
-            try
-            {
-                using (var stopEvent = EventWaitHandle.OpenExisting(RoseStopEventName(parentPid)))
-                {
-                    stopEvent.Set();
-                }
-            }
-            catch (WaitHandleCannotBeOpenedException)
-            {
-                // The managed child is already gone or has not created its event yet.
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Program", "Unable to signal the Rose-managed loader.", ex);
-                return NotifyResult("Unable to stop the Rose-managed Pengu Loader.", silent, MessageBoxImage.Error, -26);
-            }
-
-            return 0;
-        }
-
-        private static int HandleRoseManaged(List<string> commandArgs, bool silent)
-        {
-            if (commandArgs.Count < 2 || !int.TryParse(commandArgs[1], out var parentPid) || parentPid <= 0 || parentPid == Process.GetCurrentProcess().Id)
-            {
-                return NotifyResult("Usage: --rose-managed <rose-pid> [--set-league-path <path>]", silent, MessageBoxImage.Warning, -20);
-            }
-
-            var pathIndex = commandArgs.FindIndex(argument => string.Equals(argument, "--set-league-path", StringComparison.OrdinalIgnoreCase));
-            // Rose-owned mode always uses Pengu's original IFEO activation path.
-            // This avoids proxy DLL replacement even if an old local config enabled
-            // the optional symlink mode.
-            Config.SetRuntimeUseSymlink(false);
-
-            if (pathIndex >= 0)
-            {
-                if (pathIndex + 1 >= commandArgs.Count)
-                {
-                    return NotifyResult("Missing League path.", silent, MessageBoxImage.Warning, -20);
-                }
-
-                var leaguePath = string.Join(" ", commandArgs.Skip(pathIndex + 1)).Trim();
-                if (!LCU.IsValidDir(leaguePath))
-                {
-                    return NotifyResult("Invalid League path.", silent, MessageBoxImage.Warning, -20);
-                }
-
-                Config.SetRuntimeLeaguePath(leaguePath);
-            }
-
-            if (!Module.IsFound)
-            {
-                return NotifyResult("core.dll was not found next to Pengu Loader.", silent, MessageBoxImage.Error, -21);
-            }
-
-            if (!LCU.IsValidDir(Config.LeaguePath))
-            {
-                return NotifyResult("League path is not configured.", silent, MessageBoxImage.Warning, -22);
-            }
-
-            Process roseProcess = null;
-            EventWaitHandle stopEvent = null;
-            var activated = false;
-            try
-            {
-                stopEvent = new EventWaitHandle(false, EventResetMode.ManualReset, RoseStopEventName(parentPid));
-
-                roseProcess = Process.GetProcessById(parentPid);
-                if (roseProcess.HasExited)
-                {
-                    return 0;
-                }
-
-                if (!Module.SetActive(true))
-                {
-                    return NotifyResult("Unable to activate Pengu Loader.", silent, MessageBoxImage.Error, -23);
-                }
-
-                activated = true;
-                Logger.Info("Program", $"Rose-managed loader active; monitoring Rose PID {parentPid}.");
-                while (!stopEvent.WaitOne(1000) && !roseProcess.HasExited)
-                {
-                }
-
-                Logger.Info("Program", "Rose stopped or requested Pengu shutdown; deactivating Pengu Loader.");
-                return 0;
-            }
-            catch (ArgumentException)
-            {
-                return 0;
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Program", $"Rose-managed loader failed: {ex}");
-                return NotifyResult("Rose-managed Pengu Loader stopped unexpectedly.", silent, MessageBoxImage.Error, -24);
-            }
-            finally
-            {
-                if (activated)
-                {
-                    try
-                    {
-                        Module.SetActive(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error("Program", $"Unable to deactivate Rose-managed loader: {ex}");
-                    }
-                }
-
-                stopEvent?.Dispose();
-                roseProcess?.Dispose();
-            }
-        }
         private static int ShowHelp(bool silent)
         {
             var messageBuilder = new StringBuilder();
@@ -433,9 +275,6 @@ namespace PenguLoader
                 .AppendLine("  --set-option <key> <value>     Update loader options")
                 .AppendLine("                                  keys: optimize-client, super-low-spec, language")
                 .AppendLine("  --restart-client               Ask the League Client UX to restart")
-                .AppendLine("  --force-activate               Force Pengu activation even if the client is running")
-                .AppendLine("  --force-deactivate             Force Pengu deactivation even if the client is running")
-                .AppendLine("  --rose-managed <pid> ...       Run as a Rose-owned background loader")
                 .AppendLine("  --ui                           Launch the legacy graphical interface")
                 .AppendLine("  --help                         Show this message")
                 .AppendLine()

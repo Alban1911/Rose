@@ -25,8 +25,11 @@ def signal_handler(signum, frame):
         pengu_loader.deactivate_on_exit()
     except Exception:
         pass
-    # Force exit if we're stuck
-    os._exit(0)
+    # Let run_league_unlock() reach its finally block so the thread manager,
+    # tray and injection processes are cleaned up as well.  The direct Pengu
+    # deactivation above remains a safety net for signals received early in
+    # startup, before the main cleanup scope exists.
+    raise KeyboardInterrupt
 
 
 def force_quit_handler():

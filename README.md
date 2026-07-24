@@ -130,18 +130,18 @@ python scripts/build_pengu_loader.py
 Build Rose and automatically rebuild the loader:
 
 ```powershell
-python build_pyinstaller.py
+python scripts/build_pyinstaller.py
 ```
 
 The packaged application is written to `dist/Rose/`. To build both Rose and
 the Windows installer in one step:
 
 ```powershell
-python build_all.py
+python scripts/build_all.py
 ```
 
 The installer is written to `installer/Rose_Setup.exe`. Use
-`build_pyinstaller.py` or `build_all.py` instead of invoking
+`scripts/build_pyinstaller.py` or `scripts/build_all.py` instead of invoking
 `pyinstaller Rose.spec` directly, because the Rose build scripts compile
 Pengu Loader first.
 

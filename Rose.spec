@@ -110,7 +110,7 @@ def _pengu_path_excluded(rel_path: Path) -> bool:
 
 if pengu_loader_dir.exists() and pengu_loader_dir.is_dir():
     if not (pengu_loader_dir / 'Pengu Loader.exe').exists():
-        raise RuntimeError("Source-built Pengu Loader.exe is missing. Run build_pyinstaller.py first.")
+        raise RuntimeError("Source-built Pengu Loader.exe is missing. Run scripts/build_pyinstaller.py first.")
 
     bundled_count = 0
     skipped = []

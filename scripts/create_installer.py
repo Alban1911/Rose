@@ -9,6 +9,8 @@ import subprocess
 import shutil
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
 try:
     from PIL import Image
     PIL_AVAILABLE = True
@@ -69,17 +71,17 @@ def create_installer():
     print(f"Found Inno Setup: {iscc_path}")
     
     # Check if dist directory exists
-    if not Path("dist/Rose").exists():
+    if not (ROOT / "dist/Rose").exists():
         print("\nError: dist/Rose directory not found!")
-        print("Please run 'python build_pyinstaller.py' first to create the executable.")
+        print("Please run 'python scripts/build_pyinstaller.py' first to create the executable.")
         return False
     
     # Create installer directory
-    installer_dir = Path("installer")
+    installer_dir = ROOT / "installer"
     installer_dir.mkdir(exist_ok=True)
     
     # Check if installer script exists
-    if not Path("installer.iss").exists():
+    if not (ROOT / "installer.iss").exists():
         print("Error: installer.iss not found!")
         return False
     
@@ -87,8 +89,8 @@ def create_installer():
     
     # Convert tray_ready.png to ICO format for installer
     # Inno Setup requires ICO format for SetupIconFile
-    png_icon = Path("assets/tray_ready.png")
-    ico_icon = Path("assets/icon.ico")
+    png_icon = ROOT / "assets/tray_ready.png"
+    ico_icon = ROOT / "assets/icon.ico"
     
     if png_icon.exists() and PIL_AVAILABLE:
         try:
@@ -113,7 +115,7 @@ def create_installer():
         return False
     
     # Copy icon file to dist directory if it doesn't exist
-    icon_dst = Path("dist/Rose/icon.ico")
+    icon_dst = ROOT / "dist/Rose/icon.ico"
     if ico_icon.exists() and not icon_dst.exists():
         shutil.copy2(ico_icon, icon_dst)
         print(f"Copied {ico_icon} to {icon_dst}")
@@ -121,10 +123,10 @@ def create_installer():
     print("\n[2/3] Compiling installer...")
     
     # Compile the installer
-    cmd = [iscc_path, "installer.iss"]
+    cmd = [iscc_path, str(ROOT / "installer.iss")]
     print(f"Running: {' '.join(cmd)}")
     
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
     
     if result.returncode != 0:
         print("Installer compilation failed!")

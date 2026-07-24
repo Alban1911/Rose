@@ -12,6 +12,9 @@ import time
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 MIN_PYTHON = (3, 11)
 if sys.version_info < MIN_PYTHON:
     sys.stderr.write(
@@ -42,15 +45,16 @@ def clean_previous_builds():
     dirs_to_clean = ["dist"]
     
     for dir_name in dirs_to_clean:
-        if Path(dir_name).exists():
+        directory = ROOT / dir_name
+        if directory.exists():
             try:
-                shutil.rmtree(dir_name)
+                shutil.rmtree(directory)
                 print(f"[OK] Removed {dir_name}/")
             except Exception as e:
                 print(f"[ERROR] Failed to remove {dir_name}/: {e}")
     
     # Check if build cache exists
-    if Path("build").exists():
+    if (ROOT / "build").exists():
         print("[INFO] Preserved build/ folder for faster incremental builds")
     else:
         print("[INFO] No build/ cache found - this will be a full build")
@@ -65,8 +69,8 @@ def build_pengu_loader():
     """Build the vendored Pengu Loader source before packaging Rose."""
     print_step(2, 4, "Building Pengu Loader From Source")
 
-    script = Path(__file__).resolve().parent / "scripts" / "build_pengu_loader.py"
-    result = subprocess.run([sys.executable, str(script)], check=False)
+    script = ROOT / "scripts" / "build_pengu_loader.py"
+    result = subprocess.run([sys.executable, str(script)], check=False, cwd=ROOT)
     if result.returncode != 0:
         print(f"[ERROR] Pengu Loader source build failed with exit code {result.returncode}")
         return False
@@ -89,7 +93,7 @@ def build_with_pyinstaller():
     print(f"Running: {' '.join(cmd)}\n")
     
     try:
-        result = subprocess.run(cmd, check=True)
+        result = subprocess.run(cmd, check=True, cwd=ROOT)
         print("\n[OK] PyInstaller build completed successfully!")
         return True
     except subprocess.CalledProcessError as e:
@@ -101,7 +105,7 @@ def organize_output():
     """Organize output files and verify"""
     print_step(4, 4, "Organizing Output & Verification")
     
-    dist_folder = Path("dist/Rose")
+    dist_folder = ROOT / "dist/Rose"
     
     if not dist_folder.exists():
         print("[ERROR] Build output not found!")
@@ -136,7 +140,7 @@ def main():
     
     print_header("[OK] BUILD COMPLETED SUCCESSFULLY!")
     
-    exe_path = Path("dist/Rose/Rose.exe")
+    exe_path = ROOT / "dist/Rose/Rose.exe"
     
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)

@@ -11,6 +11,9 @@ import time
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 MIN_PYTHON = (3, 11)
 if sys.version_info < MIN_PYTHON:
     sys.stderr.write(
@@ -39,9 +42,10 @@ def run_build_exe():
     
     # Run build_pyinstaller.py as a subprocess
     result = subprocess.run(
-        [sys.executable, "build_pyinstaller.py"],
+        [sys.executable, str(ROOT / "scripts" / "build_pyinstaller.py")],
         capture_output=False,  # Show output in real-time
-        text=True
+        text=True,
+        cwd=ROOT,
     )
     
     if result.returncode != 0:
@@ -49,7 +53,7 @@ def run_build_exe():
         return False
     
     # Verify the executable was created
-    exe_path = Path("dist/Rose/Rose.exe")
+    exe_path = ROOT / "dist/Rose/Rose.exe"
     if not exe_path.exists():
         print("\n[ERROR] Executable not found at expected location!")
         return False
@@ -64,9 +68,10 @@ def run_create_installer():
     
     # Run create_installer.py as a subprocess
     result = subprocess.run(
-        [sys.executable, "create_installer.py"],
+        [sys.executable, str(ROOT / "scripts" / "create_installer.py")],
         capture_output=False,  # Show output in real-time
-        text=True
+        text=True,
+        cwd=ROOT,
     )
     
     if result.returncode != 0:
@@ -74,7 +79,7 @@ def run_create_installer():
         return False
     
     # Verify the installer was created
-    installer_dir = Path("installer")
+    installer_dir = ROOT / "installer"
     installer_files = list(installer_dir.glob("Rose_Setup*.exe"))
     if not installer_files:
         print("\n[ERROR] Installer not found at expected location!")
@@ -137,7 +142,7 @@ def build_all():
         print("  dist/Rose/Rose.exe")
         print("\nTo create the installer:")
         print("1. Install Inno Setup from: https://jrsoftware.org/isdl.php")
-        print("2. Run: python create_installer.py")
+        print("2. Run: python scripts/create_installer.py")
         return False
     
     # Success!
@@ -148,8 +153,8 @@ def build_all():
     print_header("[SUCCESS] BUILD COMPLETED SUCCESSFULLY!")
     
     # Get file information
-    exe_path = Path("dist/Rose/Rose.exe")
-    installer_files = list(Path("installer").glob("Rose_Setup*.exe"))
+    exe_path = ROOT / "dist/Rose/Rose.exe"
+    installer_files = list((ROOT / "installer").glob("Rose_Setup*.exe"))
     installer_path = installer_files[0] if installer_files else None
     
     exe_size_mb = exe_path.stat().st_size / (1024 * 1024)
@@ -185,18 +190,18 @@ def main():
     """Main entry point"""
     
     # Check if we're in the right directory
-    if not Path("main.py").exists():
+    if not (ROOT / "main.py").exists():
         print("ERROR: main.py not found!")
         print("Please run this script from the Rose root directory.")
         sys.exit(1)
     
     # Check if build_pyinstaller.py exists
-    if not Path("build_pyinstaller.py").exists():
+    if not (ROOT / "scripts" / "build_pyinstaller.py").exists():
         print("ERROR: build_pyinstaller.py not found!")
         sys.exit(1)
     
     # Check if create_installer.py exists
-    if not Path("create_installer.py").exists():
+    if not (ROOT / "scripts" / "create_installer.py").exists():
         print("ERROR: create_installer.py not found!")
         sys.exit(1)
     

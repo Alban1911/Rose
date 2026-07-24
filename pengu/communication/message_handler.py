@@ -2057,9 +2057,8 @@ class MessageHandler:
                 log.warning(f"[SkinMonitor] Pengu Loader executable not found: {PENGU_EXE}")
                 return
             
-            # Rose keeps a headless managed loader alive, so explicitly allow the UI
-            # process to coexist with that instance.
-            command = [str(PENGU_EXE), "--ui", "--allow-managed"]
+            # No arguments launch Pengu's normal standalone graphical interface.
+            command = [str(PENGU_EXE)]
             
             if sys.platform == "win32":
                 subprocess.Popen(command, cwd=str(PENGU_DIR), creationflags=0)

@@ -11,14 +11,31 @@ This subpackage contains UI and system integration utilities:
 
 from utils.integration.tray_manager import TrayManager
 from utils.integration.pengu_loader import (
-    activate_on_start, deactivate_on_exit, PENGU_DIR, PENGU_EXE
+    PenguStatus,
+    activate,
+    activate_on_start,
+    deactivate,
+    deactivate_on_exit,
+    get_status,
+    is_available,
+    PENGU_DIR,
+    PENGU_EXE,
+    recover_stale_session,
+    restart_client,
 )
 
 __all__ = [
     'TrayManager',
+    'PenguStatus',
+    'activate',
     'activate_on_start',
+    'deactivate',
     'deactivate_on_exit',
+    'get_status',
+    'is_available',
     'PENGU_DIR',
     'PENGU_EXE',
+    'recover_stale_session',
+    'restart_client',
 ]
 
