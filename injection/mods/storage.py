@@ -1370,6 +1370,11 @@ class ModStorageService:
     ) -> Optional[set[int]]:
         cache = self._load_wad_target_cache(champion_id)
         if self._wad_hash_file_signatures.get(champion_id) != hash_file_signature:
+            had_cached_entries = bool(cache)
+            cache.clear()
+            self._wad_hash_file_signatures[champion_id] = hash_file_signature
+            if had_cached_entries:
+                self._wad_target_cache_dirty.add(champion_id)
             return None
         entry = cache.get(self._wad_target_cache_key(candidate, champion_id))
         if not isinstance(entry, dict) or entry.get("wadFiles") != signatures:

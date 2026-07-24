@@ -161,14 +161,17 @@ class WadParserTests(unittest.TestCase):
             mods_root = root / "mods"
             mod_dir = mods_root / "skins" / "134000" / "SyndraMod"
             wad_path = mod_dir / "WAD" / "syndra.wad.client"
-            hashes = root / "hashes.game.txt"
+            hashes = Path(__file__).resolve().parents[1] / "injection" / "tools" / "hashes.game.txt"
             wad_path.parent.mkdir(parents=True)
             write_test_wad(wad_path, *SYNDRA_WAD_TOC_HASHES)
-            target_path = "assets/characters/syndra/skins/skin07/file.tex"
-            hashes.write_text(
-                f"{SYNDRA_WAD_TOC_HASHES[7]:016x} {target_path}" + chr(10),
-                encoding="utf-8",
-            )
+            target_hash = SYNDRA_WAD_TOC_HASHES[8]
+            target_path = "assets/characters/syndra/skins/skin07/syndra_skin07.skn"
+            if not hashes.is_file():
+                hashes = root / "hashes.game.txt"
+                hashes.write_text(
+                    f"{target_hash:016x} {target_path}" + chr(10),
+                    encoding="utf-8",
+                )
 
             service = ModStorageService(mods_root, wad_hash_file=hashes)
             try:
@@ -574,6 +577,52 @@ class WadParserTests(unittest.TestCase):
             )
             self.assertEqual(payload["version"], 3)
             self.assertEqual(payload["hashFile"]["size"], hash_file.stat().st_size)
+
+    def test_hash_file_change_invalidates_all_mod_cache_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            mods_root = root / "mods"
+            skin_dir = mods_root / "skins" / "901000"
+            first_wad = skin_dir / "AMod" / "WAD" / "Smolder.wad.client"
+            second_wad = skin_dir / "BMod" / "WAD" / "Smolder.wad.client"
+            hash_file = root / "hashes.game.txt"
+            target_a = "assets/characters/smolder/skins/skin12/custom_a.tex"
+            target_b = "assets/characters/smolder/skins/skin44/custom_b.tex"
+            first_wad.parent.mkdir(parents=True)
+            second_wad.parent.mkdir(parents=True)
+            write_test_wad(first_wad, hash_wad_path(target_a))
+            write_test_wad(second_wad, hash_wad_path(target_b))
+            hash_file.write_text("# targets not available" + chr(10), encoding="utf-8")
+
+            def fake_extract(_wad_path: Path, output_directory: Path) -> Path:
+                extracted_root = output_directory / "empty.wad"
+                extracted_root.mkdir()
+                return extracted_root
+
+            service = ModStorageService(mods_root, wad_hash_file=hash_file)
+            try:
+                with mock.patch(
+                    "injection.mods.storage.extract_wad_to_directory",
+                    side_effect=fake_extract,
+                ):
+                    initial = service.list_mods_for_skin(901000, "Smolder")
+                    self.assertEqual(
+                        {entry.mod_name: entry.affected_skin_ids for entry in initial},
+                        {"AMod": (901000,), "BMod": (901000,)},
+                    )
+
+                    hash_file.write_text(
+                        f"{hash_wad_path(target_b):016x} {target_b}" + chr(10),
+                        encoding="utf-8",
+                    )
+                    refreshed = service.list_mods_for_skin(901000, "Smolder")
+
+                self.assertEqual(
+                    {entry.mod_name: entry.affected_skin_ids for entry in refreshed},
+                    {"AMod": (901000,), "BMod": (901044,)},
+                )
+            finally:
+                service.stop()
 
 
     def test_watcher_prepares_wad_targets_after_extraction(self) -> None:
