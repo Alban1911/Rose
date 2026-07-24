@@ -103,6 +103,7 @@ class UpdateSequence:
         progress_callback: Callable[[int], None],
         bytes_callback: Optional[Callable[[int, Optional[int]], None]] = None,
         dev_mode: bool = False,
+        confirm_callback: Optional[Callable[[str, str], bool]] = None,
     ) -> bool:
         """Perform update check and installation
         
@@ -110,6 +111,9 @@ class UpdateSequence:
             status_callback: Callback for status updates
             progress_callback: Callback for progress updates
             bytes_callback: Optional callback for download progress
+            confirm_callback: Optional callback invoked before downloading an
+                available update. It receives the remote and local versions
+                and should return True to continue.
             
         Returns:
             True if update was installed, False otherwise
@@ -238,6 +242,27 @@ class UpdateSequence:
         if dev_mode:
             status_callback("Update skipped (dev mode)")
             return False
+
+        if confirm_callback is not None:
+            try:
+                accepted = confirm_callback(remote_version or "unknown", APP_VERSION)
+            except Exception:  # noqa: BLE001
+                updater_log.exception(
+                    "Update confirmation failed; continuing without installing the update.",
+                    exc_info=True,
+                )
+                accepted = False
+
+            if not accepted:
+                status_callback(
+                    f"Update skipped by user ({remote_version or 'new version'} available)"
+                )
+                updater_log.info(
+                    "User declined update from %s to %s.",
+                    APP_VERSION,
+                    remote_version or "unknown",
+                )
+                return False
         
         # Download update
         updates_root = config_path.parent / "updates"

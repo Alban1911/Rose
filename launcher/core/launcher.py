@@ -34,8 +34,12 @@ log = get_logger()
 updater_log = get_named_logger("updater", prefix="log_updater")
 
 MB_ICONERROR = 0x00000010
+MB_ICONINFORMATION = 0x00000040
+MB_YESNO = 0x00000004
+MB_DEFBUTTON2 = 0x00000100
 MB_OK = 0x00000000
 MB_TOPMOST = 0x00040000
+IDYES = 6
 
 
 def _show_error(message: str) -> None:
@@ -68,6 +72,44 @@ def _with_ui_updates(dialog: UpdateDialog) -> tuple[Callable[[str], None], Calla
     return update_status, update_progress
 
 
+def _confirm_update(dialog: UpdateDialog, remote_version: str, local_version: str) -> bool:
+    """Ask whether the user wants to download an available Rose update."""
+    dialog.set_marquee(False)
+    dialog.set_detail("Update available")
+    dialog.set_status(f"Rose {remote_version} is ready to install.")
+    dialog.pump_messages()
+
+    message = (
+        f"A new version of Rose is available.\n\n"
+        f"Current version: {local_version}\n"
+        f"New version: {remote_version}\n\n"
+        "Do you want to download and install it now?"
+    )
+    result = user32.MessageBoxW(
+        dialog.hwnd or None,
+        message,
+        "Rose update available",
+        MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON2 | MB_TOPMOST,
+    )
+    accepted = result == IDYES
+    updater_log.info(
+        "Update prompt answered: %s (current=%s, available=%s).",
+        "accepted" if accepted else "declined",
+        local_version,
+        remote_version,
+    )
+
+    if accepted:
+        dialog.set_detail("Updating Rose...")
+        dialog.set_status("Downloading update...")
+    else:
+        dialog.set_detail("Update skipped")
+        dialog.set_status("Continuing startup...")
+    dialog.set_marquee(accepted)
+    dialog.pump_messages()
+    return accepted
+
+
 def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
     """Perform update check and installation
     
@@ -90,6 +132,11 @@ def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
             lambda _: None,
             bytes_callback=lambda downloaded, total: dialog.update_transfer_progress(downloaded, total),
             dev_mode=dev_mode,
+            confirm_callback=lambda remote_version, local_version: _confirm_update(
+                dialog,
+                remote_version,
+                local_version,
+            ),
         )
         updater_log.info(f"Auto-update completed. Update installed: {updated}")
     except Exception as exc:  # noqa: BLE001
