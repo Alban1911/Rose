@@ -1,20 +1,27 @@
-"""Resolve packed WAD entries into a temporary path tree.
+"""Resolve packed WAD entries to custom-skin targets without unpacking payloads.
 
-Rose only needs the resolved asset paths to identify custom-skin targets.  The
-WAD table of contents stores hashes rather than paths, so this module uses the
-bundled CommunityDragon hash table and materializes the known paths in the
-requested directory.  It deliberately does not copy or decompress payloads.
-Unknown hashes are ignored because they cannot be used to infer a target.
+WAD files store xxHash64 values for their original asset paths in the table of
+contents.  The bundled CommunityDragon hash table resolves those values back
+to paths.  Rose only needs matching character/skin paths to identify targets,
+so this module streams the hash table and keeps no full-database index in
+memory.  Unknown paths remain unresolved and are handled by the storage-folder
+fallback.
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
+import re
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Optional
 
 from .wad_parser import read_wad_path_hashes
+
+
+_SKIN_COMPONENT_RE = re.compile(
+    r"skin[_-]?0*(\d+)(?:\.[^.]+)?$",
+    re.IGNORECASE,
+)
 
 
 def _default_hash_file() -> Path:
@@ -22,7 +29,9 @@ def _default_hash_file() -> Path:
     candidates: list[Path] = []
     if getattr(sys, "frozen", False):
         if hasattr(sys, "_MEIPASS"):
-            candidates.append(Path(sys._MEIPASS) / "injection" / "tools" / "hashes.game.txt")
+            candidates.append(
+                Path(sys._MEIPASS) / "injection" / "tools" / "hashes.game.txt"
+            )
         executable_root = Path(sys.executable).parent
         candidates.extend(
             (
@@ -44,79 +53,120 @@ def _default_hash_file() -> Path:
     return candidates[0]
 
 
-@lru_cache(maxsize=2)
-def _load_hash_paths(
-    path_string: str,
-    mtime_ns: int,
-    size: int,
-) -> dict[int, tuple[str, ...]]:
-    """Load hash-to-path mappings, keyed by the file signature."""
-    del mtime_ns, size
-    mappings: dict[int, list[str]] = {}
-    with Path(path_string).open("r", encoding="utf-8", errors="replace") as stream:
-        for line in stream:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            fields = line.split(maxsplit=1)
-            if len(fields) != 2:
-                continue
-            raw_hash, raw_path = fields
-            try:
-                raw_hash = raw_hash.lower()
-                if raw_hash.startswith("0x"):
-                    raw_hash = raw_hash[2:]
-                path_hash = int(raw_hash, 16)
-            except ValueError:
-                continue
-            resolved_path = raw_path.replace(chr(92), "/").strip("/")
-            if not resolved_path:
-                continue
-            mappings.setdefault(path_hash, []).append(resolved_path)
-    return {path_hash: tuple(paths) for path_hash, paths in mappings.items()}
-
-
-def _read_hash_paths(hash_file: Optional[Path]) -> dict[int, tuple[str, ...]]:
+def get_hash_file_signature(
+    hash_file: Optional[Path] = None,
+) -> Optional[dict[str, int]]:
+    """Return the signature used to invalidate WAD target metadata."""
     path = Path(hash_file) if hash_file is not None else _default_hash_file()
-    stat = path.stat()
-    return _load_hash_paths(str(path), stat.st_mtime_ns, stat.st_size)
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
-def _safe_resolved_path(output_directory: Path, resolved_path: str) -> Optional[Path]:
-    """Return a safe output path for a trusted hash-table entry."""
-    relative = PurePosixPath(resolved_path)
-    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+def _parse_hash_line(line: str) -> Optional[tuple[int, str]]:
+    line = line.strip()
+    if not line or line.startswith("#"):
         return None
 
-    target = output_directory.joinpath(*relative.parts)
+    fields = line.split(maxsplit=1)
+    if len(fields) != 2:
+        return None
+
+    raw_hash, raw_path = fields
     try:
-        target.resolve().relative_to(output_directory.resolve())
+        raw_hash = raw_hash.lower()
+        if raw_hash.startswith("0x"):
+            raw_hash = raw_hash[2:]
+        path_hash = int(raw_hash, 16)
     except ValueError:
         return None
-    return target
+
+    resolved_path = raw_path.replace(chr(92), "/").strip("/")
+    if not resolved_path:
+        return None
+    return path_hash, resolved_path
 
 
-def extract_wad_to_directory(
+def _normalized_champion_path_names(champion_name: str) -> set[str]:
+    compact_name = re.sub(r"[^a-z0-9]", "", str(champion_name).casefold())
+    if not compact_name:
+        return set()
+
+    names = {compact_name}
+    aliases = {
+        "wukong": "monkeyking",
+        "nunuandwillump": "nunu",
+        "renataglasc": "renata",
+    }
+    for source, alias in aliases.items():
+        if compact_name == source:
+            names.add(alias)
+        elif compact_name == alias:
+            names.add(source)
+    return names
+
+
+def _skin_id_from_resolved_path(
+    resolved_path: str,
+    champion_id: int,
+    champion_path_names: set[str],
+) -> Optional[int]:
+    parts = tuple(part for part in resolved_path.split("/") if part)
+    normalized_parts = tuple(part.casefold() for part in parts)
+    for index in range(len(parts) - 4):
+        if normalized_parts[index] not in {"data", "assets"}:
+            continue
+        if normalized_parts[index + 1] != "characters":
+            continue
+        if normalized_parts[index + 2] not in champion_path_names:
+            continue
+        if normalized_parts[index + 3] != "skins":
+            continue
+
+        match = _SKIN_COMPONENT_RE.fullmatch(parts[index + 4])
+        if not match:
+            continue
+        suffix = int(match.group(1))
+        return suffix if suffix >= 1000 else int(champion_id) * 1000 + suffix
+    return None
+
+
+def resolve_wad_skin_targets(
     wad_path: Path,
-    output_directory: Path,
+    champion_id: int,
+    champion_name: str,
     hash_file: Optional[Path] = None,
-) -> None:
-    """Materialize resolved WAD paths below *output_directory*.
+) -> set[int]:
+    """Resolve known WAD paths to skin IDs using bounded memory.
 
-    This is intentionally a path-only extraction.  Target detection does not
-    need asset bytes, and avoiding payload decompression keeps the fallback
-    cheap and independent from optional compression libraries.
+    The WAD TOC is read into a set of hashes, then the CommunityDragon hash
+    file is streamed line by line.  Only rows whose hash occurs in the WAD
+    are parsed for a matching data/assets champion skin path.  This does not
+    decompress WAD payloads; if all relevant hashes are unknown, the caller
+    must use the storage-folder fallback or explicit metadata.
     """
-    wad_path = Path(wad_path)
-    output_directory = Path(output_directory)
-    output_directory.mkdir(parents=True, exist_ok=True)
+    wanted_hashes = read_wad_path_hashes(Path(wad_path))
+    champion_path_names = _normalized_champion_path_names(champion_name)
+    if not wanted_hashes or not champion_path_names:
+        return set()
 
-    path_hashes = read_wad_path_hashes(wad_path)
-    hash_paths = _read_hash_paths(hash_file)
-    for path_hash in path_hashes:
-        for resolved_path in hash_paths.get(path_hash, ()):
-            target = _safe_resolved_path(output_directory, resolved_path)
-            if target is None:
+    path = Path(hash_file) if hash_file is not None else _default_hash_file()
+    targets: set[int] = set()
+    with path.open("r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            parsed = _parse_hash_line(line)
+            if parsed is None:
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.touch(exist_ok=True)
+            path_hash, resolved_path = parsed
+            if path_hash not in wanted_hashes:
+                continue
+            skin_id = _skin_id_from_resolved_path(
+                resolved_path,
+                champion_id,
+                champion_path_names,
+            )
+            if skin_id is not None:
+                targets.add(skin_id)
+    return targets

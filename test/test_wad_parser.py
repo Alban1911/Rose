@@ -8,12 +8,47 @@ from unittest import mock
 from pathlib import Path
 
 from injection.mods.storage import ModStorageService
-from injection.mods.wad_extractor import extract_wad_to_directory
+from injection.mods.wad_extractor import resolve_wad_skin_targets
 from injection.mods.wad_parser import (
     find_matching_wad_paths,
     hash_wad_path,
     read_wad_path_hashes,
     xxhash64,
+)
+SYNDRA_WAD_TOC_HASHES = (
+    0x0545BDC8C387EF08,
+    0x0653A2647A883EE0,
+    0x2C03077C0B061387,
+    0x368223119C852368,
+    0x512C63DF3B426B30,
+    0x526E09DBB42093DD,
+    0x566B632DC405CF0D,
+    0x5BE1615DC82A7F88,
+    0x66569547FD84F437,
+    0x668A2B3A29AE64EA,
+    0x6A5BDBB48F7AF97B,
+    0x7A38568CC8036E9E,
+    0x7AEAB92AD94BD86A,
+    0x7E8B536DC4054EC6,
+    0x804A31351AA8F6A2,
+    0x83CA43E6BF7D95C2,
+    0x87DD418BAE0295E9,
+    0x8E2ED1F3C8ECC589,
+    0x8FCA1D50B2A964D2,
+    0x970CD877BADFDFF0,
+    0x9BC79411AE48B837,
+    0x9DBF22B651340D49,
+    0xA7088626D9B4C61E,
+    0xAA03FDD066C204C1,
+    0xB2A3DB000C9E122A,
+    0xB2B28D78F9DF1C9A,
+    0xB629DC81B6C72C53,
+    0xC82D570E51E728D1,
+    0xD36A43FE72F123BA,
+    0xD92BE1DA49C59FA4,
+    0xF38C4F6D19E93900,
+    0xF9FD25FA073E0DCB,
+    0xFA12D1D428522F77,
 )
 
 
@@ -94,11 +129,10 @@ class WadParserTests(unittest.TestCase):
                 {134007, 134008, 134009, 134044},
             )
 
-    def test_path_only_wad_extractor_materializes_resolved_paths(self) -> None:
+    def test_wad_path_resolution_streams_known_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             wad_path = root / "Syndra.wad.client"
-            output = root / "output"
             hashes = root / "hashes.game.txt"
             target_path = "assets/characters/syndra/skins/skin07/file.tex"
             write_test_wad(wad_path, hash_wad_path(target_path))
@@ -107,9 +141,10 @@ class WadParserTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            extract_wad_to_directory(wad_path, output, hashes)
-
-            self.assertTrue((output / target_path).is_file())
+            self.assertEqual(
+                resolve_wad_skin_targets(wad_path, 134, "Syndra", hashes),
+                {134007},
+            )
     def test_matches_candidate_skin_path(self) -> None:
         target_path = "data/characters/ahri/skins/skin33.bin"
         self.assertEqual(
@@ -120,14 +155,28 @@ class WadParserTests(unittest.TestCase):
             {103033},
         )
 
-    def test_reads_real_v34_wad(self) -> None:
-        wad_path = Path(
-            r"C:\Users\Alban\AppData\Local\Rose\mods\skins\901000\Midnight Ink\WAD\Smolder.wad.client"
-        )
-        if not wad_path.is_file():
-            self.skipTest("local Smolder WAD is not available")
-        hashes = read_wad_path_hashes(wad_path)
-        self.assertEqual(len(hashes), 40)
+    def test_reported_syndra_wad_fixture_resolves_known_asset_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            mods_root = root / "mods"
+            mod_dir = mods_root / "skins" / "134000" / "SyndraMod"
+            wad_path = mod_dir / "WAD" / "syndra.wad.client"
+            hashes = root / "hashes.game.txt"
+            wad_path.parent.mkdir(parents=True)
+            write_test_wad(wad_path, *SYNDRA_WAD_TOC_HASHES)
+            target_path = "assets/characters/syndra/skins/skin07/file.tex"
+            hashes.write_text(
+                f"{SYNDRA_WAD_TOC_HASHES[7]:016x} {target_path}" + chr(10),
+                encoding="utf-8",
+            )
+
+            service = ModStorageService(mods_root, wad_hash_file=hashes)
+            try:
+                entries = service.list_mods_for_skin(134000, "Syndra")
+                self.assertEqual(entries[0].affected_skin_ids, (134007,))
+                self.assertEqual(len(read_wad_path_hashes(wad_path)), 33)
+            finally:
+                service.stop()
     def test_storage_resolves_wad_targets_without_extracting(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             mods_root = Path(temp_dir) / "mods"
@@ -140,11 +189,10 @@ class WadParserTests(unittest.TestCase):
             )
 
             service = ModStorageService(mods_root)
-            with mock.patch(
-                "injection.mods.storage.extract_wad_to_directory"
-            ) as extractor:
+            try:
                 entries = service.list_mods_for_skin(103000, "Ahri")
-                extractor.assert_not_called()
+            finally:
+                service.stop()
             self.assertEqual(len(entries), 1)
             self.assertIn(103033, entries[0].affected_skin_ids)
             self.assertTrue(wad_path.is_file())
@@ -194,65 +242,52 @@ class WadParserTests(unittest.TestCase):
             finally:
                 service.stop()
 
-    def test_empty_toc_uses_extraction_and_cleans_temporary_directory(self) -> None:
+    def test_known_path_resolution_fallback_detects_target_without_unpacking(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             mods_root = Path(temp_dir) / "mods"
             mod_dir = mods_root / "skins" / "134000" / "SyndraMod"
             mod_dir.mkdir(parents=True)
-            wad_path = mod_dir / "Syndra.wad.client"
-            write_test_wad(
-                wad_path,
-                hash_wad_path("assets/characters/syndra/skins/skin07/custom.tex"),
+            wad_path = mod_dir / "WAD" / "Syndra.wad.client"
+            hash_file = Path(temp_dir) / "hashes.game.txt"
+            target_path = "assets/characters/syndra/skins/skin07/custom.tex"
+            wad_path.parent.mkdir(parents=True)
+            write_test_wad(wad_path, hash_wad_path(target_path))
+            hash_file.write_text(
+                f"{hash_wad_path(target_path):016x} {target_path}" + chr(10),
+                encoding="utf-8",
             )
-            extraction_roots: list[Path] = []
 
-            def fake_extract(_wad_path: Path, output_directory: Path) -> None:
-                extraction_roots.append(output_directory)
-                write_asset(
-                    output_directory,
-                    "assets/characters/syndra/skins/skin07/file.tex",
-                )
-
-            service = ModStorageService(mods_root)
+            service = ModStorageService(mods_root, wad_hash_file=hash_file)
             try:
-                with mock.patch(
-                    "injection.mods.storage.extract_wad_to_directory",
-                    side_effect=fake_extract,
-                ) as extractor:
-                    entries = service.list_mods_for_skin(134000, "Syndra")
-                    extractor.assert_called_once()
+                entries = service.list_mods_for_skin(134000, "Syndra")
                 self.assertEqual(entries[0].affected_skin_ids, (134007,))
-                self.assertFalse(extraction_roots[0].exists())
             finally:
                 service.stop()
 
-    def test_extraction_failure_uses_storage_fallback_and_is_not_cached(self) -> None:
+    def test_path_resolution_failure_uses_storage_fallback_and_is_not_cached(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             mods_root = Path(temp_dir) / "mods"
             mod_dir = mods_root / "skins" / "901000" / "BrokenMod"
             mod_dir.mkdir(parents=True)
             wad_path = mod_dir / "Smolder.wad.client"
             write_test_wad(wad_path, hash_wad_path("unknown/file.bin"))
-            extraction_roots: list[Path] = []
 
-            def fail_extract(_wad_path: Path, output_directory: Path) -> None:
-                extraction_roots.append(output_directory)
-                raise RuntimeError("test extraction failure")
+            def fail_resolution(*_args) -> set[int]:
+                raise RuntimeError("test path resolution failure")
 
             service = ModStorageService(mods_root)
             try:
                 with mock.patch(
-                    "injection.mods.storage.extract_wad_to_directory",
-                    side_effect=fail_extract,
+                    "injection.mods.storage.resolve_wad_skin_targets",
+                    side_effect=fail_resolution,
                 ):
                     entries = service.list_mods_for_skin(901000, "Smolder")
                 self.assertEqual(entries[0].affected_skin_ids, (901000,))
-                self.assertFalse(extraction_roots[0].exists())
                 self.assertFalse((mods_root / "skins" / "901000" / "rose_wad_targets.json").exists())
             finally:
                 service.stop()
 
-    def test_extraction_targets_are_cached(self) -> None:
+    def test_path_resolution_targets_are_cached(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             mods_root = Path(temp_dir) / "mods"
             mod_dir = mods_root / "skins" / "901000" / "ExtractedMod"
@@ -263,23 +298,20 @@ class WadParserTests(unittest.TestCase):
                 hash_wad_path("assets/characters/smolder/skins/skin44/custom.tex"),
             )
 
-            def fake_extract(_wad_path: Path, output_directory: Path) -> None:
-                write_asset(
-                    output_directory,
-                    "assets/characters/smolder/skins/skin44/file.tex",
-                )
+            def fake_resolution(*_args) -> set[int]:
+                return {901044}
 
             service = ModStorageService(mods_root)
             try:
                 with mock.patch(
-                    "injection.mods.storage.extract_wad_to_directory",
-                    side_effect=fake_extract,
-                ) as extractor:
+                    "injection.mods.storage.resolve_wad_skin_targets",
+                    side_effect=fake_resolution,
+                ) as resolver:
                     first = service.list_mods_for_skin(901000, "Smolder")
                     second = service.list_mods_for_skin(901000, "Smolder")
                 self.assertEqual(first[0].affected_skin_ids, (901044,))
                 self.assertEqual(second[0].affected_skin_ids, (901044,))
-                extractor.assert_called_once()
+                resolver.assert_called_once()
             finally:
                 service.stop()
 
@@ -310,21 +342,18 @@ class WadParserTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            def fake_extract(_wad_path: Path, output_directory: Path) -> None:
-                write_asset(
-                    output_directory,
-                    "assets/characters/smolder/skins/skin44/file.tex",
-                )
+            def fake_resolution(*_args) -> set[int]:
+                return {901044}
 
             service = ModStorageService(mods_root)
             try:
                 with mock.patch(
-                    "injection.mods.storage.extract_wad_to_directory",
-                    side_effect=fake_extract,
-                ) as extractor:
+                    "injection.mods.storage.resolve_wad_skin_targets",
+                    side_effect=fake_resolution,
+                ) as resolver:
                     entries = service.list_mods_for_skin(901000, "Smolder")
                 self.assertEqual(entries[0].affected_skin_ids, (901044,))
-                extractor.assert_called_once()
+                resolver.assert_called_once()
             finally:
                 service.stop()
 
@@ -450,6 +479,37 @@ class WadParserTests(unittest.TestCase):
                 self.assertFalse(archive.exists())
             finally:
                 service.stop()
+
+    def test_wad_target_cache_invalidates_when_hash_file_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mods_root = Path(temp_dir) / "mods"
+            mod_dir = mods_root / "skins" / "901000" / "ChangingHash"
+            wad_path = mod_dir / "WAD" / "Smolder.wad.client"
+            hash_file = Path(temp_dir) / "hashes.game.txt"
+            target_path = "assets/characters/smolder/skins/skin44/custom.tex"
+            wad_path.parent.mkdir(parents=True)
+            write_test_wad(wad_path, hash_wad_path(target_path))
+            hash_file.write_text("# target path not available" + chr(10), encoding="utf-8")
+
+            service = ModStorageService(mods_root, wad_hash_file=hash_file)
+            try:
+                first = service.list_mods_for_skin(901000, "Smolder")
+                self.assertEqual(first[0].affected_skin_ids, (901000,))
+
+                hash_file.write_text(
+                    f"{hash_wad_path(target_path):016x} {target_path}" + chr(10),
+                    encoding="utf-8",
+                )
+                second = service.list_mods_for_skin(901000, "Smolder")
+                self.assertEqual(second[0].affected_skin_ids, (901044,))
+            finally:
+                service.stop()
+
+            payload = json.loads(
+                (mods_root / "skins" / "901000" / "rose_wad_targets.json").read_text()
+            )
+            self.assertEqual(payload["version"], 3)
+            self.assertEqual(payload["hashFile"]["size"], hash_file.stat().st_size)
 
 
     def test_watcher_prepares_wad_targets_after_extraction(self) -> None:
