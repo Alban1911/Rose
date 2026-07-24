@@ -1188,10 +1188,13 @@ class ModStorageService:
                 champion_name,
             )
             discovered.update(fast_targets)
-            if fast_targets:
-                continue
 
-            if fast_scan_complete:
+            if fast_targets:
+                log.info(
+                    "[ModStorage] WAD TOC found targets; resolving additional known paths in %s",
+                    wad_file,
+                )
+            elif fast_scan_complete:
                 log.info(
                     "[ModStorage] WAD TOC scan found no targets; resolving known paths in %s",
                     wad_file,
@@ -1208,6 +1211,8 @@ class ModStorageService:
             )
             discovered.update(resolved_targets)
             if resolved_targets:
+                continue
+            if fast_targets:
                 continue
 
             if resolution_complete:

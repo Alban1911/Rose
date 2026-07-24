@@ -181,6 +181,37 @@ class WadParserTests(unittest.TestCase):
             finally:
                 service.stop()
 
+    def test_packed_wad_preserves_mixed_fast_and_secondary_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            mods_root = root / "mods"
+            mod_dir = mods_root / "skins" / "134000" / "MixedSyndraMod"
+            wad_path = mod_dir / "WAD" / "syndra.wad.client"
+            hash_file = root / "hashes.game.txt"
+            fast_path = "data/characters/syndra/skins/skin7.bin"
+            secondary_path = "assets/characters/syndra/skins/skin44/custom.tex"
+            wad_path.parent.mkdir(parents=True)
+            write_test_wad(
+                wad_path,
+                hash_wad_path(fast_path),
+                hash_wad_path(secondary_path),
+            )
+            hash_file.write_text(
+                f"{hash_wad_path(secondary_path):016x} {secondary_path}" + chr(10),
+                encoding="utf-8",
+            )
+
+            service = ModStorageService(mods_root, wad_hash_file=hash_file)
+            try:
+                with mock.patch(
+                    "injection.mods.storage.extract_wad_to_directory",
+                ) as extractor:
+                    entries = service.list_mods_for_skin(134000, "Syndra")
+                self.assertEqual(entries[0].affected_skin_ids, (134007, 134044))
+                extractor.assert_not_called()
+            finally:
+                service.stop()
+
     def test_extracted_wad_directory_without_client_suffix_is_detected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             mods_root = Path(temp_dir) / "mods"
