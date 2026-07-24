@@ -35,6 +35,7 @@ import os
 # NOTE: cslol-dll.dll is NOT included - users must provide their own due to DMCA
 injection_binaries = [
     'injection/tools/mod-tools.exe',
+    'injection/tools/wad-extract.exe',
 ]
 # Data files (text files, etc.)
 injection_data_files = [
