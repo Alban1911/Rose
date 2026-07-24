@@ -73,8 +73,9 @@ namespace PenguLoader
                 if (trans != null && trans is string)
                     return trans as string;
             }
-            catch
+            catch (Exception ex)
             {
+                Logger.Error("App", "Failed to resolve translation", ex);
             }
 
             return string.Format("%{0}", key);

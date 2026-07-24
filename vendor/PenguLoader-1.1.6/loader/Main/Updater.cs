@@ -153,6 +153,7 @@ namespace PenguLoader.Main
             }
             catch (Exception ex)
             {
+                Logger.Error("Updater", "Failed to check update", ex);
                 MessageBox.Show(MainWindow.Instance,
                     "Failed to check update.\n" + ex.Message,
                     Program.Name, MessageBoxButton.OK, MessageBoxImage.Warning);

@@ -91,12 +91,12 @@ except Exception as e:
 # leak local test data into the shipped installer.
 pengu_loader_dir = Path('Pengu Loader')
 PENGU_LOADER_EXCLUDED_ROOT_NAMES = {
-    'rose.log',
-    'crash.log',
+    'pengu.log',
+    'pengu.log.old',
     'config',
     'datastore',
 }
-PENGU_LOADER_EXCLUDED_SUFFIXES = {'.log'}
+PENGU_LOADER_EXCLUDED_SUFFIXES = {'.log', '.log.old'}
 
 def _pengu_path_excluded(rel_path: Path) -> bool:
     # Exclude only from root folder

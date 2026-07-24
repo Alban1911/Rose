@@ -109,7 +109,7 @@ namespace PenguLoader.Views
                     {
                         Logger.Error("MainPage", $"SetActive FAILED! Requested {value} but activation state is {Module.IsActivated}");
                         MessageBox.Show(Owner,
-                            $"Failed to {(value ? "activate" : "deactivate")} Rose. Check rose.log for details.",
+                            $"Failed to {(value ? "activate" : "deactivate")} Rose. Check pengu.log for details.",
                             Program.Name, MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
 
@@ -141,7 +141,7 @@ namespace PenguLoader.Views
                     if (ex.InnerException != null)
                         msg += string.Format("\n\nERR2: {0}\n{1}", ex.InnerException.Message, ex.InnerException.StackTrace);
 
-                    msg += "\n\nCheck rose.log for more details.\n\nOpen issues page?";
+                    msg += "\n\nCheck pengu.log for more details.\n\nOpen issues page?";
 
                     if (MessageBox.Show(Owner, msg, Program.Name, MessageBoxButton.YesNo, MessageBoxImage.Warning)
                         == MessageBoxResult.Yes)

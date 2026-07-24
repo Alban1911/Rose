@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 
@@ -15,7 +16,7 @@ namespace PenguLoader.Main
             get
             {
                 if (_logPath == null)
-                    _logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rose.log");
+                    _logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pengu.log");
                 return _logPath;
             }
         }
@@ -44,13 +45,17 @@ namespace PenguLoader.Main
             }
             catch { }
 
-            Info("Logger", "=== Rose Loader Started ===");
+            Info("Logger", "============================================================");
+            Info("Logger", "Pengu Loader invocation");
+            Info("Logger", $"Timestamp: {DateTime.Now:O}");
             Info("Logger", $"Version: {Program.VERSION}");
+            Info("Logger", $"PID: {Process.GetCurrentProcess().Id}");
+            Info("Logger", $"BaseDir: {AppDomain.CurrentDomain.BaseDirectory}");
+            Info("Logger", $"CommandLine: {Environment.CommandLine}");
             Info("Logger", $"OS: {Environment.OSVersion}");
             Info("Logger", $"64-bit OS: {Environment.Is64BitOperatingSystem}");
             Info("Logger", $"64-bit Process: {Environment.Is64BitProcess}");
-            Info("Logger", $"BaseDir: {AppDomain.CurrentDomain.BaseDirectory}");
-            Info("Logger", $"CommandLine: {Environment.CommandLine}");
+            Info("Logger", "============================================================");
         }
 
         public static void Info(string source, string message)
@@ -72,18 +77,21 @@ namespace PenguLoader.Main
         {
             var sb = new StringBuilder();
             sb.AppendLine(message);
-            sb.AppendLine($"  Exception: {ex.GetType().FullName}");
-            sb.AppendLine($"  Message: {ex.Message}");
-            sb.AppendLine($"  StackTrace: {ex.StackTrace}");
+            AppendException(sb, ex, "Exception");
+            Write("ERROR", source, sb.ToString());
+        }
+
+        private static void AppendException(StringBuilder sb, Exception ex, string label)
+        {
+            if (ex == null)
+                return;
+
+            sb.AppendLine($"  {label}: {ex.GetType().FullName}");
+            sb.AppendLine($"  {label}Message: {ex.Message}");
+            sb.AppendLine($"  {label}StackTrace: {ex.StackTrace}");
 
             if (ex.InnerException != null)
-            {
-                sb.AppendLine($"  InnerException: {ex.InnerException.GetType().FullName}");
-                sb.AppendLine($"  InnerMessage: {ex.InnerException.Message}");
-                sb.AppendLine($"  InnerStackTrace: {ex.InnerException.StackTrace}");
-            }
-
-            Write("ERROR", source, sb.ToString());
+                AppendException(sb, ex.InnerException, label + "Inner");
         }
 
         public static void Debug(string source, string message)
@@ -113,8 +121,6 @@ namespace PenguLoader.Main
         {
             try
             {
-                Info("System", $"MachineName: {Environment.MachineName}");
-                Info("System", $"UserName: {Environment.UserName}");
                 Info("System", $"CLR Version: {Environment.Version}");
                 Info("System", $"ProcessorCount: {Environment.ProcessorCount}");
             }

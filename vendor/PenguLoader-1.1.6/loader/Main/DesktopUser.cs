@@ -77,12 +77,12 @@ namespace PenguLoader.Main
                     if (!string.Equals(currentUser, _cachedUsername, StringComparison.OrdinalIgnoreCase))
                     {
                         _hasMismatch = true;
-                        Logger.Warn("DesktopUser", $"User mismatch detected: Running as '{currentUser}', using '{_cachedUsername}' data directory");
-                        Logger.Info("DesktopUser", $"Desktop user LocalAppData: {_cachedLocalAppData}");
+                        Logger.Warn("DesktopUser", "User mismatch detected; using the desktop user's data directory.");
+                        Logger.Info("DesktopUser", "Desktop user LocalAppData resolved.");
                     }
                     else
                     {
-                        Logger.Debug("DesktopUser", $"No user mismatch. Current user: {currentUser}");
+                        Logger.Debug("DesktopUser", "Desktop user matches the process user.");
                     }
                 }
                 else
@@ -148,13 +148,13 @@ namespace PenguLoader.Main
                         var info = GetProcessUserInfo(explorer);
                         if (info.HasValue)
                         {
-                            Logger.Debug("DesktopUser", $"Found desktop user: {info.Value.Username}, Profile: {info.Value.ProfilePath}");
+                            Logger.Debug("DesktopUser", "Found desktop user profile.");
                             return info;
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.Debug("DesktopUser", $"Failed to get info from explorer process {explorer.Id}: {ex.Message}");
+                        Logger.Error("DesktopUser", $"Failed to get info from explorer process {explorer.Id}", ex);
                     }
                     finally
                     {

@@ -14,10 +14,16 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         state_dir = Path(self.temp_dir.name)
         self.session_file = state_dir / 'pengu_session.json'
         self.active_flag = state_dir / 'pengu_active.flag'
+        self.pengu_dir = state_dir / 'Pengu Loader'
+        self.pengu_exe = self.pengu_dir / 'Pengu Loader.exe'
+        self.pengu_log = self.pengu_dir / 'pengu.log'
         self.paths = patch.multiple(
             pengu_loader,
             _SESSION_FILE=self.session_file,
             _ACTIVE_FLAG=self.active_flag,
+            PENGU_DIR=self.pengu_dir,
+            PENGU_EXE=self.pengu_exe,
+            _PENGU_LOG=self.pengu_log,
         )
         self.paths.start()
         self.addCleanup(self.paths.stop)
@@ -32,10 +38,17 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
     def test_no_managed_commands_are_used(self):
         source = Path(pengu_loader.__file__).read_text(encoding='utf-8')
         loader_source = Path('vendor/PenguLoader-1.1.6/loader/Program.cs').read_text(encoding='utf-8')
+        logger_source = Path(
+            'vendor/PenguLoader-1.1.6/loader/Main/Logger.cs'
+        ).read_text(encoding='utf-8')
         for forbidden in ('--rose-managed', '--rose-stop', '--force-deactivate', 'taskkill'):
             self.assertNotIn(forbidden, source)
             self.assertNotIn(forbidden, loader_source)
         self.assertIn('if (active && Module.IsLoaded)', loader_source)
+        self.assertIn('pengu.log', logger_source)
+        for obsolete in ('crash.log', 'CrashLogPath', 'LogFailure('):
+            self.assertNotIn(obsolete, loader_source)
+            self.assertNotIn(obsolete, logger_source)
 
     @patch.object(pengu_loader, '_is_available', return_value=True)
     @patch.object(pengu_loader.subprocess, 'run')
@@ -160,6 +173,73 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         self.assertIn('stdout details', message)
         self.assertIn('stderr details', message)
         self.assertIn('signed_exit_code=-24', message)
+
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader.subprocess, 'run')
+    def test_failed_command_includes_pengu_log_tail(self, run, _available):
+        self.pengu_log.parent.mkdir(parents=True, exist_ok=True)
+        self.pengu_log.write_text(
+            'old entry\nlatest entry\n',
+            encoding='utf-8',
+        )
+        run.return_value = self._result([], code=7, stdout='command stdout')
+        with self.assertLogs(pengu_loader.log, level='ERROR') as logs:
+            result = pengu_loader._run_cli_result(['--activate'])
+        self.assertEqual(result.returncode, 7)
+        message = '\n'.join(logs.output)
+        self.assertIn('command stdout', message)
+        self.assertIn('Pengu Loader log tail', message)
+        self.assertIn('latest entry', message)
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader.subprocess, 'run')
+    def test_missing_pengu_log_does_not_hide_original_failure(self, run, _available):
+        run.return_value = self._result([], code=9, stdout='original failure output')
+        with self.assertLogs(pengu_loader.log, level='ERROR') as logs:
+            result = pengu_loader._run_cli_result(['--activate'])
+        self.assertEqual(result.returncode, 9)
+        message = '\n'.join(logs.output)
+        self.assertIn('original failure output', message)
+        self.assertIn('Pengu log is missing', message)
+
+    def test_unreadable_pengu_log_does_not_raise(self):
+        self.pengu_log.parent.mkdir(parents=True, exist_ok=True)
+        self.pengu_log.write_text('secret details', encoding='utf-8')
+        with patch.object(pengu_loader.Path, 'open', side_effect=OSError('permission denied')):
+            result = pengu_loader._read_log_tail(self.pengu_log)
+        self.assertIn('could not be read', result)
+        self.assertIn('permission denied', result)
+
+    def test_log_tail_is_limited_by_lines(self):
+        self.pengu_log.parent.mkdir(parents=True, exist_ok=True)
+        self.pengu_log.write_text(
+            ''.join(f'entry-{index}\n' for index in range(200)),
+            encoding='utf-8',
+        )
+        result = pengu_loader._read_log_tail(self.pengu_log, max_lines=120)
+        lines = result.splitlines()
+        self.assertEqual(len(lines), 120)
+        self.assertEqual(lines[0], 'entry-80')
+        self.assertEqual(lines[-1], 'entry-199')
+
+    def test_log_tail_is_limited_by_character_count(self):
+        self.pengu_log.parent.mkdir(parents=True, exist_ok=True)
+        self.pengu_log.write_text('0123456789\n' * 100, encoding='utf-8')
+        result = pengu_loader._read_log_tail(self.pengu_log, max_chars=37)
+        self.assertLessEqual(len(result), 37)
+        self.assertTrue(result.endswith('0123456789'))
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader.subprocess, 'run')
+    def test_successful_command_does_not_dump_pengu_log(self, run, _available):
+        self.pengu_log.parent.mkdir(parents=True, exist_ok=True)
+        self.pengu_log.write_text('should not be included', encoding='utf-8')
+        run.return_value = self._result([], code=0, stdout='successful command output')
+        with self.assertLogs(pengu_loader.log, level='DEBUG') as logs:
+            result = pengu_loader._run_cli_result(['--status'])
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn('should not be included', '\n'.join(logs.output))
 
 
 if __name__ == '__main__':

@@ -30,29 +30,6 @@ namespace PenguLoader
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool AttachConsole(int dwProcessId);
 
-        private static string CrashLogPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log");
-
-        private static void LogFailure(string context, string details = null, Exception ex = null)
-        {
-            try
-            {
-                var sb = new StringBuilder();
-                sb.AppendLine($"[{DateTime.Now}] {context}");
-                sb.AppendLine($"  Version:   {VERSION}");
-                sb.AppendLine($"  BaseDir:   {AppDomain.CurrentDomain.BaseDirectory}");
-                sb.AppendLine($"  OS:        {Environment.OSVersion}");
-                if (details != null)
-                    sb.AppendLine($"  Details:   {details}");
-                if (ex != null)
-                {
-                    sb.AppendLine($"  Exception: {ex.GetType().Name}: {ex.Message}");
-                    sb.AppendLine($"  Stack:     {ex.StackTrace}");
-                }
-                sb.AppendLine();
-                File.AppendAllText(CrashLogPath, sb.ToString());
-            }
-            catch { }
-        }
 
         [STAThread]
         private static int Main(string[] args)
@@ -61,13 +38,16 @@ namespace PenguLoader
             {
                 Logger.Initialize();
                 DesktopUser.Initialize();
-                   Logger.LogSystemInfo();
+                Logger.LogSystemInfo();
                 return MainInner(args);
             }
             catch (Exception ex)
             {
-                Logger.Error("Program", "Unhandled exception in Main", ex);
-                LogFailure($"Unhandled (args: {string.Join(" ", args)})", ex: ex);
+                Logger.Error(
+                    "Program",
+                    $"Unhandled exception in Main. Args: [{string.Join(", ", args)}]",
+                    ex
+                );
                 return -99;
             }
         }
@@ -219,9 +199,16 @@ namespace PenguLoader
                 Logger.Info("Program", $"Calling Module.SetActive({active})");
                 if (!Module.SetActive(active))
                 {
-                    Logger.Error("Program", $"SetActive returned false! IsActivated={Module.IsActivated}, IsLoaded={Module.IsLoaded}");
-                    LogFailure($"HandleInstall SetActive returned false ({action})",
-                        $"IsActivated={Module.IsActivated}, IsLoaded={Module.IsLoaded}");
+                    Logger.Error(
+                        "Program",
+                        $"SetActive returned false: " +
+                        $"action={action}, " +
+                        $"IsFound={Module.IsFound}, " +
+                        $"IsLoaded={Module.IsLoaded}, " +
+                        $"IsActivated={Module.IsActivated}, " +
+                        $"LeaguePath={Config.LeaguePath}, " +
+                        $"BaseDir={AppDomain.CurrentDomain.BaseDirectory}"
+                    );
                     return NotifyResult($"Failed to {action} Pengu. Make sure League is closed and try again.",
                         silent, MessageBoxImage.Error, -3);
                 }
@@ -230,7 +217,6 @@ namespace PenguLoader
             catch (Exception ex)
             {
                 Logger.Error("Program", $"Exception in HandleInstall ({action})", ex);
-                LogFailure($"HandleInstall ({action})", ex: ex);
                 return NotifyResult($"Failed to {action} Pengu: {ex.Message}",
                     silent, MessageBoxImage.Error, -3);
             }
@@ -547,6 +533,7 @@ namespace PenguLoader
             }
             catch (Exception ex)
             {
+                Logger.Error("Program", "Failed to restart the League Client UX", ex);
                 return NotifyResult($"Failed to restart the League Client UX: {ex.Message}", silent,
                     MessageBoxImage.Error, -19);
             }

@@ -283,6 +283,7 @@ def _resolve_pengu_dir() -> Path:
 
 PENGU_DIR = _resolve_pengu_dir()
 PENGU_EXE = PENGU_DIR / "Pengu Loader.exe"
+_PENGU_LOG = PENGU_DIR / "pengu.log"
 _LEAGUE_PROCESSES: set[str] = {
     'LeagueClient.exe', 'LeagueClientUx.exe',
     'LeagueClientUxRender.exe', 'League of Legends.exe',
@@ -315,6 +316,44 @@ def _is_windows() -> bool:
 
 def _is_available() -> bool:
     return _is_windows() and PENGU_EXE.exists()
+
+
+def _read_log_tail(
+    path: Path,
+    *,
+    max_lines: int = 120,
+    max_chars: int = 32_000,
+) -> str:
+    """Read a bounded UTF-8 tail from a Pengu log without raising."""
+    try:
+        path = Path(path)
+        if max_lines <= 0 or max_chars <= 0:
+            return ''
+        if not path.is_file():
+            return f'Pengu log is missing: {path}'
+
+        max_bytes = min(max(4096, max_chars * 4), 1024 * 1024)
+        with path.open('rb') as handle:
+            handle.seek(0, os.SEEK_END)
+            file_size = handle.tell()
+            start = max(0, file_size - max_bytes)
+            handle.seek(start)
+            raw = handle.read(max_bytes)
+
+        text = raw.decode('utf-8', errors='replace')
+        if start > 0:
+            newline = text.find('\n')
+            text = text[newline + 1:] if newline >= 0 else ''
+
+        lines = text.splitlines()
+        if len(lines) > max_lines:
+            lines = lines[-max_lines:]
+        tail = '\n'.join(lines)
+        if len(tail) > max_chars:
+            tail = tail[-max_chars:]
+        return tail or f'Pengu log is empty: {path}'
+    except Exception as exc:
+        return f'Pengu log could not be read: {path}: {exc}'
 
 
 def is_available() -> bool:
@@ -356,6 +395,15 @@ def _run_cli_result(args: Sequence[str], ok_codes: Iterable[int] = (0,)) -> Opti
             'Pengu command failed: command=%s exit_code=%s signed_exit_code=%s hex=%s stdout=%r stderr=%r',
             ' '.join(command), returncode, signed,
             hex(unsigned) if unsigned is not None else None, stdout, stderr,
+        )
+        try:
+            pengu_log_tail = _read_log_tail(_PENGU_LOG)
+        except Exception as exc:
+            pengu_log_tail = f'Pengu log tail could not be read: {_PENGU_LOG}: {exc}'
+        log.error(
+            'Pengu Loader log tail from %s:\n%s',
+            _PENGU_LOG,
+            pengu_log_tail,
         )
     else:
         if stdout:

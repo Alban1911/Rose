@@ -108,7 +108,8 @@ injection/tools/.hashes_state.json
 chroma_issue.txt
 CLAUDE.md
 injection/tools/cslol-dll.dll
-Pengu Loader/rose.log
+Pengu Loader/pengu.log
+Pengu Loader/pengu.log.old
 
 # Test artifacts
 test_party_punch.py
