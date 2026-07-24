@@ -95,9 +95,14 @@ namespace PenguLoader.Main
                 ApplyUpdate(updateDir);
                 Environment.Exit(0);
             }
-            catch
+            catch (Exception ex)
             {
                 cancel = true;
+                Logger.Error(
+                    "Updater",
+                    "Failed to download or apply the update",
+                    ex
+                );
 
                 MainWindow.Instance.Show();
                 MessageBox.Show(MainWindow.Instance,

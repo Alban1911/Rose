@@ -36,9 +36,23 @@ log = get_logger("pengu_loader")
 _SESSION_FILE = get_state_dir() / 'pengu_session.json'
 
 _ACTIVE_FLAG = get_state_dir() / "pengu_active.flag"
+_LEGACY_PENGU_LOGS = (
+    "rose.log",
+    "rose.log.old",
+    "crash.log",
+)
 _PLUGIN_ENTRYPOINT = "index.js"
 _PLUGIN_ENTRYPOINT_DISABLED = "index.js_"
 _PLUGIN_ENTRYPOINT_BUNDLED_BACKUP = "index.js.bundled"
+
+
+def _remove_legacy_pengu_logs(pengu_dir: Path) -> None:
+    for filename in _LEGACY_PENGU_LOGS:
+        path = pengu_dir / filename
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            log.debug("Could not remove legacy Pengu log %s: %s", path, exc)
 
 
 def _sanitize_plugin_entrypoints(pengu_dir: Path) -> None:
@@ -224,9 +238,12 @@ def _resolve_pengu_dir() -> Path:
     if not getattr(sys, 'frozen', False):
         bundled = _get_bundled_pengu_dir()
         if bundled:
+            _remove_legacy_pengu_logs(bundled)
             return bundled
         # Fallback
-        return get_app_dir() / "Pengu Loader"
+        fallback_dir = get_app_dir() / "Pengu Loader"
+        _remove_legacy_pengu_logs(fallback_dir)
+        return fallback_dir
 
     # Frozen mode: copy to AppData for write permissions
     bundled_dir = _get_bundled_pengu_dir()
@@ -272,7 +289,10 @@ def _resolve_pengu_dir() -> Path:
 
         # Restore plugin enable/disable state after the overlay sync.
         _restore_plugin_enable_state(runtime_dir, enabled_plugins, disabled_plugins)
-        
+
+        # Remove logs from versions that used separate Rose/crash diagnostics.
+        _remove_legacy_pengu_logs(runtime_dir)
+
     except Exception as exc:
         log.error("Failed to copy Pengu Loader to runtime directory: %s", exc)
         # Fallback to bundled directory (will likely fail due to permissions, but better than crashing)

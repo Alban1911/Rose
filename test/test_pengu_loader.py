@@ -50,6 +50,36 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
             self.assertNotIn(obsolete, loader_source)
             self.assertNotIn(obsolete, logger_source)
 
+    def test_legacy_pengu_logs_are_removed(self):
+        for filename in ('rose.log', 'rose.log.old', 'crash.log'):
+            path = self.pengu_dir / filename
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('legacy diagnostics', encoding='utf-8')
+        self.pengu_log.write_text('current diagnostics', encoding='utf-8')
+
+        pengu_loader._remove_legacy_pengu_logs(self.pengu_dir)
+
+        for filename in ('rose.log', 'rose.log.old', 'crash.log'):
+            self.assertFalse((self.pengu_dir / filename).exists())
+        self.assertTrue(self.pengu_log.exists())
+
+    def test_legacy_cleanup_and_packaging_exclusions_are_wired(self):
+        source = Path(pengu_loader.__file__).read_text(encoding='utf-8')
+        spec_source = Path('Rose.spec').read_text(encoding='utf-8')
+        program_source = Path(
+            'vendor/PenguLoader-1.1.6/loader/Program.cs'
+        ).read_text(encoding='utf-8')
+        updater_source = Path(
+            'vendor/PenguLoader-1.1.6/loader/Main/Updater.cs'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('_remove_legacy_pengu_logs(bundled)', source)
+        self.assertIn('_remove_legacy_pengu_logs(runtime_dir)', source)
+        self.assertIn('name.endswith(\'.log\')', spec_source)
+        self.assertIn('name.endswith(\'.log.old\')', spec_source)
+        self.assertIn('Logger.Error("CLI"', program_source)
+        self.assertIn('Failed to download or apply the update', updater_source)
+
     @patch.object(pengu_loader, '_is_available', return_value=True)
     @patch.object(pengu_loader.subprocess, 'run')
     def test_activate_uses_official_cli(self, run, _available):

@@ -274,6 +274,13 @@ namespace PenguLoader
 
         private static int NotifyResult(string message, bool silent, MessageBoxImage image, int code = 0)
         {
+            if (code != 0 || image == MessageBoxImage.Error)
+                Logger.Error("CLI", $"Result code={code}: {message}");
+            else if (image == MessageBoxImage.Warning)
+                Logger.Warn("CLI", $"Result code={code}: {message}");
+            else
+                Logger.Info("CLI", $"Result code={code}: {message}");
+
             if (silent)
             {
                 WriteConsole(message);
