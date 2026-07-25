@@ -52,7 +52,8 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 
 [Files]
 ; Main application files
-Source: "dist\Rose\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; hashes.game.txt is user-managed and must be preserved across installations.
+Source: "dist\Rose\*"; DestDir: "{app}"; Excludes: "injection\tools\hashes.game.txt"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
