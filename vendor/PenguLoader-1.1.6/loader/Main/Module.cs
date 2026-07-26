@@ -12,8 +12,8 @@ namespace PenguLoader.Main
         private static string ModuleName => "core.dll";
         private static string TargetName => LCU.ClientUxProcessName;
         private static string LoaderDir => AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
-        private static string ModulePath => Path.Combine(LoaderDir, ModuleName);
-        private static string DebuggerValue => $"rundll32 \"{ModulePath}\", #6000 ";
+        private static string ModulePath => Path.GetFullPath(Path.Combine(LoaderDir, ModuleName));
+        internal static string DebuggerValue => IFEO.BuildDebuggerCommand(ModulePath);
 
         private static string SymlinkName => "version.dll";
         private static string SymlinkPath => Path.Combine(Config.LeaguePath, SymlinkName);
@@ -27,7 +27,8 @@ namespace PenguLoader.Main
             }
         }
 
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool WritePrivateProfileString(
             string section,
             string key,
@@ -52,53 +53,125 @@ namespace PenguLoader.Main
                     return string.Equals(resolved, modulePath, StringComparison.OrdinalIgnoreCase);
                 }
 
-                var debugger = IFEO.GetDebugger(TargetName);
-                return DebuggerValue.Equals(debugger, StringComparison.OrdinalIgnoreCase);
+                return IFEO.IsActivated(TargetName, ModulePath);
             }
         }
 
-        public static bool SetActive(bool active)
+        public static ActivationResult SetActive(bool active)
         {
+            if (!Elevation.IsElevated())
+                return Elevation.RunElevated(active, false);
             if (IsActivated == active)
-            {
-                WriteCoreConfig(active);
-                return true;
-            }
+                return WriteConfigOrFailure(active, ActiveStage(active));
 
+            ActivationResult result;
             if (Config.UseSymlink)
             {
-                Utils.DeletePath(SymlinkPath);
-
-                if (active)
-                    Symlink.Create(SymlinkPath, ModulePath);
-            }
-            else if (active)
-            {
-                IFEO.SetDebugger(TargetName, DebuggerValue);
+                result = SetSymlinkActive(active);
             }
             else
             {
-                IFEO.RemoveDebugger(TargetName);
+                result = active
+                    ? IFEO.Activate(TargetName, ModulePath)
+                    : IFEO.Deactivate(TargetName);
             }
+
+            if (!result.Succeeded)
+                return result;
 
             // core.dll reads these values when it is loaded by LeagueClientUx.
             // Keep this in sync with the activation mechanism so IFEO launches
-            // do not immediately disable the native hook.
-            WriteCoreConfig(active);
+            // do not immediately disable the native hook. Registry failures
+            // return above, before this config is changed.
+            result = WriteConfigOrFailure(active, ActiveStage(active));
+            if (!result.Succeeded)
+                return result;
 
-            return IsActivated == active;
+            if (IsActivated != active)
+            {
+                return ActivationResult.Failure(
+                    ActiveStage(active),
+                    ActivationErrorKind.Other,
+                    0,
+                    "The final activation state did not match the requested state.");
+            }
+
+            return ActivationResult.Success();
         }
 
-        private static void WriteCoreConfig(bool active)
+        private static ActivationResult SetSymlinkActive(bool active)
         {
-            var configPath = RoseConfigPath;
-            var directory = Path.GetDirectoryName(configPath);
+            if (!TryDeleteSymlink())
+            {
+                return ActivationResult.FromWin32(
+                    ActivationStage.DeleteSymlink,
+                    Marshal.GetLastWin32Error(),
+                    "Unable to remove the existing League symlink.");
+            }
 
-            if (!Directory.Exists(directory))
-                Directory.CreateDirectory(directory);
+            if (active && !Symlink.Create(SymlinkPath, ModulePath))
+            {
+                var nativeErrorCode = Marshal.GetLastWin32Error();
+                return ActivationResult.FromWin32(
+                    ActivationStage.CreateSymlink,
+                    nativeErrorCode);
+            }
 
-            WritePrivateProfileString("General", "disabled", active ? "0" : "1", configPath);
-            WritePrivateProfileString("General", "loaderpath", active ? LoaderDir : string.Empty, configPath);
+            return ActivationResult.Success();
+        }
+
+        private static bool TryDeleteSymlink()
+        {
+            try
+            {
+                if (File.Exists(SymlinkPath))
+                    File.Delete(SymlinkPath);
+                return !File.Exists(SymlinkPath);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Module", "Failed to remove symlink", ex);
+                return false;
+            }
+        }
+
+        private static ActivationResult WriteConfigOrFailure(
+            bool active,
+            ActivationStage stage)
+        {
+            try
+            {
+                var configPath = RoseConfigPath;
+                var directory = Path.GetDirectoryName(configPath);
+
+                if (!Directory.Exists(directory))
+                    Directory.CreateDirectory(directory);
+
+                if (!WritePrivateProfileString("General", "disabled", active ? "0" : "1", configPath) ||
+                    !WritePrivateProfileString("General", "loaderpath", active ? LoaderDir : string.Empty, configPath))
+                {
+                    var nativeErrorCode = Marshal.GetLastWin32Error();
+                    return ActivationResult.FromWin32(stage, nativeErrorCode);
+                }
+
+                return ActivationResult.Success();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Module", "Failed to update Rose core configuration", ex);
+                return ActivationResult.Failure(
+                    stage,
+                    ActivationErrorKind.Other,
+                    0,
+                    ex.Message);
+            }
+        }
+
+        private static ActivationStage ActiveStage(bool active)
+        {
+            return Config.UseSymlink
+                ? (active ? ActivationStage.CreateSymlink : ActivationStage.DeleteSymlink)
+                : (active ? ActivationStage.SetDebugger : ActivationStage.DeleteDebugger);
         }
     }
 }

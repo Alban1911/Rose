@@ -483,7 +483,7 @@ def get_status() -> PenguStatus:
 
 def activate() -> bool:
     with _operation_lock:
-        result = _run_cli_result(['--install', '--activate', '--silent'])
+        result = _run_cli_result(['--install', '--silent'])
         if result is None or not result.succeeded:
             log.error('Pengu activation failed.')
             return False
@@ -496,7 +496,7 @@ def activate() -> bool:
 
 def deactivate() -> bool:
     with _operation_lock:
-        result = _run_cli_result(['--uninstall', '--deactivate', '--silent'])
+        result = _run_cli_result(['--uninstall', '--silent'])
         if result is None or not result.succeeded:
             log.error('Pengu deactivation failed.')
             return False

@@ -88,7 +88,7 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
             self._result([], stdout='Pengu is currently ACTIVE.'),
         ]
         self.assertTrue(pengu_loader.activate())
-        self.assertEqual(run.call_args_list[0].args[0][1:], ['--install', '--activate', '--silent'])
+        self.assertEqual(run.call_args_list[0].args[0][1:], ['--install', '--silent'])
         self.assertEqual(run.call_args_list[1].args[0][1:], ['--status', '--silent'])
 
     @patch.object(pengu_loader, '_is_available', return_value=True)
@@ -99,7 +99,7 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
             self._result([], code=1, stdout='Pengu is currently INACTIVE.'),
         ]
         self.assertTrue(pengu_loader.deactivate())
-        self.assertEqual(run.call_args_list[0].args[0][1:], ['--uninstall', '--deactivate', '--silent'])
+        self.assertEqual(run.call_args_list[0].args[0][1:], ['--uninstall', '--silent'])
 
     @patch.object(pengu_loader, '_is_available', return_value=True)
     @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.INACTIVE)

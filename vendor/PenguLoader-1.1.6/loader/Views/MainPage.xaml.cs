@@ -83,7 +83,6 @@ namespace PenguLoader.Views
                     MessageBox.Show(Owner, App.GetTranslation("t_msg_module_not_found"),
                          Program.Name, MessageBoxButton.OK, MessageBoxImage.Warning);
 
-                    Module.SetActive(false);
                     TriggerPropertyChanged(nameof(IsActivated));
                     return;
                 }
@@ -102,8 +101,9 @@ namespace PenguLoader.Views
                     }
 
                     Logger.Info("MainPage", $"Calling Module.SetActive({value})...");
-                    var success = Module.SetActive(value);
-                    Logger.Info("MainPage", $"Module.SetActive returned: {success}");
+                    var activationResult = Program.RequestActivation(value);
+                    var success = activationResult.Succeeded;
+                    Logger.Info("MainPage", $"Module.SetActive returned: {activationResult.ToOfficialStyleString()}");
 
                     if (!success)
                     {
