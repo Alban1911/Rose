@@ -72,14 +72,7 @@ class PenguSkinMonitorThread(threading.Thread):
         self.skin_mapping = SkinMapping(shared_state)
         self.skin_processor = SkinProcessor(shared_state, skin_scraper, self.skin_mapping)
         self.flow_controller = FlowController(shared_state)
-        self.mod_storage_service = ModStorageService(
-            watch_archives=True,
-            champion_name_resolver=(
-                self.lcu.get_champion_name_by_id
-                if self.lcu is not None
-                else None
-            ),
-        )
+        self.mod_storage_service = ModStorageService()
 
         # Initialize HTTP handler
         self.http_handler = HTTPHandler(self.port)
@@ -120,7 +113,6 @@ class PenguSkinMonitorThread(threading.Thread):
         try:
             self.websocket_server.stop()
         finally:
-            self.mod_storage_service.stop()
             # Clean up port file on shutdown
             delete_bridge_port_file()
 
