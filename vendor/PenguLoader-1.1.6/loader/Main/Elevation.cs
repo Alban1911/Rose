@@ -77,20 +77,12 @@ namespace PenguLoader.Main
         {
             try
             {
-                using (var identity = WindowsIdentity.GetCurrent())
-                {
-                    TOKEN_ELEVATION elevation;
-                    int returnLength;
-                    if (GetTokenInformation(
-                        identity.Token,
-                        TOKEN_INFORMATION_CLASS.TokenElevation,
-                        out elevation,
-                        sizeof(uint),
-                        out returnLength))
-                    {
-                        return elevation.TokenIsElevated != 0;
-                    }
-                }
+                // TokenElevation can be true for an administrator token that
+                // still has only Medium integrity. HKLM writes require High.
+                var integrityLevel = GetIntegrityLevel();
+                return string.Equals(integrityLevel, "High", StringComparison.Ordinal) ||
+                    string.Equals(integrityLevel, "System", StringComparison.Ordinal) ||
+                    string.Equals(integrityLevel, "Protected", StringComparison.Ordinal);
             }
             catch (Exception ex)
             {
