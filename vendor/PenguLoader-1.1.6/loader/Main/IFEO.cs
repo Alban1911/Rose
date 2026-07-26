@@ -1,4 +1,7 @@
-﻿using Microsoft.Win32;
+﻿using System;
+using System.Diagnostics;
+using System.IO;
+using Microsoft.Win32;
 
 namespace PenguLoader.Main
 {
@@ -24,17 +27,41 @@ namespace PenguLoader.Main
             }
         }
 
-        public static void SetDebugger(string target, string value)
+        public static void SetDebugger(string t, string d)
         {
-            using (var key = Registry.LocalMachine.CreateSubKey($@"{IFEO_PATH}\{target}", true))
-            {
-                key.SetValue(VALUE_NAME, value, RegistryValueKind.String);
-            }
+            d = d.Replace("\"", "\\\"");
+            Invoke($"reg add \"HKLM\\{IFEO_PATH}\\{t}\" /v \"{VALUE_NAME}\" /t REG_SZ /d \"{d}\" /f");
         }
 
-        public static void RemoveDebugger(string target)
+        public static void RemoveDebugger(string t)
         {
-            Registry.LocalMachine.DeleteSubKeyTree($@"{IFEO_PATH}\{target}", false);
+            Invoke($"reg delete \"HKLM\\{IFEO_PATH}\\{t}\" /f");
+        }
+
+        public static void Invoke(string args)
+        {
+            using (var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/C {args}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            })
+            {
+                process.Start();
+                process.WaitForExit();
+                var error = process.StandardError.ReadToEnd();
+
+                if (process.ExitCode != 0 || !string.IsNullOrEmpty(error))
+                {
+                    throw new InvalidOperationException(error);
+                }
+            }
         }
     }
 }
