@@ -889,7 +889,9 @@
     }
 
     #skins-list {
-      max-height: 60vh;
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
     }
 
     #skins-list .skins-list-container {
@@ -900,22 +902,71 @@
     }
 
     .skin-card {
+      position: relative;
+      height: 280px;
+      cursor: pointer;
+      border-radius: 4px;
+      perspective: 1000px;
+      background: transparent;
+    }
+    .skin-card-inner {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transition: transform 0.45s cubic-bezier(0.2, 0.75, 0.25, 1);
+      transform-style: preserve-3d;
+    }
+    .skin-card.is-flipped .skin-card-inner {
+      transform: rotateY(180deg);
+    }
+    .skin-card-face {
+      position: absolute;
+      inset: 0;
       display: flex;
       flex-direction: column;
-      cursor: pointer;
+      overflow: hidden;
       border: 1px solid #5b5a56;
       border-radius: 4px;
-      overflow: hidden;
-      transition: border-color 0.2s, box-shadow 0.2s;
       background: #1e2328;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .skin-card:hover {
+    .skin-card-front {
+      z-index: 2;
+    }
+    .skin-card-back {
+      z-index: 1;
+      pointer-events: none;
+    }
+    .skin-card.is-flipped .skin-card-front {
+      z-index: 1;
+      pointer-events: none;
+    }
+    .skin-card.is-flipped .skin-card-back {
+      z-index: 2;
+      pointer-events: auto;
+    }
+    .skin-card-front:hover,
+    .skin-card-back:hover {
       border-color: #c8aa6e;
       box-shadow: 0 0 8px rgba(200, 170, 110, 0.3);
     }
-    .skin-card img {
+    .skin-card.selected .skin-card-front,
+    .skin-card.selected .skin-card-back {
+      border-color: #c8aa6e;
+      box-shadow: 0 0 10px rgba(200, 170, 110, 0.55);
+      background: #2b2a20;
+    }
+    .skin-card-back {
+      transform: rotateY(180deg);
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    .skin-card-front img {
       width: 100%;
-      aspect-ratio: 308 / 560;
+      flex: 1 1 auto;
+      min-height: 0;
       object-fit: cover;
       display: block;
       background: #0a0a0d;
@@ -931,8 +982,139 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .skin-card:hover .skin-name {
+    .skin-card-front:hover .skin-name {
       color: #cdbe91;
+    }
+    .skin-chroma-button {
+      position: absolute;
+      top: 7px;
+      right: 7px;
+      z-index: 2;
+      padding: 4px 7px;
+      border: 1px solid rgba(200, 170, 110, 0.8);
+      border-radius: 3px;
+      background: rgba(10, 10, 13, 0.86);
+      color: #c8aa6e;
+      cursor: pointer;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 10px;
+      font-weight: bold;
+      transition: background 0.2s, color 0.2s, transform 0.2s;
+    }
+    .skin-chroma-button:hover {
+      background: #463714;
+      color: #f0e6d2;
+      transform: translateY(-1px);
+    }
+    .skin-card-back-header {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex: 0 0 auto;
+      min-height: 26px;
+      color: #cdbe91;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 11px;
+      font-weight: bold;
+    }
+    .skin-card-back-close {
+      position: relative;
+      z-index: 1;
+      flex: 0 0 auto;
+      min-width: 34px;
+      padding: 3px 7px;
+      border: 1px solid #5b5a56;
+      border-radius: 2px;
+      background: #121820;
+      color: #a09b8c;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 16px;
+    }
+    .skin-card-back-close:hover {
+      border-color: #c8aa6e;
+      color: #f0e6d2;
+    }
+    .skin-card-back-options {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+      margin-top: 6px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .skin-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex: 0 0 auto;
+      min-height: 55px;
+      padding: 4px;
+      border: 1px solid #4a4a48;
+      border-radius: 3px;
+      background: #151b21;
+      color: #a09b8c;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .skin-option:hover {
+      border-color: #c8aa6e;
+      background: #252b2d;
+    }
+    .skin-option.selected {
+      border-color: #c8aa6e;
+      background: #463714;
+      color: #f0e6d2;
+    }
+    .skin-option img {
+      width: 38px;
+      height: 52px;
+      flex: 0 0 38px;
+      object-fit: cover;
+      background: #0a0a0d;
+    }
+    .skin-option-name {
+      overflow: hidden;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 10px;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+    }
+    #skin-selection-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #463714;
+      flex: 0 0 auto;
+    }
+    #skin-selection-count {
+      flex: 1;
+      color: #a09b8c;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 13px;
+    }
+    #skin-selection-confirm {
+      padding: 9px 18px;
+      border: 1px solid #c8aa6e;
+      border-radius: 3px;
+      background: #1e2328;
+      color: #c8aa6e;
+      cursor: pointer;
+      font-family: "Beaufort for LOL", serif;
+      font-weight: bold;
+    }
+    #skin-selection-confirm:hover:not(:disabled) {
+      background: #463714;
+      color: #f0e6d2;
+    }
+    #skin-selection-confirm:disabled {
+      opacity: 0.45;
+      cursor: default;
     }
   `;
   }
@@ -2649,7 +2831,7 @@
       // Open champion selection for skins
       openChampionSelection();
     } else {
-      // Directly open folder for other categories
+      // Let the backend open the native mod-file picker for other categories.
       if (bridge) bridge.send({
         type: "add-custom-mods-category-selected",
         category: category,
@@ -2829,12 +3011,7 @@
 
   function handleChampionSelection(championId) {
     closeChampionSelection();
-
-    if (bridge) bridge.send({
-      type: "add-custom-mods-skin-selected",
-      action: "create",
-      championId: championId,
-    });
+    openSkinSelection(championId);
     log("info", "Champion selected for custom mods: champion=" + championId);
   }
 
@@ -2860,7 +3037,9 @@
     flyoutFrame.id = "skin-selection-flyout";
     flyoutFrame.className = "flyout";
     flyoutFrame.style.maxHeight = "75vh";
+    flyoutFrame.style.height = "75vh";
     flyoutFrame.style.width = "700px";
+    flyoutFrame.style.boxSizing = "border-box";
     flyoutFrame.style.overflowY = "hidden";
     flyoutFrame.style.overflowX = "hidden";
     flyoutFrame.addEventListener("click", (e) => e.stopPropagation());
@@ -2868,6 +3047,10 @@
     // Create flyout content
     const flyoutContent = document.createElement("div");
     flyoutContent.className = "lc-flyout-content";
+    flyoutContent.style.display = "flex";
+    flyoutContent.style.flexDirection = "column";
+    flyoutContent.style.height = "100%";
+    flyoutContent.style.boxSizing = "border-box";
 
     // Header with back button and title
     const header = document.createElement("div");
@@ -2889,7 +3072,7 @@
     // Title text
     const titleWrapper = document.createElement("div");
     titleWrapper.className = "dialog-title-wrapper";
-    titleWrapper.textContent = "Select Skin";
+    titleWrapper.textContent = "Select Skins & Chromas";
     header.appendChild(titleWrapper);
 
     flyoutContent.appendChild(header);
@@ -2909,6 +3092,9 @@
     skinsList.style.overflowY = "auto";
     skinsList.style.overflowX = "hidden";
     skinsList.id = "skins-list";
+    skinsList.style.flex = "1 1 auto";
+    skinsList.style.minHeight = "0";
+    skinsList.style.maxHeight = "none";
 
     // Create inner container for flex layout
     const skinsListContainer = document.createElement("div");
@@ -2917,8 +3103,31 @@
 
     flyoutContent.appendChild(skinsList);
 
+    const selectionActions = document.createElement("div");
+    selectionActions.id = "skin-selection-actions";
+    selectionActions.style.flex = "0 0 auto";
+
+    const selectionCount = document.createElement("span");
+    selectionCount.id = "skin-selection-count";
+    selectionCount.textContent = "0 targets selected";
+    selectionActions.appendChild(selectionCount);
+
+    const confirmButton = document.createElement("button");
+    confirmButton.id = "skin-selection-confirm";
+    confirmButton.type = "button";
+    confirmButton.textContent = "Confirm & Select Mod";
+    confirmButton.disabled = true;
+    confirmButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      confirmSkinSelection(championId);
+    });
+    selectionActions.appendChild(confirmButton);
+    flyoutContent.appendChild(selectionActions);
+
     flyoutFrame.appendChild(flyoutContent);
     dialog.appendChild(flyoutFrame);
+
+    window.__roseSelectedSkinIds = new Set();
 
     // Request skins for champion
     if (bridge) bridge.send({
@@ -2939,16 +3148,65 @@
     delete window.__roseSelectedChampionId;
   }
 
-  function handleSkinSelection(championId, skinId) {
-    closeSkinSelection();
+  function updateSkinSelectionUI() {
+    const selectedSkinIds = window.__roseSelectedSkinIds || new Set();
+    document.querySelectorAll("#skins-list [data-target-skin-id]").forEach((option) => {
+      const skinId = Number(option.dataset.targetSkinId);
+      const selected = selectedSkinIds.has(skinId);
+      if (option.classList.contains("skin-option")) {
+        option.classList.toggle("selected", selected);
+      } else {
+        option.classList.toggle("target-selected", selected);
+      }
+      option.setAttribute("aria-pressed", selected ? "true" : "false");
+    });
 
+    document.querySelectorAll("#skins-list .skin-card").forEach((card) => {
+      const selected = Array.from(card.querySelectorAll("[data-target-skin-id]")).some(
+        (option) => selectedSkinIds.has(Number(option.dataset.targetSkinId))
+      );
+      card.classList.toggle("selected", selected);
+    });
+
+    const selectionCount = document.getElementById("skin-selection-count");
+    if (selectionCount) {
+      const count = selectedSkinIds.size;
+      selectionCount.textContent = `${count} target${count === 1 ? "" : "s"} selected`;
+    }
+
+    const confirmButton = document.getElementById("skin-selection-confirm");
+    if (confirmButton) {
+      confirmButton.disabled = selectedSkinIds.size === 0;
+    }
+  }
+
+  function handleSkinSelection(championId, skinId) {
+    const selectedSkinIds = window.__roseSelectedSkinIds || new Set();
+    const numericSkinId = Number(skinId);
+    if (!Number.isFinite(numericSkinId) || numericSkinId <= 0) return;
+
+    if (selectedSkinIds.has(numericSkinId)) {
+      selectedSkinIds.delete(numericSkinId);
+    } else {
+      selectedSkinIds.add(numericSkinId);
+    }
+    window.__roseSelectedSkinIds = selectedSkinIds;
+    updateSkinSelectionUI();
+    log("info", `Skin selection toggled: champion=${championId}, skin=${numericSkinId}`);
+  }
+
+  function confirmSkinSelection(championId) {
+    const selectedSkinIds = Array.from(window.__roseSelectedSkinIds || []);
+    if (selectedSkinIds.length === 0) return;
+
+    closeSkinSelection();
     if (bridge) bridge.send({
       type: "add-custom-mods-skin-selected",
       action: "create",
       championId: championId,
-      skinId: skinId,
+      skinIds: selectedSkinIds,
     });
-    log("info", `Skin selected: champion=${championId}, skin=${skinId}`);
+    log("info", `Skin selection confirmed: champion=${championId}, skins=${selectedSkinIds.join(",")}`);
   }
 
   function handleChampionsListResponse(payload) {
@@ -3014,7 +3272,7 @@
     if (header && payload.championName) {
       const titleWrapper = header.querySelector(".dialog-title-wrapper");
       if (titleWrapper) {
-        titleWrapper.textContent = `Select Skin - ${payload.championName}`;
+        titleWrapper.textContent = `Select Skins & Chromas - ${payload.championName}`;
       }
     }
 
@@ -3034,34 +3292,141 @@
       return;
     }
 
-    skins.forEach((skin) => {
+    const baseSkins = skins.filter((skin) => !skin.isChroma);
+    const chromasByBaseSkin = new Map();
+    skins.filter((skin) => skin.isChroma).forEach((chroma) => {
+      const baseSkinId = Number(chroma.baseSkinId);
+      if (!Number.isFinite(baseSkinId)) return;
+      if (!chromasByBaseSkin.has(baseSkinId)) {
+        chromasByBaseSkin.set(baseSkinId, []);
+      }
+      chromasByBaseSkin.get(baseSkinId).push(chroma);
+    });
+
+    const getSkinId = (skin) => Number(skin.skinId || skin.id);
+    const getTilePath = (skin) => {
+      const skinId = getSkinId(skin);
+      return skin.tilePath || `/lol-game-data/assets/v1/champion-tiles/${skinId}.jpg`;
+    };
+
+    baseSkins.forEach((skin) => {
+      const baseSkinId = getSkinId(skin);
+      const chromas = chromasByBaseSkin.get(baseSkinId) || [];
       const card = document.createElement("div");
       card.className = "skin-card";
+      card.dataset.baseSkinId = String(baseSkinId);
+
+      const inner = document.createElement("div");
+      inner.className = "skin-card-inner";
+
+      const front = document.createElement("div");
+      front.className = "skin-card-face skin-card-front";
+      front.dataset.targetSkinId = String(baseSkinId);
+      front.setAttribute("role", "button");
+      front.setAttribute("aria-pressed", "false");
 
       const img = document.createElement("img");
-      const skinId = skin.skinId || skin.id;
-      img.src = skin.tilePath || `/lol-game-data/assets/v1/champion-tiles/${skinId}.jpg`;
-      img.alt = skin.name || `Skin ${skinId}`;
+      img.src = getTilePath(skin);
+      img.alt = skin.name || `Skin ${baseSkinId}`;
       img.loading = "lazy";
       img.onerror = function () { this.style.display = "none"; };
-      card.appendChild(img);
+      front.appendChild(img);
 
       const nameEl = document.createElement("div");
       nameEl.className = "skin-name";
-      nameEl.textContent = skin.name || `Skin ${skinId}`;
-      card.appendChild(nameEl);
+      nameEl.textContent = skin.name || `Skin ${baseSkinId}`;
+      front.appendChild(nameEl);
 
-      card.addEventListener("click", () => handleSkinSelection(championId, skinId));
+      front.addEventListener("click", () => handleSkinSelection(championId, baseSkinId));
+
+      if (chromas.length > 0) {
+        const chromaButton = document.createElement("button");
+        chromaButton.type = "button";
+        chromaButton.className = "skin-chroma-button";
+        chromaButton.textContent = `Chromas ${chromas.length}`;
+        chromaButton.setAttribute("aria-label", `Show ${chromas.length} chromas`);
+        chromaButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          card.classList.add("is-flipped");
+        });
+        front.appendChild(chromaButton);
+      }
+      inner.appendChild(front);
+
+      if (chromas.length > 0) {
+        const back = document.createElement("div");
+        back.className = "skin-card-face skin-card-back";
+
+        const backHeader = document.createElement("div");
+        backHeader.className = "skin-card-back-header";
+
+        const backButton = document.createElement("button");
+        backButton.type = "button";
+        backButton.className = "skin-card-back-close";
+        backButton.textContent = "\u2039";
+        backButton.setAttribute("aria-label", "Back to skin");
+        backButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          card.classList.remove("is-flipped");
+        });
+        backHeader.appendChild(backButton);
+
+        const backTitle = document.createElement("span");
+        backTitle.textContent = `${skin.name || "Skin"} - Chromas`;
+        backHeader.appendChild(backTitle);
+        back.appendChild(backHeader);
+
+        const options = document.createElement("div");
+        options.className = "skin-card-back-options";
+        [skin, ...chromas].forEach((optionSkin, optionIndex) => {
+          const optionId = getSkinId(optionSkin);
+          const option = document.createElement("button");
+          option.type = "button";
+          option.className = "skin-option";
+          option.dataset.targetSkinId = String(optionId);
+          option.setAttribute("aria-pressed", "false");
+
+          const optionImg = document.createElement("img");
+          optionImg.src = getTilePath(optionSkin);
+          optionImg.alt = optionSkin.name || `Skin ${optionId}`;
+          optionImg.loading = "lazy";
+          optionImg.onerror = function () { this.style.display = "none"; };
+          option.appendChild(optionImg);
+
+          const optionName = document.createElement("span");
+          optionName.className = "skin-option-name";
+          optionName.textContent = optionIndex === 0
+            ? "Base skin"
+            : (optionSkin.name || `Chroma ${optionId}`);
+          option.appendChild(optionName);
+
+          option.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleSkinSelection(championId, optionId);
+          });
+          options.appendChild(option);
+        });
+        back.appendChild(options);
+        inner.appendChild(back);
+      }
+
+      card.appendChild(inner);
       skinsListContainer.appendChild(card);
     });
+    updateSkinSelectionUI();
   }
 
   function handleFolderOpenedResponse(payload) {
-    if (payload.error) {
-      log("error", `Failed to open folder: ${escapeHtml(payload.error)}`);
+    if (payload.cancelled) {
+      log("info", "Mod import cancelled");
+    } else if (payload.error) {
+      log("error", `Failed to import mod: ${escapeHtml(payload.error)}`);
       // Could show an error message to user here
     } else {
-      log("info", `Folder opened: ${payload.path}`);
+      log("info", `Imported mod: ${payload.modName || payload.path || "success"}`);
     }
   }
 

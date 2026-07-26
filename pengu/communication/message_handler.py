@@ -56,6 +56,40 @@ def _is_safe_relative_path(path_value: str) -> bool:
     return all(part not in {"", ".", ".."} for part in candidate.parts)
 
 
+def _choose_mod_file() -> Optional[Path]:
+    """Show a native file picker for a user-selected mod archive."""
+    root = None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
+        selected = filedialog.askopenfilename(
+            title="Select a Rose mod file",
+            filetypes=[
+                ("Rose mods", "*.fantome *.zip"),
+                ("Fantome mods", "*.fantome"),
+                ("ZIP mods", "*.zip"),
+                ("All files", "*.*"),
+            ],
+        )
+        return Path(selected) if selected else None
+    except Exception as exc:  # noqa: BLE001
+        log.error("[SkinMonitor] Could not open the mod file picker: %s", exc)
+        return None
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+
 class MessageHandler:
     """Handles routing and processing of WebSocket messages"""
     
@@ -93,21 +127,6 @@ class MessageHandler:
         self.port = port
         self.mod_storage = mod_storage or ModStorageService()
         self.injection_manager = injection_manager
-
-    def _get_cached_champion_name(self, champion_id: int | str) -> Optional[str]:
-        """Return the scraper's champion name only when its cache matches."""
-        cache = getattr(self.skin_scraper, "cache", None)
-        if cache is None:
-            return None
-        try:
-            cached_id = int(getattr(cache, "champion_id", 0) or 0)
-            requested_id = int(champion_id)
-        except (TypeError, ValueError):
-            return None
-        if cached_id != requested_id:
-            return None
-        name = getattr(cache, "champion_name", None)
-        return str(name) if name else None
 
     def _is_valid_local_league_path(self, game_path: str) -> bool:
         """Validate a League install path without touching UNC/network paths."""
@@ -813,8 +832,7 @@ class MessageHandler:
             champion_id = get_champion_id_from_skin_id(int(skin_id))
 
         try:
-            champion_name = self._get_cached_champion_name(champion_id)
-            entries = self.mod_storage.list_mods_for_champion(champion_id, champion_name)
+            entries = self.mod_storage.list_mods_for_champion(champion_id)
         except Exception as exc:
             log.error(f"[SkinMonitor] Failed to list skin mods: {exc}")
             entries = []
@@ -823,6 +841,7 @@ class MessageHandler:
 
         mods_payload = []
         for entry in entries:
+            target_skin_ids = self._get_entry_target_skin_ids(entry)
             try:
                 relative_path = entry.path.relative_to(self.mod_storage.mods_root)
             except Exception:
@@ -846,10 +865,8 @@ class MessageHandler:
                 {
                     "modName": entry.mod_name,
                     "skinId": entry.skin_id,
-                    "affectedSkinIds": list(self._get_entry_affected_skin_ids(entry)),
-                    "availableForRequestedSkin": bool(
-                        self._get_entry_affected_skin_ids(entry) & compatible_skin_ids
-                    ),
+                    "targetSkinIds": sorted(target_skin_ids),
+                    "availableForRequestedSkin": bool(target_skin_ids & compatible_skin_ids),
                     "description": entry.description,
                     "updatedAt": int(entry.updated_at * 1000),
                     "relativePath": str(relative_path).replace("\\", "/"),
@@ -917,19 +934,26 @@ class MessageHandler:
         return compatible_ids
 
     @staticmethod
-    def _get_entry_affected_skin_ids(entry) -> set[int]:
-        """Return the skin IDs a mod can affect, with legacy fallback."""
+    def _get_entry_target_skin_ids(entry) -> set[int]:
+        """Return the manually configured target IDs for a stored mod."""
+        normalized = set()
         try:
-            affected = getattr(entry, "affected_skin_ids", ()) or ()
-            result = {int(skin_id) for skin_id in affected}
-        except (TypeError, ValueError):
-            result = set()
-        if not result:
+            target_ids = getattr(entry, "target_skin_ids", ()) or ()
+            for value in target_ids:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    normalized.add(value)
+        except (AttributeError, TypeError):
+            pass
+        if not normalized:
             try:
-                result.add(int(entry.skin_id))
+                normalized.add(int(entry.skin_id))
             except (AttributeError, TypeError, ValueError):
                 pass
-        return result
+        return normalized
 
     @staticmethod
     def _normalize_mod_identifier(value: object) -> str:
@@ -981,9 +1005,9 @@ class MessageHandler:
                 {
                     "modName": selected_mod.mod_name,
                     "relativePath": str(relative_path).replace(chr(92), "/"),
-                    "targetSkinId": selected_mod.skin_id,
+                    "targetSkinId": payload.get("skinId"),
                     "storageSkinId": selected_mod.skin_id,
-                    "affectedSkinIds": sorted(self._get_entry_affected_skin_ids(selected_mod)),
+                    "targetSkinIds": sorted(self._get_entry_target_skin_ids(selected_mod)),
                 }
             )
         self._send_response(json.dumps(result))
@@ -1168,21 +1192,23 @@ class MessageHandler:
             # Clear selected mod if it matches this skin, and remove extracted files so it
             # doesn't keep injecting after being unchecked.
             selected_custom_mod = getattr(self.shared_state, "selected_custom_mod", None)
-            selected_affected_skin_ids = set()
+            selected_target_skin_ids = set()
             if selected_custom_mod:
                 try:
-                    selected_affected_skin_ids = {
+                    selected_target_skin_ids = {
                         int(value)
-                        for value in selected_custom_mod.get("affected_skin_ids", ())
+                        for value in selected_custom_mod.get("target_skin_ids", ())
+                        if int(value) > 0
                     }
                 except (TypeError, ValueError):
-                    selected_affected_skin_ids = set()
+                    selected_target_skin_ids = set()
             selected_matches_skin = bool(
                 selected_custom_mod
                 and selected_custom_mod.get("champion_id") == champion_id
                 and (
-                    skin_id in selected_affected_skin_ids
-                    or selected_custom_mod.get("skin_id") in self._get_compatible_skin_ids(skin_id)
+                    selected_custom_mod.get("skin_id") in self._get_compatible_skin_ids(skin_id)
+                    or selected_custom_mod.get("storage_skin_id") in self._get_compatible_skin_ids(skin_id)
+                    or bool(selected_target_skin_ids & self._get_compatible_skin_ids(skin_id))
                 )
             )
             requested_mod_id = payload.get("expectedModId") or payload.get("modId")
@@ -1267,14 +1293,14 @@ class MessageHandler:
                 )
             return
 
+        selected_mod = None
         try:
             # Find the mod in storage (search all skins for this champion)
             if not champion_id:
                 from utils.core.utilities import get_champion_id_from_skin_id
                 champion_id = get_champion_id_from_skin_id(int(skin_id))
 
-            champion_name = self._get_cached_champion_name(champion_id)
-            entries = self.mod_storage.list_mods_for_champion(champion_id, champion_name)
+            entries = self.mod_storage.list_mods_for_champion(champion_id)
             selected_mod = None
             for entry in entries:
                 # Match by mod name or relative path
@@ -1288,17 +1314,17 @@ class MessageHandler:
                 entry
                 for entry in entries
                 if (
-                    self._get_entry_affected_skin_ids(entry) & compatible_skin_ids
+                    self._get_entry_target_skin_ids(entry) & compatible_skin_ids
                     and self._mod_matches_identifier(entry, mod_id)
                 )
             ]
-            # Prefer a mod whose affected-skin list explicitly contains the
-            # requested skin, then fall back to the first compatible entry.
+            # Prefer a mod whose manual target list explicitly contains the
+            # requested skin or chroma.
             selected_mod = next(
                 (
                     entry
                     for entry in matching_entries
-                    if skin_id in self._get_entry_affected_skin_ids(entry)
+                    if skin_id in self._get_entry_target_skin_ids(entry)
                 ),
                 matching_entries[0] if matching_entries else None,
             )
@@ -1393,15 +1419,11 @@ class MessageHandler:
                 raise RuntimeError("The mod could not be linked or extracted into the injection folder")
             log.info(f"[SkinMonitor] Linked/extracted mod to: {mod_dest}")
 
-            # Store the currently affected skin in shared state for injection.
-            # A single mod can affect several skin/chroma IDs, so the hovered
-            # skin is the effective injection target while the storage ID is
-            # retained for diagnostics.
-            affected_skin_ids = self._get_entry_affected_skin_ids(selected_mod)
+            # The explicitly selected skin/chroma folder is the target.
             self.shared_state.selected_custom_mod = {
                 "skin_id": int(skin_id),
                 "storage_skin_id": selected_mod.skin_id,
-                "affected_skin_ids": sorted(affected_skin_ids),
+                "target_skin_ids": sorted(self._get_entry_target_skin_ids(selected_mod)),
                 "champion_id": champion_id,
                 "mod_name": selected_mod.mod_name,
                 "mod_path": str(selected_mod.path),
@@ -1424,7 +1446,7 @@ class MessageHandler:
             
             log.info(
                 "[SkinMonitor] Custom mod selected and extracted: %s "
-                "(affected skin %s; storage skin %s)",
+                "(target skin %s; storage skin %s)",
                 selected_mod.mod_name,
                 skin_id,
                 selected_mod.skin_id,
@@ -2267,35 +2289,41 @@ class MessageHandler:
             log.debug(f"[SkinMonitor] Error during folder cleanup: {e}")
     
     def _handle_add_custom_mods_category_selected(self, payload: dict) -> None:
-        """Handle category selection for custom mods"""
+        """Open a file picker and import one mod into the selected category."""
+        category = payload.get("category")
         try:
-            category = payload.get("category")
-            if category not in {self.mod_storage.CATEGORY_MAPS, self.mod_storage.CATEGORY_FONTS, 
-                               self.mod_storage.CATEGORY_ANNOUNCERS, self.mod_storage.CATEGORY_OTHERS,
-                               self.mod_storage.CATEGORY_UI, self.mod_storage.CATEGORY_VOICEOVER,
-                               self.mod_storage.CATEGORY_LOADING_SCREEN, self.mod_storage.CATEGORY_VFX,
-                               self.mod_storage.CATEGORY_SFX}:
+            if category not in self.mod_storage.MOD_CATEGORIES:
                 log.warning(f"[SkinMonitor] Invalid category: {category}")
                 return
-            
-            category_folder = self.mod_storage.mods_root / category
-            category_folder.mkdir(parents=True, exist_ok=True)
-            
-            if sys.platform == "win32":
-                os.startfile(str(category_folder))
-            else:
-                subprocess.Popen(["xdg-open" if os.name != "nt" else "explorer", str(category_folder)])
-            
-            log.info(f"[SkinMonitor] Opened {category} folder: {category_folder}")
+
+            selected_mod_file = _choose_mod_file()
+            if selected_mod_file is None:
+                self._send_response(json.dumps({
+                    "type": "folder-opened-response",
+                    "success": False,
+                    "cancelled": True,
+                    "error": "Mod selection cancelled",
+                }))
+                return
+
+            mod_folder, mod_name = self.mod_storage.import_category_mod_file(
+                category,
+                selected_mod_file,
+            )
+            log.info(
+                f"[SkinMonitor] Imported {category} mod {mod_name} to {mod_folder}"
+            )
             
             response_payload = {
                 "type": "folder-opened-response",
                 "success": True,
-                "path": str(category_folder),
+                "category": category,
+                "path": str(mod_folder),
+                "modName": mod_name,
             }
             self._send_response(json.dumps(response_payload))
         except Exception as e:
-            log.error(f"[SkinMonitor] Failed to open {category} folder: {e}")
+            log.error(f"[SkinMonitor] Failed to import {category} mod: {e}")
             response_payload = {
                 "type": "folder-opened-response",
                 "success": False,
@@ -2414,13 +2442,7 @@ class MessageHandler:
             self._send_response(json.dumps(response_payload))
     
     def _handle_add_custom_mods_skin_selected(self, payload: dict) -> None:
-        """Open the champion folder for a new custom skin mod.
-
-        The UI intentionally only asks for a champion. Existing callers that
-        request a skin list remain supported for backwards compatibility, but
-        new imports are stored under the champion's base skin folder so the
-        mod scanner can discover every affected skin/chroma from its contents.
-        """
+        """Persist manual skin/chroma targets and open one champion mod folder."""
         try:
             action = payload.get("action")
             champion_id = payload.get("championId")
@@ -2479,10 +2501,51 @@ class MessageHandler:
                             if tile_path:
                                 skin_entry["tilePath"] = tile_path
                             skins.append(skin_entry)
+
+                            # Chromas are separate selectable targets. Keep
+                            # their real IDs so a mod can be placed under the
+                            # exact chroma folder instead of being inferred
+                            # from the user's explicit folder choice.
+                            raw_chromas = skin.get("chromas", []) or []
+                            if not isinstance(raw_chromas, list):
+                                raw_chromas = []
+                            if not raw_chromas and self.skin_scraper:
+                                try:
+                                    raw_chromas = (
+                                        self.skin_scraper.get_chromas_for_skin(int(skin_id))
+                                        or []
+                                    )
+                                except (AttributeError, TypeError, ValueError):
+                                    raw_chromas = []
+
+                            for chroma in raw_chromas:
+                                if not isinstance(chroma, dict):
+                                    continue
+                                chroma_id = chroma.get("id")
+                                if chroma_id is None:
+                                    continue
+                                chroma_id = int(chroma_id)
+                                chroma_name = str(
+                                    chroma.get("name") or f"Chroma {chroma_id}"
+                                )
+                                chroma_entry = {
+                                    "id": chroma_id,
+                                    "skinId": chroma_id,
+                                    "baseSkinId": int(skin_id),
+                                    "isChroma": True,
+                                    "name": f"{skin_name} — {chroma_name}",
+                                }
+                                chroma_tile_path = (
+                                    chroma.get("tilePath")
+                                    or chroma.get("chromaPath")
+                                )
+                                if chroma_tile_path:
+                                    chroma_entry["tilePath"] = chroma_tile_path
+                                skins.append(chroma_entry)
                         except (ValueError, TypeError, AttributeError):
                             continue
                 
-                # Sort skins by ID
+                # Sort base skins and chromas together by their real target ID.
                 skins.sort(key=lambda x: x["skinId"])
                 
                 response_payload = {
@@ -2495,56 +2558,79 @@ class MessageHandler:
                 log.info(f"[SkinMonitor] Sent skins list for champion {champion_id}: {len(skins)} skins")
             
             elif action == "create":
-                # Create the champion-level folder and open it.
+                # Store all manually selected skins/chromas in one champion folder.
                 champion_id = payload.get("championId")
+                raw_skin_ids = payload.get("skinIds")
+                if raw_skin_ids is None:
+                    raw_skin_ids = [payload.get("skinId")]
+                elif not isinstance(raw_skin_ids, list):
+                    raw_skin_ids = [raw_skin_ids]
                 
-                if not champion_id:
+                if not champion_id or not raw_skin_ids or any(
+                    skin_id is None for skin_id in raw_skin_ids
+                ):
                     response_payload = {
                         "type": "folder-opened-response",
                         "success": False,
-                        "error": "Champion ID is required",
+                        "error": "Champion ID and at least one Skin ID are required",
                     }
                     self._send_response(json.dumps(response_payload))
                     return
-                if not str(champion_id).isdigit():
+                if not str(champion_id).isdigit() or any(
+                    not str(skin_id).isdigit() for skin_id in raw_skin_ids
+                ):
                     response_payload = {
                         "type": "folder-opened-response",
                         "success": False,
-                        "error": "Champion ID must be numeric",
+                        "error": "Champion ID and Skin IDs must be numeric",
                     }
                     self._send_response(json.dumps(response_payload))
                     return
                 
                 champion_id = int(champion_id)
-                if champion_id <= 0:
+                skin_ids = []
+                for raw_skin_id in raw_skin_ids:
+                    skin_id = int(raw_skin_id)
+                    if skin_id not in skin_ids:
+                        skin_ids.append(skin_id)
+                if champion_id <= 0 or any(skin_id <= 0 for skin_id in skin_ids):
                     response_payload = {
                         "type": "folder-opened-response",
                         "success": False,
-                        "error": "Champion ID must be positive",
+                        "error": "Champion ID and Skin IDs must be positive",
                     }
                     self._send_response(json.dumps(response_payload))
                     return
 
-                # Keep one storage layout for both old and new imports:
-                # champion 161 is stored under its base skin, 161000.
-                skin_folder = self.mod_storage.get_skin_dir(champion_id * 1000)
-                skin_folder.mkdir(parents=True, exist_ok=True)
-                
-                # Open folder
-                if sys.platform == "win32":
-                    os.startfile(str(skin_folder))
-                else:
-                    subprocess.Popen(["xdg-open" if os.name != "nt" else "explorer", str(skin_folder)])
+                selected_mod_file = _choose_mod_file()
+                if selected_mod_file is None:
+                    self._send_response(json.dumps({
+                        "type": "folder-opened-response",
+                        "success": False,
+                        "cancelled": True,
+                        "error": "Mod selection cancelled",
+                    }))
+                    return
+
+                mod_folder, target_manifest, mod_name = self.mod_storage.import_mod_file(
+                    champion_id,
+                    selected_mod_file,
+                    skin_ids,
+                )
                 
                 log.info(
-                    f"[SkinMonitor] Created and opened champion folder for "
-                    f"{champion_id}: {skin_folder}"
+                    f"[SkinMonitor] Imported mod for champion "
+                    f"{champion_id}, mod {mod_name}, targets {skin_ids}"
                 )
                 
                 response_payload = {
                     "type": "folder-opened-response",
                     "success": True,
-                    "path": str(skin_folder),
+                    "path": str(mod_folder),
+                    "championFolder": str(self.mod_storage.get_champion_dir(champion_id)),
+                    "modName": mod_name,
+                    "skinIds": skin_ids,
+                    "targetManifest": str(target_manifest),
                 }
                 self._send_response(json.dumps(response_payload))
         except Exception as e:
