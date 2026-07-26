@@ -1918,22 +1918,28 @@
       return;
     }
 
-    // Don't create button if champion is not locked (except in Swiftplay mode)
+    const isCurrent = isCurrentSkinItem(skinItem);
+    const skinData = isCurrent ? getCachedSkinData(skinItem) : null;
+    const stateSkinId = getNumericId(skinMonitorState?.skinId);
+    const itemSkinId = getSkinIdFromContext(skinData, skinItem);
+    const currentSkinId = stateSkinId ?? itemSkinId ?? null;
     const isSwiftplay =
       skinItem.classList.contains("thumbnail-wrapper") &&
       skinItem.classList.contains("active-skin");
     const lockConfirmed = championLocked || hasConfirmedLockedSkinState();
-    if (!lockConfirmed && !isSwiftplay) {
-      // Remove existing button if champion is not locked (and not Swiftplay)
+    if (
+      !lockConfirmed &&
+      !isSwiftplay &&
+      (!isCurrent || !Number.isFinite(currentSkinId))
+    ) {
+      // Before lock, only keep the current skin's button. The carousel can
+      // expose the selected skin before Python broadcasts the lock state.
       const existingButton = skinItem.querySelector(BUTTON_SELECTOR);
       if (existingButton) {
         existingButton.remove();
       }
       return;
     }
-
-    const isCurrent = isCurrentSkinItem(skinItem);
-    const currentSkinId = skinMonitorState?.skinId ?? null;
 
     // Skip HOL skins - they are handled by ROSE-FormsWheel
     if (currentSkinId && HOL_SKIN_IDS.has(currentSkinId)) {
@@ -1946,9 +1952,31 @@
     }
 
     const hasChromas = Boolean(
-      skinMonitorState?.hasChromas || hasKnownChromas(currentSkinId)
+      skinMonitorState?.hasChromas ||
+      skinData?.chromas?.length ||
+      skinData?.childSkins?.length ||
+      hasKnownChromas(currentSkinId)
       // Note: Mordekaiser (82054), Spirit Blossom Morgana (25080), and HOL skins removed - handled by ROSE-FormsWheel
     );
+
+    // Warm the champion cache as soon as the carousel exposes a skin. This
+    // removes the lock -> fetch -> rescan delay from the visible button path.
+    const championId = getChampionIdFromContext(
+      skinData,
+      currentSkinId,
+      skinItem
+    );
+    if (
+      isCurrent &&
+      Number.isFinite(championId) &&
+      !championSkinCache.has(championId) &&
+      !pendingChampionRequests.has(championId)
+    ) {
+      fetchChampionSkinData(championId).catch(() => {
+        // The normal skin-state warmup will retry if the client endpoint is
+        // not ready yet.
+      });
+    }
 
     // Check if button already exists
     let existingButton = skinItem.querySelector(BUTTON_SELECTOR);

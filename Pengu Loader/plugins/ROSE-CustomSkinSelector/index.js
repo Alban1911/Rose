@@ -23,6 +23,8 @@
   let customButtonIconUrl = null;
   let selectionRequestCounter = 0;
   let pendingSelectionRequest = null;
+  let lastSkinModsRequestKey = null;
+  let lastSkinModsRequestAt = 0;
 
   function logInfo(message, extra) {
     console.log(`${LOG_PREFIX} ${message}`, extra ?? "");
@@ -142,6 +144,33 @@
 
   function normalizeModId(mod) {
     return String(mod?.relativePath || mod?.modName || "");
+  }
+
+  function isModAvailableForSkin(mod, skinId = getCurrentSkinContext().skinId) {
+    if (!mod || mod._none) return false;
+    const requestedSkinId = Number(skinId);
+    if (!Number.isFinite(requestedSkinId)) return false;
+    if (mod.availableForRequestedSkin === true) return true;
+
+    const targetSkinIds = Array.isArray(mod.targetSkinIds)
+      ? mod.targetSkinIds.map(Number).filter(Number.isFinite)
+      : [];
+    if (targetSkinIds.includes(requestedSkinId)) return true;
+
+    return mod.availableForRequestedSkin == null && Number(mod.skinId) === requestedSkinId;
+  }
+
+  function isModSelected(mod, skinId = getCurrentSkinContext().skinId) {
+    const requestedSkinId = Number(skinId);
+    const selectedSkinId = Number(selectedModSkinId);
+    const hasSelectionForSkin = Boolean(selectedModId) &&
+      Number.isFinite(requestedSkinId) &&
+      Number.isFinite(selectedSkinId) &&
+      selectedSkinId === requestedSkinId;
+    if (mod?._none) return !hasSelectionForSkin;
+    return Boolean(selectedModId) &&
+      selectedModId === normalizeModId(mod) &&
+      hasSelectionForSkin;
   }
 
   function getCurrentSkinContext() {
@@ -463,6 +492,17 @@
       return;
     }
 
+    const requestKey = `${championId}:${skinId}`;
+    const now = Date.now();
+    if (
+      requestKey === lastSkinModsRequestKey &&
+      now - lastSkinModsRequestAt < 750
+    ) {
+      return;
+    }
+    lastSkinModsRequestKey = requestKey;
+    lastSkinModsRequestAt = now;
+
     bridge.send({ type: REQUEST_TYPE, championId, skinId });
   }
 
@@ -547,9 +587,7 @@
 
     visibleMods.forEach((mod, index) => {
       const modId = mod._none ? "__none__" : normalizeModId(mod);
-      const isSelected = mod._none
-        ? !selectedModId
-        : (selectedModId === modId && Number(selectedModSkinId) === Number(getCurrentSkinContext().skinId));
+      const isSelected = isModSelected(mod, getCurrentSkinContext().skinId);
 
       const item = document.createElement("li");
       const emberView = document.createElement("div");
@@ -575,7 +613,7 @@
           closePanel();
           return;
         }
-        if (selectedModId === modId && Number(selectedModSkinId) === Number(getCurrentSkinContext().skinId)) {
+        if (isModSelected(mod, getCurrentSkinContext().skinId)) {
           sendDeselect(selectedModId);
         } else {
           sendSelect(modId, mod);
@@ -588,7 +626,7 @@
       });
 
       wheelButton.addEventListener("mouseleave", () => {
-        const active = visibleMods.find(e => e._none ? !selectedModId : (selectedModId === normalizeModId(e) && Number(selectedModSkinId) === Number(getCurrentSkinContext().skinId)));
+        const active = visibleMods.find(e => isModSelected(e, getCurrentSkinContext().skinId));
         const au = active && active.thumbnailUrl ? String(active.thumbnailUrl).replace("localhost", "127.0.0.1") : "";
         const al = active && !active._none ? (active.modName || getCurrentSkinContext().skinName) : getCurrentSkinContext().skinName;
         setPreviewImage(au, al);
@@ -603,7 +641,7 @@
       list.appendChild(item);
     });
 
-    const active = visibleMods.find(e => e._none ? !selectedModId : (selectedModId === normalizeModId(e) && Number(selectedModSkinId) === Number(getCurrentSkinContext().skinId)));
+    const active = visibleMods.find(e => isModSelected(e, getCurrentSkinContext().skinId));
     const au = active && active.thumbnailUrl ? String(active.thumbnailUrl).replace("localhost", "127.0.0.1") : "";
     const al = active && !active._none ? (active.modName || getCurrentSkinContext().skinName) : getCurrentSkinContext().skinName;
     setPreviewImage(au, al);
@@ -742,8 +780,7 @@
     if (!responseSkinId || responseSkinId !== skinId) return;
 
     modsForCurrentSkin = (Array.isArray(detail.mods) ? detail.mods : []).filter((mod) => (
-      mod?.availableForRequestedSkin === true ||
-      (mod?.availableForRequestedSkin == null && Number(mod?.skinId) === skinId)
+      isModAvailableForSkin(mod, skinId)
     ));
 
     if (selectedModId && !pendingSelectionRequest) {
@@ -752,8 +789,6 @@
       ));
       if (!selectedEntry) {
         sendDeselect(selectedModId);
-      } else {
-        selectedModSkinId = skinId;
       }
     }
 

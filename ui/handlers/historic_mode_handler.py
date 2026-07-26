@@ -70,15 +70,16 @@ def historic_custom_mod_affects_skin(state: SharedState, *skin_ids: object) -> b
                     continue
 
                 try:
-                    affected_ids = {int(value) for value in (entry.affected_skin_ids or ())}
+                    target_ids = {
+                        int(value)
+                        for value in getattr(entry, "target_skin_ids", ())
+                        if int(value) > 0
+                    }
+                    if not target_ids:
+                        target_ids = {int(entry.skin_id)}
+                    return bool(target_ids & requested_ids)
                 except (AttributeError, TypeError, ValueError):
-                    affected_ids = set()
-                if not affected_ids:
-                    try:
-                        affected_ids.add(int(entry.skin_id))
-                    except (AttributeError, TypeError, ValueError):
-                        pass
-                return bool(requested_ids & affected_ids)
+                    return False
 
         # Legacy fallback: at least recognize the storage skin encoded in the
         # saved path when the mod is temporarily unavailable.
@@ -109,8 +110,8 @@ class HistoricModeHandler:
         if self.state.historic_first_detection_done or self.state.locked_champ_id is None:
             return
         
-        # History may be restored while the client is already showing an
-        # affected skin/chroma; do not require a default-skin spawn first.
+        # History may be restored while the client is already showing the
+        # manually selected target; do not require a default-skin spawn first.
         base_skin_id = self.state.locked_champ_id * 1000
         try:
             from utils.core.historic import (

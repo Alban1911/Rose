@@ -31,6 +31,8 @@
   let selectionRequestCounter = 0;
   let skinModsRequestCounter = 0;
   let latestSkinModsRequestId = null;
+  let lastSkinModsRequestKey = null;
+  let lastSkinModsRequestAt = 0;
   let pendingSelectionRequest = null;
   let currentSkinMods = [];
   let activeTab = "skins"; // Current active tab: "skins", "maps", "fonts", "announcers", "others"
@@ -64,6 +66,15 @@
     }
 
     return { championId, skinId };
+  }
+
+  function isSelectedModForSkin(skinId = getCurrentSkinContext().skinId) {
+    const selectedSkinId = Number(selectedModSkinId);
+    const currentSkinId = Number(skinId);
+    return Boolean(selectedModId) &&
+      Number.isFinite(selectedSkinId) &&
+      Number.isFinite(currentSkinId) &&
+      selectedSkinId === currentSkinId;
   }
 
   function handleChromaStateUpdate(data) {
@@ -190,7 +201,7 @@
   function getSelectedSummaryForTab(tabId) {
     if (tabId === "skins") {
       if (!championLocked) return "Waiting for champ lock…";
-      return selectedModId ? String(selectedModId) : "None";
+      return isSelectedModForSkin() ? String(selectedModId) : "None";
     }
     if (tabId === "maps") return selectedMapId ? String(selectedMapId) : "None";
     if (tabId === "fonts") return selectedFontId ? String(selectedFontId) : "None";
@@ -1268,7 +1279,7 @@
   function handleModSelect(modId, listItem, modData) {
     const { championId, skinId } = getCurrentSkinContext();
 
-    if (selectedModId === modId) {
+    if (selectedModId === modId && isSelectedModForSkin(skinId)) {
       sendSkinModSelection({
         championId,
         skinId,
@@ -1292,6 +1303,8 @@
 
     // Store current selectedModId before clearing the list
     const previousSelectedModId = selectedModId;
+    const previousSelectedModSkinId = selectedModSkinId;
+    const currentSkinId = getCurrentSkinContext().skinId;
 
     modList.innerHTML = "";
 
@@ -1315,7 +1328,7 @@
       noneName.className = "mod-name none-label";
       noneName.textContent = "None";
       noneRow.appendChild(noneName);
-      const nothingSelected = !selectedModId;
+      const nothingSelected = !isSelectedModForSkin(currentSkinId);
       if (nothingSelected) {
         noneItem.classList.add("selected-row");
       }
@@ -1348,10 +1361,18 @@
       modName.textContent = cleanModName(mod.modName) || "Unnamed mod";
       modNameRow.appendChild(modName);
 
-      const isSelected = (selectedModId === modId || previousSelectedModId === modId);
+      const isSelected = (
+        (selectedModId === modId && isSelectedModForSkin(currentSkinId)) ||
+        (previousSelectedModId === modId && Number(previousSelectedModSkinId) === Number(currentSkinId))
+      );
 
-      if (previousSelectedModId === modId && selectedModId !== modId) {
+      if (
+        previousSelectedModId === modId &&
+        Number(previousSelectedModSkinId) === Number(currentSkinId) &&
+        !isSelectedModForSkin(currentSkinId)
+      ) {
         selectedModId = modId;
+        selectedModSkinId = previousSelectedModSkinId;
       }
 
       if (isSelected) {
@@ -2077,6 +2098,17 @@
       return;
     }
 
+    const requestKey = `${championId}:${skinId}`;
+    const now = Date.now();
+    if (
+      requestKey === lastSkinModsRequestKey &&
+      now - lastSkinModsRequestAt < 750
+    ) {
+      return;
+    }
+    lastSkinModsRequestKey = requestKey;
+    lastSkinModsRequestAt = now;
+
     if (bridge) {
       const requestId = `${LOG_PREFIX}-mods-${Date.now()}-${++skinModsRequestCounter}`;
       latestSkinModsRequestId = requestId;
@@ -2176,7 +2208,7 @@
   function getSelectedModsCount() {
     let count = 0;
     // Skins are only meaningful after champ lock.
-    if (championLocked && selectedModId) count += 1;
+    if (championLocked && isSelectedModForSkin()) count += 1;
     if (selectedMapId) count += 1;
     if (selectedFontId) count += 1;
     if (selectedAnnouncerId) count += 1;
@@ -2301,8 +2333,6 @@
           modId: null,
           expectedModId: selectedModId,
         });
-      } else {
-        selectedModSkinId = liveSkinId;
       }
     }
 

@@ -51,7 +51,7 @@
   let isInChampSelect = false; // Track if we're in ChampSelect phase
   let pythonChromaState = null;
   let customModTargetSkinId = null;
-  let customModAffectedSkinIds = new Set();
+  let customModTargetSkinIds = new Set();
   let historicEntryAvailable = false;
   let historicBaseSkinId = null;
 
@@ -80,7 +80,7 @@
     if (!Number.isFinite(numericSkinId) || numericSkinId <= 0) return false;
     return (
       customModTargetSkinId === numericSkinId ||
-      customModAffectedSkinIds.has(numericSkinId)
+      customModTargetSkinIds.has(numericSkinId)
     );
   }
 
@@ -142,7 +142,7 @@
     if (isInChampSelect && !wasInChampSelect) {
       customModPopupActive = false;
       customModTargetSkinId = null;
-      customModAffectedSkinIds = new Set();
+      customModTargetSkinIds = new Set();
       historicModeActive = false;
       historicEntryAvailable = false;
       historicBaseSkinId = null;
@@ -158,7 +158,7 @@
       // Remove popup and reset flags
       customModPopupActive = false;
       customModTargetSkinId = null;
-      customModAffectedSkinIds = new Set();
+      customModTargetSkinIds = new Set();
       historicModeActive = false;
       historicEntryAvailable = false;
       historicBaseSkinId = null;
@@ -935,25 +935,25 @@
 
     if (data.active && data.modName) {
       customModTargetSkinId = data.skinId ? Number(data.skinId) : null;
-      customModAffectedSkinIds = new Set(
-        (Array.isArray(data.affectedSkinIds) ? data.affectedSkinIds : [])
+      customModTargetSkinIds = new Set(
+        (Array.isArray(data.targetSkinIds) ? data.targetSkinIds : [])
           .map((value) => Number(value))
           .filter((value) => Number.isFinite(value) && value > 0)
       );
       if (customModTargetSkinId) {
-        customModAffectedSkinIds.add(customModTargetSkinId);
+        customModTargetSkinIds.add(customModTargetSkinId);
       }
       customModPopupActive = true;
       showSkinName(data.modName);
       log("info", "Displayed custom mod popup", {
         modName: data.modName,
         skinId: customModTargetSkinId,
-        affectedSkinIds: [...customModAffectedSkinIds],
+        targetSkinIds: [...customModTargetSkinIds],
       });
     } else {
       customModPopupActive = false;
       customModTargetSkinId = null;
-      customModAffectedSkinIds = new Set();
+      customModTargetSkinIds = new Set();
       removeHistoricSkinName();
     }
   }
@@ -967,7 +967,7 @@
     ) {
       customModPopupActive = false;
       customModTargetSkinId = null;
-      customModAffectedSkinIds = new Set();
+      customModTargetSkinIds = new Set();
       removeHistoricSkinName();
     }
   }
@@ -988,7 +988,7 @@
 
       customModPopupActive = false;
       customModTargetSkinId = null;
-      customModAffectedSkinIds = new Set();
+      customModTargetSkinIds = new Set();
       removeHistoricSkinName();
     }
 
