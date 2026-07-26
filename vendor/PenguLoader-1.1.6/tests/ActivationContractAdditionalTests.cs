@@ -279,6 +279,17 @@ namespace PenguLoader.Tests
                 Elevation.IsElevatedOverride = oldOverride;
             }
         }
+        [TestMethod]
+        public void Windows_integrity_level_rids_are_mapped_correctly()
+        {
+            Assert.AreEqual("Untrusted", Elevation.GetIntegrityLevelName(0x0000));
+            Assert.AreEqual("Low", Elevation.GetIntegrityLevelName(0x1000));
+            Assert.AreEqual("Medium", Elevation.GetIntegrityLevelName(0x2000));
+            Assert.AreEqual("MediumPlus", Elevation.GetIntegrityLevelName(0x2100));
+            Assert.AreEqual("High", Elevation.GetIntegrityLevelName(0x3000));
+            Assert.AreEqual("System", Elevation.GetIntegrityLevelName(0x4000));
+            Assert.AreEqual("Protected", Elevation.GetIntegrityLevelName(0x5000));
+        }
         private sealed class RecordingProcessFake : IElevatedProcessRunner
         {
             public string Arguments { get; private set; }

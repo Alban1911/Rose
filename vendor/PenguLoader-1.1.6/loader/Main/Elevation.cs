@@ -119,16 +119,9 @@ namespace PenguLoader.Main
                             uint rid;
                             if (parts.Length == 0 || !uint.TryParse(parts[parts.Length - 1], out rid))
                                 continue;
-                            switch (rid)
-                            {
-                                case 0x1000: return "Untrusted";
-                                case 0x2000: return "Low";
-                                case 0x3000: return "Medium";
-                                case 0x4000: return "MediumPlus";
-                                case 0x5000: return "High";
-                                case 0x6000: return "System";
-                                case 0x7000: return "Protected";
-                            }
+                            var level = GetIntegrityLevelName(rid);
+                            if (!level.StartsWith("Unknown(", StringComparison.Ordinal))
+                                return level;
                         }
                     }
                 }
@@ -223,6 +216,20 @@ namespace PenguLoader.Main
             }
         }
 
+        internal static string GetIntegrityLevelName(uint rid)
+        {
+            switch (rid)
+            {
+                case 0x0000: return "Untrusted";
+                case 0x1000: return "Low";
+                case 0x2000: return "Medium";
+                case 0x2100: return "MediumPlus";
+                case 0x3000: return "High";
+                case 0x4000: return "System";
+                case 0x5000: return "Protected";
+                default: return "Unknown(" + rid + ")";
+            }
+        }
         private static string GetTokenIntegrityLevel(IntPtr token)
         {
             int length;
@@ -242,17 +249,7 @@ namespace PenguLoader.Main
                 uint rid;
                 if (sidParts.Length == 0 || !uint.TryParse(sidParts[sidParts.Length - 1], out rid))
                     return null;
-                switch (rid)
-                {
-                    case 0x1000: return "Untrusted";
-                    case 0x2000: return "Low";
-                    case 0x3000: return "Medium";
-                    case 0x4000: return "MediumPlus";
-                    case 0x5000: return "High";
-                    case 0x6000: return "System";
-                    case 0x7000: return "Protected";
-                    default: return "Unknown(" + rid + ")";
-                }
+                return GetIntegrityLevelName(rid);
             }
             catch
             {
