@@ -7,7 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\loader\loader.csproj" />
+    <ProjectReference Include="..\loader\loader.csproj">
+      <AdditionalProperties>SignAssembly=false</AdditionalProperties>
+    </ProjectReference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="MSTest.TestAdapter" Version="3.6.1" />
     <PackageReference Include="MSTest.TestFramework" Version="3.6.1" />

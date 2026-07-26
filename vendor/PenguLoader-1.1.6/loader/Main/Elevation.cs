@@ -62,7 +62,18 @@ namespace PenguLoader.Main
             }
         }
 
+        internal static Func<bool> IsElevatedOverride { get; set; }
+
         public static bool IsElevated()
+        {
+            var overrideValue = IsElevatedOverride;
+            if (overrideValue != null)
+                return overrideValue();
+
+            return IsElevatedCore();
+        }
+
+        private static bool IsElevatedCore()
         {
             try
             {
@@ -171,7 +182,8 @@ namespace PenguLoader.Main
             if (!result.Succeeded)
             {
                 Logger.Error("Elevation", "Decoded failure stage=" + ActivationResult.StageName(result.Stage) +
-                    " kind=" + ActivationResult.ErrorKindName(result.ErrorKind));
+                    " kind=" + ActivationResult.ErrorKindName(result.ErrorKind) +
+                    " partialState=" + result.PartialState);
             }
             return result;
         }

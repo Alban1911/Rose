@@ -166,6 +166,12 @@ namespace PenguLoader.Tests
                 DeletedValueName = valueName;
                 return 0;
             }
+
+            public int DeleteSubKey(IRegistryHandle parent, string name)
+            {
+                TargetDeleted = true;
+                return 0;
+            }
         }
 
         private sealed class FakeHandle : IRegistryHandle

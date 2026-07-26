@@ -48,7 +48,37 @@ namespace PenguLoader.Tests
             }
             finally
             {
-                IFEO.RegistryApi = oldApi;
+                try
+                {
+                    IRegistryHandle parent;
+                    var openResult = api.OpenLocalMachine(
+                        IFEO.IFEO_PATH,
+                        Win32Registry.KEY_WRITE,
+                        out parent);
+                    if (openResult != Win32Registry.ERROR_SUCCESS &&
+                        openResult != Win32Registry.ERROR_FILE_NOT_FOUND &&
+                        openResult != Win32Registry.ERROR_PATH_NOT_FOUND)
+                    {
+                        Assert.Fail("Unable to open the guarded IFEO parent for cleanup: " + openResult);
+                    }
+                    else if (openResult == Win32Registry.ERROR_SUCCESS)
+                    {
+                        using (parent)
+                        {
+                            var deleteResult = api.DeleteSubKey(parent, target);
+                            if (deleteResult != Win32Registry.ERROR_SUCCESS &&
+                                deleteResult != Win32Registry.ERROR_FILE_NOT_FOUND &&
+                                deleteResult != Win32Registry.ERROR_PATH_NOT_FOUND)
+                            {
+                                Assert.Fail("Unable to remove the guarded IFEO target: " + deleteResult);
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    IFEO.RegistryApi = oldApi;
+                }
             }
         }
 

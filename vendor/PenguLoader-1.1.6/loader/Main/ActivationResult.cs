@@ -7,7 +7,7 @@ namespace PenguLoader.Main
     {
         None = 0, OpenIFEO = 1, CreateTarget = 2, SetDebugger = 3,
         DeleteDebugger = 4, GetLeaguePath = 5, CreateSymlink = 6,
-        DeleteSymlink = 7, RunElevated = 8
+        DeleteSymlink = 7, RunElevated = 8, WriteCoreConfig = 9
     }
 
     internal enum ActivationErrorKind : byte
@@ -19,13 +19,14 @@ namespace PenguLoader.Main
     internal sealed class ActivationResult
     {
         private ActivationResult(bool succeeded, ActivationStage stage, ActivationErrorKind errorKind,
-            int nativeErrorCode, string nativeErrorMessage)
+            int nativeErrorCode, string nativeErrorMessage, bool partialState)
         {
             Succeeded = succeeded;
             Stage = stage;
             ErrorKind = errorKind;
             NativeErrorCode = nativeErrorCode;
             NativeErrorMessage = nativeErrorMessage ?? string.Empty;
+            PartialState = partialState;
         }
 
         public bool Succeeded { get; }
@@ -33,19 +34,21 @@ namespace PenguLoader.Main
         public ActivationErrorKind ErrorKind { get; }
         public int NativeErrorCode { get; }
         public string NativeErrorMessage { get; }
+        public bool PartialState { get; }
 
         public static ActivationResult Success()
         {
-            return new ActivationResult(true, ActivationStage.None, ActivationErrorKind.None, 0, string.Empty);
+            return new ActivationResult(true, ActivationStage.None, ActivationErrorKind.None, 0, string.Empty, false);
         }
 
         public static ActivationResult Failure(ActivationStage stage, ActivationErrorKind errorKind,
-            int nativeErrorCode, string nativeErrorMessage)
+            int nativeErrorCode, string nativeErrorMessage, bool partialState = false)
         {
-            return new ActivationResult(false, stage, errorKind, nativeErrorCode, nativeErrorMessage);
+            return new ActivationResult(false, stage, errorKind, nativeErrorCode, nativeErrorMessage, partialState);
         }
 
-        public static ActivationResult FromWin32(ActivationStage stage, int nativeErrorCode, string nativeErrorMessage = null)
+        public static ActivationResult FromWin32(ActivationStage stage, int nativeErrorCode, string nativeErrorMessage = null,
+            bool partialState = false)
         {
             var message = nativeErrorMessage;
             if (string.IsNullOrEmpty(message))
@@ -53,7 +56,7 @@ namespace PenguLoader.Main
                 try { message = new Win32Exception(nativeErrorCode).Message; }
                 catch { message = "Windows error " + nativeErrorCode; }
             }
-            return Failure(stage, MapWin32Error(nativeErrorCode), nativeErrorCode, message);
+            return Failure(stage, MapWin32Error(nativeErrorCode), nativeErrorCode, message, partialState);
         }
 
         public int EncodeExitCode()
@@ -65,8 +68,13 @@ namespace PenguLoader.Main
         {
             if (exitCode == 0) return Success();
             var unsignedExitCode = unchecked((uint)exitCode);
-            return Failure((ActivationStage)((unsignedExitCode >> 8) & 0xff),
-                (ActivationErrorKind)(unsignedExitCode & 0xff), 0, string.Empty);
+            var stage = (ActivationStage)((unsignedExitCode >> 8) & 0xff);
+            var errorKind = (ActivationErrorKind)(unsignedExitCode & 0xff);
+            var partialState = stage == ActivationStage.WriteCoreConfig;
+            var message = partialState
+                ? "Registry state may have changed while Rose core configuration was not updated."
+                : string.Empty;
+            return Failure(stage, errorKind, 0, message, partialState);
         }
 
         public string ToOfficialStyleString()
@@ -108,6 +116,7 @@ namespace PenguLoader.Main
                 case ActivationStage.CreateSymlink: return "CreateSymlink";
                 case ActivationStage.DeleteSymlink: return "DeleteSymlink";
                 case ActivationStage.RunElevated: return "RunElevated";
+                case ActivationStage.WriteCoreConfig: return "WriteCoreConfig";
                 default: return "Stage" + (byte)stage;
             }
         }

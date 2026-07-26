@@ -1215,6 +1215,16 @@ On the machine that currently gets `UnauthorizedAccessException`:
 
 ---
 
+## Deliberate deviations from upstream Pengu
+
+The Rose clone intentionally keeps these differences from the pinned official implementation:
+
+* Rose elevates every install/uninstall operation when the caller is not elevated, including symlink mode; it does not expose upstream developer-mode symlink activation.
+* The elevated child receives only `--install --silent` or `--uninstall --silent`; Rose does not pass upstream `--symlink`.
+* IFEO deactivation opens the existing target directly and treats a missing target/value as an idempotent success. It deletes only `Debugger` and preserves the target key and unrelated values.
+* Status uses the narrower `KEY_QUERY_VALUE` access mask rather than upstream `KEY_READ`.
+
+Activation now reports a separate `WriteCoreConfig` stage. Registry changes are completed before Rose's `config.ini` update; if that update fails, the result and log mark `partialState`, including whether the registry state changed and that the core configuration was not updated.
 # Acceptance criteria
 
 The task is complete only when all of these are true:

@@ -36,6 +36,10 @@ namespace PenguLoader.Main
         int DeleteValue(
             IRegistryHandle key,
             string valueName);
+
+        int DeleteSubKey(
+            IRegistryHandle parent,
+            string name);
     }
 
     internal static class Win32Registry
@@ -51,6 +55,7 @@ namespace PenguLoader.Main
         internal const uint KEY_QUERY_VALUE = 0x0001;
         internal const uint KEY_SET_VALUE = 0x0002;
         internal const uint KEY_CREATE_SUB_KEY = 0x0004;
+        internal const uint KEY_WRITE = 0x20006;
 
         internal const uint REG_OPTION_NON_VOLATILE = 0x00000000;
         internal const uint REG_SZ = 1;
@@ -182,6 +187,13 @@ namespace PenguLoader.Main
             return RegDeleteValueW(key.NativeHandle, valueName);
         }
 
+        public int DeleteSubKey(
+            IRegistryHandle parent,
+            string name)
+        {
+            return RegDeleteKeyW(parent.NativeHandle, name);
+        }
+
         [DllImport("advapi32.dll", EntryPoint = "RegOpenKeyExW", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern int RegOpenKeyExW(
             UIntPtr hKey,
@@ -224,6 +236,11 @@ namespace PenguLoader.Main
         private static extern int RegDeleteValueW(
             IntPtr hKey,
             string lpValueName);
+
+        [DllImport("advapi32.dll", EntryPoint = "RegDeleteKeyW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int RegDeleteKeyW(
+            IntPtr hKey,
+            string lpSubKey);
 
         [DllImport("advapi32.dll", EntryPoint = "RegCloseKey", SetLastError = true)]
         private static extern int RegCloseKey(IntPtr hKey);

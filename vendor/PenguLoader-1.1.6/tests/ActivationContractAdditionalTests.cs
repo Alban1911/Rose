@@ -126,6 +126,181 @@ namespace PenguLoader.Tests
             finally { Elevation.ProcessRunner = old; }
         }
 
+        [TestMethod]
+        public void WriteCoreConfig_failure_decodes_as_partial_state()
+        {
+            var result = ActivationResult.Failure(
+                ActivationStage.WriteCoreConfig,
+                ActivationErrorKind.Other,
+                5,
+                "config denied",
+                true);
+            var decoded = ActivationResult.DecodeExitCode(result.EncodeExitCode());
+            Assert.AreEqual(ActivationStage.WriteCoreConfig, decoded.Stage);
+            Assert.IsTrue(decoded.PartialState);
+        }
+
+        [TestMethod]
+        public void Config_failure_is_reported_after_registry_success_and_marks_partial_state()
+        {
+            var oldApi = IFEO.RegistryApi;
+            var oldElevatedOverride = Elevation.IsElevatedOverride;
+            var oldConfigWriter = Module.ConfigWriter;
+            var fake = new RegistryFake();
+            var configCalled = false;
+            IFEO.RegistryApi = fake;
+            Elevation.IsElevatedOverride = () => true;
+            Config.SetRuntimeUseSymlink(false);
+            Module.ConfigWriter = (section, key, value, path) =>
+            {
+                configCalled = true;
+                return false;
+            };
+
+            try
+            {
+                var result = Module.SetActive(true);
+                Assert.AreEqual(ActivationStage.WriteCoreConfig, result.Stage);
+                Assert.IsTrue(result.PartialState);
+                Assert.IsTrue(configCalled);
+                Assert.IsNotNull(fake.Value);
+            }
+            finally
+            {
+                Module.ConfigWriter = oldConfigWriter;
+                Elevation.IsElevatedOverride = oldElevatedOverride;
+                Config.SetRuntimeUseSymlink(false);
+                IFEO.RegistryApi = oldApi;
+            }
+        }
+
+        [TestMethod]
+        public void Registry_failure_does_not_write_core_config()
+        {
+            var oldApi = IFEO.RegistryApi;
+            var oldElevatedOverride = Elevation.IsElevatedOverride;
+            var oldConfigWriter = Module.ConfigWriter;
+            var fake = new RegistryFake { SetResult = 5 };
+            var configCalled = false;
+            IFEO.RegistryApi = fake;
+            Elevation.IsElevatedOverride = () => true;
+            Config.SetRuntimeUseSymlink(false);
+            Module.ConfigWriter = (section, key, value, path) =>
+            {
+                configCalled = true;
+                return true;
+            };
+
+            try
+            {
+                var result = Module.SetActive(true);
+                Assert.AreEqual(ActivationStage.SetDebugger, result.Stage);
+                Assert.IsFalse(configCalled);
+            }
+            finally
+            {
+                Module.ConfigWriter = oldConfigWriter;
+                Elevation.IsElevatedOverride = oldElevatedOverride;
+                Config.SetRuntimeUseSymlink(false);
+                IFEO.RegistryApi = oldApi;
+            }
+        }
+
+        [TestMethod]
+        public void Unelevated_parent_does_not_acquire_operation_mutex()
+        {
+            var oldOverride = Elevation.IsElevatedOverride;
+            var oldProcessRunner = Elevation.ProcessRunner;
+            var oldMutexFactory = Program.OperationMutexFactory;
+            var oldInstallCore = Program.InstallCoreOverride;
+            var process = new RecordingProcessFake();
+            var mutexCreated = false;
+            Elevation.IsElevatedOverride = () => false;
+            Elevation.ProcessRunner = process;
+            Program.OperationMutexFactory = () =>
+            {
+                mutexCreated = true;
+                return new OperationMutexFake(true);
+            };
+            Program.InstallCoreOverride = active => ActivationResult.Success();
+
+            try
+            {
+                var result = Program.RequestActivation(true);
+                Assert.IsTrue(result.Succeeded);
+                Assert.IsFalse(mutexCreated);
+                Assert.AreEqual("--install --silent", process.Arguments);
+            }
+            finally
+            {
+                Program.InstallCoreOverride = oldInstallCore;
+                Program.OperationMutexFactory = oldMutexFactory;
+                Elevation.ProcessRunner = oldProcessRunner;
+                Elevation.IsElevatedOverride = oldOverride;
+            }
+        }
+
+        [TestMethod]
+        public void Elevated_child_acquires_mutex_without_launching_another_child()
+        {
+            var oldOverride = Elevation.IsElevatedOverride;
+            var oldProcessRunner = Elevation.ProcessRunner;
+            var oldMutexFactory = Program.OperationMutexFactory;
+            var oldInstallCore = Program.InstallCoreOverride;
+            var process = new RecordingProcessFake();
+            var mutexCreated = false;
+            var installCoreCalled = false;
+            Elevation.IsElevatedOverride = () => true;
+            Elevation.ProcessRunner = process;
+            Program.OperationMutexFactory = () =>
+            {
+                mutexCreated = true;
+                return new OperationMutexFake(true);
+            };
+            Program.InstallCoreOverride = active =>
+            {
+                installCoreCalled = true;
+                return ActivationResult.Success();
+            };
+
+            try
+            {
+                var result = Program.RequestActivation(true);
+                Assert.IsTrue(result.Succeeded);
+                Assert.IsTrue(mutexCreated);
+                Assert.IsTrue(installCoreCalled);
+                Assert.IsNull(process.Arguments);
+            }
+            finally
+            {
+                Program.InstallCoreOverride = oldInstallCore;
+                Program.OperationMutexFactory = oldMutexFactory;
+                Elevation.ProcessRunner = oldProcessRunner;
+                Elevation.IsElevatedOverride = oldOverride;
+            }
+        }
+        private sealed class RecordingProcessFake : IElevatedProcessRunner
+        {
+            public string Arguments { get; private set; }
+
+            public ElevatedProcessResult Run(string executable, string arguments, string workingDirectory)
+            {
+                Arguments = arguments;
+                return ElevatedProcessResult.Completed(0);
+            }
+        }
+
+        private sealed class OperationMutexFake : Program.IOperationMutex
+        {
+            public bool CreatedNew { get; }
+
+            public OperationMutexFake(bool createdNew)
+            {
+                CreatedNew = createdNew;
+            }
+
+            public void Dispose() { }
+        }
         private sealed class ProcessFake : IElevatedProcessRunner
         {
             private readonly ElevatedProcessResult _result;
@@ -167,7 +342,9 @@ namespace PenguLoader.Tests
                 return SetResult;
             }
 
-            public int DeleteValue(IRegistryHandle key, string valueName) { return DeleteResult; }
+            public int DeleteValue(IRegistryHandle key, string valueName) { Value = null; return DeleteResult; }
+
+            public int DeleteSubKey(IRegistryHandle parent, string name) { return Win32Registry.ERROR_SUCCESS; }
         }
 
         private sealed class Handle : IRegistryHandle

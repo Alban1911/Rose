@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -64,94 +65,123 @@ namespace PenguLoader.Views
             }
         }
 
+        private bool _activationBusy;
+
+        public bool CanChangeActivation => !_activationBusy;
+
         public bool IsActivated
         {
             get => Module.IsFound && Module.IsActivated;
             set
             {
-                Logger.Info("MainPage", $"========================================");
-                Logger.Info("MainPage", $"IsActivated setter called: requested={value}");
-                Logger.Info("MainPage", $"  Module.IsFound: {Module.IsFound}");
-                Logger.Info("MainPage", $"  Module.IsActivated: {Module.IsActivated}");
-                Logger.Info("MainPage", $"  Module.IsLoaded: {Module.IsLoaded}");
-                Logger.Info("MainPage", $"  LCU.IsRunning: {LCU.IsRunning}");
-                Logger.Info("MainPage", $"  Config.LeaguePath: {Config.LeaguePath}");
+                Logger.Info("MainPage", "IsActivated setter called: requested=" + value);
+                if (_activationBusy)
+                {
+                    TriggerPropertyChanged(nameof(IsActivated));
+                    return;
+                }
+
+                _ = RequestActivationAsync(value);
+            }
+        }
+
+        private async Task RequestActivationAsync(bool value)
+        {
+            _activationBusy = true;
+            TriggerPropertyChanged(nameof(CanChangeActivation));
+
+            try
+            {
+                Logger.Info("MainPage", "========================================");
+                Logger.Info("MainPage", "Activation request started: requested=" + value);
+                Logger.Info("MainPage", "  Module.IsFound: " + Module.IsFound);
+                Logger.Info("MainPage", "  Module.IsActivated: " + Module.IsActivated);
+                Logger.Info("MainPage", "  Module.IsLoaded: " + Module.IsLoaded);
+                Logger.Info("MainPage", "  LCU.IsRunning: " + LCU.IsRunning);
+                Logger.Info("MainPage", "  Config.LeaguePath: " + Config.LeaguePath);
 
                 if (!Module.IsFound)
                 {
                     Logger.Error("MainPage", "Module not found! Showing error to user.");
                     MessageBox.Show(Owner, App.GetTranslation("t_msg_module_not_found"),
-                         Program.Name, MessageBoxButton.OK, MessageBoxImage.Warning);
+                        Program.Name, MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
 
+                if (!LCU.IsValidDir(Config.LeaguePath))
+                {
+                    Logger.Info("MainPage", "LeaguePath not valid, prompting user to select...");
+                    if (!DoSelectLeaguePath())
+                    {
+                        Logger.Info("MainPage", "User cancelled path selection");
+                        return;
+                    }
+                    Logger.Info("MainPage", "User selected LeaguePath: " + Config.LeaguePath);
+                }
+
+                Logger.Info("MainPage", "Calling Program.RequestActivation(" + value + ") on a worker thread...");
+                var activationResult = await Task.Run(() => Program.RequestActivation(value));
+                Logger.Info("MainPage", "Program.RequestActivation returned: " + activationResult.ToOfficialStyleString());
+
+                if (!activationResult.Succeeded)
+                {
+                    Logger.Error(
+                        "MainPage",
+                        "Activation failed: requested=" + value +
+                        " stage=" + ActivationResult.StageName(activationResult.Stage) +
+                        " partialState=" + activationResult.PartialState);
+                    var message = "Failed to " + (value ? "activate" : "deactivate") +
+                        " Rose: " + activationResult.ToOfficialStyleString();
+                    if (!string.IsNullOrEmpty(activationResult.NativeErrorMessage))
+                        message += "\n" + activationResult.NativeErrorMessage;
+                    MessageBox.Show(Owner, message, Program.Name, MessageBoxButton.OK, MessageBoxImage.Warning);
                     TriggerPropertyChanged(nameof(IsActivated));
                     return;
                 }
 
-                try
+                TriggerPropertyChanged(nameof(IsActivated));
+                Logger.Info("MainPage", "UI updated. Current IsActivated: " + IsActivated);
+
+                if ((value && LCU.IsRunning) || (!value && Module.IsLoaded))
                 {
-                    if (!LCU.IsValidDir(Config.LeaguePath))
+                    Logger.Info("MainPage", "League client is running, prompting for restart...");
+                    if (MessageBox.Show(Owner, App.GetTranslation("t_msg_restart_client"),
+                        Program.Name, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
                     {
-                        Logger.Info("MainPage", "LeaguePath not valid, prompting user to select...");
-                        if (!DoSelectLeaguePath())
-                        {
-                            Logger.Info("MainPage", "User cancelled path selection");
-                            return;
-                        }
-                        Logger.Info("MainPage", $"User selected LeaguePath: {Config.LeaguePath}");
+                        Logger.Info("MainPage", "User chose to restart client");
+                        await LCU.KillUxAndRestart();
                     }
-
-                    Logger.Info("MainPage", $"Calling Module.SetActive({value})...");
-                    var activationResult = Program.RequestActivation(value);
-                    var success = activationResult.Succeeded;
-                    Logger.Info("MainPage", $"Module.SetActive returned: {activationResult.ToOfficialStyleString()}");
-
-                    if (!success)
+                    else
                     {
-                        Logger.Error("MainPage", $"SetActive FAILED! Requested {value} but activation state is {Module.IsActivated}");
-                        MessageBox.Show(Owner,
-                            $"Failed to {(value ? "activate" : "deactivate")} Rose. Check pengu.log for details.",
-                            Program.Name, MessageBoxButton.OK, MessageBoxImage.Warning);
-                    }
-
-                    TriggerPropertyChanged(nameof(IsActivated));
-                    Logger.Info("MainPage", $"UI updated. Current IsActivated: {IsActivated}");
-
-                    if ((value && LCU.IsRunning) || (!value && Module.IsLoaded))
-                    {
-                        Logger.Info("MainPage", "League client is running, prompting for restart...");
-                        if (MessageBox.Show(Owner, App.GetTranslation("t_msg_restart_client"),
-                            Program.Name, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-                        {
-                            Logger.Info("MainPage", "User chose to restart client");
-                            LCU.KillUxAndRestart();
-                        }
-                        else
-                        {
-                            Logger.Info("MainPage", "User declined client restart");
-                        }
+                        Logger.Info("MainPage", "User declined client restart");
                     }
                 }
-                catch (Exception ex)
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("MainPage", "Exception during activation", ex);
+
+                var msg = App.GetTranslation("t_msg_activation_fail");
+                msg += string.Format("\n\n[{0}] - {1}\n{2}", ex.GetType().Name, ex.Message, ex.StackTrace);
+
+                if (ex.InnerException != null)
+                    msg += string.Format("\n\nERR2: {0}\n{1}", ex.InnerException.Message, ex.InnerException.StackTrace);
+
+                msg += "\n\nCheck pengu.log for more details.\n\nOpen issues page?";
+
+                if (MessageBox.Show(Owner, msg, Program.Name, MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                    == MessageBoxResult.Yes)
                 {
-                    Logger.Error("MainPage", "Exception during activation", ex);
-
-                    var msg = App.GetTranslation("t_msg_activation_fail");
-                    msg += string.Format("\n\n[{0}] - {1}\n{2}", ex.GetType().Name, ex.Message, ex.StackTrace);
-
-                    if (ex.InnerException != null)
-                        msg += string.Format("\n\nERR2: {0}\n{1}", ex.InnerException.Message, ex.InnerException.StackTrace);
-
-                    msg += "\n\nCheck pengu.log for more details.\n\nOpen issues page?";
-
-                    if (MessageBox.Show(Owner, msg, Program.Name, MessageBoxButton.YesNo, MessageBoxImage.Warning)
-                        == MessageBoxResult.Yes)
-                    {
-                        Utils.OpenLink(Program.GithubIssuesUrl);
-                    }
+                    Utils.OpenLink(Program.GithubIssuesUrl);
                 }
-
-                Logger.Info("MainPage", $"IsActivated setter completed");
-                Logger.Info("MainPage", $"========================================");
+            }
+            finally
+            {
+                _activationBusy = false;
+                TriggerPropertyChanged(nameof(CanChangeActivation));
+                TriggerPropertyChanged(nameof(IsActivated));
+                Logger.Info("MainPage", "Activation request completed");
+                Logger.Info("MainPage", "========================================");
             }
         }
 

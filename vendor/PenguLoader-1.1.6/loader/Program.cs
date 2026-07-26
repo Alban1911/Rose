@@ -24,6 +24,35 @@ namespace PenguLoader
         private const string GUI_MUTEX_NAME = "989d2110-46da-4c8d-84c1-c4a42e43c424";
         private const string OPERATION_MUTEX_NAME = @"Local\Rose.Pengu.Operation";
         private static bool _consoleAttached;
+        internal interface IOperationMutex : IDisposable
+        {
+            bool CreatedNew { get; }
+        }
+
+        private sealed class NamedOperationMutex : IOperationMutex
+        {
+            private readonly Mutex _mutex;
+            public bool CreatedNew { get; }
+
+            public NamedOperationMutex(string name)
+            {
+                _mutex = new Mutex(true, name, out var createdNew);
+                CreatedNew = createdNew;
+            }
+
+            public void Dispose()
+            {
+                _mutex.Dispose();
+            }
+        }
+
+        private static IOperationMutex CreateOperationMutex()
+        {
+            return new NamedOperationMutex(OPERATION_MUTEX_NAME);
+        }
+
+        internal static Func<IOperationMutex> OperationMutexFactory { get; set; } = CreateOperationMutex;
+        internal static Func<bool, ActivationResult> InstallCoreOverride { get; set; }
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -159,9 +188,9 @@ namespace PenguLoader
             {
                 try
                 {
-                    using (var operationMutex = new Mutex(true, OPERATION_MUTEX_NAME, out var createdNew))
+                    using (var operationMutex = OperationMutexFactory())
                     {
-                        if (!createdNew)
+                        if (!operationMutex.CreatedNew)
                         {
                             result = ActivationResult.Failure(
                                 ActivationStage.None,
@@ -171,7 +200,7 @@ namespace PenguLoader
                         }
                         else
                         {
-                            result = HandleInstallCore(active);
+                            result = RunInstallCore(active);
                         }
                     }
                 }
@@ -195,10 +224,16 @@ namespace PenguLoader
                     "Activation",
                     "Completed " + completedMessage +
                     " stage=" + ActivationResult.StageName(result.Stage) +
-                    " kind=" + ActivationResult.ErrorKindName(result.ErrorKind));
+                    " kind=" + ActivationResult.ErrorKindName(result.ErrorKind) +
+                    " partialState=" + result.PartialState);
             return result;
         }
 
+        private static ActivationResult RunInstallCore(bool active)
+        {
+            var overrideHandler = InstallCoreOverride;
+            return overrideHandler == null ? HandleInstallCore(active) : overrideHandler(active);
+        }
         private static ActivationResult HandleInstallCore(bool active)
         {
             var action = active ? "activate" : "deactivate";

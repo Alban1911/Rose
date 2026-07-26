@@ -32,7 +32,7 @@ try {
 
     # Restore is intentional: test/obj/project.assets.json is generated and
     # may not exist in a clean checkout.
-    dotnet test $project -c Release --filter 'FullyQualifiedName~OptIn_fake_target_preserves_sentinel_and_key'
+    dotnet test $project -c Release /p:SignAssembly=false --filter 'FullyQualifiedName~OptIn_fake_target_preserves_sentinel_and_key'
     $exitCode = $LASTEXITCODE
 }
 finally {

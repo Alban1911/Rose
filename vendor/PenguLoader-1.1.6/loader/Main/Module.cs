@@ -35,6 +35,8 @@ namespace PenguLoader.Main
             string value,
             string filePath);
 
+        internal static Func<string, string, string, string, bool> ConfigWriter { get; set; } = WritePrivateProfileString;
+
         public static bool IsFound => File.Exists(ModulePath);
 
         public static bool IsLoaded => Utils.IsFileInUse(ModulePath);
@@ -62,7 +64,7 @@ namespace PenguLoader.Main
             if (!Elevation.IsElevated())
                 return Elevation.RunElevated(active, false);
             if (IsActivated == active)
-                return WriteConfigOrFailure(active, ActiveStage(active));
+                return WriteConfigOrFailure(active);
 
             ActivationResult result;
             if (Config.UseSymlink)
@@ -80,12 +82,26 @@ namespace PenguLoader.Main
                 return result;
 
             // core.dll reads these values when it is loaded by LeagueClientUx.
-            // Keep this in sync with the activation mechanism so IFEO launches
-            // do not immediately disable the native hook. Registry failures
-            // return above, before this config is changed.
-            result = WriteConfigOrFailure(active, ActiveStage(active));
-            if (!result.Succeeded)
-                return result;
+            // The registry/symlink operation is intentionally completed first.
+            var configResult = WriteConfigOrFailure(active);
+            if (!configResult.Succeeded)
+            {
+                var registryState = active ? "true" : "false";
+                Logger.Error(
+                    "Config",
+                    "stage=WriteCoreConfig failed native=" + configResult.NativeErrorCode +
+                    " registryActive=" + registryState + " configUpdated=false");
+                Logger.Error(
+                    "Activation",
+                    "partialState registryActive=" + registryState + " configUpdated=false");
+                return ActivationResult.Failure(
+                    ActivationStage.WriteCoreConfig,
+                    configResult.ErrorKind,
+                    configResult.NativeErrorCode,
+                    configResult.NativeErrorMessage +
+                    " Registry state was changed but Rose core configuration was not updated.",
+                    true);
+            }
 
             if (IsActivated != active)
             {
@@ -136,8 +152,7 @@ namespace PenguLoader.Main
         }
 
         private static ActivationResult WriteConfigOrFailure(
-            bool active,
-            ActivationStage stage)
+            bool active)
         {
             try
             {
@@ -147,11 +162,11 @@ namespace PenguLoader.Main
                 if (!Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
 
-                if (!WritePrivateProfileString("General", "disabled", active ? "0" : "1", configPath) ||
-                    !WritePrivateProfileString("General", "loaderpath", active ? LoaderDir : string.Empty, configPath))
+                if (!ConfigWriter("General", "disabled", active ? "0" : "1", configPath) ||
+                    !ConfigWriter("General", "loaderpath", active ? LoaderDir : string.Empty, configPath))
                 {
                     var nativeErrorCode = Marshal.GetLastWin32Error();
-                    return ActivationResult.FromWin32(stage, nativeErrorCode);
+                    return ActivationResult.FromWin32(ActivationStage.WriteCoreConfig, nativeErrorCode);
                 }
 
                 return ActivationResult.Success();
@@ -160,7 +175,7 @@ namespace PenguLoader.Main
             {
                 Logger.Error("Module", "Failed to update Rose core configuration", ex);
                 return ActivationResult.Failure(
-                    stage,
+                    ActivationStage.WriteCoreConfig,
                     ActivationErrorKind.Other,
                     0,
                     ex.Message);
