@@ -9,13 +9,21 @@ import base64
 import json
 import logging
 import os
+import random
 import ssl
+import threading
 import time
 from typing import Optional, Callable
 
 import websocket  # websocket-client
 
-from config import WS_PING_INTERVAL_DEFAULT, WS_PING_TIMEOUT_DEFAULT, WS_RECONNECT_DELAY
+from config import (
+    WS_PING_INTERVAL_DEFAULT,
+    WS_PING_TIMEOUT_DEFAULT,
+    WS_RECONNECT_DELAY,
+    WS_RECONNECT_MAX_DELAY,
+    WS_RECONNECT_JITTER,
+)
 from lcu import LCU
 from state import SharedState
 from utils.core.logging import get_logger
@@ -66,29 +74,34 @@ class WebSocketConnection:
         
         self.ws = None
         self.is_connected = False
+        self._stop_event = threading.Event()
+        self._retry_attempt = 0
     
     def run(self):
         """Main WebSocket connection loop"""
         if websocket is None:
             return
-        
+
         # Remove proxy environment variables
         for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
             os.environ.pop(k, None)
-        
-        while not self.state.stop:
+
+        while not self.state.stop and not self._stop_event.is_set():
             self.lcu.refresh_if_needed()
-            if not self.lcu.ok:
-                time.sleep(WS_RECONNECT_DELAY)
+            credentials = self.lcu.websocket_credentials()
+            if credentials is None:
+                if self._wait_before_retry("LCU lockfile is not ready"):
+                    break
                 continue
-            
-            url = f"wss://127.0.0.1:{self.lcu.port}/"
-            origin = f"https://127.0.0.1:{self.lcu.port}"
-            token = base64.b64encode(f"riot:{self.lcu.pw}".encode("utf-8")).decode("ascii")
+
+            port, password = credentials
+            url = f"wss://127.0.0.1:{port}/"
+            origin = f"https://127.0.0.1:{port}"
+            token = base64.b64encode(f"riot:{password}".encode("utf-8")).decode("ascii")
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            
+
             try:
                 self.ws = websocket.WebSocketApp(
                     url,
@@ -109,12 +122,16 @@ class WebSocketConnection:
                 )
             except Exception as e:
                 log.debug(f"[ws] exception: {e}")
-            
-            # Check if we should stop before reconnecting
-            if self.state.stop:
+            finally:
+                self.is_connected = False
+                self.ws = None
+
+            if self.state.stop or self._stop_event.is_set():
                 break
-            time.sleep(WS_RECONNECT_DELAY)
-        
+
+            if self._wait_before_retry(f"LCU WebSocket unavailable on port {port}"):
+                break
+
         # Ensure WebSocket is closed on thread exit
         if self.ws:
             try:
@@ -122,7 +139,7 @@ class WebSocketConnection:
                 log.debug("[ws] WebSocket closed on thread exit")
             except Exception:
                 pass
-    
+
     def _on_open(self, ws):
         """WebSocket connection opened"""
         from utils.core.logging import log_status
@@ -134,6 +151,7 @@ class WebSocketConnection:
         log.info(separator)
         
         self.is_connected = True
+        self._retry_attempt = 0
         
         # Update app status
         if self.app_status_callback:
@@ -151,6 +169,7 @@ class WebSocketConnection:
     
     def _on_error(self, ws, err):
         """WebSocket error"""
+        self.is_connected = False
         log.debug(f"WebSocket: Error: {err}")
         if self.on_error:
             self.on_error(ws, err)
@@ -175,6 +194,7 @@ class WebSocketConnection:
     
     def stop(self):
         """Stop the WebSocket connection"""
+        self._stop_event.set()
         if self.ws:
             try:
                 self.ws.close()
@@ -182,3 +202,19 @@ class WebSocketConnection:
             except Exception:
                 pass
 
+    def _wait_before_retry(self, reason: str) -> bool:
+        """Wait with bounded exponential backoff and return whether stopping."""
+        self._retry_attempt += 1
+        base_delay = min(
+            WS_RECONNECT_MAX_DELAY,
+            WS_RECONNECT_DELAY * (2 ** min(self._retry_attempt - 1, 6)),
+        )
+        jitter = random.uniform(0.0, base_delay * WS_RECONNECT_JITTER)
+        delay = min(WS_RECONNECT_MAX_DELAY, base_delay + jitter)
+        log.warning(
+            "[WS] %s; retrying in %.1fs (attempt %d)",
+            reason,
+            delay,
+            self._retry_attempt,
+        )
+        return self._stop_event.wait(delay) or self.state.stop

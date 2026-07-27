@@ -65,6 +65,10 @@ class LCU:
     def refresh_if_needed(self, force: bool = False):
         """Refresh connection if needed"""
         self._connection.refresh_if_needed(force)
+
+    def websocket_credentials(self):
+        """Return a consistent port/password snapshot for the LCU WebSocket."""
+        return self._connection.websocket_credentials()
     
     def get(self, path: str, timeout: float = 1.0):
         """Make GET request to LCU API"""

@@ -139,6 +139,8 @@ MAIN_LOOP_IDLE_SLEEP = 0.05  # Idle main loop sleep time (50ms when no active UI
 WS_PING_INTERVAL_DEFAULT = 20  # Seconds between WebSocket pings
 WS_PING_TIMEOUT_DEFAULT = 10   # Seconds before WebSocket ping times out
 WS_RECONNECT_DELAY = 1.0       # Seconds to wait before WebSocket reconnect
+WS_RECONNECT_MAX_DELAY = 15.0  # Maximum delay after repeated connection failures
+WS_RECONNECT_JITTER = 0.25     # Randomized delay fraction to avoid synchronized retries
 
 # Lock detection timing
 # Note: Loadout timer ONLY starts on FINALIZATION phase (final countdown before game start)
