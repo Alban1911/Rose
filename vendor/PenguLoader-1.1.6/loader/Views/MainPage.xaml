@@ -2,17 +2,17 @@
     x:Class="PenguLoader.Views.MainPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:root="clr-namespace:PenguLoader"
     xmlns:main="clr-namespace:PenguLoader.Main"
     xmlns:local="clr-namespace:PenguLoader.Views"
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
-    mc:Ignorable="d" 
-    
+    mc:Ignorable="d"
+
     xmlns:ui="http://schemas.modernwpf.com/2019"
     d:DesignHeight="270" d:DesignWidth="500"
-    
+
     Background="{DynamicResource SystemControlPageBackgroundAltHighBrush}"
     Foreground="{DynamicResource SystemControlPageTextBaseHighBrush}"
 >
@@ -98,7 +98,7 @@
             </Grid>
             <Grid Grid.Column="1">
                 <ui:ToggleSwitch
-                    IsOn="{Binding Path=IsActivated, Mode=TwoWay}" IsEnabled="{Binding Path=CanChangeActivation}" OffContent="OFF" OnContent="READY" Focusable="False"
+                    IsOn="{Binding Path=IsActivated, Mode=TwoWay}" OffContent="OFF" OnContent="READY" Focusable="False"
                     Margin="57,19,51,19" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" RenderTransformOrigin="0.5,0.5">
                     <ui:ToggleSwitch.RenderTransform>
                         <TransformGroup>

@@ -40,9 +40,8 @@ namespace PenguLoader.Main
                     UseShellExecute = false
                 });
             }
-            catch (Exception ex)
+            catch
             {
-                Logger.Error("DataStore", $"Failed to dump DataStore from path: {path}", ex);
                 MessageBox.Show($"Failed to dump DataStore from path: {path}",
                     Program.Name, MessageBoxButton.OK, MessageBoxImage.Information);
             }
