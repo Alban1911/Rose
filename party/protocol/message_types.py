@@ -84,6 +84,8 @@ class SkinSelection:
     skin_id: int
     chroma_id: Optional[int] = None
     custom_mod_path: Optional[str] = None
+    custom_mod_hash: Optional[str] = None
+    is_custom: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for message payload"""
@@ -99,6 +101,8 @@ class SkinSelection:
             skin_id=data["skin_id"],
             chroma_id=data.get("chroma_id"),
             custom_mod_path=data.get("custom_mod_path"),
+            custom_mod_hash=data.get("custom_mod_hash"),
+            is_custom=bool(data.get("is_custom")),
         )
 
 

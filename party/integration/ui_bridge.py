@@ -115,12 +115,12 @@ class PartyUIBridge:
             }
 
         try:
-            success = await self.party_manager.add_peer(token)
+            success, error = await self.party_manager.add_peer(token)
             self._broadcast_state()
             return {
                 "type": "party-peer-added",
                 "success": success,
-                "error": None if success else "Failed to connect to peer",
+                "error": error,
             }
         except Exception as e:
             log.error(f"[PARTY_UI] Failed to add peer: {e}")

@@ -27,6 +27,10 @@
   // Party state
   let partyState = {
     enabled: false,
+    relay_connected: false,
+    auto_reconnect: false,
+    automatic: true,
+    auto_room_active: false,
     my_token: null,
     my_summoner_id: null,
     my_summoner_name: "Unknown",
@@ -683,9 +687,9 @@
         <span class="party-status offline">Offline</span>
       </div>
       <div class="party-content">
-        <div class="party-description">Share your skins with friends in the same lobby. Enable party mode and exchange tokens to connect.</div>
+        <div class="party-description">Automatic mode is always active. Friends using this private Rose build are linked as soon as they are together in the same premade lobby.</div>
 
-        <div class="party-section" id="party-toggle-section">
+        <div class="party-section" id="party-toggle-section" style="display: none;">
           <button class="party-toggle-btn enable" id="party-toggle-btn">
             Enable Party Mode
           </button>
@@ -700,7 +704,7 @@
         </div>
 
         <div class="party-section" id="party-add-section" style="display: none;">
-          <div class="party-section-title">Add Friend</div>
+          <div class="party-section-title">Approve Friend Once</div>
           <div class="add-peer-container">
             <input type="text" class="add-peer-input" id="add-peer-input" placeholder="Paste friend's token here...">
             <button class="add-btn" id="add-peer-btn">Add</button>
@@ -709,7 +713,7 @@
         </div>
 
         <div class="party-section" id="party-peers-section" style="display: none;">
-          <div class="party-section-title">Connected Friends (<span id="peer-count">0</span>)</div>
+          <div class="party-section-title">Approved Friends (<span id="peer-count">0</span> online)</div>
           <div class="peers-list" id="peers-list">
             <div class="no-peers">No friends connected yet</div>
           </div>
@@ -760,6 +764,7 @@
 
     const statusEl = partyPanel.querySelector(".party-status");
     const toggleBtn = document.getElementById("party-toggle-btn");
+    const toggleSection = document.getElementById("party-toggle-section");
     const tokenSection = document.getElementById("party-token-section");
     const addSection = document.getElementById("party-add-section");
     const peersSection = document.getElementById("party-peers-section");
@@ -768,21 +773,31 @@
     const peersList = document.getElementById("peers-list");
 
     if (partyState.enabled) {
-      statusEl.className = "party-status online";
-      statusEl.textContent = "Online";
+      if (partyState.automatic && !partyState.auto_room_active) {
+        statusEl.className = "party-status online";
+        statusEl.textContent = "Waiting for lobby";
+      } else {
+        statusEl.className = partyState.relay_connected
+          ? "party-status online"
+          : "party-status offline";
+        statusEl.textContent = partyState.relay_connected
+          ? (partyState.automatic ? "Lobby linked" : "Online")
+          : "Reconnecting...";
+      }
 
       toggleBtn.className = "party-toggle-btn disable";
       toggleBtn.textContent = "Disable Party Mode";
 
-      tokenSection.style.display = "block";
-      addSection.style.display = "block";
+      toggleSection.style.display = partyState.automatic ? "none" : "block";
+      tokenSection.style.display = partyState.automatic ? "none" : "block";
+      addSection.style.display = partyState.automatic ? "none" : "block";
       peersSection.style.display = "block";
 
       if (partyState.my_token) {
         tokenDisplay.value = partyState.my_token;
       }
 
-      // Update peers list (show all peers, including those still connecting)
+      // Keep approved friends visible even while their Rose is offline.
       const allPeers = partyState.peers || [];
       const connectedPeers = allPeers.filter((p) => p.connected);
       peerCountEl.textContent = connectedPeers.length;
@@ -795,7 +810,7 @@
             const cs = (peer.connection_state || "disconnected").toLowerCase();
             const isWaiting = cs === "connecting" || cs === "handshaking";
             const statusText = isWaiting
-              ? "Waiting for your friend"
+              ? "Saved - reconnects automatically"
               : cs === "connected"
                 ? (peer.in_lobby ? "In lobby" : "Connected")
                 : cs === "handshaking"
@@ -834,6 +849,7 @@
       toggleBtn.className = "party-toggle-btn enable";
       toggleBtn.textContent = "Enable Party Mode";
 
+      toggleSection.style.display = partyState.automatic ? "none" : "block";
       tokenSection.style.display = "none";
       addSection.style.display = "none";
       peersSection.style.display = "none";
@@ -913,6 +929,10 @@
       case "party-state":
         partyState = {
           enabled: data.enabled || false,
+          relay_connected: data.relay_connected || false,
+          auto_reconnect: data.auto_reconnect || false,
+          automatic: data.automatic !== false,
+          auto_room_active: data.auto_room_active || false,
           my_token: data.my_token || null,
           my_summoner_id: data.my_summoner_id || null,
           my_summoner_name: data.my_summoner_name || "Unknown",
@@ -928,6 +948,7 @@
 
         if (data.success) {
           partyState.enabled = true;
+          partyState.auto_reconnect = true;
           partyState.my_token = data.token;
           console.log(`${LOG_PREFIX} Party mode enabled`);
         } else {

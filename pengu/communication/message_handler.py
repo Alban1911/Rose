@@ -2650,31 +2650,41 @@ class MessageHandler:
 
     # ==================== Party Mode Handlers ====================
 
+    def _get_or_create_party_manager(self):
+        """Return the single PartyManager used by UI and auto-restore."""
+        party_manager = getattr(self.shared_state, "party_manager", None)
+        if party_manager:
+            return party_manager
+
+        from party.core.party_manager import PartyManager
+
+        lcu = self.skin_scraper.lcu if self.skin_scraper else None
+        if not lcu:
+            return None
+
+        party_manager = PartyManager(
+            lcu,
+            self.shared_state,
+            self.injection_manager,
+        )
+        self.shared_state.party_manager = party_manager
+        party_manager.set_callbacks(
+            on_state_change=lambda state: self.broadcaster.broadcast_party_state()
+        )
+        return party_manager
+
     def _handle_party_enable(self, payload: dict) -> None:
         """Handle party mode enable request"""
         try:
-            party_manager = getattr(self.shared_state, 'party_manager', None)
+            party_manager = self._get_or_create_party_manager()
             if not party_manager:
-                # Initialize party manager
-                from party.core.party_manager import PartyManager
-                from lcu import LCU
-
-                # Get LCU instance from skin_scraper
-                lcu = self.skin_scraper.lcu if self.skin_scraper else None
-                if not lcu:
-                    response_payload = {
-                        "type": "party-enabled",
-                        "success": False,
-                        "error": "LCU not available - is League client running?",
-                    }
-                    self._send_response(json.dumps(response_payload))
-                    return
-
-                party_manager = PartyManager(lcu, self.shared_state, self.injection_manager)
-                self.shared_state.party_manager = party_manager
-                party_manager.set_callbacks(
-                    on_state_change=lambda state: self.broadcaster.broadcast_party_state()
-                )
+                response_payload = {
+                    "type": "party-enabled",
+                    "success": False,
+                    "error": "LCU not available - is League client running?",
+                }
+                self._send_response(json.dumps(response_payload))
+                return
 
             # Enable party mode (async operation)
             import asyncio
@@ -2843,7 +2853,7 @@ class MessageHandler:
     def _handle_party_get_state(self, payload: dict) -> None:
         """Handle get party state request"""
         try:
-            party_manager = getattr(self.shared_state, 'party_manager', None)
+            party_manager = self._get_or_create_party_manager()
             if not party_manager:
                 response_payload = {
                     "type": "party-state",
@@ -2861,6 +2871,33 @@ class MessageHandler:
                 }
 
             self._send_response(json.dumps(response_payload))
+
+            # The first state request happens when the League-side plugin
+            # connects. Restore the saved room without requiring another click.
+            if (
+                party_manager
+                and not party_manager.enabled
+                and self.websocket_server
+                and self.websocket_server.loop
+            ):
+                import asyncio
+
+                async def do_restore():
+                    try:
+                        restored = await party_manager.restore_if_configured()
+                        if restored:
+                            self.shared_state.party_mode_enabled = True
+                            self.shared_state.party_token = (
+                                party_manager.my_token_str
+                            )
+                            self.broadcaster.broadcast_party_state()
+                    except Exception as e:
+                        log.warning(f"[PARTY] Auto-restore failed: {e}")
+
+                asyncio.run_coroutine_threadsafe(
+                    do_restore(),
+                    self.websocket_server.loop,
+                )
 
         except Exception as e:
             log.error(f"[PARTY] Error getting party state: {e}")

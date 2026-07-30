@@ -29,6 +29,10 @@ class PartyState:
 
     # Party mode status
     enabled: bool = False
+    relay_connected: bool = False
+    auto_reconnect: bool = False
+    automatic: bool = False
+    auto_room_active: bool = False
     my_token: Optional[str] = None
     my_summoner_id: Optional[int] = None
     my_summoner_name: str = "Unknown"
@@ -130,10 +134,19 @@ class PartyState:
                 if p.connected and p.skin_selection
             }
 
+    def clear_peers(self):
+        """Clear transient room members without disabling Party Mode."""
+        with self._lock:
+            self.peers.clear()
+            self.party_skins.clear()
+
     def clear_all(self):
         """Clear all party state"""
         with self._lock:
             self.enabled = False
+            self.relay_connected = False
+            self.auto_reconnect = False
+            self.auto_room_active = False
             self.my_token = None
             self.peers.clear()
             self.party_skins.clear()
@@ -143,6 +156,10 @@ class PartyState:
         with self._lock:
             return {
                 "enabled": self.enabled,
+                "relay_connected": self.relay_connected,
+                "auto_reconnect": self.auto_reconnect,
+                "automatic": self.automatic,
+                "auto_room_active": self.auto_room_active,
                 "my_token": self.my_token,
                 "my_summoner_id": self.my_summoner_id,
                 "my_summoner_name": self.my_summoner_name,
