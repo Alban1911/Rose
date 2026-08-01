@@ -564,12 +564,6 @@
 
     const preview = document.createElement("img");
     preview.className = "chroma-information-image";
-    preview.addEventListener("load", () => {
-      if (preview.naturalWidth > 0) {
-        chromaInfo.style.height = `${preview.naturalHeight * (chromaInfo.clientWidth / preview.naturalWidth)}px`;
-      }
-      if (panel && panelButtonRef) positionPanel(panel, panelButtonRef);
-    });
 
     const skinName = document.createElement("div");
     skinName.className = "child-skin-name";
@@ -586,20 +580,39 @@
     scrollable.className = "chroma-selection";
 
     const list = document.createElement("ul");
+    let previewLoadToken = 0;
 
     const setPreviewImage = (url, label) => {
+      previewLoadToken += 1;
+      const loadToken = previewLoadToken;
       const hasPreview = Boolean(url);
-      modal.dataset.hasPreview = hasPreview ? "true" : "false";
-      chromaInfo.dataset.hasPreview = hasPreview ? "true" : "false";
-      if (url) {
-        preview.src = url;
-      } else {
+      const nextLabel = label || getCurrentSkinContext().skinName;
+
+      skinName.textContent = nextLabel;
+      standaloneSkinName.textContent = nextLabel;
+
+      if (!hasPreview) {
+        modal.dataset.hasPreview = "false";
+        chromaInfo.dataset.hasPreview = "false";
         preview.removeAttribute("src");
         chromaInfo.style.height = "";
+        if (panel && panelButtonRef) requestAnimationFrame(() => positionPanel(panel, panelButtonRef));
+        return;
       }
-      skinName.textContent = label || getCurrentSkinContext().skinName;
-      standaloneSkinName.textContent = skinName.textContent;
-      if (panel && panelButtonRef) requestAnimationFrame(() => positionPanel(panel, panelButtonRef));
+
+      const loader = new Image();
+      loader.addEventListener("load", () => {
+        if (loadToken !== previewLoadToken) return;
+        const width = chromaInfo.clientWidth || 305;
+        if (loader.naturalWidth > 0) {
+          chromaInfo.style.height = `${loader.naturalHeight * (width / loader.naturalWidth)}px`;
+        }
+        preview.src = url;
+        modal.dataset.hasPreview = "true";
+        chromaInfo.dataset.hasPreview = "true";
+        if (panel && panelButtonRef) positionPanel(panel, panelButtonRef);
+      });
+      loader.src = url;
     };
 
     const noneEntry = {
