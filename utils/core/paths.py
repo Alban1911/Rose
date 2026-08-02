@@ -5,9 +5,12 @@ Path utilities for Rose
 Handles user data directories and permissions
 """
 
+import ctypes
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -238,14 +241,66 @@ def get_injection_dir() -> Path:
     return injection_dir
 
 
+def _bring_explorer_to_front(folder: Path) -> None:
+    """Bring the Explorer window opened for ``folder`` to the foreground."""
+    if sys.platform != "win32":
+        return
+
+    def focus_window() -> None:
+        try:
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            target_name = folder.name.casefold()
+            enum_proc_type = ctypes.WINFUNCTYPE(
+                wintypes.BOOL,
+                wintypes.HWND,
+                wintypes.LPARAM,
+            )
+
+            for _ in range(15):
+                matching = []
+
+                @enum_proc_type
+                def enum_proc(hwnd, _lparam):
+                    if not user32.IsWindowVisible(hwnd):
+                        return True
+
+                    class_name = ctypes.create_unicode_buffer(64)
+                    user32.GetClassNameW(hwnd, class_name, len(class_name))
+                    if class_name.value not in {"CabinetWClass", "ExploreWClass"}:
+                        return True
+
+                    title = ctypes.create_unicode_buffer(512)
+                    user32.GetWindowTextW(hwnd, title, len(title))
+                    if target_name and target_name in title.value.casefold():
+                        matching.append(hwnd)
+                    return True
+
+                user32.EnumWindows(enum_proc, 0)
+                if matching:
+                    hwnd = matching[0]
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    user32.BringWindowToTop(hwnd)
+                    user32.SetForegroundWindow(hwnd)
+                    return
+                time.sleep(0.1)
+        except (AttributeError, OSError):
+            return
+
+    threading.Thread(
+        target=focus_window,
+        name="FocusExplorerWindow",
+        daemon=True,
+    ).start()
+
+
 def open_folder_in_explorer(folder: Path) -> None:
-    """
-    Create `folder` if missing and reveal it in the OS file explorer.
-    Raises on failure — callers handle logging/error reporting.
-    """
+    """Create ``folder`` and reveal it in the OS file explorer."""
     folder.mkdir(parents=True, exist_ok=True)
     if sys.platform == "win32":
         os.startfile(str(folder))
+        _bring_explorer_to_front(folder)
     else:
         subprocess.Popen(["xdg-open", str(folder)])
 

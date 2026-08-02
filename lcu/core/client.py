@@ -74,6 +74,9 @@ class LCU:
         """Make GET request to LCU API"""
         return self._api.get(path, timeout)
     
+    def post(self, path: str, json_data=None, timeout: float = 5.0):
+        """Make a direct POST request to LCU."""
+        return self._api.post(path, json_data=json_data, timeout=timeout)
     # Properties (delegated to properties handler)
     @property
     def phase(self) -> Optional[str]:

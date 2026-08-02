@@ -165,6 +165,36 @@ def clear_historic_entry(champion_id: int) -> None:
     clear_historic_target(champion_id)
 
 
+def remove_custom_mod_path(relative_path: str) -> bool:
+    """Remove a deleted custom-skin mod from the saved historic selections."""
+    target = str(relative_path or "").replace("\\", "/").strip("/").casefold()
+    if not target:
+        return False
+
+    mapping = load_historic_map()
+    removed_champions = []
+    for champion_id, value in list(mapping.items()):
+        if not is_custom_mod_path(value):
+            continue
+        saved_path = value[5:].replace("\\", "/").strip("/").casefold()
+        if saved_path == target:
+            mapping.pop(champion_id, None)
+            removed_champions.append(champion_id)
+
+    if not removed_champions:
+        return False
+
+    path = _historic_file_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as stream:
+            json.dump(mapping, stream, ensure_ascii=False, indent=2)
+        for champion_id in removed_champions:
+            clear_historic_target(int(champion_id))
+        return True
+    except Exception:
+        return False
+
 def is_custom_mod_path(value: Union[int, str]) -> bool:
     """Check if a historic value is a custom mod path.
     

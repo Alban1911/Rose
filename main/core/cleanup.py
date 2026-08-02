@@ -7,7 +7,7 @@ Cleanup logic for application shutdown
 import os
 import sys
 
-import utils.integration.pengu_loader as pengu_loader
+import pengu.integration as pengu_loader
 from utils.core.logging import get_logger, log_section, log_success
 from utils.threading.thread_manager import ThreadManager
 from utils.integration.tray_manager import TrayManager
@@ -20,10 +20,12 @@ from main.setup.console import cleanup_console
 log = get_logger()
 
 
-def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_manager: TrayManager, injection_manager=None) -> None:
+def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_manager: TrayManager, injection_manager=None, lcu=None) -> None:
     """Perform application cleanup"""
     log_section(log, "Cleanup", "")
-    pengu_loader.deactivate_on_exit()
+    result = pengu_loader.deactivate_on_exit(lcu)
+    if not result:
+        log.warning("Direct Pengu cleanup failed: %s", result.describe())
     
     # Kill all mod-tools.exe processes before shutting down
     if injection_manager:

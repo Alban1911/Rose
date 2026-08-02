@@ -193,6 +193,14 @@ class TrayManager:
             except Exception:
                 log.debug("Unable to show error message box for settings dialog failure")
 
+    def _on_open_plugins(self, icon, item):
+        """Open the embedded Pengu plugins folder."""
+        log.info("Open Plugins requested from system tray")
+        try:
+            from pengu.integration.runtime import get_runtime_dir
+            open_folder_in_explorer(get_runtime_dir() / "plugins")
+        except Exception as exc:
+            log.error("Failed to open Pengu plugins folder: %s", exc)
     def _on_open_mods(self, icon, item):
         """Open the user mods folder in the file explorer."""
         log.info("Open Mods Folder requested from system tray")
@@ -206,6 +214,7 @@ class TrayManager:
         return pystray.Menu(
             pystray.MenuItem(f"Rose v{APP_VERSION}", None, enabled=False),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Open Plugins", self._on_open_plugins),
             pystray.MenuItem("Open Mods Folder", self._on_open_mods),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._on_quit),

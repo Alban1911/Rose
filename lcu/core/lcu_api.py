@@ -132,6 +132,44 @@ class LCUAPI:
             except requests.exceptions.RequestException:
                 return None
     
+    def post(
+        self,
+        path: str,
+        json_data=None,
+        timeout: float = 5.0,
+        headers: Optional[dict] = None,
+    ) -> Optional[requests.Response]:
+        """Make a direct POST request to the LCU API."""
+        if not self.connection.ok:
+            self.connection.refresh_if_needed()
+            if not self.connection.ok:
+                return None
+
+        url = (self.connection.base or "") + path
+        try:
+            response = self.connection.session.post(
+                url,
+                json=json_data,
+                timeout=timeout,
+                headers=headers,
+            )
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException:
+            self.connection.refresh_if_needed(force=True)
+            if not self.connection.ok:
+                return None
+            try:
+                response = self.connection.session.post(
+                    (self.connection.base or "") + path,
+                    json=json_data,
+                    timeout=timeout,
+                    headers=headers,
+                )
+                response.raise_for_status()
+                return response
+            except requests.exceptions.RequestException:
+                return None
     def put(self, path: str, json_data, timeout: float, headers: Optional[dict] = None) -> Optional[requests.Response]:
         """Make PUT request to LCU API
 

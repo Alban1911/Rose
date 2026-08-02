@@ -20,7 +20,9 @@ from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.storage import ModStorageService
+from pengu.integration.league import is_league_running, restart_client
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
+from pengu.integration.runtime import get_runtime_dir, list_plugins, set_plugin_enabled
 from utils.core.issue_reporter import clear_issues, read_issues_tail
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.utilities import get_base_skin_id_for_chroma
@@ -216,8 +218,18 @@ class MessageHandler:
             self._handle_diagnostics_clear_tracker(payload)
         elif payload_type == "diagnostics-apply-recommended":
             self._handle_diagnostics_apply_recommended(payload)
-        elif payload_type == "open-pengu-loader-ui":
-            self._handle_open_pengu_loader_ui(payload)
+        elif payload_type in {"open-pengu-loader-ui", "open-plugins"}:
+            self._handle_open_plugins(payload)
+        elif payload_type == "refresh-client":
+            self._handle_refresh_client(payload)
+        elif payload_type == "plugins-request":
+            self._handle_plugins_request(payload)
+        elif payload_type == "plugin-toggle":
+            self._handle_plugin_toggle(payload)
+        elif payload_type == "custom-mods-request":
+            self._handle_custom_mods_request(payload)
+        elif payload_type == "custom-mod-delete":
+            self._handle_custom_mod_delete(payload)
         elif payload_type == "settings-save":
             self._handle_settings_save(payload)
         elif payload_type == "add-custom-mods-category-selected":
@@ -2070,27 +2082,158 @@ class MessageHandler:
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to open logs folder: {e}")
     
-    def _handle_open_pengu_loader_ui(self, payload: dict) -> None:
-        """Handle open Pengu Loader UI request"""
+    def _handle_open_plugins(self, payload: dict) -> None:
+        """Open the Pengu plugins folder for legacy plugins-folder requests."""
         try:
-            from utils.integration.pengu_loader import PENGU_DIR, PENGU_EXE
-            
-            if not PENGU_EXE.exists():
-                log.warning(f"[SkinMonitor] Pengu Loader executable not found: {PENGU_EXE}")
-                return
-            
-            # No arguments launch Pengu's normal standalone graphical interface.
-            command = [str(PENGU_EXE)]
-            
-            if sys.platform == "win32":
-                subprocess.Popen(command, cwd=str(PENGU_DIR), creationflags=0)
-            else:
-                subprocess.Popen(command, cwd=str(PENGU_DIR))
-            
-            log.info(f"[SkinMonitor] Launched Pengu Loader UI: {' '.join(command)}")
-        except Exception as e:
-            log.error(f"[SkinMonitor] Failed to launch Pengu Loader UI: {e}")
-    
+            open_folder_in_explorer(get_runtime_dir() / "plugins")
+            log.info("[SkinMonitor] Opened Pengu plugins folder.")
+        except Exception as exc:
+            log.error("[SkinMonitor] Failed to open Pengu plugins folder: %s", exc)
+
+    def _handle_refresh_client(self, payload: dict) -> None:
+        """Restart the League Client UX so newly added plugins are loaded."""
+        if restart_client():
+            log.info("[SkinMonitor] League Client UX refresh requested.")
+        else:
+            log.warning("[SkinMonitor] Could not refresh League Client UX.")
+
+    def _handle_plugins_request(self, payload: dict) -> None:
+        """Return installed Pengu plugins and their enabled state."""
+        try:
+            self._send_response(json.dumps({"type": "plugins-data", "plugins": list_plugins()}))
+        except Exception as exc:
+            log.error("[SkinMonitor] Failed to list Pengu plugins: %s", exc)
+            self._send_response(json.dumps({"type": "plugins-data", "plugins": [], "error": str(exc)}))
+
+    def _handle_plugin_toggle(self, payload: dict) -> None:
+        """Toggle one plugin entrypoint; a client refresh is required to apply it."""
+        name = payload.get("name")
+        enabled = payload.get("enabled")
+        success = set_plugin_enabled(name, enabled)
+        response = {
+            "type": "plugin-toggled",
+            "name": name,
+            "enabled": enabled,
+            "success": success,
+        }
+        if not success:
+            response["error"] = "Could not change the plugin state."
+        self._send_response(json.dumps(response))
+        if success:
+            self._handle_plugins_request(payload)
+
+    def _send_custom_mods_data(self) -> None:
+        """Send the current custom-mod library to the Settings panel."""
+        try:
+            mods = self.mod_storage.list_all_mods() if self.mod_storage else []
+            self._send_response(json.dumps({"type": "custom-mods-data", "mods": mods}))
+        except Exception as exc:  # noqa: BLE001
+            log.error("[SkinMonitor] Failed to list custom mods: %s", exc)
+            self._send_response(json.dumps({
+                "type": "custom-mods-data",
+                "mods": [],
+                "error": str(exc),
+            }))
+
+    def _handle_custom_mods_request(self, payload: dict) -> None:
+        """Return all installed custom mods for the Settings manager."""
+        self._send_custom_mods_data()
+
+    @staticmethod
+    def _state_relative_mod_path(value: object) -> str:
+        if not isinstance(value, dict):
+            return ""
+        raw = value.get("relative_path") or value.get("relativePath") or value.get("id") or value.get("path")
+        return str(raw or "").replace("\\", "/").strip("/").casefold()
+
+    def _clear_deleted_mod_state(self, relative_id: str) -> None:
+        """Clear in-memory selections and extracted files for a deleted mod."""
+        wanted = str(relative_id or "").replace("\\", "/").strip("/").casefold()
+        if not wanted or not self.shared_state:
+            return
+
+        selected_attrs = (
+            "selected_custom_mod",
+            "selected_map_mod",
+            "selected_font_mod",
+            "selected_announcer_mod",
+            "selected_other_mod",
+        )
+        for attribute in selected_attrs:
+            value = getattr(self.shared_state, attribute, None)
+            if self._state_relative_mod_path(value) != wanted:
+                continue
+            extracted_name = value.get("mod_folder_name") if isinstance(value, dict) else None
+            if extracted_name and self.injection_manager and getattr(self.injection_manager, "injector", None):
+                try:
+                    safe_remove_entry(self.injection_manager.injector.mods_dir / str(extracted_name))
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("[SkinMonitor] Failed to clean extracted deleted mod: %s", exc)
+            setattr(self.shared_state, attribute, None)
+
+        selected_other_mods = getattr(self.shared_state, "selected_other_mods", None)
+        if isinstance(selected_other_mods, list):
+            filtered = [
+                value for value in selected_other_mods
+                if self._state_relative_mod_path(value) != wanted
+            ]
+            if filtered != selected_other_mods:
+                self.shared_state.selected_other_mods = filtered
+
+        try:
+            ui_thread = getattr(self.shared_state, "ui_skin_thread", None)
+            if ui_thread and hasattr(ui_thread, "_broadcast_custom_mod_state"):
+                ui_thread._broadcast_custom_mod_state()
+            if ui_thread and hasattr(ui_thread, "_broadcast_historic_state"):
+                ui_thread._broadcast_historic_state()
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[SkinMonitor] Failed to broadcast deleted mod state: %s", exc)
+
+    def _handle_custom_mod_delete(self, payload: dict) -> None:
+        """Delete one installed custom mod after validating its stable relative ID."""
+        mod_id = payload.get("modId") or payload.get("id")
+        selected_values = [
+            getattr(self.shared_state, attribute, None)
+            for attribute in (
+                "selected_custom_mod",
+                "selected_map_mod",
+                "selected_font_mod",
+                "selected_announcer_mod",
+                "selected_other_mod",
+            )
+        ]
+        selected_values.extend(getattr(self.shared_state, "selected_other_mods", []) or [])
+        normalized_id = str(mod_id or "").replace("\\", "/").strip("/").casefold()
+        selected = any(self._state_relative_mod_path(value) == normalized_id for value in selected_values)
+        if selected and is_league_running():
+            self._send_response(json.dumps({
+                "type": "custom-mod-delete-result",
+                "success": False,
+                "modId": mod_id,
+                "error": "Close League of Legends before deleting the active mod.",
+            }))
+            return
+
+        try:
+            if not self.mod_storage:
+                raise RuntimeError("Mod storage is not available")
+            deleted = self.mod_storage.delete_mod(mod_id)
+            self._clear_deleted_mod_state(deleted["id"])
+            self._send_response(json.dumps({
+                "type": "custom-mod-delete-result",
+                "success": True,
+                "modId": deleted["id"],
+                "modName": deleted["name"],
+            }))
+            self._send_custom_mods_data()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[SkinMonitor] Failed to delete custom mod %s: %s", mod_id, exc)
+            self._send_response(json.dumps({
+                "type": "custom-mod-delete-result",
+                "success": False,
+                "modId": mod_id,
+                "error": str(exc),
+            }))
     def _handle_settings_save(self, payload: dict) -> None:
         """Handle settings save"""
         try:

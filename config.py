@@ -141,6 +141,7 @@ WS_PING_TIMEOUT_DEFAULT = 10   # Seconds before WebSocket ping times out
 WS_RECONNECT_DELAY = 1.0       # Seconds to wait before WebSocket reconnect
 WS_RECONNECT_MAX_DELAY = 15.0  # Maximum delay after repeated connection failures
 WS_RECONNECT_JITTER = 0.25     # Randomized delay fraction to avoid synchronized retries
+WS_NO_CLIENT_RETRY_DELAY = 5.0  # Quiet polling interval while League is closed
 
 # Lock detection timing
 # Note: Loadout timer ONLY starts on FINALIZATION phase (final countdown before game start)

@@ -8,7 +8,7 @@ import os
 import signal
 import sys
 
-import utils.integration.pengu_loader as pengu_loader
+import pengu.integration as pengu_loader
 
 from .state import get_app_state
 

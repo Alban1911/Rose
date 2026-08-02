@@ -23,6 +23,7 @@ from config import (
     WS_RECONNECT_DELAY,
     WS_RECONNECT_MAX_DELAY,
     WS_RECONNECT_JITTER,
+    WS_NO_CLIENT_RETRY_DELAY,
 )
 from lcu import LCU
 from state import SharedState
@@ -76,6 +77,7 @@ class WebSocketConnection:
         self.is_connected = False
         self._stop_event = threading.Event()
         self._retry_attempt = 0
+        self._waiting_for_league = False
     
     def run(self):
         """Main WebSocket connection loop"""
@@ -152,6 +154,7 @@ class WebSocketConnection:
         
         self.is_connected = True
         self._retry_attempt = 0
+        self._waiting_for_league = False
         
         # Update app status
         if self.app_status_callback:
@@ -203,7 +206,17 @@ class WebSocketConnection:
                 pass
 
     def _wait_before_retry(self, reason: str) -> bool:
-        """Wait with bounded exponential backoff and return whether stopping."""
+        """Wait for League quietly, or back off when an active client disconnects."""
+        if reason == "LCU lockfile is not ready":
+            # Rose is allowed to start before League. Do not turn that normal
+            # state into an endless exponential warning stream.
+            self._retry_attempt = 0
+            if not self._waiting_for_league:
+                log.info("[WS] League Client is not running; waiting for it to start")
+                self._waiting_for_league = True
+            return self._stop_event.wait(WS_NO_CLIENT_RETRY_DELAY) or self.state.stop
+
+        self._waiting_for_league = False
         self._retry_attempt += 1
         base_delay = min(
             WS_RECONNECT_MAX_DELAY,

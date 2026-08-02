@@ -261,3 +261,38 @@ def clear_historic_mod(mod_type: str) -> None:
         # Silently ignore write errors; feature is best-effort
         pass
 
+def remove_historic_mod_path(relative_path: str) -> bool:
+    """Remove a deleted category mod from all saved category selections."""
+    target = str(relative_path or "").replace("\\", "/").strip("/").casefold()
+    if not target:
+        return False
+
+    mapping = load_mod_historic()
+    changed = False
+    for key, value in list(mapping.items()):
+        if isinstance(value, list):
+            filtered = [
+                item for item in value
+                if str(item).replace("\\", "/").strip("/").casefold() != target
+            ]
+            if filtered != value:
+                changed = True
+                if filtered:
+                    mapping[key] = filtered
+                else:
+                    mapping.pop(key, None)
+        elif isinstance(value, str) and value.replace("\\", "/").strip("/").casefold() == target:
+            mapping.pop(key, None)
+            changed = True
+
+    if not changed:
+        return False
+
+    path = _mod_historic_file_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as stream:
+            json.dump(mapping, stream, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False

@@ -39,7 +39,7 @@ def print_step(step_num, total_steps, description):
 
 def clean_previous_builds():
     """Clean previous build output (preserves build/ cache for faster rebuilds)"""
-    print_step(1, 4, "Cleaning Previous Build Output")
+    print_step(1, 3, "Cleaning Previous Build Output")
     
     # Only clean dist/ - preserve build/ folder for PyInstaller cache
     dirs_to_clean = ["dist"]
@@ -65,22 +65,9 @@ def clean_previous_builds():
     return True
 
 
-def build_pengu_loader():
-    """Build the vendored Pengu Loader source before packaging Rose."""
-    print_step(2, 4, "Building Pengu Loader From Source")
-
-    script = ROOT / "scripts" / "build_pengu_loader.py"
-    result = subprocess.run([sys.executable, str(script)], check=False, cwd=ROOT)
-    if result.returncode != 0:
-        print(f"[ERROR] Pengu Loader source build failed with exit code {result.returncode}")
-        return False
-
-    return True
-
-
 def build_with_pyinstaller():
     """Build executable using PyInstaller with multi-threading"""
-    print_step(3, 4, "Building with PyInstaller (Multi-threaded)")
+    print_step(2, 3, "Building with PyInstaller (Multi-threaded)")
     
     # Use spec file which has all the configuration
     cmd = [
@@ -103,7 +90,7 @@ def build_with_pyinstaller():
 
 def organize_output():
     """Organize output files and verify"""
-    print_step(4, 4, "Organizing Output & Verification")
+    print_step(3, 3, "Organizing Output & Verification")
     
     dist_folder = ROOT / "dist/Rose"
     
@@ -124,9 +111,6 @@ def main():
     if not clean_previous_builds():
         sys.exit(1)
 
-    if not build_pengu_loader():
-        sys.exit(1)
-    
     if not build_with_pyinstaller():
         sys.exit(1)
     

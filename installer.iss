@@ -66,8 +66,6 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}} (as Administrator)"; Flags: nowait postinstall skipifsilent shellexec; Verb: runas
 
 [UninstallRun]
-; Uninstall Pengu Loader (removes its IFEO activation and disables the native hook)
-Filename: "{localappdata}\Rose\Pengu Loader\Pengu Loader.exe"; Parameters: "--uninstall --silent"; Flags: runhidden waituntilterminated skipifdoesntexist
 ; Always remove the Rose auto-start scheduled task (created via schtasks /TN "Rose")
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN Rose /F"; Flags: runhidden
 
@@ -220,9 +218,52 @@ begin
   _DeleteStartupValuesIfMatch(HKLM, RunOnce6432);
 end;
 
+const
+  RosePenguIFEOKey = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe';
+
+function _RoseDebuggerPath(const Value: string): string;
+var
+  StartQuote: Integer;
+  EndQuote: Integer;
+begin
+  Result := '';
+  StartQuote := Pos('"', Value);
+  if StartQuote <= 0 then
+    exit;
+  EndQuote := Pos('"', Copy(Value, StartQuote + 1, Length(Value)));
+  if EndQuote > 0 then
+    EndQuote := EndQuote + StartQuote;
+  if EndQuote <= StartQuote then
+    exit;
+  Result := Copy(Value, StartQuote + 1, EndQuote - StartQuote - 1);
+end;
+
+procedure _CleanupRosePenguIFEO();
+var
+  DebuggerValue: string;
+  ExpectedCore: string;
+  CurrentCore: string;
+begin
+  if not RegQueryStringValue(HKLM, RosePenguIFEOKey, 'Debugger', DebuggerValue) then
+    exit;
+
+  ExpectedCore := ExpandConstant('{localappdata}\Rose\Pengu Loader\core.dll');
+  CurrentCore := _RoseDebuggerPath(DebuggerValue);
+  if CompareText(CurrentCore, ExpectedCore) <> 0 then
+  begin
+    Log('Skipped IFEO cleanup because Debugger is not owned by Rose: ' + CurrentCore);
+    exit;
+  end;
+
+  if RegDeleteValue(HKLM, RosePenguIFEOKey, 'Debugger') then
+    Log('Removed Rose-owned IFEO Debugger value.')
+  else
+    Log('Could not remove Rose-owned IFEO Debugger value.');
+end;
+
 procedure _DeleteLocalAppDataRose();
 begin
-  { Ensure user data is removed before running external cleanup }
+  { Ensure user data is removed after direct IFEO cleanup }
   DelTree(ExpandConstant('{localappdata}\Rose'), True, True, True);
 end;
 
@@ -231,6 +272,7 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     _CleanupStartupRegistry();
+    _CleanupRosePenguIFEO();
   end;
 
   if CurUninstallStep = usPostUninstall then

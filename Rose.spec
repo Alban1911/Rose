@@ -86,27 +86,30 @@ try:
 except Exception as e:
     print(f"[WARNING] Could not collect Pillow data files: {e}")
 
-# Include the source-built Pengu Loader runtime used for Rose activation/deactivation
-# Runtime-generated files (logs, per-user state) must be excluded so they don't
-# leak local test data into the shipped installer.
+# Include the native Pengu runtime assets used by Rose's direct integration.
+# User state is created in LocalAppData and must not leak into the package.
 pengu_loader_dir = Path('Pengu Loader')
-PENGU_LOADER_EXCLUDED_ROOT_NAMES = {
+PENGU_LOADER_EXCLUDED_NAMES = {
     'config',
     'datastore',
+    'pengu.log',
+    'pengu loader.exe',
+    'pengu loader.exe.config',
+    'modernwpf.dll',
+    'modernwpf.controls.dll',
+    'ookii.dialogs.wpf.dll',
+    'system.valuetuple.dll',
 }
 
 def _pengu_path_excluded(rel_path: Path) -> bool:
     name = rel_path.name.lower()
-
-    if rel_path.parts and rel_path.parts[0].lower() in PENGU_LOADER_EXCLUDED_ROOT_NAMES:
-        return True
-
-    return name.endswith('.log') or name.endswith('.log.old')
+    return (
+        name in PENGU_LOADER_EXCLUDED_NAMES
+        or name.endswith('.log')
+        or name.endswith('.log.old')
+    )
 
 if pengu_loader_dir.exists() and pengu_loader_dir.is_dir():
-    if not (pengu_loader_dir / 'Pengu Loader.exe').exists():
-        raise RuntimeError("Source-built Pengu Loader.exe is missing. Run scripts/build_pyinstaller.py first.")
-
     bundled_count = 0
     skipped = []
     for src in pengu_loader_dir.rglob('*'):
@@ -119,12 +122,13 @@ if pengu_loader_dir.exists() and pengu_loader_dir.is_dir():
         dest_dir = (Path('Pengu Loader') / rel).parent
         datas += [(str(src), str(dest_dir))]
         bundled_count += 1
-    print(f"[OK] Pengu Loader directory bundled ({bundled_count} files)")
+    if not (pengu_loader_dir / 'core.dll').exists():
+        raise RuntimeError("Pengu core.dll is missing from the source runtime.")
+    print(f"[OK] Direct Pengu runtime bundled ({bundled_count} files)")
     if skipped:
-        print(f"[INFO] Skipped runtime/local files: {', '.join(skipped)}")
+        print(f"[INFO] Skipped runtime/legacy files: {', '.join(skipped)}")
 else:
-    print("[WARNING] Pengu Loader directory not found – Pengu features will be disabled")
-
+    raise RuntimeError("Pengu runtime directory is missing.")
 # Hidden imports - modules PyInstaller might not detect
 hiddenimports = [
     # Main package modules
@@ -237,6 +241,9 @@ hiddenimports = [
     'utils.integration.tray_manager',
     'utils.integration.tray_settings',
     'utils.integration.pengu_loader',
+    'tkinter',
+    'tkinter.filedialog',
+    'tkinter.ttk',
     'utils.threading',
     'utils.threading.thread_manager',
     'ui',
@@ -285,7 +292,6 @@ hiddenimports = [
     'requests',
     'urllib3',
     'websocket',
-    'websocket_client',
     'websockets',
 
     # Party mode (WebSocket relay)

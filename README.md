@@ -96,63 +96,48 @@ On first launch, Rose will prompt you to provide this file and open the folder w
 
 ## Building from source
 
-Rose builds the Pengu Loader executable from the vendored source in
-`vendor/PenguLoader-1.1.6/` as part of the normal Rose build. You do not need
-to download or commit a prebuilt `Pengu Loader.exe`.
+Pengu activation is implemented directly in Rose. The build only packages the
+native core.dll and JavaScript plugins; it does not build or launch a separate
+Pengu Loader executable.
 
 ### Prerequisites
 
 - Windows 10/11
 - Python 3.11 or newer
-- Visual Studio Build Tools with the .NET desktop build tools, WPF support,
-  and the .NET Framework 4.7.2 targeting pack
 - Inno Setup 6 if you also want to create the installer
 
 Clone the repository and enter its directory:
 
-```powershell
+~~~powershell
 git clone https://github.com/Alban1911/Rose.git
 cd Rose
-```
+~~~
 
 Install the Python dependencies first:
 
-```powershell
+~~~powershell
 python -m pip install -r requirements.txt
-```
+~~~
 
-Build the loader by itself, if needed:
+Build Rose:
 
-```powershell
-python scripts/build_pengu_loader.py
-```
-
-Build Rose and automatically rebuild the loader:
-
-```powershell
+~~~powershell
 python scripts/build_pyinstaller.py
-```
+~~~
 
-The packaged application is written to `dist/Rose/`. To build both Rose and
-the Windows installer in one step:
+The packaged application is written to dist/Rose/. To build both Rose and the
+Windows installer in one step:
 
-```powershell
+~~~powershell
 python scripts/build_all.py
-```
+~~~
 
-The installer is written to `installer/Rose_Setup.exe`. Use
-`scripts/build_pyinstaller.py` or `scripts/build_all.py` instead of invoking
-`pyinstaller Rose.spec` directly, because the Rose build scripts compile
-Pengu Loader first.
+The installer is written to installer/Rose_Setup.exe.
 
 ## Credits
 
-Rose uses the [official Pengu Loader](https://github.com/PenguLoader/PenguLoader)
-project. Its source is vendored and built as part of Rose, with Rose-specific
-lifecycle integration added around the loader. Please see the
-[official Pengu Loader license](https://github.com/PenguLoader/PenguLoader/blob/main/LICENSE)
-and credit the Pengu Loader contributors.
-
+Rose uses the native Pengu Loader runtime under the upstream MIT license. Rose contains the activation controller directly in its Python source and does not ship a separate loader window. Use Rose's tray menu to open the Pengu plugins folder. See
+vendor/PenguLoader-1.1.6/SOURCE.md for provenance and the upstream license.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and project structure.

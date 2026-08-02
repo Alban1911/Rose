@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from utils.core.junction import safe_remove_entry
+from utils.core.junction import is_junction, safe_remove_entry
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import safe_extractall
@@ -474,6 +474,186 @@ class ModStorageService:
                 safe_remove_entry(target_dir)
             raise
 
+    @staticmethod
+    def _relative_mod_path(path: Path, root: Path) -> str:
+        return str(path.relative_to(root)).replace("\\", "/")
+
+    def list_all_mods(self) -> List[dict]:
+        """Return every installed mod using a stable path relative to ``mods_root``."""
+        with self._storage_lock:
+            entries: list[dict] = []
+            seen: set[str] = set()
+
+            # Skin mods can live in the current champion-level layout or in
+            # legacy per-skin folders. Listing each champion once preserves
+            # both formats without duplicating legacy entries.
+            champion_ids: set[int] = set()
+            try:
+                for child in self.skins_dir.iterdir():
+                    if child.is_dir() and child.name.isdigit():
+                        champion_ids.add(int(child.name) // 1000)
+            except OSError as exc:
+                log.warning("[ModStorage] Failed to scan skin mods: %s", exc)
+
+            for champion_id in sorted(value for value in champion_ids if value > 0):
+                try:
+                    skin_entries = self.list_mods_for_champion(champion_id)
+                except (OSError, ValueError) as exc:
+                    log.warning("[ModStorage] Failed to list skin mods for champion %s: %s", champion_id, exc)
+                    continue
+                for entry in skin_entries:
+                    try:
+                        relative = self._relative_mod_path(entry.path, self.mods_root)
+                    except ValueError:
+                        continue
+                    key = relative.casefold()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    entries.append({
+                        "id": relative,
+                        "path": relative,
+                        "name": entry.mod_name,
+                        "category": self.CATEGORY_SKINS,
+                        "updatedAt": entry.updated_at,
+                        "description": entry.description,
+                        "championId": entry.champion_id,
+                        "targetSkinIds": list(entry.target_skin_ids),
+                    })
+
+            for category in self.MOD_CATEGORIES:
+                try:
+                    category_entries = self._list_mods_for_category(category)
+                except (OSError, ValueError) as exc:
+                    log.warning("[ModStorage] Failed to list %s mods: %s", category, exc)
+                    continue
+                for entry in category_entries:
+                    relative = str(entry.get("id") or entry.get("path") or "").replace("\\", "/")
+                    if not relative or relative.casefold() in seen:
+                        continue
+                    seen.add(relative.casefold())
+                    entry = dict(entry)
+                    entry["id"] = relative
+                    entry["path"] = relative
+                    entry["category"] = category
+                    entry["targetSkinIds"] = []
+                    entries.append(entry)
+
+            category_order = {category: index for index, category in enumerate(self.ROOT_CATEGORIES)}
+            entries.sort(key=lambda item: (
+                category_order.get(str(item.get("category")), len(category_order)),
+                str(item.get("name") or "").casefold(),
+                str(item.get("id") or "").casefold(),
+            ))
+            return entries
+
+    def _resolve_mod_path_for_delete(self, mod_id: object) -> tuple[Path, str]:
+        """Resolve a UI mod ID while preventing traversal and metadata deletion."""
+        if not isinstance(mod_id, str) or not mod_id.strip():
+            raise ValueError("A mod ID is required")
+
+        raw = mod_id.strip().replace("\\", "/")
+        relative = Path(raw)
+        parts = relative.parts
+        if relative.is_absolute() or any(part in {"", ".", ".."} for part in parts):
+            raise ValueError("The mod ID must be a safe relative path")
+
+        category = parts[0].casefold() if parts else ""
+        if category not in {value.casefold() for value in self.ROOT_CATEGORIES}:
+            raise ValueError("Unknown mod category")
+        expected_depth = 3 if category == self.CATEGORY_SKINS else 2
+        if len(parts) != expected_depth:
+            raise ValueError("The mod ID does not identify an installed mod")
+        if category == self.CATEGORY_SKINS and not parts[1].isdigit():
+            raise ValueError("Invalid skin mod path")
+        if parts[-1].casefold() in {
+            self.TARGET_METADATA.casefold(),
+            self.LEGACY_TARGET_METADATA.casefold(),
+            self.CATEGORY_METADATA.casefold(),
+        }:
+            raise ValueError("Metadata files cannot be deleted as mods")
+
+        root = self.mods_root.resolve()
+        candidate = (self.mods_root.joinpath(*parts)).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("The mod path is outside Rose storage") from exc
+        if not (candidate.exists() or is_junction(candidate)):
+            raise FileNotFoundError("The mod no longer exists")
+        return candidate, "/".join(parts)
+
+    @staticmethod
+    def _remove_manifest_entry(manifest_path: Path, mod_name: str) -> bool:
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return False
+        if not isinstance(payload, dict) or not isinstance(payload.get("mods"), dict):
+            return False
+
+        mods = dict(payload["mods"])
+        wanted = mod_name.casefold()
+        removed = False
+        for key, metadata in list(mods.items()):
+            metadata_name = ""
+            metadata_path = ""
+            if isinstance(metadata, dict):
+                metadata_name = str(metadata.get("name") or "")
+                metadata_path = str(metadata.get("path") or "")
+            if (
+                str(key).casefold() == wanted
+                or metadata_name.casefold() == wanted
+                or metadata_path.replace("\\", "/").strip("/").casefold() == wanted
+            ):
+                mods.pop(key, None)
+                removed = True
+
+        if not removed:
+            return False
+        payload["mods"] = dict(sorted(mods.items()))
+        temporary = manifest_path.with_name(f".{manifest_path.name}.tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(manifest_path)
+        return True
+
+    def _remove_mod_metadata(self, candidate: Path, relative: str) -> None:
+        category = relative.split("/", 1)[0].casefold()
+        if category == self.CATEGORY_SKINS:
+            manifests = (
+                candidate.parent / self.TARGET_METADATA,
+                candidate.parent / self.LEGACY_TARGET_METADATA,
+            )
+        else:
+            manifests = (candidate.parent / self.CATEGORY_METADATA,)
+        for manifest in manifests:
+            try:
+                if self._remove_manifest_entry(manifest, candidate.name):
+                    log.debug("[ModStorage] Removed %s from %s", candidate.name, manifest)
+            except OSError as exc:
+                log.warning("[ModStorage] Could not update mod metadata %s: %s", manifest, exc)
+
+    def delete_mod(self, mod_id: object) -> dict:
+        """Delete one installed mod and clean metadata/history references."""
+        with self._storage_lock:
+            candidate, relative = self._resolve_mod_path_for_delete(mod_id)
+            mod_name = candidate.name
+            safe_remove_entry(candidate)
+            if candidate.exists() or is_junction(candidate):
+                raise OSError(f"Could not delete mod: {relative}")
+
+            self._remove_mod_metadata(candidate, relative)
+            try:
+                from utils.core.historic import remove_custom_mod_path
+                from utils.core.mod_historic import remove_historic_mod_path
+                remove_custom_mod_path(relative)
+                remove_historic_mod_path(relative)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("[ModStorage] Could not clean mod history for %s: %s", relative, exc)
+
+            self._champion_listing_cache.clear()
+            log.info("[ModStorage] Deleted custom mod: %s", relative)
+            return {"id": relative, "name": mod_name}
     def _list_mods_in_directory(
         self,
         mod_directory: Path,

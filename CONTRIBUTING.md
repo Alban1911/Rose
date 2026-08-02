@@ -28,29 +28,24 @@ pip install -r requirements.txt
 
 ## Building locally
 
-Rose builds the Pengu Loader executable from the vendored source in
-`vendor/PenguLoader-1.1.6/` during packaging. A prebuilt `Pengu Loader.exe`
-is intentionally not committed to the repository.
+Rose controls Pengu directly from Python. Packaging includes the native
+Pengu runtime (core.dll and JavaScript plugins); no separate Pengu Loader
+executable is built or launched.
 
-In addition to Python 3.11+ and the Python dependencies above, install Visual
-Studio Build Tools with the .NET desktop build tools, WPF support, and the
-.NET Framework 4.7.2 targeting pack. Install Inno Setup 6 only if you also
-want to build the Windows installer.
+Python 3.11+ and the Python dependencies are required. Install Inno Setup 6
+only if you also want to build the Windows installer.
 
-```powershell
-# Build Pengu Loader only
-python scripts/build_pengu_loader.py
-
-# Build Rose (rebuilds Pengu Loader automatically)
+~~~powershell
+# Build Rose
 python scripts/build_pyinstaller.py
 
 # Build Rose and the Windows installer
 python scripts/build_all.py
-```
+~~~
 
-`scripts/build_pyinstaller.py` is the canonical Rose package build entry point; it
-compiles the loader before invoking PyInstaller. Use it or `scripts/build_all.py`
-instead of invoking `pyinstaller Rose.spec` directly.
+scripts/build_pyinstaller.py is the canonical Rose package build entry point.
+Use it or scripts/build_all.py instead of invoking pyinstaller Rose.spec
+directly.
 
 ## Project Structure
 
@@ -254,7 +249,7 @@ Rose/
 │       └── analytics_thread.py  # Background thread for startup/heartbeat/close pings
 │
 └── Pengu Loader/           # Runtime loader files and plugins
-    ├── Pengu Loader.exe    # Generated during builds from vendor/PenguLoader-1.1.6
+    ├── core.dll            # Native Pengu runtime
     └── plugins/            # JavaScript plugins
         ├── ROSE-UI/
         ├── ROSE-SkinMonitor/
@@ -270,7 +265,7 @@ Rose/
 
 ## Credits
 
-Rose uses the [official Pengu Loader](https://github.com/PenguLoader/PenguLoader)
-project. Its source is vendored and built as part of Rose, with Rose-specific
-lifecycle integration added around the loader. See the
+Rose uses the native runtime assets from the [official Pengu Loader](https://github.com/PenguLoader/PenguLoader)
+project. The Python source in pengu/integration/ manages its lifecycle directly;
+Rose does not build or launch the upstream WPF loader. See the
 [official Pengu Loader license](https://github.com/PenguLoader/PenguLoader/blob/main/LICENSE).

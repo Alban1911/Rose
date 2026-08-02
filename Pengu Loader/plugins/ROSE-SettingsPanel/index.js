@@ -46,6 +46,7 @@
   }
 
   let settingsPanel = null;
+  let pluginsRefreshTimer = null;
   let currentSettings = {
     threshold: 0.5,
     monitorAutoResumeTimeout: 60,
@@ -136,8 +137,8 @@
     
     lol-uikit-flyout-frame#${FLYOUT_ID},
     #${FLYOUT_ID} {
-      min-width: 360px !important;
-      max-width: 400px !important;
+      min-width: 460px !important;
+      max-width: 460px !important;
       background: transparent !important;
       background-color: transparent !important;
       background-image: none !important;
@@ -424,7 +425,97 @@
     #${FLYOUT_ID} .settings-button:hover {
       background: #1a2332;
     }
+
+    #${FLYOUT_ID} .settings-action-button {
+      flex: 1;
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 9px 8px;
+      background: #0a1428;
+      border: 1px solid #c8aa6e;
+      border-radius: 4px;
+      color: #c8aa6e;
+      font-size: 14px;
+      font-family: "Beaufort for LOL", serif;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    #${FLYOUT_ID} .settings-action-button:hover {
+      background: #1a2332;
+      color: #f0e6d2;
+    }
+
+    #${FLYOUT_ID} .settings-action-button:active {
+      background: #c8aa6e;
+      color: #0a1428;
+    }
     
+    #${FLYOUT_ID} #rose-plugins-list {
+      scrollbar-width: thin;
+      scrollbar-color: #5c5b56 #010a13;
+    }
+
+    #${FLYOUT_ID} #rose-plugins-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #${FLYOUT_ID} #rose-plugins-list::-webkit-scrollbar-track {
+      background: #010a13;
+    }
+
+    #${FLYOUT_ID} #rose-plugins-list::-webkit-scrollbar-thumb {
+      background: #5c5b56;
+      border-radius: 3px;
+    }
+
+    #${FLYOUT_ID} #rose-plugins-list::-webkit-scrollbar-thumb:hover {
+      background: #c8aa6e;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list {
+      scrollbar-width: thin;
+      scrollbar-color: #5c5b56 #010a13;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list::-webkit-scrollbar-track {
+      background: #010a13;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list::-webkit-scrollbar-thumb {
+      background: #5c5b56;
+      border-radius: 3px;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list::-webkit-scrollbar-thumb:hover {
+      background: #c8aa6e;
+    }
+    #${FLYOUT_ID} #rose-custom-mods-list {
+      scrollbar-width: thin;
+      scrollbar-color: #5c5b56 #010a13;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list::-webkit-scrollbar-track {
+      background: #010a13;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list::-webkit-scrollbar-thumb {
+      background: #5c5b56;
+      border-radius: 3px;
+    }
+
+    #${FLYOUT_ID} #rose-custom-mods-list::-webkit-scrollbar-thumb:hover {
+      background: #c8aa6e;
+    }
     #${FLYOUT_ID} .settings-links {
       display: flex;
       justify-content: space-between;
@@ -1577,6 +1668,9 @@
     flyoutFrame.style.transform = "translateX(-50%)"; // Center the panel on the icon
     flyoutFrame.style.zIndex = "10001";
     flyoutFrame.style.pointerEvents = "all";
+    flyoutFrame.style.setProperty("width", "460px", "important");
+    flyoutFrame.style.setProperty("min-width", "460px", "important");
+    flyoutFrame.style.setProperty("max-width", "460px", "important");
     flyoutFrame.style.setProperty("background", "transparent", "important");
     flyoutFrame.style.setProperty(
       "background-color",
@@ -1616,6 +1710,7 @@
 
     // Create settings form
     const form = document.createElement("div");
+    form.id = "rose-settings-form";
     form.style.width = "100%";
     form.style.display = "flex";
     form.style.flexDirection = "column";
@@ -2194,7 +2289,20 @@
     });
 
     modsDropdownContainer.appendChild(modsDropdown);
-    form.appendChild(modsDropdownContainer);
+
+
+    // Custom mods manager button
+    const customModsButton = document.createElement("lol-uikit-flat-button-secondary");
+    customModsButton.id = "custom-mods-button";
+    customModsButton.textContent = "Custom Mods";
+    customModsButton.style.marginTop = "8px";
+    customModsButton.style.width = "100%";
+    customModsButton.addEventListener("click", () => {
+      openCustomModsPanel();
+    });
+    form.appendChild(customModsButton);
+
+
 
     // Inject shadow DOM styles to override :host .ui-dropdown color
     let retryCount = 0;
@@ -2304,21 +2412,21 @@
     form.appendChild(troubleshootButton);
 
 
-    // Open Pengu Loader UI button
-    const penguUIButton = document.createElement("lol-uikit-flat-button-secondary");
-    penguUIButton.id = "pengu-ui-button";
-    penguUIButton.textContent = "Open Pengu Loader UI";
-    penguUIButton.style.marginTop = "8px";
-    penguUIButton.style.width = "100%";
-    penguUIButton.addEventListener("click", () => {
-      openPenguLoaderUI();
+    // Plugins manager button
+    const pluginsButton = document.createElement("lol-uikit-flat-button-secondary");
+    pluginsButton.id = "plugins-button";
+    pluginsButton.textContent = "Plugins";
+    pluginsButton.style.marginTop = "8px";
+    pluginsButton.style.width = "100%";
+    pluginsButton.addEventListener("click", () => {
+      openPluginsPanel();
     });
-    form.appendChild(penguUIButton);
+    form.appendChild(pluginsButton);
 
-    // Save button (moved to last position)
+    // Save settings action
     const saveButton = document.createElement("lol-uikit-flat-button-secondary");
     saveButton.id = "save-button";
-    saveButton.textContent = "Save";
+    saveButton.textContent = "Save Settings";
     saveButton.style.marginTop = "8px";
     saveButton.style.width = "21%";
     saveButton.addEventListener("click", () => {
@@ -2353,7 +2461,153 @@
 
     form.appendChild(linksSection);
 
+    // Plugins manager panel
+    const pluginsPanel = document.createElement("div");
+    pluginsPanel.id = "rose-plugins-panel";
+    pluginsPanel.style.width = "100%";
+    pluginsPanel.style.display = "none";
+    pluginsPanel.style.flexDirection = "column";
+    pluginsPanel.style.alignItems = "stretch";
+
+    const pluginsHeader = document.createElement("div");
+    pluginsHeader.style.display = "flex";
+    pluginsHeader.style.alignItems = "center";
+    pluginsHeader.style.position = "relative";
+    pluginsHeader.style.marginBottom = "8px";
+
+    const pluginsBackButton = document.createElement("button");
+    pluginsBackButton.type = "button";
+    pluginsBackButton.className = "back-button";
+    pluginsBackButton.textContent = "←";
+    pluginsBackButton.setAttribute("aria-label", "Back");
+    pluginsBackButton.title = "Back";
+    pluginsBackButton.style.width = "32px";
+    pluginsBackButton.style.fontSize = "18px";
+    pluginsBackButton.addEventListener("click", closePluginsPanel);
+    pluginsHeader.appendChild(pluginsBackButton);
+
+    const pluginsTitle = document.createElement("div");
+    pluginsTitle.className = "settings-title";
+    pluginsTitle.textContent = "Plugins";
+    pluginsTitle.style.flex = "1";
+    pluginsTitle.style.textAlign = "center";
+    pluginsHeader.appendChild(pluginsTitle);
+    pluginsPanel.appendChild(pluginsHeader);
+
+    const pluginsHint = document.createElement("div");
+    pluginsHint.textContent = "Toggle plugins below, then refresh the client to apply changes.";
+    pluginsHint.style.marginBottom = "10px";
+    pluginsHint.style.color = "#7e6f4e";
+    pluginsHint.style.fontSize = "11px";
+    pluginsPanel.appendChild(pluginsHint);
+
+    const pluginsList = document.createElement("div");
+    pluginsList.id = "rose-plugins-list";
+    pluginsList.style.width = "100%";
+    pluginsList.style.maxHeight = "360px";
+    pluginsList.style.overflowY = "auto";
+    pluginsList.style.display = "flex";
+    pluginsList.style.flexDirection = "column";
+    pluginsList.style.gap = "6px";
+    pluginsPanel.appendChild(pluginsList);
+
+    const pluginsActions = document.createElement("div");
+    pluginsActions.style.display = "flex";
+    pluginsActions.style.gap = "8px";
+    pluginsActions.style.width = "100%";
+    pluginsActions.style.marginTop = "10px";
+
+    const pluginsRefreshButton = document.createElement("lol-uikit-flat-button-secondary");
+    pluginsRefreshButton.textContent = "Refresh Client";
+    pluginsRefreshButton.style.flex = "1";
+    pluginsRefreshButton.style.minWidth = "0";
+    pluginsRefreshButton.addEventListener("click", refreshClient);
+    pluginsActions.appendChild(pluginsRefreshButton);
+
+    const pluginsOpenFolderButton = document.createElement("lol-uikit-flat-button-secondary");
+    pluginsOpenFolderButton.textContent = "Open Plugin Folder";
+    pluginsOpenFolderButton.style.flex = "1";
+    pluginsOpenFolderButton.style.minWidth = "0";
+    pluginsOpenFolderButton.addEventListener("click", openPluginsFolder);
+    pluginsActions.appendChild(pluginsOpenFolderButton);
+    pluginsPanel.appendChild(pluginsActions);
+
+    // Custom mods manager panel
+    const customModsPanel = document.createElement("div");
+    customModsPanel.id = "rose-custom-mods-panel";
+    customModsPanel.style.width = "100%";
+    customModsPanel.style.display = "none";
+    customModsPanel.style.flexDirection = "column";
+    customModsPanel.style.alignItems = "stretch";
+
+    const customModsHeader = document.createElement("div");
+    customModsHeader.style.display = "flex";
+    customModsHeader.style.alignItems = "center";
+    customModsHeader.style.position = "relative";
+    customModsHeader.style.marginBottom = "8px";
+
+    const customModsBackButton = document.createElement("button");
+    customModsBackButton.type = "button";
+    customModsBackButton.className = "back-button";
+    customModsBackButton.textContent = "←";
+    customModsBackButton.setAttribute("aria-label", "Back");
+    customModsBackButton.title = "Back";
+    customModsBackButton.style.width = "32px";
+    customModsBackButton.style.fontSize = "18px";
+    customModsBackButton.addEventListener("click", closeCustomModsPanel);
+    customModsHeader.appendChild(customModsBackButton);
+
+    const customModsTitle = document.createElement("div");
+    customModsTitle.className = "settings-title";
+    customModsTitle.textContent = "Custom Mods";
+    customModsTitle.style.flex = "1";
+    customModsTitle.style.textAlign = "center";
+    customModsHeader.appendChild(customModsTitle);
+    customModsPanel.appendChild(customModsHeader);
+
+    const customModsHint = document.createElement("div");
+    customModsHint.textContent = "Manage the custom mods installed in Rose.";
+    customModsHint.style.marginBottom = "10px";
+    customModsHint.style.color = "#7e6f4e";
+    customModsHint.style.fontSize = "11px";
+    customModsPanel.appendChild(customModsHint);
+
+    const customModsList = document.createElement("div");
+    customModsList.id = "rose-custom-mods-list";
+    customModsList.style.width = "100%";
+    customModsList.style.maxHeight = "360px";
+    customModsList.style.overflowY = "auto";
+    customModsList.style.display = "flex";
+    customModsList.style.flexDirection = "column";
+    customModsList.style.gap = "6px";
+    customModsPanel.appendChild(customModsList);
+
+    const customModsActions = document.createElement("div");
+    customModsActions.style.display = "flex";
+    customModsActions.style.gap = "8px";
+    customModsActions.style.width = "100%";
+    customModsActions.style.marginTop = "10px";
+
+    const customModsAddButton = document.createElement("lol-uikit-flat-button-secondary");
+    customModsAddButton.textContent = "Add Custom Mod";
+    customModsAddButton.style.flex = "1";
+    customModsAddButton.style.minWidth = "0";
+    customModsAddButton.addEventListener("click", openAddCustomModsDialog);
+    customModsActions.appendChild(customModsAddButton);
+
+    const customModsOpenFolderButton = document.createElement("lol-uikit-flat-button-secondary");
+    customModsOpenFolderButton.textContent = "Open Mods Folder";
+    customModsOpenFolderButton.style.flex = "1";
+    customModsOpenFolderButton.style.minWidth = "0";
+    customModsOpenFolderButton.addEventListener("click", openCustomModsFolder);
+    customModsActions.appendChild(customModsOpenFolderButton);
+    customModsPanel.appendChild(customModsActions);
+
+
+
     flyoutContent.appendChild(form);
+    flyoutContent.appendChild(customModsPanel);
+    flyoutContent.appendChild(pluginsPanel);
     flyoutFrame.appendChild(flyoutContent);
     panel.appendChild(flyoutFrame);
 
@@ -3427,6 +3681,7 @@
       // Could show an error message to user here
     } else {
       log("info", `Imported mod: ${payload.modName || payload.path || "success"}`);
+      requestCustomMods();
     }
   }
 
@@ -3646,7 +3901,7 @@
           } else if (hasTrackerData) {
             fixText = `Fix: based on ${stats.confirmed_count} game(s), base skin confirmation takes up to ${stats.p90_ms}ms (p90). Recommended threshold: ${recS}s. Use the "Apply recommended" button below, or increase "Injection Threshold" manually.`;
           } else {
-            fixText = `Fix: increase "Injection Threshold (seconds)" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, retry your skin selection.`;
+            fixText = `Fix: increase "Injection Threshold (seconds)" and click Save Settings. If the warning is still there, increase it again and Save Settings again. Once the warning is gone, retry your skin selection.`;
           }
 
           return {
@@ -3674,7 +3929,7 @@
               `What it means: injection took longer than the allowed time, so ROSE stopped the process.`,
               timeoutAtMax
                 ? `Fix: you're already at the maximum Monitor Auto-Resume Timeout. This usually means the injection is extremely slow. Try lighter mods, close heavy apps, move League/mods to an SSD, and consider adding antivirus exclusions for the League and Rose folders. Then retry.`
-                : `Fix: increase "Monitor Auto-Resume Timeout (seconds)" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, try again.`,
+                : `Fix: increase "Monitor Auto-Resume Timeout (seconds)" and click Save Settings. If the warning is still there, increase it again and Save Settings again. Once the warning is gone, try again.`,
             ],
           };
         }
@@ -3701,7 +3956,7 @@
       const headerHtml = `
         <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:10px;">
           <div style="font-weight:700;">Errors (most recent first)</div>
-          <div style="opacity:0.75;">Tip: after changing a setting, click <span style="font-weight:700;">Save</span>, then retry.</div>
+          <div style="opacity:0.75;">Tip: after changing a setting, click <span style="font-weight:700;">Save Settings</span>, then retry.</div>
         </div>
       `.trim();
 
@@ -3789,15 +4044,421 @@
     }
   }
 
-  function openPenguLoaderUI() {
+  function requestPlugins() {
     if (bridge) bridge.send({
-      type: "open-pengu-loader-ui",
+      type: "plugins-request",
     });
-    log("info", "Open Pengu Loader UI requested");
+  }
+
+  function formatPluginName(name) {
+    const cleaned = String(name || "").replace(/^ROSE[-_]?/i, "").replace(/[-_]+/g, " ");
+    return cleaned.split(" ").filter(Boolean).map((word) =>
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(" ") || String(name || "Plugin");
+  }
+
+  function handlePluginsData(payload) {
+    const list = document.getElementById("rose-plugins-list");
+    if (!list) return;
+    const expandedCategories = new Set(
+      Array.from(list.querySelectorAll("details[open] summary")).map((summary) => summary.dataset.pluginCategory || summary.textContent)
+    );
+    list.textContent = "";
+
+    const plugins = Array.isArray(payload?.plugins) ? payload.plugins : [];
+    const appendEmptyCategory = (category) => {
+      const section = document.createElement("details");
+      section.open = expandedCategories.has(category);
+      section.style.width = "100%";
+
+      const heading = document.createElement("summary");
+      heading.textContent = category + " (0)";
+      heading.dataset.pluginCategory = category;
+      heading.style.padding = "8px 10px";
+      heading.style.background = "#1e2328";
+      heading.style.border = "1px solid #5c5b56";
+      heading.style.borderRadius = "3px";
+      heading.style.color = "#c8aa6e";
+      heading.style.fontSize = "12px";
+      heading.style.fontWeight = "bold";
+      heading.style.cursor = "pointer";
+      heading.style.userSelect = "none";
+      section.appendChild(heading);
+
+      const emptyBody = document.createElement("div");
+      emptyBody.style.margin = "0 4px";
+      emptyBody.style.padding = "8px";
+      emptyBody.style.background = "#0a1428";
+      emptyBody.style.border = "1px solid #5c5b56";
+      emptyBody.style.borderTop = "none";
+      emptyBody.style.borderRadius = "0 0 3px 3px";
+
+      const empty = document.createElement("div");
+      empty.textContent = "No plugins in this category.";
+      empty.style.color = "#7e6f4e";
+      empty.style.fontSize = "11px";
+      emptyBody.appendChild(empty);
+      section.appendChild(emptyBody);
+      list.appendChild(section);
+    };
+
+    const rosePluginCount = plugins.filter((plugin) =>
+      String(plugin?.name || "").toUpperCase().startsWith("ROSE-")
+    ).length;
+    const otherPluginCount = plugins.length - rosePluginCount;
+    const hasRosePlugins = rosePluginCount > 0;
+    const hasOtherPlugins = otherPluginCount > 0;
+
+    if (!hasRosePlugins) appendEmptyCategory("Rose Plugins");
+
+    const sortedPlugins = [...plugins].sort((a, b) => {
+      const aIsRose = String(a?.name || "").toUpperCase().startsWith("ROSE-");
+      const bIsRose = String(b?.name || "").toUpperCase().startsWith("ROSE-");
+      if (aIsRose !== bIsRose) return aIsRose ? -1 : 1;
+      return String(a?.name || "").localeCompare(String(b?.name || ""));
+    });
+    let lastCategory = "";
+    let sectionBody = null;
+
+    sortedPlugins.forEach((plugin) => {
+      const category = String(plugin?.name || "").toUpperCase().startsWith("ROSE-")
+        ? "Rose Plugins"
+        : "Other Plugins";
+      if (category !== lastCategory) {
+        const section = document.createElement("details");
+        section.open = expandedCategories.has(category);
+        section.style.width = "100%";
+        section.style.marginTop = lastCategory ? "10px" : "0";
+
+        const heading = document.createElement("summary");
+        heading.textContent = category + " (" + (category === "Rose Plugins" ? rosePluginCount : otherPluginCount) + ")";
+        heading.dataset.pluginCategory = category;
+        heading.style.padding = "8px 10px";
+        heading.style.background = "#1e2328";
+        heading.style.border = "1px solid #5c5b56";
+        heading.style.borderRadius = "3px";
+        heading.style.color = "#c8aa6e";
+        heading.style.fontSize = "12px";
+        heading.style.fontWeight = "bold";
+        heading.style.cursor = "pointer";
+        heading.style.userSelect = "none";
+        section.appendChild(heading);
+
+        sectionBody = document.createElement("div");
+        sectionBody.style.display = "flex";
+        sectionBody.style.flexDirection = "column";
+        sectionBody.style.gap = "6px";
+        sectionBody.style.margin = "0 4px";
+        sectionBody.style.padding = "6px 8px 8px";
+        sectionBody.style.background = "#0a1428";
+        sectionBody.style.border = "1px solid #5c5b56";
+        sectionBody.style.borderTop = "none";
+        sectionBody.style.borderRadius = "0 0 3px 3px";
+        section.appendChild(sectionBody);
+        list.appendChild(section);
+        lastCategory = category;
+      }
+
+      const pluginName = typeof plugin?.name === "string" ? plugin.name : "";
+      if (!pluginName) return;
+      const enabled = plugin.enabled === true;
+
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.alignItems = "center";
+      row.style.justifyContent = "space-between";
+      row.style.width = "100%";
+      row.style.boxSizing = "border-box";
+      row.style.padding = "8px 10px";
+      row.style.background = "#1e2328";
+      row.style.border = "1px solid #5c5b56";
+      row.style.borderRadius = "3px";
+
+      const name = document.createElement("span");
+      name.textContent = formatPluginName(pluginName);
+      name.style.color = "#c8aa6e";
+      name.style.fontSize = "13px";
+      name.style.fontFamily = "Beaufort for LOL, serif";
+      row.appendChild(name);
+
+      const control = document.createElement("label");
+      control.style.display = "flex";
+      control.style.alignItems = "center";
+      control.style.gap = "6px";
+      control.style.color = "#7e6f4e";
+      control.style.fontSize = "11px";
+
+      const state = document.createElement("span");
+      state.textContent = enabled ? "Enabled" : "Disabled";
+      state.style.minWidth = "48px";
+      state.style.textAlign = "right";
+      control.appendChild(state);
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = enabled;
+      checkbox.setAttribute("aria-label", "Toggle " + formatPluginName(pluginName));
+      checkbox.style.accentColor = "#c8aa6e";
+      checkbox.style.cursor = "pointer";
+      checkbox.addEventListener("change", () => {
+        checkbox.disabled = true;
+        togglePlugin(pluginName, checkbox.checked);
+      });
+      control.appendChild(checkbox);
+      row.appendChild(control);
+      sectionBody.appendChild(row);
+    });
+
+    if (!hasOtherPlugins) appendEmptyCategory("Other Plugins");
+  }
+
+  function handlePluginToggled(payload) {
+    if (payload?.success !== true) {
+      log("warning", payload?.error || "Could not change plugin state");
+    }
+    requestPlugins();
+  }
+
+  function requestCustomMods() {
+    if (bridge) bridge.send({ type: "custom-mods-request" });
+  }
+
+  function formatCustomModName(name) {
+    return String(name || "Custom Mod").replace(/[-_]+/g, " ");
+  }
+
+  function handleCustomModsData(payload) {
+    const list = document.getElementById("rose-custom-mods-list");
+    if (!list) return;
+
+    const expandedCategories = new Set(
+      Array.from(list.querySelectorAll("details[open] summary")).map((summary) =>
+        summary.dataset.customModCategory || summary.textContent
+      )
+    );
+    list.textContent = "";
+
+    const categories = [
+      { id: "skins", label: "Skin Mods" },
+      { id: "maps", label: "Maps" },
+      { id: "fonts", label: "Fonts" },
+      { id: "announcers", label: "Announcers" },
+      { id: "ui", label: "UI" },
+      { id: "voiceover", label: "Voiceover" },
+      { id: "loading_screen", label: "Loading Screen" },
+      { id: "vfx", label: "VFX" },
+      { id: "sfx", label: "SFX" },
+      { id: "others", label: "Others" },
+    ];
+    const groups = new Map(categories.map((category) => [category.id, []]));
+    const mods = Array.isArray(payload?.mods) ? payload.mods : [];
+    mods.forEach((mod) => {
+      const category = groups.has(mod?.category) ? mod.category : "others";
+      groups.get(category).push(mod);
+    });
+
+    categories.forEach((category, categoryIndex) => {
+      const entries = groups.get(category.id) || [];
+      const section = document.createElement("details");
+      section.open = expandedCategories.has(category.id);
+      section.style.width = "100%";
+      section.style.marginTop = categoryIndex ? "10px" : "0";
+
+      const heading = document.createElement("summary");
+      heading.textContent = `${category.label} (${entries.length})`;
+      heading.dataset.customModCategory = category.id;
+      heading.style.padding = "8px 10px";
+      heading.style.background = "#1e2328";
+      heading.style.border = "1px solid #5c5b56";
+      heading.style.borderRadius = "3px";
+      heading.style.color = "#c8aa6e";
+      heading.style.fontSize = "12px";
+      heading.style.fontWeight = "bold";
+      heading.style.cursor = "pointer";
+      heading.style.userSelect = "none";
+      section.appendChild(heading);
+
+      const body = document.createElement("div");
+      body.style.display = "flex";
+      body.style.flexDirection = "column";
+      body.style.gap = "6px";
+      body.style.margin = "0 4px";
+      body.style.padding = "6px 8px 8px";
+      body.style.background = "#0a1428";
+      body.style.border = "1px solid #5c5b56";
+      body.style.borderTop = "none";
+      body.style.borderRadius = "0 0 3px 3px";
+
+      if (entries.length === 0) {
+        const empty = document.createElement("div");
+        empty.textContent = "No custom mods in this category.";
+        empty.style.color = "#7e6f4e";
+        empty.style.fontSize = "11px";
+        body.appendChild(empty);
+      } else {
+        entries.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
+        entries.forEach((mod) => {
+          const row = document.createElement("div");
+          row.style.display = "flex";
+          row.style.alignItems = "center";
+          row.style.gap = "8px";
+          row.style.width = "100%";
+          row.style.boxSizing = "border-box";
+          row.style.padding = "7px 8px";
+          row.style.background = "#1e2328";
+          row.style.border = "1px solid #5c5b56";
+          row.style.borderRadius = "3px";
+
+          const details = document.createElement("div");
+          details.style.flex = "1";
+          details.style.minWidth = "0";
+
+          const name = document.createElement("div");
+          name.textContent = formatCustomModName(mod?.name);
+          name.style.color = "#c8aa6e";
+          name.style.fontSize = "12px";
+          name.style.fontFamily = "Beaufort for LOL, serif";
+          name.style.overflow = "hidden";
+          name.style.textOverflow = "ellipsis";
+          name.style.whiteSpace = "nowrap";
+          details.appendChild(name);
+
+          const targets = Array.isArray(mod?.targetSkinIds) ? mod.targetSkinIds.length : 0;
+          const meta = document.createElement("div");
+          meta.textContent = category.id === "skins" && targets
+            ? `${targets} target${targets === 1 ? "" : "s"}`
+            : category.label;
+          meta.style.color = "#7e6f4e";
+          meta.style.fontSize = "10px";
+          details.appendChild(meta);
+          row.appendChild(details);
+
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.textContent = "Delete";
+          deleteButton.title = "Delete mod";
+          deleteButton.style.flex = "0 0 auto";
+          deleteButton.style.width = "66px";
+          deleteButton.style.padding = "5px 4px";
+          deleteButton.style.border = "1px solid #76514c";
+          deleteButton.style.background = "#1e2328";
+          deleteButton.style.color = "#d59b8f";
+          deleteButton.style.fontFamily = "Beaufort for LOL, serif";
+          deleteButton.style.fontSize = "10px";
+          deleteButton.style.cursor = "pointer";
+          deleteButton.addEventListener("mouseenter", () => {
+            deleteButton.style.background = "#3a2425";
+          });
+          deleteButton.addEventListener("mouseleave", () => {
+            deleteButton.style.background = "#1e2328";
+          });
+          deleteButton.addEventListener("click", () => deleteCustomMod(mod));
+          row.appendChild(deleteButton);
+          body.appendChild(row);
+        });
+      }
+
+      section.appendChild(body);
+      list.appendChild(section);
+    });
+  }
+
+  function deleteCustomMod(mod) {
+    const modId = mod?.id;
+    if (!bridge || !modId) return;
+    const name = formatCustomModName(mod?.name);
+    if (!window.confirm(`Delete "${name}"? This mod and its saved selection will be removed.`)) {
+      return;
+    }
+    bridge.send({
+      type: "custom-mod-delete",
+      modId,
+    });
+  }
+
+  function handleCustomModDeleteResult(payload) {
+    if (payload?.success !== true) {
+      const message = payload?.error || "Could not delete the custom mod.";
+      log("error", message);
+      if (window.alert) window.alert(message);
+      return;
+    }
+    log("info", `Deleted custom mod: ${payload.modName || payload.modId || "success"}`);
+    requestCustomMods();
+  }
+
+  function openCustomModsPanel() {
+    const form = document.getElementById("rose-settings-form");
+    const panel = document.getElementById("rose-custom-mods-panel");
+    if (!form || !panel) return;
+    form.style.display = "none";
+    panel.style.display = "flex";
+    requestCustomMods();
+  }
+
+  function closeCustomModsPanel() {
+    const form = document.getElementById("rose-settings-form");
+    const panel = document.getElementById("rose-custom-mods-panel");
+    if (!form || !panel) return;
+    panel.style.display = "none";
+    form.style.display = "flex";
+  }
+
+  function openCustomModsFolder() {
+    if (bridge) bridge.send({ type: "open-mods-folder" });
+    log("info", "Open custom mods folder requested");
+  }
+  function togglePlugin(name, enabled) {
+    if (bridge) bridge.send({
+      type: "plugin-toggle",
+      name,
+      enabled,
+    });
+  }
+
+  function openPluginsPanel() {
+    const form = document.getElementById("rose-settings-form");
+    const panel = document.getElementById("rose-plugins-panel");
+    if (!form || !panel) return;
+    form.style.display = "none";
+    panel.style.display = "flex";
+    requestPlugins();
+    if (pluginsRefreshTimer) clearInterval(pluginsRefreshTimer);
+    pluginsRefreshTimer = setInterval(requestPlugins, 1000);
+  }
+
+  function closePluginsPanel() {
+    const form = document.getElementById("rose-settings-form");
+    const panel = document.getElementById("rose-plugins-panel");
+    if (!form || !panel) return;
+    panel.style.display = "none";
+    form.style.display = "flex";
+    if (pluginsRefreshTimer) {
+      clearInterval(pluginsRefreshTimer);
+      pluginsRefreshTimer = null;
+    }
+  }
+
+  function openPluginsFolder() {
+    if (bridge) bridge.send({
+      type: "open-plugins",
+    });
+    log("info", "Open Plugins Folder requested");
+  }
+
+  function refreshClient() {
+    if (bridge) bridge.send({
+      type: "refresh-client",
+    });
+    log("info", "Refresh Client requested");
   }
 
   function closeSettingsPanel() {
     if (!settingsPanel) return;
+    if (pluginsRefreshTimer) {
+      clearInterval(pluginsRefreshTimer);
+      pluginsRefreshTimer = null;
+    }
 
     // Disable selected nav item
     const navItem = document.querySelector(".menu_item_Golden");
@@ -3988,6 +4649,10 @@
       bridge.subscribe("champions-list-response", handleChampionsListResponse);
       bridge.subscribe("champion-skins-response", handleChampionSkinsResponse);
       bridge.subscribe("folder-opened-response", handleFolderOpenedResponse);
+      bridge.subscribe("plugins-data", handlePluginsData);
+      bridge.subscribe("plugin-toggled", handlePluginToggled);
+      bridge.subscribe("custom-mods-data", handleCustomModsData);
+      bridge.subscribe("custom-mod-delete-result", handleCustomModDeleteResult);
 
       // On every (re)connect, sync state
       bridge.onReady(() => {

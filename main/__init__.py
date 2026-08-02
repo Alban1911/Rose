@@ -673,7 +673,7 @@ from .core.lcu_handler import create_lcu_disconnection_handler
 from .core.cleanup import perform_cleanup
 from .runtime.loop import run_main_loop
 
-import utils.integration.pengu_loader as pengu_loader
+import pengu.integration as pengu_loader
 from state import AppStatus
 from utils.core.logging import get_logger, log_success
 from utils.threading.thread_manager import create_daemon_thread
@@ -685,9 +685,9 @@ import time
 log = get_logger()
 
 
-def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = True) -> None:
+def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = True, initialize_injection: bool = True) -> bool:
     """
-    Detect and save leaguepath/clientpath, then setup Pengu Loader and injection system.
+    Detect and save leaguepath/clientpath, then set up Pengu and injection.
 
     Args:
         activate_pengu: If True, activate Pengu Loader (first startup).
@@ -702,7 +702,7 @@ def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = Tr
 
     if not league_path or not client_path:
         log.warning("Could not detect League paths, skipping setup")
-        return
+        return False
 
     # Save paths to config.ini
     log.info("Saving League paths to config.ini: league=%s, client=%s", league_path, client_path)
@@ -737,12 +737,18 @@ def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = Tr
 
     # Set client path in Pengu Loader and activate (skip on reconnection)
     if activate_pengu:
-        log.info("Setting client path in Pengu Loader and activating...")
-        pengu_loader.activate_on_start(str(client_path))
+        log.info("Setting client path in direct Pengu integration and activating...")
+        activation = pengu_loader.activate_on_start(str(client_path), lcu)
+        if not activation:
+            log.error("Pengu activation failed: %s", activation.describe())
+            return False
 
-    # Initialize injection system now (with detected paths already in config.ini)
-    log.info("Initializing injection system...")
-    injection_manager.initialize_when_ready()
+    if initialize_injection:
+        # Initialize injection system after the LCU WebSocket is ready.
+        log.info("Initializing injection system...")
+        injection_manager.initialize_when_ready()
+
+    return True
 
 
 def _update_registry_version() -> None:
@@ -807,7 +813,7 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     # the newly created League client process is covered by the existing IFEO
     # registration, so no loader or client restart is necessary here.
     def on_lcu_reconnected():
-        log.info("[Main] LCU reconnected after account swap - keeping Pengu Loader active...")
+        log.info("[Main] LCU reconnected after account swap - keeping Pengu active...")
         try:
             _setup_pengu_and_injection(lcu, injection_manager, activate_pengu=False)
         except Exception as e:
@@ -854,23 +860,38 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     thread_manager, t_phase, t_ui, t_ws, t_lcu_monitor = initialize_threads(
         lcu, state, args, injection_manager, skin_scraper, app_status, on_lcu_disconnected, on_lcu_reconnected
     )
-    
-    # Wait for WebSocket status to be active before activating Pengu Loader
-    log.info("Waiting for WebSocket status to be active before activating Pengu Loader...")
-    while not t_ws.connection.is_connected:
-        time.sleep(0.1)
-    
-    log.info("WebSocket status is active, proceeding with Pengu Loader and injection system setup")
-    
-    # Setup Pengu Loader and injection system (LCU is already connected when WebSocket is active)
-    _setup_pengu_and_injection(lcu, injection_manager)
-    
-    # Run main loop
+
+    # Pengu must be activated before waiting for the LCU WebSocket: the first
+    # UX restart is what loads core.dll and makes the full Rose integration live.
     try:
+        log.info("Activating Pengu before waiting for the LCU WebSocket...")
+        if not _setup_pengu_and_injection(
+            lcu,
+            injection_manager,
+            activate_pengu=True,
+            initialize_injection=False,
+        ):
+            raise RuntimeError("Pengu activation failed during startup")
+
+        log.info("Waiting for WebSocket status after Pengu activation...")
+        while not t_ws.connection.is_connected:
+            if state.stop:
+                return
+            time.sleep(0.1)
+
+        log.info("WebSocket status is active; initializing injection system")
+        if not _setup_pengu_and_injection(
+            lcu,
+            injection_manager,
+            activate_pengu=False,
+            initialize_injection=True,
+        ):
+            raise RuntimeError("Rose injection setup failed after WebSocket startup")
+
         run_main_loop(state, skin_scraper)
     finally:
         # Perform cleanup
-        perform_cleanup(state, thread_manager, tray_manager, injection_manager)
+        perform_cleanup(state, thread_manager, tray_manager, injection_manager, lcu)
 
 
 def main() -> None:

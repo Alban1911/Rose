@@ -10,7 +10,10 @@ This subpackage contains UI and system integration utilities:
 """
 
 from utils.integration.tray_manager import TrayManager
-from utils.integration.pengu_loader import (
+from pengu.integration import (
+    ActivationErrorKind,
+    ActivationResult,
+    ActivationStage,
     PenguStatus,
     activate,
     activate_on_start,
@@ -19,13 +22,16 @@ from utils.integration.pengu_loader import (
     get_status,
     is_available,
     PENGU_DIR,
-    PENGU_EXE,
+    PENGU_CORE,
     recover_stale_session,
     restart_client,
 )
 
 __all__ = [
     'TrayManager',
+    'ActivationErrorKind',
+    'ActivationResult',
+    'ActivationStage',
     'PenguStatus',
     'activate',
     'activate_on_start',
@@ -34,7 +40,7 @@ __all__ = [
     'get_status',
     'is_available',
     'PENGU_DIR',
-    'PENGU_EXE',
+    'PENGU_CORE',
     'recover_stale_session',
     'restart_client',
 ]
