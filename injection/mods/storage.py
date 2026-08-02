@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import threading
 import time
+import zipfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -44,6 +45,14 @@ class ModStorageService:
     """Service exposing the on-disk mods hierarchy."""
 
     CHAMPION_LIST_CACHE_SECONDS = 0.75
+    # MAX_PATH is 260 including the terminating null character, so keep the
+    # visible path at 259 characters or fewer for legacy Windows APIs.
+    MAX_WINDOWS_PATH_LENGTH = 259
+    # Keep temporary extraction paths short on Windows.  The archive's
+    # display name is retained for the final directory, but including it in
+    # the temporary directory name can push deeply nested WAD paths over the
+    # legacy MAX_PATH limit before the import is renamed into place.
+    IMPORT_TEMP_PREFIX = ".rose-import-"
     TARGET_METADATA = "rose_mod_targets.json"
     LEGACY_TARGET_METADATA = "rose_wad_targets.json"
     CATEGORY_METADATA = "rose_category_mods.json"
@@ -90,6 +99,67 @@ class ModStorageService:
         ] = {}
         self.mods_root.mkdir(parents=True, exist_ok=True)
         self._ensure_mods_root_layout()
+
+    @classmethod
+    def _choose_archive_destination(
+        cls,
+        parent_dir: Path,
+        source: Path,
+        base_name: str,
+    ) -> tuple[str, Path]:
+        """Choose a unique archive folder name that fits Windows paths.
+
+        Archive members can contain deeply nested WAD asset paths.  Because
+        the archive name becomes the destination folder name, a long name can
+        make an otherwise valid asset exceed Windows' traditional 260-character
+        path limit.  Truncate only as much as needed, then account for the
+        normal `` (2)`` collision suffixes.
+        """
+        with zipfile.ZipFile(source, "r") as archive:
+            member_lengths = [
+                len(info.filename.replace("/", "\\"))
+                for info in archive.infolist()
+                if not info.is_dir()
+            ]
+
+        longest_member_length = max(member_lengths, default=0)
+        fixed_path_length = len(str(parent_dir)) + 2 + longest_member_length
+        max_name_length = cls.MAX_WINDOWS_PATH_LENGTH - fixed_path_length
+        if max_name_length < 1:
+            raise ValueError(
+                "The selected mod archive contains an asset path that is too "
+                "long for Windows even without a mod folder name"
+            )
+
+        original_name = base_name
+        suffix_number = 1
+        while True:
+            suffix = "" if suffix_number == 1 else f" ({suffix_number})"
+            available_name_length = max_name_length - len(suffix)
+            if available_name_length < 1:
+                raise ValueError(
+                    "Unable to create a unique Windows-safe folder name for "
+                    "the selected mod"
+                )
+
+            candidate_base = base_name[:available_name_length].rstrip(" .")
+            if not candidate_base:
+                raise ValueError(
+                    "The selected mod archive has no usable Windows-safe name"
+                )
+            mod_name = f"{candidate_base}{suffix}"
+            target_dir = parent_dir / mod_name
+            if not target_dir.exists() and not target_dir.is_symlink():
+                if mod_name != original_name:
+                    log.warning(
+                        "[MODS] Shortened mod name for Windows path limit: "
+                        "'%s' -> '%s' (longest asset path: %d characters)",
+                        original_name,
+                        mod_name,
+                        len(str(target_dir)) + 1 + longest_member_length,
+                    )
+                return mod_name, target_dir
+            suffix_number += 1
 
     def _ensure_mods_root_layout(self) -> None:
         """
@@ -352,17 +422,15 @@ class ModStorageService:
         if not base_name or base_name in {".", ".."}:
             raise ValueError("The selected mod file has no usable name")
 
-        mod_name = base_name
-        target_dir = champion_dir / mod_name
-        suffix = 2
-        while target_dir.exists() or target_dir.is_symlink():
-            mod_name = f"{base_name} ({suffix})"
-            target_dir = champion_dir / mod_name
-            suffix += 1
+        mod_name, target_dir = self._choose_archive_destination(
+            champion_dir,
+            source,
+            base_name,
+        )
 
         temporary_dir = Path(
             tempfile.mkdtemp(
-                prefix=f".{mod_name}.importing-",
+                prefix=self.IMPORT_TEMP_PREFIX,
                 dir=str(champion_dir),
             )
         )
@@ -424,17 +492,15 @@ class ModStorageService:
         if not base_name or base_name in {".", ".."}:
             raise ValueError("The selected mod archive has no usable name")
 
-        mod_name = base_name
-        target_dir = category_dir / mod_name
-        suffix = 2
-        while target_dir.exists() or target_dir.is_symlink():
-            mod_name = f"{base_name} ({suffix})"
-            target_dir = category_dir / mod_name
-            suffix += 1
+        mod_name, target_dir = self._choose_archive_destination(
+            category_dir,
+            source,
+            base_name,
+        )
 
         temporary_dir = Path(
             tempfile.mkdtemp(
-                prefix=f".{mod_name}.importing-",
+                prefix=self.IMPORT_TEMP_PREFIX,
                 dir=str(category_dir),
             )
         )
