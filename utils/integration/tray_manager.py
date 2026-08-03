@@ -25,14 +25,16 @@ log = get_logger()
 class TrayManager:
     """Manages the system tray icon for Rose"""
     
-    def __init__(self, quit_callback: Optional[Callable] = None):
+    def __init__(self, quit_callback: Optional[Callable] = None, restart_callback: Optional[Callable] = None):
         """
         Initialize the tray manager
         
         Args:
             quit_callback: Function to call when user clicks "Quit"
+            restart_callback: Function to call when user clicks "Restart"
         """
         self.quit_callback = quit_callback
+        self.restart_callback = restart_callback
         self.icon = None
         self.tray_thread = None
         self._stop_event = threading.Event()
@@ -200,6 +202,29 @@ class TrayManager:
             open_folder_in_explorer(get_user_data_dir() / "mods")
         except Exception as e:
             log.error(f"Failed to open mods folder: {e}")
+            
+    def _on_restart(self, icon, item):
+        """Handle restart menu item click"""
+        log.info("Restart requested from system tray")
+        try:
+            # Set stop event immediately to signal shutdown
+            self._stop_event.set()
+            
+            # Call the restart callback
+            if self.restart_callback:
+                self.restart_callback()
+        except SystemExit:
+            # Handle sys.exit() calls gracefully
+            log.info("System exit requested from restart callback")
+        except Exception as e:
+            log.error(f"Error in restart callback: {e}")
+        finally:
+            # Stop the tray icon (this will hide it from system tray)
+            try:
+                icon.stop()
+                log.debug("Tray icon stopped from restart handler")
+            except Exception as e:
+                log.debug(f"Error stopping tray icon: {e}")
 
     def _create_menu(self) -> pystray.Menu:
         """Create the context menu for the tray icon"""
@@ -208,6 +233,7 @@ class TrayManager:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Open Mods Folder", self._on_open_mods),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Restart", self._on_restart),
             pystray.MenuItem("Quit", self._on_quit),
         )
     
