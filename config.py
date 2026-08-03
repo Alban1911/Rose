@@ -23,6 +23,10 @@ log = logging.getLogger(__name__)
 APP_VERSION = "1.2.14"                          # Application version
 APP_USER_AGENT = f"Rose/{APP_VERSION}"  # User-Agent header for HTTP requests
 
+# Automatically discover Party Mode peers from the premade League lobby.
+PARTY_MODE_ALWAYS_ON = True
+PARTY_AUTO_ROOM_MAX_AGE_SECONDS = 6 * 60 * 60
+
 _CONFIG = configparser.ConfigParser()
 _CONFIG_MTIME: float = 0.0  # Last known modification time of config.ini
 

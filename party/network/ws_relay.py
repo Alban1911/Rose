@@ -55,7 +55,11 @@ class PartyRelay:
 
     @property
     def connected(self) -> bool:
-        return self._connected and self._ws is not None
+        return (
+            self._connected
+            and self._ws is not None
+            and not bool(getattr(self._ws, "closed", False))
+        )
 
     def set_on_members_changed(self, callback: Callable[[List[dict]], None]):
         """Called whenever the member list changes (join/leave/skin update)."""
@@ -63,6 +67,8 @@ class PartyRelay:
 
     async def connect(self, timeout: float = 15.0) -> bool:
         """Connect to the relay room."""
+        if self.connected:
+            return True
         if not RELAY_URL:
             log.warning("[RELAY] No relay URL configured")
             return False
@@ -81,6 +87,8 @@ class PartyRelay:
             log.info("[RELAY] Connected")
             return True
         except Exception as e:
+            self._connected = False
+            self._ws = None
             log.warning(f"[RELAY] Connection failed: {e}")
             return False
 
@@ -129,8 +137,9 @@ class PartyRelay:
         if self._ws and self._connected:
             try:
                 await self._ws.send(json.dumps(data))
-            except ConnectionClosed:
+            except (ConnectionClosed, OSError) as exc:
                 self._connected = False
+                log.info(f"[RELAY] Send failed; reconnect scheduled: {exc}")
 
     async def _receive_loop(self):
         try:
@@ -144,7 +153,9 @@ class PartyRelay:
                         continue
 
                     if msg.get("type") == "members":
-                        self.members = msg.get("members", [])
+                        self.members = self._deduplicate_members(
+                            msg.get("members", [])
+                        )
                         log.info(f"[RELAY] Members updated: {len(self.members)} in room")
                         if self._on_members_changed:
                             try:
@@ -159,6 +170,26 @@ class PartyRelay:
         except Exception as e:
             log.warning(f"[RELAY] Receive error: {e}")
             self._connected = False
+        finally:
+            if self._ws and bool(getattr(self._ws, "closed", False)):
+                self._connected = False
+
+    @staticmethod
+    def _deduplicate_members(members: list) -> List[dict]:
+        """Collapse stale duplicate sockets after a fast Rose restart."""
+        by_summoner_id: Dict[int, dict] = {}
+        for member in members if isinstance(members, list) else []:
+            if not isinstance(member, dict):
+                continue
+            summoner_id = int(member.get("summoner_id", 0) or 0)
+            if not summoner_id:
+                continue
+            existing = by_summoner_id.get(summoner_id)
+            if existing is None or (
+                not existing.get("skin") and member.get("skin")
+            ):
+                by_summoner_id[summoner_id] = member
+        return list(by_summoner_id.values())
 
     async def _keepalive_loop(self):
         try:
@@ -167,7 +198,9 @@ class PartyRelay:
                 if self._ws and self._connected:
                     try:
                         await self._ws.send("ping")
-                    except Exception:
+                    except Exception as exc:
+                        self._connected = False
+                        log.info(f"[RELAY] Keepalive failed: {exc}")
                         break
         except asyncio.CancelledError:
             return
