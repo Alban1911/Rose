@@ -241,12 +241,18 @@ class InjectionTrigger:
                     from utils.core.historic import (
                         get_historic_skin_for_champion,
                         get_historic_target_for_champion,
+                        historic_scope_for_state,
                         is_custom_mod_path,
                         get_custom_mod_path,
                     )
 
                     champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                    historic_value = get_historic_skin_for_champion(champ_id) if champ_id else None
+                    history_scope = historic_scope_for_state(self.state)
+                    historic_value = (
+                        get_historic_skin_for_champion(champ_id, history_scope)
+                        if champ_id
+                        else None
+                    )
                     if historic_value and is_custom_mod_path(historic_value):
                         historic_custom_mod_path = get_custom_mod_path(historic_value)
 
@@ -332,7 +338,7 @@ class InjectionTrigger:
                             current_skin_id = effective_skin_id or ui_skin_id
                             target_skin_id = current_skin_id
                             historic_target_skin_id = get_historic_target_for_champion(
-                                int(champion_id)
+                                int(champion_id), history_scope
                             )
                             if historic_target_skin_id in target_skin_ids:
                                 target_skin_id = int(historic_target_skin_id)
