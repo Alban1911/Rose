@@ -186,6 +186,10 @@ class MessageHandler:
             self._handle_classic_mode_catalog(payload)
         elif payload_type in {"classic-skin-selection", "jade-skin-selection"}:
             self._handle_classic_skin_selection(payload)
+        elif payload_type == "chroma-selection" and is_classic_mode(
+            self.shared_state.current_game_mode
+        ):
+            self._handle_classic_chroma_selection(payload)
         elif payload_type == "chroma-selection":
             self._handle_chroma_selection(payload)
         elif payload_type == "dice-button-click":
@@ -463,6 +467,40 @@ class MessageHandler:
         self.shared_state.ui_last_text = skin_name
         self.broadcaster.broadcast_skin_state(skin_name, visual_skin_id)
 
+    def _handle_classic_chroma_selection(self, payload: dict) -> None:
+        raw_skin_id = payload.get("rawSkinId")
+        try:
+            visual_skin_id = resource_skin_id(raw_skin_id)
+        except (TypeError, ValueError):
+            return
+        selection = dict(payload)
+        selection.update(
+            {
+                "type": "classic-skin-selection",
+                "schemaVersion": 1,
+                "mode": CLASSIC_MODE,
+                "primeChampionId": self.shared_state.classic_prime_champion_id,
+                "modeChampionId": self.shared_state.classic_mode_champion_id,
+                "carrierLcuSkinId": self.shared_state.classic_carrier_lcu_skin_id,
+                "carrierSkinNumber": self.shared_state.classic_carrier_skin_number,
+                "visualSkinId": visual_skin_id,
+                "skinId": visual_skin_id,
+                "catalog": [
+                    {"id": value}
+                    for value in self.shared_state.classic_catalog_raw_skin_ids
+                ],
+                "skin": payload.get("chromaName") or f"skin_{visual_skin_id}",
+                "userInitiated": True,
+            }
+        )
+        self._handle_classic_skin_selection(selection)
+        if self.shared_state.last_hovered_skin_id == visual_skin_id:
+            self.shared_state.classic_visual_chroma_id = (
+                visual_skin_id if int(payload.get("chromaId") or 0) else None
+            )
+            self.shared_state.selected_chroma_id = self.shared_state.classic_visual_chroma_id
+            self.broadcaster.broadcast_chroma_state()
+    
     def _handle_chroma_selection(self, payload: dict) -> None:
         """Handle chroma selection from JavaScript"""
         chroma_id = payload.get("chromaId") or payload.get("skinId")
