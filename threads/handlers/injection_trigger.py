@@ -18,6 +18,7 @@ from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
 from utils.core.utilities import is_default_skin
+from utils.core.classic_mode_ids import is_classic_mode
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 
 log = get_logger()
@@ -615,6 +616,18 @@ class InjectionTrigger:
             target_skin_id = selected_custom_mod.get("skin_id", ui_skin_id) if selected_custom_mod else ui_skin_id
             has_other_mods = selected_map_mod or selected_font_mod or selected_announcer_mod or (selected_other_mods and len(selected_other_mods) > 0)
             has_any_mods = has_custom_skin_mod or has_other_mods
+
+            if (
+                is_classic_mode(getattr(self.state, "current_game_mode", None))
+                and getattr(self.state, "classic_selected_skin_owned", False)
+                and not has_any_mods
+            ):
+                log.info(
+                    "[CLASSIC] Officially owned skin selected; skipping local skin injection"
+                )
+                if self.injection_manager:
+                    self.injection_manager.resume_if_suspended()
+                return
             
             # If custom skin mod is selected, inject it
             if has_custom_skin_mod:
@@ -628,10 +641,15 @@ class InjectionTrigger:
                 # using it for an owned skin can move the overlay onto the
                 # carrier's skin0 paths and prevent a mod targeting the actual
                 # owned skin (for example Spirit Blossom Sett) from applying.
-                target_is_owned = (
-                    effective_skin_id in owned_skin_ids
-                    or ui_skin_id in owned_skin_ids
-                )
+                if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+                    target_is_owned = getattr(
+                        self.state, "classic_selected_skin_owned", False
+                    )
+                else:
+                    target_is_owned = (
+                        effective_skin_id in owned_skin_ids
+                        or ui_skin_id in owned_skin_ids
+                    )
 
                 if target_is_owned:
                     self._force_owned_skin(effective_skin_id)
@@ -700,12 +718,17 @@ class InjectionTrigger:
                 mod_types_str = "/".join(selected_mod_types) if selected_mod_types else "Map/Font/Announcer/Other"
                 
                 # Check if skin needs to be injected (if unowned, inject base skin ZIP along with map/font/announcer/other mods)
-                is_skin_owned = (
-                    ui_skin_id is not None and (
-                        is_default_skin(ui_skin_id)
-                        or ui_skin_id in (owned_skin_ids or set())
+                if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+                    is_skin_owned = getattr(
+                        self.state, "classic_selected_skin_owned", False
                     )
-                )
+                else:
+                    is_skin_owned = (
+                        ui_skin_id is not None and (
+                            is_default_skin(ui_skin_id)
+                            or ui_skin_id in (owned_skin_ids or set())
+                        )
+                    )
                 base_skin_name_for_injection = None
                 if not is_skin_owned and ui_skin_id != 0:
                     # Skin is unowned, need to inject base skin ZIP along with map/font/announcer/other mods
@@ -722,14 +745,24 @@ class InjectionTrigger:
             # historic mode is not active — if historic is active, the skin resolver
             # already overrides to the saved skin and injection should proceed normally)
             historic_active = getattr(self.state, 'historic_mode_active', False)
-            if ui_skin_id is not None and is_default_skin(ui_skin_id) and not historic_active:
+            if (
+                ui_skin_id is not None
+                and is_default_skin(ui_skin_id)
+                and not historic_active
+                and not is_classic_mode(getattr(self.state, "current_game_mode", None))
+            ):
                 log.info(f"[INJECT] skipping injection for default skin (skinId={ui_skin_id}) - no mods selected")
                 if self.injection_manager:
                     self.injection_manager.resume_if_suspended()
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                 if champ_id:
-                    from utils.core.historic import clear_historic_entry
-                    clear_historic_entry(int(champ_id))
+                    from utils.core.historic import (
+                        clear_historic_entry,
+                        historic_scope_for_state,
+                    )
+                    clear_historic_entry(
+                        int(champ_id), historic_scope_for_state(self.state)
+                    )
                     log.info(f"[HISTORIC] Cleared historic entry for champion {champ_id} (default skin played)")
 
             # Force owned skins/chromas via LCU
