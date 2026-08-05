@@ -23,6 +23,16 @@ from injection.mods.storage import ModStorageService
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
+from utils.core.classic_mode_ids import (
+    CLASSIC_MODE,
+    carrier_skin_number,
+    catalog_skin_ids,
+    is_classic_mode,
+    mode_champion_id,
+    resource_champion_id,
+    resource_skin_id,
+    validated_carrier_lcu_skin_id,
+)
 from utils.core.utilities import get_base_skin_id_for_chroma
 from utils.system.admin_utils import (
     is_admin,
@@ -171,6 +181,8 @@ class MessageHandler:
             self._handle_request_local_preview(payload)
         elif payload_type == "request-local-asset":
             self._handle_request_local_asset(payload)
+        elif payload_type in {"classic-mode-catalog", "jade-mode-catalog"}:
+            self._handle_classic_mode_catalog(payload)
         elif payload_type == "chroma-selection":
             self._handle_chroma_selection(payload)
         elif payload_type == "dice-button-click":
@@ -317,7 +329,77 @@ class MessageHandler:
                     log.debug(f"[SkinMonitor] Local asset not found: {asset_path}")
             except Exception as e:
                 log.debug(f"[SkinMonitor] Failed to get local asset: {e}")
-    
+
+    @staticmethod
+    def _classic_schema_supported(payload: dict) -> bool:
+        schema_version = payload.get("schemaVersion")
+        return schema_version == 1 or (
+            schema_version is None
+            and str(payload.get("type") or "").startswith("jade-")
+        )
+
+    def _cache_classic_catalog(self, payload: dict) -> bool:
+        if (
+            not self._classic_schema_supported(payload)
+            or not is_classic_mode(self.shared_state.current_game_mode)
+            or str(payload.get("mode") or CLASSIC_MODE).upper() != CLASSIC_MODE
+        ):
+            return False
+        try:
+            raw_champion_id = int(
+                payload.get("modeChampionId")
+                or payload.get("rawChampionId")
+                or 0
+            )
+            prime_champion_id = int(
+                payload.get("primeChampionId")
+                or resource_champion_id(raw_champion_id)
+            )
+        except (TypeError, ValueError):
+            return False
+        if (
+            raw_champion_id != mode_champion_id(prime_champion_id)
+            or (
+                self.shared_state.locked_champ_id is not None
+                and int(self.shared_state.locked_champ_id) != prime_champion_id
+            )
+        ):
+            return False
+
+        catalog = payload.get("catalog")
+        raw_ids = catalog_skin_ids(catalog, prime_champion_id)
+        if not raw_ids:
+            return False
+        try:
+            carrier = validated_carrier_lcu_skin_id(
+                prime_champion_id,
+                catalog,
+                payload.get("carrierLcuSkinId") or payload.get("baseRawSkinId"),
+            )
+        except ValueError:
+            return False
+        advertised_number = payload.get("carrierSkinNumber")
+        if advertised_number is not None:
+            try:
+                if int(advertised_number) != carrier_skin_number(carrier):
+                    return False
+            except (TypeError, ValueError):
+                return False
+
+        self.shared_state.classic_prime_champion_id = prime_champion_id
+        self.shared_state.classic_mode_champion_id = raw_champion_id
+        self.shared_state.classic_carrier_lcu_skin_id = carrier
+        self.shared_state.classic_carrier_skin_number = carrier_skin_number(carrier)
+        self.shared_state.classic_catalog_raw_skin_ids = raw_ids
+        self.shared_state.classic_catalog_resource_skin_ids = {
+            resource_skin_id(value) for value in raw_ids
+        }
+        return True
+
+    def _handle_classic_mode_catalog(self, payload: dict) -> None:
+        if not self._cache_classic_catalog(payload):
+            log.warning("Rejected invalid Classic Mode catalog")
+
     def _handle_chroma_selection(self, payload: dict) -> None:
         """Handle chroma selection from JavaScript"""
         chroma_id = payload.get("chromaId") or payload.get("skinId")
