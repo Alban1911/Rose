@@ -125,6 +125,44 @@ def carrier_skin_number(carrier_lcu_skin_id: object) -> int:
     return value % 1000
 
 
+def catalog_skin_ids(catalog: object, champion_id: object) -> set[int]:
+    """Return raw skin IDs belonging to one Classic mode champion."""
+    if not isinstance(catalog, list) or not (1 <= len(catalog) <= 256):
+        return set()
+    expected_champion = mode_champion_id(champion_id)
+    result = set()
+    for entry in catalog:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            skin_id = int(entry.get("id", entry.get("skinId", 0)) or 0)
+        except (TypeError, ValueError):
+            continue
+        if skin_id > 0 and skin_id // 1000 == expected_champion:
+            result.add(skin_id)
+    return result
+
+
+def validated_carrier_lcu_skin_id(
+    champion_id: object,
+    catalog: object,
+    advertised_carrier: object = None,
+) -> int:
+    """Validate a live carrier, otherwise use the versioned fallback."""
+    raw_ids = catalog_skin_ids(catalog, champion_id)
+    try:
+        advertised = int(advertised_carrier or 0)
+    except (TypeError, ValueError):
+        advertised = 0
+    if advertised in raw_ids:
+        try:
+            carrier_skin_number(advertised)
+            return advertised
+        except ValueError:
+            pass
+    return resolve_carrier_lcu_skin_id(champion_id, raw_ids)
+
+
 def resolve_carrier_lcu_skin_id(
     champion_id: object,
     catalog_skin_ids: Optional[Iterable[object]] = None,
