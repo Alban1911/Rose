@@ -234,6 +234,10 @@ class SkinInjector:
             except Exception as e:
                 log.warning(f"[INJECT] Extra mods callback failed: {e}")
 
+        if stop_callback and stop_callback():
+            log.info("[INJECT] Injection preparation became stale; overlay skipped")
+            return False
+
         # Create and run overlay
         result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
         
