@@ -406,6 +406,19 @@ class MessageHandler:
     def _handle_classic_mode_catalog(self, payload: dict) -> None:
         if not self._cache_classic_catalog(payload):
             log.warning("Rejected invalid Classic Mode catalog")
+            return
+        champion_id = self.shared_state.classic_prime_champion_id
+        try:
+            from utils.core.random_preferences import is_random_enabled_for_champion
+
+            random_enabled = is_random_enabled_for_champion(champion_id)
+        except Exception:
+            random_enabled = False
+        if random_enabled and not self.shared_state.random_mode_active:
+            from ui.handlers.randomization_handler import RandomizationHandler
+
+            RandomizationHandler(self.shared_state, self.skin_scraper).activate_persisted()
+            return
 
     def _handle_classic_skin_selection(self, payload: dict) -> None:
         """Track a validated local projection without submitting it to LCU."""
