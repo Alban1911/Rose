@@ -1227,6 +1227,24 @@ class InjectionTrigger:
                 or self.state.locked_champ_id
                 or self.state.hovered_champ_id
             )
+            current_mode = getattr(self.state, "current_game_mode", None)
+            classic_generation = getattr(
+                self.state, "classic_selection_generation", None
+            )
+
+            def classic_preparation_is_stale() -> bool:
+                return bool(
+                    is_classic_mode(current_mode)
+                    and (
+                        not is_classic_mode(
+                            getattr(self.state, "current_game_mode", None)
+                        )
+                        or getattr(
+                            self.state, "classic_selection_generation", None
+                        )
+                        != classic_generation
+                    )
+                )
             
             # Clean mods directory first (before extracting base skin and custom mod)
             injector._clean_mods_dir()
@@ -1260,7 +1278,8 @@ class InjectionTrigger:
                         base_skin_name,
                         skin_name=base_skin_name,
                         champion_name=champion_name,
-                        champion_id=champion_id
+                        champion_id=champion_id,
+                        game_mode=current_mode,
                     )
                     if not zp or not zp.exists():
                         log.error(
@@ -1473,6 +1492,10 @@ class InjectionTrigger:
                 log.warning("[INJECT] No mods available to inject (skin, map, font, announcer, or other)")
                 return
 
+            if classic_preparation_is_stale():
+                log.info("[CLASSIC] Custom mod preparation became stale; overlay skipped")
+                return
+
             log.info(f"[INJECT] Injecting mods: {', '.join(mod_names_list)}" + (f" for skin {skin_id}" if skin_id else ""))
 
             # Force base skin selection via LCU before injecting (only if injecting base skin ZIP)
@@ -1480,7 +1503,15 @@ class InjectionTrigger:
             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champion_id and base_skin_name:
                 # Injecting base skin ZIP for unowned skin - force base skin
-                base_skin_id = champion_id * 1000
+                if is_classic_mode(current_mode):
+                    base_skin_id = getattr(
+                        self.state, "classic_carrier_lcu_skin_id", None
+                    )
+                    if not base_skin_id:
+                        log.warning("[CLASSIC] No validated carrier available; overlay skipped")
+                        return
+                else:
+                    base_skin_id = champion_id * 1000
                 self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
@@ -1488,6 +1519,8 @@ class InjectionTrigger:
 
             def game_ended_callback():
                 nonlocal has_been_in_progress
+                if classic_preparation_is_stale():
+                    return True
                 phase = self.state.phase
                 if phase == "InProgress":
                     has_been_in_progress = True
