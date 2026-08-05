@@ -438,9 +438,6 @@ class MessageHandler:
 
     def _handle_classic_skin_selection(self, payload: dict) -> None:
         """Track a validated local projection without submitting it to LCU."""
-        if not self._cache_classic_catalog(payload):
-            log.warning("Rejected Classic Mode selection with invalid catalog")
-            return
         generation_value = payload.get("selectionGeneration")
         if generation_value is None and str(payload.get("type") or "").startswith("jade-"):
             incoming_generation = self.shared_state.classic_selection_generation
@@ -468,11 +465,14 @@ class MessageHandler:
             )
         except (TypeError, ValueError):
             return
+        locked_champion_id = self.shared_state.locked_champ_id
         if (
             not is_classic_skin_id(raw_skin_id)
-            or raw_skin_id not in self.shared_state.classic_catalog_raw_skin_ids
-            or raw_skin_id // 1000 != self.shared_state.classic_mode_champion_id
             or resource_skin_id(raw_skin_id) != visual_skin_id
+            or (
+                locked_champion_id is not None
+                and raw_skin_id // 1000 != mode_champion_id(locked_champion_id)
+            )
         ):
             log.warning(
                 "Rejected Classic Mode visual selection resource=%s raw=%s",
@@ -480,6 +480,18 @@ class MessageHandler:
                 raw_skin_id,
             )
             return
+        if not self._cache_classic_catalog(payload):
+            log.warning("Rejected Classic Mode selection with invalid catalog")
+            return
+        if (
+            raw_skin_id not in self.shared_state.classic_catalog_raw_skin_ids
+            or raw_skin_id // 1000 != self.shared_state.classic_mode_champion_id
+        ):
+            log.warning(
+                "Rejected Classic Mode selection outside the validated catalog"
+            )
+            return
+
         carrier = self.shared_state.classic_carrier_lcu_skin_id
         owned_ids = set(self.shared_state.owned_skin_ids or ())
         owned = (
