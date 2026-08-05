@@ -12,6 +12,14 @@ from typing import Optional
 from config import INTERESTING_PHASES
 from lcu import LCU, compute_locked
 from state import SharedState
+from utils.core.classic_mode_ids import (
+    carrier_skin_number,
+    is_classic_mode,
+    is_classic_skin_id,
+    resource_champion_id,
+    resource_skin_id,
+    resolve_carrier_lcu_skin_id,
+)
 from utils.core.logging import get_logger, log_status, log_event
 from injection.config.base_skin_tracker import (
     on_skin_confirmed as _on_skin_confirmed,
@@ -262,21 +270,13 @@ class WebSocketEventHandler:
         """Handle champion select session event"""
         sess = payload.get("data") or {}
         self.state.local_cell_id = sess.get("localPlayerCellId", self.state.local_cell_id)
-        
-        # Track selected skin ID from myTeam
+
+        raw_selected_skin = None
         if self.state.local_cell_id is not None:
             my_team = sess.get("myTeam") or []
             for player in my_team:
                 if player.get("cellId") == self.state.local_cell_id:
-                    selected_skin = player.get("selectedSkinId")
-                    if selected_skin is not None:
-                        skin_int = int(selected_skin)
-                        self.state.selected_skin_id = skin_int
-                        # Check if this confirms a pending base skin force
-                        try:
-                            _on_skin_confirmed(skin_int)
-                        except Exception:
-                            pass
+                    raw_selected_skin = player.get("selectedSkinId")
                     break
         
         # Visible players (distinct cellIds)
@@ -301,8 +301,68 @@ class WebSocketEventHandler:
         # Lock counter: diff cellId → championId
         if self.champion_lock_handler:
             self.champion_lock_handler.handle_session_locks(sess)
+
+        if raw_selected_skin is not None:
+            self._update_selected_skin(raw_selected_skin)
         
         # Timer
         if self.timer_manager:
             self.timer_manager.maybe_start_timer(sess)
 
+    def _update_selected_skin(self, raw_skin_id) -> None:
+        """Track server and resource IDs without conflating local projection."""
+        try:
+            raw_skin_id = int(raw_skin_id)
+        except (TypeError, ValueError):
+            return
+
+        self.state.selected_lcu_skin_id = raw_skin_id
+        if not is_classic_mode(self.state.current_game_mode):
+            self.state.selected_skin_id = raw_skin_id
+            try:
+                _on_skin_confirmed(raw_skin_id)
+            except Exception:
+                pass
+            return
+
+        if not is_classic_skin_id(raw_skin_id):
+            log.warning("Ignoring invalid Classic Mode skin ID: %s", raw_skin_id)
+            return
+
+        mode_champion = raw_skin_id // 1000
+        prime_champion = resource_champion_id(mode_champion)
+        locked_champion = self.state.locked_champ_id
+        if locked_champion and int(locked_champion) != prime_champion:
+            log.debug("Ignoring stale Classic Mode selection for champion %s", prime_champion)
+            return
+
+        if self.state.classic_mode_champion_id != mode_champion:
+            try:
+                catalog_ids = self.lcu.get(
+                    "/lol-lobby-team-builder/champ-select/v1/pickable-skin-ids"
+                )
+            except Exception:
+                catalog_ids = None
+            try:
+                carrier = resolve_carrier_lcu_skin_id(prime_champion, catalog_ids)
+            except ValueError as exc:
+                log.warning("Cannot resolve Classic Mode carrier: %s", exc)
+                self.state.clear_classic_mode()
+                return
+            self.state.classic_prime_champion_id = prime_champion
+            self.state.classic_mode_champion_id = mode_champion
+            self.state.classic_carrier_lcu_skin_id = carrier
+            self.state.classic_carrier_skin_number = carrier_skin_number(carrier)
+
+        selected_resource_id = resource_skin_id(raw_skin_id)
+        owned = set(self.state.owned_skin_ids or ())
+        self.state.classic_selected_skin_owned = (
+            raw_skin_id == self.state.classic_carrier_lcu_skin_id
+            or raw_skin_id in owned
+            or selected_resource_id in owned
+        )
+        self.state.selected_skin_id = selected_resource_id
+        try:
+            _on_skin_confirmed(selected_resource_id)
+        except Exception:
+            pass

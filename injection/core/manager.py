@@ -181,7 +181,12 @@ class InjectionManager:
             success = self.injector.inject_skin(
                 skin_name,
                 stop_callback=None,
-                injection_manager=self
+                injection_manager=self,
+                game_mode=(
+                    getattr(self.shared_state, "current_game_mode", None)
+                    if self.shared_state
+                    else None
+                ),
             )
 
             if success:
@@ -328,6 +333,11 @@ class InjectionManager:
                 champion_name=champion_name,
                 champion_id=champion_id,
                 extra_mods_callback=extra_mods_callback,
+                game_mode=(
+                    getattr(self.shared_state, "current_game_mode", None)
+                    if self.shared_state
+                    else None
+                ),
             )
             
             if success:

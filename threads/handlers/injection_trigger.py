@@ -18,6 +18,7 @@ from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
 from utils.core.utilities import is_default_skin
+from utils.core.classic_mode_ids import is_classic_mode
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 
 log = get_logger()
@@ -241,12 +242,18 @@ class InjectionTrigger:
                     from utils.core.historic import (
                         get_historic_skin_for_champion,
                         get_historic_target_for_champion,
+                        historic_scope_for_state,
                         is_custom_mod_path,
                         get_custom_mod_path,
                     )
 
                     champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                    historic_value = get_historic_skin_for_champion(champ_id) if champ_id else None
+                    history_scope = historic_scope_for_state(self.state)
+                    historic_value = (
+                        get_historic_skin_for_champion(champ_id, history_scope)
+                        if champ_id
+                        else None
+                    )
                     if historic_value and is_custom_mod_path(historic_value):
                         historic_custom_mod_path = get_custom_mod_path(historic_value)
 
@@ -332,7 +339,7 @@ class InjectionTrigger:
                             current_skin_id = effective_skin_id or ui_skin_id
                             target_skin_id = current_skin_id
                             historic_target_skin_id = get_historic_target_for_champion(
-                                int(champion_id)
+                                int(champion_id), history_scope
                             )
                             if historic_target_skin_id in target_skin_ids:
                                 target_skin_id = int(historic_target_skin_id)
@@ -609,6 +616,18 @@ class InjectionTrigger:
             target_skin_id = selected_custom_mod.get("skin_id", ui_skin_id) if selected_custom_mod else ui_skin_id
             has_other_mods = selected_map_mod or selected_font_mod or selected_announcer_mod or (selected_other_mods and len(selected_other_mods) > 0)
             has_any_mods = has_custom_skin_mod or has_other_mods
+
+            if (
+                is_classic_mode(getattr(self.state, "current_game_mode", None))
+                and getattr(self.state, "classic_selected_skin_owned", False)
+                and not has_any_mods
+            ):
+                log.info(
+                    "[CLASSIC] Officially owned skin selected; skipping local skin injection"
+                )
+                if self.injection_manager:
+                    self.injection_manager.resume_if_suspended()
+                return
             
             # If custom skin mod is selected, inject it
             if has_custom_skin_mod:
@@ -622,10 +641,15 @@ class InjectionTrigger:
                 # using it for an owned skin can move the overlay onto the
                 # carrier's skin0 paths and prevent a mod targeting the actual
                 # owned skin (for example Spirit Blossom Sett) from applying.
-                target_is_owned = (
-                    effective_skin_id in owned_skin_ids
-                    or ui_skin_id in owned_skin_ids
-                )
+                if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+                    target_is_owned = getattr(
+                        self.state, "classic_selected_skin_owned", False
+                    )
+                else:
+                    target_is_owned = (
+                        effective_skin_id in owned_skin_ids
+                        or ui_skin_id in owned_skin_ids
+                    )
 
                 if target_is_owned:
                     self._force_owned_skin(effective_skin_id)
@@ -694,12 +718,17 @@ class InjectionTrigger:
                 mod_types_str = "/".join(selected_mod_types) if selected_mod_types else "Map/Font/Announcer/Other"
                 
                 # Check if skin needs to be injected (if unowned, inject base skin ZIP along with map/font/announcer/other mods)
-                is_skin_owned = (
-                    ui_skin_id is not None and (
-                        is_default_skin(ui_skin_id)
-                        or ui_skin_id in (owned_skin_ids or set())
+                if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+                    is_skin_owned = getattr(
+                        self.state, "classic_selected_skin_owned", False
                     )
-                )
+                else:
+                    is_skin_owned = (
+                        ui_skin_id is not None and (
+                            is_default_skin(ui_skin_id)
+                            or ui_skin_id in (owned_skin_ids or set())
+                        )
+                    )
                 base_skin_name_for_injection = None
                 if not is_skin_owned and ui_skin_id != 0:
                     # Skin is unowned, need to inject base skin ZIP along with map/font/announcer/other mods
@@ -716,14 +745,24 @@ class InjectionTrigger:
             # historic mode is not active — if historic is active, the skin resolver
             # already overrides to the saved skin and injection should proceed normally)
             historic_active = getattr(self.state, 'historic_mode_active', False)
-            if ui_skin_id is not None and is_default_skin(ui_skin_id) and not historic_active:
+            if (
+                ui_skin_id is not None
+                and is_default_skin(ui_skin_id)
+                and not historic_active
+                and not is_classic_mode(getattr(self.state, "current_game_mode", None))
+            ):
                 log.info(f"[INJECT] skipping injection for default skin (skinId={ui_skin_id}) - no mods selected")
                 if self.injection_manager:
                     self.injection_manager.resume_if_suspended()
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                 if champ_id:
-                    from utils.core.historic import clear_historic_entry
-                    clear_historic_entry(int(champ_id))
+                    from utils.core.historic import (
+                        clear_historic_entry,
+                        historic_scope_for_state,
+                    )
+                    clear_historic_entry(
+                        int(champ_id), historic_scope_for_state(self.state)
+                    )
                     log.info(f"[HISTORIC] Cleared historic entry for champion {champ_id} (default skin played)")
 
             # Force owned skins/chromas via LCU
@@ -833,10 +872,19 @@ class InjectionTrigger:
     def _inject_unowned_skin(self, name: str, cname: str):
         """Inject unowned skin/chroma"""
         try:
-            # Force base skin selection via LCU before injecting
+            # Keep the server-visible Classic carrier selected. Regular modes
+            # continue to use the champion base skin as before.
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champ_id:
-                base_skin_id = champ_id * 1000
+                if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+                    base_skin_id = getattr(
+                        self.state, "classic_carrier_lcu_skin_id", None
+                    )
+                    if not base_skin_id:
+                        log.warning("[CLASSIC] No validated carrier available; aborting injection")
+                        return
+                else:
+                    base_skin_id = champ_id * 1000
                 
                 # Read actual current selection from LCU session
                 actual_lcu_skin_id = None
@@ -862,6 +910,12 @@ class InjectionTrigger:
 
             def game_ended_callback():
                 nonlocal has_been_in_progress
+                if (
+                    is_classic_mode(getattr(self.state, "current_game_mode", None))
+                    and getattr(self.state, "classic_selection_generation", None)
+                    != classic_generation
+                ):
+                    return True
                 phase = self.state.phase
                 if phase == "InProgress":
                     has_been_in_progress = True
@@ -874,9 +928,21 @@ class InjectionTrigger:
             log.info(f"[INJECT] Starting injection: {name}")
             
             champ_id_for_history = self.state.locked_champ_id
+            classic_generation = getattr(
+                self.state, "classic_selection_generation", None
+            )
+            from utils.core.historic import historic_scope_for_state
+            history_scope = historic_scope_for_state(self.state)
 
             def run_injection():
                 try:
+                    if (
+                        is_classic_mode(getattr(self.state, "current_game_mode", None))
+                        and getattr(self.state, "classic_selection_generation", None)
+                        != classic_generation
+                    ):
+                        log.info("[CLASSIC] Skipping stale injection preparation")
+                        return
                     if not self.lcu.ok:
                         log.warning(f"[INJECT] LCU not available, skipping injection")
                         return
@@ -906,7 +972,9 @@ class InjectionTrigger:
                             champ_id = champ_id_for_history
                             if champ_id is not None and injected_id is not None:
                                 from utils.core.historic import write_historic_entry
-                                write_historic_entry(int(champ_id), int(injected_id))
+                                write_historic_entry(
+                                    int(champ_id), int(injected_id), history_scope
+                                )
                                 log.info(f"[HISTORIC] Stored last injected ID {injected_id} for champion {champ_id}")
                         except Exception as e:
                             log.debug(f"[HISTORIC] Failed to store historic entry: {e}")
@@ -1159,6 +1227,24 @@ class InjectionTrigger:
                 or self.state.locked_champ_id
                 or self.state.hovered_champ_id
             )
+            current_mode = getattr(self.state, "current_game_mode", None)
+            classic_generation = getattr(
+                self.state, "classic_selection_generation", None
+            )
+
+            def classic_preparation_is_stale() -> bool:
+                return bool(
+                    is_classic_mode(current_mode)
+                    and (
+                        not is_classic_mode(
+                            getattr(self.state, "current_game_mode", None)
+                        )
+                        or getattr(
+                            self.state, "classic_selection_generation", None
+                        )
+                        != classic_generation
+                    )
+                )
             
             # Clean mods directory first (before extracting base skin and custom mod)
             injector._clean_mods_dir()
@@ -1192,7 +1278,8 @@ class InjectionTrigger:
                         base_skin_name,
                         skin_name=base_skin_name,
                         champion_name=champion_name,
-                        champion_id=champion_id
+                        champion_id=champion_id,
+                        game_mode=current_mode,
                     )
                     if not zp or not zp.exists():
                         log.error(
@@ -1405,6 +1492,10 @@ class InjectionTrigger:
                 log.warning("[INJECT] No mods available to inject (skin, map, font, announcer, or other)")
                 return
 
+            if classic_preparation_is_stale():
+                log.info("[CLASSIC] Custom mod preparation became stale; overlay skipped")
+                return
+
             log.info(f"[INJECT] Injecting mods: {', '.join(mod_names_list)}" + (f" for skin {skin_id}" if skin_id else ""))
 
             # Force base skin selection via LCU before injecting (only if injecting base skin ZIP)
@@ -1412,7 +1503,15 @@ class InjectionTrigger:
             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champion_id and base_skin_name:
                 # Injecting base skin ZIP for unowned skin - force base skin
-                base_skin_id = champion_id * 1000
+                if is_classic_mode(current_mode):
+                    base_skin_id = getattr(
+                        self.state, "classic_carrier_lcu_skin_id", None
+                    )
+                    if not base_skin_id:
+                        log.warning("[CLASSIC] No validated carrier available; overlay skipped")
+                        return
+                else:
+                    base_skin_id = champion_id * 1000
                 self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
@@ -1420,6 +1519,8 @@ class InjectionTrigger:
 
             def game_ended_callback():
                 nonlocal has_been_in_progress
+                if classic_preparation_is_stale():
+                    return True
                 phase = self.state.phase
                 if phase == "InProgress":
                     has_been_in_progress = True
@@ -1511,7 +1612,12 @@ class InjectionTrigger:
                 # Store mod selections in historic before clearing
                 try:
                     from utils.core.mod_historic import write_historic_mod
-                    from utils.core.historic import write_historic_entry, write_historic_target
+                    from utils.core.historic import (
+                        historic_scope_for_state,
+                        write_historic_entry,
+                        write_historic_target,
+                    )
+                    history_scope = historic_scope_for_state(self.state)
                     
                     # Store custom skin mod in historic if selected
                     selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
@@ -1520,10 +1626,14 @@ class InjectionTrigger:
                         if champion_id:
                             # Store custom mod path with "path:" prefix
                             custom_mod_path = f"path:{selected_custom_mod['relative_path']}"
-                            write_historic_entry(int(champion_id), custom_mod_path)
+                            write_historic_entry(
+                                int(champion_id), custom_mod_path, history_scope
+                            )
                             target_skin_id = selected_custom_mod.get("skin_id")
                             if target_skin_id:
-                                write_historic_target(int(champion_id), int(target_skin_id))
+                                write_historic_target(
+                                    int(champion_id), int(target_skin_id), history_scope
+                                )
                             log.debug(f"[HISTORIC] Stored custom mod path for champion {champion_id}: {selected_custom_mod['relative_path']}")
                     elif base_skin_name:
                         # Store base skin ID in historic if injecting base skin with mods (no custom mod)
@@ -1537,7 +1647,9 @@ class InjectionTrigger:
                             
                             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
                             if champion_id is not None and injected_id is not None:
-                                write_historic_entry(int(champion_id), int(injected_id))
+                                write_historic_entry(
+                                    int(champion_id), int(injected_id), history_scope
+                                )
                                 log.info(f"[HISTORIC] Stored last injected ID {injected_id} for champion {champion_id}")
                         except Exception as e:
                             log.debug(f"[HISTORIC] Failed to store base skin entry: {e}")
@@ -1589,4 +1701,3 @@ class InjectionTrigger:
             log.error(f"[INJECT] Error injecting custom mod: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
-

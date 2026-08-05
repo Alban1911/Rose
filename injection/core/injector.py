@@ -106,9 +106,16 @@ class SkinInjector:
         # Check for CSLOL tools
         self.tools_manager.check_tools_available()
     
-    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Optional[Path]:
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None, game_mode: str = None) -> Optional[Path]:
         """Resolve a ZIP by name or path with fuzzy matching"""
-        return self.zip_resolver.resolve_zip(zip_arg, chroma_id, skin_name, champion_name, champion_id)
+        return self.zip_resolver.resolve_zip(
+            zip_arg,
+            chroma_id,
+            skin_name,
+            champion_name,
+            champion_id,
+            game_mode,
+        )
     
     def _clean_mods_dir(self):
         """Clean the mods directory"""
@@ -146,6 +153,7 @@ class SkinInjector:
         champion_name: str = None,
         champion_id: int = None,
         extra_mods_callback: Optional[Callable[["SkinInjector"], List[str]]] = None,
+        game_mode: Optional[str] = None,
     ) -> bool:
         """Inject a single skin (with optional chroma and party mods)
         
@@ -168,9 +176,21 @@ class SkinInjector:
         if skin_name and skin_name.split()[-1].isdigit():
             base_skin_name = ' '.join(skin_name.split()[:-1])
         
-        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name, champion_id=champion_id)
+        zp = self._resolve_zip(
+            skin_name,
+            chroma_id=chroma_id,
+            skin_name=base_skin_name,
+            champion_name=champion_name,
+            champion_id=champion_id,
+            game_mode=game_mode,
+        )
         if not zp:
-            log.error(f"[INJECT] Skin '{skin_name}' not found in {self.zips_dir}")
+            search_dir = (
+                self.zip_resolver.classic_dir
+                if isinstance(game_mode, str) and game_mode.upper() == "JADE"
+                else self.zips_dir
+            )
+            log.error(f"[INJECT] Skin '{skin_name}' not found in {search_dir}")
             report_issue(
                 "SKIN_ZIP_NOT_FOUND",
                 "error",
@@ -178,8 +198,8 @@ class SkinInjector:
                 details={"skin": skin_name},
                 hint="Download the skin first, or check your skins folder.",
             )
-            avail_zip = list(self.zips_dir.rglob('*.zip'))
-            avail_fantome = list(self.zips_dir.rglob('*.fantome'))
+            avail_zip = list(search_dir.rglob('*.zip'))
+            avail_fantome = list(search_dir.rglob('*.fantome'))
             avail = avail_zip + avail_fantome
             if avail:
                 log.info("[INJECT] Available skins (first 10):")
@@ -188,6 +208,8 @@ class SkinInjector:
             return False
         
         log.debug(f"[INJECT] Using skin file: {zp}")
+        if isinstance(game_mode, str) and game_mode.upper() == "JADE":
+            log.info("[CLASSIC] Using mode-native Classic package: %s", zp)
         
         # Clean mods and overlay directories, then extract new skin
         clean_start = time.time()
@@ -211,6 +233,10 @@ class SkinInjector:
                     log.info(f"[INJECT] Including {len(extra)} party/extra mod(s): {', '.join(extra)}")
             except Exception as e:
                 log.warning(f"[INJECT] Extra mods callback failed: {e}")
+
+        if stop_callback and stop_callback():
+            log.info("[INJECT] Injection preparation became stale; overlay skipped")
+            return False
 
         # Create and run overlay
         result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
