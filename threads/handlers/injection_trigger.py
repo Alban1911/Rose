@@ -1515,7 +1515,12 @@ class InjectionTrigger:
                 # Store mod selections in historic before clearing
                 try:
                     from utils.core.mod_historic import write_historic_mod
-                    from utils.core.historic import write_historic_entry, write_historic_target
+                    from utils.core.historic import (
+                        historic_scope_for_state,
+                        write_historic_entry,
+                        write_historic_target,
+                    )
+                    history_scope = historic_scope_for_state(self.state)
                     
                     # Store custom skin mod in historic if selected
                     selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
@@ -1524,10 +1529,14 @@ class InjectionTrigger:
                         if champion_id:
                             # Store custom mod path with "path:" prefix
                             custom_mod_path = f"path:{selected_custom_mod['relative_path']}"
-                            write_historic_entry(int(champion_id), custom_mod_path)
+                            write_historic_entry(
+                                int(champion_id), custom_mod_path, history_scope
+                            )
                             target_skin_id = selected_custom_mod.get("skin_id")
                             if target_skin_id:
-                                write_historic_target(int(champion_id), int(target_skin_id))
+                                write_historic_target(
+                                    int(champion_id), int(target_skin_id), history_scope
+                                )
                             log.debug(f"[HISTORIC] Stored custom mod path for champion {champion_id}: {selected_custom_mod['relative_path']}")
                     elif base_skin_name:
                         # Store base skin ID in historic if injecting base skin with mods (no custom mod)
@@ -1541,7 +1550,9 @@ class InjectionTrigger:
                             
                             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
                             if champion_id is not None and injected_id is not None:
-                                write_historic_entry(int(champion_id), int(injected_id))
+                                write_historic_entry(
+                                    int(champion_id), int(injected_id), history_scope
+                                )
                                 log.info(f"[HISTORIC] Stored last injected ID {injected_id} for champion {champion_id}")
                         except Exception as e:
                             log.debug(f"[HISTORIC] Failed to store base skin entry: {e}")
@@ -1593,4 +1604,3 @@ class InjectionTrigger:
             log.error(f"[INJECT] Error injecting custom mod: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
-
