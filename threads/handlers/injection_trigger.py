@@ -872,10 +872,19 @@ class InjectionTrigger:
     def _inject_unowned_skin(self, name: str, cname: str):
         """Inject unowned skin/chroma"""
         try:
-            # Force base skin selection via LCU before injecting
+            # Keep the server-visible Classic carrier selected. Regular modes
+            # continue to use the champion base skin as before.
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champ_id:
-                base_skin_id = champ_id * 1000
+                if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+                    base_skin_id = getattr(
+                        self.state, "classic_carrier_lcu_skin_id", None
+                    )
+                    if not base_skin_id:
+                        log.warning("[CLASSIC] No validated carrier available; aborting injection")
+                        return
+                else:
+                    base_skin_id = champ_id * 1000
                 
                 # Read actual current selection from LCU session
                 actual_lcu_skin_id = None
@@ -901,6 +910,12 @@ class InjectionTrigger:
 
             def game_ended_callback():
                 nonlocal has_been_in_progress
+                if (
+                    is_classic_mode(getattr(self.state, "current_game_mode", None))
+                    and getattr(self.state, "classic_selection_generation", None)
+                    != classic_generation
+                ):
+                    return True
                 phase = self.state.phase
                 if phase == "InProgress":
                     has_been_in_progress = True
@@ -913,11 +928,21 @@ class InjectionTrigger:
             log.info(f"[INJECT] Starting injection: {name}")
             
             champ_id_for_history = self.state.locked_champ_id
+            classic_generation = getattr(
+                self.state, "classic_selection_generation", None
+            )
             from utils.core.historic import historic_scope_for_state
             history_scope = historic_scope_for_state(self.state)
 
             def run_injection():
                 try:
+                    if (
+                        is_classic_mode(getattr(self.state, "current_game_mode", None))
+                        and getattr(self.state, "classic_selection_generation", None)
+                        != classic_generation
+                    ):
+                        log.info("[CLASSIC] Skipping stale injection preparation")
+                        return
                     if not self.lcu.ok:
                         log.warning(f"[INJECT] LCU not available, skipping injection")
                         return
