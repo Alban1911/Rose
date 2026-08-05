@@ -441,6 +441,26 @@ class MessageHandler:
         if not self._cache_classic_catalog(payload):
             log.warning("Rejected Classic Mode selection with invalid catalog")
             return
+        generation_value = payload.get("selectionGeneration")
+        if generation_value is None and str(payload.get("type") or "").startswith("jade-"):
+            incoming_generation = self.shared_state.classic_selection_generation
+        else:
+            try:
+                incoming_generation = int(generation_value)
+            except (TypeError, ValueError):
+                log.warning("Rejected Classic Mode selection without a valid generation")
+                return
+        current_generation = self.shared_state.classic_selection_generation
+        if incoming_generation < current_generation or (
+            payload.get("userInitiated") is True
+            and incoming_generation <= current_generation
+        ):
+            log.info(
+                "Rejected stale Classic Mode selection generation=%s current=%s",
+                incoming_generation,
+                current_generation,
+            )
+            return
         try:
             raw_skin_id = int(payload.get("rawSkinId") or 0)
             visual_skin_id = int(
@@ -460,7 +480,6 @@ class MessageHandler:
                 raw_skin_id,
             )
             return
-
         carrier = self.shared_state.classic_carrier_lcu_skin_id
         owned_ids = set(self.shared_state.owned_skin_ids or ())
         owned = (
@@ -470,6 +489,7 @@ class MessageHandler:
         )
         self.shared_state.classic_selected_skin_owned = owned
         self.shared_state.selected_skin_id = visual_skin_id
+        self.shared_state.classic_selection_generation = incoming_generation
 
         if owned:
             self.shared_state.classic_visual_skin_id = None
@@ -485,7 +505,6 @@ class MessageHandler:
                 lcu.set_my_selection_skin(carrier)
 
         if payload.get("userInitiated") is True:
-            self.shared_state.classic_selection_generation += 1
             self.shared_state.historic_mode_active = False
             self.shared_state.historic_skin_id = None
             self.shared_state.classic_history_skin_id = None
@@ -525,6 +544,9 @@ class MessageHandler:
                 ],
                 "skin": payload.get("chromaName") or f"skin_{visual_skin_id}",
                 "userInitiated": True,
+                "selectionGeneration": (
+                    self.shared_state.classic_selection_generation + 1
+                ),
             }
         )
         self._handle_classic_skin_selection(selection)
