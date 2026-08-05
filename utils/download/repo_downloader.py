@@ -466,9 +466,10 @@ class RepoDownloader:
         progress_start: float = 70.0,
         progress_end: float = 100.0,
         extract_skins: bool = True,
+        extract_classic: bool = True,
         extract_resources: bool = True,
     ) -> bool:
-        """Extract skins, previews, and resources folder from the LeagueSkins repository ZIP"""
+        """Extract regular skins, Classic skins, and shared resources."""
         try:
             log.info("Extracting skins, previews, and resources folder from LeagueSkins repository ZIP...")
 
@@ -491,6 +492,17 @@ class RepoDownloader:
                                 zip_count += 1
                             elif file_info.filename.endswith('.png'):
                                 png_count += 1
+
+                classic_files = []
+                classic_count = 0
+                if extract_classic:
+                    for file_info in zip_ref.filelist:
+                        if (file_info.filename.startswith('LeagueSkins-main/classic/') and
+                            file_info.filename != 'LeagueSkins-main/classic/' and
+                            not file_info.filename.endswith('/')):
+                            classic_files.append(file_info)
+                            if file_info.filename.endswith(('.zip', '.fantome')):
+                                classic_count += 1
                 
                 # Find all files in the resources/ directory (entire folder)
                 resources_files = []
@@ -505,8 +517,8 @@ class RepoDownloader:
                             resources_files.append(file_info)
                             resources_count += 1
                 
-                if not skins_files and not resources_files:
-                    log.error("No skins or resources folder found in repository ZIP")
+                if not skins_files and not classic_files and not resources_files:
+                    log.error("No skins, classic, or resources folder found in repository ZIP")
                     return False
                 
                 if extract_skins and not skins_files:
@@ -515,16 +527,22 @@ class RepoDownloader:
                 if extract_resources and not resources_files:
                     log.warning("No resources folder found in repository ZIP, but resources extraction was requested")
                 
-                log.info(f"Found {zip_count} skin archive files, {png_count} preview .png files, and {resources_count} resource files in repository")
+                log.info(
+                    f"Found {zip_count} regular skin archives, {classic_count} Classic archives, "
+                    f"{png_count} previews, and {resources_count} resource files in repository"
+                )
                 
                 # Extract all skins and resource files with byte-level progress tracking
                 extracted_zip_count = 0
                 extracted_png_count = 0
                 extracted_resources_count = 0
+                extracted_classic_count = 0
                 skipped_skin_count = 0
+                skipped_classic_count = 0
                 skipped_resources_count = 0
 
                 entries: List[Tuple[str, zipfile.ZipInfo]] = [("skin", info) for info in skins_files]
+                entries.extend(("classic", info) for info in classic_files)
                 entries.extend(("resource", info) for info in resources_files)
 
                 def _info_size(info: zipfile.ZipInfo) -> int:
@@ -538,6 +556,7 @@ class RepoDownloader:
                 from utils.core.paths import get_user_data_dir
                 # Place the entire resources folder as resources
                 mapping_target_dir = get_user_data_dir() / "resources"
+                classic_target_dir = self.target_dir.parent / "classic"
 
                 # Reserve 5% of progress range for cleanup operations
                 cleanup_reserve = 5.0
@@ -558,7 +577,12 @@ class RepoDownloader:
                         if file_info.is_dir():
                             continue
 
-                        label = "Extracting skins..." if entry_type == "skin" else "Extracting skin ID mapping..."
+                        if entry_type == "skin":
+                            label = "Extracting skins..."
+                        elif entry_type == "classic":
+                            label = "Extracting Classic skins..."
+                        else:
+                            label = "Extracting skin ID mapping..."
                         relative_path = file_info.filename.replace('LeagueSkins-main/', '')
                         is_zip = relative_path.endswith(('.zip', '.fantome'))
                         is_png = relative_path.endswith('.png')
@@ -567,6 +591,10 @@ class RepoDownloader:
                             if relative_path.startswith('skins/'):
                                 relative_path = relative_path.replace('skins/', '', 1)
                             extract_path = self.target_dir / relative_path
+                        elif entry_type == "classic":
+                            if relative_path.startswith('classic/'):
+                                relative_path = relative_path.replace('classic/', '', 1)
+                            extract_path = classic_target_dir / relative_path
                         else:
                             # Extract entire resources folder structure, removing 'resources/' prefix
                             # so it becomes the resources folder
@@ -581,6 +609,8 @@ class RepoDownloader:
                         if extract_path.exists() and not overwrite_existing:
                             if entry_type == "skin":
                                 skipped_skin_count += 1
+                            elif entry_type == "classic":
+                                skipped_classic_count += 1
                             else:
                                 skipped_resources_count += 1
                             processed_bytes += file_bytes
@@ -601,6 +631,8 @@ class RepoDownloader:
                                 extracted_zip_count += 1
                             elif is_png:
                                 extracted_png_count += 1
+                        elif entry_type == "classic":
+                            extracted_classic_count += 1
                         else:
                             extracted_resources_count += 1
 
@@ -635,9 +667,22 @@ class RepoDownloader:
                     if deleted_resources_count > 0:
                         log.info(f"Removed {deleted_resources_count} resource files that no longer exist in repository")
 
-                log.info(f"Extracted {extracted_zip_count} new skin archive files, {extracted_png_count} preview .png files, "
-                        f"and {extracted_resources_count} resource files (skipped {skipped_skin_count} existing skin files, "
-                        f"{skipped_resources_count} existing resource files)")
+                if extract_classic and classic_files:
+                    deleted_classic_count = self._cleanup_removed_skin_files(
+                        classic_files, classic_target_dir
+                    )
+                    if deleted_classic_count > 0:
+                        log.info(
+                            f"Removed {deleted_classic_count} Classic files that no longer exist in repository"
+                        )
+
+                log.info(
+                    f"Extracted {extracted_zip_count} regular skin archives, "
+                    f"{extracted_classic_count} Classic files, {extracted_png_count} previews, "
+                    f"and {extracted_resources_count} resource files "
+                    f"(skipped {skipped_skin_count} regular, {skipped_classic_count} Classic, "
+                    f"and {skipped_resources_count} resource files)"
+                )
 
                 total_mb = _format_size(total_bytes)
                 self._emit_progress(progress_end, f"Extraction complete ({_format_size(processed_bytes)} / {total_mb})")
@@ -723,6 +768,7 @@ class RepoDownloader:
                     progress_start=70.0,
                     progress_end=100.0,
                     extract_skins=True,
+                    extract_classic=True,
                     extract_resources=True,
                 )
 
