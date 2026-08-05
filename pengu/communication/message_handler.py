@@ -28,6 +28,7 @@ from utils.core.classic_mode_ids import (
     carrier_skin_number,
     catalog_skin_ids,
     is_classic_mode,
+    is_classic_skin_id,
     mode_champion_id,
     resource_champion_id,
     resource_skin_id,
@@ -183,6 +184,8 @@ class MessageHandler:
             self._handle_request_local_asset(payload)
         elif payload_type in {"classic-mode-catalog", "jade-mode-catalog"}:
             self._handle_classic_mode_catalog(payload)
+        elif payload_type in {"classic-skin-selection", "jade-skin-selection"}:
+            self._handle_classic_skin_selection(payload)
         elif payload_type == "chroma-selection":
             self._handle_chroma_selection(payload)
         elif payload_type == "dice-button-click":
@@ -399,6 +402,66 @@ class MessageHandler:
     def _handle_classic_mode_catalog(self, payload: dict) -> None:
         if not self._cache_classic_catalog(payload):
             log.warning("Rejected invalid Classic Mode catalog")
+
+    def _handle_classic_skin_selection(self, payload: dict) -> None:
+        """Track a validated local projection without submitting it to LCU."""
+        if not self._cache_classic_catalog(payload):
+            log.warning("Rejected Classic Mode selection with invalid catalog")
+            return
+        try:
+            raw_skin_id = int(payload.get("rawSkinId") or 0)
+            visual_skin_id = int(
+                payload.get("visualSkinId") or payload.get("skinId") or 0
+            )
+        except (TypeError, ValueError):
+            return
+        if (
+            not is_classic_skin_id(raw_skin_id)
+            or raw_skin_id not in self.shared_state.classic_catalog_raw_skin_ids
+            or raw_skin_id // 1000 != self.shared_state.classic_mode_champion_id
+            or resource_skin_id(raw_skin_id) != visual_skin_id
+        ):
+            log.warning(
+                "Rejected Classic Mode visual selection resource=%s raw=%s",
+                visual_skin_id,
+                raw_skin_id,
+            )
+            return
+
+        carrier = self.shared_state.classic_carrier_lcu_skin_id
+        owned_ids = set(self.shared_state.owned_skin_ids or ())
+        owned = (
+            raw_skin_id == carrier
+            or raw_skin_id in owned_ids
+            or visual_skin_id in owned_ids
+        )
+        self.shared_state.classic_selected_skin_owned = owned
+        self.shared_state.selected_skin_id = visual_skin_id
+
+        if owned:
+            self.shared_state.classic_visual_skin_id = None
+            self.shared_state.classic_visual_raw_skin_id = None
+            self.shared_state.classic_visual_chroma_id = None
+            if visual_skin_id not in owned_ids:
+                self.shared_state.owned_skin_ids.add(visual_skin_id)
+        else:
+            self.shared_state.classic_visual_skin_id = visual_skin_id
+            self.shared_state.classic_visual_raw_skin_id = raw_skin_id
+            lcu = getattr(self.skin_scraper, "lcu", None)
+            if lcu is not None and self.shared_state.selected_lcu_skin_id != carrier:
+                lcu.set_my_selection_skin(carrier)
+
+        if payload.get("userInitiated") is True:
+            self.shared_state.classic_selection_generation += 1
+
+        skin_name = str(payload.get("skin") or f"skin_{visual_skin_id}").strip()
+        self.skin_processor.last_skin_name = skin_name
+        self.skin_processor.process_skin_name(skin_name, self.broadcaster)
+        self.shared_state.ui_skin_id = visual_skin_id
+        self.shared_state.last_hovered_skin_id = visual_skin_id
+        self.shared_state.last_hovered_skin_key = skin_name
+        self.shared_state.ui_last_text = skin_name
+        self.broadcaster.broadcast_skin_state(skin_name, visual_skin_id)
 
     def _handle_chroma_selection(self, payload: dict) -> None:
         """Handle chroma selection from JavaScript"""
