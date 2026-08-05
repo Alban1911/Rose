@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Optional
 
 from utils.core.logging import get_logger, log_success
+from utils.core.classic_mode_ids import (
+    is_classic_mode,
+)
 
 log = get_logger()
 
@@ -36,11 +39,12 @@ def _rglob_by_extensions(base: Path, pattern_stem: str) -> Optional[Path]:
 class ZipResolver:
     """Resolves skin and chroma ZIP files from various naming conventions"""
     
-    def __init__(self, zips_dir: Path):
+    def __init__(self, zips_dir: Path, classic_dir: Optional[Path] = None):
         self.zips_dir = zips_dir
+        self.classic_dir = classic_dir or zips_dir.parent / "classic"
         self.zips_dir.mkdir(parents=True, exist_ok=True)
     
-    def resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Optional[Path]:
+    def resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None, game_mode: str = None) -> Optional[Path]:
         """Resolve a ZIP by name or path with fuzzy matching, supporting new merged structure
         
         Args:
@@ -49,9 +53,26 @@ class ZipResolver:
             skin_name: Optional base skin name for chroma lookup
             champion_id: Optional champion ID for path construction.
         """
-        log.debug(f"[INJECT] Resolving zip for: '{zip_arg}' (chroma_id: {chroma_id}, skin_name: {skin_name})")
+        use_classic = is_classic_mode(game_mode)
+        source_dir = self.classic_dir if use_classic else self.zips_dir
+        log.debug(
+            "[INJECT] Resolving zip for: %r (chroma_id=%s, skin_name=%s, source=%s)",
+            zip_arg,
+            chroma_id,
+            skin_name,
+            "classic" if use_classic else "skins",
+        )
         cand = Path(zip_arg)
         if cand.exists():
+            if use_classic:
+                try:
+                    cand.resolve().relative_to(self.classic_dir.resolve())
+                except ValueError:
+                    log.warning(
+                        "[CLASSIC] Refusing package outside Classic resource root: %s",
+                        cand,
+                    )
+                    return None
             return cand
 
         # Handle ID-based naming convention from random selection
@@ -294,4 +315,3 @@ class ZipResolver:
             return found
         log.warning(f"[INJECT] Gun Goddess Miss Fortune {form_name} form file not found")
         return None
-
