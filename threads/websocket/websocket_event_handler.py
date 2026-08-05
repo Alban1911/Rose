@@ -262,21 +262,13 @@ class WebSocketEventHandler:
         """Handle champion select session event"""
         sess = payload.get("data") or {}
         self.state.local_cell_id = sess.get("localPlayerCellId", self.state.local_cell_id)
-        
-        # Track selected skin ID from myTeam
+
+        raw_selected_skin = None
         if self.state.local_cell_id is not None:
             my_team = sess.get("myTeam") or []
             for player in my_team:
                 if player.get("cellId") == self.state.local_cell_id:
-                    selected_skin = player.get("selectedSkinId")
-                    if selected_skin is not None:
-                        skin_int = int(selected_skin)
-                        self.state.selected_skin_id = skin_int
-                        # Check if this confirms a pending base skin force
-                        try:
-                            _on_skin_confirmed(skin_int)
-                        except Exception:
-                            pass
+                    raw_selected_skin = player.get("selectedSkinId")
                     break
         
         # Visible players (distinct cellIds)
@@ -301,8 +293,24 @@ class WebSocketEventHandler:
         # Lock counter: diff cellId → championId
         if self.champion_lock_handler:
             self.champion_lock_handler.handle_session_locks(sess)
+
+        if raw_selected_skin is not None:
+            self._update_selected_skin(raw_selected_skin)
         
         # Timer
         if self.timer_manager:
             self.timer_manager.maybe_start_timer(sess)
 
+    def _update_selected_skin(self, raw_skin_id) -> None:
+        """Track a skin selected by the local player."""
+        try:
+            raw_skin_id = int(raw_skin_id)
+        except (TypeError, ValueError):
+            return
+
+        self.state.selected_lcu_skin_id = raw_skin_id
+        self.state.selected_skin_id = raw_skin_id
+        try:
+            _on_skin_confirmed(raw_skin_id)
+        except Exception:
+            pass
