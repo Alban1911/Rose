@@ -419,6 +419,22 @@ class MessageHandler:
 
             RandomizationHandler(self.shared_state, self.skin_scraper).activate_persisted()
             return
+        if not self.shared_state.historic_first_detection_done:
+            from utils.core.historic import get_historic_skin_for_champion
+
+            historic_skin_id = get_historic_skin_for_champion(
+                champion_id, "classic"
+            )
+            if (
+                isinstance(historic_skin_id, int)
+                and historic_skin_id
+                in self.shared_state.classic_catalog_resource_skin_ids
+            ):
+                self.shared_state.historic_mode_active = True
+                self.shared_state.historic_skin_id = historic_skin_id
+                self.shared_state.classic_history_skin_id = historic_skin_id
+                self.broadcaster.broadcast_historic_state()
+            self.shared_state.historic_first_detection_done = True
 
     def _handle_classic_skin_selection(self, payload: dict) -> None:
         """Track a validated local projection without submitting it to LCU."""
