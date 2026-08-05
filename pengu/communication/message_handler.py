@@ -486,6 +486,11 @@ class MessageHandler:
 
         if payload.get("userInitiated") is True:
             self.shared_state.classic_selection_generation += 1
+            self.shared_state.historic_mode_active = False
+            self.shared_state.historic_skin_id = None
+            self.shared_state.classic_history_skin_id = None
+            self.shared_state.historic_first_detection_done = True
+            self.broadcaster.broadcast_historic_state()
 
         skin_name = str(payload.get("skin") or f"skin_{visual_skin_id}").strip()
         self.skin_processor.last_skin_name = skin_name
