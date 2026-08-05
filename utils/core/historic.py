@@ -23,15 +23,41 @@ def _historic_file_path() -> Path:
     return data_dir / "historic.json"
 
 
+def _classic_historic_file_path() -> Path:
+    return get_user_data_dir() / "historic_classic.json"
+
+
 def _historic_target_file_path() -> Path:
     data_dir = get_user_data_dir()
     return data_dir / "historic_targets.json"
 
 
-def load_historic_target_map() -> Dict[str, int]:
+def _classic_historic_target_file_path() -> Path:
+    return get_user_data_dir() / "historic_targets_classic.json"
+
+
+def historic_scope_for_state(state) -> str:
+    from utils.core.classic_mode_ids import is_classic_mode
+
+    return "classic" if is_classic_mode(getattr(state, "current_game_mode", None)) else "regular"
+
+
+def _historic_path(scope: str) -> Path:
+    return _classic_historic_file_path() if scope == "classic" else _historic_file_path()
+
+
+def _historic_target_path(scope: str) -> Path:
+    return (
+        _classic_historic_target_file_path()
+        if scope == "classic"
+        else _historic_target_file_path()
+    )
+
+
+def load_historic_target_map(scope: str = "regular") -> Dict[str, int]:
     """Load the exact last skin/chroma target for custom history entries."""
     try:
-        p = _historic_target_file_path()
+        p = _historic_target_path(scope)
         if not p.exists():
             return {}
         with p.open("r", encoding="utf-8") as f:
@@ -52,19 +78,23 @@ def load_historic_target_map() -> Dict[str, int]:
         return {}
 
 
-def get_historic_target_for_champion(champion_id: int) -> Optional[int]:
+def get_historic_target_for_champion(
+    champion_id: int, scope: str = "regular"
+) -> Optional[int]:
     """Return the exact last selected skin/chroma target for a champion."""
-    return load_historic_target_map().get(str(int(champion_id)))
+    return load_historic_target_map(scope).get(str(int(champion_id)))
 
 
-def write_historic_target(champion_id: int, target_skin_id: int) -> None:
+def write_historic_target(
+    champion_id: int, target_skin_id: int, scope: str = "regular"
+) -> None:
     """Persist the exact last selected skin/chroma target for a champion."""
     try:
         target_id = int(target_skin_id)
         if target_id <= 0:
             return
-        p = _historic_target_file_path()
-        targets = load_historic_target_map()
+        p = _historic_target_path(scope)
+        targets = load_historic_target_map(scope)
         targets[str(int(champion_id))] = target_id
         p.parent.mkdir(parents=True, exist_ok=True)
         with p.open("w", encoding="utf-8") as f:
@@ -73,11 +103,11 @@ def write_historic_target(champion_id: int, target_skin_id: int) -> None:
         pass
 
 
-def clear_historic_target(champion_id: int) -> None:
+def clear_historic_target(champion_id: int, scope: str = "regular") -> None:
     """Remove the exact last selected skin/chroma target for a champion."""
     try:
-        p = _historic_target_file_path()
-        targets = load_historic_target_map()
+        p = _historic_target_path(scope)
+        targets = load_historic_target_map(scope)
         if str(int(champion_id)) not in targets:
             return
         targets.pop(str(int(champion_id)), None)
