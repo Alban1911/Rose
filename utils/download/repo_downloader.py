@@ -148,18 +148,27 @@ class RepoDownloader:
             return None
 
     def _resolve_local_path(self, repo_path: str) -> Optional[Path]:
-        """Map a repo-relative path (skins/... or resources/...) to a local path."""
+        """Map a repository resource path to its isolated local root."""
         from utils.core.paths import get_user_data_dir
         if repo_path.startswith('skins/'):
             return self.target_dir / repo_path[len('skins/'):]
+        elif repo_path.startswith('classic/'):
+            return self.target_dir.parent / "classic" / repo_path[len('classic/'):]
         elif repo_path.startswith('resources/'):
             return get_user_data_dir() / "resources" / repo_path[len('resources/'):]
         return None
 
+    def _local_resource_roots(self) -> Tuple[Path, Path, Path]:
+        from utils.core.paths import get_user_data_dir
+
+        data_dir = get_user_data_dir()
+        return self.target_dir, self.target_dir.parent / "classic", data_dir / "resources"
+
     def download_changed_files(self, changed_files: List[Dict]) -> bool:
         """Download changed files individually via raw.githubusercontent.com.
 
-        Handles skins/ and resources/ paths. Supports add, modify, remove, rename.
+        Handles skins/, classic/, and resources/ paths. Supports add, modify,
+        remove, and rename.
         Returns True if all files were processed successfully.
         """
         total = len(changed_files)
@@ -222,7 +231,17 @@ class RepoDownloader:
         # Clean up empty directories left by removals/renames
         for dir_path in sorted(dirs_to_check, reverse=True):
             try:
-                while dir_path != self.target_dir and dir_path.exists() and not any(dir_path.iterdir()):
+                root = next(
+                    (
+                        candidate
+                        for candidate in self._local_resource_roots()
+                        if dir_path == candidate or candidate in dir_path.parents
+                    ),
+                    None,
+                )
+                if root is None:
+                    continue
+                while dir_path != root and dir_path.exists() and not any(dir_path.iterdir()):
                     dir_path.rmdir()
                     dir_path = dir_path.parent
             except OSError:
@@ -382,6 +401,8 @@ class RepoDownloader:
             # Remove 'skins/' or 'resources/' prefix to match local structure
             if relative_path.startswith('skins/'):
                 relative_path = relative_path.replace('skins/', '', 1)
+            elif relative_path.startswith('classic/'):
+                relative_path = relative_path.replace('classic/', '', 1)
             elif relative_path.startswith('resources/'):
                 relative_path = relative_path.replace('resources/', '', 1)
 
@@ -400,8 +421,11 @@ class RepoDownloader:
             if not local_file.is_file():
                 continue
             
-            # Skip state files (like .repo_state.json) but keep other files
-            if local_file.name.startswith('.') and local_file.name.endswith('_state.json'):
+            # Downloader state is not repository content and must survive cleanup.
+            if local_file == self.version_file or (
+                local_file.name.startswith('.')
+                and local_file.name.endswith('_state.json')
+            ):
                 continue
             
             # Get relative path from target_dir
