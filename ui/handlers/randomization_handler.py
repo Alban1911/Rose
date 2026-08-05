@@ -9,7 +9,11 @@ import random
 from typing import Optional, Tuple
 from state import SharedState
 from utils.core.logging import get_logger
-from utils.core.classic_mode_ids import is_classic_mode, resource_skin_id
+from utils.core.classic_mode_ids import is_classic_mode, mode_skin_id, resource_skin_id
+from utils.core.random_preferences import (
+    is_random_enabled_for_champion,
+    set_random_enabled_for_champion,
+)
 from utils.core.utilities import is_base_skin
 
 log = get_logger()
@@ -141,6 +145,16 @@ class RandomizationHandler:
             self.state.random_skin_name = random_skin_name
             self.state.random_skin_id = random_skin_id
             self.state.random_mode_active = True
+            if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+                champion_id = getattr(self.state, "locked_champ_id", None)
+                if champion_id:
+                    set_random_enabled_for_champion(champion_id, True)
+                self.state.classic_random_enabled = True
+                self.state.classic_visual_skin_id = random_skin_id
+                self.state.classic_visual_raw_skin_id = mode_skin_id(random_skin_id)
+                self.state.ui_skin_id = random_skin_id
+                self.state.last_hovered_skin_id = random_skin_id
+                self.state.last_hovered_skin_key = random_skin_name
             log.info(f"[UI] Random skin selected: {random_skin_name} (ID: {random_skin_id})")
             
             # Broadcast random mode state to JavaScript
@@ -163,6 +177,11 @@ class RandomizationHandler:
         self.state.random_skin_name = None
         self.state.random_skin_id = None
         self.state.random_mode_active = False
+        if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+            champion_id = getattr(self.state, "locked_champ_id", None)
+            if champion_id:
+                set_random_enabled_for_champion(champion_id, False)
+            self.state.classic_random_enabled = False
         
         # Broadcast random mode state to JavaScript
         try:
@@ -175,6 +194,14 @@ class RandomizationHandler:
         self._randomization_in_progress = False
         self._randomization_started = False
 
+    def activate_persisted(self) -> bool:
+        champion_id = getattr(self.state, "locked_champ_id", None)
+        if not champion_id or not is_random_enabled_for_champion(champion_id):
+            return False
+        self._randomization_started = True
+        self._start_randomization()
+        return bool(self.state.random_mode_active)
+    
     def select_random_skin(self) -> Optional[Tuple[str, int]]:
         """Select a random skin from available skins (excluding base skin)
         
