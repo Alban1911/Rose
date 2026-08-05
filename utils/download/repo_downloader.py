@@ -40,7 +40,7 @@ class RepoDownloader:
     def __init__(
         self,
         target_dir: Path = None,
-        repo_url: str = "https://github.com/Alban1911/LeagueSkins",
+        repo_url: str = "https://github.com/ccccxp/LeagueSkins",
         progress_callback: Optional[ProgressCallback] = None,
     ):
         self.repo_url = repo_url
@@ -54,8 +54,9 @@ class RepoDownloader:
 
         # Version tracking
         self.version_file = self.target_dir / '.skin_version'
-        self.api_base = "https://api.github.com/repos/Alban1911/LeagueSkins"
-        self.raw_base = "https://raw.githubusercontent.com/Alban1911/LeagueSkins/main"
+        repo_slug = repo_url.rstrip('/').removeprefix("https://github.com/")
+        self.api_base = f"https://api.github.com/repos/{repo_slug}"
+        self.raw_base = f"https://raw.githubusercontent.com/{repo_slug}/main"
 
         # If changed files exceed this, use full ZIP instead of individual downloads
         self.incremental_file_threshold = 200
