@@ -40,7 +40,7 @@ class RepoDownloader:
     def __init__(
         self,
         target_dir: Path = None,
-        repo_url: str = "https://github.com/ccccxp/LeagueSkins",
+        repo_url: str = "https://github.com/Alban1911/LeagueSkins",
         progress_callback: Optional[ProgressCallback] = None,
     ):
         self.repo_url = repo_url
