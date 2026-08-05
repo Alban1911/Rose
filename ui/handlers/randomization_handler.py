@@ -150,8 +150,18 @@ class RandomizationHandler:
                 if champion_id:
                     set_random_enabled_for_champion(champion_id, True)
                 self.state.classic_random_enabled = True
-                self.state.classic_visual_skin_id = random_skin_id
-                self.state.classic_visual_raw_skin_id = mode_skin_id(random_skin_id)
+                raw_skin_id = mode_skin_id(random_skin_id)
+                owned_ids = set(getattr(self.state, "owned_skin_ids", None) or ())
+                selected_owned = raw_skin_id in owned_ids or random_skin_id in owned_ids
+                self.state.classic_selected_skin_owned = selected_owned
+                self.state.classic_visual_skin_id = None if selected_owned else random_skin_id
+                self.state.classic_visual_raw_skin_id = None if selected_owned else raw_skin_id
+                if selected_owned:
+                    lcu = getattr(self.skin_scraper, "lcu", None)
+                    if lcu is not None and getattr(
+                        self.state, "selected_lcu_skin_id", None
+                    ) != raw_skin_id:
+                        lcu.set_my_selection_skin(raw_skin_id)
                 self.state.ui_skin_id = random_skin_id
                 self.state.last_hovered_skin_id = random_skin_id
                 self.state.last_hovered_skin_key = random_skin_name
