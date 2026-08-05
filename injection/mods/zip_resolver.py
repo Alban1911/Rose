@@ -11,6 +11,8 @@ from typing import Optional
 from utils.core.logging import get_logger, log_success
 from utils.core.classic_mode_ids import (
     is_classic_mode,
+    resource_champion_id,
+    resource_skin_id,
 )
 
 log = get_logger()
@@ -53,6 +55,9 @@ class ZipResolver:
             skin_name: Optional base skin name for chroma lookup
             champion_id: Optional champion ID for path construction.
         """
+        champion_id = resource_champion_id(champion_id) if champion_id else champion_id
+        if chroma_id is not None:
+            chroma_id = resource_skin_id(chroma_id)
         use_classic = is_classic_mode(game_mode)
         source_dir = self.classic_dir if use_classic else self.zips_dir
         log.debug(
@@ -78,17 +83,17 @@ class ZipResolver:
         # Handle ID-based naming convention from random selection
         if zip_arg.startswith('skin_'):
             # Format: skin_{skin_id} - check if this is actually a chroma
-            skin_id = int(zip_arg.split('_')[1])
+            skin_id = resource_skin_id(int(zip_arg.split('_')[1]))
             if not champion_id:
                 log.warning(f"[INJECT] No champion_id provided for skin ID: {skin_id}")
                 return None
             
             # If chroma_id is provided, this is actually a chroma (Swiftplay case)
             if chroma_id is not None:
-                return self._resolve_chroma_by_id(champion_id, chroma_id)
+                return self._resolve_chroma_by_id(champion_id, chroma_id, source_dir)
             
             # This is a base skin - look for {champion_id}/{skin_id}/{skin_id}.zip/.fantome
-            skin_dir = self.zips_dir / str(champion_id) / str(skin_id)
+            skin_dir = source_dir / str(champion_id) / str(skin_id)
             found = _find_by_extensions(skin_dir, str(skin_id))
             if found:
                 log.debug(f"[INJECT] Found skin: {found}")
@@ -97,16 +102,16 @@ class ZipResolver:
                 # Not found as base skin - might be a chroma that was incorrectly labeled as skin_
                 # Try searching for it as a chroma in any base skin directory
                 log.debug(f"[INJECT] Base skin not found, checking if {skin_id} is a chroma...")
-                return self._resolve_chroma_by_id(champion_id, skin_id)
+                return self._resolve_chroma_by_id(champion_id, skin_id, source_dir)
         
         elif zip_arg.startswith('chroma_'):
             # Format: chroma_{chroma_id} - this is a chroma
-            chroma_id = int(zip_arg.split('_')[1])
+            chroma_id = resource_skin_id(int(zip_arg.split('_')[1]))
             if not champion_id:
                 log.warning(f"[INJECT] No champion_id provided for chroma ID: {chroma_id}")
                 return None
             
-            return self._resolve_chroma_by_id(champion_id, chroma_id)
+            return self._resolve_chroma_by_id(champion_id, chroma_id, source_dir)
 
         # For base skins (no chroma_id), we need skin_id
         if chroma_id is None and skin_name:
@@ -121,6 +126,11 @@ class ZipResolver:
 
         # If chroma_id is provided, look in chroma subdirectory structure
         if chroma_id is not None:
+            if use_classic:
+                return self._resolve_chroma_by_id(
+                    champion_id, chroma_id, source_dir
+                )
+
             # Special handling for Elementalist Lux forms (fake IDs 99991-99999)
             if 99991 <= chroma_id <= 99999:
                 return self._resolve_elementalist_lux_form(chroma_id)
@@ -157,9 +167,14 @@ class ZipResolver:
         log.warning(f"[INJECT] Base skin lookup by name not fully implemented for new structure: {zip_arg}")
         return None
     
-    def _resolve_chroma_by_id(self, champion_id: int, chroma_id: int) -> Optional[Path]:
+    def _resolve_chroma_by_id(
+        self,
+        champion_id: int,
+        chroma_id: int,
+        base_dir: Optional[Path] = None,
+    ) -> Optional[Path]:
         """Resolve chroma ZIP by champion ID and chroma ID"""
-        champion_dir = self.zips_dir / str(champion_id)
+        champion_dir = (base_dir or self.zips_dir) / str(champion_id)
         if not champion_dir.exists():
             log.warning(f"[INJECT] Champion directory not found: {champion_dir}")
             return None
