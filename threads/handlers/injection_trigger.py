@@ -874,6 +874,8 @@ class InjectionTrigger:
             log.info(f"[INJECT] Starting injection: {name}")
             
             champ_id_for_history = self.state.locked_champ_id
+            from utils.core.historic import historic_scope_for_state
+            history_scope = historic_scope_for_state(self.state)
 
             def run_injection():
                 try:
@@ -906,7 +908,9 @@ class InjectionTrigger:
                             champ_id = champ_id_for_history
                             if champ_id is not None and injected_id is not None:
                                 from utils.core.historic import write_historic_entry
-                                write_historic_entry(int(champ_id), int(injected_id))
+                                write_historic_entry(
+                                    int(champ_id), int(injected_id), history_scope
+                                )
                                 log.info(f"[HISTORIC] Stored last injected ID {injected_id} for champion {champ_id}")
                         except Exception as e:
                             log.debug(f"[HISTORIC] Failed to store historic entry: {e}")
