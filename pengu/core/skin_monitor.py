@@ -184,6 +184,10 @@ class PenguSkinMonitorThread(threading.Thread):
         """Broadcast random mode state (delegates to broadcaster)"""
         self.broadcaster.broadcast_random_mode_state()
 
+    def _broadcast_favorites_state(self, champion_id: Optional[int] = None) -> None:
+        """Broadcast favorites state (delegates to broadcaster)"""
+        self.broadcaster.broadcast_favorites_state(champion_id)
+
     def _broadcast_skip_base_skin(self) -> None:
         self.broadcaster.broadcast_skip_base_skin()
     

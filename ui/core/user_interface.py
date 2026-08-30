@@ -210,15 +210,15 @@ class UserInterface:
         # Clear skin display handler reference
         self.skin_display_handler = None
     
-    def _handle_dice_click_disabled(self):
+    def _handle_dice_click_disabled(self, mode: str = "all"):
         """Handle dice button click in disabled state - start randomization"""
-        if self.randomization_handler.handle_dice_click_disabled(self.current_skin_id):
+        if self.randomization_handler.handle_dice_click_disabled(self.current_skin_id, mode=mode):
             return
         
         # Need to force base skin first
         lcu = self.skin_scraper.lcu if self.skin_scraper and hasattr(self.skin_scraper, 'lcu') else None
         if lcu:
-            self.randomization_handler.force_base_skin_and_randomize(lcu)
+            self.randomization_handler.force_base_skin_and_randomize(lcu, mode=mode)
     
     def _handle_dice_click_enabled(self):
         """Handle dice button click in enabled state - cancel randomization"""
