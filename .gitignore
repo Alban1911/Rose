@@ -53,6 +53,7 @@ ENV/
 # IDE / Editor
 .vscode/
 .idea/
+.agent/
 .claude/settings.local.json
 
 # Local / temp
@@ -138,3 +139,4 @@ relay-worker/.wrangler/
 /test/
 injection/tools/cslol-dll.dll
 injection/tools/cslol-dll.stub
+run_rose.bat

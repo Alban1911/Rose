@@ -55,9 +55,9 @@ class ZipResolver:
             return cand
 
         # Handle ID-based naming convention from random selection
-        if zip_arg.startswith('skin_'):
-            # Format: skin_{skin_id} - check if this is actually a chroma
-            skin_id = int(zip_arg.split('_')[1])
+        if zip_arg.startswith('skin_') or zip_arg.isdigit():
+            # Format: skin_{skin_id} or numeric skin_id
+            skin_id = int(zip_arg.split('_')[1]) if zip_arg.startswith('skin_') else int(zip_arg)
             if not champion_id:
                 log.warning(f"[INJECT] No champion_id provided for skin ID: {skin_id}")
                 return None
