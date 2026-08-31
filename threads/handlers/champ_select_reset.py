@@ -32,6 +32,7 @@ def perform_champ_select_reset(state, lcu) -> bool:
     state.ui_last_text_generation = -1
     state.ui_last_text_timestamp = 0.0
     state.selected_skin_id = None
+    state.clear_classic_mode()
     try:
         state.owned_skin_ids.clear()
     except Exception:

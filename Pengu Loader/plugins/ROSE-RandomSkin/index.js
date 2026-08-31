@@ -138,8 +138,14 @@
 
   function handlePhaseChange(data) {
     const wasInChampSelect = isInChampSelect;
+    const classicMode =
+      data.mapId === 453 ||
+      data.queueId === 3260 ||
+      (typeof data.gameMode === "string" && data.gameMode.toUpperCase() === "JADE");
     // Check if we're entering ChampSelect phase
-    isInChampSelect = data.phase === "ChampSelect" || data.phase === "FINALIZATION";
+    isInChampSelect =
+      !classicMode &&
+      (data.phase === "ChampSelect" || data.phase === "FINALIZATION");
 
     if (isInChampSelect && !wasInChampSelect) {
       log("debug", "Entered ChampSelect phase - enabling plugin");
@@ -708,4 +714,3 @@
     init();
   }
 })();
-

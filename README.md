@@ -60,6 +60,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **ROSE-HistoricMode**: Access to the last used skin for every champion
 - **ROSE-PartyMode**: Party mode UI — displays a panel in lobby and champion select to enable skin sharing, view connected peers, and see friends' skin selections in real time
 - **ROSE-Jade**: Client customization — regalia borders, backgrounds, banners, icons, titles, and win/loss stats
+- **ROSE-ClassicWheel / Chroma / Historic / Random**: Isolated controls for the native JADE Classic Mode skin catalog
 
 ## How It Works
 

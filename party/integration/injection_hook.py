@@ -159,6 +159,7 @@ class PartyInjectionHook:
                 skin_name=skin_name,
                 champion_name=None,
                 champion_id=champion_id,
+                game_mode=getattr(self.state, "current_game_mode", None),
             )
 
             if not zip_path or not zip_path.exists():

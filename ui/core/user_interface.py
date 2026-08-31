@@ -17,6 +17,7 @@ from ui.handlers.historic_mode_handler import HistoricModeHandler
 from ui.handlers.randomization_handler import RandomizationHandler
 from ui.handlers.skin_display_handler import SkinDisplayHandler
 from ui.core.lifecycle_manager import UILifecycleManager
+from utils.core.classic_mode_ids import is_classic_mode
 
 log = get_logger()
 
@@ -111,8 +112,14 @@ class UserInterface:
                 new_base_skin_id = None
                 prev_base_skin_id = None
             
-            # Cancel randomization if skin changed and random mode is active
-            if self.state.random_mode_active and not self.randomization_handler.randomization_in_progress:
+            # Classic selection is projected through LCU during history/random
+            # transitions; only its explicit selection message represents a
+            # user change. Keep the regular-mode cancellation behavior intact.
+            if (
+                self.state.random_mode_active
+                and not is_classic_mode(getattr(self.state, "current_game_mode", None))
+                and not self.randomization_handler.randomization_in_progress
+            ):
                 self.randomization_handler.cancel()
             
             # Always reset randomization flags if skin changed

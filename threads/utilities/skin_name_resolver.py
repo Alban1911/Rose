@@ -141,6 +141,23 @@ class SkinNameResolver:
             else:
                 log.error(f"[RANDOM] No random skin ID available for injection")
                 return None
+
+        # Classic Mode keeps a server-valid carrier selected in the LCU for
+        # unowned skins. Resolve the injected archive from Rose's projected
+        # target instead of that carrier/native selection.
+        classic_visual_skin_id = getattr(
+            self.state, "classic_visual_skin_id", None
+        )
+        if classic_visual_skin_id:
+            from utils.core.classic_mode_ids import is_classic_mode
+
+            if is_classic_mode(getattr(self.state, "current_game_mode", None)):
+                name = f"skin_{int(classic_visual_skin_id)}"
+                log.info(
+                    "[CLASSIC:INJECT] Using projected Classic skin for injection: %s",
+                    classic_visual_skin_id,
+                )
+                return name
         
         # Normal hovered skin
         skin_id = getattr(self.state, 'last_hovered_skin_id', None)
@@ -208,4 +225,3 @@ class SkinNameResolver:
             return final_label
         except Exception:
             return raw or ""
-

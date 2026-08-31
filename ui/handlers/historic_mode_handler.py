@@ -22,10 +22,13 @@ def historic_custom_mod_affects_skin(state: SharedState, *skin_ids: object) -> b
         from utils.core.historic import (
             get_custom_mod_path,
             get_historic_skin_for_champion,
+            historic_scope_for_state,
             is_custom_mod_path,
         )
 
-        historic_value = get_historic_skin_for_champion(int(champion_id))
+        historic_value = get_historic_skin_for_champion(
+            int(champion_id), historic_scope_for_state(state)
+        )
         if not is_custom_mod_path(historic_value):
             return False
 
@@ -116,9 +119,13 @@ class HistoricModeHandler:
         try:
             from utils.core.historic import (
                 get_historic_skin_for_champion,
+                historic_scope_for_state,
                 is_custom_mod_path,
             )
-            historic_value = get_historic_skin_for_champion(self.state.locked_champ_id)
+            historic_value = get_historic_skin_for_champion(
+                self.state.locked_champ_id,
+                historic_scope_for_state(self.state),
+            )
             custom_mod_applies = historic_custom_mod_affects_skin(self.state, skin_id)
 
             if historic_value is not None and (
@@ -181,4 +188,3 @@ class HistoricModeHandler:
                     self.state.ui_skin_thread._broadcast_historic_state()
             except Exception as e:
                 log.debug(f"[UI] Failed to broadcast historic state on deactivation: {e}")
-

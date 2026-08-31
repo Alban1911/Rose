@@ -12,6 +12,7 @@ from typing import Optional
 from lcu import LCU, compute_locked
 from state import SharedState
 from ui.chroma.selector import get_chroma_selector
+from utils.core.classic_mode_ids import resource_champion_id
 from utils.core.logging import get_logger, log_status, log_event
 
 log = get_logger()
@@ -47,7 +48,10 @@ class ChampionLockHandler:
             self.last_locked_champion_id = None
             self.state.reset_last_locked = False
 
-        new_locks = compute_locked(sess)
+        new_locks = {
+            cell_id: resource_champion_id(champion_id)
+            for cell_id, champion_id in compute_locked(sess).items()
+        }
         prev_cells = set(self.state.locks_by_cell.keys())
         curr_cells = set(new_locks.keys())
         added = sorted(list(curr_cells - prev_cells))
@@ -268,4 +272,3 @@ class ChampionLockHandler:
                     self.state.ui_skin_thread._broadcast_champion_locked(True)
             except Exception as e:
                 log.debug(f"[lock:champ] Failed to broadcast champion lock state: {e}")
-

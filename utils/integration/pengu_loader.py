@@ -44,6 +44,10 @@ _LEGACY_PENGU_LOGS = (
 _PLUGIN_ENTRYPOINT = "index.js"
 _PLUGIN_ENTRYPOINT_DISABLED = "index.js_"
 _PLUGIN_ENTRYPOINT_BUNDLED_BACKUP = "index.js.bundled"
+_BUNDLED_DISABLED_CLASSIC_MOD_PLUGINS = {
+    "ROSE-ClassicMods",
+    "ROSE-ClassicSkinSelector",
+}
 
 
 def _remove_legacy_pengu_logs(pengu_dir: Path) -> None:
@@ -169,7 +173,9 @@ def _restore_plugin_enable_state(pengu_dir: Path, enabled: set[str], disabled: s
 
         # If the user had a plugin enabled, prefer enabled state: remove any
         # reintroduced `index.js_` from the bundle.
-        for plugin_name in enabled:
+        # These experimental Classic Mod entrypoints ship disabled on main;
+        # do not revive an enabled copy left behind by a development build.
+        for plugin_name in enabled - _BUNDLED_DISABLED_CLASSIC_MOD_PLUGINS:
             plugin_dir = plugins_dir / plugin_name
             if not plugin_dir.is_dir():
                 continue

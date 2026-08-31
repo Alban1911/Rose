@@ -1,23 +1,21 @@
 /**
- * @name ROSE-CustomWheel
+ * @name ROSE-ClassicMods
  * @author Rose Team
- * @description Custom mod wheel for Pengu Loader - displays installed mods for hovered skins
- * @link https://github.com/Alban1911/ROSE-CustomWheel
+ * @description Classic-mode Mod selector derived from ROSE-CustomWheel.
  */
-(function createCustomWheel() {
-  const LOG_PREFIX = "[ROSE-CustomWheel]";
-  console.log(`${LOG_PREFIX} JS Loaded`);
-  // Keep the custom wheel fully namespaced. The official chroma wheel uses
-  // the lu-chroma-* selectors, and sharing them makes the two panels style
-  // and interfere with one another.
-  const BUTTON_CLASS = "rose-custom-wheel-button";
+(function createClassicMods() {
+  const LOG_PREFIX = "[ROSE-ClassicMods]";
+  // Keep the Classic selector independent from the regular Mod wheel.
+  const BUTTON_CLASS = "rose-classic-mods-button";
   const BUTTON_SELECTOR = `.${BUTTON_CLASS}`;
-  const PANEL_CLASS = "rose-custom-wheel-panel";
-  const PANEL_ID = "rose-custom-wheel-panel-container";
+  const PANEL_CLASS = "rose-classic-mods-panel";
+  const PANEL_ID = "rose-classic-mods-panel-container";
   const REQUEST_TYPE = "request-skin-mods";
   const EVENT_SKIN_STATE = "lu-skin-monitor-state";
+  const EVENT_CLASSIC_SELECTION = "rose-classic-selection-change";
 
   let isOpen = false;
+  let bridge = null;
   let panel = null;
   let button = null;
   let championSelectRoot = null;
@@ -44,29 +42,29 @@
   // These are first-class categories in the UI; they just share the same list rendering logic.
   let selectedCategoryIds = Object.create(null);
 
+  function log(level, message, data = null) {
+    const method = level === "error" ? "error" : level === "warn" ? "warn" : "log";
+    console[method](`${LOG_PREFIX} ${message}`, data || "");
+    try {
+      bridge?.send({
+        type: "plugin-log",
+        source: "ClassicMods",
+        level,
+        message,
+        data,
+        timestamp: Date.now(),
+      });
+    } catch (_) {}
+  }
+
+  log("info", "Classic Mods script loaded");
+
   function getCurrentSkinContext() {
-    const state = window.__roseSkinState || {};
-    const championId = Number(state.championId);
-    let skinId = Number(state.skinId);
-    const selectedChromaId = Number(pythonChromaState?.selectedChromaId);
-    const currentSkinId = Number(pythonChromaState?.currentSkinId);
-
-    const chromaBelongsToChampion =
-      Number.isFinite(selectedChromaId) &&
-      selectedChromaId > 0 &&
-      Number.isFinite(championId) &&
-      championId > 0 &&
-      Math.floor(selectedChromaId / 1000) === championId;
-    const chromaContextMatches =
-      !Number.isFinite(currentSkinId) ||
-      currentSkinId <= 0 ||
-      Math.floor(currentSkinId / 1000) === championId;
-
-    if (chromaBelongsToChampion && chromaContextMatches) {
-      skinId = selectedChromaId;
-    }
-
-    return { championId, skinId };
+    const selection = window.__roseClassicWheelApi?.currentSelection?.();
+    return {
+      championId: Number(selection?.championId) || 0,
+      skinId: Number(selection?.skinId) || 0,
+    };
   }
 
   function isSelectedModForSkin(skinId = getCurrentSkinContext().skinId) {
@@ -106,6 +104,12 @@
     pythonChromaState = null;
     selectedModId = null;
     selectedModSkinId = null;
+    selectedMapId = null;
+    selectedFontId = null;
+    selectedAnnouncerId = null;
+    clearAllCategorySelections();
+    lastCategoryModsById = {};
+    emittedHistoricSelectionKeys.clear();
     pendingSelectionRequest = null;
     latestSkinModsRequestId = null;
     currentSkinMods = [];
@@ -113,33 +117,43 @@
 
   function handlePhaseChange(data) {
     const phase = String(data?.phase || "");
-    const previousPhase = currentPhase;
+    const wasActive = classicModeActive;
     currentPhase = phase;
-    classicModeActive =
+    const classicContext =
       data?.mapId === 453 ||
       data?.queueId === 3260 ||
       (typeof data?.gameMode === "string" && data.gameMode.toUpperCase() === "JADE");
+    classicModeActive =
+      classicContext && (phase === "ChampSelect" || phase === "FINALIZATION");
 
-    if (classicModeActive) {
-      resetCustomSkinSessionState();
+    if (wasActive !== classicModeActive) {
+      log("info", classicModeActive ? "Classic Mods mode activated" : "Classic Mods mode deactivated", {
+        phase,
+        mapId: data?.mapId,
+        queueId: data?.queueId,
+      });
+    }
+
+    if (!classicModeActive) {
+      if (wasActive) resetCustomSkinSessionState();
       closePanel();
       detachFromChampionSelect();
       championSelectRoot = null;
       return;
     }
 
-    if (
-      phase === "ChampSelect" &&
-      previousPhase &&
-      previousPhase !== "ChampSelect"
-    ) {
+    if (!wasActive) {
       resetCustomSkinSessionState();
-    } else if (
-      phase !== "ChampSelect" &&
-      previousPhase === "ChampSelect"
-    ) {
-      resetCustomSkinSessionState();
+      requestGlobalMods();
     }
+    updateChampionSelectTarget();
+    setTimeout(requestModsForCurrentSkin, 0);
+  }
+
+  function requestGlobalMods() {
+    requestFonts();
+    requestAnnouncers();
+    for (const tab of OTHER_CATEGORY_TABS) requestCategoryMods(tab.id);
   }
   let lastChampionSelectSession = null; // Track current champ select session
   let isFirstOpenInSession = true; // Track if this is first open in current session
@@ -178,6 +192,9 @@
     { id: "announcers", label: "Announcers" },
     ...OTHER_CATEGORY_TABS.map((t) => ({ id: t.id, label: t.label })),
   ];
+  const DISABLED_CLASSIC_TABS = new Map([
+    ["maps", "Classic map Mod compatibility has not been verified for map 453."],
+  ]);
 
   const SUMMARY_ICONS = {
     skins: '<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
@@ -212,6 +229,7 @@
   }
 
   function getSelectedSummaryForTab(tabId) {
+    if (DISABLED_CLASSIC_TABS.has(tabId)) return "Unavailable";
     if (tabId === "skins") {
       if (!championLocked) return "Waiting for champ lock…";
       return isSelectedModForSkin() ? String(selectedModId) : "None";
@@ -249,13 +267,15 @@
     for (const tab of SUMMARY_TABS) {
       const el = panel._summaryValuesByTab[tab.id];
       const raw = getSelectedSummaryForTab(tab.id);
-      if (el) {
-        el.textContent = (raw !== "None" && raw !== "Waiting for champ lock…") ? cleanModName(raw) : raw;
-      }
+      const hasSelection =
+        raw !== "None" &&
+        raw !== "Unavailable" &&
+        raw !== "Waiting for champ lock…";
+      if (el) el.textContent = hasSelection ? cleanModName(raw) : raw;
       // Toggle active class on the row
       const row = panel._summaryRowsByTab && panel._summaryRowsByTab[tab.id];
       if (row) {
-        if (raw !== "None" && raw !== "Waiting for champ lock…") {
+        if (hasSelection) {
           row.classList.add("active");
         } else {
           row.classList.remove("active");
@@ -283,7 +303,7 @@
     if (panel._rightTitle) {
       if (mode === "picker") {
         const icon = SUMMARY_ICONS[activeTab] || "";
-        panel._rightTitle.innerHTML = `<span class="rose-wheel-title-icon">${icon}</span> Choose \u2022 ${escapeHtml(getTabLabel(activeTab))}`;
+        panel._rightTitle.innerHTML = `<span class="rose-classic-mods-title-icon">${icon}</span> Choose \u2022 ${escapeHtml(getTabLabel(activeTab))}`;
       } else {
         panel._rightTitle.textContent = "Custom Mods";
       }
@@ -291,8 +311,6 @@
   }
 
   // Shared bridge API (provided by ROSE-SkinMonitor)
-  let bridge = null;
-
   function waitForBridge() {
     return new Promise((resolve, reject) => {
       const timeout = 10000;
@@ -336,23 +354,23 @@
     }
 
     /* Button and Badge Styles */
-    lol-uikit-flat-button.rose-custom-wheel-button,
-    .rose-custom-wheel-button {
+    lol-uikit-flat-button.rose-classic-mods-button,
+    .rose-classic-mods-button {
       display: inline-block !important;
       white-space: nowrap !important;
       /* Keep badge stacking self-contained (prevents weird overlap with other UI) */
       isolation: isolate !important;
     }
 
-    .rose-custom-wheel-button .count-badge.social-count-badge,
-    lol-uikit-flat-button.rose-custom-wheel-button .count-badge.social-count-badge,
-    .rose-custom-wheel-button > .count-badge.social-count-badge,
-    lol-uikit-flat-button.rose-custom-wheel-button > .count-badge.social-count-badge {
+    .rose-classic-mods-button .count-badge.social-count-badge,
+    lol-uikit-flat-button.rose-classic-mods-button .count-badge.social-count-badge,
+    .rose-classic-mods-button > .count-badge.social-count-badge,
+    lol-uikit-flat-button.rose-classic-mods-button > .count-badge.social-count-badge {
       position: absolute !important;
       /* Positioning: edit these via CSS variables on the element (DevTools-friendly) */
-      top: var(--rose-badge-top, -4px) !important;
-      right: var(--rose-badge-right, -17px) !important;
-      left: var(--rose-badge-left, auto) !important;
+      top: var(--rose-classic-mods-badge-top, -4px) !important;
+      right: var(--rose-classic-mods-badge-right, -17px) !important;
+      left: var(--rose-classic-mods-badge-left, auto) !important;
       min-width: 18px !important;
       height: 18px !important;
       padding: 0 5px !important;
@@ -370,8 +388,8 @@
       /* Above button contents, but not globally "high" */
       z-index: 1 !important;
       transform: translate(
-        var(--rose-badge-translate-x, 60%),
-        var(--rose-badge-translate-y, -60%)
+        var(--rose-classic-mods-badge-translate-x, 60%),
+        var(--rose-classic-mods-badge-translate-y, -60%)
       ) !important;
       margin: 0 !important;
       bottom: auto !important;
@@ -403,7 +421,7 @@
       background-color: transparent !important;
       border: none !important;
     }
-    
+
     .${BUTTON_CLASS} .button-image.default {
       background-color: transparent;
       border: none;
@@ -451,8 +469,8 @@
       min-height: 420px !important;
       max-height: calc(100vh - 120px) !important;
     }
-    
-    .${PANEL_CLASS} .chroma-modal.rose-custom-wheel-modal {
+
+    .${PANEL_CLASS} .chroma-modal.rose-classic-mods-modal {
       /* Height handled in base class to ensure consistency */
       overflow: hidden;
     }
@@ -466,7 +484,7 @@
       width: auto !important;
       filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
     }
-    
+
     .${PANEL_CLASS} .flyout .caret,
     .${PANEL_CLASS} .flyout [class*="caret"],
     .${PANEL_CLASS} lol-uikit-flyout-frame .caret,
@@ -493,7 +511,7 @@
     /* Tab Navigation */
     /* ===== Unified Summary rows (category + status + change in one row) ===== */
 
-    .${PANEL_CLASS} .rose-wheel-right-header {
+    .${PANEL_CLASS} .rose-classic-mods-right-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -504,7 +522,7 @@
       flex-shrink: 0;
     }
 
-    .${PANEL_CLASS} .rose-wheel-right-title {
+    .${PANEL_CLASS} .rose-classic-mods-right-title {
       font-weight: 700;
       color: #f0e6d2;
       font-size: 13px;
@@ -516,13 +534,13 @@
       gap: 6px;
     }
 
-    .${PANEL_CLASS} .rose-wheel-right-title .rose-wheel-title-icon {
+    .${PANEL_CLASS} .rose-classic-mods-right-title .rose-classic-mods-title-icon {
       width: 18px;
       height: 18px;
       flex-shrink: 0;
     }
 
-    .${PANEL_CLASS} .rose-wheel-right-title .rose-wheel-title-icon svg {
+    .${PANEL_CLASS} .rose-classic-mods-right-title .rose-classic-mods-title-icon svg {
       width: 18px;
       height: 18px;
       fill: none;
@@ -532,7 +550,7 @@
       stroke-linejoin: round;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary {
+    .${PANEL_CLASS} .rose-classic-mods-summary {
       flex: 1;
       min-height: 0;
       display: flex;
@@ -543,11 +561,11 @@
       overflow-y: auto;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary::-webkit-scrollbar { width: 6px; }
-    .${PANEL_CLASS} .rose-wheel-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
-    .${PANEL_CLASS} .rose-wheel-summary::-webkit-scrollbar-thumb { background: #5b5a56; border-radius: 3px; }
+    .${PANEL_CLASS} .rose-classic-mods-summary::-webkit-scrollbar { width: 6px; }
+    .${PANEL_CLASS} .rose-classic-mods-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+    .${PANEL_CLASS} .rose-classic-mods-summary::-webkit-scrollbar-thumb { background: #5b5a56; border-radius: 3px; }
 
-    .${PANEL_CLASS} .rose-wheel-summary-row {
+    .${PANEL_CLASS} .rose-classic-mods-summary-row {
       display: grid;
       grid-template-columns: 1fr auto;
       align-items: center;
@@ -560,27 +578,33 @@
       transition: all 0.2s ease;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-row:hover {
+    .${PANEL_CLASS} .rose-classic-mods-summary-row:hover {
       background: linear-gradient(to right, rgba(40, 45, 50, 0.9), rgba(40, 45, 50, 0.7));
       border-color: #5c5c61;
       border-left-color: #c8aa6e;
       transform: translateX(2px);
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-row:active {
+    .${PANEL_CLASS} .rose-classic-mods-summary-row:active {
       transform: scale(0.98);
       transition: transform 0.1s ease;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-row.active {
+    .${PANEL_CLASS} .rose-classic-mods-summary-row.active {
       border-left: 3px solid #c8aa6e;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-row:hover .rose-wheel-summary-icon {
+    .${PANEL_CLASS} .rose-classic-mods-summary-row.disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
+    .${PANEL_CLASS} .rose-classic-mods-summary-row:hover .rose-classic-mods-summary-icon {
       color: #c8aa6e;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-icon {
+    .${PANEL_CLASS} .rose-classic-mods-summary-icon {
       width: 18px;
       height: 18px;
       flex-shrink: 0;
@@ -588,7 +612,7 @@
       transition: color 0.2s ease;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-icon svg {
+    .${PANEL_CLASS} .rose-classic-mods-summary-icon svg {
       width: 18px;
       height: 18px;
       fill: none;
@@ -598,7 +622,7 @@
       stroke-linejoin: round;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-left {
+    .${PANEL_CLASS} .rose-classic-mods-summary-left {
       flex: 1;
       min-width: 0;
       display: flex;
@@ -606,7 +630,7 @@
       gap: 6px;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-label {
+    .${PANEL_CLASS} .rose-classic-mods-summary-label {
       color: #a09b8c;
       font-size: 12px;
       font-weight: 700;
@@ -614,20 +638,20 @@
       letter-spacing: 0.5px;
     }
 
-    .${PANEL_CLASS} .rose-wheel-summary-value {
+    .${PANEL_CLASS} .rose-classic-mods-summary-value {
       color: #f0e6d2;
       font-size: 13px;
       font-weight: 700;
       word-break: break-word;
     }
 
-    .${PANEL_CLASS} .rose-wheel-picker {
+    .${PANEL_CLASS} .rose-classic-mods-picker {
       flex: 1;
       min-height: 0;
       display: none;
     }
 
-    .${PANEL_CLASS} .rose-wheel-picker.active {
+    .${PANEL_CLASS} .rose-classic-mods-picker.active {
       display: flex;
       flex-direction: column;
       min-height: 0;
@@ -717,7 +741,7 @@
       gap: 12px;
       width: 100%;
     }
-    
+
     .${PANEL_CLASS} .mod-name {
       color: #f0e6d2;
       font-size: 13px;
@@ -737,7 +761,7 @@
       word-wrap: break-word;
     }
 
-    .${PANEL_CLASS} .mod-meta, 
+    .${PANEL_CLASS} .mod-meta,
     .${PANEL_CLASS} .mod-injection-note {
       color: #7a7a7d;
       font-size: 10px;
@@ -752,7 +776,7 @@
       font-style: italic;
     }
 
-    .${PANEL_CLASS} .rose-wheel-back-button {
+    .${PANEL_CLASS} .rose-classic-mods-back-button {
       background: transparent;
       border: 1px solid #c8aa6e;
       color: #c8aa6e;
@@ -766,14 +790,14 @@
       border-radius: 0;
     }
 
-    .${PANEL_CLASS} .rose-wheel-back-button:hover {
+    .${PANEL_CLASS} .rose-classic-mods-back-button:hover {
       background: rgba(200, 170, 110, 0.1);
       box-shadow: 0 0 8px rgba(200, 170, 110, 0.2);
     }
   `;
 
   function injectCSS() {
-    const styleId = "rose-custom-wheel-css";
+    const styleId = "rose-classic-mods-css";
     if (document.getElementById(styleId)) {
       return;
     }
@@ -794,8 +818,8 @@
     } catch (e) {
       button = document.createElement("div");
     }
-    button.className = "lol-uikit-flat-button idle rose-custom-wheel-button";
-    button.textContent = "Custom mods";
+    button.className = "lol-uikit-flat-button idle rose-classic-mods-button";
+    button.textContent = "Classic mods";
 
     // Ensure button has relative positioning for badge (only if not already positioned)
     const computedStyle = window.getComputedStyle(button);
@@ -809,11 +833,11 @@
     countBadge.textContent = "0";
     countBadge.style.display = "none"; // Hidden by default
     // Defaults (can be overridden live in DevTools on the element via CSS variables)
-    countBadge.style.setProperty("--rose-badge-top", "-4px");
-    countBadge.style.setProperty("--rose-badge-right", "-17px");
-    countBadge.style.setProperty("--rose-badge-left", "auto");
-    countBadge.style.setProperty("--rose-badge-translate-x", "60%");
-    countBadge.style.setProperty("--rose-badge-translate-y", "-60%");
+    countBadge.style.setProperty("--rose-classic-mods-badge-top", "-4px");
+    countBadge.style.setProperty("--rose-classic-mods-badge-right", "-17px");
+    countBadge.style.setProperty("--rose-classic-mods-badge-left", "auto");
+    countBadge.style.setProperty("--rose-classic-mods-badge-translate-x", "60%");
+    countBadge.style.setProperty("--rose-classic-mods-badge-translate-y", "-60%");
     button.appendChild(countBadge);
     button._countBadge = countBadge; // Store reference
 
@@ -876,7 +900,7 @@
     }
 
     const modal = document.createElement("div");
-    modal.className = "rose-custom-wheel-modal chroma-modal";
+    modal.className = "rose-classic-mods-modal chroma-modal";
 
     // Header Decoration removed as per user request
 
@@ -920,7 +944,7 @@
       if (panel && panel._rightTitle) {
         if (rightPaneMode === "picker") {
           const icon = SUMMARY_ICONS[activeTab] || "";
-          panel._rightTitle.innerHTML = `<span class="rose-wheel-title-icon">${icon}</span> Choose \u2022 ${escapeHtml(getTabLabel(activeTab))}`;
+          panel._rightTitle.innerHTML = `<span class="rose-classic-mods-title-icon">${icon}</span> Choose \u2022 ${escapeHtml(getTabLabel(activeTab))}`;
         } else {
           panel._rightTitle.textContent = "Custom Mods";
         }
@@ -1076,10 +1100,10 @@
 
     // Header + Summary + Picker (Summary rows contain the category buttons on the left)
     const rightHeader = document.createElement("div");
-    rightHeader.className = "rose-wheel-right-header";
+    rightHeader.className = "rose-classic-mods-right-header";
 
     const rightTitle = document.createElement("div");
-    rightTitle.className = "rose-wheel-right-title";
+    rightTitle.className = "rose-classic-mods-right-title";
     rightTitle.textContent = "Custom Mods";
 
     const headerButtons = document.createElement("div");
@@ -1087,7 +1111,7 @@
     headerButtons.style.gap = "8px";
 
     const backBtn = document.createElement("button");
-    backBtn.className = "rose-wheel-back-button";
+    backBtn.className = "rose-classic-mods-back-button";
     backBtn.textContent = "Back";
     backBtn.style.display = "none";
 
@@ -1098,29 +1122,35 @@
 
     // Summary view (all categories)
     const summaryView = document.createElement("div");
-    summaryView.className = "rose-wheel-summary";
+    summaryView.className = "rose-classic-mods-summary";
 
     panel._summaryValuesByTab = {};
     panel._summaryRowsByTab = {};
 
     SUMMARY_TABS.forEach((tab) => {
       const row = document.createElement("div");
-      row.className = "rose-wheel-summary-row";
+      row.className = "rose-classic-mods-summary-row";
+      const disabledReason = DISABLED_CLASSIC_TABS.get(tab.id);
       row.setAttribute("role", "button");
-      row.tabIndex = 0;
+      row.setAttribute("aria-disabled", disabledReason ? "true" : "false");
+      row.tabIndex = disabledReason ? -1 : 0;
+      if (disabledReason) {
+        row.classList.add("disabled");
+        row.title = disabledReason;
+      }
 
       // Left cell: value
       const left = document.createElement("div");
-      left.className = "rose-wheel-summary-left";
+      left.className = "rose-classic-mods-summary-left";
 
       const label = document.createElement("div");
-      label.className = "rose-wheel-summary-label";
+      label.className = "rose-classic-mods-summary-label";
       label.style.display = "flex";
       label.style.alignItems = "center";
       label.style.gap = "6px";
 
       const iconSpan = document.createElement("span");
-      iconSpan.className = "rose-wheel-summary-icon";
+      iconSpan.className = "rose-classic-mods-summary-icon";
       iconSpan.innerHTML = SUMMARY_ICONS[tab.id] || "";
       label.appendChild(iconSpan);
 
@@ -1129,7 +1159,7 @@
       label.appendChild(labelText);
 
       const value = document.createElement("div");
-      value.className = "rose-wheel-summary-value";
+      value.className = "rose-classic-mods-summary-value";
       value.textContent = getSelectedSummaryForTab(tab.id);
       panel._summaryValuesByTab[tab.id] = value;
 
@@ -1137,6 +1167,7 @@
       left.appendChild(value);
 
       const openPicker = () => {
+        if (disabledReason) return;
         switchTab(tab.id);
         setRightPaneMode("picker");
         refreshSummaryValues();
@@ -1157,7 +1188,7 @@
 
     // Picker view (reuses existing scrollable with tab contents)
     const pickerView = document.createElement("div");
-    pickerView.className = "rose-wheel-picker";
+    pickerView.className = "rose-classic-mods-picker";
     pickerView.appendChild(scrollable);
 
     backBtn.addEventListener("click", (e) => {
@@ -1300,7 +1331,7 @@
         expectedModId: selectedModId,
       });
     } else {
-      console.log(`[ROSE-CustomWheel] Sending mod selection:`, { championId, skinId, modId, modData });
+      log("info", "Mod selection requested", { championId, skinId, modId, modData });
       sendSkinModSelection({ championId, skinId, modId, modData });
     }
   }
@@ -1935,8 +1966,8 @@
 
   function updateChampionSelectTarget() {
     const target = classicModeActive
-      ? null
-      : document.querySelector(".champion-select");
+      ? document.querySelector(".champion-select")
+      : null;
     if (target === championSelectRoot) {
       // Even if target is the same, check if button needs to be attached
       if (target && (!button || !button.parentNode)) {
@@ -2187,6 +2218,7 @@
   }
 
   function handleSkinState(event) {
+    if (!classicModeActive) return;
     resetStaleChromaStateForSkin(event?.detail?.skinId);
 
     // Always request mods to update badge, even if panel is not open
@@ -2224,7 +2256,6 @@
     let count = 0;
     // Skins are only meaningful after champ lock.
     if (championLocked && isSelectedModForSkin()) count += 1;
-    if (selectedMapId) count += 1;
     if (selectedFontId) count += 1;
     if (selectedAnnouncerId) count += 1;
     // Sum the unique selections per category (UI / VO / Loading Screen / VFX / SFX / Others).
@@ -2275,7 +2306,7 @@
     pendingSelectionRequest = null;
 
     if (!detail.success) {
-      console.warn(`${LOG_PREFIX} Custom skin selection failed: ${detail.error || "unknown error"}`);
+      log("error", "Custom skin selection failed", detail.error || "unknown error");
       refreshSummaryValues();
       refreshButtonBadgeFromSelections();
       return;
@@ -2288,6 +2319,12 @@
       selectedModId = String(detail.relativePath || detail.modId || pending?.modId || "");
       selectedModSkinId = Number(detail.skinId || getCurrentSkinContext().skinId);
     }
+
+    log("info", "Custom Mod selection completed", {
+      operation: detail.operation || "unknown",
+      modId: detail.modId || detail.relativePath || null,
+      skinId: detail.skinId || pending?.skinId || null,
+    });
 
     if (isOpen) {
       updateModEntries(currentSkinMods);
@@ -2573,7 +2610,7 @@
     // historicMod can be a string (legacy) or an array (new format)
     const historicMod = detail.historicMod;
     const historicMods = Array.isArray(historicMod) ? historicMod : (historicMod ? [historicMod] : []);
-    
+
     const selectedIds = getSelectedIdsForCategory("others");
     if (historicMods.length > 0 && selectedIds.length === 0) {
       // Find all mods that match the historic paths
@@ -2744,9 +2781,9 @@
   whenReady(async () => {
     try {
       bridge = await waitForBridge();
-      console.log(`${LOG_PREFIX} Bridge connected`);
+      log("info", "Bridge connected");
     } catch (e) {
-      console.error(`${LOG_PREFIX} Failed to connect to bridge:`, e);
+      log("error", "Failed to connect to bridge", String(e));
     }
 
     injectCSS();
@@ -2758,6 +2795,11 @@
     // Keep the skin-state window event (published by SkinMonitor via CustomEvent)
     window.addEventListener(EVENT_SKIN_STATE, handleSkinState, {
       passive: true,
+    });
+    window.addEventListener(EVENT_CLASSIC_SELECTION, () => {
+      if (!classicModeActive) return;
+      requestModsForCurrentSkin();
+      if (isOpen && activeTab === "skins") refreshSummaryValues();
     });
 
     // Subscribe to bridge messages instead of window CustomEvents
@@ -2795,13 +2837,11 @@
 
       // Request initial data on every (re)connect
       bridge.onReady(() => {
-        requestMaps();
-        requestFonts();
-        requestAnnouncers();
-        for (const t of OTHER_CATEGORY_TABS) {
-          requestCategoryMods(t.id);
-        }
+        if (classicModeActive) requestGlobalMods();
       });
+
+      const classicState = window.__roseClassicWheelApi?.state?.();
+      if (classicState) handlePhaseChange(classicState);
     }
 
     // Reposition button when skin changes

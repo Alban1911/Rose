@@ -8,6 +8,7 @@ import time
 import threading
 from lcu import LCU
 from state import SharedState
+from utils.core.classic_mode_ids import resource_champion_id
 from utils.core.logging import get_logger
 from ui.chroma.selector import get_chroma_selector
 from config import CHAMP_POLL_INTERVAL
@@ -129,10 +130,15 @@ class ChampThread(threading.Thread):
                 continue
             
             cid = self.lcu.hovered_champion_id
+            if cid is not None:
+                try:
+                    cid = resource_champion_id(cid) or None
+                except (TypeError, ValueError):
+                    cid = None
             if cid is None:
                 sel = self.lcu.my_selection or {}
                 try: 
-                    cid = int(sel.get("selectedChampionId") or 0) or None
+                    cid = resource_champion_id(sel.get("selectedChampionId") or 0) or None
                 except Exception: 
                     cid = None
             
@@ -151,7 +157,7 @@ class ChampThread(threading.Thread):
                 for rnd in actions:
                     for act in rnd:
                         if act.get("actorCellId") == my_cell and act.get("type") == "pick" and act.get("completed"):
-                            ch = int(act.get("championId") or 0)
+                            ch = resource_champion_id(act.get("championId") or 0)
                             if ch > 0: 
                                 locked = ch
                 if locked:

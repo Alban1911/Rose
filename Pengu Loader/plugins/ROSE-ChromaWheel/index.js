@@ -816,10 +816,21 @@
       const phase = data.phase;
       const gameMode = data.gameMode;
       const mapId = data.mapId;
+      const classicMode =
+        mapId === 453 ||
+        data.queueId === 3260 ||
+        (typeof gameMode === "string" && gameMode.toUpperCase() === "JADE");
       // Late startup can replay "ChampSelect" after skin-state is already current.
       // Keep the last seen phase so we only reset on real phase transitions.
       const previousPhase = currentPhase;
       currentPhase = phase;
+
+      if (classicMode) {
+        resetFrontendSessionState("classic-plugin-isolation");
+        stopObserver();
+        isAramFromPython = false;
+        return;
+      }
 
       if (phase === "ChampSelect") {
         // Only reset on a real transition into a new Champ Select session.

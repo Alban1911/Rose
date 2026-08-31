@@ -69,12 +69,15 @@ def _dedupe_keep_order(items: Iterable[str]) -> List[str]:
     return out
 
 
-def _mod_historic_file_path() -> Path:
+def _mod_historic_file_path(scope: str = "regular") -> Path:
     data_dir = get_user_data_dir()
-    return data_dir / "mod_historic.json"
+    filename = (
+        "mod_historic_classic.json" if scope == "classic" else "mod_historic.json"
+    )
+    return data_dir / filename
 
 
-def load_mod_historic() -> Dict[str, Union[str, List[str]]]:
+def load_mod_historic(scope: str = "regular") -> Dict[str, Union[str, List[str]]]:
     """Load the mod historic mapping. Returns empty dict if missing or invalid.
 
     Normalized shape returned:
@@ -85,7 +88,7 @@ def load_mod_historic() -> Dict[str, Union[str, List[str]]]:
     If the file is legacy-only, this function will best-effort migrate it to the new shape.
     """
     try:
-        p = _mod_historic_file_path()
+        p = _mod_historic_file_path(scope)
         if not p.exists():
             return {}
         with p.open("r", encoding="utf-8") as f:
@@ -155,14 +158,16 @@ def load_mod_historic() -> Dict[str, Union[str, List[str]]]:
         return {}
 
 
-def get_historic_mod(mod_type: str) -> Union[Optional[str], Optional[List[str]]]:
+def get_historic_mod(
+    mod_type: str, scope: str = "regular"
+) -> Union[Optional[str], Optional[List[str]]]:
     """Get historic mod for a specific type.
 
     - "map"/"font"/"announcer": returns str|None
     - category keys ("ui"/"voiceover"/"loading_screen"/"vfx"/"sfx"/"others"): returns list[str]|None
     - legacy "other": returns combined list across category keys (best-effort compat)
     """
-    m = load_mod_historic()
+    m = load_mod_historic(scope)
     value = m.get(mod_type)
     if mod_type in _CATEGORY_KEYS:
         if isinstance(value, list) and value:
@@ -180,15 +185,19 @@ def get_historic_mod(mod_type: str) -> Union[Optional[str], Optional[List[str]]]
     return value if isinstance(value, str) else None
 
 
-def write_historic_mod(mod_type: str, relative_path: Union[str, List[str]]) -> None:
+def write_historic_mod(
+    mod_type: str,
+    relative_path: Union[str, List[str]],
+    scope: str = "regular",
+) -> None:
     """Write or overwrite the entry for the mod type.
     
     Args:
         mod_type: "map"/"font"/"announcer" or a category key (ui/voiceover/loading_screen/vfx/sfx/others).
         relative_path: For category keys, can be a list of relative paths. For single-select keys, must be a string.
     """
-    p = _mod_historic_file_path()
-    m = load_mod_historic()
+    p = _mod_historic_file_path(scope)
+    m = load_mod_historic(scope)
     
     # Normalize legacy "other" writes into per-category keys
     if mod_type == "other":
@@ -228,14 +237,14 @@ def write_historic_mod(mod_type: str, relative_path: Union[str, List[str]]) -> N
         pass
 
 
-def clear_historic_mod(mod_type: str) -> None:
+def clear_historic_mod(mod_type: str, scope: str = "regular") -> None:
     """Clear the historic entry for a specific mod type.
     
     Args:
         mod_type: One of "map", "font", "announcer", "other"
     """
-    p = _mod_historic_file_path()
-    m = load_mod_historic()
+    p = _mod_historic_file_path(scope)
+    m = load_mod_historic(scope)
     if mod_type == "other":
         # Backward compat: clear all category keys
         changed = False
@@ -260,4 +269,3 @@ def clear_historic_mod(mod_type: str) -> None:
     except Exception:
         # Silently ignore write errors; feature is best-effort
         pass
-

@@ -232,6 +232,13 @@ class PhaseHandler:
     
     def _reset_state(self):
         """Reset state for phase exit"""
+        from utils.core.classic_mode_ids import is_classic_mode
+
+        if is_classic_mode(self.state.current_game_mode):
+            self.state.current_game_mode = None
+            self.state.current_map_id = None
+            self.state.current_queue_id = None
+            self.state.clear_classic_mode()
         self.state.hovered_champ_id = None
         self.state.locked_champ_id = None
         self.state.locked_champ_timestamp = 0.0
@@ -244,4 +251,3 @@ class PhaseHandler:
         # via cleanup_swiftplay_exit() which also handles the associated
         # tracking/mods state atomically.  Clearing the flag alone would
         # leave orphaned swiftplay_extracted_mods / swiftplay_skin_tracking.
-

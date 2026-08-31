@@ -49,6 +49,7 @@
   let historicFlagImageUrl = null; // HTTP URL from Python
   const pendingHistoricFlagRequest = new Map(); // Track pending requests
   let isInChampSelect = false; // Track if we're in ChampSelect phase
+  let isInClassicMode = false;
   let pythonChromaState = null;
   let customModTargetSkinId = null;
   let customModTargetSkinIds = new Set();
@@ -135,9 +136,17 @@
 
   function handlePhaseChange(data) {
     const wasInChampSelect = isInChampSelect;
+    const classicMode =
+      data.mapId === 453 ||
+      data.queueId === 3260 ||
+      (typeof data.gameMode === "string" && data.gameMode.toUpperCase() === "JADE");
+    isInClassicMode = classicMode;
     // Check if we're entering ChampSelect phase
     isInChampSelect =
-      data.phase === "ChampSelect" || data.phase === "FINALIZATION";
+      !classicMode &&
+      (data.phase === "ChampSelect" || data.phase === "FINALIZATION");
+
+    if (classicMode) removeHistoricSkinName();
 
     if (isInChampSelect && !wasInChampSelect) {
       customModPopupActive = false;
@@ -913,6 +922,10 @@
   }
 
   const handleHistoricSkinNameUpdate = (payload) => {
+    if (isInClassicMode || window.__roseClassicWheelApi?.state?.().active === true) {
+      removeHistoricSkinName();
+      return;
+    }
     // A custom-mod popup owns this same visual layer. Historic-state
     // broadcasts can arrive slightly after the custom-mod selection, so do
     // not let an inactive historic update erase the custom-mod name.

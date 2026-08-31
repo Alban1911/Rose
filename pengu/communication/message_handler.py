@@ -23,6 +23,15 @@ from injection.mods.storage import ModStorageService
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
+from utils.core.classic_mode_ids import (
+    CLASSIC_MODE,
+    catalog_skin_ids,
+    is_classic_mode,
+    mode_skin_id,
+    resource_champion_id,
+    resource_skin_id,
+    validated_default_skin_id,
+)
 from utils.core.utilities import get_base_skin_id_for_chroma
 from utils.system.admin_utils import (
     is_admin,
@@ -128,6 +137,34 @@ class MessageHandler:
         self.mod_storage = mod_storage or ModStorageService()
         self.injection_manager = injection_manager
 
+    def _historic_scope(self) -> str:
+        from utils.core.historic import historic_scope_for_state
+
+        return historic_scope_for_state(self.shared_state)
+
+    def _drop_mismatched_mod_selections(self) -> None:
+        scope = self._historic_scope()
+
+        def matches(value) -> bool:
+            return isinstance(value, dict) and value.get("scope", "regular") == scope
+
+        for attr in (
+            "selected_custom_mod",
+            "selected_map_mod",
+            "selected_font_mod",
+            "selected_announcer_mod",
+            "selected_other_mod",
+        ):
+            value = getattr(self.shared_state, attr, None)
+            if value and not matches(value):
+                setattr(self.shared_state, attr, None)
+
+        selections = getattr(self.shared_state, "selected_other_mods", None)
+        if isinstance(selections, list):
+            self.shared_state.selected_other_mods = [
+                value for value in selections if matches(value)
+            ]
+
     def _is_valid_local_league_path(self, game_path: str) -> bool:
         """Validate a League install path without touching UNC/network paths."""
         if not isinstance(game_path, str):
@@ -165,12 +202,20 @@ class MessageHandler:
         payload_type = payload.get("type")
         
         # Route to appropriate handler
-        if payload_type == "chroma-log":
+        if payload_type in {"chroma-log", "plugin-log"}:
             self._handle_chroma_log(payload)
         elif payload_type == "request-local-preview":
             self._handle_request_local_preview(payload)
         elif payload_type == "request-local-asset":
             self._handle_request_local_asset(payload)
+        elif payload_type == "classic-mode-catalog":
+            self._handle_classic_mode_catalog(payload)
+        elif payload_type == "classic-skin-selection":
+            self._handle_classic_skin_selection(payload)
+        elif payload_type == "chroma-selection" and is_classic_mode(
+            self.shared_state.current_game_mode
+        ):
+            self._handle_classic_chroma_selection(payload)
         elif payload_type == "chroma-selection":
             self._handle_chroma_selection(payload)
         elif payload_type == "dice-button-click":
@@ -248,11 +293,19 @@ class MessageHandler:
             self._handle_skin_detection(payload)
     
     def _handle_chroma_log(self, payload: dict) -> None:
-        """Handle chroma log message"""
-        source = payload.get("source", "ChromaWheel")
+        """Persist browser plug-in logs without losing their level or source."""
+        source = str(payload.get("source") or "UnknownPlugin")[:64]
         event = payload.get("event") or payload.get("message") or "unknown"
         details = payload.get("data") or payload
-        log.info("[%s] %s | %s", source, event, details)
+        level = str(payload.get("level") or "info").lower()
+        emit = {
+            "debug": log.debug,
+            "info": log.info,
+            "warn": log.warning,
+            "warning": log.warning,
+            "error": log.error,
+        }.get(level, log.info)
+        emit("[PLUGIN:%s] %s | %s", source, event, details)
     
     def _handle_request_local_preview(self, payload: dict) -> None:
         """Handle request for local preview image"""
@@ -317,6 +370,288 @@ class MessageHandler:
                     log.debug(f"[SkinMonitor] Local asset not found: {asset_path}")
             except Exception as e:
                 log.debug(f"[SkinMonitor] Failed to get local asset: {e}")
+
+    @staticmethod
+    def _classic_schema_supported(payload: dict) -> bool:
+        return payload.get("schemaVersion") == 1
+
+    def _cache_classic_catalog(self, payload: dict) -> bool:
+        if (
+            not self._classic_schema_supported(payload)
+            or not is_classic_mode(self.shared_state.current_game_mode)
+            or str(payload.get("mode") or CLASSIC_MODE).upper() != CLASSIC_MODE
+        ):
+            return False
+        try:
+            champion_id = resource_champion_id(
+                payload.get("championId")
+                or 0
+            )
+        except (TypeError, ValueError):
+            return False
+        if (
+            champion_id <= 0
+            or (
+                self.shared_state.locked_champ_id is not None
+                and int(self.shared_state.locked_champ_id) != champion_id
+            )
+        ):
+            return False
+
+        catalog = payload.get("catalog")
+        skin_ids = catalog_skin_ids(catalog, champion_id)
+        if not skin_ids:
+            return False
+        try:
+            default_skin_id = validated_default_skin_id(
+                champion_id,
+                catalog,
+                payload.get("defaultSkinId"),
+            )
+        except ValueError:
+            return False
+
+        self.shared_state.classic_champion_id = champion_id
+        self.shared_state.classic_default_skin_id = default_skin_id
+        self.shared_state.classic_catalog_skin_ids = skin_ids
+        eligible_values = payload.get("randomEligibleSkinIds")
+        if eligible_values is None:
+            existing = {
+                resource_skin_id(value)
+                for value in self.shared_state.classic_random_eligible_skin_ids
+                if resource_skin_id(value) // 1000 == champion_id
+            }
+            if not existing:
+                existing = set(skin_ids)
+            self.shared_state.classic_random_eligible_skin_ids = existing
+        else:
+            try:
+                eligible_skin_ids = {
+                    resource_skin_id(value)
+                    for value in eligible_values
+                    if resource_skin_id(value) in skin_ids
+                }
+            except (TypeError, ValueError):
+                eligible_skin_ids = set()
+            self.shared_state.classic_random_eligible_skin_ids = eligible_skin_ids
+        log.info(
+            "[CLASSIC:CATALOG] accepted champion=%s skin_count=%s default=%s random_count=%s",
+            champion_id,
+            len(skin_ids),
+            default_skin_id,
+            len(self.shared_state.classic_random_eligible_skin_ids),
+        )
+        return True
+
+    def _handle_classic_mode_catalog(self, payload: dict) -> None:
+        if not self._cache_classic_catalog(payload):
+            log.warning("Rejected invalid Classic Mode catalog")
+            return
+        champion_id = self.shared_state.classic_champion_id
+        log.info(
+            "[CLASSIC:CATALOG] processing champion=%s persisted_random=%s history_checked=%s",
+            champion_id,
+            self.shared_state.random_mode_active,
+            self.shared_state.historic_first_detection_done,
+        )
+        try:
+            from utils.core.random_preferences import is_random_enabled_for_champion
+
+            random_enabled = is_random_enabled_for_champion(champion_id)
+        except Exception:
+            random_enabled = False
+        if random_enabled:
+            if not self.shared_state.random_mode_active:
+                from ui.handlers.randomization_handler import RandomizationHandler
+
+                RandomizationHandler(
+                    self.shared_state, self.skin_scraper
+                ).activate_persisted()
+            # A persisted Classic random preference owns this selection. A
+            # later catalog refresh must not revive Historic mode as well.
+            if (
+                self.shared_state.historic_mode_active
+                or self.shared_state.historic_skin_id is not None
+            ):
+                self.shared_state.historic_mode_active = False
+                self.shared_state.historic_skin_id = None
+                self.shared_state.classic_history_skin_id = None
+                self.broadcaster.broadcast_historic_state()
+            self.shared_state.historic_first_detection_done = True
+            return
+        if not self.shared_state.historic_first_detection_done:
+            from utils.core.historic import get_historic_skin_for_champion
+
+            historic_skin_id = get_historic_skin_for_champion(
+                champion_id, "classic"
+            )
+            if (
+                isinstance(historic_skin_id, int)
+                and historic_skin_id
+                in self.shared_state.classic_catalog_skin_ids
+            ):
+                self.shared_state.historic_mode_active = True
+                self.shared_state.historic_skin_id = historic_skin_id
+                self.shared_state.classic_history_skin_id = historic_skin_id
+                self.broadcaster.broadcast_historic_state()
+            self.shared_state.historic_first_detection_done = True
+
+    def _handle_classic_skin_selection(self, payload: dict) -> None:
+        """Track a validated local projection without submitting it to LCU."""
+        generation_value = payload.get("selectionGeneration")
+        try:
+            incoming_generation = int(generation_value)
+        except (TypeError, ValueError):
+            log.warning("Rejected Classic Mode selection without a valid generation")
+            return
+        current_generation = self.shared_state.classic_selection_generation
+        if incoming_generation < current_generation or (
+            payload.get("userInitiated") is True
+            and incoming_generation <= current_generation
+        ):
+            log.info(
+                "Rejected stale Classic Mode selection generation=%s current=%s",
+                incoming_generation,
+                current_generation,
+            )
+            return
+        try:
+            skin_id = resource_skin_id(
+                payload.get("skinId")
+                or 0
+            )
+        except (TypeError, ValueError):
+            return
+        locked_champion_id = self.shared_state.locked_champ_id
+        if (
+            skin_id <= 0
+            or (
+                locked_champion_id is not None
+                and skin_id // 1000 != int(locked_champion_id)
+            )
+        ):
+            log.warning(
+                "Rejected Classic Mode selection skin=%s",
+                skin_id,
+            )
+            return
+        if not self._cache_classic_catalog(payload):
+            log.warning("Rejected Classic Mode selection with invalid catalog")
+            return
+        if (
+            skin_id not in self.shared_state.classic_catalog_skin_ids
+            or skin_id // 1000 != self.shared_state.classic_champion_id
+        ):
+            log.warning(
+                "Rejected Classic Mode selection outside the validated catalog"
+            )
+            return
+
+        default_skin_id = self.shared_state.classic_default_skin_id
+        owned_ids = set(self.shared_state.owned_skin_ids or ())
+        owned = skin_id == default_skin_id or skin_id in {
+            resource_skin_id(value) for value in owned_ids
+        }
+        self.shared_state.classic_selected_skin_owned = owned
+        self.shared_state.selected_skin_id = skin_id
+        self.shared_state.classic_selection_generation = incoming_generation
+
+        selection_source = str(payload.get("source") or "")
+        lcu_action = "owned-selection"
+        if owned:
+            self.shared_state.classic_visual_skin_id = None
+            self.shared_state.classic_visual_chroma_id = None
+            self.shared_state.selected_chroma_id = None
+            if skin_id not in owned_ids:
+                self.shared_state.owned_skin_ids.add(skin_id)
+            if selection_source == "classic-chroma":
+                lcu = getattr(self.skin_scraper, "lcu", None)
+                if lcu is not None:
+                    lcu.set_my_selection_skin(mode_skin_id(skin_id))
+        else:
+            lcu_action = "default-fallback"
+            self.shared_state.classic_visual_skin_id = skin_id
+            lcu = getattr(self.skin_scraper, "lcu", None)
+            if lcu is not None:
+                lcu.set_my_selection_skin(mode_skin_id(default_skin_id))
+
+        log.info(
+            "[CLASSIC:SELECTION] source=%s skin=%s owned=%s default=%s lcu_action=%s generation=%s",
+            selection_source or "classic-wheel",
+            skin_id,
+            owned,
+            default_skin_id,
+            lcu_action,
+            incoming_generation,
+        )
+
+        if payload.get("userInitiated") is True:
+            if (
+                self.shared_state.random_mode_active
+                or self.shared_state.classic_random_enabled
+            ):
+                from ui.handlers.randomization_handler import RandomizationHandler
+
+                RandomizationHandler(
+                    self.shared_state, self.skin_scraper
+                ).cancel()
+            self.shared_state.historic_mode_active = False
+            self.shared_state.historic_skin_id = None
+            self.shared_state.classic_history_skin_id = None
+            self.shared_state.historic_first_detection_done = True
+            self.broadcaster.broadcast_historic_state()
+
+        skin_name = str(payload.get("skin") or f"skin_{skin_id}").strip()
+        self.skin_processor.last_skin_name = skin_name
+        self.skin_processor.process_skin_name(skin_name, self.broadcaster)
+        self.shared_state.ui_skin_id = skin_id
+        self.shared_state.last_hovered_skin_id = skin_id
+        self.shared_state.last_hovered_skin_key = skin_name
+        self.shared_state.ui_last_text = skin_name
+        self.broadcaster.broadcast_skin_state(skin_name, skin_id)
+
+    def _handle_classic_chroma_selection(self, payload: dict) -> None:
+        selected_skin_id = payload.get("skinId")
+        try:
+            skin_id = resource_skin_id(selected_skin_id)
+        except (TypeError, ValueError):
+            return
+        selection = dict(payload)
+        selection.update(
+            {
+                "type": "classic-skin-selection",
+                "schemaVersion": 1,
+                "mode": CLASSIC_MODE,
+                "championId": self.shared_state.classic_champion_id,
+                "defaultSkinId": self.shared_state.classic_default_skin_id,
+                "skinId": skin_id,
+                "catalog": [
+                    {"id": value}
+                    for value in self.shared_state.classic_catalog_skin_ids
+                ],
+                "skin": payload.get("chromaName") or f"skin_{skin_id}",
+                "source": "classic-chroma",
+                "userInitiated": True,
+                "selectionGeneration": (
+                    self.shared_state.classic_selection_generation + 1
+                ),
+            }
+        )
+        self._handle_classic_skin_selection(selection)
+        if self.shared_state.last_hovered_skin_id == skin_id:
+            selected_chroma_id = (
+                skin_id if int(payload.get("chromaId") or 0) else None
+            )
+            self.shared_state.classic_visual_chroma_id = selected_chroma_id
+            self.shared_state.selected_chroma_id = selected_chroma_id
+            log.info(
+                "[CLASSIC:CHROMA] selected raw=%s visual=%s chroma=%s owned=%s",
+                selected_skin_id,
+                skin_id,
+                selected_chroma_id,
+                self.shared_state.classic_selected_skin_owned,
+            )
+            self.broadcaster.broadcast_chroma_state()
     
     def _handle_chroma_selection(self, payload: dict) -> None:
         """Handle chroma selection from JavaScript"""
@@ -819,6 +1154,7 @@ class MessageHandler:
     
     def _handle_request_skin_mods(self, payload: dict) -> None:
         """Return the list of custom mods for a champion (all skins)"""
+        self._drop_mismatched_mod_selections()
         if not self.mod_storage:
             return
 
@@ -880,7 +1216,9 @@ class MessageHandler:
         try:
             from utils.core.historic import get_historic_skin_for_champion, is_custom_mod_path, get_custom_mod_path
             if champion_id:
-                historic_value = get_historic_skin_for_champion(champion_id)
+                historic_value = get_historic_skin_for_champion(
+                    champion_id, self._historic_scope()
+                )
                 if historic_value and is_custom_mod_path(historic_value):
                     historic_mod_path = get_custom_mod_path(historic_value)
                     historic_identifier = self._normalize_mod_identifier(historic_mod_path)
@@ -1014,6 +1352,7 @@ class MessageHandler:
     
     def _handle_request_maps(self, payload: dict) -> None:
         """Return the list of maps"""
+        self._drop_mismatched_mod_selections()
         if not self.mod_storage:
             return
         
@@ -1027,7 +1366,7 @@ class MessageHandler:
         historic_map_path = None
         try:
             from utils.core.mod_historic import get_historic_mod
-            historic_map_path = get_historic_mod("map")
+            historic_map_path = get_historic_mod("map", self._historic_scope())
         except Exception:
             pass
         
@@ -1045,6 +1384,7 @@ class MessageHandler:
     
     def _handle_request_fonts(self, payload: dict) -> None:
         """Return the list of fonts"""
+        self._drop_mismatched_mod_selections()
         if not self.mod_storage:
             return
         
@@ -1058,7 +1398,7 @@ class MessageHandler:
         historic_font_path = None
         try:
             from utils.core.mod_historic import get_historic_mod
-            historic_font_path = get_historic_mod("font")
+            historic_font_path = get_historic_mod("font", self._historic_scope())
         except Exception:
             pass
         
@@ -1076,6 +1416,7 @@ class MessageHandler:
     
     def _handle_request_announcers(self, payload: dict) -> None:
         """Return the list of announcers"""
+        self._drop_mismatched_mod_selections()
         if not self.mod_storage:
             return
         
@@ -1089,7 +1430,7 @@ class MessageHandler:
         historic_announcer_path = None
         try:
             from utils.core.mod_historic import get_historic_mod
-            historic_announcer_path = get_historic_mod("announcer")
+            historic_announcer_path = get_historic_mod("announcer", self._historic_scope())
         except Exception:
             pass
         
@@ -1107,6 +1448,7 @@ class MessageHandler:
     
     def _handle_request_others(self, payload: dict) -> None:
         """Return the list of others"""
+        self._drop_mismatched_mod_selections()
         if not self.mod_storage:
             return
         
@@ -1120,7 +1462,7 @@ class MessageHandler:
         historic_other_paths = None
         try:
             from utils.core.mod_historic import get_historic_mod
-            historic_other_paths = get_historic_mod("other")
+            historic_other_paths = get_historic_mod("other", self._historic_scope())
             # Convert to list if it's a single string (legacy format)
             if isinstance(historic_other_paths, str):
                 historic_other_paths = [historic_other_paths]
@@ -1241,11 +1583,14 @@ class MessageHandler:
                     champ_id = self.shared_state.selected_custom_mod.get("champion_id")
                     rel_path = self.shared_state.selected_custom_mod.get("relative_path")
                     if champ_id and rel_path:
-                        historic_value = get_historic_skin_for_champion(int(champ_id))
+                        history_scope = self._historic_scope()
+                        historic_value = get_historic_skin_for_champion(
+                            int(champ_id), history_scope
+                        )
                         if historic_value is not None and is_custom_mod_path(historic_value):
                             historic_path = get_custom_mod_path(historic_value)
                             if historic_path and historic_path.replace("\\", "/") == str(rel_path).replace("\\", "/"):
-                                clear_historic_entry(int(champ_id))
+                                clear_historic_entry(int(champ_id), history_scope)
                                 log.info("[HISTORIC] Cleared saved custom mod for champion %s", champ_id)
                 except Exception as exc:
                     log.debug("[HISTORIC] Failed to clear saved custom mod on deselect: %s", exc)
@@ -1421,6 +1766,7 @@ class MessageHandler:
 
             # The explicitly selected skin/chroma folder is the target.
             self.shared_state.selected_custom_mod = {
+                "scope": self._historic_scope(),
                 "skin_id": int(skin_id),
                 "storage_skin_id": selected_mod.skin_id,
                 "target_skin_ids": sorted(self._get_entry_target_skin_ids(selected_mod)),
@@ -1507,11 +1853,14 @@ class MessageHandler:
             champ_id = self.shared_state.selected_custom_mod.get("champion_id")
             rel_path = self.shared_state.selected_custom_mod.get("relative_path")
             if champ_id and rel_path:
-                historic_value = get_historic_skin_for_champion(int(champ_id))
+                history_scope = self._historic_scope()
+                historic_value = get_historic_skin_for_champion(
+                    int(champ_id), history_scope
+                )
                 if historic_value is not None and is_custom_mod_path(historic_value):
                     historic_path = get_custom_mod_path(historic_value)
                     if historic_path and historic_path.replace("\\", "/") == str(rel_path).replace("\\", "/"):
-                        clear_historic_entry(int(champ_id))
+                        clear_historic_entry(int(champ_id), history_scope)
                         log.info("[Dismiss] Cleared historic entry for champion %s", champ_id)
         except Exception as exc:
             log.debug("[Dismiss] Failed to clear historic entry: %s", exc)
@@ -1540,12 +1889,14 @@ class MessageHandler:
                 or self.shared_state.hovered_champ_id
             )
             historic_value = (
-                get_historic_skin_for_champion(int(champ_id))
+                get_historic_skin_for_champion(
+                    int(champ_id), self._historic_scope()
+                )
                 if champ_id is not None
                 else None
             )
             if champ_id is not None and is_custom_mod_path(historic_value):
-                clear_historic_entry(int(champ_id))
+                clear_historic_entry(int(champ_id), self._historic_scope())
                 log.info("[Dismiss] Cleared custom historic entry for champion %s", champ_id)
         except Exception as exc:
             log.debug("[Dismiss] Failed to clear custom historic entry: %s", exc)
@@ -1579,7 +1930,7 @@ class MessageHandler:
                 # Clear historic mod when deselected
                 try:
                     from utils.core.mod_historic import clear_historic_mod
-                    clear_historic_mod("map")
+                    clear_historic_mod("map", self._historic_scope())
                     log.debug("[MOD_HISTORIC] Cleared historic map mod")
                 except Exception as e:
                     log.debug(f"[MOD_HISTORIC] Failed to clear historic map mod: {e}")
@@ -1648,6 +1999,7 @@ class MessageHandler:
 
             # Store selected map mod in shared state for injection
             self.shared_state.selected_map_mod = {
+                "scope": self._historic_scope(),
                 "mod_name": selected_mod.mod_name,
                 "mod_path": str(selected_mod.path),
                 "mod_folder_name": mod_folder_name,
@@ -1679,7 +2031,7 @@ class MessageHandler:
                 # Clear historic mod when deselected
                 try:
                     from utils.core.mod_historic import clear_historic_mod
-                    clear_historic_mod("font")
+                    clear_historic_mod("font", self._historic_scope())
                     log.debug("[MOD_HISTORIC] Cleared historic font mod")
                 except Exception as e:
                     log.debug(f"[MOD_HISTORIC] Failed to clear historic font mod: {e}")
@@ -1747,6 +2099,7 @@ class MessageHandler:
 
             # Store selected font mod in shared state for injection
             self.shared_state.selected_font_mod = {
+                "scope": self._historic_scope(),
                 "mod_name": selected_mod.mod_name,
                 "mod_path": str(selected_mod.path),
                 "mod_folder_name": mod_folder_name,
@@ -1778,7 +2131,7 @@ class MessageHandler:
                 # Clear historic mod when deselected
                 try:
                     from utils.core.mod_historic import clear_historic_mod
-                    clear_historic_mod("announcer")
+                    clear_historic_mod("announcer", self._historic_scope())
                     log.debug("[MOD_HISTORIC] Cleared historic announcer mod")
                 except Exception as e:
                     log.debug(f"[MOD_HISTORIC] Failed to clear historic announcer mod: {e}")
@@ -1846,6 +2199,7 @@ class MessageHandler:
 
             # Store selected announcer mod in shared state for injection
             self.shared_state.selected_announcer_mod = {
+                "scope": self._historic_scope(),
                 "mod_name": selected_mod.mod_name,
                 "mod_path": str(selected_mod.path),
                 "mod_folder_name": mod_folder_name,
@@ -1904,9 +2258,9 @@ class MessageHandler:
 
                 for cat, paths in by_cat.items():
                     if paths:
-                        write_historic_mod(cat, paths)
+                        write_historic_mod(cat, paths, self._historic_scope())
                     else:
-                        clear_historic_mod(cat)
+                        clear_historic_mod(cat, self._historic_scope())
             except Exception as e:
                 log.debug(f"[MOD_HISTORIC] Failed to update category historic after deselect: {e}")
             return
@@ -1966,6 +2320,7 @@ class MessageHandler:
 
             # Store selected other mod in shared state for injection (add to list)
             mod_info = {
+                "scope": self._historic_scope(),
                 "mod_name": selected_mod.mod_name,
                 "mod_path": str(selected_mod.path),
                 "mod_folder_name": mod_folder_name,
@@ -2004,9 +2359,9 @@ class MessageHandler:
 
                 for cat, paths in by_cat.items():
                     if paths:
-                        write_historic_mod(cat, paths)
+                        write_historic_mod(cat, paths, self._historic_scope())
                     else:
-                        clear_historic_mod(cat)
+                        clear_historic_mod(cat, self._historic_scope())
             except Exception as e:
                 log.debug(f"[MOD_HISTORIC] Failed to update category historic after select: {e}")
 
@@ -2017,6 +2372,7 @@ class MessageHandler:
 
     def _handle_request_category_mods(self, payload: dict) -> None:
         """Return the list of mods for a specific top-level category under %LOCALAPPDATA%\\Rose\\mods."""
+        self._drop_mismatched_mod_selections()
         if not self.mod_storage:
             return
 
@@ -2041,7 +2397,7 @@ class MessageHandler:
         historic_paths = None
         try:
             from utils.core.mod_historic import get_historic_mod
-            historic_paths = get_historic_mod(str(category))
+            historic_paths = get_historic_mod(str(category), self._historic_scope())
             if isinstance(historic_paths, str):
                 historic_paths = [historic_paths]
         except Exception:
