@@ -109,32 +109,35 @@
 
     .rose-chroma-fav-btn {
       position: absolute !important;
-      top: -10px !important;
-      right: -10px !important;
-      width: 22px !important;
-      height: 22px !important;
-      padding: 4px !important;
+      top: -4px !important;
+      right: -4px !important;
+      width: 13px !important;
+      height: 13px !important;
+      padding: 2px !important;
       box-sizing: content-box !important;
       cursor: pointer !important;
       pointer-events: auto !important;
       z-index: 1000 !important;
-      opacity: 0.75;
+      opacity: 0;
       transition: transform 0.15s ease, opacity 0.15s ease, filter 0.15s ease !important;
       filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9)) !important;
     }
 
     .chroma-selection li:hover .rose-chroma-fav-btn,
-    .rose-chroma-fav-btn:hover,
+    .chroma-modal .chroma-list li:hover .rose-chroma-fav-btn,
+    .chroma-list li:hover .rose-chroma-fav-btn,
+    .rose-chroma-fav-btn:hover {
+      opacity: 0.85 !important;
+    }
+
     .rose-chroma-fav-btn.active {
       opacity: 1 !important;
+      filter: drop-shadow(0 0 5px #0acbe6) !important;
     }
 
     .rose-chroma-fav-btn:hover {
-      transform: scale(1.3) !important;
-    }
-
-    .rose-chroma-fav-btn.active {
-      filter: drop-shadow(0 0 6px #0acbe6) !important;
+      opacity: 1 !important;
+      transform: scale(1.15) !important;
     }
   `;
 
