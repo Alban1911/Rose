@@ -39,6 +39,27 @@ def load_favorites_data() -> Dict[str, Any]:
             with path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict) and "favorites" in data and isinstance(data["favorites"], dict):
+                # Clean up any orphaned empty chroma entries where all chromas were deselected
+                modified = False
+                for champ_key, champ_val in data["favorites"].items():
+                    if isinstance(champ_val, dict):
+                        chromas = champ_val.get("chromas", {})
+                        skins = champ_val.get("skins", [])
+                        if isinstance(chromas, dict) and isinstance(skins, list):
+                            empty_keys = [k for k, v in chromas.items() if isinstance(v, list) and len(v) == 0]
+                            for k in empty_keys:
+                                del chromas[k]
+                                k_int = int(k) if k.isdigit() else None
+                                if k_int and k_int in skins:
+                                    skins.remove(k_int)
+                                modified = True
+                if modified:
+                    try:
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        with path.open("w", encoding="utf-8") as f:
+                            json.dump(data, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
                 return data
             return {"version": 1, "favorites": {}}
         except Exception as e:
@@ -146,6 +167,7 @@ def toggle_chroma_favorite(champion_id: int, skin_id: int, chroma_id: int) -> Tu
     """
     Toggle favorite status for a chroma (or base skin style).
     If the parent skin is not favorited yet, it is automatically favorited too.
+    If all chromas for the skin are deselected, the skin is automatically unfavorited.
     Returns (is_now_favorite, updated_champion_favorites).
     """
     data = load_favorites_data()
@@ -157,10 +179,6 @@ def toggle_chroma_favorite(champion_id: int, skin_id: int, chroma_id: int) -> Tu
     skin_num = int(skin_id)
     chroma_num = int(chroma_id)
     
-    # Auto-add parent skin to favorites if not present
-    if skin_num not in skins_list:
-        skins_list.append(skin_num)
-    
     chromas_dict = champ_favs.setdefault("chromas", {})
     skin_chromas = chromas_dict.setdefault(str(skin_num), [])
     
@@ -168,7 +186,17 @@ def toggle_chroma_favorite(champion_id: int, skin_id: int, chroma_id: int) -> Tu
         skin_chromas.remove(chroma_num)
         is_fav = False
         log.info(f"[Favorites] Removed chroma {chroma_num} from skin {skin_num} (champion {champion_id})")
+        # If no chromas remain for this skin, auto-remove the skin from favorites
+        if len(skin_chromas) == 0:
+            if skin_num in skins_list:
+                skins_list.remove(skin_num)
+                log.info(f"[Favorites] Auto-removed skin {skin_num} from favorites as all chromas were deselected")
+            if str(skin_num) in chromas_dict:
+                del chromas_dict[str(skin_num)]
     else:
+        # Auto-add parent skin to favorites if not present
+        if skin_num not in skins_list:
+            skins_list.append(skin_num)
         skin_chromas.append(chroma_num)
         is_fav = True
         log.info(f"[Favorites] Added chroma {chroma_num} to skin {skin_num} (champion {champion_id})")
