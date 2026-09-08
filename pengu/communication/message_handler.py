@@ -508,6 +508,9 @@ class MessageHandler:
     def _handle_favorite_toggle_skin(self, payload: dict) -> None:
         """Handle skin favorite toggle event from JavaScript"""
         try:
+            import importlib
+            import utils.core.favorites
+            importlib.reload(utils.core.favorites)
             from utils.core.favorites import toggle_skin_favorite
             champion_id = payload.get("championId")
             skin_id = payload.get("skinId")
@@ -524,6 +527,9 @@ class MessageHandler:
     def _handle_favorite_toggle_chroma(self, payload: dict) -> None:
         """Handle chroma favorite toggle event from JavaScript"""
         try:
+            import importlib
+            import utils.core.favorites
+            importlib.reload(utils.core.favorites)
             from utils.core.favorites import toggle_chroma_favorite
             champion_id = payload.get("championId")
             skin_id = payload.get("skinId")
