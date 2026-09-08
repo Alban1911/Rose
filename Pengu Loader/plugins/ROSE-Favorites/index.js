@@ -230,6 +230,10 @@
       }
     }
 
+    if (allFavorites && champId) {
+      allFavorites[String(champId)] = currentFavorites;
+    }
+
     updateUI();
   }
 
@@ -256,9 +260,6 @@
     }
 
     if (!currentFavorites.skins) currentFavorites.skins = [];
-    if (!currentFavorites.skins.includes(targetSkin)) {
-      currentFavorites.skins.push(targetSkin);
-    }
     if (!currentFavorites.chromas) currentFavorites.chromas = {};
     const skinKey = String(targetSkin);
     if (!currentFavorites.chromas[skinKey]) currentFavorites.chromas[skinKey] = [];
@@ -266,8 +267,23 @@
     const cIdx = currentFavorites.chromas[skinKey].indexOf(targetChroma);
     if (cIdx >= 0) {
       currentFavorites.chromas[skinKey].splice(cIdx, 1);
+      // If no chromas remain for this skin, auto-remove the skin from favorites
+      if (currentFavorites.chromas[skinKey].length === 0) {
+        delete currentFavorites.chromas[skinKey];
+        const sIdx = currentFavorites.skins.indexOf(targetSkin);
+        if (sIdx >= 0) {
+          currentFavorites.skins.splice(sIdx, 1);
+        }
+      }
     } else {
+      if (!currentFavorites.skins.includes(targetSkin)) {
+        currentFavorites.skins.push(targetSkin);
+      }
       currentFavorites.chromas[skinKey].push(targetChroma);
+    }
+
+    if (allFavorites && champId) {
+      allFavorites[String(champId)] = currentFavorites;
     }
 
     updateUI();
