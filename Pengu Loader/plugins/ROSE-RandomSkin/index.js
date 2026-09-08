@@ -81,7 +81,9 @@
   let randomSkinId = null;
   let isInChampSelect = false;
   let championLocked = false;
+  let currentChampionId = null;
   let currentChampionFavoritesCount = 0;
+  let allFavoritesCache = {};
 
   let diceContainerElement = null;
   let regularDiceBtn = null;
@@ -176,11 +178,29 @@
     consoleMethod(`${LOG_PREFIX} ${message}`, data || "");
   }
 
+  function recalculateFavoritesCount() {
+    if (currentChampionId && allFavoritesCache && allFavoritesCache[String(currentChampionId)]) {
+      const favs = allFavoritesCache[String(currentChampionId)];
+      currentChampionFavoritesCount = Array.isArray(favs.skins) ? favs.skins.length : 0;
+    } else {
+      currentChampionFavoritesCount = 0;
+    }
+    updateFavoritesState();
+  }
+
   function handleChampionLocked(data) {
     const wasLocked = championLocked;
     championLocked = data.locked === true;
 
-    log("debug", "Received champion lock state update", { locked: championLocked, wasLocked: wasLocked });
+    if (championLocked && data.championId) {
+      currentChampionId = data.championId;
+      recalculateFavoritesCount();
+    } else if (!championLocked) {
+      currentChampionId = null;
+      currentChampionFavoritesCount = 0;
+    }
+
+    log("debug", "Received champion lock state update", { locked: championLocked, wasLocked: wasLocked, championId: currentChampionId });
 
     if (isInChampSelect && championLocked && !wasLocked) {
       log("debug", "Champion locked - creating dual dice buttons");
@@ -218,6 +238,8 @@
         diceContainerElement = null;
       }
       championLocked = false;
+      currentChampionId = null;
+      currentChampionFavoritesCount = 0;
     }
   }
 
@@ -403,6 +425,9 @@
   function updateFavoritesState(favDetail) {
     if (favDetail && favDetail.favorites && Array.isArray(favDetail.favorites.skins)) {
       currentChampionFavoritesCount = favDetail.favorites.skins.length;
+    } else if (currentChampionId && allFavoritesCache && allFavoritesCache[String(currentChampionId)]) {
+      const favs = allFavoritesCache[String(currentChampionId)];
+      currentChampionFavoritesCount = Array.isArray(favs.skins) ? favs.skins.length : 0;
     }
 
     if (favoriteDiceBtn) {
@@ -505,9 +530,30 @@
         bridge.subscribe("champion-locked", handleChampionLocked);
         bridge.subscribe("local-asset-url", handleLocalAssetUrl);
         bridge.subscribe("random-mode-state", handleRandomModeStateUpdate);
+        bridge.subscribe("skin-state", (data) => {
+          if (data && data.championId) {
+            if (data.championId !== currentChampionId) {
+              currentChampionId = data.championId;
+              recalculateFavoritesCount();
+            }
+          }
+        });
         bridge.subscribe("favorites-state", (data) => {
-          if (data && data.championFavorites) {
+          if (!data) return;
+          if (data.allFavorites) {
+            allFavoritesCache = data.allFavorites;
+          }
+          if (data.championId && !currentChampionId) {
+            currentChampionId = data.championId;
+          }
+          if (currentChampionId && allFavoritesCache && allFavoritesCache[String(currentChampionId)]) {
+            const favs = allFavoritesCache[String(currentChampionId)];
+            currentChampionFavoritesCount = Array.isArray(favs.skins) ? favs.skins.length : 0;
+            updateFavoritesState({ favorites: favs });
+          } else if (data.championId === currentChampionId && data.championFavorites) {
             updateFavoritesState({ favorites: data.championFavorites });
+          } else {
+            recalculateFavoritesCount();
           }
         });
       }
