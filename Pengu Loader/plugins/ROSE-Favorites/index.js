@@ -484,14 +484,27 @@
         bridge.subscribe("phase-change", (data) => {
           if (data && data.phase) {
             isInChampSelect = data.phase === "ChampSelect" || data.phase === "FINALIZATION";
+            if (!isInChampSelect) {
+              currentChampionId = null;
+              currentFavorites = { championId: null, skins: [], chromas: {} };
+            }
           }
-          if (bridge) bridge.send({ type: "request-favorites", championId: currentChampionId });
+          if (bridge && currentChampionId) bridge.send({ type: "request-favorites", championId: currentChampionId });
           updateUI();
         });
         bridge.subscribe("champion-locked", (data) => {
-          if (data.locked && bridge) {
-            bridge.send({ type: "request-favorites", championId: currentChampionId });
+          if (data.locked) {
+            if (data.championId) {
+              currentChampionId = data.championId;
+            }
+            if (bridge && currentChampionId) {
+              bridge.send({ type: "request-favorites", championId: currentChampionId });
+            }
+          } else {
+            currentChampionId = null;
+            currentFavorites = { championId: null, skins: [], chromas: {} };
           }
+          updateUI();
         });
       }
 
