@@ -484,7 +484,7 @@ class SwiftplayHandler:
                 total_skins = len(filtered_tracking)
                 log.info(f"[phase] Will inject {total_skins} skin(s) from tracking dictionary")
 
-                from utils.core.utilities import is_base_skin
+                from utils.core.utilities import is_base_skin, get_base_skin_id
                 from pathlib import Path
                 import zipfile
                 import shutil
@@ -529,9 +529,29 @@ class SwiftplayHandler:
                             log.warning(f"[phase] Skin ZIP not found: {injection_name}")
                             continue
 
+                        # If this is a chroma/form, also extract its parent base skin if not already extracted,
+                        # so that base textures and skeleton are present in the overlay
+                        if not is_base:
+                            parent_base_id = get_base_skin_id(skin_id, chroma_id_map)
+                            if parent_base_id and parent_base_id != skin_id:
+                                parent_name = f"skin_{parent_base_id}"
+                                parent_zip = self.injection_manager.injector._resolve_zip(
+                                    parent_name,
+                                    chroma_id=None,
+                                    skin_name=parent_name,
+                                    champion_name=None,
+                                    champion_id=champion_id
+                                )
+                                if parent_zip and parent_zip.exists():
+                                    parent_folder = self.injection_manager.injector._extract_zip_to_mod(parent_zip)
+                                    if parent_folder and parent_folder.name not in extracted_mods:
+                                        extracted_mods.append(parent_folder.name)
+                                        log.info(f"[phase] Extracted base skin {parent_name} for chroma {skin_id}")
+
                         mod_folder = self.injection_manager.injector._extract_zip_to_mod(zip_path)
                         if mod_folder:
-                            extracted_mods.append(mod_folder.name)
+                            if mod_folder.name not in extracted_mods:
+                                extracted_mods.append(mod_folder.name)
                             log.info(f"[phase] Extracted {injection_name} to mods directory")
                     except Exception as e:
                         log.error(f"[phase] Error extracting skin {skin_id}: {e}")

@@ -503,10 +503,30 @@ function resetBridgeSocket() {
 }
 
 function isVisible(element) {
-  if (typeof element.offsetParent === "undefined") {
-    return true;
+  if (!element) {
+    return false;
   }
-  return element.offsetParent !== null;
+  if (element.offsetParent === null) {
+    return false;
+  }
+  try {
+    const style = window.getComputedStyle(element);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.visibility === "collapse" ||
+      parseFloat(style.opacity) === 0
+    ) {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      return false;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return true;
 }
 
 function readCurrentSkin() {
@@ -516,23 +536,16 @@ function readCurrentSkin() {
       continue;
     }
 
-    let candidate = null;
-
-    nodes.forEach((node) => {
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
       const name = node.textContent.trim();
       if (!name) {
-        return;
+        continue;
       }
 
       if (isVisible(node)) {
-        candidate = name;
-      } else if (!candidate) {
-        candidate = name;
+        return name;
       }
-    });
-
-    if (candidate) {
-      return candidate;
     }
   }
 
