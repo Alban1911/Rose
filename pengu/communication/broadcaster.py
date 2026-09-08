@@ -261,26 +261,33 @@ class Broadcaster:
         
         self._send_message(json.dumps(payload))
     
-    def broadcast_champion_locked(self, locked: bool) -> None:
+    def broadcast_champion_locked(self, locked: bool, champion_id: Optional[int] = None) -> None:
         """Broadcast champion lock state to JavaScript plugins"""
         if not self.websocket_server.loop or not self.websocket_server.connections:
             return
         
+        if champion_id is None:
+            champion_id = getattr(self.shared_state, 'locked_champ_id', None)
+            if champion_id is None and self.skin_scraper and self.skin_scraper.cache:
+                champion_id = getattr(self.skin_scraper.cache, 'champion_id', None)
+        
         payload = {
             "type": "champion-locked",
             "locked": locked,
+            "championId": champion_id,
             "timestamp": int(time.time() * 1000),
         }
         
         log.debug(
-            "[SkinMonitor] Broadcasting champion lock state → locked=%s",
+            "[SkinMonitor] Broadcasting champion lock state → locked=%s championId=%s",
             locked,
+            champion_id,
         )
         
         self._send_message(json.dumps(payload))
         if locked:
             try:
-                self.broadcast_favorites_state()
+                self.broadcast_favorites_state(champion_id)
             except Exception as e:
                 log.debug("[SkinMonitor] Failed to broadcast favorites on champion lock: %s", e)
     
