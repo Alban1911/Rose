@@ -317,7 +317,17 @@
 
     // 1. Single Golden Star next to Active Skin Title in Quickplay / Lobby
     if (activeSkin) {
-      const isFav = currentFavorites.skins && currentFavorites.skins.includes(activeSkin);
+      const skinKey = String(activeSkin);
+      const hasEmptyChromas =
+        currentFavorites.chromas &&
+        currentFavorites.chromas[skinKey] &&
+        Array.isArray(currentFavorites.chromas[skinKey]) &&
+        currentFavorites.chromas[skinKey].length === 0;
+
+      const isFav =
+        !hasEmptyChromas &&
+        currentFavorites.skins &&
+        currentFavorites.skins.includes(activeSkin);
 
       const titleSelectors = [
         ".champion-name-title",
@@ -426,11 +436,14 @@
             e.stopPropagation();
             e.preventDefault();
             const currentActive = getActiveSkinId();
-            const targetChrId = parseInt(li.dataset.chromaId, 10) || chromaId;
+            const targetChrId = parseInt(starBtn.dataset.chromaId || li.dataset.chromaId, 10) || chromaId;
             toggleChromaFavorite(targetChrId, currentActive);
           });
           li.appendChild(starBtn);
         }
+
+        starBtn.dataset.chromaId = String(chromaId);
+        li.dataset.chromaId = String(chromaId);
 
         starBtn.className = `rose-chroma-fav-btn ${isChromaFav ? "active" : ""}`;
         starBtn.innerHTML = isChromaFav ? CYAN_STAR_SVG : INACTIVE_CYAN_STAR_SVG;
@@ -444,7 +457,7 @@
             e.stopPropagation();
             e.preventDefault();
             const currentActive = getActiveSkinId();
-            const targetChrId = parseInt(li.dataset.chromaId, 10) || chromaId;
+            const targetChrId = parseInt(starBtn.dataset.chromaId || li.dataset.chromaId, 10) || chromaId;
             toggleChromaFavorite(targetChrId, currentActive);
           });
         }
@@ -465,8 +478,35 @@
 
   function handleFavoritesState(data) {
     log("info", "Received favorites-state", data);
-    if (data.championFavorites) currentFavorites = data.championFavorites;
-    if (data.allFavorites) allFavorites = data.allFavorites;
+    if (data.championFavorites) {
+      currentFavorites = data.championFavorites;
+      // Sanitize: If a skin has an empty chromas list, it means all chromas were deselected
+      if (currentFavorites.chromas && Array.isArray(currentFavorites.skins)) {
+        Object.keys(currentFavorites.chromas).forEach((skinKey) => {
+          if (Array.isArray(currentFavorites.chromas[skinKey]) && currentFavorites.chromas[skinKey].length === 0) {
+            delete currentFavorites.chromas[skinKey];
+            const sId = parseInt(skinKey, 10);
+            const idx = currentFavorites.skins.indexOf(sId);
+            if (idx >= 0) currentFavorites.skins.splice(idx, 1);
+          }
+        });
+      }
+    }
+    if (data.allFavorites) {
+      allFavorites = data.allFavorites;
+      Object.values(allFavorites).forEach((champFavs) => {
+        if (champFavs && champFavs.chromas && Array.isArray(champFavs.skins)) {
+          Object.keys(champFavs.chromas).forEach((skinKey) => {
+            if (Array.isArray(champFavs.chromas[skinKey]) && champFavs.chromas[skinKey].length === 0) {
+              delete champFavs.chromas[skinKey];
+              const sId = parseInt(skinKey, 10);
+              const idx = champFavs.skins.indexOf(sId);
+              if (idx >= 0) champFavs.skins.splice(idx, 1);
+            }
+          });
+        }
+      });
+    }
     if (data.championId) currentChampionId = data.championId;
     updateUI();
   }
