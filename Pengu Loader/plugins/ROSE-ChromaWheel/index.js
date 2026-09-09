@@ -2873,10 +2873,12 @@
       listItem.style.alignItems = "center";
       listItem.style.justifyContent = "center";
 
+      listItem.dataset.chromaId = String(chroma.id);
       const emberView = document.createElement("div");
       emberView.className = "ember-view";
 
       const chromaButton = document.createElement("div");
+      chromaButton.dataset.chromaId = String(chroma.id);
       chromaButton.className = `chroma-skin-button ${chroma.locked ? "locked" : ""
         } ${chroma.selected ? "selected" : ""} ${chroma.purchaseDisabled ? "purchase-disabled" : ""
         }`;

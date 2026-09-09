@@ -265,7 +265,7 @@ class ChampionLockHandler:
             # Broadcast champion lock state
             try:
                 if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                    self.state.ui_skin_thread._broadcast_champion_locked(True)
+                    self.state.ui_skin_thread._broadcast_champion_locked(True, champion_id)
             except Exception as e:
                 log.debug(f"[lock:champ] Failed to broadcast champion lock state: {e}")
 

@@ -151,7 +151,19 @@ class InjectionTrigger:
             return
         
         # Check if custom mod is selected for this skin (before logging)
-        ui_skin_id = self.state.last_hovered_skin_id
+        random_mode_active = getattr(self.state, 'random_mode_active', False)
+        random_skin_id = getattr(self.state, 'random_skin_id', None)
+        random_skin_name = getattr(self.state, 'random_skin_name', None)
+        random_chroma_id = getattr(self.state, 'random_chroma_id', None)
+        display_skin_name = name
+        if random_mode_active and random_skin_id:
+            ui_skin_id = random_skin_id
+            name = f"skin_{random_skin_id}"
+            if random_skin_name:
+                display_skin_name = random_skin_name
+            log.info(f"[INJECT] Random mode active - using random skin ID: {ui_skin_id}, name: '{name}', display: '{display_skin_name}', chroma: {random_chroma_id}")
+        else:
+            ui_skin_id = self.state.last_hovered_skin_id
         locked_champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
         if not self._skin_matches_champion(ui_skin_id, locked_champ_id):
             log.warning(
@@ -163,7 +175,9 @@ class InjectionTrigger:
 
         # Check if a chroma is selected - if so, use the chroma ID for owned skin forcing
         selected_chroma_id = getattr(self.state, 'selected_chroma_id', None)
-        effective_skin_id = ui_skin_id  # Default to base skin ID
+        if random_mode_active and random_chroma_id:
+            selected_chroma_id = random_chroma_id
+        effective_skin_id = selected_chroma_id if selected_chroma_id else ui_skin_id
         if selected_chroma_id and ui_skin_id:
             # Verify the chroma belongs to this skin (chroma IDs are base_skin_id + offset)
             # Chromas have IDs like base_skin_id + 1, +2, +3, etc.
@@ -190,7 +204,7 @@ class InjectionTrigger:
             mod_target_skin = selected_custom_mod.get("skin_id", ui_skin_id) if selected_custom_mod else ui_skin_id
             mod_labels.append(f"{mod_name} (SKIN_{mod_target_skin})")
         else:
-            mod_labels.append(name.upper())
+            mod_labels.append(display_skin_name.upper())
         
         # Add map/font/announcer/other mods if selected
         selected_map_mod = getattr(self.state, 'selected_map_mod', None)
@@ -713,10 +727,10 @@ class InjectionTrigger:
                 return
             
             # Skip injection for base/default skins (only if no mods are selected and
-            # historic mode is not active — if historic is active, the skin resolver
-            # already overrides to the saved skin and injection should proceed normally)
+            # neither historic nor random mode is active)
             historic_active = getattr(self.state, 'historic_mode_active', False)
-            if ui_skin_id is not None and is_default_skin(ui_skin_id) and not historic_active:
+            random_active = getattr(self.state, 'random_mode_active', False)
+            if ui_skin_id is not None and is_default_skin(ui_skin_id) and not historic_active and not random_active:
                 log.info(f"[INJECT] skipping injection for default skin (skinId={ui_skin_id}) - no mods selected")
                 if self.injection_manager:
                     self.injection_manager.resume_if_suspended()
@@ -752,7 +766,8 @@ class InjectionTrigger:
 
             # Inject if user doesn't own the hovered skin
             elif self.injection_manager:
-                self._inject_unowned_skin(name, cname)
+                chroma_id_to_inject = effective_skin_id if (effective_skin_id and effective_skin_id != ui_skin_id) else None
+                self._inject_unowned_skin(name, cname, chroma_id=chroma_id_to_inject)
         
         except Exception as e:
             log.warning(f"[loadout #{ticker_id}] injection setup failed: {e}")
@@ -830,7 +845,7 @@ class InjectionTrigger:
                 except Exception as e:
                     log.warning(f"[INJECT] Failed to resume game after forcing owned skin: {e}")
     
-    def _inject_unowned_skin(self, name: str, cname: str):
+    def _inject_unowned_skin(self, name: str, cname: str, chroma_id: int = None):
         """Inject unowned skin/chroma"""
         try:
             # Force base skin selection via LCU before injecting
@@ -871,7 +886,7 @@ class InjectionTrigger:
                 return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
             
             # Inject skin in a separate thread
-            log.info(f"[INJECT] Starting injection: {name}")
+            log.info(f"[INJECT] Starting injection: {name} (chroma_id={chroma_id})")
             
             champ_id_for_history = self.state.locked_champ_id
 
@@ -885,7 +900,8 @@ class InjectionTrigger:
                         name,
                         stop_callback=game_ended_callback,
                         champion_name=cname,
-                        champion_id=self.state.locked_champ_id
+                        champion_id=self.state.locked_champ_id,
+                        chroma_id=chroma_id,
                     )
                     
                     # Clear random state after injection

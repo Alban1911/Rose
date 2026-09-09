@@ -253,23 +253,35 @@ class Broadcaster:
         
         self._send_message(json.dumps(payload))
     
-    def broadcast_champion_locked(self, locked: bool) -> None:
+    def broadcast_champion_locked(self, locked: bool, champion_id: Optional[int] = None) -> None:
         """Broadcast champion lock state to JavaScript plugins"""
         if not self.websocket_server.loop or not self.websocket_server.connections:
             return
         
+        if champion_id is None:
+            champion_id = getattr(self.shared_state, 'locked_champ_id', None)
+            if champion_id is None and self.skin_scraper and self.skin_scraper.cache:
+                champion_id = getattr(self.skin_scraper.cache, 'champion_id', None)
+        
         payload = {
             "type": "champion-locked",
             "locked": locked,
+            "championId": champion_id,
             "timestamp": int(time.time() * 1000),
         }
         
         log.debug(
-            "[SkinMonitor] Broadcasting champion lock state → locked=%s",
+            "[SkinMonitor] Broadcasting champion lock state → locked=%s championId=%s",
             locked,
+            champion_id,
         )
         
         self._send_message(json.dumps(payload))
+        if locked:
+            try:
+                self.broadcast_favorites_state(champion_id)
+            except Exception as e:
+                log.debug("[SkinMonitor] Failed to broadcast favorites on champion lock: %s", e)
     
     def broadcast_random_mode_state(self) -> None:
         """Broadcast random mode state to JavaScript plugins"""
@@ -278,21 +290,64 @@ class Broadcaster:
         
         random_mode_active = getattr(self.shared_state, 'random_mode_active', False)
         random_skin_id = getattr(self.shared_state, 'random_skin_id', None)
+        random_skin_name = getattr(self.shared_state, 'random_skin_name', None)
+        random_chroma_id = getattr(self.shared_state, 'random_chroma_id', None)
+        random_mode_type = getattr(self.shared_state, 'random_mode_type', 'all')
         dice_state = 'enabled' if random_mode_active else 'disabled'
         
         payload = {
             "type": "random-mode-state",
             "active": random_mode_active,
             "randomSkinId": random_skin_id,
+            "randomSkinName": random_skin_name,
+            "randomChromaId": random_chroma_id,
+            "randomModeType": random_mode_type,
             "diceState": dice_state,
             "timestamp": int(time.time() * 1000),
         }
         
         log.debug(
-            "[SkinMonitor] Broadcasting random mode state → active=%s diceState=%s randomSkinId=%s",
+            "[SkinMonitor] Broadcasting random mode state → active=%s diceState=%s randomSkinId=%s randomChromaId=%s mode=%s",
             random_mode_active,
             dice_state,
             random_skin_id,
+            random_chroma_id,
+            random_mode_type,
+        )
+        
+        self._send_message(json.dumps(payload))
+
+    def broadcast_favorites_state(self, champion_id: Optional[int] = None) -> None:
+        """Broadcast favorites state for current or specified champion to JavaScript plugins"""
+        if not self.websocket_server.loop or not self.websocket_server.connections:
+            return
+        
+        if champion_id is None:
+            champion_id = getattr(self.shared_state, 'locked_champ_id', None)
+            if champion_id is None and self.skin_scraper and self.skin_scraper.cache:
+                champion_id = getattr(self.skin_scraper.cache, 'champion_id', None)
+        
+        from utils.core.favorites import get_champion_favorites, load_favorites_data
+        
+        if champion_id is not None:
+            champ_favs = get_champion_favorites(champion_id)
+        else:
+            champ_favs = {"championId": None, "skins": [], "chromas": {}}
+        
+        all_data = load_favorites_data()
+        
+        payload = {
+            "type": "favorites-state",
+            "championId": champion_id,
+            "championFavorites": champ_favs,
+            "allFavorites": all_data.get("favorites", {}),
+            "timestamp": int(time.time() * 1000),
+        }
+        
+        log.debug(
+            "[SkinMonitor] Broadcasting favorites state for champion %s (skins: %s)",
+            champion_id,
+            champ_favs.get("skins", []),
         )
         
         self._send_message(json.dumps(payload))

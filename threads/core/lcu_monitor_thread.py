@@ -330,7 +330,8 @@ class LCUMonitorThread(threading.Thread):
             log.debug(f"[init-state] Failed to broadcast ChampSelect phase: {e}")
 
         try:
-            ui_thread._broadcast_champion_locked(True)
+            locked_champ_id = getattr(self.state, "locked_champ_id", None)
+            ui_thread._broadcast_champion_locked(True, locked_champ_id)
         except Exception as e:
             log.debug(f"[init-state] Failed to broadcast champion lock state: {e}")
 

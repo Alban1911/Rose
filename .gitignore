@@ -53,6 +53,7 @@ ENV/
 # IDE / Editor
 .vscode/
 .idea/
+.agent/
 .claude/settings.local.json
 
 # Local / temp
@@ -134,3 +135,4 @@ relay-worker/.wrangler/
 
 # Local test suites
 /test/
+run_rose.bat

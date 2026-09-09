@@ -45,7 +45,7 @@ def _get_desktop_user_info() -> Tuple[Optional[str], Optional[str]]:
         import subprocess
         result = subprocess.run(
             ['tasklist', '/FI', 'IMAGENAME eq explorer.exe', '/FO', 'CSV', '/NH'],
-            capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW
+            capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW
         )
 
         if result.returncode != 0 or not result.stdout.strip():

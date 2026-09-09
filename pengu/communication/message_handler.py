@@ -175,6 +175,12 @@ class MessageHandler:
             self._handle_chroma_selection(payload)
         elif payload_type == "dice-button-click":
             self._handle_dice_button_click(payload)
+        elif payload_type == "favorite-toggle-skin":
+            self._handle_favorite_toggle_skin(payload)
+        elif payload_type == "favorite-toggle-chroma":
+            self._handle_favorite_toggle_chroma(payload)
+        elif payload_type == "request-favorites":
+            self._handle_request_favorites(payload)
         elif payload_type == "settings-request":
             self._handle_settings_request(payload)
         elif payload_type == "path-validate":
@@ -378,20 +384,71 @@ class MessageHandler:
     def _handle_dice_button_click(self, payload: dict) -> None:
         """Handle dice button click"""
         button_state = payload.get("state", "disabled")
-        log.info(f"[SkinMonitor] Dice button clicked from JavaScript: state={button_state}")
+        mode = payload.get("mode", "all")
+        log.info(f"[SkinMonitor] Dice button clicked from JavaScript: state={button_state}, mode={mode}")
         
         try:
             from ui.core.user_interface import get_user_interface
             ui = get_user_interface(self.shared_state, self.skin_scraper)
             
             if button_state == "disabled":
-                ui._handle_dice_click_disabled()
+                ui._handle_dice_click_disabled(mode=mode)
             elif button_state == "enabled":
                 ui._handle_dice_click_enabled()
             else:
                 log.warning(f"[SkinMonitor] Unknown dice button state: {button_state}")
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle dice button click: {e}")
+
+    def _handle_favorite_toggle_skin(self, payload: dict) -> None:
+        """Handle skin favorite toggle event from JavaScript"""
+        try:
+            import importlib
+            import utils.core.favorites
+            importlib.reload(utils.core.favorites)
+            from utils.core.favorites import toggle_skin_favorite
+            champion_id = payload.get("championId")
+            skin_id = payload.get("skinId")
+            if not champion_id or not skin_id:
+                log.warning("[SkinMonitor] Invalid favorite-toggle-skin payload: %s", payload)
+                return
+            
+            is_fav, champ_favs = toggle_skin_favorite(int(champion_id), int(skin_id))
+            log.info(f"[SkinMonitor] Toggled favorite skin {skin_id} for champion {champion_id} -> {is_fav}")
+            self.broadcaster.broadcast_favorites_state(int(champion_id))
+        except Exception as e:
+            log.error(f"[SkinMonitor] Failed to handle favorite-toggle-skin: {e}")
+
+    def _handle_favorite_toggle_chroma(self, payload: dict) -> None:
+        """Handle chroma favorite toggle event from JavaScript"""
+        try:
+            import importlib
+            import utils.core.favorites
+            importlib.reload(utils.core.favorites)
+            from utils.core.favorites import toggle_chroma_favorite
+            champion_id = payload.get("championId")
+            skin_id = payload.get("skinId")
+            chroma_id = payload.get("chromaId")
+            if not champion_id or not skin_id or not chroma_id:
+                log.warning("[SkinMonitor] Invalid favorite-toggle-chroma payload: %s", payload)
+                return
+            
+            is_fav, champ_favs = toggle_chroma_favorite(int(champion_id), int(skin_id), int(chroma_id))
+            log.info(f"[SkinMonitor] Toggled favorite chroma {chroma_id} for skin {skin_id} -> {is_fav}")
+            self.broadcaster.broadcast_favorites_state(int(champion_id))
+        except Exception as e:
+            log.error(f"[SkinMonitor] Failed to handle favorite-toggle-chroma: {e}")
+
+    def _handle_request_favorites(self, payload: dict) -> None:
+        """Handle favorites request from JavaScript"""
+        try:
+            champion_id = payload.get("championId")
+            if champion_id:
+                self.broadcaster.broadcast_favorites_state(int(champion_id))
+            else:
+                self.broadcaster.broadcast_favorites_state()
+        except Exception as e:
+            log.error(f"[SkinMonitor] Failed to handle request-favorites: {e}")
     
     def _handle_settings_request(self, payload: dict) -> None:
         """Handle settings request"""
