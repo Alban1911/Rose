@@ -63,6 +63,13 @@ def setup_console() -> None:
             # Set buffer size for both stdout and stderr
             ctypes.windll.kernel32.SetConsoleScreenBufferSize(stdout_handle, new_size)
             ctypes.windll.kernel32.SetConsoleScreenBufferSize(stderr_handle, new_size)
+
+            # Enable Virtual Terminal Processing for ANSI colors (cmd.exe / conhost)
+            ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+            for h in (stdout_handle, stderr_handle):
+                mode = ctypes.c_ulong()
+                if ctypes.windll.kernel32.GetConsoleMode(h, ctypes.byref(mode)):
+                    ctypes.windll.kernel32.SetConsoleMode(h, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
         except (OSError, AttributeError):
             # Failed to increase buffer size - not critical, will rely on queue-based logging
             pass

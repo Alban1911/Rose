@@ -1809,8 +1809,15 @@
       return false;
     }
 
-    // Carousel items: rely on offset 2 (center/current slot)
+    // Carousel items: rely on selection class (new client) or offset 2 (center/current slot)
     if (skinItem.classList.contains("skin-selection-item")) {
+      if (
+        skinItem.classList.contains("skin-selection-item-selected") ||
+        skinItem.classList.contains("selected") ||
+        skinItem.getAttribute("aria-selected") === "true"
+      ) {
+        return true;
+      }
       const offset = getSkinOffset(skinItem);
       if (offset === 2) {
         return true;
