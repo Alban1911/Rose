@@ -46,7 +46,7 @@ class SwiftplayHandler:
         self._injection_triggered = False
         self._overlay_done = False  # Set True after overlay completes successfully
         self._last_matchmaking_state = None
-        self._swiftplay_champ_check_interval = 0.5
+        self._swiftplay_champ_check_interval = 2.0
         self._last_swiftplay_champ_check = 0.0
         self._overlay_lock = threading.Lock()
         self._last_detect_result: tuple[Optional[str], Optional[int]] = (None, None)

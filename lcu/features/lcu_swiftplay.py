@@ -325,14 +325,14 @@ class LCUSwiftplay:
                                         "spell2": spell2
                                     }
                                     champions.append(champion_data)
-                                    log.info(f"Found champion in slot {i}: ID {champion_id}, Skin {skin_id}, Position {position}")
+                                    log.debug(f"Found champion in slot {i}: ID {champion_id}, Skin {skin_id}, Position {position}")
             else:
                 log.debug("No localMember found in lobby data")
             
             if champions:
-                log.info(f"Extracted {len(champions)} local champions from Swiftplay lobby data")
+                log.debug(f"Extracted {len(champions)} local champions from Swiftplay lobby data")
                 for i, champ in enumerate(champions):
-                    log.info(f"  Champion {i+1}: ID {champ['championId']}, Skin {champ['skinId']}, Position {champ['position']}")
+                    log.debug(f"  Champion {i+1}: ID {champ['championId']}, Skin {champ['skinId']}, Position {champ['position']}")
                 
                 return {
                     "champions": champions,
