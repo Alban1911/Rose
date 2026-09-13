@@ -49,6 +49,15 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
         
         log.info("Initializing shared state...")
         state = SharedState()
+        if lcu.ok:
+            try:
+                raw_lang = lcu.client_language
+                if raw_lang:
+                    lang_code = raw_lang.split('_')[0] if '_' in raw_lang else raw_lang
+                    state.current_language = lang_code
+                    log.info(f"Initial language detected: {lang_code} (from {raw_lang})")
+            except Exception as e:
+                log.debug(f"Failed to detect initial language: {e}")
         log.info("Shared state initialized")
     except Exception as e:
         log.error("=" * 80)
