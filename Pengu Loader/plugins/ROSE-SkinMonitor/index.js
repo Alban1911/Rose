@@ -422,18 +422,25 @@ function setupBridgeSocket() {
       return;
     }
 
-    // Reset skin state when entering Lobby phase (so same skin in next game triggers detection)
+    // Reset skin state when entering Lobby/ChampSelect phase or when champion locked
     if (data && data.type === "champion-locked") {
+      lastLoggedSkin = null;
       window.dispatchEvent(
         new CustomEvent("rose-custom-wheel-champion-locked", { detail: data })
       );
+      reportSkinIfChanged();
       return;
     }
 
-    if (data && data.type === "phase-change" && data.phase === "Lobby") {
+    if (data && data.type === "phase-change") {
       lastLoggedSkin = null;
-      console.log(`${LOG_PREFIX} Reset skin state for new game (Lobby phase)`);
-      window.dispatchEvent(new CustomEvent("rose-custom-wheel-reset"));
+      if (data.phase === "Lobby") {
+        console.log(`${LOG_PREFIX} Reset skin state for new game (Lobby phase)`);
+        window.dispatchEvent(new CustomEvent("rose-custom-wheel-reset"));
+      } else if (data.phase === "ChampSelect") {
+        console.log(`${LOG_PREFIX} Reset skin state for new ChampSelect`);
+        setTimeout(reportSkinIfChanged, 100);
+      }
       return;
     }
 
