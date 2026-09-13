@@ -299,7 +299,11 @@ class SwiftplayHandler:
             if not active_ids:
                 return
 
-            self._last_sync_active_ids = frozenset(active_ids)
+            frozen_ids = frozenset(active_ids)
+            if frozen_ids == self._last_sync_active_ids:
+                return
+
+            self._last_sync_active_ids = frozen_ids
 
             with self.state.swiftplay_lock:
                 # Remove stale champions no longer in slots
