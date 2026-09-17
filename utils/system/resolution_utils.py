@@ -206,83 +206,6 @@ def get_resolution_key(resolution: Tuple[int, int]) -> Optional[str]:
     return None
 
 
-def get_click_catcher_config(resolution: Tuple[int, int], catcher_name: str, map_id: Optional[int] = None, language: Optional[str] = None, queue_id: Optional[int] = None) -> Optional[Dict[str, int]]:
-    """
-    Get click catcher configuration for a specific resolution and catcher name
-    
-    Args:
-        resolution: (width, height) tuple
-        catcher_name: Name of the click catcher (e.g., 'EDIT_RUNES', 'SETTINGS')
-        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
-        language: Optional language code for language-specific coordinates (e.g., 'en', 'fr', 'de')
-        queue_id: Optional queue ID (2400 = ARAM: Mayhem, etc.)
-        
-    Returns:
-        Dictionary with x, y, width, height or None if not found
-    """
-    resolution_key = get_resolution_key(resolution)
-
-    # Check for language-specific coordinates for ABILITIES and CLOSE_ABILITIES
-    if language and catcher_name in ['ABILITIES', 'CLOSE_ABILITIES']:
-        language_coords = get_language_specific_coordinates(language, resolution, catcher_name)
-        if language_coords:
-            log.debug(f"[ResolutionUtils] Using language-specific config for {catcher_name} at {resolution} with language {language}")
-            return language_coords
-        else:
-            log.debug(f"[ResolutionUtils] No language-specific config found for {catcher_name} with language {language}, falling back to default")
-
-    if resolution_key:
-        return _lookup_click_catcher_config(resolution_key, catcher_name, map_id, queue_id)
-
-    # Unsupported resolution - scale from base 1600x900 configuration
-    scaled_config = _get_scaled_click_catcher_config(resolution, catcher_name, map_id, queue_id)
-    if scaled_config:
-        return scaled_config
-
-    log.warning(f"[ResolutionUtils] No config found for catcher '{catcher_name}' at resolution {resolution}")
-    return None
-
-
-def get_all_click_catcher_configs(resolution: Tuple[int, int], map_id: Optional[int] = None, queue_id: Optional[int] = None) -> Optional[Dict[str, Dict[str, int]]]:
-    """
-    Get all click catcher configurations for a specific resolution
-    
-    Args:
-        resolution: (width, height) tuple
-        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
-        queue_id: Optional queue ID (2400 = ARAM: Mayhem, etc.)
-        
-    Returns:
-        Dictionary of all catcher configs or None if resolution not supported
-    """
-    resolution_key = get_resolution_key(resolution)
-
-    if resolution_key:
-        CLICK_CATCHER_CONFIGS[resolution_key] = {}
-
-        # Check if we should use gamemode-specific config
-        is_mayhem = queue_id == 2400
-        is_aram = (map_id == 12) and not is_mayhem  # ARAM but not Mayhem
-        is_arena = map_id == 22
-
-        if is_mayhem and resolution_key in CLICK_CATCHER_CONFIGS_MAYHEM:
-            base_configs = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS_MAYHEM[resolution_key].items()}
-            CLICK_CATCHER_CONFIGS[resolution_key].update(base_configs)
-
-        if is_arena and resolution_key in CLICK_CATCHER_CONFIGS_ARENA:
-            base_configs = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS_ARENA[resolution_key].items()}
-            CLICK_CATCHER_CONFIGS[resolution_key].update(base_configs)
-
-        if is_aram and resolution_key in CLICK_CATCHER_CONFIGS_ARAM:
-            base_configs = {name: config.copy() for name, config in CLICK_CATCHER_CONFIGS_ARAM[resolution_key].items()}
-            CLICK_CATCHER_CONFIGS[resolution_key].update(base_configs)
-
-        return CLICK_CATCHER_CONFIGS[resolution_key]
-
-    # Unsupported resolution - scale from base configuration
-    return _build_scaled_click_catcher_configs(resolution, map_id, queue_id)
-
-
 def is_supported_resolution(resolution: Tuple[int, int]) -> bool:
     """
     Check if a resolution is supported
@@ -357,23 +280,3 @@ def get_language_specific_coordinates(language: str, resolution: Tuple[int, int]
     if base_element_config:
         return base_element_config
     return None
-
-
-def log_resolution_info(resolution: Tuple[int, int], map_id: Optional[int] = None):
-    """
-    Log information about the current resolution and available click catchers
-    
-    Args:
-        resolution: (width, height) tuple
-        map_id: Optional map ID (12 = ARAM/Howling Abyss, 11 = SR, 22 = Arena, None = use default)
-    """
-    resolution_key = get_resolution_key(resolution)
-    if resolution_key:
-        log.info(f"[ResolutionUtils] Current resolution: {resolution_key}")
-        configs = get_all_click_catcher_configs(resolution, map_id=map_id)
-        if configs:
-            log.info(f"[ResolutionUtils] Available click catchers for {resolution_key}:")
-            for name, config in configs.items():
-                log.info(f"[ResolutionUtils]   {name}: ({config['x']}, {config['y']}) {config['width']}x{config['height']}")
-    else:
-        log.warning(f"[ResolutionUtils] Unsupported resolution: {resolution}")
