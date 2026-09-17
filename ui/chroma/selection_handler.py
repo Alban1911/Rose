@@ -77,7 +77,7 @@ class ChromaSelectionHandler:
             cancel_random_mode_for_selection(
                 self.state, chroma_id, f"chroma selection (chromaId={chroma_id})"
             )
-            
+
             self.state.pending_chroma_selection = False
         except Exception as e:
             log.error(f"[CHROMA] Error in selection callback: {e}")

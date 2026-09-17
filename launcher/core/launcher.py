@@ -131,7 +131,7 @@ def _confirm_update(dialog: UpdateDialog, remote_version: str, local_version: st
 
 def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
     """Perform update check and installation
-    
+
     Args:
         dialog: UpdateDialog instance for UI updates
         dev_mode: If True, skip update check (for development)
@@ -217,7 +217,7 @@ def _run_launcher_dialog(dev_mode: bool, test_download_fail: bool) -> None:
 
                 hash_sequence = HashCheckSequence()
                 hash_sequence.perform_hash_check(dialog, dev_mode=dev_mode)
-                
+
                 skin_sequence = SkinSyncSequence()
                 skin_sequence.perform_skin_sync(dialog, test_fail=test_download_fail)
 

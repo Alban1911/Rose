@@ -22,7 +22,7 @@ log = get_logger()
 
 class LoadoutTicker(threading.Thread):
     """High-frequency loadout countdown ticker"""
-    
+
     def __init__(
         self,
         lcu: LCU,
@@ -43,7 +43,7 @@ class LoadoutTicker(threading.Thread):
         self.mode = mode
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
-        
+
         # Initialize handlers
         self.injection_trigger = InjectionTrigger(lcu, state, injection_manager, skin_scraper)
         self.skin_name_resolver = SkinNameResolver(state, skin_scraper)
@@ -53,7 +53,7 @@ class LoadoutTicker(threading.Thread):
         # Exit immediately if another ticker has taken control
         if getattr(self.state, 'current_ticker', 0) != self.ticker_id:
             return
-        
+
         # Local variables to avoid cross-resets
         left0_ms = self.state.loadout_left0_ms
         t0 = self.state.loadout_t0
@@ -63,11 +63,11 @@ class LoadoutTicker(threading.Thread):
         last_poll = 0.0
         last_bucket = None
         last_logged_name = object()
-        
+
         # Continue loop only in ChampSelect/FINALIZATION
         while (not self.state.stop) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id) and (self.state.phase in ["ChampSelect", "FINALIZATION"]):
             now = time.monotonic()
-            
+
             # Periodic LCU resync
             if (now - last_poll) >= poll_period_s:
                 last_poll = now
@@ -75,49 +75,49 @@ class LoadoutTicker(threading.Thread):
                 t = (sess.get("timer") or {})
                 phase = str((t.get("phase") or "")).upper()
                 left_ms = int(t.get("adjustedTimeLeftInPhase") or 0)
-                
+
                 # Check if phase changed to FINALIZATION
                 if phase == "FINALIZATION" and self.state.phase != "FINALIZATION":
                     log.info(f"[loadout] Phase transition detected: {self.state.phase} → FINALIZATION")
                     self.state.phase = "FINALIZATION"
-                
+
                 if phase == "FINALIZATION" and left_ms > 0:
                     cand_deadline = time.monotonic() + (left_ms / 1000.0)
                     if cand_deadline < deadline:
                         deadline = cand_deadline
-            
+
             # Local countdown
             remain_ms = int((deadline - time.monotonic()) * 1000.0)
             if remain_ms < 0:
                 remain_ms = 0
-            
+
             # Anti-jitter clamp: never go up
             if remain_ms > prev_remain_ms:
                 remain_ms = prev_remain_ms
             prev_remain_ms = remain_ms
-            
+
             # Store remaining time in shared state
             self.state.last_remain_ms = remain_ms
-            
+
             bucket = remain_ms // 1000
             if bucket != last_bucket:
                 last_bucket = bucket
                 seconds_remaining = int(remain_ms // 1000)
                 log.info(f"[loadout #{self.ticker_id}] T-{seconds_remaining}s")
-                
+
                 # Notify injection manager of countdown
                 if self.injection_manager:
                     try:
                         self.injection_manager.on_loadout_countdown(seconds_remaining)
                     except Exception as e:
                         log.debug(f"[loadout] countdown notification failed: {e}")
-            
+
             # Write last hovered skin at T<=threshold
             thresh = int(getattr(self.state, 'skin_write_ms', SKIN_THRESHOLD_MS_DEFAULT) or SKIN_THRESHOLD_MS_DEFAULT)
             if remain_ms <= thresh and not self.state.last_hover_written:
                 # Build skin label
                 final_label = self.skin_name_resolver.build_skin_label()
-                
+
                 # Get champion name for injection
                 cname = ""
                 try:
@@ -126,13 +126,13 @@ class LoadoutTicker(threading.Thread):
                         cname = self.skin_scraper.cache.champion_name or ""
                 except Exception:
                     pass
-                
+
                 # Resolve injection name
                 name = self.skin_name_resolver.resolve_injection_name()
                 if name != last_logged_name:
                     log.debug(f"[INJECT] Final name variable: '{name}'")
                     last_logged_name = name
-                
+
                 if name:
                     # Trigger injection
                     self.injection_trigger.trigger_injection(name, self.ticker_id, cname)
@@ -140,7 +140,7 @@ class LoadoutTicker(threading.Thread):
             if remain_ms <= 0:
                 break
             time.sleep(1.0 / float(self.hz))
-        
+
         # End of ticker: only release if we're still the current ticker
         if getattr(self.state, 'current_ticker', 0) == self.ticker_id:
             self.state.loadout_countdown_active = False

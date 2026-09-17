@@ -5,12 +5,12 @@ Global constants for Rose
 All arbitrary values are centralized here for easy tracking and modification
 """
 
+import configparser
+import logging
 import shutil
 import sys
-import logging
-from typing import TYPE_CHECKING, Optional, Tuple
 from pathlib import Path
-import configparser
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from utils.core.paths import get_user_data_dir
 
@@ -315,7 +315,7 @@ LOG_TIMESTAMP_FORMAT = "%d-%m-%Y_%H-%M-%S"  # European format, Windows-compatibl
 # Interesting game phases to log
 INTERESTING_PHASES = {
     "Lobby",
-    "Matchmaking", 
+    "Matchmaking",
     "ReadyCheck",
     "ChampSelect",
     "FINALIZATION",

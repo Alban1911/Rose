@@ -14,10 +14,8 @@
 
   const DISCORD_INVITE_URL = "https://discord.com/invite/roseskins";
   const ROSE_DISCORD_GUILD_ID = "1490473857075642621";
-  const ROSE_GITHUB_REPO_API_URL =
-    "https://api.github.com/repos/Alban1911/Rose";
-  const ROSE_GITHUB_BADGE_FALLBACK_URL =
-    "https://img.shields.io/badge/GitHub-Stars-32A832?style=flat&logo=github&logoColor=white";
+  const ROSE_GITHUB_REPO_API_URL = "https://api.github.com/repos/Alban1911/Rose";
+  const ROSE_GITHUB_BADGE_FALLBACK_URL = "https://img.shields.io/badge/GitHub-Stars-32A832?style=flat&logo=github&logoColor=white";
   let roseGithubStarsPromise = null;
 
   // The welcome modal is rendered by Pengu's signed core module. Keep its
@@ -44,26 +42,17 @@
 
   function getRoseGithubBadgeUrl(stars) {
     const message = encodeURIComponent(stars + " stars");
-    return (
-      "https://img.shields.io/badge/GitHub-" +
-      message +
-      "-32A832?style=flat&logo=github&logoColor=white"
-    );
+    return "https://img.shields.io/badge/GitHub-" + message + "-32A832?style=flat&logo=github&logoColor=white";
   }
 
   function fixPenguWelcomeBadges(shadowRoot) {
-    const badges = shadowRoot.querySelectorAll(
-      'img[src*="img.shields.io/discord/"], img[src*="img.shields.io/github/stars/"]'
-    );
+    const badges = shadowRoot.querySelectorAll('img[src*="img.shields.io/discord/"], img[src*="img.shields.io/github/stars/"]');
 
     badges.forEach((badge) => {
       const source = badge.getAttribute("src") || "";
 
       if (source.includes("/discord/")) {
-        const fixedSource = source.replace(
-          /\/discord\/\d+/,
-          "/discord/" + ROSE_DISCORD_GUILD_ID
-        );
+        const fixedSource = source.replace(/\/discord\/\d+/, "/discord/" + ROSE_DISCORD_GUILD_ID);
         if (fixedSource !== source) {
           badge.setAttribute("src", fixedSource);
         }
@@ -162,7 +151,7 @@
                 // // **Bridge-less implementation** (don't use: bridge implementation is more reliable)
                 //
                 // const data = eventData["data"];
-                // 
+                //
                 // data is null in event type DELETE
                 // check if base skin
                 // if (data?.["selectedSkinId"] % 1000 == 0) {
@@ -185,7 +174,7 @@
             }
 
             return parentOnMessage.call(this, event);
-          } catch(e) {
+          } catch (e) {
             log.error("Error during WebSocket response parse: ", e);
           }
         };
@@ -426,9 +415,7 @@
       border.setAttribute("aria-hidden", "true");
     }
 
-    const chromaContainer = skinItem.querySelector(
-      `.${CHROMA_CONTAINER_CLASS}`
-    );
+    const chromaContainer = skinItem.querySelector(`.${CHROMA_CONTAINER_CLASS}`);
     if (chromaContainer && border.nextSibling !== chromaContainer) {
       skinItem.insertBefore(border, chromaContainer);
       return;
@@ -459,10 +446,7 @@
       skinItem.appendChild(container);
     }
 
-    if (
-      container.previousSibling &&
-      !container.previousSibling.classList?.contains(BORDER_CLASS)
-    ) {
+    if (container.previousSibling && !container.previousSibling.classList?.contains(BORDER_CLASS)) {
       const border = skinItem.querySelector(`.${BORDER_CLASS}`);
       if (border) {
         skinItem.insertBefore(border, container);
@@ -475,9 +459,7 @@
   }
 
   function parseCarouselOffset(skinItem) {
-    const offsetClass = Array.from(skinItem.classList).find((cls) =>
-      cls.startsWith("skin-carousel-offset")
-    );
+    const offsetClass = Array.from(skinItem.classList).find((cls) => cls.startsWith("skin-carousel-offset"));
     if (!offsetClass) {
       return null;
     }
@@ -519,12 +501,10 @@
 
   function markSkinsAsOwned() {
     // Remove unowned class and add owned class to thumbnail-wrapper elements
-    document
-      .querySelectorAll(".thumbnail-wrapper.unowned")
-      .forEach((wrapper) => {
-        wrapper.classList.remove("unowned");
-        wrapper.classList.add("owned");
-      });
+    document.querySelectorAll(".thumbnail-wrapper.unowned").forEach((wrapper) => {
+      wrapper.classList.remove("unowned");
+      wrapper.classList.add("owned");
+    });
 
     // Replace purchase-available with active
     document.querySelectorAll(".purchase-available").forEach((element) => {
@@ -630,7 +610,7 @@
           scanSkinSelection();
         }
       },
-      false
+      false,
     );
 
     // Return cleanup in case we ever need it
@@ -698,7 +678,7 @@
         window.dispatchEvent(event);
         log.info("Dispatched rose-open-settings event from Golden Rose button");
       },
-      true
+      true,
     ); // Use capture phase to intercept early
 
     // Also prevent section click from bubbling up - wait for section to exist
@@ -720,23 +700,18 @@
               cancelable: true,
             });
             window.dispatchEvent(event);
-            log.info(
-              "Dispatched rose-open-settings event from Golden Rose section"
-            );
+            log.info("Dispatched rose-open-settings event from Golden Rose section");
 
             // Prevent active class
             section.classList.remove("active");
           },
-          true
+          true,
         );
 
         // Watch for active class being added and remove it immediately
         const activeObserver = new MutationObserver((mutations) => {
           mutations.forEach((mutation) => {
-            if (
-              mutation.type === "attributes" &&
-              mutation.attributeName === "class"
-            ) {
+            if (mutation.type === "attributes" && mutation.attributeName === "class") {
               if (section.classList.contains("active")) {
                 section.classList.remove("active");
               }
@@ -787,9 +762,7 @@
     }
 
     // Check if Golden Rose item already exists by checking for the golden_rose.png image
-    const existingItem = rightNavMenu.querySelector(
-      'lol-uikit-navigation-item .menu-item-icon[style*="golden_rose.png"]'
-    );
+    const existingItem = rightNavMenu.querySelector('lol-uikit-navigation-item .menu-item-icon[style*="golden_rose.png"]');
     if (existingItem) {
       const navItem = existingItem.closest("lol-uikit-navigation-item");
       if (navItem) {
@@ -801,8 +774,7 @@
     // Create the navigation item
     const navItem = document.createElement("lol-uikit-navigation-item");
     navItem.id = `ember${Date.now()}`;
-    navItem.className =
-      "main-navigation-menu-item menu_item_Golden Rose ember-view";
+    navItem.className = "main-navigation-menu-item menu_item_Golden Rose ember-view";
 
     // Create icon wrapper structure
     const iconWrapper = document.createElement("div");
@@ -889,9 +861,7 @@
       if (!document || !document.head) {
         // Check retry limit to prevent unbounded retries
         if (_retryCount >= MAX_RETRIES) {
-          log.error(
-            `Init failed: Maximum retry count (${MAX_RETRIES}) reached. Document still not ready.`
-          );
+          log.error(`Init failed: Maximum retry count (${MAX_RETRIES}) reached. Document still not ready.`);
           _initializing = false;
           _retryCount = 0; // Reset for next attempt
           return;
@@ -916,9 +886,7 @@
       if (!document || !document.head) {
         // Check retry limit BEFORE incrementing to prevent unbounded retries
         if (_retryCount >= MAX_RETRIES) {
-          log.error(
-            `Init failed: Maximum retry count (${MAX_RETRIES}) reached. Document still not ready.`
-          );
+          log.error(`Init failed: Maximum retry count (${MAX_RETRIES}) reached. Document still not ready.`);
           _initializing = false;
           _retryCount = 0; // Reset for next attempt
           return;
@@ -934,7 +902,7 @@
         return;
       }
     }
-    
+
     try {
       // Wait for bridge to be available (provides port)
       const bridge = await waitForBridge();
@@ -976,7 +944,7 @@
           log.error("Init failed:", err);
         });
       },
-      { once: true }
+      { once: true },
     );
   } else {
     init().catch((err) => {
