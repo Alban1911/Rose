@@ -6,16 +6,14 @@ All arbitrary values are centralized here for easy tracking and modification
 """
 
 import io
-import os
 import shutil
 import sys
 import logging
-import tempfile
-import time
 from typing import TYPE_CHECKING, Optional, Tuple
 from pathlib import Path
 import configparser
 
+from utils.core.atomic_file import atomic_write
 from utils.core.paths import get_user_data_dir
 
 log = logging.getLogger(__name__)
@@ -42,7 +40,6 @@ def get_config_file_path() -> Path:
 # UTF-8 garbled non-ASCII paths for core.dll (loaderpath under C:\Users\José),
 # which then found no plugins.
 _CONFIG_ENCODING = "mbcs" if sys.platform == "win32" else "utf-8"
-_CONFIG_REPLACE_ATTEMPTS = 5
 
 
 def _decode_config(data: bytes) -> str:
@@ -77,24 +74,12 @@ def write_config_file(config: configparser.ConfigParser, path: Path) -> None:
     config.write(text)
     data = text.getvalue().replace("\n", "\r\n").encode(_CONFIG_ENCODING, errors="replace")
 
-    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name, suffix=".tmp", delete=False) as fh:
-        fh.write(data)
-        fh.flush()
-        os.fsync(fh.fileno())
-    temporary = Path(fh.name)
-
     try:
-        for _ in range(_CONFIG_REPLACE_ATTEMPTS):
-            try:
-                os.replace(temporary, path)
-                return
-            except PermissionError:
-                time.sleep(0.05)  # briefly open elsewhere (core.dll, antivirus)
-
-        # Still locked: write in place rather than lose the change
+        with atomic_write(path, "wb") as fh:
+            fh.write(data)
+    except PermissionError:
+        # Still locked (core.dll, an antivirus): write in place rather than lose the change
         path.write_bytes(data)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _reload_config() -> None:
@@ -156,7 +141,9 @@ def set_config_option(section: str, option: str, value: str) -> None:
         try:
             read_config_file(config, config_path)
         except Exception as e:
-            log.debug(f"Failed to read config for update: {e}")
+            # Rewriting from an empty parser would erase every other setting
+            log.warning(f"Not saving [{section}] {option}: config file could not be read: {e}")
+            return
     if section not in config:
         config.add_section(section)
     config.set(section, option, value)

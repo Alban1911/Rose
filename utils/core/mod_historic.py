@@ -24,10 +24,23 @@ File format: mod_historic.json with shape:
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Dict, Optional, Union, List, Iterable
 
+from utils.core.atomic_file import atomic_write
+from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
+
+log = get_logger()
+
+# Read-modify-write cycles run from several threads (injection, UI, Pengu bridge)
+_write_lock = threading.RLock()
+
+
+def _write_json(path: Path, data: dict) -> None:
+    with atomic_write(path) as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 _CATEGORY_KEYS = (
@@ -134,11 +147,10 @@ def load_mod_historic() -> Dict[str, Union[str, List[str]]]:
                         items = result.get(cat, [])
                         if isinstance(items, list) and items:
                             compact[cat] = items
-                    p.parent.mkdir(parents=True, exist_ok=True)
-                    with p.open("w", encoding="utf-8") as wf:
-                        json.dump(compact, wf, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
+                    with _write_lock:
+                        _write_json(p, compact)
+                except Exception as e:
+                    log.warning(f"[HISTORIC] Could not migrate legacy mod history: {e}")
 
             # Return compact (drop empty category lists)
             out: Dict[str, Union[str, List[str]]] = {}
@@ -187,9 +199,14 @@ def write_historic_mod(mod_type: str, relative_path: Union[str, List[str]]) -> N
         mod_type: "map"/"font"/"announcer" or a category key (ui/voiceover/loading_screen/vfx/sfx/others).
         relative_path: For category keys, can be a list of relative paths. For single-select keys, must be a string.
     """
+    with _write_lock:
+        _write_historic_mod_locked(mod_type, relative_path)
+
+
+def _write_historic_mod_locked(mod_type: str, relative_path: Union[str, List[str]]) -> None:
     p = _mod_historic_file_path()
     m = load_mod_historic()
-    
+
     # Normalize legacy "other" writes into per-category keys
     if mod_type == "other":
         items = _as_list(relative_path)
@@ -220,12 +237,9 @@ def write_historic_mod(mod_type: str, relative_path: Union[str, List[str]]) -> N
             m[mod_type] = str(relative_path)
     
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open("w", encoding="utf-8") as f:
-            json.dump(m, f, ensure_ascii=False, indent=2)
-    except Exception:
-        # Silently ignore write errors; feature is best-effort
-        pass
+        _write_json(p, m)
+    except Exception as e:
+        log.warning(f"[HISTORIC] Could not save {mod_type} mod history: {e}")
 
 
 def clear_historic_mod(mod_type: str) -> None:
@@ -234,6 +248,11 @@ def clear_historic_mod(mod_type: str) -> None:
     Args:
         mod_type: One of "map", "font", "announcer", "other"
     """
+    with _write_lock:
+        _clear_historic_mod_locked(mod_type)
+
+
+def _clear_historic_mod_locked(mod_type: str) -> None:
     p = _mod_historic_file_path()
     m = load_mod_historic()
     if mod_type == "other":
@@ -254,10 +273,7 @@ def clear_historic_mod(mod_type: str) -> None:
         del m[mod_type]
 
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open("w", encoding="utf-8") as f:
-            json.dump(m, f, ensure_ascii=False, indent=2)
-    except Exception:
-        # Silently ignore write errors; feature is best-effort
-        pass
+        _write_json(p, m)
+    except Exception as e:
+        log.warning(f"[HISTORIC] Could not clear {mod_type} mod history: {e}")
 
