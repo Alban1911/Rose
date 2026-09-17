@@ -43,7 +43,8 @@ def _route_logger(source: logging.Logger, target: logging.Logger) -> Iterator[No
     previous_level = source.level
     for handler in added:
         source.addHandler(handler)
-    if previous_level == logging.NOTSET or previous_level > logging.DEBUG:
+    # Only open the level up to DEBUG; a logger already at TRACE (debug log mode) must keep TRACE records
+    if source.getEffectiveLevel() > logging.DEBUG:
         source.setLevel(logging.DEBUG)
     try:
         yield
