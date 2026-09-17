@@ -1077,8 +1077,8 @@ class InjectionTrigger:
 
                     # Start tracking for WebSocket confirmation
                     _start_skin_tracking(base_skin_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("[INJECT] Could not start base skin confirmation tracking: %s", e, exc_info=True)
             
             # Verify the change
             if base_skin_set_successfully:
@@ -1120,8 +1120,8 @@ class InjectionTrigger:
                                         },
                                         dedupe_window_s=60.0,
                                     )
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    log.debug("[INJECT] Could not report base skin verification issue: %s", e)
                             else:
                                 log.info(f"[INJECT] Base skin verified: {current_skin}")
                             break

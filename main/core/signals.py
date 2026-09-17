@@ -9,8 +9,11 @@ import signal
 import sys
 
 import utils.integration.pengu_loader as pengu_loader
+from utils.core.logging import get_logger
 
 from .state import get_app_state
+
+log = get_logger()
 
 
 def signal_handler(signum, frame):
@@ -24,7 +27,7 @@ def signal_handler(signum, frame):
     try:
         pengu_loader.deactivate_on_exit()
     except Exception:
-        pass
+        log.warning("Failed to deactivate Pengu Loader during shutdown", exc_info=True)
     # Let run_league_unlock() reach its finally block so the thread manager,
     # tray and injection processes are cleaned up as well.  The direct Pengu
     # deactivation above remains a safety net for signals received early in
@@ -43,7 +46,7 @@ def force_quit_handler():
     try:
         pengu_loader.deactivate_on_exit()
     except Exception:
-        pass
+        log.warning("Failed to deactivate Pengu Loader during shutdown", exc_info=True)
     os._exit(0)
 
 
@@ -115,7 +118,7 @@ def _start_shutdown_watcher() -> None:
                     try:
                         pengu_loader.deactivate_on_exit()
                     except Exception:
-                        pass
+                        log.warning("Failed to deactivate Pengu Loader on session end", exc_info=True)
             return 0
         return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 

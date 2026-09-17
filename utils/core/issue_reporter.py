@@ -15,7 +15,10 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
+from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
+
+log = get_logger()
 
 _LOCK = threading.Lock()
 _LAST: Dict[str, float] = {}  # naive dedupe: key -> last timestamp
@@ -85,13 +88,13 @@ def report_issue(
                 if p.exists() and p.stat().st_size > 1_500_000:
                     txt = p.read_text(encoding="utf-8", errors="ignore").splitlines()[-4000:]
                     p.write_text("\n".join(txt) + "\n", encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("[ISSUES] Could not trim diagnostics file: %s", e)
 
             with p.open("a", encoding="utf-8", errors="ignore") as f:
                 f.write(line)
-    except Exception:
-        return
+    except Exception as e:
+        log.debug("[ISSUES] Could not write diagnostics entry %s: %s", code, e)
 
 
 def read_issues_tail(*, max_lines: int = 60) -> list[str]:
@@ -105,7 +108,8 @@ def read_issues_tail(*, max_lines: int = 60) -> list[str]:
         if max_lines <= 0:
             return []
         return lines[-int(max_lines):]
-    except Exception:
+    except Exception as e:
+        log.debug("[ISSUES] Could not read diagnostics file: %s", e)
         return []
 
 
@@ -155,6 +159,7 @@ def clear_issues() -> bool:
             p = _issues_path()
             p.write_text("", encoding="utf-8", errors="ignore")
         return True
-    except Exception:
+    except Exception as e:
+        log.debug("[ISSUES] Could not clear diagnostics file: %s", e)
         return False
 

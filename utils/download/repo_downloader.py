@@ -323,8 +323,8 @@ class RepoDownloader:
                 if temp_zip_path and temp_zip_path.exists():
                     try:
                         temp_zip_path.unlink()
-                    except Exception:
-                        pass
+                    except Exception as unlink_error:
+                        log.debug(f"Could not remove partial download {temp_zip_path}: {unlink_error}")
 
                 if attempt < max_retries:
                     delay = base_delay * (2 ** (attempt - 1))  # Exponential backoff: 2s, 4s, 8s
@@ -341,8 +341,8 @@ class RepoDownloader:
                 if temp_zip_path and temp_zip_path.exists():
                     try:
                         temp_zip_path.unlink()
-                    except Exception:
-                        pass
+                    except Exception as unlink_error:
+                        log.debug(f"Could not remove partial download {temp_zip_path}: {unlink_error}")
                 return None
 
         return None
@@ -427,8 +427,8 @@ class RepoDownloader:
                 if dir_path.is_dir() and not any(dir_path.iterdir()):
                     try:
                         dir_path.rmdir()
-                    except Exception:
-                        pass
+                    except Exception as rmdir_error:
+                        log.debug(f"Could not remove empty skin directory {dir_path}: {rmdir_error}")
         except Exception as e:
             log.debug(f"Error cleaning up empty directories: {e}")
         
