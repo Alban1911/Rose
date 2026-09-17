@@ -24,6 +24,7 @@ from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_di
 from utils.core.issue_reporter import clear_issues, read_issues_tail
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.utilities import get_base_skin_id_for_chroma
+from ui.handlers.randomization_handler import cancel_random_mode_for_selection
 from utils.system.admin_utils import (
     is_admin,
     is_registered_for_autostart,
@@ -344,6 +345,9 @@ class MessageHandler:
                 self.shared_state.selected_chroma_id = chroma_id if chroma_id != 0 else None
                 self.shared_state.last_hovered_skin_id = chroma_id
                 log.info(f"[SkinMonitor] Chroma selected (fallback): {chroma_name} (ID: {chroma_id})")
+                cancel_random_mode_for_selection(
+                    self.shared_state, chroma_id, f"chroma selection (chromaId={chroma_id})"
+                )
                 
                 try:
                     from ui.chroma.panel import get_chroma_panel

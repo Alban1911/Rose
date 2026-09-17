@@ -9,6 +9,7 @@ from typing import Optional
 from state import SharedState
 from utils.core.logging import get_logger
 from ui.handlers.historic_mode_handler import historic_custom_mod_affects_skin
+from ui.handlers.randomization_handler import cancel_random_mode_for_selection
 from ui.chroma.special_cases import ChromaSpecialCases
 
 log = get_logger()
@@ -72,6 +73,10 @@ class ChromaSelectionHandler:
             
             # Safety check: Disable HistoricMode if active and chroma/skin is selected
             self._safety_check_historic_mode()
+
+            cancel_random_mode_for_selection(
+                self.state, chroma_id, f"chroma selection (chromaId={chroma_id})"
+            )
             
             self.state.pending_chroma_selection = False
         except Exception as e:
