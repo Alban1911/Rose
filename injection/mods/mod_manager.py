@@ -74,5 +74,5 @@ class ModManager:
             ctypes.windll.kernel32.SetFileAttributesW(str(path), attrs)
             for item in path.rglob('*'):
                 ctypes.windll.kernel32.SetFileAttributesW(str(item), attrs)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("[INJECT] Could not hide directory %s: %s", path, e)

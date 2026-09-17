@@ -189,8 +189,8 @@ def create_single_instance_mutex() -> bool:
             stale_lock_path = get_state_dir() / LOCK_FILE_NAME
             if stale_lock_path.exists():
                 stale_lock_path.unlink()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Could not remove legacy lock file: %s", e)
 
         atexit.register(cleanup_lock_file)  # reuse existing cleanup hook
         return True
@@ -208,8 +208,8 @@ def cleanup_lock_file() -> None:
         if sys.platform == "win32" and app_state.mutex_handle:
             try:
                 ctypes.windll.kernel32.CloseHandle(app_state.mutex_handle)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("Could not close single-instance mutex handle: %s", e)
             app_state.mutex_handle = None
 
         if app_state.lock_file:

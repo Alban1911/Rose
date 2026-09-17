@@ -137,8 +137,8 @@ class UpdateSequence:
         if config_path.exists():
             try:
                 read_config_file(config, config_path)
-            except Exception:
-                pass
+            except Exception as e:
+                updater_log.warning(f"Could not read {config_path}; using defaults for update state: {e}")
         if not config.has_section("General"):
             config.add_section("General")
         
@@ -172,8 +172,8 @@ class UpdateSequence:
                 config.set("General", "update_retry_count", "0")
                 try:
                     write_config_file(config, config_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    updater_log.warning(f"Could not persist update state to {config_path}: {e}")
                 status_callback("Update failed after retries")
                 return False
             else:
@@ -188,8 +188,8 @@ class UpdateSequence:
                 config.set("General", "update_retry_count", str(retry_count + 1))
                 try:
                     write_config_file(config, config_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    updater_log.warning(f"Could not persist update state to {config_path}: {e}")
 
         # Skip updates for test versions (e.g., version 999)
         # Note: installed_version can be stale if config.ini was created by a previous build,
@@ -221,8 +221,8 @@ class UpdateSequence:
                 config.set("General", "update_retry_count", "0")
                 try:
                     write_config_file(config, config_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    updater_log.warning(f"Could not persist update state to {config_path}: {e}")
             status_callback("Launcher is already up to date")
             return False
         

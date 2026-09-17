@@ -9,6 +9,10 @@ from typing import Optional
 
 import requests
 
+from utils.core.logging import get_logger
+
+log = get_logger()
+
 GITHUB_RELEASE_API = "https://api.github.com/repos/Alban1911/Rose/releases/latest"
 
 
@@ -28,7 +32,8 @@ class GitHubClient:
             response = requests.get(GITHUB_RELEASE_API, timeout=self.timeout)
             response.raise_for_status()
             return response.json()
-        except Exception:
+        except Exception as e:
+            log.warning("Update check failed while fetching latest release: %s", e)
             return None
     
     def get_release_version(self, release: dict) -> str:
