@@ -6,9 +6,10 @@ Provides secure extraction of ZIP files with path traversal protection
 """
 
 import io
+import os
 import zipfile
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from utils.core.logging import get_logger
 
@@ -18,6 +19,15 @@ log = get_logger()
 class UnsafePathError(Exception):
     """Raised when a zip file contains paths that would escape the target directory"""
     pass
+
+
+def join_within(resolved_base: Path, relative_path: str) -> Optional[Path]:
+    """Join *relative_path* to an already resolved base, or return None if it escapes the base.
+
+    Purely lexical (no filesystem calls), for bulk extraction where resolving every entry is costly.
+    """
+    candidate = Path(os.path.normpath(resolved_base / relative_path))
+    return candidate if candidate.is_relative_to(resolved_base) else None
 
 
 def is_safe_path(base_dir: Path, target_path: Path) -> bool:
@@ -37,8 +47,8 @@ def is_safe_path(base_dir: Path, target_path: Path) -> bool:
         base_resolved = base_dir.resolve()
         target_resolved = target_path.resolve()
 
-        # Check if target is within base directory
-        return str(target_resolved).startswith(str(base_resolved))
+        # Compare path components: a string prefix check would accept sibling folders such as "skins-evil"
+        return target_resolved.is_relative_to(base_resolved)
     except (OSError, ValueError):
         return False
 
