@@ -163,11 +163,8 @@ def _show_dll_dialog_legacy(tools_dir, reason="missing") -> bool:
         import ctypes
         msg = f"{header}\n\n{body}\n\nDiscord: https://discord.gg/roseskins\n\nClick OK to open the folder."
         res = ctypes.windll.user32.MessageBoxW(0, msg, title, 0x40031) # MB_OKCANCEL | MB_ICONWARNING | MB_SETFOREGROUND
-        if res == 6: # IDYES
+        if res == 1: # IDOK
             try: subprocess.run(["explorer", str(tools_dir)], check=False)
-            except Exception: pass
-        elif res == 7: # IDNO
-            try: webbrowser.open("https://discord.gg/roseskins")
             except Exception: pass
         return False
 
