@@ -18,6 +18,7 @@ from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
 from utils.core.utilities import is_default_skin
+from injection.classic import is_classic_game_mode
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 
 log = get_logger()
@@ -833,6 +834,7 @@ class InjectionTrigger:
     def _inject_unowned_skin(self, name: str, cname: str):
         """Inject unowned skin/chroma"""
         try:
+            classic_selected_skin_id = None
             # Force base skin selection via LCU before injecting
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champ_id:
@@ -853,8 +855,12 @@ class InjectionTrigger:
                 except Exception as e:
                     log.debug(f"[INJECT] Failed to read actual LCU skin ID: {e}")
                 
+                if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+                    classic_selected_skin_id = actual_lcu_skin_id
+                    if classic_selected_skin_id is None:
+                        log.warning("[CLASSIC] Current skin selection unknown; only default slots will be overridden")
                 # Only force base skin if current selection is not already base skin
-                if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
+                elif actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
                     self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
@@ -885,7 +891,8 @@ class InjectionTrigger:
                         name,
                         stop_callback=game_ended_callback,
                         champion_name=cname,
-                        champion_id=self.state.locked_champ_id
+                        champion_id=self.state.locked_champ_id,
+                        classic_selected_skin_id=classic_selected_skin_id,
                     )
                     
                     # Clear random state after injection

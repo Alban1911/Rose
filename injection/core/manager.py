@@ -19,6 +19,7 @@ from utils.core.logging import get_logger, log_action, log_success
 from utils.core.issue_reporter import report_issue
 
 from .injector import SkinInjector
+from ..classic import is_classic_game_mode
 from ..game.game_monitor import GameMonitor
 from ..config.threshold_manager import ThresholdManager
 
@@ -201,7 +202,7 @@ class InjectionManager:
         # This prevents unnecessary suspension for base skins and owned skins
         pass
     
-    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
+    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None, classic_selected_skin_id: Optional[int] = None) -> bool:
         """Immediately inject a specific skin (with optional chroma)
         
         Args:
@@ -297,6 +298,18 @@ class InjectionManager:
                 except Exception as e:
                     log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
             
+            prepared_mod = None
+            if self.shared_state and is_classic_game_mode(getattr(self.shared_state, "current_game_mode", None)):
+                prepared_mod = self.injector.prepare_classic_mod(
+                    skin_name,
+                    chroma_id=chroma_id,
+                    champion_name=champion_name,
+                    champion_id=champion_id,
+                    selected_skin_id=classic_selected_skin_id,
+                )
+                if prepared_mod is None:
+                    return False
+
             # Start monitor now (only when injection actually happens)
             # Monitor runs in background and will suspend game if/when it finds it
             # Injection proceeds immediately - suspension is optional and helps prevent file locks
@@ -328,6 +341,7 @@ class InjectionManager:
                 champion_name=champion_name,
                 champion_id=champion_id,
                 extra_mods_callback=extra_mods_callback,
+                prepared_mod=prepared_mod,
             )
             
             if success:
