@@ -288,6 +288,10 @@ hiddenimports = [
     'websocket_client',
     'websockets',
 
+    # Rift Classic skin builder (reads game WADs)
+    'xxhash',
+    'zstandard',
+
     # Party mode (WebSocket relay)
     'party',
     'party.core',
