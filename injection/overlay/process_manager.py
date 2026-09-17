@@ -32,12 +32,14 @@ class ProcessManager:
     
     def __init__(self):
         self.current_overlay_process = None
+        self.stop_requested = False
     
     def stop_overlay_process(self):
         """Stop the current overlay process"""
         if self.current_overlay_process and self.current_overlay_process.poll() is None:
             try:
                 log.info("[INJECT] Stopping current overlay process")
+                self.stop_requested = True
                 self.current_overlay_process.terminate()
                 try:
                     self.current_overlay_process.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
@@ -86,6 +88,7 @@ class ProcessManager:
                         
                         if cmdline and any('runoverlay' in arg for arg in cmdline):
                             log.info(f"[INJECT] Killing runoverlay process PID {proc.info['pid']}")
+                            self.stop_requested = True
                             try:
                                 # Try graceful termination first
                                 p.terminate()
@@ -152,6 +155,7 @@ class ProcessManager:
                     
                     # Kill all mod-tools.exe processes regardless of command
                     log.info(f"[INJECT] Killing mod-tools.exe process PID {proc.info['pid']}")
+                    self.stop_requested = True
                     try:
                         # Create Process object
                         p = psutil.Process(proc.info['pid'])
