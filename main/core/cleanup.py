@@ -23,8 +23,19 @@ log = get_logger()
 def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_manager: TrayManager, injection_manager=None) -> None:
     """Perform application cleanup"""
     log_section(log, "Cleanup", "")
-    pengu_loader.deactivate_on_exit()
-    
+
+    # A suspension outlives Rose: resume first, or closing during mkoverlay freezes the game for good
+    if injection_manager:
+        try:
+            injection_manager.resume_if_suspended()
+        except Exception as e:
+            log.warning(f"Error resuming suspended game during cleanup: {e}")
+
+    try:
+        pengu_loader.deactivate_on_exit()
+    except Exception as e:
+        log.warning(f"Error deactivating Pengu Loader during cleanup: {e}")
+
     # Kill all mod-tools.exe processes before shutting down
     if injection_manager:
         try:
