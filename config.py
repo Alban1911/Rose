@@ -332,7 +332,7 @@ INTERESTING_PHASES = {
 ANALYTICS_SERVER_URL = 'https://analytics.rosekeys.site/'  # Analytics server endpoint
 ANALYTICS_PING_INTERVAL_S = 900  # Seconds between presence heartbeats (15 minutes)
 ANALYTICS_ENABLED = True  # Enable/disable analytics tracking
-ANALYTICS_TIMEOUT_S = 30  # Request timeout in seconds
+ANALYTICS_TIMEOUT_S = 5  # Request timeout in seconds
 
 # =============================================================================
 # DEFAULT ARGUMENTS
