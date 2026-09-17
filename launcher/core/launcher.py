@@ -12,11 +12,13 @@ application continues bootstrapping.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
 import time
-from typing import Callable
+from contextlib import contextmanager
+from typing import Callable, Iterator
 
 from utils.core.logging import get_logger, get_named_logger
 from utils.system.win32_base import (
@@ -32,6 +34,23 @@ from ..sequences.skin_sync_sequence import SkinSyncSequence
 
 log = get_logger()
 updater_log = get_named_logger("updater", prefix="log_updater")
+
+
+@contextmanager
+def _route_logger(source: logging.Logger, target: logging.Logger) -> Iterator[None]:
+    """Temporarily write *source* records through *target*'s handlers."""
+    added = [handler for handler in target.handlers if handler not in source.handlers]
+    previous_level = source.level
+    for handler in added:
+        source.addHandler(handler)
+    if previous_level == logging.NOTSET or previous_level > logging.DEBUG:
+        source.setLevel(logging.DEBUG)
+    try:
+        yield
+    finally:
+        for handler in added:
+            source.removeHandler(handler)
+        source.setLevel(previous_level)
 
 MB_ICONERROR = 0x00000010
 MB_ICONINFORMATION = 0x00000040
@@ -177,6 +196,11 @@ def run_launcher(dev_mode: bool = False, test_download_fail: bool = False) -> No
         log.debug("Win32 launcher skipped on non-Windows platform.")
         return
 
+    with _route_logger(log, updater_log):
+        _run_launcher_dialog(dev_mode, test_download_fail)
+
+
+def _run_launcher_dialog(dev_mode: bool, test_download_fail: bool) -> None:
     updater_log.info("Launcher sequence starting.")
     dialog = UpdateDialog()
     try:
