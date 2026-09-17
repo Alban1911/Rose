@@ -382,6 +382,18 @@
     .skin-selection-carousel-container {
       clip-path: inset(-200px -9999px -9999px -9999px) !important;
     }
+
+    /* Rift Classic (JADE) champ select uses a separate skins-pane carousel */
+    .skins-pane .skins-pane__locked-overlay,
+    .skins-pane .skins-pane__locked-icon {
+      display: none !important;
+    }
+
+    .skins-pane .skins-pane__skin-card,
+    .skins-pane .skins-pane__skin-image {
+      filter: grayscale(0) saturate(1) contrast(1) !important;
+      -webkit-filter: grayscale(0) saturate(1) contrast(1) !important;
+    }
   `;
 
   const log = {
@@ -534,6 +546,42 @@
     document.querySelectorAll(".vng-age-rating-container").forEach((el) => el.remove());
   }
 
+  // Rift Classic shows the client's "Disabled" subtitle for unowned skins even after Rose unlocks them.
+  const CLASSIC_ENABLED_LABELS = {
+    pt: "Habilitada",
+    es: "Habilitada",
+    en: "Enabled",
+    fr: "Activée",
+    de: "Aktiviert",
+    it: "Abilitata",
+    pl: "Włączona",
+    ro: "Activată",
+    tr: "Etkin",
+    ru: "Доступен",
+  };
+  let classicEnabledLabel = CLASSIC_ENABLED_LABELS.en;
+
+  function loadClassicEnabledLabel() {
+    fetch("/riotclient/region-locale")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        const language = String((data && data.locale) || "")
+          .slice(0, 2)
+          .toLowerCase();
+        classicEnabledLabel = CLASSIC_ENABLED_LABELS[language] || CLASSIC_ENABLED_LABELS.en;
+      })
+      .catch((error) => log.warn("could not read client locale for Rift Classic labels", error));
+  }
+
+  function relabelClassicLockedSkin() {
+    const subtitle = document.querySelector(".skins-pane .skins-pane__sub-title");
+    if (!subtitle) return;
+    const centerLocked = document.querySelector(".skins-pane .skins-pane__skin-card--center-tile .skins-pane__locked-overlay");
+    if (centerLocked && subtitle.textContent.trim() !== classicEnabledLabel) {
+      subtitle.textContent = classicEnabledLabel;
+    }
+  }
+
   function scanSkinSelection() {
     injectInlineRules();
 
@@ -542,6 +590,8 @@
       ensureBorderFrame(skinItem);
       applyOffsetVisibility(skinItem);
     });
+
+    relabelClassicLockedSkin();
 
     // Mark skins as owned in Swiftplay
     markSkinsAsOwned();
@@ -895,6 +945,7 @@
       setupPenguWelcomeBadgeFix();
 
       interceptChampSelectWebsocket();
+      loadClassicEnabledLabel();
       injectInlineRules();
       scanSkinSelection();
       // Default-on: first phase-change from Python will shut the observer
