@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from config import get_config_file_path
+from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
 
 log = get_logger()
@@ -82,7 +83,7 @@ class ConfigManager:
             config.set('General', 'leaguePath', league_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
+            with atomic_write(config_path, 'w', encoding=None) as f:
                 config.write(f)
             
             log.debug(f"Saved league path to config: {league_path}")
@@ -107,7 +108,7 @@ class ConfigManager:
             config.set('General', 'clientPath', client_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
+            with atomic_write(config_path, 'w', encoding=None) as f:
                 config.write(f)
             
             log.debug(f"Saved client path to config: {client_path}")
@@ -133,7 +134,7 @@ class ConfigManager:
             config.set('General', 'clientPath', client_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
+            with atomic_write(config_path, 'w', encoding=None) as f:
                 config.write(f)
             
             log.debug(f"Saved paths to config: league={league_path}, client={client_path}")
