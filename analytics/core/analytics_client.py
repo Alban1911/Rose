@@ -12,6 +12,7 @@ from config import (
     ANALYTICS_TIMEOUT_S,
     APP_USER_AGENT,
     APP_VERSION,
+    get_config_option,
 )
 from utils.core.logging import get_logger
 from .install_id import get_install_id
@@ -31,7 +32,16 @@ class AnalyticsClient:
     ):
         self.server_url = server_url or ANALYTICS_SERVER_URL
         self.timeout = ANALYTICS_TIMEOUT_S if timeout is None else timeout
-        self.enabled = ANALYTICS_ENABLED if enabled is None else enabled
+        self._enabled_override = enabled
+
+    @property
+    def enabled(self) -> bool:
+        if self._enabled_override is not None:
+            return self._enabled_override
+        if not ANALYTICS_ENABLED:
+            return False
+        value = get_config_option("General", "analytics_enabled")
+        return value is None or value.strip().lower() not in {"0", "false", "no", "off"}
 
     def send_ping(
         self,
