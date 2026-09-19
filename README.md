@@ -34,7 +34,7 @@ Direct skin sharing with friends in the same lobby without external servers.
 - Friend joins the network
 
   In game:
-- **Host**: Click the party button in the bottom right social bar, choose your Radmin IP, click **Host Party**, and send the token to your friend.
+- **Host**: Click the party button in the right social bar, choose your Radmin IP, click **Host Party**, and send the token to your friend.
 - **Join**: Switch to the **Join Party** tab, paste the token, and click **Join Party**.
 - During champion select, selections and chromas sync automatically. Both skins are injected into the match when the game starts.
 
