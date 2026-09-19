@@ -663,6 +663,12 @@ class SwiftplayHandler:
                     log.error(f"[phase] Error during overlay injection: {e}")
                     import traceback
                     log.debug(f"[phase] Traceback: {traceback.format_exc()}")
+                finally:
+                    # Only the success path releases the game on its own, from
+                    # overlay_manager when runoverlay starts. On every other exit
+                    # the game stays suspended until the auto-resume timeout, and
+                    # the player enters the match frozen and without the skin.
+                    self.injection_manager._stop_monitor()
 
             except Exception as e:
                 log.warning(f"[phase] Error running Swiftplay overlay: {e}")
