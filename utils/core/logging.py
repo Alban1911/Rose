@@ -405,6 +405,10 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("requests").setLevel(logging.WARNING)
+    # websocket-client logs "<error> - goodbye" at ERROR after every failed run_forever, even the
+    # startup race where the LCU port is up before its WebSocket accepts. The same error already
+    # reaches our on_error callback and the retry WARNING, so the library copy is only noise.
+    logging.getLogger("websocket").setLevel(logging.CRITICAL)
     
     # Disable SSL warnings for LCU (self-signed cert)
     urllib3.disable_warnings(InsecureRequestWarning)

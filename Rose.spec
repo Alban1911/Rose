@@ -289,7 +289,6 @@ hiddenimports = [
     'requests',
     'urllib3',
     'websocket',
-    'websocket_client',
     'websockets',
 
     # Party mode (WebSocket relay)

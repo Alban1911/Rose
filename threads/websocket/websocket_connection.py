@@ -76,6 +76,7 @@ class WebSocketConnection:
         self.is_connected = False
         self._stop_event = threading.Event()
         self._retry_attempt = 0
+        self._last_error = None
     
     def run(self):
         """Main WebSocket connection loop"""
@@ -129,7 +130,11 @@ class WebSocketConnection:
             if self.state.stop or self._stop_event.is_set():
                 break
 
-            if self._wait_before_retry(f"LCU WebSocket unavailable on port {port}"):
+            reason = f"LCU WebSocket unavailable on port {port}"
+            if self._last_error is not None:
+                reason += f" ({self._last_error})"
+                self._last_error = None
+            if self._wait_before_retry(reason):
                 break
 
         # Ensure WebSocket is closed on thread exit
@@ -170,6 +175,7 @@ class WebSocketConnection:
     def _on_error(self, ws, err):
         """WebSocket error"""
         self.is_connected = False
+        self._last_error = err
         log.debug(f"WebSocket: Error: {err}")
         if self.on_error:
             self.on_error(ws, err)
