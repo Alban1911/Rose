@@ -12,11 +12,13 @@ application continues bootstrapping.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
 import time
-from typing import Callable
+from contextlib import contextmanager
+from typing import Callable, Iterator
 
 from utils.core.logging import get_logger, get_named_logger
 from utils.system.win32_base import (
@@ -32,6 +34,24 @@ from ..sequences.skin_sync_sequence import SkinSyncSequence
 
 log = get_logger()
 updater_log = get_named_logger("updater", prefix="log_updater")
+
+
+@contextmanager
+def _route_logger(source: logging.Logger, target: logging.Logger) -> Iterator[None]:
+    """Temporarily write *source* records through *target*'s handlers."""
+    added = [handler for handler in target.handlers if handler not in source.handlers]
+    previous_level = source.level
+    for handler in added:
+        source.addHandler(handler)
+    # Only open the level up to DEBUG; a logger already at TRACE (debug log mode) must keep TRACE records
+    if source.getEffectiveLevel() > logging.DEBUG:
+        source.setLevel(logging.DEBUG)
+    try:
+        yield
+    finally:
+        for handler in added:
+            source.removeHandler(handler)
+        source.setLevel(previous_level)
 
 MB_ICONERROR = 0x00000010
 MB_ICONINFORMATION = 0x00000040
@@ -112,7 +132,7 @@ def _confirm_update(dialog: UpdateDialog, remote_version: str, local_version: st
 
 def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
     """Perform update check and installation
-    
+
     Args:
         dialog: UpdateDialog instance for UI updates
         dev_mode: If True, skip update check (for development)
@@ -177,6 +197,11 @@ def run_launcher(dev_mode: bool = False, test_download_fail: bool = False) -> No
         log.debug("Win32 launcher skipped on non-Windows platform.")
         return
 
+    with _route_logger(log, updater_log):
+        _run_launcher_dialog(dev_mode, test_download_fail)
+
+
+def _run_launcher_dialog(dev_mode: bool, test_download_fail: bool) -> None:
     updater_log.info("Launcher sequence starting.")
     dialog = UpdateDialog()
     try:
@@ -193,7 +218,7 @@ def run_launcher(dev_mode: bool = False, test_download_fail: bool = False) -> No
 
                 hash_sequence = HashCheckSequence()
                 hash_sequence.perform_hash_check(dialog, dev_mode=dev_mode)
-                
+
                 skin_sequence = SkinSyncSequence()
                 skin_sequence.perform_skin_sync(dialog, test_fail=test_download_fail)
 

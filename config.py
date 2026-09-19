@@ -5,13 +5,14 @@ Global constants for Rose
 All arbitrary values are centralized here for easy tracking and modification
 """
 
+import configparser
+import logging
 import shutil
 import sys
-import logging
-from typing import TYPE_CHECKING, Optional, Tuple
 from pathlib import Path
-import configparser
+from typing import TYPE_CHECKING, Optional, Tuple
 
+from utils.core.atomic_file import atomic_write
 from utils.core.paths import get_user_data_dir
 
 log = logging.getLogger(__name__)
@@ -92,12 +93,14 @@ def set_config_option(section: str, option: str, value: str) -> None:
         try:
             config.read(config_path)
         except Exception as e:
-            log.debug(f"Failed to read config for update: {e}")
+            # Rewriting from an empty parser would erase every other setting
+            log.warning(f"Not saving [{section}] {option}: config file could not be read: {e}")
+            return
     if section not in config:
         config.add_section(section)
     config.set(section, option, value)
     try:
-        with open(config_path, "w", encoding="utf-8") as fh:
+        with atomic_write(config_path, "w", encoding="utf-8") as fh:
             config.write(fh)
     except Exception as e:
         log.warning(f"Failed to write config file: {e}")
@@ -315,7 +318,7 @@ LOG_TIMESTAMP_FORMAT = "%d-%m-%Y_%H-%M-%S"  # European format, Windows-compatibl
 # Interesting game phases to log
 INTERESTING_PHASES = {
     "Lobby",
-    "Matchmaking", 
+    "Matchmaking",
     "ReadyCheck",
     "ChampSelect",
     "FINALIZATION",
@@ -332,7 +335,7 @@ INTERESTING_PHASES = {
 ANALYTICS_SERVER_URL = 'https://analytics.rosekeys.site/'  # Analytics server endpoint
 ANALYTICS_PING_INTERVAL_S = 900  # Seconds between presence heartbeats (15 minutes)
 ANALYTICS_ENABLED = True  # Enable/disable analytics tracking
-ANALYTICS_TIMEOUT_S = 30  # Request timeout in seconds
+ANALYTICS_TIMEOUT_S = 5  # Request timeout in seconds
 
 # =============================================================================
 # DEFAULT ARGUMENTS

@@ -411,6 +411,31 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     
 
 
+class _ThreadExceptionLogger:
+    """``threading.excepthook`` that logs the traceback and then delegates to the previous hook."""
+
+    def __init__(self, previous_hook):
+        self._previous_hook = previous_hook
+
+    def __call__(self, args: threading.ExceptHookArgs) -> None:
+        if args.exc_type is not SystemExit:
+            thread_name = args.thread.name if args.thread is not None else "unknown"
+            exc_info = args.exc_value if args.exc_value is not None else False
+            get_logger().critical("Uncaught exception in thread %s: %s", thread_name, args.exc_type.__name__, exc_info=exc_info)
+        self._previous_hook(args)
+
+
+def install_uncaught_exception_logging() -> None:
+    """Log exceptions that escape thread targets.
+
+    The frozen app runs without a console, so the default hook's stderr output is lost
+    and a dead worker thread (phase, ticker, monitor) would leave no trace in the log.
+    """
+    if isinstance(threading.excepthook, _ThreadExceptionLogger):
+        return
+    threading.excepthook = _ThreadExceptionLogger(threading.excepthook)
+
+
 def get_logger(name: str = "tracer") -> logging.Logger:
     """Get a logger instance"""
     return logging.getLogger(name)

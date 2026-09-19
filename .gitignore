@@ -53,6 +53,7 @@ ENV/
 # IDE / Editor
 .vscode/
 .idea/
+.claude/
 .claude/settings.local.json
 
 # Local / temp

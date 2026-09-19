@@ -310,6 +310,9 @@ class OverlayManager:
             if sys.platform == "win32":
                 creationflags = subprocess.CREATE_NO_WINDOW
             
+            if self.process_manager:
+                self.process_manager.stop_requested = False
+
             # Don't capture stdout to avoid pipe buffer deadlock - send to devnull instead
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
             
@@ -352,6 +355,9 @@ class OverlayManager:
             # Process completed normally (no stdout captured)
             self.current_overlay_process = None
             self._wipe_overlay_dir(overlay_dir)
+            if proc.returncode != 0 and self.process_manager and self.process_manager.stop_requested:
+                log.info(f"[INJECT] runoverlay stopped by Rose (return code: {proc.returncode})")
+                return 0
             if proc.returncode != 0:
                 self._report_low_disk_space_failure(
                     mod_names=mod_names,

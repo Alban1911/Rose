@@ -1,0 +1,71 @@
+# Dependências
+node_modules/
+vendor/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Build / outputs
+.next/
+dist/
+build/
+out/
+*.egg-info/
+.turbo/
+relay-worker/.wrangler/
+vendor/PenguLoader-1.1.6/**/obj/
+vendor/PenguLoader-1.1.6/**/bin/
+
+# Locks (ler apenas quando necessário)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+poetry.lock
+uv.lock
+
+# Dados e binários
+*.csv
+*.parquet
+*.xlsx
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.ico
+*.woff
+*.woff2
+*.ttf
+*.ogg
+*.exe
+*.dll
+*.pyd
+*.fantome
+*.wad.client
+hashes.game.txt
+
+# Runtime do Rose
+skins/
+logs/
+injection/overlay/*
+!injection/overlay/*.py
+injection/mods/*
+!injection/mods/*.py
+
+# Temporários e cache
+.cache/
+.temp/
+tmp/
+*.log
+*.tmp
+
+# Secrets (nunca ler)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.snk

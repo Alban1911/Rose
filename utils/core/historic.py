@@ -12,10 +12,23 @@ Supports both:
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Dict, Optional, Union
 
+from utils.core.atomic_file import atomic_write
+from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
+
+log = get_logger()
+
+# Read-modify-write cycles run from several threads (injection, UI, Pengu bridge)
+_write_lock = threading.RLock()
+
+
+def _write_json(path: Path, data: dict) -> None:
+    with atomic_write(path) as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def _historic_file_path() -> Path:
@@ -63,29 +76,25 @@ def write_historic_target(champion_id: int, target_skin_id: int) -> None:
         target_id = int(target_skin_id)
         if target_id <= 0:
             return
-        p = _historic_target_file_path()
-        targets = load_historic_target_map()
-        targets[str(int(champion_id))] = target_id
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open("w", encoding="utf-8") as f:
-            json.dump(targets, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+        with _write_lock:
+            targets = load_historic_target_map()
+            targets[str(int(champion_id))] = target_id
+            _write_json(_historic_target_file_path(), targets)
+    except Exception as e:
+        log.warning(f"[HISTORIC] Could not save target {target_skin_id} for champion {champion_id}: {e}")
 
 
 def clear_historic_target(champion_id: int) -> None:
     """Remove the exact last selected skin/chroma target for a champion."""
     try:
-        p = _historic_target_file_path()
-        targets = load_historic_target_map()
-        if str(int(champion_id)) not in targets:
-            return
-        targets.pop(str(int(champion_id)), None)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open("w", encoding="utf-8") as f:
-            json.dump(targets, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+        with _write_lock:
+            targets = load_historic_target_map()
+            if str(int(champion_id)) not in targets:
+                return
+            targets.pop(str(int(champion_id)), None)
+            _write_json(_historic_target_file_path(), targets)
+    except Exception as e:
+        log.warning(f"[HISTORIC] Could not clear target for champion {champion_id}: {e}")
 
 
 def load_historic_map() -> Dict[str, Union[int, str]]:
@@ -136,32 +145,26 @@ def write_historic_entry(champion_id: int, skin_or_chroma_id: Union[int, str]) -
         champion_id: Champion ID
         skin_or_chroma_id: Either an integer skin/chroma ID, or a string custom mod path (with "path:" prefix)
     """
-    p = _historic_file_path()
-    m = load_historic_map()
-    m[str(int(champion_id))] = skin_or_chroma_id
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open("w", encoding="utf-8") as f:
-            json.dump(m, f, ensure_ascii=False, indent=2)
-    except Exception:
-        # Silently ignore write errors; feature is best-effort
-        pass
+    with _write_lock:
+        m = load_historic_map()
+        m[str(int(champion_id))] = skin_or_chroma_id
+        try:
+            _write_json(_historic_file_path(), m)
+        except Exception as e:
+            log.warning(f"[HISTORIC] Could not save entry for champion {champion_id}: {e}")
 
 
 def clear_historic_entry(champion_id: int) -> None:
     """Remove the historic entry for a champion if it exists."""
     try:
-        p = _historic_file_path()
-        m = load_historic_map()
-        key = str(int(champion_id))
-        if key in m:
-            m.pop(key, None)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            with p.open("w", encoding="utf-8") as f:
-                json.dump(m, f, ensure_ascii=False, indent=2)
-    except Exception:
-        # Best-effort; ignore errors
-        pass
+        with _write_lock:
+            m = load_historic_map()
+            key = str(int(champion_id))
+            if key in m:
+                m.pop(key, None)
+                _write_json(_historic_file_path(), m)
+    except Exception as e:
+        log.warning(f"[HISTORIC] Could not clear entry for champion {champion_id}: {e}")
     clear_historic_target(champion_id)
 
 

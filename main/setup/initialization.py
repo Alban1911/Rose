@@ -11,7 +11,7 @@ from typing import Optional
 import argparse
 
 from config import TRAY_INIT_SLEEP_S
-from utils.core.logging import setup_logging, get_logger, log_section, log_success
+from utils.core.logging import setup_logging, get_logger, install_uncaught_exception_logging, log_section, log_success
 from utils.core.paths import get_user_data_dir, get_detected_user_info
 from utils.integration.tray_manager import TrayManager
 
@@ -36,6 +36,7 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     force_logs = bool(getattr(args, "logs", False))
     write_logs = (not bool(getattr(args, "dev", False))) or force_logs
     setup_logging(log_mode, write_logs=write_logs)
+    install_uncaught_exception_logging()
 
     # Log user detection info (helps diagnose "Run as Administrator" issues)
     current_user, target_user, is_mismatch = get_detected_user_info()

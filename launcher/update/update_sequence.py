@@ -73,12 +73,12 @@ def _cmp_version(a: Optional[tuple[int, ...]], b: Optional[tuple[int, ...]]) -> 
 
 class UpdateSequence:
     """Handles the update checking and installation sequence"""
-    
+
     def __init__(self):
         self.github_client = GitHubClient()
         self.downloader = UpdateDownloader()
         self.installer = UpdateInstaller()
-    
+
     @staticmethod
     def _revert_installed_version(
         config: configparser.ConfigParser,
@@ -106,7 +106,7 @@ class UpdateSequence:
         confirm_callback: Optional[Callable[[str, str], bool]] = None,
     ) -> bool:
         """Perform update check and installation
-        
+
         Args:
             status_callback: Callback for status updates
             progress_callback: Callback for progress updates
@@ -114,38 +114,38 @@ class UpdateSequence:
             confirm_callback: Optional callback invoked before downloading an
                 available update. It receives the remote and local versions
                 and should return True to continue.
-            
+
         Returns:
             True if update was installed, False otherwise
         """
         status_callback("Checking for updates...")
-        
+
         # Check for latest release
         release = self.github_client.get_latest_release()
         if not release:
             status_callback("Update check failed")
             return False
-        
+
         remote_version = self.github_client.get_release_version(release)
         asset = self.github_client.get_zip_asset(release)
         if not asset:
             status_callback("No release asset found")
             return False
-        
+
         download_url = asset.get("browser_download_url")
         total_size = asset.get("size", 0) or None
-        
+
         # Check installed version
         config_path = get_config_file_path()
         config = configparser.ConfigParser()
         if config_path.exists():
             try:
                 config.read(config_path)
-            except Exception:
-                pass
+            except Exception as e:
+                updater_log.warning(f"Could not read {config_path}; using defaults for update state: {e}")
         if not config.has_section("General"):
             config.add_section("General")
-        
+
         # Read installed version without overwriting it
         # We only update it after a successful update installation
         installed_version = config.get("General", "installed_version", fallback=APP_VERSION)
@@ -179,8 +179,8 @@ class UpdateSequence:
                         config.write(fh)
                         fh.flush()
                         os.fsync(fh.fileno())
-                except Exception:
-                    pass
+                except Exception as e:
+                    updater_log.warning(f"Could not persist update state to {config_path}: {e}")
                 status_callback("Update failed after retries")
                 return False
             else:
@@ -198,8 +198,8 @@ class UpdateSequence:
                         config.write(fh)
                         fh.flush()
                         os.fsync(fh.fileno())
-                except Exception:
-                    pass
+                except Exception as e:
+                    updater_log.warning(f"Could not persist update state to {config_path}: {e}")
 
         # Skip updates for test versions (e.g., version 999)
         # Note: installed_version can be stale if config.ini was created by a previous build,
@@ -234,11 +234,11 @@ class UpdateSequence:
                         config.write(fh)
                         fh.flush()
                         os.fsync(fh.fileno())
-                except Exception:
-                    pass
+                except Exception as e:
+                    updater_log.warning(f"Could not persist update state to {config_path}: {e}")
             status_callback("Launcher is already up to date")
             return False
-        
+
         if dev_mode:
             status_callback("Update skipped (dev mode)")
             return False
@@ -263,13 +263,13 @@ class UpdateSequence:
                     remote_version or "unknown",
                 )
                 return False
-        
+
         # Download update
         updates_root = config_path.parent / "updates"
         updates_root.mkdir(parents=True, exist_ok=True)
         zip_name = asset.get("name") or "update.zip"
         zip_path = updates_root / zip_name
-        
+
         status_callback(f"Downloading update {remote_version or ''}")
         if not self.downloader.download_update(
             download_url,
@@ -279,7 +279,7 @@ class UpdateSequence:
             total_size,
         ):
             return False
-        
+
         # Extract update
         status_callback("Extracting update")
         staging_dir = updates_root / "staging"
@@ -291,7 +291,7 @@ class UpdateSequence:
         )
         if not extracted_root:
             return False
-        
+
         # Download hash file if available (skip in dev mode)
         if getattr(sys, "frozen", False):
             hash_asset = self.github_client.get_hash_asset(release)
@@ -304,7 +304,7 @@ class UpdateSequence:
                     hash_target_path,
                     status_callback,
                 )
-        
+
         # Install update
         status_callback("Installing update")
         install_dir = Path(sys.executable).resolve().parent
@@ -351,11 +351,10 @@ class UpdateSequence:
             # Revert installed_version so the next run retries the update
             self._revert_installed_version(config, config_path, old_installed_version)
             return False
-        
+
         progress_callback(100)
         if bytes_callback and total_size:
             bytes_callback(total_size, total_size)
         status_callback("Update installed")
         updater_log.info(f"Auto-update completed. Update installed: True")
         return True
-
