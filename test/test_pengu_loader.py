@@ -26,6 +26,13 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
             _PENGU_LOG=self.pengu_log,
         )
         self.paths.start()
+        external = patch.object(pengu_loader, '_external_pengu_with_rose_plugins', return_value=None)
+        external.start()
+        self.addCleanup(external.stop)
+        processes = patch.object(pengu_loader, '_process_running', return_value=False)
+        processes.start()
+        self.addCleanup(processes.stop)
+        pengu_loader._restart_pending = False
         self.addCleanup(self.paths.stop)
 
     def tearDown(self):
@@ -123,7 +130,7 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
     @patch.object(pengu_loader, '_is_available', return_value=True)
     @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.INACTIVE)
     @patch.object(pengu_loader, 'activate', return_value=True)
-    @patch.object(pengu_loader, '_is_league_running', return_value=True)
+    @patch.object(pengu_loader, '_process_running', return_value=True)
     @patch.object(pengu_loader, 'restart_client', return_value=True)
     def test_startup_with_running_league_restarts_client(
         self, restart_client, _running, activate, _status, _available

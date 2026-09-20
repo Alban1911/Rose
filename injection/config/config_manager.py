@@ -36,7 +36,7 @@ class ConfigManager:
         
         try:
             config = configparser.ConfigParser()
-            config.read(config_path)
+            config.read(config_path, encoding="utf-8-sig")
             if 'General' in config and 'leaguePath' in config['General']:
                 league_path = config['General']['leaguePath']
                 log.debug(f"Loaded league path from config: {league_path}")
@@ -54,7 +54,7 @@ class ConfigManager:
         
         try:
             config = configparser.ConfigParser()
-            config.read(config_path)
+            config.read(config_path, encoding="utf-8-sig")
             if 'General' in config and 'clientPath' in config['General']:
                 client_path = config['General']['clientPath']
                 log.debug(f"Loaded client path from config: {client_path}")
@@ -72,7 +72,7 @@ class ConfigManager:
             
             # Load existing config if it exists
             if config_path.exists():
-                config.read(config_path)
+                config.read(config_path, encoding="utf-8-sig")
             
             # Ensure General section exists
             if 'General' not in config:
@@ -82,7 +82,7 @@ class ConfigManager:
             config.set('General', 'leaguePath', league_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
+            with open(config_path, 'w', encoding='utf-8') as f:
                 config.write(f)
             
             log.debug(f"Saved league path to config: {league_path}")
@@ -97,7 +97,7 @@ class ConfigManager:
             
             # Load existing config if it exists
             if config_path.exists():
-                config.read(config_path)
+                config.read(config_path, encoding="utf-8-sig")
             
             # Ensure General section exists
             if 'General' not in config:
@@ -107,7 +107,7 @@ class ConfigManager:
             config.set('General', 'clientPath', client_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
+            with open(config_path, 'w', encoding='utf-8') as f:
                 config.write(f)
             
             log.debug(f"Saved client path to config: {client_path}")
@@ -122,7 +122,7 @@ class ConfigManager:
             
             # Load existing config if it exists
             if config_path.exists():
-                config.read(config_path)
+                config.read(config_path, encoding="utf-8-sig")
             
             # Ensure General section exists
             if 'General' not in config:
@@ -133,7 +133,7 @@ class ConfigManager:
             config.set('General', 'clientPath', client_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
+            with open(config_path, 'w', encoding='utf-8') as f:
                 config.write(f)
             
             log.debug(f"Saved paths to config: league={league_path}, client={client_path}")
@@ -159,6 +159,10 @@ class ConfigManager:
             
             # Try parent directory structure
             parent_dir = league_dir.parent
+            # WeGame keeps Game and LeagueClient in sibling directories.
+            regional_client_dir = parent_dir / "LeagueClient"
+            if (regional_client_dir / "LeagueClient.exe").is_file():
+                return str(regional_client_dir)
             client_exe = parent_dir / "LeagueClient.exe"
             if client_exe.exists():
                 return str(parent_dir)

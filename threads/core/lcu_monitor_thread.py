@@ -130,6 +130,12 @@ class LCUMonitorThread(threading.Thread):
 
                 self.last_lcu_ok = current_lcu_ok
 
+                # An external loader may be disabled after Rose starts. Check
+                # independently of reconnect events; activation handles safe phases.
+                if not self.state.stop:
+                    from utils.integration import pengu_loader
+                    pengu_loader.maintain_activation(self.lcu)
+
             except Exception as e:
                 log.debug(f"LCU monitor error: {e}")
 

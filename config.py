@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 
 APP_VERSION = "1.2.14"                          # Application version
 APP_USER_AGENT = f"Rose/{APP_VERSION}"  # User-Agent header for HTTP requests
+GAME_EXECUTABLE_NAMES = ("League of Legends.exe", "League of Legends (TM) Client.exe")
 
 _CONFIG = configparser.ConfigParser()
 _CONFIG_MTIME: float = 0.0  # Last known modification time of config.ini
@@ -60,7 +61,7 @@ def _reload_config() -> None:
     _CONFIG.clear()
     if config_path.exists():
         try:
-            _CONFIG.read(config_path)
+            _CONFIG.read(config_path, encoding="utf-8-sig")
         except Exception as e:
             log.warning(f"Failed to read config file: {e}")
 
@@ -90,7 +91,7 @@ def set_config_option(section: str, option: str, value: str) -> None:
     config = configparser.ConfigParser()
     if config_path.exists():
         try:
-            config.read(config_path)
+            config.read(config_path, encoding="utf-8-sig")
         except Exception as e:
             log.debug(f"Failed to read config for update: {e}")
     if section not in config:
