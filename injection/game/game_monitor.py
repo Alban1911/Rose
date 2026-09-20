@@ -26,6 +26,7 @@ except ImportError:
     AccessDenied = PermissionError  # Fallback exception type
 
 from config import (
+    GAME_EXECUTABLE_NAMES,
     PERSISTENT_MONITOR_CHECK_INTERVAL_S,
     PERSISTENT_MONITOR_IDLE_INTERVAL_S,
     GAME_RESUME_MAX_ATTEMPTS,
@@ -36,6 +37,7 @@ from utils.core.logging import get_logger, log_section, log_event, log_success
 from utils.core.issue_reporter import report_issue
 
 log = get_logger()
+_GAME_PROCESS_NAMES = frozenset(name.lower() for name in GAME_EXECUTABLE_NAMES)
 
 
 class GameMonitor:
@@ -84,7 +86,7 @@ class GameMonitor:
                         for proc in psutil.process_iter(['name', 'pid']):
                             if not self._monitor_active:
                                 break
-                            if proc.info['name'] == 'League of Legends.exe':
+                            if (proc.info.get('name') or '').lower() in _GAME_PROCESS_NAMES:
                                 try:
                                     game_proc = psutil.Process(proc.info['pid'])
                                     # Check if already suspended
@@ -191,7 +193,7 @@ class GameMonitor:
                         if len(found_processes) < 5:
                             found_processes.append(proc.info.get('name', 'unknown'))
                         
-                        if proc.info['name'] == 'League of Legends.exe':
+                        if (proc.info.get('name') or '').lower() in _GAME_PROCESS_NAMES:
                             try:
                                 game_proc = psutil.Process(proc.info['pid'])
                                 log_event(log, "Game process found", "", {"PID": proc.info['pid']})

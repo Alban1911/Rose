@@ -140,7 +140,7 @@ class UpdateSequence:
         config = configparser.ConfigParser()
         if config_path.exists():
             try:
-                config.read(config_path)
+                config.read(config_path, encoding="utf-8-sig")
             except Exception:
                 pass
         if not config.has_section("General"):

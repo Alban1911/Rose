@@ -29,6 +29,7 @@ except ImportError:
 from utils.core.logging import get_logger, log_action, log_success, log_event
 from utils.core.issue_reporter import report_issue
 from config import (
+    GAME_EXECUTABLE_NAMES,
     PROCESS_TERMINATE_TIMEOUT_S,
     PROCESS_MONITOR_SLEEP_S,
     ENABLE_MKOVERLAY_PRIORITY_BOOST,
@@ -148,6 +149,30 @@ class OverlayManager:
             hint='Free up disk space on the drive containing Rose injection files, then retry the skin.',
         )
         return True
+
+    @staticmethod
+    def _game_process_running() -> Optional[bool]:
+        """LCU may close during a match; inspect the game process separately."""
+        if not PSUTIL_AVAILABLE:
+            return None
+        names = {name.lower() for name in GAME_EXECUTABLE_NAMES}
+        try:
+            return any((proc.info.get('name') or '').lower() in names
+                       for proc in psutil.process_iter(['name']))
+        except (psutil.Error, OSError):
+            return None
+
+    def _overlay_should_stop(self, game_seen: bool, stop_callback) -> tuple[bool, bool]:
+        running = self._game_process_running()
+        if running is True:
+            return False, True
+        if running is None:
+            # An unavailable process snapshot cannot establish that a game ended.
+            return False, game_seen
+        if game_seen:
+            return True, True
+        # Before the game starts, an explicit lobby/cancel transition can stop us.
+        return bool(stop_callback and stop_callback()), False
     
     def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
         """Create and run overlay
@@ -310,8 +335,11 @@ class OverlayManager:
             if sys.platform == "win32":
                 creationflags = subprocess.CREATE_NO_WINDOW
             
-            # Don't capture stdout to avoid pipe buffer deadlock - send to devnull instead
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
+            # Write directly to disk so failures remain diagnosable without pipes.
+            run_log_path = self.mods_dir.parent / 'runoverlay.log'
+            with open(run_log_path, 'w', encoding='utf-8') as run_log:
+                proc = subprocess.Popen(cmd, stdout=run_log, stderr=subprocess.STDOUT, creationflags=creationflags)
+            log.debug(f"[INJECT] runoverlay diagnostics: {run_log_path}")
             
             # Boost process priority to maximize CPU contention if enabled
             if ENABLE_RUNOVERLAY_PRIORITY_BOOST and PSUTIL_AVAILABLE:
@@ -332,9 +360,11 @@ class OverlayManager:
             
             # Monitor process with stop callback
             # No timeout - overlay will run until explicitly killed or game ends
+            game_seen = False
             while proc.poll() is None:
-                # Check if we should stop (game ended)
-                if stop_callback and stop_callback():
+                # Closing the client during gameplay must not end the overlay.
+                should_stop, game_seen = self._overlay_should_stop(game_seen, stop_callback)
+                if should_stop:
                     log.info("[INJECT] Game ended, stopping overlay process")
                     proc.terminate()
                     try:

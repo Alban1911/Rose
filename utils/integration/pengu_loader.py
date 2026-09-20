@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -307,9 +308,13 @@ _PENGU_LOG = PENGU_DIR / "pengu.log"
 _LEAGUE_PROCESSES: set[str] = {
     'LeagueClient.exe', 'LeagueClientUx.exe',
     'LeagueClientUxRender.exe', 'League of Legends.exe',
+    'League of Legends (TM) Client.exe',
 }
 _CREATE_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 _operation_lock = threading.RLock()
+_next_activation_check = 0.0
+_restart_pending = False
+_waiting_loader_window = False
 
 
 class PenguStatus(Enum):
@@ -508,8 +513,42 @@ def deactivate() -> bool:
 
 
 def restart_client() -> bool:
+    """Use the regional-aware LCU connection and verify the restart response."""
     with _operation_lock:
-        return _run_cli(['--restart-client', '--silent'])
+        from config import GAME_EXECUTABLE_NAMES
+        if _process_running(GAME_EXECUTABLE_NAMES):
+            return False
+        from lcu.core.lcu_connection import LCUConnection
+        connection = LCUConnection()
+        try:
+            if not connection.ok:
+                return False
+            response = connection.session.get(
+                connection.base + '/lol-gameflow/v1/gameflow-phase', timeout=3)
+            if response.status_code != 200 or response.json() not in {'None', 'Lobby', 'EndOfGame'}:
+                return False
+            response = connection.session.post(
+                connection.base + '/riotclient/kill-and-restart-ux', timeout=5)
+            if 200 <= response.status_code < 300:
+                log.info('League client UX restart accepted through LCU.')
+                return True
+            log.warning('League client UX restart returned HTTP %s.', response.status_code)
+        except Exception as exc:
+            log.warning('League client UX restart not confirmed (%s).', type(exc).__name__)
+        finally:
+            connection.session.close()
+        return False
+
+
+def _process_running(names: Iterable[str]) -> bool:
+    if psutil is None:
+        return True  # Do not restart anything without a reliable process check.
+    eligible = {name.lower() for name in names}
+    try:
+        return any((proc.info.get('name') or '').lower() in eligible
+                   for proc in psutil.process_iter(['name']))
+    except (psutil.Error, OSError):
+        return True
 
 
 def _write_active_flag() -> None:
@@ -624,8 +663,88 @@ def cleanup_if_dirty() -> bool:
     return recover_stale_session(adopt_active=True)
 
 
-def activate_on_start(league_path: Optional[str] = None) -> bool:
+def _registered_pengu_core() -> Optional[Path]:
+    """Read the configured loader without starting a CLI process."""
+    if not _is_windows():
+        return None
+    try:
+        import winreg
+        key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+            debugger, _ = winreg.QueryValueEx(key, "Debugger")
+        match = re.fullmatch(r'rundll32(?:\.exe)?\s+"([^"]+)",\s*#6000\s*', debugger, re.IGNORECASE)
+        if not match:
+            return None
+        core = Path(match.group(1))
+        if core.name.lower() == 'core.dll' and core.is_file():
+            return core
+    except (OSError, TypeError, ValueError):
+        pass
+    return None
+
+
+def _external_pengu_with_rose_plugins() -> Optional[Path]:
+    """Keep an already configured standalone Pengu installation in place."""
+    core = _registered_pengu_core()
+    if core is None or core.parent.resolve() == PENGU_DIR.resolve():
+        return None
+    external = core.parent
+    if ((external / 'Pengu Loader.exe').is_file()
+            and (external / 'plugins' / 'ROSE-SkinMonitor' / 'index.js').is_file()
+            and (external / 'plugins' / 'ROSE-UI' / 'index.js').is_file()):
+        return external
+    return None
+
+
+def maintain_activation(lcu=None) -> None:
+    """Take over after standalone Pengu is disabled, even without restarting Rose."""
+    global _next_activation_check, _restart_pending, _waiting_loader_window
     with _operation_lock:
+        now = time.monotonic()
+        if now < _next_activation_check:
+            return
+        _next_activation_check = now + 5.0
+        from config import GAME_EXECUTABLE_NAMES, get_config_option
+        if _process_running(GAME_EXECUTABLE_NAMES):
+            return
+        if _external_pengu_with_rose_plugins() is not None:
+            _restart_pending = False
+            return
+        if lcu is not None and lcu.ok:
+            if lcu.phase not in {'None', 'Lobby', 'EndOfGame'}:
+                return
+        elif _process_running(('LeagueClientUx.exe',)):
+            return
+        core = _registered_pengu_core()
+        if core is not None and core.parent.resolve() == PENGU_DIR.resolve():
+            if _restart_pending:
+                if _process_running(('LeagueClientUx.exe',)):
+                    _restart_pending = not restart_client()
+                else:
+                    _restart_pending = False  # The next UX will load the registered DLL.
+            return
+        # Both editions share the official GUI mutex. Wait until the user closes
+        # the loader window instead of repeatedly issuing failing install calls.
+        if _process_running(('Pengu Loader.exe',)):
+            if not _waiting_loader_window:
+                log.info('Waiting for the standalone Pengu Loader window to close before enabling Rose Loader.')
+                _waiting_loader_window = True
+            return
+        _waiting_loader_window = False
+        client_path = get_config_option('General', 'clientPath')
+        log.info('No active Pengu Loader; enabling the loader bundled with Rose.')
+        activate_on_start(client_path)
+
+
+def activate_on_start(league_path: Optional[str] = None) -> bool:
+    global _restart_pending
+    with _operation_lock:
+        external = _external_pengu_with_rose_plugins()
+        if external is not None:
+            log.info('Using existing external Pengu Loader with Rose plugins: %s', external)
+            # This activation belongs to the user, so Rose must not remove it
+            # on exit or replace its registry entry with the bundled loader.
+            return _write_session(was_active=True, rose_activated=False)
         if not _is_available():
             log.error('Pengu Loader executable is unavailable: %s', PENGU_EXE)
             return False
@@ -651,7 +770,7 @@ def activate_on_start(league_path: Optional[str] = None) -> bool:
                 PENGU_EXE, league_path,
             )
 
-        restart_needed = initial is PenguStatus.INACTIVE and _is_league_running()
+        restart_needed = initial is PenguStatus.INACTIVE and _process_running(('LeagueClientUx.exe',))
         rose_activated = False
         activated_now = False
         was_active_before_rose = initial is PenguStatus.ACTIVE
@@ -676,11 +795,10 @@ def activate_on_start(league_path: Optional[str] = None) -> bool:
             return False
         if _ACTIVE_FLAG.exists():
             _clear_active_flag()
-        if restart_needed and not restart_client():
-            log.warning(
-                'Pengu was activated, but League could not be restarted automatically. '
-                'Please close and reopen the League client.'
-            )
+        if restart_needed:
+            _restart_pending = not restart_client()
+            if _restart_pending:
+                log.info('Rose Loader enabled; client restart deferred until the lobby is ready.')
         return True
 
 

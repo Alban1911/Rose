@@ -143,8 +143,8 @@ class MessageHandler:
 
         try:
             if game_dir.exists() and game_dir.is_dir():
-                league_exe = game_dir / "League of Legends.exe"
-                return league_exe.exists() and league_exe.is_file()
+                from config import GAME_EXECUTABLE_NAMES
+                return any((game_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES)
         except Exception:
             return False
 

@@ -199,8 +199,8 @@ class InjectionSettingsWindow(Win32Window):
             game_dir = Path(path.strip())
             if not game_dir.exists() or not game_dir.is_dir():
                 return False
-            league_exe = game_dir / "League of Legends.exe"
-            return league_exe.exists() and league_exe.is_file()
+            from config import GAME_EXECUTABLE_NAMES
+            return any((game_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES)
         except Exception:
             return False
 
