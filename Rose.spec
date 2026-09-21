@@ -162,6 +162,8 @@ hiddenimports = [
     'injection.overlay.process_manager',
     'injection.tools',
     'injection.tools.tools_manager',
+    'injection.loadingname',
+    'injection.loadingname.loading_name',
     'lcu',
     'lcu.core',
     'lcu.core.client',

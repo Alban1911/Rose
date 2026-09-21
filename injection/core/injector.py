@@ -23,6 +23,7 @@ from ..mods.zip_resolver import ZipResolver
 from ..mods.mod_manager import ModManager
 from ..overlay.overlay_manager import OverlayManager
 from ..overlay.process_manager import ProcessManager
+from ..loadingname.loading_name import build as build_loading_name, parse_skin_id
 
 log = get_logger()
 
@@ -203,6 +204,16 @@ class SkinInjector:
         
         # Create list of mods to inject (our skin + optional party/extra mods)
         mod_names = [mod_folder.name]
+
+        # An injected skin runs as the champion's default one, so the loading screen prints the champion's name. This
+        # adds a mod that puts the skin's name there instead, built from the player's own game files (their language,
+        # their patch). It never fails the injection: without it the screen simply reads as it did before.
+        loading_name_mod = build_loading_name(
+            self.game_dir, self.mods_dir, mod_folder, parse_skin_id(skin_name, champion_id)
+        )
+        if loading_name_mod:
+            mod_names.append(loading_name_mod)
+
         if extra_mods_callback:
             try:
                 extra = extra_mods_callback(self)

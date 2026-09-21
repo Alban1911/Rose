@@ -93,6 +93,8 @@ Rose/
 │   ├── overlay/            # Overlay process management
 │   │   ├── overlay_manager.py
 │   │   └── process_manager.py
+│   ├── loadingname/        # Skin name on the loading screen
+│   │   └── loading_name.py
 │   └── tools/              # Injection tools (mod-tools.exe, etc.)
 │       └── tools_manager.py
 │

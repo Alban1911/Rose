@@ -426,7 +426,7 @@ class OverlayManager:
                 str(self.mods_dir),
                 str(self.mods_dir.parent / "overlay"),
                 f"--game:{self.game_dir}",
-                f"--mods:{','.join(mod_names)}",
+                f"--mods:{'/'.join(mod_names)}",
                 "--noTFT",
                 "--ignoreConflict"
             ]
