@@ -451,9 +451,11 @@ class OverlayManager:
                 log.info("[INJECT] Overlay ready - resuming game for the LTK patcher")
                 injection_manager.resume_game()
 
+            # "exited" only means this game process closed; the host goes back to
+            # scanning so a reconnect is hooked again, so wait for the game to end
             game_ended = False
             while proc.poll() is None:
-                if session["state"] in ("exited", "failed"):
+                if session["state"] == "failed":
                     break
                 if stop_callback and stop_callback():
                     log.info("[INJECT] Game ended, stopping LTK patcher")
@@ -476,7 +478,7 @@ class OverlayManager:
                 self._log_runoverlay_tail(runoverlay_log)
                 self._report_ltk_patcher_failure(session["error"])
                 return 1
-            if not game_ended and session["state"] != "exited" and proc.returncode not in (0, None):
+            if not game_ended and proc.returncode not in (0, None):
                 log.error(f"[INJECT] LTK patcher exited with return code: {proc.returncode}")
                 self._log_runoverlay_tail(runoverlay_log)
                 self._report_ltk_patcher_failure(f"exited with code {proc.returncode}")
