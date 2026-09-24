@@ -67,7 +67,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 
 [UninstallRun]
 ; Uninstall Pengu Loader (removes its IFEO activation and disables the native hook)
-Filename: "{localappdata}\Rose\Pengu Loader\Pengu Loader.exe"; Parameters: "--uninstall --silent"; Flags: runhidden waituntilterminated skipifdoesntexist
+Filename: "{app}\_internal\Pengu Loader\Pengu Loader.exe"; Parameters: "--uninstall --silent"; Flags: runhidden waituntilterminated skipifdoesntexist
 ; Always remove the Rose auto-start scheduled task (created via schtasks /TN "Rose")
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN Rose /F"; Flags: runhidden
 
@@ -150,23 +150,6 @@ begin
   Result := True;
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-  begin
-    // Create registry entries for Windows Apps list
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayName', '{#MyAppName}');
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayVersion', '{#MyAppVersion}');
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'Publisher', '{#MyAppPublisher}');
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'URLInfoAbout', '{#MyAppURL}');
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'InstallLocation', ExpandConstant('{app}'));
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'UninstallString', ExpandConstant('{uninstallexe}'));
-    RegWriteDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'NoModify', 1);
-    RegWriteDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'NoRepair', 1);
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayIcon', ExpandConstant('{app}\{#MyAppExeName}'));
-  end;
-end;
-
 function _ContainsTextLower(const Haystack: string; const NeedleLower: string): Boolean;
 begin
   Result := Pos(NeedleLower, LowerCase(Haystack)) > 0;
@@ -220,6 +203,40 @@ begin
   _DeleteStartupValuesIfMatch(HKLM, RunOnce6432);
 end;
 
+const
+  IfeoKey = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe';
+
+{ Pengu hooks the client with an IFEO debugger: rundll32 "<dir>\core.dll", #6000.
+  If that core.dll is gone (Rose uninstalled or moved), Windows shows a RunDLL
+  "module not found" error on every League start, so remove the dead entry.
+  A working Pengu install elsewhere keeps its key. }
+procedure _RemoveDeadPenguIfeo();
+var
+  Debugger: string;
+  StartPos: Integer;
+  Rest: string;
+  EndPos: Integer;
+  DllPath: string;
+begin
+  if not RegQueryStringValue(HKLM, IfeoKey, 'Debugger', Debugger) then
+    exit;
+  if not _ContainsTextLower(Debugger, 'core.dll') then
+    exit;
+
+  DllPath := '';
+  StartPos := Pos('"', Debugger);
+  if StartPos > 0 then
+  begin
+    Rest := Copy(Debugger, StartPos + 1, Length(Debugger));
+    EndPos := Pos('"', Rest);
+    if EndPos > 0 then
+      DllPath := Copy(Rest, 1, EndPos - 1);
+  end;
+
+  if (DllPath = '') or not FileExists(DllPath) then
+    RegDeleteKeyIncludingSubkeys(HKLM, IfeoKey);
+end;
+
 procedure _DeleteLocalAppDataRose();
 begin
   { Ensure user data is removed before running external cleanup }
@@ -239,5 +256,27 @@ begin
     { Remove the entire install directory (Program Files\Rose) in case
       runtime-generated files (logs, caches, etc.) were left behind. }
     DelTree(ExpandConstant('{app}'), True, True, True);
+    { Safety net if Pengu's own --uninstall could not run }
+    _RemoveDeadPenguIfeo();
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    { Clean up a dead hook left by an older Rose uninstall }
+    _RemoveDeadPenguIfeo();
+
+    // Create registry entries for Windows Apps list
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayName', '{#MyAppName}');
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayVersion', '{#MyAppVersion}');
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'Publisher', '{#MyAppPublisher}');
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'URLInfoAbout', '{#MyAppURL}');
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'InstallLocation', ExpandConstant('{app}'));
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'UninstallString', ExpandConstant('{uninstallexe}'));
+    RegWriteDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'NoModify', 1);
+    RegWriteDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'NoRepair', 1);
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayIcon', ExpandConstant('{app}\{#MyAppExeName}'));
   end;
 end;
