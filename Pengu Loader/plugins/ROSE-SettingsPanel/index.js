@@ -682,6 +682,25 @@
       cursor: default;
     }
 
+    /* Save button in the rename-mod dialog */
+    .mod-save-button {
+      flex: 0 0 auto;
+      background: transparent;
+      border: 1px solid rgba(94, 184, 108, 0.5);
+      border-radius: 3px;
+      color: #5eb86c;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 12px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .mod-save-button:hover:not(:disabled) {
+      background: rgba(94, 184, 108, 0.15);
+      border-color: #5eb86c;
+      color: #8fd89a;
+    }
+
     /* Rename button in the manage-mods list rows */
     .mod-rename-button {
       flex: 0 0 auto;
@@ -3313,6 +3332,7 @@
     if (bridge) bridge.send({
       type: "add-custom-mods-champion-selected",
       action: "list",
+      withModsOnly: window.__roseChampionSelectionMode === "manage",
     });
 
     // Search functionality
@@ -3776,12 +3796,9 @@
     const actionsRow = document.createElement("div");
     actionsRow.style.cssText = "display:flex;justify-content:flex-end;gap:10px;margin-top:16px;";
 
-    const cancelButton = document.createElement("lol-uikit-flat-button-secondary");
-    cancelButton.textContent = "Cancel";
-    cancelButton.addEventListener("click", () => dlg.remove());
-    actionsRow.appendChild(cancelButton);
-
-    const saveButton = document.createElement("lol-uikit-flat-button-secondary");
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "mod-save-button";
     saveButton.textContent = "Save";
     const submit = () => {
       const value = input.value.trim();
@@ -3791,6 +3808,13 @@
     };
     saveButton.addEventListener("click", submit);
     actionsRow.appendChild(saveButton);
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "mod-rename-button";
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", () => dlg.remove());
+    actionsRow.appendChild(cancelButton);
 
     box.appendChild(actionsRow);
     dlg.appendChild(box);
@@ -3835,14 +3859,17 @@
     actions.style.justifyContent = "flex-end";
     actions.style.gap = "10px";
 
-    const cancelButton = document.createElement("lol-uikit-flat-button-secondary");
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "mod-rename-button";
     cancelButton.textContent = "Cancel";
     cancelButton.addEventListener("click", () => confirmDialog.remove());
     actions.appendChild(cancelButton);
 
-    const deleteButton = document.createElement("lol-uikit-flat-button-secondary");
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "mod-delete-button";
     deleteButton.textContent = "Delete";
-    deleteButton.style.color = "#ff6b6b";
     deleteButton.addEventListener("click", () => {
       confirmDialog.remove();
       onConfirm();
@@ -4058,7 +4085,10 @@
 
     const champions = payload.champions || [];
     if (champions.length === 0) {
-      championsGrid.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">No champions found. Please ensure League of Legends client is running.</div>`;
+      const emptyText = window.__roseChampionSelectionMode === "manage"
+        ? "No champions have custom skins yet."
+        : "No champions found. Please ensure League of Legends client is running.";
+      championsGrid.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${emptyText}</div>`;
       return;
     }
 
@@ -4585,7 +4615,10 @@
               <div style="display:flex; gap:8px; align-items:baseline; margin-bottom:6px;">
                 <span style="font-weight:800; color:#c89b3c;">${idx + 1}.</span>
                 ${tsHtml}
-                <span style="font-weight:700;">${title}</span>
+                <span style="font-weight:700; flex:1;">${title}</span>
+                <button class="rose-diagnostics-delete" data-key="${escapeHtml(e?.key || e?.text || "")}" title="Delete this error" style="
+                  border:none; background:none; color:#cdbe91; cursor:pointer; padding:0 2px; font-size:14px; line-height:1;
+                ">&#x2715;</button>
               </div>
               ${
                 detailsHtml
@@ -4598,9 +4631,30 @@
         .join("");
 
       body.innerHTML = `${headerHtml}${itemsHtml}`;
+      body.querySelectorAll(".rose-diagnostics-delete").forEach((btn) => {
+        btn.addEventListener("click", () => deleteDiagnostics([btn.dataset.key]));
+      });
     }
 
     foot.innerHTML = "";
+    if (errors.length > 0) {
+      const clearAll = document.createElement("button");
+      clearAll.textContent = "Clear all";
+      clearAll.style.cssText = `
+        padding:2px 10px; border:1px solid #463714; background:#1e2328;
+        color:#cdbe91; cursor:pointer; font-family:'Beaufort for LOL',serif; font-size:12px;
+      `;
+      clearAll.addEventListener("click", () => {
+        if (bridge) bridge.send({ type: "diagnostics-clear" });
+      });
+      foot.appendChild(clearAll);
+    }
+  }
+
+  function deleteDiagnostics(keys) {
+    const wanted = keys.filter(Boolean);
+    if (!bridge || wanted.length === 0) return;
+    bridge.send({ type: "diagnostics-delete", keys: wanted });
   }
 
   function renderThresholdBenchmark() {
@@ -4846,6 +4900,7 @@
       bridge.subscribe("settings-saved", handleSettingsSaved);
       bridge.subscribe("diagnostics-data", handleDiagnosticsData);
       bridge.subscribe("diagnostics-cleared-category", () => requestDiagnostics());
+      bridge.subscribe("diagnostics-cleared", () => requestDiagnostics());
       bridge.subscribe("diagnostics-tracker-cleared", () => requestDiagnostics());
       bridge.subscribe("diagnostics-applied-recommended", () => requestDiagnostics());
       bridge.subscribe("path-validation-result", handlePathValidationResult);

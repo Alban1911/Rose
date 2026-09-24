@@ -21,7 +21,7 @@ from urllib.parse import quote
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.storage import ModStorageService
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
-from utils.core.issue_reporter import clear_issues, read_issues_tail
+from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.utilities import get_base_skin_id_for_chroma
 from utils.system.admin_utils import (
@@ -214,6 +214,8 @@ class MessageHandler:
             self._handle_diagnostics_request(payload)
         elif payload_type == "diagnostics-clear":
             self._handle_diagnostics_clear(payload)
+        elif payload_type == "diagnostics-delete":
+            self._handle_diagnostics_delete(payload)
         elif payload_type == "diagnostics-clear-category":
             self._handle_diagnostics_clear_category(payload)
         elif payload_type == "diagnostics-clear-tracker":
@@ -454,6 +456,13 @@ class MessageHandler:
             except Exception:
                 pass
 
+    def _handle_diagnostics_delete(self, payload: dict) -> None:
+        """Delete the Troubleshooting entries the user dismissed, then resend the list."""
+        keys = {str(k).strip() for k in (payload.get("keys") or []) if str(k).strip()}
+        if keys:
+            self._compute_diagnostics_errors(delete_keys=keys)
+        self._handle_diagnostics_request(payload)
+
     def _handle_diagnostics_clear_category(self, payload: dict) -> None:
         """
         Clear only a diagnostics category from rose_diagnostics.txt.
@@ -633,8 +642,11 @@ class MessageHandler:
             except Exception:
                 pass
 
-    def _compute_diagnostics_errors(self) -> list[dict]:
-        """Compute compact diagnostics error list from rose_diagnostics.txt (never raises)."""
+    def _compute_diagnostics_errors(self, delete_keys: Optional[set[str]] = None) -> list[dict]:
+        """Compute compact diagnostics error list from rose_diagnostics.txt (never raises).
+
+        With delete_keys, first removes every report whose summary key is in it.
+        """
         try:
             raw_lines = read_issues_tail(max_lines=400)
             now = datetime.now()
@@ -792,6 +804,18 @@ class MessageHandler:
                     short = short[:57] + "..."
                 return {"code": "", "text": short or ""} if (short or "") else None
 
+            def _summary_key(msg: str, fix: str) -> str:
+                summary_obj = _summarize(msg, fix)
+                return (summary_obj.get("text") or "").strip() if summary_obj else ""
+
+            if delete_keys:
+                # Drop older duplicates too, or they would take the deleted entry's place
+                remove_issues(
+                    lambda msg_line, fix_line: _summary_key(msg_line.split(" | ", 1)[1].strip(), fix_line.strip())
+                    in delete_keys
+                )
+                entries = [e for e in entries if _summary_key(e.get("msg", ""), e.get("fix", "")) not in delete_keys]
+
             # Keep last N unique summaries (most recent occurrences)
             seen: set[str] = set()
             out: list[dict] = []
@@ -805,7 +829,7 @@ class MessageHandler:
                 if summary_text in seen:
                     continue
                 seen.add(summary_text)
-                payload = {"ts": _format_ts(ent.get("ts", "")), **summary_obj}
+                payload = {"ts": _format_ts(ent.get("ts", "")), "key": summary_text, **summary_obj}
                 out.append(payload)
                 if len(out) >= 8:
                     break
@@ -2851,6 +2875,9 @@ class MessageHandler:
             
             # Sort champions by name
             champions = list(champions_dict.values())
+            if payload.get("withModsOnly") and self.mod_storage:
+                # Manage Mods only offers champions that have custom skins
+                champions = [c for c in champions if self.mod_storage.list_mods_for_champion(c["id"])]
             champions.sort(key=lambda x: x["name"])
             
             response_payload = {
