@@ -27,6 +27,10 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         )
         self.paths.start()
         self.addCleanup(self.paths.stop)
+        # Never close the developer's real Pengu Loader windows
+        self.close_menu = patch.object(pengu_loader, '_close_loader_menu')
+        self.close_menu.start()
+        self.addCleanup(self.close_menu.stop)
 
     def tearDown(self):
         self.temp_dir.cleanup()
