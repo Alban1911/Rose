@@ -526,6 +526,59 @@
     });
   }
 
+  // Swiftplay: the lobby only stores skins the account owns, so a slot's banner
+  // keeps the owned skin's splash when another skin is picked in the carousel.
+  // Remember the pick per banner (keyed by the splash the client shows) and
+  // show the picked skin's splash instead, as the game will.
+  const swiftplayBanners = new Map();
+
+  function champFolder(src) {
+    const match = /\/Characters\/([^/]+)\//i.exec(src || "");
+    return match ? match[1].toLowerCase() : null;
+  }
+
+  function pickedSplash(wrapper) {
+    const thumb = wrapper.querySelector(".skin-thumbnail-img");
+    const match = thumb && /url\(["']?([^"')]+)["']?\)/.exec(thumb.style.backgroundImage);
+    return match ? match[1].replace("_splash_tile_", "_splash_centered_") : null;
+  }
+
+  // The splash the client itself set, even after we replaced it
+  function clientSplash(img) {
+    const src = img.getAttribute("src");
+    return img.dataset.roseBanner && src === img.dataset.roseBanner ? img.dataset.roseOriginal : src;
+  }
+
+  function syncSwiftplayBanners() {
+    const active = document.querySelector(".quick-play-skin-select-component .thumbnail-wrapper.active-skin");
+    const tile = document.querySelector(".quick-play-loadout-selection-hitbox.selected .champion-slot-tile");
+    if (active && tile) {
+      const original = clientSplash(tile);
+      const picked = pickedSplash(active);
+      if (original && picked && champFolder(original) === champFolder(picked)) {
+        if (picked === original) {
+          swiftplayBanners.delete(original);
+        } else {
+          swiftplayBanners.set(original, picked);
+        }
+      }
+    }
+
+    document.querySelectorAll('img[src*="_splash_centered_"]').forEach((img) => {
+      const src = img.getAttribute("src");
+      if (src !== img.dataset.roseBanner) {
+        img.dataset.roseOriginal = src; // the client set a new splash
+      }
+      const picked = swiftplayBanners.get(img.dataset.roseOriginal);
+      if (picked && src !== picked) {
+        img.dataset.roseBanner = picked;
+        img.setAttribute("src", picked);
+      } else if (!picked && img.dataset.roseBanner && src === img.dataset.roseBanner) {
+        img.setAttribute("src", img.dataset.roseOriginal);
+      }
+    });
+  }
+
   function removeAgeRatingInChampSelect() {
     if (!document.querySelector(".champion-select") && !document.querySelector(".skin-selection-carousel")) {
       return;
@@ -545,6 +598,7 @@
 
     // Mark skins as owned in Swiftplay
     markSkinsAsOwned();
+    syncSwiftplayBanners();
 
     // Remove age rating classes when in champ select
     removeAgeRatingInChampSelect();
