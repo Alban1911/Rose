@@ -325,7 +325,6 @@ excludes = [
     'setuptools',
     'pip',
     'wheel',
-    'distutils',
     'PySide2',
     'PySide6',
     # Exclude removed packages
