@@ -4079,7 +4079,7 @@
     if (!championsGrid) return;
 
     if (payload.error) {
-      championsGrid.innerHTML = `<div style="color: #ff6b6b; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(payload.error)}</div>`;
+      championsGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #ff6b6b; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(payload.error)}</div>`;
       return;
     }
 
@@ -4088,7 +4088,7 @@
       const emptyText = window.__roseChampionSelectionMode === "manage"
         ? "No champions have custom skins yet."
         : "No champions found. Please ensure League of Legends client is running.";
-      championsGrid.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${emptyText}</div>`;
+      championsGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${emptyText}</div>`;
       return;
     }
 
