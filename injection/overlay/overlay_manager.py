@@ -210,6 +210,8 @@ class OverlayManager:
 
         # The DLL only overlays games launched after the scan started, so the
         # host must already be scanning when the game starts
+        if self.process_manager:
+            self.process_manager.stopped_by_user = False
         patcher_session = self._start_ltk_patcher(ltk_host, overlay_dir)
         if not patcher_session:
             return 1
@@ -462,6 +464,9 @@ class OverlayManager:
             self._stop_ltk_patcher(proc)
             reader.join(timeout=1.0)
 
+            if self.process_manager and self.process_manager.stopped_by_user:
+                log.info("[INJECT] LTK patcher stopped by the user")
+                return 0
             if session["eol"]:
                 self._log_runoverlay_tail(runoverlay_log)
                 self._report_ltk_patcher_eol()

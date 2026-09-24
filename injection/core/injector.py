@@ -314,3 +314,7 @@ class SkinInjector:
     def kill_all_modtools_processes(self):
         """Kill all mod-tools.exe processes (for application shutdown)"""
         self.process_manager.kill_all_modtools_processes()
+
+    def stop_injection_by_user(self):
+        """Stop the running injection at the user's request"""
+        self.process_manager.stop_injection_by_user()

@@ -448,6 +448,17 @@ class InjectionManager:
         cleanup = threading.Thread(target=cleanup_thread, daemon=True, name="CleanupThread")
         cleanup.start()
     
+    def stop_injection_by_user(self):
+        """Stop the patcher and mod-tools.exe so the game can start without mods"""
+        if not self._initialized:
+            return
+        self._stop_monitor()
+        try:
+            self.injector.stop_injection_by_user()
+            log.info("[INJECT] Injection stopped by the user")
+        except Exception as e:
+            log.warning(f"[INJECT] Failed to stop injection: {e}")
+
     def kill_all_modtools_processes(self):
         """Kill all mod-tools.exe processes (for application shutdown)"""
         if not self._initialized:

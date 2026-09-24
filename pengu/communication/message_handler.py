@@ -214,6 +214,8 @@ class MessageHandler:
             self._handle_diagnostics_request(payload)
         elif payload_type == "diagnostics-clear":
             self._handle_diagnostics_clear(payload)
+        elif payload_type == "stop-injection":
+            self._handle_stop_injection(payload)
         elif payload_type == "diagnostics-delete":
             self._handle_diagnostics_delete(payload)
         elif payload_type == "diagnostics-clear-category":
@@ -455,6 +457,17 @@ class MessageHandler:
                 self._send_response(json.dumps({"type": "diagnostics-cleared", "success": False}))
             except Exception:
                 pass
+
+    def _handle_stop_injection(self, payload: dict) -> None:
+        """Stop injection from the reconnect screen so a crashing mod can be skipped."""
+        stopped = False
+        try:
+            if self.injection_manager:
+                self.injection_manager.stop_injection_by_user()
+                stopped = True
+        except Exception as e:
+            log.error(f"[SkinMonitor] Failed to stop injection: {e}")
+        self._send_response(json.dumps({"type": "injection-stopped", "success": stopped}))
 
     def _handle_diagnostics_delete(self, payload: dict) -> None:
         """Delete the Troubleshooting entries the user dismissed, then resend the list."""

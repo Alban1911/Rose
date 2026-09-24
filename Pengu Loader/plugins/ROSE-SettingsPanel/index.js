@@ -1494,6 +1494,33 @@
     applyErrorBadges();
   }
 
+  // Reconnect screen: let the player stop Rose's injection when a mod crashes the game
+  let _reconnectObserverStarted = false;
+  function addStopInjectionButton() {
+    const container = document.querySelector(".reconnect-button-container");
+    if (!container || container.querySelector(".rose-stop-injection")) return;
+
+    const button = document.createElement("lol-uikit-flat-button");
+    button.className = "rose-stop-injection";
+    button.setAttribute("margin-right", "10px");
+    button.textContent = "Disable Rose mods";
+    button.title = "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)";
+    button.addEventListener("click", () => {
+      if (!bridge || button.hasAttribute("disabled")) return;
+      bridge.send({ type: "stop-injection" });
+      button.setAttribute("disabled", "true");
+      button.textContent = "Mods disabled";
+    });
+    container.appendChild(button);
+  }
+
+  function startReconnectObserver() {
+    if (_reconnectObserverStarted) return;
+    _reconnectObserverStarted = true;
+    addStopInjectionButton();
+    new MutationObserver(addStopInjectionButton).observe(document.body, { childList: true, subtree: true });
+  }
+
   function startBadgeObserver() {
     if (_badgeObserverStarted) return;
     _badgeObserverStarted = true;
@@ -4919,6 +4946,7 @@
         requestSettings();
         requestDiagnostics();
         startBadgeObserver();
+        startReconnectObserver();
 
         // Poll diagnostics so warnings appear without opening the panel.
         if (!_diagnosticsPollId) {

@@ -33,6 +33,15 @@ class ProcessManager:
     
     def __init__(self):
         self.current_overlay_process = None
+        # Set when the user stops injection so the kill isn't reported as a failure
+        self.stopped_by_user = False
+
+    def stop_injection_by_user(self):
+        """Stop the patcher and every mod-tools.exe (e.g. a mod crashes the game on reconnect)."""
+        self.stopped_by_user = True
+        self.stop_overlay_process()
+        self.kill_all_runoverlay_processes()
+        self.kill_all_modtools_processes()
     
     def stop_overlay_process(self):
         """Stop the current overlay process"""
