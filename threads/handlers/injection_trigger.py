@@ -17,7 +17,7 @@ from utils.core.issue_reporter import report_issue
 from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
-from utils.core.utilities import is_default_skin, is_owned
+from utils.core.utilities import is_default_skin
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 
 log = get_logger()
@@ -729,8 +729,7 @@ class InjectionTrigger:
                 is_skin_owned = (
                     target_skin_id is not None and (
                         is_default
-                        or (target_skin_id in (owned_skin_ids or set()))
-                        or (ui_skin_id in (owned_skin_ids or set()) and target_skin_id == ui_skin_id)
+                        or target_skin_id in (owned_skin_ids or set())
                     )
                 )
                 base_skin_name_for_injection = None
@@ -778,7 +777,12 @@ class InjectionTrigger:
                     )
 
             # Also check if base skin is owned but chroma is selected (for owned chromas)
-            elif ui_skin_id in owned_skin_ids and effective_skin_id != ui_skin_id and not is_default:
+            # (only a chroma of the hovered skin: a historic/random skin is a different skin)
+            elif (
+                ui_skin_id in owned_skin_ids
+                and ui_skin_id < effective_skin_id < ui_skin_id + 100
+                and not is_default
+            ):
                 # Base skin owned, chroma selected - force the chroma
                 self._force_owned_skin(effective_skin_id)
                 # Still run injection so overlay is built with our skin + friends' party skins
