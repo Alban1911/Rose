@@ -52,6 +52,17 @@ DISK_SPACE_ERROR_MARKERS = (
     'errno 28',
 )
 
+# LTK patcher host settings (see ltk-manager patcher/host/protocol.rs).
+# Flag 4 = CSLOL_HOOK_OPT_OUT_AH_V1: Rose replaces skin0 with the selected
+# skin, which the DLL's base-skin check rejects and then disables the whole
+# overlay; opting out downgrades that to a warning (same as LTK Manager's
+# "enforce skinhack scan" setting turned off). Log level 0x10 = Info.
+LTK_PATCHER_FLAGS = 4
+LTK_PATCHER_LOG_LEVEL = 0x10
+
+# WAD v3 header: magic + version (4), RSA signature (256), checksum (8)
+WAD_HEADER_SIZE = 268
+
 
 class OverlayManager:
     """Manages overlay creation and execution"""
@@ -262,6 +273,8 @@ class OverlayManager:
                     'timestamp': time.time()
                 }
 
+                self._restore_wad_headers(overlay_dir, Path(gpath))
+
                 # Wipe extracted skin files now that mkoverlay is done with them
                 self._wipe_mods_dir()
 
@@ -294,6 +307,10 @@ class OverlayManager:
             self._report_low_disk_space_failure(output_lines + error_lines, mod_names)
             return 1
 
+        ltk_host = tools_manager.detect_ltk_patcher()
+        if ltk_host:
+            return self._run_ltk_patcher(ltk_host, overlay_dir, mod_names, stop_callback, injection_manager)
+
         # Run overlay
         cfg = overlay_dir / "cslol-config.json"
         cmd = [
@@ -302,16 +319,18 @@ class OverlayManager:
         ]
         
         log.debug(f"[INJECT] Running overlay")
-        
+
+        runoverlay_log = self._open_runoverlay_log()
         try:
             # Hide console window on Windows
             import sys
             creationflags = 0
             if sys.platform == "win32":
                 creationflags = subprocess.CREATE_NO_WINDOW
-            
-            # Don't capture stdout to avoid pipe buffer deadlock - send to devnull instead
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
+
+            # Write output to a file instead of a pipe to avoid pipe buffer deadlock
+            out = runoverlay_log if runoverlay_log else subprocess.DEVNULL
+            proc = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, creationflags=creationflags)
             
             # Boost process priority to maximize CPU contention if enabled
             if ENABLE_RUNOVERLAY_PRIORITY_BOOST and PSUTIL_AVAILABLE:
@@ -358,6 +377,7 @@ class OverlayManager:
                     result_code=proc.returncode,
                 )
                 log.error(f"[INJECT] runoverlay failed with return code: {proc.returncode}")
+                self._log_runoverlay_tail(runoverlay_log)
                 return proc.returncode
             else:
                 log.debug(f"[INJECT] runoverlay completed successfully")
@@ -365,7 +385,205 @@ class OverlayManager:
         except Exception as e:
             log.error(f"[INJECT] runoverlay error: {e}")
             return 1
-    
+        finally:
+            if runoverlay_log:
+                runoverlay_log.close()
+
+    def _run_ltk_patcher(self, host_exe: Path, overlay_dir: Path, mod_names: List[str],
+                         stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
+        """Serve the overlay through the LTK patcher host instead of runoverlay.
+
+        The host speaks a line protocol: config/start commands on stdin and
+        "status <ts> <state> <msg>" / "error <ts> <msg>" events on stdout.
+        It stays alive between sessions, so we stop it once the game exits.
+        """
+        import sys
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        prefix = str(overlay_dir).rstrip("\\/") + "\\"
+        commands = [
+            f"config loglevel {LTK_PATCHER_LOG_LEVEL}",
+            f"config flags {LTK_PATCHER_FLAGS}",
+            f"config prefix {prefix}",
+            "start scan",
+        ]
+
+        runoverlay_log = self._open_runoverlay_log()
+        session = {"state": None, "error": None}
+
+        def read_events(pipe):
+            try:
+                for line in pipe:
+                    line = line.rstrip("\r\n")
+                    if not line:
+                        continue
+                    if runoverlay_log:
+                        runoverlay_log.write(line + "\n")
+                        runoverlay_log.flush()
+                    parts = line.split(" ", 3)
+                    if parts[0] == "status" and len(parts) >= 3:
+                        session["state"] = parts[2]
+                        message = parts[3] if len(parts) > 3 else ""
+                        log.info(f"[INJECT] LTK patcher: {parts[2]} {message}".rstrip())
+                        if parts[2] == "failed":
+                            session["error"] = message or "injection failed"
+                    elif parts[0] == "error":
+                        session["error"] = line
+                        log.error(f"[INJECT] LTK patcher error: {line}")
+                    elif parts[0] == "dll" and " ERROR " in line:
+                        # e.g. "overlay verification failed, disabling overlay"
+                        message = line.split(" ERROR ", 1)[1]
+                        log.error(f"[INJECT] LTK patcher DLL: {message}")
+                        if "disabling overlay" in message:
+                            session["error"] = message
+            except Exception as e:
+                log.debug(f"[INJECT] Error reading LTK patcher output: {e}")
+
+        log.debug(f"[INJECT] Running overlay with LTK patcher: {host_exe}")
+        try:
+            proc = subprocess.Popen(
+                [str(host_exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                cwd=str(host_exe.parent), creationflags=creationflags,
+                text=True, encoding="utf-8", errors="replace", bufsize=1,
+            )
+        except Exception as e:
+            log.error(f"[INJECT] Could not start LTK patcher: {e}")
+            if runoverlay_log:
+                runoverlay_log.close()
+            return 1
+
+        reader = threading.Thread(target=read_events, args=(proc.stdout,), daemon=True)
+        reader.start()
+
+        try:
+            if ENABLE_RUNOVERLAY_PRIORITY_BOOST and PSUTIL_AVAILABLE:
+                try:
+                    psutil.Process(proc.pid).nice(psutil.HIGH_PRIORITY_CLASS)
+                except Exception as e:
+                    log.debug(f"[INJECT] Could not boost process priority: {e}")
+
+            for command in commands:
+                proc.stdin.write(command + "\n")
+            proc.stdin.flush()
+
+            if self.process_manager:
+                self.process_manager.current_overlay_process = proc
+
+            # Resume game NOW - the host scans for the game and hooks it
+            if injection_manager:
+                log.info("[INJECT] LTK patcher started - resuming game")
+                injection_manager.resume_game()
+
+            game_ended = False
+            while proc.poll() is None:
+                if session["state"] in ("exited", "failed"):
+                    break
+                if stop_callback and stop_callback():
+                    log.info("[INJECT] Game ended, stopping LTK patcher")
+                    game_ended = True
+                    break
+                time.sleep(PROCESS_MONITOR_SLEEP_S)
+
+            self._stop_ltk_patcher(proc)
+            reader.join(timeout=1.0)
+
+            if session["error"]:
+                log.error(f"[INJECT] LTK patcher failed: {session['error']}")
+                self._log_runoverlay_tail(runoverlay_log)
+                return 1
+            if not game_ended and session["state"] != "exited" and proc.returncode not in (0, None):
+                log.error(f"[INJECT] LTK patcher exited with return code: {proc.returncode}")
+                self._log_runoverlay_tail(runoverlay_log)
+                return proc.returncode
+            log.debug("[INJECT] LTK patcher session completed successfully")
+            return 0
+        except Exception as e:
+            log.error(f"[INJECT] LTK patcher error: {e}")
+            self._stop_ltk_patcher(proc)
+            return 1
+        finally:
+            if self.process_manager:
+                self.process_manager.current_overlay_process = None
+            self._wipe_overlay_dir(overlay_dir)
+            if runoverlay_log:
+                runoverlay_log.close()
+
+    @staticmethod
+    def _restore_wad_headers(overlay_dir: Path, game_dir: Path):
+        """Copy the game's WAD signature + checksum into each overlay WAD.
+
+        mkoverlay writes its own signature and a zero checksum. Since 16.19 the
+        game rejects such WADs as corrupt ("WadFile mount failed") and flags the
+        install for repair. LTK Manager keeps the original header when it
+        rebases a WAD, so we do the same.
+        """
+        restored = 0
+        for wad in overlay_dir.rglob("*.wad.client"):
+            original = game_dir / wad.relative_to(overlay_dir)
+            try:
+                with open(original, "rb") as f:
+                    header = f.read(WAD_HEADER_SIZE)
+                if len(header) != WAD_HEADER_SIZE or header[:2] != b"RW":
+                    continue
+                with open(wad, "r+b") as f:
+                    if f.read(4) != header[:4]:
+                        log.warning(f"[INJECT] WAD version mismatch, header not restored: {wad.name}")
+                        continue
+                    f.seek(4)
+                    f.write(header[4:])
+                restored += 1
+            except OSError as e:
+                log.warning(f"[INJECT] Could not restore WAD header for {wad.name}: {e}")
+        log.debug(f"[INJECT] Restored original headers on {restored} overlay WAD(s)")
+
+    @staticmethod
+    def _stop_ltk_patcher(proc):
+        """Ask the LTK patcher host to stop, force-killing it after a grace period."""
+        if proc.poll() is not None:
+            return
+        try:
+            proc.stdin.write("stop\n")
+            proc.stdin.flush()
+            proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+    @staticmethod
+    def _open_runoverlay_log():
+        """Open a log file for runoverlay output, or None if it cannot be created."""
+        try:
+            from utils.core.paths import get_user_data_dir
+            logs_dir = get_user_data_dir() / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%d-%m-%Y_%H-%M-%S")
+            return open(logs_dir / f"rose_runoverlay_{timestamp}.log", "w+", encoding="utf-8", errors="replace")
+        except Exception as e:
+            log.debug(f"[INJECT] Could not create runoverlay log: {e}")
+            return None
+
+    @staticmethod
+    def _log_runoverlay_tail(runoverlay_log, max_lines: int = 20):
+        """Log the last lines of runoverlay output after a failure."""
+        if not runoverlay_log:
+            return
+        try:
+            runoverlay_log.flush()
+            runoverlay_log.seek(0)
+            lines = [line.strip() for line in runoverlay_log.read().splitlines() if line.strip()]
+            if lines:
+                log.error(f"[INJECT] runoverlay output (last {min(len(lines), max_lines)} lines):")
+                for line in lines[-max_lines:]:
+                    log.error(f"[INJECT]   {line}")
+            else:
+                log.error("[INJECT] runoverlay produced no output")
+            log.error(f"[INJECT] Full runoverlay log: {runoverlay_log.name}")
+        except Exception as e:
+            log.debug(f"[INJECT] Could not read runoverlay log: {e}")
+
     @staticmethod
     def _wipe_overlay_dir(overlay_dir: Path):
         """Delete overlay WAD files after runoverlay finishes"""

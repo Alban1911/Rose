@@ -18,6 +18,7 @@ except ImportError:
     psutil = None
 
 from utils.core.logging import get_logger
+from ..tools.tools_manager import LTK_PATCHER_HOST
 from config import (
     PROCESS_TERMINATE_TIMEOUT_S,
     PROCESS_TERMINATE_WAIT_S,
@@ -73,8 +74,9 @@ class ProcessManager:
                     break
                 
                 try:
-                    # Skip if not mod-tools.exe (avoid expensive cmdline check on unrelated processes)
-                    if proc.info.get('name') != 'mod-tools.exe':
+                    # Skip if not mod-tools.exe or the LTK patcher host (avoid expensive cmdline check on unrelated processes)
+                    name = proc.info.get('name')
+                    if name not in ('mod-tools.exe', LTK_PATCHER_HOST):
                         continue
                     
                     # Only fetch cmdline for mod-tools.exe processes with a timeout
@@ -82,9 +84,9 @@ class ProcessManager:
                         # Create Process object for cmdline access
                         p = psutil.Process(proc.info['pid'])
                         # Use a short timeout on cmdline() to prevent hanging
-                        cmdline = p.cmdline()
+                        cmdline = p.cmdline() if name == 'mod-tools.exe' else None
                         
-                        if cmdline and any('runoverlay' in arg for arg in cmdline):
+                        if name == LTK_PATCHER_HOST or (cmdline and any('runoverlay' in arg for arg in cmdline)):
                             log.info(f"[INJECT] Killing runoverlay process PID {proc.info['pid']}")
                             try:
                                 # Try graceful termination first
@@ -146,8 +148,8 @@ class ProcessManager:
                     break
                 
                 try:
-                    # Only kill mod-tools.exe processes
-                    if proc.info.get('name') != 'mod-tools.exe':
+                    # Only kill mod-tools.exe and LTK patcher host processes
+                    if proc.info.get('name') not in ('mod-tools.exe', LTK_PATCHER_HOST):
                         continue
                     
                     # Kill all mod-tools.exe processes regardless of command
