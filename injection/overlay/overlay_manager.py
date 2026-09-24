@@ -61,6 +61,7 @@ LTK_PATCHER_FLAGS = 4
 LTK_PATCHER_LOG_LEVEL = 0x10
 # Printed by the DLL when the game build is newer than its end-of-life date
 END_OF_LIFE_MESSAGE = "end of life reached"
+LATE_JOIN_MESSAGE = "joined too late"
 
 # WAD v3 header: magic + version (4), RSA signature (256), checksum (8)
 WAD_HEADER_SIZE = 268
@@ -188,6 +189,31 @@ class OverlayManager:
         overlay_dir = self.mods_dir.parent / "overlay"
         overlay_dir.mkdir(parents=True, exist_ok=True)
         
+        ltk_host = tools_manager.detect_ltk_patcher()
+        if not ltk_host:
+            log.error("[INJECT] LTK patcher not found (ltk_patcher_host.exe + ltk_patcher_dll.dll)")
+            report_issue(
+                "LTK_PATCHER_MISSING",
+                "error",
+                "Injection failed: the LTK patcher is missing.",
+                hint="Copy ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder.",
+            )
+            return 1
+
+        # Rose may have been running since before the DLL reached its end of life
+        patcher = check_ltk_patcher(ltk_host.parent)
+        if patcher.expired:
+            eol = time.strftime("%Y-%m-%d %H:%M", time.localtime(patcher.eol))
+            log.error(f"[INJECT] LTK patcher reached its end of life on {eol}")
+            self._report_ltk_patcher_eol(eol)
+            return 1
+
+        # The DLL only overlays games launched after the scan started, so the
+        # host must already be scanning when the game starts
+        patcher_session = self._start_ltk_patcher(ltk_host, overlay_dir)
+        if not patcher_session:
+            return 1
+
         names_str = "/".join(mod_names)
         gpath = str(self.game_dir)
 
@@ -266,6 +292,7 @@ class OverlayManager:
                     result_code=proc.returncode,
                 )
                 log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
+                self._abort_ltk_patcher(patcher_session)
                 return proc.returncode
             else:
                 log_success(log, f"mkoverlay completed in {mkoverlay_duration:.2f}s", "⚡")
@@ -284,7 +311,7 @@ class OverlayManager:
                 self._hide_directory(overlay_dir)
 
                 # DON'T resume game yet - keep it frozen until runoverlay starts
-                log_event(log, "mkoverlay done - keeping game frozen until runoverlay starts", "❄️")
+                log_event(log, "mkoverlay done - keeping game frozen until the overlay is served", "❄️")
                 
         except subprocess.TimeoutExpired:
             log.error("[INJECT] mkoverlay timeout - monitor will auto-resume if needed")
@@ -296,6 +323,7 @@ class OverlayManager:
                 hint="Try increasing Monitor Auto-Resume Timeout and/or using smaller mods.",
             )
             self._report_low_disk_space_failure(output_lines + error_lines, mod_names)
+            self._abort_ltk_patcher(patcher_session)
             return 124
         except Exception as e:
             log.error(f"[INJECT] mkoverlay error: {e} - monitor will auto-resume if needed")
@@ -307,34 +335,13 @@ class OverlayManager:
                 hint="Check Rose logs for details, then retry.",
             )
             self._report_low_disk_space_failure(output_lines + error_lines, mod_names)
+            self._abort_ltk_patcher(patcher_session)
             return 1
 
-        ltk_host = tools_manager.detect_ltk_patcher()
-        if not ltk_host:
-            log.error("[INJECT] LTK patcher not found (ltk_patcher_host.exe + ltk_patcher_dll.dll)")
-            report_issue(
-                "LTK_PATCHER_MISSING",
-                "error",
-                "Injection failed: the LTK patcher is missing.",
-                hint="Copy ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder.",
-            )
-            self._wipe_overlay_dir(overlay_dir)
-            return 1
+        return self._run_ltk_patcher(patcher_session, overlay_dir, stop_callback, injection_manager)
 
-        # Rose may have been running since before the DLL reached its end of life
-        patcher = check_ltk_patcher(ltk_host.parent)
-        if patcher.expired:
-            eol = time.strftime("%Y-%m-%d %H:%M", time.localtime(patcher.eol))
-            log.error(f"[INJECT] LTK patcher reached its end of life on {eol}")
-            self._report_ltk_patcher_eol(eol)
-            self._wipe_overlay_dir(overlay_dir)
-            return 1
-
-        return self._run_ltk_patcher(ltk_host, overlay_dir, mod_names, stop_callback, injection_manager)
-
-    def _run_ltk_patcher(self, host_exe: Path, overlay_dir: Path, mod_names: List[str],
-                         stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
-        """Serve the overlay through the LTK patcher host.
+    def _start_ltk_patcher(self, host_exe: Path, overlay_dir: Path) -> Optional[dict]:
+        """Start the LTK patcher host and begin scanning for the game.
 
         The host speaks a line protocol: config/start commands on stdin and
         "status <ts> <state> <msg>" / "error <ts> <msg>" events on stdout.
@@ -377,6 +384,10 @@ class OverlayManager:
                         session["error"] = line
                         session["eol"] = True
                         log.error("[INJECT] LTK patcher DLL reached its end of life for this game build")
+                    elif parts[0] == "dll" and LATE_JOIN_MESSAGE in line:
+                        # The game was launched before the host started scanning
+                        session["error"] = "the game started before the patcher, overlay not applied"
+                        log.error("[INJECT] LTK patcher DLL joined the game too late - overlay not applied")
                     elif parts[0] == "dll" and " ERROR " in line:
                         # e.g. "overlay verification failed, disabling overlay"
                         message = line.split(" ERROR ", 1)[1]
@@ -386,7 +397,7 @@ class OverlayManager:
             except Exception as e:
                 log.debug(f"[INJECT] Error reading LTK patcher output: {e}")
 
-        log.debug(f"[INJECT] Running overlay with LTK patcher: {host_exe}")
+        log.debug(f"[INJECT] Starting LTK patcher: {host_exe}")
         try:
             proc = subprocess.Popen(
                 [str(host_exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -398,22 +409,44 @@ class OverlayManager:
             self._report_ltk_patcher_failure(f"could not start ({e})")
             if runoverlay_log:
                 runoverlay_log.close()
-            return 1
+            return None
 
         reader = threading.Thread(target=read_events, args=(proc.stdout,), daemon=True)
         reader.start()
-
+        patcher_session = {"proc": proc, "session": session, "reader": reader, "log": runoverlay_log}
         try:
             for command in commands:
                 proc.stdin.write(command + "\n")
             proc.stdin.flush()
+        except Exception as e:
+            log.error(f"[INJECT] Could not configure LTK patcher: {e}")
+            self._abort_ltk_patcher(patcher_session)
+            self._report_ltk_patcher_failure(f"could not start ({e})")
+            return None
 
-            if self.process_manager:
-                self.process_manager.current_overlay_process = proc
+        if self.process_manager:
+            self.process_manager.current_overlay_process = proc
+        return patcher_session
 
-            # Resume game NOW - the host scans for the game and hooks it
+    def _abort_ltk_patcher(self, patcher_session: dict):
+        """Stop a patcher whose injection failed before the overlay was served."""
+        self._stop_ltk_patcher(patcher_session["proc"])
+        if self.process_manager:
+            self.process_manager.current_overlay_process = None
+        if patcher_session["log"]:
+            patcher_session["log"].close()
+
+    def _run_ltk_patcher(self, patcher_session: dict, overlay_dir: Path,
+                         stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
+        """Resume the game and serve the overlay until the game exits."""
+        proc = patcher_session["proc"]
+        session = patcher_session["session"]
+        reader = patcher_session["reader"]
+        runoverlay_log = patcher_session["log"]
+        try:
+            # The host cannot find a frozen game; it hooks it right after resume
             if injection_manager:
-                log.info("[INJECT] LTK patcher started - resuming game")
+                log.info("[INJECT] Overlay ready - resuming game for the LTK patcher")
                 injection_manager.resume_game()
 
             game_ended = False
