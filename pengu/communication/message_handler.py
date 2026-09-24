@@ -411,6 +411,7 @@ class MessageHandler:
             threshold = get_config_float("General", "injection_threshold", 0.5)
             monitor_auto_resume_timeout = get_config_float("General", "monitor_auto_resume_timeout", 60.0)
             autostart = is_registered_for_autostart()
+            hide_empty_categories = (get_config_option("General", "hide_empty_categories", "false") or "false").lower() == "true"
             game_path = get_config_option("General", "leaguePath") or ""
             diagnostics_errors = self._compute_diagnostics_errors()
             
@@ -424,6 +425,7 @@ class MessageHandler:
                 "threshold": threshold,
                 "monitorAutoResumeTimeout": int(monitor_auto_resume_timeout),
                 "autostart": autostart,
+                "hideEmptyCategories": hide_empty_categories,
                 "gamePath": game_path,
                 "gamePathValid": path_valid,
                 "hasErrors": len(diagnostics_errors) > 0,
@@ -432,7 +434,7 @@ class MessageHandler:
             }
             self._send_response(json.dumps(response_payload))
             
-            log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, monitor_auto_resume_timeout={monitor_auto_resume_timeout}, autostart={autostart}, gamePath={game_path}, valid={path_valid}")
+            log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, monitor_auto_resume_timeout={monitor_auto_resume_timeout}, autostart={autostart}, hide_empty_categories={hide_empty_categories}, gamePath={game_path}, valid={path_valid}")
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle settings request: {e}")
 
@@ -932,6 +934,7 @@ class MessageHandler:
             "championId": champion_id,
             "skinId": skin_id,
             "mods": mods_payload,
+            "hideEmptyCategories": (get_config_option("General", "hide_empty_categories", "false") or "false").lower() == "true",
             "historicMod": historic_mod_path,  # Add historic mod path if available
             "compatibleSkinIds": sorted(compatible_skin_ids),
             "timestamp": int(time.time() * 1000),
@@ -2517,6 +2520,7 @@ class MessageHandler:
             threshold = max(0.0, min(2.0, float(payload.get("threshold", 0.5))))
             monitor_auto_resume_timeout = max(1, min(180, int(payload.get("monitorAutoResumeTimeout", 60))))
             autostart = payload.get("autostart", False)
+            hide_empty_categories = bool(payload.get("hideEmptyCategories", False))
             game_path = payload.get("gamePath", "")
             
             set_config_option("General", "injection_threshold", f"{threshold:.2f}")
@@ -2524,6 +2528,9 @@ class MessageHandler:
             
             set_config_option("General", "monitor_auto_resume_timeout", str(monitor_auto_resume_timeout))
             log.info(f"[SkinMonitor] Monitor auto-resume timeout updated to {monitor_auto_resume_timeout}s")
+
+            set_config_option("General", "hide_empty_categories", "true" if hide_empty_categories else "false")
+            log.info(f"[SkinMonitor] Hide empty mod categories updated to {hide_empty_categories}")
             
             if game_path and game_path.strip():
                 if not self._is_valid_local_league_path(game_path):
