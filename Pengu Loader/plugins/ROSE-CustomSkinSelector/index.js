@@ -349,6 +349,7 @@
   font-family: "LoL Display","Times New Roman",Times,Baskerville,Georgia,serif;
   font-size: 24px; font-weight: 700; position: absolute; text-align: center; width: 100%;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 4px #000;
 }
 .${pnl} .standalone-skin-name {
   bottom: auto; box-sizing: border-box; display: none; padding: 10px 12px 8px; position: relative;
