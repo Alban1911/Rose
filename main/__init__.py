@@ -42,15 +42,22 @@ def _get_tools_dir() -> Path:
         return Path(__file__).parent.parent / "injection" / "tools"
 
 
+LTK_MANAGER_FOLDER = r"%LOCALAPPDATA%\LTK Manager"
+
+
 def _dll_dialog_text(reason: str, detail: str = ""):
     """Return (title, status_title, status_body, steps) for an LTK patcher problem."""
-    source = "Get both files from LTK Manager."
+    source = (
+        "Install LTK Manager from github.com/LeagueToolkit/ltk-manager/releases.\n"
+        f"   Both files are in its install folder (default: {LTK_MANAGER_FOLDER})"
+    )
     if reason == "expired":
         return (
             "Rose - Patcher Outdated",
             "The LTK patcher has reached its end of life",
             f"The ltk_patcher_dll.dll in Rose's tools folder stopped supporting new game builds on {detail}.",
-            f"1. Update LTK Manager, then get both files from it.\n"
+            "1. Update LTK Manager, then get both files from its install folder\n"
+            f"   (default: {LTK_MANAGER_FOLDER})\n"
             "2. Open Rose's tools folder.\n"
             "3. Replace both files, then restart Rose.",
         )

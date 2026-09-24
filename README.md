@@ -80,19 +80,38 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 - **Windows 10/11**
 - **League of Legends** installed
-- **Injection DLL** - You must provide your own signed DLL (see below)
+- **LTK patcher** - two files from [LTK Manager](https://github.com/LeagueToolkit/ltk-manager) that you add yourself (see below)
 
-### DLL Requirement
+### LTK patcher
 
-Due to DMCA restrictions, Rose cannot distribute the injection DLL file. You must obtain this file yourself from an authorized source and sign it with your own code signing certificate.
+Rose injects skins with the patcher from LTK Manager: `ltk_patcher_host.exe` waits for the game to start and loads `ltk_patcher_dll.dll` into it, which makes the game read the skin files. League Toolkit updates both files when a League patch changes the game.
 
-On first launch, Rose will prompt you to provide this file and open the folder where it should be placed.
+**Rose does not ship these files.** The LTK license does not allow redistributing them with League Toolkit's code signature, so every user gets their own copy from the official LTK Manager. Please do not ask for them or share them in the Discord.
+
+**Setup (one time)**
+
+1. Download the latest `LTK.Manager_x.y.z_x64-setup.exe` from the [LTK Manager releases](https://github.com/LeagueToolkit/ltk-manager/releases/latest) and install it. When the installer offers to run LTK Manager, let it: on first launch it looks for your League folder (pick it yourself if it can't find it). You don't need to use LTK Manager for anything else.
+2. Open LTK Manager's install folder. By default it is `C:\Users\<your Windows user>\AppData\Local\LTK Manager` (if you picked another folder in the installer, use that one). `AppData` is hidden, so the easiest way is: press `Win` + `R`, paste `%LOCALAPPDATA%\LTK Manager` and press Enter; pasting it into File Explorer's address bar works too.
+3. Copy `ltk_patcher_host.exe` and `ltk_patcher_dll.dll` from there.
+4. Paste them into Rose's tools folder, `C:\Program Files\Rose\_internal\injection\tools` (Windows asks for administrator permission). The **Open tools folder** button in Rose's "Missing Patcher" window opens it for you.
+5. Start Rose again.
+
+**After a League patch**
+
+The patcher DLL has an end-of-life date built in and stops injecting into game builds released after it. When that happens Rose shows **"Rose - Patcher Outdated"** before starting. Open LTK Manager and let it update (it only checks for updates while it is open, and installs them when you close it), then repeat steps 2–5 to replace both files.
+
+| Rose window | Meaning | Fix |
+|---|---|---|
+| Rose - Missing Patcher | one or both files are not in the tools folder | steps 1–5 |
+| Rose - Patcher Outdated | the DLL reached its end-of-life date | update LTK Manager, then steps 2–5 |
+| Rose - Broken Patcher | `ltk_patcher_dll.dll` is not a valid LTK patcher DLL | copy both files again from LTK Manager |
 
 ## Installation
 
 1. Download the latest installer from [Releases](https://github.com/Alban1911/Rose/releases/latest)
 2. Run the installer as Administrator
 3. Launch Rose from the Start Menu or desktop shortcut
+4. On first launch Rose asks for the LTK patcher: follow [LTK patcher setup](#ltk-patcher)
 
 ## Building from source
 
