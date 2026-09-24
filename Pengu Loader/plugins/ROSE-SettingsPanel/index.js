@@ -2099,14 +2099,15 @@
     timeoutSection.appendChild(timeoutSliderContainer);
     form.appendChild(timeoutSection);
 
-    // Autostart section
-    const autostartSection = document.createElement("div");
-    autostartSection.className = "settings-section";
+    // Auto-start and hide-empty-categories checkboxes share one row
+    const checkboxRow = document.createElement("div");
+    checkboxRow.className = "settings-section";
+    checkboxRow.style.display = "flex";
+    checkboxRow.style.gap = "12px";
 
-    const autostartLabel = document.createElement("label");
-    autostartLabel.className = "settings-label";
-    autostartLabel.textContent = "Start automatically with Windows:";
-    autostartSection.appendChild(autostartLabel);
+    const autostartSection = document.createElement("div");
+    autostartSection.style.flex = "1";
+    autostartSection.style.minWidth = "0";
 
     const autostartWrapper = document.createElement("div");
     autostartWrapper.className = "settings-checkbox-wrapper";
@@ -2118,19 +2119,14 @@
     autostartWrapper.appendChild(autostartCheckbox);
 
     const autostartText = document.createElement("span");
-    autostartText.textContent = "Enable auto-start";
+    autostartText.textContent = "Start with Windows";
     autostartWrapper.appendChild(autostartText);
     autostartSection.appendChild(autostartWrapper);
-    form.appendChild(autostartSection);
+    checkboxRow.appendChild(autostartSection);
 
-    // Custom mods wheel section
     const customWheelSection = document.createElement("div");
-    customWheelSection.className = "settings-section";
-
-    const customWheelLabel = document.createElement("label");
-    customWheelLabel.className = "settings-label";
-    customWheelLabel.textContent = "Custom mods wheel:";
-    customWheelSection.appendChild(customWheelLabel);
+    customWheelSection.style.flex = "1";
+    customWheelSection.style.minWidth = "0";
 
     const hideEmptyCategoriesWrapper = document.createElement("div");
     hideEmptyCategoriesWrapper.className = "settings-checkbox-wrapper";
@@ -2145,7 +2141,8 @@
     hideEmptyCategoriesText.textContent = "Hide empty mod categories";
     hideEmptyCategoriesWrapper.appendChild(hideEmptyCategoriesText);
     customWheelSection.appendChild(hideEmptyCategoriesWrapper);
-    form.appendChild(customWheelSection);
+    checkboxRow.appendChild(customWheelSection);
+    form.appendChild(checkboxRow);
 
     // Game path section
     const pathSection = document.createElement("div");
@@ -2178,10 +2175,17 @@
     pathSection.appendChild(pathInputWrapper);
     form.appendChild(pathSection);
 
+    // Add / Manage custom mods dropdowns share one row, half width each
+    const customModsRow = document.createElement("div");
+    customModsRow.style.display = "flex";
+    customModsRow.style.gap = "8px";
+    customModsRow.style.marginTop = "8px";
+    customModsRow.style.width = "100%";
+
     // Add custom mods dropdown
     const modsDropdownContainer = document.createElement("div");
-    modsDropdownContainer.style.marginTop = "8px";
-    modsDropdownContainer.style.width = "100%";
+    modsDropdownContainer.style.flex = "1";
+    modsDropdownContainer.style.minWidth = "0";
 
     const modsDropdown = document.createElement("lol-uikit-framed-dropdown");
     modsDropdown.id = "add-custom-mods-dropdown";
@@ -2360,7 +2364,8 @@
     });
 
     modsDropdownContainer.appendChild(modsDropdown);
-    form.appendChild(modsDropdownContainer);
+    customModsRow.appendChild(modsDropdownContainer);
+    form.appendChild(customModsRow);
 
 
     // Inject shadow DOM styles to override :host .ui-dropdown color
@@ -2450,8 +2455,8 @@
 
     // Manage custom mods dropdown
     const manageDropdownContainer = document.createElement("div");
-    manageDropdownContainer.style.marginTop = "8px";
-    manageDropdownContainer.style.width = "100%";
+    manageDropdownContainer.style.flex = "1";
+    manageDropdownContainer.style.minWidth = "0";
 
     const manageDropdown = document.createElement("lol-uikit-framed-dropdown");
     manageDropdown.id = "manage-custom-mods-dropdown";
@@ -2563,7 +2568,7 @@
     );
 
     manageDropdownContainer.appendChild(manageDropdown);
-    form.appendChild(manageDropdownContainer);
+    customModsRow.appendChild(manageDropdownContainer);
 
     let manageRetryCount = 0;
     const injectManageShadowStyles = () => {
