@@ -136,3 +136,5 @@ relay-worker/.wrangler/
 
 # Local test suites
 /test/
+injection/tools/cslol-dll.dll
+injection/tools/cslol-dll.stub
