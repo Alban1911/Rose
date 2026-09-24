@@ -135,7 +135,8 @@ def main():
     if not clean_previous_builds():
         sys.exit(1)
 
-    if not build_pengu_loader():
+    # --skip-pengu-loader packages the existing Pengu Loader build as-is
+    if "--skip-pengu-loader" not in sys.argv[1:] and not build_pengu_loader():
         sys.exit(1)
 
     if not build_cslol_stub():
