@@ -458,6 +458,11 @@
       align-items: center;
       margin-top: 8px;
     }
+    #${FLYOUT_ID} .settings-checkbox-wrapper span {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     
     /* Style for the "Add custom mods" dropdown button - match League UI button styling */
     #add-custom-mods-dropdown {
@@ -477,7 +482,6 @@
       cursor: pointer !important;
       -webkit-user-select: none !important;
       text-align: center !important;
-      margin-top: 8px !important;
       transition: background 0.2s !important;
       z-index: 10003 !important;
     }
@@ -2138,7 +2142,8 @@
     hideEmptyCategoriesWrapper.appendChild(hideEmptyCategoriesCheckbox);
 
     const hideEmptyCategoriesText = document.createElement("span");
-    hideEmptyCategoriesText.textContent = "Hide empty mod categories";
+    hideEmptyCategoriesText.textContent = "Hide empty categories";
+    hideEmptyCategoriesWrapper.title = "Hide empty categories in the custom mods wheel";
     hideEmptyCategoriesWrapper.appendChild(hideEmptyCategoriesText);
     customWheelSection.appendChild(hideEmptyCategoriesWrapper);
     checkboxRow.appendChild(customWheelSection);
