@@ -39,6 +39,7 @@ class SkinModEntry:
     updated_at: float
     description: Optional[str] = None
     target_skin_ids: tuple[int, ...] = ()
+    display_name: Optional[str] = None
 
 
 class ModStorageService:
@@ -294,31 +295,32 @@ class ModStorageService:
                 continue
         return folder_hash.hexdigest(), wad_hashes
 
-    def _get_manifest_targets_for_mod(
+    def _resolve_mod_metadata(
         self,
         candidate: Path,
         mod_name: str,
         mod_targets: dict[str, dict],
-    ) -> tuple[int, ...]:
+    ) -> Optional[dict]:
+        """Return the manifest metadata dict for a mod, or None if unmatched."""
         named_metadata = mod_targets.get(mod_name)
 
         # Imported mods store their stable metadata under a content hash, but
         # also retain the original folder name.  Use that cheap lookup first;
         # hashing every WAD on every hover made the champ-select button wait
         # for the entire mod tree to be read.
-        if named_metadata is not None:
-            return self._normalize_target_ids(named_metadata)
+        if isinstance(named_metadata, dict):
+            return named_metadata
         for metadata in mod_targets.values():
             if (
                 isinstance(metadata, dict)
                 and str(metadata.get("name") or "") == str(mod_name)
             ):
-                return self._normalize_target_ids(metadata)
+                return metadata
 
         # Legacy manifests may not have a per-mod mapping at all.  There is
         # nothing to match in that case, so avoid an unnecessary full hash.
         if not mod_targets:
-            return ()
+            return None
 
         # Only renamed/unmatched folders need the content-based fallback.
         folder_hash, wad_hashes = self._hash_mod_folder(candidate)
@@ -336,10 +338,28 @@ class ModStorageService:
                     and stored_wad_hashes == wad_hashes
                 )
             ):
-                return self._normalize_target_ids(metadata)
-        if named_metadata is not None:
-            return self._normalize_target_ids(named_metadata)
-        return ()
+                return metadata
+        return None
+
+    def _get_manifest_targets_for_mod(
+        self,
+        candidate: Path,
+        mod_name: str,
+        mod_targets: dict[str, dict],
+    ) -> tuple[int, ...]:
+        metadata = self._resolve_mod_metadata(candidate, mod_name, mod_targets)
+        if metadata is None:
+            return ()
+        return self._normalize_target_ids(metadata)
+
+    @staticmethod
+    def _extract_display_name(metadata: Optional[dict]) -> Optional[str]:
+        if not isinstance(metadata, dict):
+            return None
+        raw = metadata.get("displayName")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+        return None
 
     def set_champion_target_ids(
         self,
@@ -363,18 +383,24 @@ class ModStorageService:
         if mod_name:
             if mod_path is not None:
                 folder_hash, wad_hashes = self._hash_mod_folder(Path(mod_path))
+                existing_display_name = None
                 for key, metadata in list(mod_targets.items()):
                     if key == folder_hash or (
                         isinstance(metadata, dict)
                         and metadata.get("folderHash") == folder_hash
                     ):
+                        if isinstance(metadata, dict):
+                            existing_display_name = self._extract_display_name(metadata)
                         mod_targets.pop(key, None)
-                mod_targets[folder_hash] = {
+                entry = {
                     "name": str(mod_name),
                     "folderHash": folder_hash,
                     "wadHashes": wad_hashes,
                     "targets": list(targets),
                 }
+                if existing_display_name:
+                    entry["displayName"] = existing_display_name
+                mod_targets[folder_hash] = entry
             else:
                 mod_targets[str(mod_name)] = {
                     "name": str(mod_name),
@@ -398,6 +424,146 @@ class ModStorageService:
         temporary_path.replace(manifest_path)
         self._champion_listing_cache.pop(champion_id_int, None)
         return manifest_path
+
+    MAX_DISPLAY_NAME_LENGTH = 100
+
+    def set_champion_mod_display_name(
+        self,
+        champion_id: int | str,
+        display_name: str,
+        mod_name: Optional[str] = None,
+        relative_path: Optional[str] = None,
+    ) -> str:
+        """Persist a user-facing display alias for an imported skin mod.
+
+        The mod's on-disk folder is left untouched; only the manifest entry
+        gains a ``displayName`` field, so target associations and any saved
+        selections that reference the folder path stay intact.
+        """
+        champion_id_int = self._to_int(champion_id)
+        if champion_id_int is None or champion_id_int <= 0:
+            raise ValueError(f"Invalid champion ID: {champion_id}")
+
+        clean_name = str(display_name or "").strip()[: self.MAX_DISPLAY_NAME_LENGTH]
+        if not clean_name:
+            raise ValueError("Display name cannot be empty")
+
+        with self._storage_lock:
+            champion_dir = self.get_champion_dir(champion_id_int)
+            manifest_path = champion_dir / self.TARGET_METADATA
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                payload = None
+            if not isinstance(payload, dict):
+                raise ValueError("No mod manifest found for this champion")
+
+            raw_mods = payload.get("mods")
+            mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
+            if not mods:
+                raise ValueError("No mods registered for this champion")
+
+            # Match by folder/manifest name only. Hashing WADs here ran on the
+            # WebSocket event loop and could stall past ping_timeout, so the
+            # UI never received champion-mod-renamed and stayed on "Saving...".
+            name_candidates = []
+            if mod_name:
+                name_candidates.append(str(mod_name))
+            target_path = self._resolve_mod_path(champion_dir, relative_path)
+            if target_path is not None:
+                name_candidates.append(target_path.name)
+            name_candidates = list(dict.fromkeys(name_candidates))
+
+            matched_key = None
+            for candidate_name in name_candidates:
+                for key, metadata in mods.items():
+                    stored_name = metadata.get("name") if isinstance(metadata, dict) else None
+                    if key == candidate_name or str(stored_name or "") == candidate_name:
+                        matched_key = key
+                        break
+                if matched_key is not None:
+                    break
+            if matched_key is None:
+                raise ValueError("Mod not found in manifest")
+
+            entry = mods[matched_key]
+            if not isinstance(entry, dict):
+                entry = {"name": str(mod_name or matched_key)}
+            entry["displayName"] = clean_name
+            mods[matched_key] = entry
+
+            payload["mods"] = dict(sorted(mods.items()))
+            payload.setdefault("version", 1)
+            payload.setdefault("championId", champion_id_int)
+
+            temporary_path = manifest_path.with_name(f".{manifest_path.name}.tmp")
+            temporary_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temporary_path.replace(manifest_path)
+            self._champion_listing_cache.pop(champion_id_int, None)
+            return clean_name
+
+    def set_category_mod_display_name(
+        self,
+        category: str,
+        mod_name: str,
+        display_name: str,
+    ) -> str:
+        """Persist a user-facing display alias for a category mod."""
+        if category not in self.MOD_CATEGORIES:
+            raise ValueError(f"Unsupported mod category: {category}")
+        if not mod_name:
+            raise ValueError("Mod name is required")
+
+        clean_name = str(display_name or "").strip()[: self.MAX_DISPLAY_NAME_LENGTH]
+        if not clean_name:
+            raise ValueError("Display name cannot be empty")
+
+        with self._storage_lock:
+            category_dir = self.mods_root / category
+            manifest_path = category_dir / self.CATEGORY_METADATA
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+
+            raw_mods = payload.get("mods")
+            mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
+
+            matched_key = None
+            if mod_name in mods:
+                matched_key = mod_name
+            else:
+                for key, metadata in mods.items():
+                    stored = metadata.get("path") if isinstance(metadata, dict) else None
+                    if str(stored or key) == str(mod_name):
+                        matched_key = key
+                        break
+            if matched_key is None:
+                raise ValueError("Mod not found in manifest")
+
+            entry = mods[matched_key]
+            if not isinstance(entry, dict):
+                entry = {"name": matched_key, "path": matched_key}
+            entry["displayName"] = clean_name
+            mods[matched_key] = entry
+
+            payload.update({
+                "version": 1,
+                "category": category,
+                "mods": dict(sorted(mods.items())),
+            })
+            temporary_manifest = manifest_path.with_name(f".{manifest_path.name}.tmp")
+            temporary_manifest.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temporary_manifest.replace(manifest_path)
+            return clean_name
 
     def import_mod_file(
         self,
@@ -449,6 +615,150 @@ class ModStorageService:
         except Exception:
             safe_remove_entry(temporary_dir)
             raise
+
+    def _resolve_mod_path(self, base_dir: Path, relative_path: object) -> Optional[Path]:
+        """Resolve a user-supplied relative path, guarding against traversal."""
+        if not relative_path:
+            return None
+        try:
+            candidate = (self.mods_root / str(relative_path)).resolve()
+            base_resolved = base_dir.resolve()
+        except OSError:
+            return None
+        if base_resolved != candidate and base_resolved not in candidate.parents:
+            return None
+        return candidate
+
+    @staticmethod
+    def _is_unsafe_mod_identity(value: object) -> bool:
+        name = str(value or "").strip().replace("\\", "/")
+        if not name or name in {".", ".."}:
+            return True
+        return any(part in {".", ".."} for part in name.split("/"))
+
+    def _is_direct_mod_entry(self, base_dir: Path, target: Optional[Path]) -> bool:
+        """True when target is a single child of base_dir, not the container itself."""
+        if target is None:
+            return False
+        try:
+            base_resolved = base_dir.resolve()
+            target_resolved = target.resolve()
+        except OSError:
+            return False
+        if target_resolved.name in {
+            self.TARGET_METADATA,
+            self.LEGACY_TARGET_METADATA,
+            self.CATEGORY_METADATA,
+            ".",
+            "..",
+        }:
+            return False
+        return target_resolved != base_resolved and target_resolved.parent == base_resolved
+
+    def delete_champion_mod(
+        self,
+        champion_id: int | str,
+        mod_name: Optional[str] = None,
+        relative_path: Optional[str] = None,
+    ) -> bool:
+        """Delete one previously imported mod from a champion's mod folder."""
+        champion_id_int = self._to_int(champion_id)
+        if champion_id_int is None or champion_id_int <= 0:
+            raise ValueError(f"Invalid champion ID: {champion_id}")
+
+        if self._is_unsafe_mod_identity(mod_name) and self._is_unsafe_mod_identity(relative_path):
+            return False
+        if self._is_unsafe_mod_identity(mod_name) and not relative_path:
+            return False
+
+        with self._storage_lock:
+            champion_dir = self.get_champion_dir(champion_id_int)
+            target = None
+            if relative_path and not self._is_unsafe_mod_identity(relative_path):
+                target = self._resolve_mod_path(champion_dir, relative_path)
+            if target is None and mod_name and not self._is_unsafe_mod_identity(mod_name):
+                try:
+                    champion_relative = champion_dir.relative_to(self.mods_root).as_posix()
+                except ValueError:
+                    champion_relative = None
+                if champion_relative:
+                    target = self._resolve_mod_path(champion_dir, f"{champion_relative}/{mod_name}")
+            if not self._is_direct_mod_entry(champion_dir, target) or not target.exists():
+                return False
+            if target.name in {self.TARGET_METADATA, self.LEGACY_TARGET_METADATA}:
+                raise ValueError("Refusing to delete mod metadata file")
+
+            resolved_mod_name = mod_name or target.stem
+            safe_remove_entry(target)
+
+            default_targets, mod_targets = self._load_target_manifest(champion_id_int)
+            removed = False
+            for key in list(mod_targets.keys()):
+                metadata = mod_targets[key]
+                stored_name = str(metadata.get("name") or key)
+                if key == resolved_mod_name or stored_name == resolved_mod_name or key == target.name or stored_name == target.name:
+                    mod_targets.pop(key, None)
+                    removed = True
+
+            if removed:
+                manifest_path = champion_dir / self.TARGET_METADATA
+                payload = {
+                    "version": 1,
+                    "championId": champion_id_int,
+                    "targets": list(default_targets),
+                    "mods": dict(sorted(mod_targets.items())),
+                }
+                temporary_path = manifest_path.with_name(f".{manifest_path.name}.tmp")
+                temporary_path.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                temporary_path.replace(manifest_path)
+
+            self._champion_listing_cache.pop(champion_id_int, None)
+            return True
+
+    def delete_category_mod(self, category: str, mod_name: str) -> bool:
+        """Delete one previously imported mod from a category folder."""
+        if category not in self.MOD_CATEGORIES:
+            raise ValueError(f"Unsupported mod category: {category}")
+        if not mod_name or self._is_unsafe_mod_identity(mod_name):
+            return False
+
+        with self._storage_lock:
+            category_dir = self.mods_root / category
+            resolved = self._resolve_mod_path(category_dir, f"{category}/{mod_name}")
+            if not self._is_direct_mod_entry(category_dir, resolved) or not resolved.exists():
+                return False
+            if resolved.name == self.CATEGORY_METADATA:
+                raise ValueError("Refusing to delete mod metadata file")
+
+            safe_remove_entry(resolved)
+
+            manifest_path = category_dir / self.CATEGORY_METADATA
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            raw_mods = payload.get("mods")
+            mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
+            if mod_name in mods:
+                mods.pop(mod_name, None)
+                payload.update({
+                    "version": 1,
+                    "category": category,
+                    "mods": dict(sorted(mods.items())),
+                })
+                temporary_manifest = manifest_path.with_name(f".{manifest_path.name}.tmp")
+                temporary_manifest.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                temporary_manifest.replace(manifest_path)
+
+            return True
 
     def _load_category_manifest(self, category: str) -> set[str]:
         manifest_path = self.mods_root / category / self.CATEGORY_METADATA
@@ -569,11 +879,8 @@ class ModStorageService:
             except OSError:
                 updated_at = 0.0
 
-            target_skin_ids = self._get_manifest_targets_for_mod(
-                candidate,
-                mod_name,
-                mod_targets,
-            )
+            metadata = self._resolve_mod_metadata(candidate, mod_name, mod_targets)
+            target_skin_ids = self._normalize_target_ids(metadata) if metadata else ()
             if not target_skin_ids:
                 target_skin_ids = default_targets
             if not target_skin_ids:
@@ -589,6 +896,7 @@ class ModStorageService:
                     updated_at=updated_at,
                     description=self._read_mod_description(candidate),
                     target_skin_ids=tuple(target_skin_ids),
+                    display_name=self._extract_display_name(metadata),
                 )
             )
         return entries
@@ -682,6 +990,7 @@ class ModStorageService:
             return []
 
         registered_mods = self._load_category_manifest(category)
+        display_names = self._load_category_display_names(category)
         entries = []
         for candidate in sorted(category_dir.iterdir(), key=lambda p: p.name.lower()):
             if not candidate.is_dir() or candidate.name == self.CATEGORY_METADATA:
@@ -689,26 +998,51 @@ class ModStorageService:
             mod_name = candidate.name
             if mod_name.casefold() not in registered_mods:
                 continue
-            
+
             try:
                 updated_at = candidate.stat().st_mtime
             except OSError:
                 updated_at = 0.0
-            
+
             try:
                 relative_path = candidate.relative_to(self.mods_root)
             except Exception:
                 relative_path = candidate
-            
+
             entries.append({
                 "id": str(relative_path).replace("\\", "/"),
                 "name": mod_name,
+                "displayName": display_names.get(mod_name.casefold()),
                 "path": str(relative_path).replace("\\", "/"),
                 "updatedAt": updated_at,
                 "description": self._read_mod_description(candidate),
             })
-        
+
         return entries
+
+    def _load_category_display_names(self, category: str) -> dict[str, str]:
+        """Map registered mod paths (casefolded) to their display aliases."""
+        manifest_path = self.mods_root / category / self.CATEGORY_METADATA
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        raw_mods = payload.get("mods") or {}
+        if not isinstance(raw_mods, dict):
+            return {}
+
+        display_names: dict[str, str] = {}
+        for mod_key, raw_metadata in raw_mods.items():
+            metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+            display = metadata.get("displayName")
+            if not isinstance(display, str) or not display.strip():
+                continue
+            mod_path = str(metadata.get("path") or mod_key).replace("\\", "/").strip("/")
+            if mod_path and "/" not in mod_path:
+                display_names[mod_path.casefold()] = display.strip()
+        return display_names
 
     @staticmethod
     def _to_int(value: int | str) -> Optional[int]:

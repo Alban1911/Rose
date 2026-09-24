@@ -347,6 +347,7 @@ class InjectionTrigger:
                                 "target_skin_ids": sorted(target_skin_ids),
                                 "champion_id": champion_id,
                                 "mod_name": selected_mod_entry.mod_name,
+                                "display_name": selected_mod_entry.display_name,
                                 "mod_path": str(selected_mod_entry.path),
                                 "mod_folder_name": mod_folder_name,
                                 "relative_path": historic_custom_mod_path,

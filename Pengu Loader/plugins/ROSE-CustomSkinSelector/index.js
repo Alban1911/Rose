@@ -146,6 +146,12 @@
     return String(mod?.relativePath || mod?.modName || "");
   }
 
+  function visibleModName(mod, fallback = "") {
+    const alias = typeof mod?.displayName === "string" ? mod.displayName.trim() : "";
+    if (alias) return alias;
+    return mod?.modName || fallback;
+  }
+
   function isModAvailableForSkin(mod, skinId = getCurrentSkinContext().skinId) {
     if (!mod || mod._none) return false;
     const requestedSkinId = Number(skinId);
@@ -595,7 +601,7 @@
 
       const wheelButton = document.createElement("div");
       wheelButton.className = `chroma-skin-button ${isSelected ? "selected" : ""}`;
-      wheelButton.title = mod.modName || `Custom Skin ${index + 1}`;
+      wheelButton.title = visibleModName(mod, `Custom Skin ${index + 1}`);
 
       const contents = document.createElement("div");
       contents.className = "contents";
@@ -622,13 +628,13 @@
       };
 
       wheelButton.addEventListener("mouseenter", () => {
-        setPreviewImage(thumbnailUrl || "", mod._none ? getCurrentSkinContext().skinName : (mod.modName || getCurrentSkinContext().skinName));
+        setPreviewImage(thumbnailUrl || "", mod._none ? getCurrentSkinContext().skinName : (visibleModName(mod) || getCurrentSkinContext().skinName));
       });
 
       wheelButton.addEventListener("mouseleave", () => {
         const active = visibleMods.find(e => isModSelected(e, getCurrentSkinContext().skinId));
         const au = active && active.thumbnailUrl ? String(active.thumbnailUrl).replace("localhost", "127.0.0.1") : "";
-        const al = active && !active._none ? (active.modName || getCurrentSkinContext().skinName) : getCurrentSkinContext().skinName;
+        const al = active && !active._none ? (visibleModName(active) || getCurrentSkinContext().skinName) : getCurrentSkinContext().skinName;
         setPreviewImage(au, al);
       });
 
@@ -643,7 +649,7 @@
 
     const active = visibleMods.find(e => isModSelected(e, getCurrentSkinContext().skinId));
     const au = active && active.thumbnailUrl ? String(active.thumbnailUrl).replace("localhost", "127.0.0.1") : "";
-    const al = active && !active._none ? (active.modName || getCurrentSkinContext().skinName) : getCurrentSkinContext().skinName;
+    const al = active && !active._none ? (visibleModName(active) || getCurrentSkinContext().skinName) : getCurrentSkinContext().skinName;
     setPreviewImage(au, al);
 
     scrollable.appendChild(list);

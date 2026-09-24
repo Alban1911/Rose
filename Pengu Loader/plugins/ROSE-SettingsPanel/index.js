@@ -612,8 +612,148 @@
     #add-custom-mods-dropdown .ui-dropdown-current-content.shadow {
       color: #CDBE91 !important;
     }
-    
-    
+
+    /* Manage custom mods dropdown - same visual style as add-custom-mods-dropdown */
+    #manage-custom-mods-dropdown {
+      background: #1E2328 !important;
+      background-color: #1E2328 !important;
+      color: #c8aa6e !important;
+      font-family: "Beaufort for LOL", serif !important;
+      pointer-events: all !important;
+      position: relative !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-sizing: border-box !important;
+      min-width: 90px !important;
+      height: 100% !important;
+      min-height: 32px !important;
+      cursor: pointer !important;
+      -webkit-user-select: none !important;
+      text-align: center !important;
+      transition: background 0.2s !important;
+      z-index: 10001 !important;
+      outline: none !important;
+    }
+    #manage-custom-mods-dropdown[class*="active"],
+    #manage-custom-mods-dropdown.active {
+      z-index: 10003 !important;
+    }
+    #manage-custom-mods-dropdown ~ *,
+    #manage-custom-mods-dropdown .lol-uikit-dropdown-menu,
+    #manage-custom-mods-dropdown [role="listbox"] {
+      z-index: 10003 !important;
+    }
+    #manage-custom-mods-dropdown,
+    #manage-custom-mods-dropdown::before,
+    #manage-custom-mods-dropdown::after {
+      background: #1E2328 !important;
+      background-color: #1E2328 !important;
+      background-image: none !important;
+      opacity: 1 !important;
+    }
+
+    /* Delete button in the manage-mods list rows */
+    #${FLYOUT_ID} .mod-delete-button,
+    .mod-delete-button {
+      flex: 0 0 auto;
+      background: transparent;
+      border: 1px solid rgba(255, 107, 107, 0.5);
+      border-radius: 3px;
+      color: #ff6b6b;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 12px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .mod-delete-button:hover:not(:disabled) {
+      background: rgba(255, 107, 107, 0.15);
+      border-color: #ff6b6b;
+      color: #ff8f8f;
+    }
+    .mod-delete-button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    /* Rename button in the manage-mods list rows */
+    .mod-rename-button {
+      flex: 0 0 auto;
+      background: transparent;
+      border: 1px solid rgba(200, 170, 110, 0.5);
+      border-radius: 3px;
+      color: #c8aa6e;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 12px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .mod-rename-button:hover:not(:disabled) {
+      background: rgba(200, 170, 110, 0.15);
+      border-color: #c8aa6e;
+      color: #f0e6d2;
+    }
+    .mod-rename-button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    #manage-custom-mods-dropdown > * {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
+    #manage-custom-mods-dropdown:focus,
+    #manage-custom-mods-dropdown:active,
+    #manage-custom-mods-dropdown:focus-visible,
+    #manage-custom-mods-dropdown:focus-within,
+    #manage-custom-mods-dropdown:focus *,
+    #manage-custom-mods-dropdown:active * {
+      filter: none !important;
+      -webkit-filter: none !important;
+      transform: none !important;
+      -webkit-transform: none !important;
+      box-shadow: none !important;
+      text-shadow: none !important;
+      outline: none !important;
+      border-color: transparent !important;
+    }
+    #manage-custom-mods-dropdown .framed-dropdown-type {
+      text-align: left !important;
+    }
+    #manage-custom-mods-dropdown[class*="active"] .placeholder-option,
+    #manage-custom-mods-dropdown.active .placeholder-option {
+      display: none !important;
+    }
+    #manage-custom-mods-dropdown .placeholder-option {
+      display: block !important;
+    }
+    #manage-custom-mods-dropdown lol-uikit-dropdown-option::after,
+    #manage-custom-mods-dropdown lol-uikit-dropdown-option::before,
+    #manage-custom-mods-dropdown .framed-dropdown-type::after,
+    #manage-custom-mods-dropdown .framed-dropdown-type::before,
+    #manage-custom-mods-dropdown lol-uikit-dropdown-option [class*="check"],
+    #manage-custom-mods-dropdown lol-uikit-dropdown-option [class*="icon"],
+    #manage-custom-mods-dropdown lol-uikit-dropdown-option [class*="selected"] {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+    }
+    #manage-custom-mods-dropdown .ui-dropdown {
+      color: #CDBE91 !important;
+      font-size: 12px !important;
+      font-weight: normal !important;
+      line-height: 16px !important;
+      letter-spacing: 0.025em !important;
+      -webkit-font-smoothing: subpixel-antialiased !important;
+    }
+    #manage-custom-mods-dropdown::part(content),
+    #manage-custom-mods-dropdown .ui-dropdown-current-content,
+    #manage-custom-mods-dropdown .ui-dropdown-current-content.shadow {
+      color: #CDBE91 !important;
+    }
+
+
     /* Add Custom Mods Dialog Styles */
     #add-custom-mods-dialog,
     #champion-selection-dialog,
@@ -2196,6 +2336,7 @@
     modsDropdownContainer.appendChild(modsDropdown);
     form.appendChild(modsDropdownContainer);
 
+
     // Inject shadow DOM styles to override :host .ui-dropdown color
     let retryCount = 0;
     const MAX_RETRIES = 20;
@@ -2280,6 +2421,177 @@
       });
     });
     activeObserver.observe(modsDropdown, { attributes: true, attributeFilter: ['class'] });
+
+    // Manage custom mods dropdown
+    const manageDropdownContainer = document.createElement("div");
+    manageDropdownContainer.style.marginTop = "8px";
+    manageDropdownContainer.style.width = "100%";
+
+    const manageDropdown = document.createElement("lol-uikit-framed-dropdown");
+    manageDropdown.id = "manage-custom-mods-dropdown";
+    manageDropdown.className = "lol-publishing-locale-preference-dropdown";
+    manageDropdown.setAttribute("tabindex", "0");
+    manageDropdown.style.width = "100%";
+
+    const managePlaceholderOption = document.createElement("lol-uikit-dropdown-option");
+    managePlaceholderOption.setAttribute("slot", "lol-uikit-dropdown-option");
+    managePlaceholderOption.setAttribute("value", "");
+    managePlaceholderOption.setAttribute("selected", "");
+    managePlaceholderOption.className = "placeholder-option framed-dropdown-type";
+    managePlaceholderOption.textContent = "Manage custom mods";
+    managePlaceholderOption.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return false;
+    }, true);
+    manageDropdown.appendChild(managePlaceholderOption);
+
+    const manageCategories = [
+      { id: "skins", name: "Skins" },
+      { id: "maps", name: "Maps" },
+      { id: "fonts", name: "Fonts" },
+      { id: "announcers", name: "Announcers" },
+      { id: "ui", name: "UI" },
+      { id: "voiceover", name: "Voiceover" },
+      { id: "loading_screen", name: "Loading Screen" },
+      { id: "vfx", name: "VFX" },
+      { id: "sfx", name: "SFX" },
+      { id: "others", name: "Others" },
+    ];
+    manageCategories.forEach((category) => {
+      const option = document.createElement("lol-uikit-dropdown-option");
+      option.setAttribute("slot", "lol-uikit-dropdown-option");
+      option.setAttribute("value", category.id);
+      option.className = "framed-dropdown-type";
+      option.textContent = category.name;
+      manageDropdown.appendChild(option);
+    });
+
+    const removeManageFocusAndGlow = () => {
+      if (document.activeElement === manageDropdown || manageDropdown.contains(document.activeElement)) {
+        manageDropdown.blur();
+      }
+      const focusedEl = manageDropdown.querySelector(':focus');
+      if (focusedEl) focusedEl.blur();
+      manageDropdown.removeAttribute('tabindex');
+      manageDropdown.setAttribute('tabindex', '0');
+      const manageShadowRoot = manageDropdown.shadowRoot;
+      if (manageShadowRoot && manageShadowRoot.activeElement) manageShadowRoot.activeElement.blur();
+    };
+
+    const resetManageDropdown = () => {
+      manageDropdown.classList.remove("active");
+      manageDropdown.querySelectorAll('lol-uikit-dropdown-option[value!=""]').forEach(opt => opt.removeAttribute("selected"));
+      const managePh = manageDropdown.querySelector('.placeholder-option');
+      if (managePh) {
+        managePh.setAttribute("selected", "");
+        manageDropdown.setAttribute("value", "");
+      }
+      removeManageFocusAndGlow();
+      setTimeout(() => {
+        const ph = manageDropdown.querySelector('.placeholder-option');
+        if (ph && !ph.hasAttribute('selected')) ph.setAttribute("selected", "");
+        manageDropdown.querySelectorAll('lol-uikit-dropdown-option[value!=""]').forEach(opt => opt.removeAttribute("selected"));
+        removeManageFocusAndGlow();
+      }, 10);
+    };
+
+    manageDropdown.addEventListener("change", (e) => {
+      const selectedValue = e.target.value || e.detail?.value;
+      if (selectedValue) {
+        handleManageCategorySelection(selectedValue);
+        resetManageDropdown();
+      }
+    });
+
+    manageDropdown.querySelectorAll('lol-uikit-dropdown-option').forEach((option) => {
+      option.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const categoryId = option.getAttribute("value");
+        if (categoryId) {
+          option.removeAttribute("selected");
+          handleManageCategorySelection(categoryId);
+          resetManageDropdown();
+          [0, 50, 100, 200].forEach(d => setTimeout(removeManageFocusAndGlow, d));
+        }
+      }, true);
+    });
+
+    const manageSelectedObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'selected') {
+          const target = mutation.target;
+          if (target.getAttribute('value')) {
+            const ph = manageDropdown.querySelector('.placeholder-option');
+            if (ph && !ph.hasAttribute('selected')) {
+              target.removeAttribute('selected');
+              ph.setAttribute('selected', '');
+            }
+          }
+        }
+      });
+    });
+    manageDropdown.querySelectorAll('lol-uikit-dropdown-option').forEach(opt =>
+      manageSelectedObserver.observe(opt, { attributes: true, attributeFilter: ['selected'] })
+    );
+
+    manageDropdownContainer.appendChild(manageDropdown);
+    form.appendChild(manageDropdownContainer);
+
+    let manageRetryCount = 0;
+    const injectManageShadowStyles = () => {
+      const root = manageDropdown.shadowRoot;
+      if (!root) {
+        if (manageRetryCount < MAX_RETRIES) { manageRetryCount++; setTimeout(injectManageShadowStyles, 50); }
+        return;
+      }
+      if (root.querySelector('style[data-rose-dropdown-color]')) return;
+      const s = document.createElement("style");
+      s.setAttribute("data-rose-dropdown-color", "true");
+      s.textContent = `
+        :host .ui-dropdown {
+          color: #CDBE91 !important;
+          font-size: 12px !important;
+          font-weight: normal !important;
+          line-height: 16px !important;
+          letter-spacing: 0.025em !important;
+          -webkit-font-smoothing: subpixel-antialiased !important;
+        }
+        :host:not(:focus):not(:focus-within) .ui-dropdown,
+        :host:not(:focus):not(:focus-within) * {
+          filter: none !important;
+          -webkit-filter: none !important;
+          box-shadow: none !important;
+          text-shadow: none !important;
+          outline: none !important;
+        }
+      `;
+      root.appendChild(s);
+    };
+    injectManageShadowStyles();
+
+    manageDropdown.addEventListener("click", (e) => {
+      if (!e.target.closest('lol-uikit-dropdown-option')) setTimeout(removeManageFocusAndGlow, 100);
+    });
+    manageDropdown.addEventListener("mouseleave", () => {
+      if (!manageDropdown.classList.contains('active')) removeManageFocusAndGlow();
+    });
+    manageDropdown.addEventListener("change", () => {
+      [50, 150].forEach(d => setTimeout(removeManageFocusAndGlow, d));
+    });
+
+    const manageActiveObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+          if (!manageDropdown.classList.contains('active')) {
+            removeManageFocusAndGlow();
+            [50, 150].forEach(d => setTimeout(removeManageFocusAndGlow, d));
+          }
+        }
+      });
+    });
+    manageActiveObserver.observe(manageDropdown, { attributes: true, attributeFilter: ['class'] });
 
     // Open logs folder button
     const logsButton = document.createElement("lol-uikit-flat-button-secondary");
@@ -2840,7 +3152,9 @@
     }
   }
 
-  function openChampionSelection() {
+  function openChampionSelection(mode) {
+    window.__roseChampionSelectionMode = mode === "manage" ? "manage" : "add";
+
     // Remove existing dialog if any
     const existingDialog = document.getElementById("champion-selection-dialog");
     if (existingDialog) {
@@ -2888,7 +3202,9 @@
     // Title text
     const titleWrapper = document.createElement("div");
     titleWrapper.className = "dialog-title-wrapper";
-    titleWrapper.textContent = "Select Champion";
+    titleWrapper.textContent = window.__roseChampionSelectionMode === "manage"
+      ? "Manage Mods - Select Champion"
+      : "Select Champion";
     header.appendChild(titleWrapper);
 
     flyoutContent.appendChild(header);
@@ -3010,9 +3326,15 @@
   }
 
   function handleChampionSelection(championId) {
+    const mode = window.__roseChampionSelectionMode === "manage" ? "manage" : "add";
     closeChampionSelection();
-    openSkinSelection(championId);
-    log("info", "Champion selected for custom mods: champion=" + championId);
+    if (mode === "manage") {
+      openChampionModsList(championId);
+      log("info", "Champion selected for mod management: champion=" + championId);
+    } else {
+      openSkinSelection(championId);
+      log("info", "Champion selected for custom mods: champion=" + championId);
+    }
   }
 
   function openSkinSelection(championId) {
@@ -3207,6 +3529,472 @@
       skinIds: selectedSkinIds,
     });
     log("info", `Skin selection confirmed: champion=${championId}, skins=${selectedSkinIds.join(",")}`);
+  }
+
+  // ==================== Manage Custom Mods (delete) ====================
+
+  const MANAGE_MOD_CATEGORIES = [
+    { id: "skins", name: "Skins" },
+    { id: "maps", name: "Maps" },
+    { id: "fonts", name: "Fonts" },
+    { id: "announcers", name: "Announcers" },
+    { id: "ui", name: "UI" },
+    { id: "voiceover", name: "Voiceover" },
+    { id: "loading_screen", name: "Loading Screen" },
+    { id: "vfx", name: "VFX" },
+    { id: "sfx", name: "SFX" },
+    { id: "others", name: "Others" },
+  ];
+
+  function handleManageCategorySelection(category) {
+    if (category === "skins") {
+      openChampionSelection("manage");
+    } else {
+      openCategoryModsList(category);
+    }
+  }
+
+  function createModsListDialog(id, titleText, onBack, onDismiss) {
+    const existingDialog = document.getElementById(id);
+    if (existingDialog) {
+      existingDialog.remove();
+    }
+
+    const dismiss = () => {
+      dialog.remove();
+      if (onDismiss) onDismiss();
+    };
+
+    const dialog = document.createElement("div");
+    dialog.id = id;
+    dialog.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:10001;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;";
+    dialog.addEventListener("click", (e) => {
+      if (e.target === dialog) {
+        dismiss();
+      }
+    });
+    document.body.appendChild(dialog);
+
+    const flyoutFrame = document.createElement("div");
+    flyoutFrame.className = "flyout";
+    flyoutFrame.style.maxHeight = "75vh";
+    flyoutFrame.style.width = "700px";
+    flyoutFrame.style.boxSizing = "border-box";
+    flyoutFrame.style.overflowY = "hidden";
+    flyoutFrame.style.overflowX = "hidden";
+    flyoutFrame.style.position = "relative";
+    flyoutFrame.style.zIndex = "10002";
+    flyoutFrame.addEventListener("click", (e) => e.stopPropagation());
+
+    const flyoutContent = document.createElement("div");
+    flyoutContent.className = "lc-flyout-content";
+    flyoutContent.style.cssText = "display:flex;flex-direction:column;box-sizing:border-box;background:#010a13;border:1px solid #c8aa6e;padding:20px;width:100%;box-shadow:0 4px 12px rgba(0,0,0,0.5);color:#cdbe91;font-family:'Beaufort for LOL',serif;";
+
+    const header = document.createElement("div");
+    header.className = "dialog-header";
+
+    const backButton = document.createElement("button");
+    backButton.className = "back-button";
+    backButton.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+    backButton.setAttribute("aria-label", "Go back");
+    backButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dismiss();
+      if (onBack) onBack();
+    });
+    header.appendChild(backButton);
+
+    const titleWrapper = document.createElement("div");
+    titleWrapper.className = "dialog-title-wrapper";
+    titleWrapper.textContent = titleText;
+    header.appendChild(titleWrapper);
+    flyoutContent.appendChild(header);
+
+    const listContainer = document.createElement("div");
+    listContainer.id = `${id}-list`;
+    listContainer.style.overflowY = "auto";
+    listContainer.style.overflowX = "hidden";
+    listContainer.style.maxHeight = "60vh";
+    listContainer.style.marginTop = "12px";
+    listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">Loading mods...</div>`;
+    flyoutContent.appendChild(listContainer);
+
+    flyoutFrame.appendChild(flyoutContent);
+    dialog.appendChild(flyoutFrame);
+    return { dialog, listContainer };
+  }
+
+  function renderModRow(listContainer, mod, onDelete, onRename) {
+    const row = document.createElement("div");
+    row.className = "mod-manage-row";
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.justifyContent = "space-between";
+    row.style.gap = "10px";
+    row.style.padding = "10px";
+    row.style.borderBottom = "1px solid rgba(205, 190, 145, 0.2)";
+
+    const infoWrapper = document.createElement("div");
+    infoWrapper.style.display = "flex";
+    infoWrapper.style.alignItems = "center";
+    infoWrapper.style.gap = "10px";
+    infoWrapper.style.minWidth = "0";
+
+    if (mod.thumbnailUrl) {
+      const thumb = document.createElement("img");
+      thumb.src = mod.thumbnailUrl;
+      thumb.alt = mod.name;
+      thumb.style.width = "44px";
+      thumb.style.height = "44px";
+      thumb.style.flex = "0 0 44px";
+      thumb.style.objectFit = "cover";
+      thumb.style.borderRadius = "50%";
+      thumb.style.border = "2px solid #5b5a56";
+      thumb.onerror = function () { this.style.display = "none"; };
+      infoWrapper.appendChild(thumb);
+    }
+
+    const displayLabel = mod.displayName || mod.name;
+    const nameEl = document.createElement("div");
+    nameEl.textContent = displayLabel;
+    nameEl.style.color = "#cdbe91";
+    nameEl.style.fontFamily = '"Beaufort for LOL", serif';
+    nameEl.style.overflow = "hidden";
+    nameEl.style.textOverflow = "ellipsis";
+    nameEl.style.whiteSpace = "nowrap";
+    infoWrapper.appendChild(nameEl);
+
+    row.appendChild(infoWrapper);
+
+    const actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.alignItems = "center";
+    actions.style.gap = "8px";
+    actions.style.flex = "0 0 auto";
+
+    if (onRename) {
+      const renameButton = document.createElement("button");
+      renameButton.type = "button";
+      renameButton.className = "mod-rename-button";
+      renameButton.textContent = "Rename";
+      renameButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        promptRenameMod(displayLabel, (newName) => onRename(renameButton, row, newName));
+      });
+      actions.appendChild(renameButton);
+    }
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "mod-delete-button";
+    deleteButton.textContent = "Delete";
+    deleteButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      confirmDeleteMod(displayLabel, () => onDelete(deleteButton, row));
+    });
+    actions.appendChild(deleteButton);
+
+    row.appendChild(actions);
+    listContainer.appendChild(row);
+  }
+
+  function promptRenameMod(currentName, onConfirm) {
+    const existing = document.getElementById("rename-mod-dialog");
+    if (existing) existing.remove();
+
+    const dlg = document.createElement("div");
+    dlg.id = "rename-mod-dialog";
+    dlg.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:10004;";
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "backdrop";
+    backdrop.addEventListener("click", () => dlg.remove());
+    dlg.appendChild(backdrop);
+
+    const box = document.createElement("div");
+    box.className = "flyout";
+    box.style.cssText = "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:380px;padding:20px;background:#010a13;border:1px solid #c8aa6e;box-sizing:border-box;";
+    box.addEventListener("click", (e) => e.stopPropagation());
+
+    const label = document.createElement("div");
+    label.textContent = "Rename mod";
+    label.style.cssText = "color:#c8aa6e;font-family:'Beaufort for LOL',serif;font-size:16px;font-weight:bold;margin-bottom:12px;text-align:center;";
+    box.appendChild(label);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = currentName || "";
+    input.maxLength = 100;
+    input.style.cssText = "width:100%;padding:8px;background:#1e2328;border:1px solid #5c5b56;color:#cdbe91;font-size:14px;font-family:'Beaufort for LOL',serif;box-sizing:border-box;outline:none;";
+    box.appendChild(input);
+
+    const actionsRow = document.createElement("div");
+    actionsRow.style.cssText = "display:flex;justify-content:flex-end;gap:10px;margin-top:16px;";
+
+    const cancelButton = document.createElement("lol-uikit-flat-button-secondary");
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", () => dlg.remove());
+    actionsRow.appendChild(cancelButton);
+
+    const saveButton = document.createElement("lol-uikit-flat-button-secondary");
+    saveButton.textContent = "Save";
+    const submit = () => {
+      const value = input.value.trim();
+      if (!value) return;
+      dlg.remove();
+      onConfirm(value);
+    };
+    saveButton.addEventListener("click", submit);
+    actionsRow.appendChild(saveButton);
+
+    box.appendChild(actionsRow);
+    dlg.appendChild(box);
+    document.body.appendChild(dlg);
+
+    input.focus();
+    input.select();
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
+      else if (e.key === "Escape") { e.preventDefault(); dlg.remove(); }
+    });
+  }
+
+  function confirmDeleteMod(modName, onConfirm) {
+    const existing = document.getElementById("delete-mod-confirm-dialog");
+    if (existing) existing.remove();
+
+    const confirmDialog = document.createElement("div");
+    confirmDialog.id = "delete-mod-confirm-dialog";
+    confirmDialog.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:10004;";
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "backdrop";
+    backdrop.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,0.55);";
+    backdrop.addEventListener("click", () => confirmDialog.remove());
+    confirmDialog.appendChild(backdrop);
+
+    const box = document.createElement("div");
+    box.className = "flyout";
+    box.style.cssText = "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:360px;padding:20px;background:#010a13;border:1px solid #c8aa6e;box-sizing:border-box;box-shadow:0 4px 12px rgba(0,0,0,0.5);";
+    box.addEventListener("click", (e) => e.stopPropagation());
+
+    const message = document.createElement("div");
+    message.style.color = "#cdbe91";
+    message.style.fontFamily = '"Beaufort for LOL", serif';
+    message.style.marginBottom = "16px";
+    message.textContent = `Delete mod "${modName}"? This cannot be undone.`;
+    box.appendChild(message);
+
+    const actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.justifyContent = "flex-end";
+    actions.style.gap = "10px";
+
+    const cancelButton = document.createElement("lol-uikit-flat-button-secondary");
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", () => confirmDialog.remove());
+    actions.appendChild(cancelButton);
+
+    const deleteButton = document.createElement("lol-uikit-flat-button-secondary");
+    deleteButton.textContent = "Delete";
+    deleteButton.style.color = "#ff6b6b";
+    deleteButton.addEventListener("click", () => {
+      confirmDialog.remove();
+      onConfirm();
+    });
+    actions.appendChild(deleteButton);
+
+    box.appendChild(actions);
+    confirmDialog.appendChild(box);
+    document.body.appendChild(confirmDialog);
+  }
+
+  function openChampionModsList(championId) {
+    createModsListDialog(
+      "champion-mods-manage-dialog",
+      "Manage Mods - Loading...",
+      () => openChampionSelection("manage"),
+      () => { delete window.__roseManageChampionId; }
+    );
+    window.__roseManageChampionId = championId;
+
+    if (bridge) bridge.send({
+      type: "request-manage-champion-mods",
+      championId: championId,
+    });
+  }
+
+  function closeChampionModsList() {
+    const dialog = document.getElementById("champion-mods-manage-dialog");
+    if (dialog) dialog.remove();
+    delete window.__roseManageChampionId;
+  }
+
+  function handleManageSkinModsResponse(payload) {
+    if (Number(payload.championId) !== Number(window.__roseManageChampionId)) return;
+
+    const dialog = document.getElementById("champion-mods-manage-dialog");
+    const listContainer = document.getElementById("champion-mods-manage-dialog-list");
+    if (!dialog || !listContainer) return;
+
+    const titleWrapper = dialog.querySelector(".dialog-title-wrapper");
+    if (titleWrapper) {
+      titleWrapper.textContent = payload.championName
+        ? `Manage Mods - ${payload.championName}`
+        : "Manage Mods";
+    }
+
+    listContainer.innerHTML = "";
+    const mods = payload.mods || [];
+    if (mods.length === 0) {
+      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">No custom mods installed for this champion.</div>`;
+      return;
+    }
+
+    // De-duplicate by path: the same folder can appear once per target skin.
+    const seen = new Set();
+    mods.forEach((mod) => {
+      const dedupeKey = mod.relativePath || mod.modName;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      renderModRow(
+        listContainer,
+        { name: mod.modName, displayName: mod.displayName, thumbnailUrl: mod.thumbnailUrl },
+        (deleteButton, row) => {
+          deleteButton.disabled = true;
+          deleteButton.textContent = "Deleting...";
+          if (bridge) bridge.send({
+            type: "delete-champion-mod",
+            championId: window.__roseManageChampionId,
+            modName: mod.modName,
+            relativePath: mod.relativePath,
+          });
+        },
+        (renameButton, row, newName) => {
+          renameButton.disabled = true;
+          renameButton.textContent = "Saving...";
+          if (bridge) bridge.send({
+            type: "rename-champion-mod",
+            championId: window.__roseManageChampionId,
+            modName: mod.modName,
+            relativePath: mod.relativePath,
+            newName: newName,
+          });
+        }
+      );
+    });
+  }
+
+  function handleChampionModDeleted(payload) {
+    if (!payload.success) {
+      log("error", "Failed to delete champion mod: " + (payload.error || "unknown error"));
+    } else {
+      log("info", `Champion mod deleted: champion=${payload.championId}, mod=${payload.modName}`);
+    }
+    if (
+      document.getElementById("champion-mods-manage-dialog") &&
+      Number(payload.championId) === Number(window.__roseManageChampionId)
+    ) {
+      openChampionModsList(payload.championId);
+    }
+  }
+
+  function handleChampionModRenamed(payload) {
+    if (!payload.success) {
+      log("error", "Failed to rename champion mod: " + (payload.error || "unknown error"));
+    } else {
+      log("info", `Champion mod renamed: champion=${payload.championId}, mod=${payload.modName} -> ${payload.displayName}`);
+    }
+    if (
+      document.getElementById("champion-mods-manage-dialog") &&
+      Number(payload.championId) === Number(window.__roseManageChampionId)
+    ) {
+      openChampionModsList(payload.championId);
+    }
+  }
+
+  function openCategoryModsList(category) {
+    const categoryMeta = MANAGE_MOD_CATEGORIES.find((c) => c.id === category);
+    createModsListDialog(
+      "category-mods-manage-dialog",
+      `Manage Mods - ${categoryMeta ? categoryMeta.name : category}`,
+      null,
+      () => { delete window.__roseManageCategory; }
+    );
+    window.__roseManageCategory = category;
+
+    if (bridge) bridge.send({
+      type: "request-manage-category-mods",
+      category: category,
+    });
+  }
+
+  function handleManageCategoryModsResponse(payload) {
+    if (payload.category !== window.__roseManageCategory) return;
+
+    const listContainer = document.getElementById("category-mods-manage-dialog-list");
+    if (!listContainer) return;
+
+    listContainer.innerHTML = "";
+    const mods = payload.mods || [];
+    if (mods.length === 0) {
+      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">No custom mods installed in this category.</div>`;
+      return;
+    }
+
+    mods.forEach((mod) => {
+      renderModRow(
+        listContainer,
+        { name: mod.name, displayName: mod.displayName },
+        (deleteButton) => {
+          deleteButton.disabled = true;
+          deleteButton.textContent = "Deleting...";
+          if (bridge) bridge.send({
+            type: "delete-category-mod",
+            category: window.__roseManageCategory,
+            modName: mod.name,
+          });
+        },
+        (renameButton, row, newName) => {
+          renameButton.disabled = true;
+          renameButton.textContent = "Saving...";
+          if (bridge) bridge.send({
+            type: "rename-category-mod",
+            category: window.__roseManageCategory,
+            modName: mod.name,
+            newName: newName,
+          });
+        }
+      );
+    });
+  }
+
+  function handleCategoryModDeleted(payload) {
+    if (!payload.success) {
+      log("error", "Failed to delete category mod: " + (payload.error || "unknown error"));
+    } else {
+      log("info", `Category mod deleted: category=${payload.category}, mod=${payload.modName}`);
+    }
+    if (
+      document.getElementById("category-mods-manage-dialog") &&
+      payload.category === window.__roseManageCategory
+    ) {
+      openCategoryModsList(payload.category);
+    }
+  }
+
+  function handleCategoryModRenamed(payload) {
+    if (!payload.success) {
+      log("error", "Failed to rename category mod: " + (payload.error || "unknown error"));
+    } else {
+      log("info", `Category mod renamed: category=${payload.category}, mod=${payload.modName} -> ${payload.displayName}`);
+    }
+    if (
+      document.getElementById("category-mods-manage-dialog") &&
+      payload.category === window.__roseManageCategory
+    ) {
+      openCategoryModsList(payload.category);
+    }
   }
 
   function handleChampionsListResponse(payload) {
@@ -4019,6 +4807,12 @@
       bridge.subscribe("champions-list-response", handleChampionsListResponse);
       bridge.subscribe("champion-skins-response", handleChampionSkinsResponse);
       bridge.subscribe("folder-opened-response", handleFolderOpenedResponse);
+      bridge.subscribe("manage-champion-mods-response", handleManageSkinModsResponse);
+      bridge.subscribe("manage-category-mods-response", handleManageCategoryModsResponse);
+      bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
+      bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
+      bridge.subscribe("champion-mod-renamed", handleChampionModRenamed);
+      bridge.subscribe("category-mod-renamed", handleCategoryModRenamed);
 
       // On every (re)connect, sync state
       bridge.onReady(() => {

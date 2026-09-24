@@ -929,6 +929,7 @@
     log("info", "Received custom mod state", {
       active: data?.active === true,
       modName: data?.modName || null,
+      displayName: data?.displayName || null,
       skinId: data?.skinId || null,
       currentSkinId: getCurrentEffectiveSkinId(),
     });
@@ -944,9 +945,13 @@
         customModTargetSkinIds.add(customModTargetSkinId);
       }
       customModPopupActive = true;
-      showSkinName(data.modName);
+      const visibleName = (typeof data.displayName === "string" && data.displayName.trim())
+        ? data.displayName.trim()
+        : data.modName;
+      showSkinName(visibleName);
       log("info", "Displayed custom mod popup", {
         modName: data.modName,
+        displayName: visibleName,
         skinId: customModTargetSkinId,
         targetSkinIds: [...customModTargetSkinIds],
       });

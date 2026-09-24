@@ -131,6 +131,9 @@
   let lastChampionSelectSession = null; // Track current champ select session
   let isFirstOpenInSession = true; // Track if this is first open in current session
   let lastCategoryModsById = {}; // Cache per category id (ui/voiceover/loading_screen/vfx/sfx/others)
+  let lastMapsList = [];
+  let lastFontsList = [];
+  let lastAnnouncersList = [];
   let emittedHistoricSelectionKeys = new Set(); // Avoid re-emitting historic selections across category responses
   let rightPaneMode = "summary"; // "summary" | "picker"
 
@@ -201,15 +204,28 @@
   function getSelectedSummaryForTab(tabId) {
     if (tabId === "skins") {
       if (!championLocked) return "Waiting for champ lock…";
-      return isSelectedModForSkin() ? String(selectedModId) : "None";
+      if (!isSelectedModForSkin()) return "None";
+      return visibleNameForId(currentSkinMods, selectedModId, ["relativePath", "modName"]);
     }
-    if (tabId === "maps") return selectedMapId ? String(selectedMapId) : "None";
-    if (tabId === "fonts") return selectedFontId ? String(selectedFontId) : "None";
-    if (tabId === "announcers") return selectedAnnouncerId ? String(selectedAnnouncerId) : "None";
+    if (tabId === "maps") {
+      return selectedMapId ? visibleNameForId(lastMapsList, selectedMapId, ["id", "name"]) : "None";
+    }
+    if (tabId === "fonts") {
+      return selectedFontId ? visibleNameForId(lastFontsList, selectedFontId, ["id", "name"]) : "None";
+    }
+    if (tabId === "announcers") {
+      return selectedAnnouncerId
+        ? visibleNameForId(lastAnnouncersList, selectedAnnouncerId, ["id", "name"])
+        : "None";
+    }
 
     // UI / Voiceover / Loading Screen / VFX / SFX / Others are their own categories.
     const selected = getSelectedIdsForCategory(tabId);
-    return selected.length ? selected.join(", ") : "None";
+    if (!selected.length) return "None";
+    const items = lastCategoryModsById[tabId] || [];
+    return selected
+      .map((id) => visibleNameForId(items, id, ["id", "name", "modName"]))
+      .join(", ");
   }
 
   function cleanModName(raw) {
@@ -227,6 +243,21 @@
     return name.trim() || raw;
   }
 
+  function visibleModName(mod, fallback = "Unnamed mod") {
+    const alias = typeof mod?.displayName === "string" ? mod.displayName.trim() : "";
+    if (alias) return alias;
+    return cleanModName(mod?.modName || mod?.name) || fallback;
+  }
+
+  function visibleNameForId(items, id, keys) {
+    const wanted = String(id || "").replace(/\\/g, "/");
+    const match = (items || []).find((item) =>
+      keys.some((key) => String(item?.[key] || "").replace(/\\/g, "/") === wanted)
+    );
+    if (match) return visibleModName(match, cleanModName(wanted) || wanted);
+    return cleanModName(wanted) || wanted;
+  }
+
   function getTabLabel(tabId) {
     return SUMMARY_TABS.find((t) => t.id === tabId)?.label || String(tabId || "");
   }
@@ -237,7 +268,7 @@
       const el = panel._summaryValuesByTab[tab.id];
       const raw = getSelectedSummaryForTab(tab.id);
       if (el) {
-        el.textContent = (raw !== "None" && raw !== "Waiting for champ lock…") ? cleanModName(raw) : raw;
+        el.textContent = raw;
       }
       // Toggle active class on the row
       const row = panel._summaryRowsByTab && panel._summaryRowsByTab[tab.id];
@@ -1358,7 +1389,7 @@
 
       const modName = document.createElement("div");
       modName.className = "mod-name";
-      modName.textContent = cleanModName(mod.modName) || "Unnamed mod";
+      modName.textContent = visibleModName(mod);
       modNameRow.appendChild(modName);
 
       const isSelected = (
@@ -1454,7 +1485,7 @@
 
       const mapName = document.createElement("div");
       mapName.className = "mod-name";
-      mapName.textContent = cleanModName(map.name) || "Unnamed map";
+      mapName.textContent = visibleModName(map, "Unnamed map");
       mapNameRow.appendChild(mapName);
 
       listItem.setAttribute("data-map-id", mapId);
@@ -1536,7 +1567,7 @@
 
       const fontName = document.createElement("div");
       fontName.className = "mod-name";
-      fontName.textContent = cleanModName(font.name) || "Unnamed font";
+      fontName.textContent = visibleModName(font, "Unnamed font");
       fontNameRow.appendChild(fontName);
 
       listItem.setAttribute("data-font-id", fontId);
@@ -1618,7 +1649,7 @@
 
       const announcerName = document.createElement("div");
       announcerName.className = "mod-name";
-      announcerName.textContent = cleanModName(announcer.name) || "Unnamed announcer";
+      announcerName.textContent = visibleModName(announcer, "Unnamed announcer");
       announcerNameRow.appendChild(announcerName);
 
       listItem.setAttribute("data-announcer-id", announcerId);
@@ -1705,7 +1736,7 @@
 
       const otherName = document.createElement("div");
       otherName.className = "mod-name";
-      otherName.textContent = cleanModName(other.name || other.modName) || "Unnamed mod";
+      otherName.textContent = visibleModName(other);
       otherNameRow.appendChild(otherName);
 
       listItem.setAttribute("data-other-id", otherId);
@@ -2402,6 +2433,7 @@
     }
 
     const mapsList = Array.isArray(detail.maps) ? detail.maps : [];
+    lastMapsList = mapsList;
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
@@ -2454,6 +2486,7 @@
     }
 
     const fontsList = Array.isArray(detail.fonts) ? detail.fonts : [];
+    lastFontsList = fontsList;
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
@@ -2503,6 +2536,7 @@
     }
 
     const announcersList = Array.isArray(detail.announcers) ? detail.announcers : [];
+    lastAnnouncersList = announcersList;
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
