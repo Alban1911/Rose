@@ -394,7 +394,7 @@ def _run_cli_result(args: Sequence[str], ok_codes: Iterable[int] = (0,)) -> Opti
     command = [str(PENGU_EXE), *command_args]
     try:
         result = subprocess.run(
-            command, cwd=str(PENGU_DIR), text=True, capture_output=True,
+            command, cwd=str(PENGU_DIR), text=True, encoding="utf-8", errors="replace", capture_output=True,
             check=False, creationflags=_CREATE_NO_WINDOW,
         )
     except FileNotFoundError:

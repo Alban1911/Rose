@@ -29,6 +29,7 @@ class PartyState:
 
     # Party mode status
     enabled: bool = False
+    is_host: bool = False
     my_token: Optional[str] = None
     my_summoner_id: Optional[int] = None
     my_summoner_name: str = "Unknown"
@@ -134,6 +135,7 @@ class PartyState:
         """Clear all party state"""
         with self._lock:
             self.enabled = False
+            self.is_host = False
             self.my_token = None
             self.peers.clear()
             self.party_skins.clear()
@@ -143,6 +145,7 @@ class PartyState:
         with self._lock:
             return {
                 "enabled": self.enabled,
+                "is_host": self.is_host,
                 "my_token": self.my_token,
                 "my_summoner_id": self.my_summoner_id,
                 "my_summoner_name": self.my_summoner_name,

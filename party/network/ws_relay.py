@@ -84,6 +84,41 @@ class PartyRelay:
             log.warning(f"[RELAY] Connection failed: {e}")
             return False
 
+    async def connect_to(self, url: str, timeout: float = 15.0) -> bool:
+        """Connect directly to a specific WebSocket URL (LAN host).
+
+        Args:
+            url: Full WebSocket URL, e.g. ``ws://25.1.2.3:7865``.
+            timeout: Connection timeout in seconds.
+
+        Returns:
+            True if connected successfully.
+        """
+        log.info(f"[RELAY] Connecting to LAN host at {url}")
+
+        try:
+            self._ws = await asyncio.wait_for(
+                websockets.connect(url, max_size=65536),
+                timeout=timeout,
+            )
+            self._connected = True
+            self._recv_task = asyncio.create_task(self._receive_loop())
+            self._ping_task = asyncio.create_task(self._keepalive_loop())
+            log.info(f"[RELAY] Connected to LAN host")
+            return True
+        except asyncio.TimeoutError:
+            log.warning(f"[RELAY] Connection to {url} timed out")
+            return False
+        except ConnectionRefusedError:
+            log.warning(f"[RELAY] Connection refused by {url}")
+            return False
+        except OSError as e:
+            log.warning(f"[RELAY] Network error connecting to {url}: {e}")
+            return False
+        except Exception as e:
+            log.warning(f"[RELAY] Connection to {url} failed: {e}")
+            return False
+
     async def join(self, summoner_id: int, summoner_name: str):
         """Announce ourselves to the room."""
         await self._send_json({

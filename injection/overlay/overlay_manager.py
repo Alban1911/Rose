@@ -240,7 +240,7 @@ class OverlayManager:
                 creationflags = subprocess.CREATE_NO_WINDOW
             
             # Capture both stdout and stderr - CSLOL uses logi() which may write to stdout
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, text=True, bufsize=1)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, text=True, encoding="utf-8", errors="replace", bufsize=1)
             
             # Boost process priority to maximize CPU contention if enabled
             if ENABLE_MKOVERLAY_PRIORITY_BOOST and PSUTIL_AVAILABLE:

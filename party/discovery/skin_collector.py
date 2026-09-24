@@ -83,12 +83,24 @@ class SkinCollector:
             Our skin selection or None
         """
         champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
-        skin_id = self.state.last_hovered_skin_id
+
+        # Check random mode (regular dice or favorites dice)
+        random_mode_active = getattr(self.state, "random_mode_active", False)
+        random_skin_id = getattr(self.state, "random_skin_id", None)
+        if random_mode_active and random_skin_id:
+            skin_id = random_skin_id
+            chroma_id = getattr(self.state, "random_chroma_id", None)
+        # Check historic mode
+        elif getattr(self.state, "historic_mode_active", False) and getattr(self.state, "historic_skin_id", None):
+            skin_id = self.state.historic_skin_id
+            chroma_id = None
+        # Standard hovered / locked skin
+        else:
+            skin_id = self.state.last_hovered_skin_id
+            chroma_id = getattr(self.state, "selected_chroma_id", None)
 
         if not champion_id or not skin_id:
             return None
-
-        chroma_id = getattr(self.state, "selected_chroma_id", None)
 
         # Check for custom mod
         custom_mod_path = None

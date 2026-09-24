@@ -96,6 +96,8 @@ def is_registered_for_autostart():
             ['schtasks', '/Query', '/TN', 'Rose'],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             creationflags=subprocess.CREATE_NO_WINDOW
         )
         return result.returncode == 0
@@ -143,6 +145,8 @@ def register_autostart():
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             creationflags=subprocess.CREATE_NO_WINDOW
         )
         
@@ -182,6 +186,8 @@ def unregister_autostart():
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             creationflags=subprocess.CREATE_NO_WINDOW
         )
         

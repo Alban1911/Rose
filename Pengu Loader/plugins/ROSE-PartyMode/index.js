@@ -27,11 +27,20 @@
   // Party state
   let partyState = {
     enabled: false,
+    is_host: false,
     my_token: null,
     my_summoner_id: null,
     my_summoner_name: "Unknown",
     peers: [],
   };
+
+  // Offline UI tab: 'host' or 'join'
+  let currentOfflineTab = "host";
+
+  // Network interfaces cache
+  let networkInterfaces = [];
+  let selectedIP = "";
+  let selectedPort = 7865;
 
   /**
    * Escape HTML special characters to prevent XSS
@@ -200,8 +209,10 @@
       letter-spacing: .025em;
     }
 
-    .party-status.offline { color: #5b5a56; }
-    .party-status.online  { color: #0acbe6; }
+    .party-status.offline      { color: #5b5a56; }
+    .party-status.online       { color: #0acbe6; }
+    .party-status.online.host  { color: #c8aa6e; }
+    .party-status.online.guest { color: #0acbe6; }
 
     /* Body — matches .lol-friend-finder-modal .modal-body */
     .party-content {
@@ -210,6 +221,41 @@
       flex: 1;
       padding: 0 18px;
       overflow: hidden;
+    }
+
+    /* Hextech Tabs */
+    .party-tabs {
+      display: flex;
+      border-bottom: 2px solid #3c3c41;
+      margin-bottom: 14px;
+      gap: 4px;
+    }
+
+    .party-tab {
+      flex: 1;
+      padding: 8px 10px;
+      text-align: center;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      color: #a09b8c;
+      font-family: var(--font-display), "Beaufort for LOL", Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .075em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color .2s, border-color .2s;
+    }
+
+    .party-tab:hover {
+      color: #f0e6d2;
+    }
+
+    .party-tab.active {
+      color: #f0e6d2;
+      border-bottom-color: #c8aa6e;
     }
 
     /* Description text */
@@ -330,16 +376,26 @@
       transition: background .3s, color .3s, border-color .3s;
     }
 
-    .party-toggle-btn.enable {
+    .party-toggle-btn.enable,
+    .party-toggle-btn.host-btn,
+    .party-toggle-btn.join-btn {
       background: linear-gradient(to bottom, #1e2328, #1e2328);
       border-color: #c8aa6e;
       color: #cdbe91;
     }
 
-    .party-toggle-btn.enable:hover {
+    .party-toggle-btn.enable:hover,
+    .party-toggle-btn.host-btn:hover,
+    .party-toggle-btn.join-btn:hover {
       background: linear-gradient(to bottom, #1e2328, #1e2328);
-      border-color: #c8aa6e;
+      border-color: #f0e6d2;
       color: #f0e6d2;
+    }
+
+    .party-toggle-btn.host-btn:active,
+    .party-toggle-btn.join-btn:active {
+      color: #463714;
+      border-color: #463714;
     }
 
     .party-toggle-btn.disable {
@@ -484,6 +540,93 @@
     .loading {
       opacity: 0.6;
       pointer-events: none;
+    }
+
+    /* Network config section */
+    .network-config {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .network-config-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .network-config-label {
+      color: #a09b8c;
+      font-family: var(--font-body), Arial, sans-serif;
+      font-size: 11px;
+      min-width: 35px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .network-select,
+    .port-input {
+      flex: 1;
+      background: rgba(0,0,0,.7);
+      border: thin solid #3c3c41;
+      padding: 6px 8px;
+      color: #f0e6d2;
+      font-family: var(--font-body), Arial, sans-serif;
+      font-size: 12px;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .network-select {
+      cursor: pointer;
+    }
+
+    .network-select:focus,
+    .port-input:focus {
+      border-color: #c89b3c;
+    }
+
+    .port-input {
+      max-width: 80px;
+      text-align: center;
+    }
+
+    .network-select option {
+      background: #1e2328;
+      color: #f0e6d2;
+    }
+
+    .manual-ip-input {
+      flex: 1;
+      background: rgba(0,0,0,.7);
+      border: thin solid #3c3c41;
+      padding: 6px 8px;
+      color: #f0e6d2;
+      font-family: var(--font-body), Arial, sans-serif;
+      font-size: 12px;
+      outline: none;
+      display: none;
+    }
+
+    .manual-ip-input:focus {
+      border-color: #c89b3c;
+    }
+
+    .manual-ip-input.visible {
+      display: block;
+    }
+
+    .host-info {
+      color: #5b5a56;
+      font-family: var(--font-body), Arial, sans-serif;
+      font-size: 10px;
+      margin-top: 4px;
+      letter-spacing: .02em;
+    }
+
+    .host-info .host-address {
+      color: #0acbe6;
     }
 
     .spinner {
@@ -680,58 +823,208 @@
     panel.innerHTML = `
       <div class="party-header">
         <h3>Party Mode</h3>
-        <span class="party-status offline">Offline</span>
+        <span class="party-status offline" id="party-status-badge">Offline</span>
       </div>
       <div class="party-content">
-        <div class="party-description">Share your skins with friends in the same lobby. Enable party mode and exchange tokens to connect.</div>
+        <!-- Offline View -->
+        <div id="party-offline-view">
+          <div class="party-tabs">
+            <button class="party-tab active" id="tab-btn-host" type="button">Host Party</button>
+            <button class="party-tab" id="tab-btn-join" type="button">Join Party</button>
+          </div>
 
-        <div class="party-section" id="party-toggle-section">
-          <button class="party-toggle-btn enable" id="party-toggle-btn">
-            Enable Party Mode
-          </button>
-        </div>
+          <!-- Host Tab Pane -->
+          <div id="pane-tab-host">
+            <div class="party-description">
+              Host a party on your PC. Your friends on the same network (Radmin VPN / Hamachi / LAN) can connect directly to your room.
+            </div>
 
-        <div class="party-section" id="party-token-section" style="display: none;">
-          <div class="party-section-title">Your Party Token</div>
-          <div class="token-container">
-            <input type="text" class="token-input" id="party-token-display" readonly placeholder="Generating...">
-            <button class="copy-btn" id="copy-token-btn">Copy</button>
+            <div class="party-section" id="party-network-section">
+              <div class="party-section-title">Network Adapter</div>
+              <div class="network-config">
+                <div class="network-config-row">
+                  <span class="network-config-label">IP</span>
+                  <select class="network-select" id="party-ip-select">
+                    <option value="">Detecting...</option>
+                  </select>
+                </div>
+                <input type="text" class="manual-ip-input" id="party-manual-ip" placeholder="Enter IP address manually...">
+                <div class="network-config-row">
+                  <span class="network-config-label">Port</span>
+                  <input type="number" class="port-input" id="party-port-input" value="7865" min="1024" max="65535">
+                </div>
+              </div>
+            </div>
+
+            <div class="party-section">
+              <button class="party-toggle-btn host-btn" id="party-host-btn" type="button">
+                Host Party
+              </button>
+              <div id="party-host-message"></div>
+            </div>
+          </div>
+
+          <!-- Join Tab Pane -->
+          <div id="pane-tab-join" style="display: none;">
+            <div class="party-description">
+              Enter your friend's party token to connect directly to their room without hosting.
+            </div>
+
+            <div class="party-section">
+              <div class="party-section-title">Friend's Party Token</div>
+              <div class="add-peer-container">
+                <input type="text" class="add-peer-input" id="party-join-token-input" placeholder="Paste ROSE:... token here">
+              </div>
+              <button class="party-toggle-btn join-btn" id="party-join-btn" type="button" style="margin-top: 12px;">
+                Join Party
+              </button>
+              <div id="party-join-message"></div>
+            </div>
           </div>
         </div>
 
-        <div class="party-section" id="party-add-section" style="display: none;">
-          <div class="party-section-title">Add Friend</div>
-          <div class="add-peer-container">
-            <input type="text" class="add-peer-input" id="add-peer-input" placeholder="Paste friend's token here...">
-            <button class="add-btn" id="add-peer-btn">Add</button>
-          </div>
-          <div id="add-peer-message"></div>
-        </div>
+        <!-- Online View -->
+        <div id="party-online-view" style="display: none;">
+          <!-- Host Sub-view -->
+          <div id="party-host-online-view" style="display: none;">
+            <div class="party-description">
+              Hosting party room. Friends can join using your party token below.
+            </div>
 
-        <div class="party-section" id="party-peers-section" style="display: none;">
-          <div class="party-section-title">Connected Friends (<span id="peer-count">0</span>)</div>
-          <div class="peers-list" id="peers-list">
-            <div class="no-peers">No friends connected yet</div>
+            <div class="party-section" id="party-token-section">
+              <div class="party-section-title">Your Party Token</div>
+              <div class="token-container">
+                <input type="text" class="token-input" id="party-token-display" readonly placeholder="Generating...">
+                <button class="copy-btn" id="copy-token-btn" type="button">Copy</button>
+              </div>
+            </div>
+
+            <div class="party-section" id="party-peers-section">
+              <div class="party-section-title">Connected Friends (<span id="peer-count">0</span>)</div>
+              <div class="peers-list" id="peers-list">
+                <div class="no-peers">No friends connected yet</div>
+              </div>
+            </div>
+
+            <div class="party-section">
+              <button class="party-toggle-btn disable" id="party-stop-btn" type="button">
+                Stop Hosting
+              </button>
+            </div>
+          </div>
+
+          <!-- Guest Sub-view -->
+          <div id="party-guest-online-view" style="display: none;">
+            <div class="party-description">
+              Connected to host. Your skins and party skins are synchronized.
+            </div>
+
+            <div class="party-section" id="party-guest-peers-section">
+              <div class="party-section-title">Party Members (<span id="guest-peer-count">0</span>)</div>
+              <div class="peers-list" id="guest-peers-list">
+                <div class="no-peers">Connected</div>
+              </div>
+            </div>
+
+            <div class="party-section">
+              <button class="party-toggle-btn disable" id="party-leave-btn" type="button">
+                Leave Party
+              </button>
+            </div>
           </div>
         </div>
       </div>
-      <button class="party-close-btn" id="party-close-btn"></button>
+      <button class="party-close-btn" id="party-close-btn" type="button"></button>
     `;
 
     try {
       container.appendChild(panel);
       partyPanel = panel;
-      // Use querySelector on panel directly instead of document to avoid ID conflicts
-      panel.querySelector("#party-toggle-btn").addEventListener("click", handleToggleParty);
-      panel.querySelector("#copy-token-btn").addEventListener("click", handleCopyToken);
-      panel.querySelector("#add-peer-btn").addEventListener("click", handleAddPeer);
-      panel.querySelector("#add-peer-input").addEventListener("keypress", (e) => {
-        if (e.key === "Enter") handleAddPeer();
+
+      // Tab switcher
+      const tabHostBtn = panel.querySelector("#tab-btn-host");
+      const tabJoinBtn = panel.querySelector("#tab-btn-join");
+      const paneHost = panel.querySelector("#pane-tab-host");
+      const paneJoin = panel.querySelector("#pane-tab-join");
+
+      if (tabHostBtn && tabJoinBtn && paneHost && paneJoin) {
+        tabHostBtn.addEventListener("click", () => {
+          currentOfflineTab = "host";
+          tabHostBtn.classList.add("active");
+          tabJoinBtn.classList.remove("active");
+          paneHost.style.display = "block";
+          paneJoin.style.display = "none";
+        });
+
+        tabJoinBtn.addEventListener("click", () => {
+          currentOfflineTab = "join";
+          tabJoinBtn.classList.add("active");
+          tabHostBtn.classList.remove("active");
+          paneHost.style.display = "none";
+          paneJoin.style.display = "block";
+          const joinInput = panel.querySelector("#party-join-token-input");
+          if (joinInput) joinInput.focus();
+        });
+      }
+
+      // Buttons
+      panel.querySelector("#party-host-btn").addEventListener("click", handleHostParty);
+      panel.querySelector("#party-join-btn").addEventListener("click", handleJoinParty);
+      panel.querySelector("#party-join-token-input").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") handleJoinParty();
       });
+
+      panel.querySelector("#party-stop-btn").addEventListener("click", handleStopParty);
+      panel.querySelector("#party-leave-btn").addEventListener("click", handleStopParty);
+
+      panel.querySelector("#copy-token-btn").addEventListener("click", handleCopyToken);
       panel.querySelector("#party-close-btn").addEventListener("click", () => {
         isVisible = false;
         partyPanel.classList.remove("visible");
       });
+
+      // IP dropdown change handler
+      const ipSelect = panel.querySelector("#party-ip-select");
+      if (ipSelect) {
+        ipSelect.addEventListener("change", (e) => {
+          const manualInput = panel.querySelector("#party-manual-ip");
+          if (e.target.value === "__manual__") {
+            manualInput.classList.add("visible");
+            manualInput.focus();
+            selectedIP = manualInput.value;
+          } else {
+            manualInput.classList.remove("visible");
+            selectedIP = e.target.value;
+          }
+        });
+      }
+
+      // Manual IP input handler
+      const manualIpInput = panel.querySelector("#party-manual-ip");
+      if (manualIpInput) {
+        manualIpInput.addEventListener("input", (e) => {
+          selectedIP = e.target.value.trim();
+        });
+      }
+
+      // Port input handler
+      const portInput = panel.querySelector("#party-port-input");
+      if (portInput) {
+        portInput.addEventListener("change", (e) => {
+          const val = parseInt(e.target.value, 10);
+          if (!isNaN(val) && val >= 1024 && val <= 65535) {
+            selectedPort = val;
+          } else {
+            e.target.value = selectedPort;
+          }
+        });
+      }
+
+      // Request network interfaces to populate dropdown
+      if (networkInterfaces && networkInterfaces.length > 0) {
+        populateIPDropdown(networkInterfaces);
+      }
+      sendBridgeMessage({ type: "party-get-interfaces" });
     } catch (e) {
       console.error(`${LOG_PREFIX} Failed to create panel:`, e);
       partyPanel = null;
@@ -755,150 +1048,224 @@
     updateLobbyButtonState();
   }
 
+  function renderPeersList(peers, canRemove) {
+    return peers
+      .map((peer) => {
+        const cs = (peer.connection_state || "disconnected").toLowerCase();
+        const isWaiting = cs === "connecting" || cs === "handshaking";
+        const statusText = isWaiting
+          ? "Connecting..."
+          : cs === "connected"
+            ? (peer.in_lobby ? "In lobby" : "Connected")
+            : cs === "handshaking"
+              ? "Handshaking"
+              : cs === "connecting"
+                ? "Connecting"
+                : "Disconnected";
+        const displayName = isWaiting ? "Friend" : escapeHtml(peer.summoner_name);
+        const lobbyStatus = peer.in_lobby ? "in-lobby" : "";
+        const skinInfo = peer.skin_selection
+          ? `Skin: ${peer.skin_selection.skin_id}`
+          : "";
+
+        return `
+        <div class="peer-item" data-summoner-id="${peer.summoner_id}">
+          <div class="peer-info">
+            <span class="peer-name">${displayName}</span>
+            ${isWaiting ? '<span class="peer-status waiting"><span class="spinner"></span> ' : `<span class="peer-status ${lobbyStatus}">`}
+            ${escapeHtml(statusText)}</span>
+            ${skinInfo ? `<span class="peer-skin">${skinInfo}</span>` : ""}
+          </div>
+          ${
+            canRemove
+              ? `<button class="peer-remove" title="Remove" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                  </svg>
+                </button>`
+              : ""
+          }
+        </div>
+      `;
+      })
+      .join("");
+  }
+
   function updatePanelState() {
     if (!partyPanel) return;
 
-    const statusEl = partyPanel.querySelector(".party-status");
-    const toggleBtn = document.getElementById("party-toggle-btn");
-    const tokenSection = document.getElementById("party-token-section");
-    const addSection = document.getElementById("party-add-section");
-    const peersSection = document.getElementById("party-peers-section");
-    const tokenDisplay = document.getElementById("party-token-display");
-    const peerCountEl = document.getElementById("peer-count");
-    const peersList = document.getElementById("peers-list");
+    const statusEl = partyPanel.querySelector("#party-status-badge");
+    const offlineView = partyPanel.querySelector("#party-offline-view");
+    const onlineView = partyPanel.querySelector("#party-online-view");
+    const hostOnlineView = partyPanel.querySelector("#party-host-online-view");
+    const guestOnlineView = partyPanel.querySelector("#party-guest-online-view");
+
+    const tabHostBtn = partyPanel.querySelector("#tab-btn-host");
+    const tabJoinBtn = partyPanel.querySelector("#tab-btn-join");
+    const paneHost = partyPanel.querySelector("#pane-tab-host");
+    const paneJoin = partyPanel.querySelector("#pane-tab-join");
 
     if (partyState.enabled) {
-      statusEl.className = "party-status online";
-      statusEl.textContent = "Online";
+      if (offlineView) offlineView.style.display = "none";
+      if (onlineView) onlineView.style.display = "block";
 
-      toggleBtn.className = "party-toggle-btn disable";
-      toggleBtn.textContent = "Disable Party Mode";
-
-      tokenSection.style.display = "block";
-      addSection.style.display = "block";
-      peersSection.style.display = "block";
-
-      if (partyState.my_token) {
-        tokenDisplay.value = partyState.my_token;
-      }
-
-      // Update peers list (show all peers, including those still connecting)
       const allPeers = partyState.peers || [];
       const connectedPeers = allPeers.filter((p) => p.connected);
-      peerCountEl.textContent = connectedPeers.length;
 
-      if (allPeers.length === 0) {
-        peersList.innerHTML = '<div class="no-peers">No friends connected yet</div>';
+      if (partyState.is_host) {
+        if (statusEl) {
+          statusEl.className = "party-status online host";
+          statusEl.textContent = "Online (Host)";
+        }
+        if (hostOnlineView) hostOnlineView.style.display = "block";
+        if (guestOnlineView) guestOnlineView.style.display = "none";
+
+        const tokenDisplay = partyPanel.querySelector("#party-token-display");
+        if (tokenDisplay && partyState.my_token) {
+          tokenDisplay.value = partyState.my_token;
+        }
+
+        const peerCountEl = partyPanel.querySelector("#peer-count");
+        const peersList = partyPanel.querySelector("#peers-list");
+        if (peerCountEl) peerCountEl.textContent = connectedPeers.length;
+
+        if (peersList) {
+          if (allPeers.length === 0) {
+            peersList.innerHTML = '<div class="no-peers">No friends connected yet</div>';
+          } else {
+            peersList.innerHTML = renderPeersList(allPeers, true);
+          }
+        }
       } else {
-        peersList.innerHTML = allPeers
-          .map((peer) => {
-            const cs = (peer.connection_state || "disconnected").toLowerCase();
-            const isWaiting = cs === "connecting" || cs === "handshaking";
-            const statusText = isWaiting
-              ? "Waiting for your friend"
-              : cs === "connected"
-                ? (peer.in_lobby ? "In lobby" : "Connected")
-                : cs === "handshaking"
-                  ? "Handshaking"
-                  : cs === "connecting"
-                    ? "Connecting"
-                    : "Disconnected";
-            const displayName = isWaiting ? "Friend" : escapeHtml(peer.summoner_name);
-            const lobbyStatus = peer.in_lobby ? "in-lobby" : "";
-            const skinInfo = peer.skin_selection
-              ? `Skin: ${peer.skin_selection.skin_id}`
-              : "";
+        if (statusEl) {
+          statusEl.className = "party-status online guest";
+          statusEl.textContent = "Online (Connected)";
+        }
+        if (hostOnlineView) hostOnlineView.style.display = "none";
+        if (guestOnlineView) guestOnlineView.style.display = "block";
 
-            return `
-            <div class="peer-item" data-summoner-id="${peer.summoner_id}">
-              <div class="peer-info">
-                <span class="peer-name">${displayName}</span>
-                ${isWaiting ? '<span class="peer-status waiting"><span class="spinner"></span> ' : `<span class="peer-status ${lobbyStatus}">`}
-                ${escapeHtml(statusText)}</span>
-                ${skinInfo ? `<span class="peer-skin">${skinInfo}</span>` : ""}
-              </div>
-              <button class="peer-remove" title="Remove" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                </svg>
-              </button>
-            </div>
-          `;
-          })
-          .join("");
+        const guestPeerCountEl = partyPanel.querySelector("#guest-peer-count");
+        const guestPeersList = partyPanel.querySelector("#guest-peers-list");
+        if (guestPeerCountEl) guestPeerCountEl.textContent = connectedPeers.length;
+
+        if (guestPeersList) {
+          if (allPeers.length === 0) {
+            guestPeersList.innerHTML = '<div class="no-peers">Connected to host</div>';
+          } else {
+            guestPeersList.innerHTML = renderPeersList(allPeers, false);
+          }
+        }
       }
     } else {
-      statusEl.className = "party-status offline";
-      statusEl.textContent = "Offline";
+      if (statusEl) {
+        statusEl.className = "party-status offline";
+        statusEl.textContent = "Offline";
+      }
 
-      toggleBtn.className = "party-toggle-btn enable";
-      toggleBtn.textContent = "Enable Party Mode";
+      if (offlineView) offlineView.style.display = "block";
+      if (onlineView) onlineView.style.display = "none";
 
-      tokenSection.style.display = "none";
-      addSection.style.display = "none";
-      peersSection.style.display = "none";
+      if (currentOfflineTab === "join") {
+        if (tabJoinBtn) tabJoinBtn.classList.add("active");
+        if (tabHostBtn) tabHostBtn.classList.remove("active");
+        if (paneHost) paneHost.style.display = "none";
+        if (paneJoin) paneJoin.style.display = "block";
+      } else {
+        if (tabHostBtn) tabHostBtn.classList.add("active");
+        if (tabJoinBtn) tabJoinBtn.classList.remove("active");
+        if (paneHost) paneHost.style.display = "block";
+        if (paneJoin) paneJoin.style.display = "none";
+      }
     }
 
     updateButtonState();
   }
 
-  async function handleToggleParty() {
-    const toggleBtn = document.getElementById("party-toggle-btn");
+  async function handleHostParty() {
+    const hostBtn = partyPanel ? partyPanel.querySelector("#party-host-btn") : document.getElementById("party-host-btn");
+    const messageEl = partyPanel ? partyPanel.querySelector("#party-host-message") : document.getElementById("party-host-message");
 
-    if (partyState.enabled) {
-      // Disable
-      toggleBtn.disabled = true;
-      toggleBtn.innerHTML = '<span class="spinner"></span> Disabling...';
-      sendBridgeMessage({ type: "party-disable" });
-    } else {
-      // Enable
-      toggleBtn.disabled = true;
-      toggleBtn.innerHTML = '<span class="spinner"></span> Enabling...';
-      sendBridgeMessage({ type: "party-enable" });
+    if (hostBtn) {
+      hostBtn.disabled = true;
+      hostBtn.innerHTML = '<span class="spinner"></span> Starting server...';
     }
-  }
+    if (messageEl) messageEl.innerHTML = "";
 
-  function handleCopyToken() {
-    const tokenDisplay = document.getElementById("party-token-display");
-    const copyBtn = document.getElementById("copy-token-btn");
+    const ipSelect = partyPanel ? partyPanel.querySelector("#party-ip-select") : document.getElementById("party-ip-select");
+    const manualIp = partyPanel ? partyPanel.querySelector("#party-manual-ip") : document.getElementById("party-manual-ip");
+    let hostIp = selectedIP;
+    if (ipSelect && ipSelect.value === "__manual__" && manualIp) {
+      hostIp = manualIp.value.trim();
+    }
 
-    if (!tokenDisplay.value) return;
+    const portInput = partyPanel ? partyPanel.querySelector("#party-port-input") : document.getElementById("party-port-input");
+    const hostPort = portInput ? parseInt(portInput.value, 10) || 7865 : 7865;
 
-    navigator.clipboard.writeText(tokenDisplay.value).then(() => {
-      copyBtn.textContent = "Copied!";
-      copyBtn.classList.add("copied");
-      setTimeout(() => {
-        copyBtn.textContent = "Copy";
-        copyBtn.classList.remove("copied");
-      }, 2000);
+    sendBridgeMessage({
+      type: "party-enable",
+      host_ip: hostIp,
+      host_port: hostPort,
     });
   }
 
-  function handleAddPeer() {
-    const input = document.getElementById("add-peer-input");
-    const addBtn = document.getElementById("add-peer-btn");
-    const messageEl = document.getElementById("add-peer-message");
-    // Strip and remove all whitespace (spaces, newlines, tabs) so pasted tokens work
-    const token = input.value.replace(/\s+/g, "").trim();
+  async function handleJoinParty() {
+    const input = partyPanel ? partyPanel.querySelector("#party-join-token-input") : document.getElementById("party-join-token-input");
+    const joinBtn = partyPanel ? partyPanel.querySelector("#party-join-btn") : document.getElementById("party-join-btn");
+    const messageEl = partyPanel ? partyPanel.querySelector("#party-join-message") : document.getElementById("party-join-message");
+
+    const token = input ? input.value.replace(/\s+/g, "").trim() : "";
 
     if (!token) {
-      messageEl.innerHTML =
-        '<div class="error-msg">Please enter a token</div>';
+      if (messageEl) {
+        messageEl.innerHTML = '<div class="error-msg">Please enter a party token</div>';
+      }
       return;
     }
 
-    // Lock the entire panel during connection
-    input.disabled = true;
-    addBtn.disabled = true;
-    addBtn.innerHTML = '<span class="spinner"></span>';
-    const toggleBtn = document.getElementById("party-toggle-btn");
-    if (toggleBtn) toggleBtn.disabled = true;
-    const closeBtn = partyPanel ? partyPanel.querySelector("#party-close-btn") : null;
-    if (closeBtn) closeBtn.style.display = "none";
-    messageEl.innerHTML =
-      '<div class="success-msg"><span class="spinner"></span> Connecting to your friend...</div>';
-    sendBridgeMessage({ type: "party-add-peer", token: token });
-    input.value = "";
+    if (input) input.disabled = true;
+    if (joinBtn) {
+      joinBtn.disabled = true;
+      joinBtn.innerHTML = '<span class="spinner"></span> Connecting...';
+    }
+    if (messageEl) {
+      messageEl.innerHTML = '<div class="success-msg"><span class="spinner"></span> Connecting to host...</div>';
+    }
+
+    sendBridgeMessage({ type: "party-join", token: token });
+  }
+
+  async function handleStopParty() {
+    const stopBtn = partyPanel ? partyPanel.querySelector("#party-stop-btn") : document.getElementById("party-stop-btn");
+    const leaveBtn = partyPanel ? partyPanel.querySelector("#party-leave-btn") : document.getElementById("party-leave-btn");
+
+    if (stopBtn) {
+      stopBtn.disabled = true;
+      stopBtn.innerHTML = '<span class="spinner"></span> Stopping...';
+    }
+    if (leaveBtn) {
+      leaveBtn.disabled = true;
+      leaveBtn.innerHTML = '<span class="spinner"></span> Leaving...';
+    }
+
+    sendBridgeMessage({ type: "party-disable" });
+  }
+
+  function handleCopyToken() {
+    const tokenDisplay = partyPanel ? partyPanel.querySelector("#party-token-display") : document.getElementById("party-token-display");
+    const copyBtn = partyPanel ? partyPanel.querySelector("#copy-token-btn") : document.getElementById("copy-token-btn");
+
+    if (!tokenDisplay || !tokenDisplay.value) return;
+
+    navigator.clipboard.writeText(tokenDisplay.value).then(() => {
+      if (copyBtn) {
+        copyBtn.textContent = "Copied!";
+        copyBtn.classList.add("copied");
+        setTimeout(() => {
+          copyBtn.textContent = "Copy";
+          copyBtn.classList.remove("copied");
+        }, 2000);
+      }
+    });
   }
 
   // Global function for remove button onclick
@@ -913,6 +1280,7 @@
       case "party-state":
         partyState = {
           enabled: data.enabled || false,
+          is_host: data.is_host || false,
           my_token: data.my_token || null,
           my_summoner_id: data.my_summoner_id || null,
           my_summoner_name: data.my_summoner_name || "Unknown",
@@ -922,86 +1290,161 @@
         updatePanelState();
         break;
 
-      case "party-enabled":
-        const toggleBtn = document.getElementById("party-toggle-btn");
-        toggleBtn.disabled = false;
+      case "party-enabled": {
+        const hostBtn = partyPanel ? partyPanel.querySelector("#party-host-btn") : document.getElementById("party-host-btn");
+        if (hostBtn) {
+          hostBtn.disabled = false;
+          hostBtn.textContent = "Host Party";
+        }
 
         if (data.success) {
           partyState.enabled = true;
+          partyState.is_host = true;
           partyState.my_token = data.token;
-          console.log(`${LOG_PREFIX} Party mode enabled`);
+          console.log(`${LOG_PREFIX} Party mode enabled (Host)`);
         } else {
-          const messageEl = document.getElementById("add-peer-message");
+          const messageEl = partyPanel ? partyPanel.querySelector("#party-host-message") : document.getElementById("party-host-message");
           if (messageEl) {
-            messageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to enable")}</div>`;
+            messageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to host party")}</div>`;
           }
-          console.error(`${LOG_PREFIX} Failed to enable:`, data.error);
+          console.error(`${LOG_PREFIX} Failed to host:`, data.error);
         }
         updateButtonState();
         updatePanelState();
         break;
+      }
 
-      case "party-disabled":
-        const toggleBtnDisable = document.getElementById("party-toggle-btn");
-        if (toggleBtnDisable) toggleBtnDisable.disabled = false;
+      case "party-joined": {
+        const joinInput = partyPanel ? partyPanel.querySelector("#party-join-token-input") : document.getElementById("party-join-token-input");
+        const joinBtn = partyPanel ? partyPanel.querySelector("#party-join-btn") : document.getElementById("party-join-btn");
+        const joinMessageEl = partyPanel ? partyPanel.querySelector("#party-join-message") : document.getElementById("party-join-message");
+
+        if (joinInput) joinInput.disabled = false;
+        if (joinBtn) {
+          joinBtn.disabled = false;
+          joinBtn.textContent = "Join Party";
+        }
+
+        if (data.success) {
+          if (joinInput) joinInput.value = "";
+          if (joinMessageEl) joinMessageEl.innerHTML = "";
+          console.log(`${LOG_PREFIX} Party mode joined as guest`);
+        } else {
+          if (joinMessageEl) {
+            joinMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to connect to host")}</div>`;
+          }
+        }
+        sendBridgeMessage({ type: "party-get-state" });
+        break;
+      }
+
+      case "party-disabled": {
+        const stopBtn = partyPanel ? partyPanel.querySelector("#party-stop-btn") : document.getElementById("party-stop-btn");
+        const leaveBtn = partyPanel ? partyPanel.querySelector("#party-leave-btn") : document.getElementById("party-leave-btn");
+        if (stopBtn) {
+          stopBtn.disabled = false;
+          stopBtn.textContent = "Stop Hosting";
+        }
+        if (leaveBtn) {
+          leaveBtn.disabled = false;
+          leaveBtn.textContent = "Leave Party";
+        }
 
         partyState.enabled = false;
+        partyState.is_host = false;
         partyState.my_token = null;
         partyState.peers = [];
         console.log(`${LOG_PREFIX} Party mode disabled`);
         updateButtonState();
         updatePanelState();
         break;
+      }
 
       case "party-peer-added": {
-        const addInput = document.getElementById("add-peer-input");
-        const addBtn = document.getElementById("add-peer-btn");
-        const addMessageEl = document.getElementById("add-peer-message");
+        const joinInput = partyPanel ? partyPanel.querySelector("#party-join-token-input") : document.getElementById("party-join-token-input");
+        const joinBtn = partyPanel ? partyPanel.querySelector("#party-join-btn") : document.getElementById("party-join-btn");
+        const joinMessageEl = partyPanel ? partyPanel.querySelector("#party-join-message") : document.getElementById("party-join-message");
 
-        // Unlock the panel
-        if (addInput) addInput.disabled = false;
-        if (addBtn) {
-          addBtn.disabled = false;
-          addBtn.textContent = "Add";
+        if (joinInput) joinInput.disabled = false;
+        if (joinBtn) {
+          joinBtn.disabled = false;
+          joinBtn.textContent = "Join Party";
         }
-        const unlockToggleBtn = document.getElementById("party-toggle-btn");
-        if (unlockToggleBtn) unlockToggleBtn.disabled = false;
-        const unlockCloseBtn = partyPanel ? partyPanel.querySelector("#party-close-btn") : null;
-        if (unlockCloseBtn) unlockCloseBtn.style.display = "";
 
         if (data.success) {
-          if (addMessageEl) {
-            addMessageEl.innerHTML =
-              '<div class="success-msg">Friend connected!</div>';
-            setTimeout(() => {
-              addMessageEl.innerHTML = "";
-            }, 3000);
-          }
+          if (joinInput) joinInput.value = "";
+          if (joinMessageEl) joinMessageEl.innerHTML = "";
         } else {
-          if (addMessageEl) {
-            addMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to connect")}</div>`;
+          if (joinMessageEl) {
+            joinMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to connect")}</div>`;
           }
         }
-        // Request updated state
         sendBridgeMessage({ type: "party-get-state" });
         break;
       }
 
       case "party-peer-removed":
-        // Request updated state
         sendBridgeMessage({ type: "party-get-state" });
         break;
 
       case "phase-change":
-        // Pause the 500ms DOM monitor during in-game to avoid stealing
-        // CPU from the League game process.  Resume in every other phase
-        // so the party button reattaches if the client re-renders.
         if (data.phase === "InProgress") {
           stopGamePhaseMonitor();
         } else {
           startGamePhaseMonitor();
         }
         break;
+
+      case "party-interfaces":
+        networkInterfaces = data.interfaces || [];
+        console.log(`${LOG_PREFIX} Received network interfaces:`, networkInterfaces);
+        populateIPDropdown(networkInterfaces);
+        break;
+    }
+  }
+
+  function populateIPDropdown(interfaces) {
+    const select = partyPanel
+      ? partyPanel.querySelector("#party-ip-select")
+      : document.getElementById("party-ip-select");
+    if (!select) return;
+
+    select.innerHTML = "";
+
+    if (interfaces.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "127.0.0.1";
+      opt.textContent = "localhost (127.0.0.1)";
+      select.appendChild(opt);
+    } else {
+      for (const iface of interfaces) {
+        const opt = document.createElement("option");
+        opt.value = iface.ip;
+        const isVpn = /radmin|hamachi|tailscale|zerotier/i.test(iface.name) || iface.type === "radmin" || iface.type === "hamachi";
+        const typeLabel = iface.type.charAt(0).toUpperCase() + iface.type.slice(1);
+        opt.textContent = `${isVpn ? "★ " : ""}${iface.ip} — ${iface.name} (${typeLabel})${isVpn ? " [VPN/LAN]" : ""}`;
+        select.appendChild(opt);
+      }
+    }
+
+    // Add manual entry option at the end
+    const manualOpt = document.createElement("option");
+    manualOpt.value = "__manual__";
+    manualOpt.textContent = "Enter IP manually...";
+    select.appendChild(manualOpt);
+
+    // Keep user's previous selection if valid, otherwise pick VPN or first option
+    if (selectedIP && Array.from(select.options).some((o) => o.value === selectedIP)) {
+      select.value = selectedIP;
+    } else if (interfaces.length > 0) {
+      const vpnIface = interfaces.find((i) => /radmin|hamachi|tailscale|zerotier/i.test(i.name) || i.type === "radmin" || i.type === "hamachi");
+      if (vpnIface) {
+        selectedIP = vpnIface.ip;
+        select.value = vpnIface.ip;
+      } else {
+        selectedIP = interfaces[0].ip;
+        select.value = interfaces[0].ip;
+      }
     }
   }
 
@@ -1020,16 +1463,21 @@
       // Flush queued messages
       while (bridgeQueue.length > 0) {
         const msg = bridgeQueue.shift();
+        console.log(`${LOG_PREFIX} [TX-queue]`, msg);
         bridgeSocket.send(JSON.stringify(msg));
       }
 
-      // Request current party state
+      // Request current party state & network interfaces
       sendBridgeMessage({ type: "party-get-state" });
+      sendBridgeMessage({ type: "party-get-interfaces" });
     };
 
     bridgeSocket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data.type && data.type.startsWith("party-")) {
+          console.log(`${LOG_PREFIX} [RX]`, data.type, data);
+        }
         handleBridgeMessage(data);
       } catch (e) {
         console.error(`${LOG_PREFIX} Error parsing message:`, e);
@@ -1048,6 +1496,9 @@
   }
 
   function sendBridgeMessage(msg) {
+    if (msg.type && msg.type.startsWith("party-")) {
+      console.log(`${LOG_PREFIX} [TX]`, msg.type, msg);
+    }
     if (bridgeReady && bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
       bridgeSocket.send(JSON.stringify(msg));
     } else {

@@ -13,6 +13,7 @@ from utils.core.logging import get_logger
 
 from ..core.party_manager import PartyManager
 from ..core.party_state import PartyState
+from ..network.lan_server import get_network_interfaces
 
 log = get_logger()
 
@@ -47,10 +48,16 @@ class PartyUIBridge:
         msg_type = data.get("type", "")
 
         if msg_type == "party-enable":
-            return await self._handle_enable()
+            host_ip = data.get("host_ip", "")
+            host_port = data.get("host_port", 7865)
+            return await self._handle_enable(host_ip=host_ip, host_port=host_port)
 
         elif msg_type == "party-disable":
             return await self._handle_disable()
+
+        elif msg_type == "party-join":
+            token = data.get("token", "")
+            return await self._handle_join(token)
 
         elif msg_type == "party-add-peer":
             token = data.get("token", "")
@@ -64,16 +71,22 @@ class PartyUIBridge:
         elif msg_type == "party-get-state":
             return self._handle_get_state()
 
+        elif msg_type == "party-get-interfaces":
+            return self._handle_get_interfaces()
+
         elif msg_type == "party-broadcast-skin":
             await self.party_manager.broadcast_skin_update()
             return {"type": "party-response", "success": True}
 
         return None
 
-    async def _handle_enable(self) -> dict:
+    async def _handle_enable(self, host_ip: str = "", host_port: int = 7865) -> dict:
         """Handle party enable request"""
         try:
-            token = await self.party_manager.enable()
+            token = await self.party_manager.enable(
+                host_ip=host_ip,
+                host_port=host_port,
+            )
             self._broadcast_state()
             return {
                 "type": "party-enabled",
@@ -105,6 +118,31 @@ class PartyUIBridge:
                 "error": str(e),
             }
 
+    async def _handle_join(self, token: str) -> dict:
+        """Handle party join request (guest connecting to host)"""
+        if not token:
+            return {
+                "type": "party-joined",
+                "success": False,
+                "error": "No token provided",
+            }
+
+        try:
+            success, error = await self.party_manager.join(token)
+            self._broadcast_state()
+            return {
+                "type": "party-joined",
+                "success": success,
+                "error": error,
+            }
+        except Exception as e:
+            log.error(f"[PARTY_UI] Failed to join party: {e}")
+            return {
+                "type": "party-joined",
+                "success": False,
+                "error": str(e),
+            }
+
     async def _handle_add_peer(self, token: str) -> dict:
         """Handle add peer request"""
         if not token:
@@ -115,12 +153,12 @@ class PartyUIBridge:
             }
 
         try:
-            success = await self.party_manager.add_peer(token)
+            success, error = await self.party_manager.add_peer(token)
             self._broadcast_state()
             return {
                 "type": "party-peer-added",
                 "success": success,
-                "error": None if success else "Failed to connect to peer",
+                "error": error,
             }
         except Exception as e:
             log.error(f"[PARTY_UI] Failed to add peer: {e}")
@@ -154,6 +192,14 @@ class PartyUIBridge:
         return {
             "type": "party-state",
             **state,
+        }
+
+    def _handle_get_interfaces(self) -> dict:
+        """Return available network interfaces for IP selection."""
+        interfaces = get_network_interfaces()
+        return {
+            "type": "party-interfaces",
+            "interfaces": interfaces,
         }
 
     def _on_state_change(self, state: PartyState):

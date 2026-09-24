@@ -2,19 +2,21 @@
 # -*- coding: utf-8 -*-
 """
 Party Manager
-Orchestrator for party mode skin sharing via WebSocket relay.
+Orchestrator for party mode skin sharing via LAN direct connection.
+Host runs a local WebSocket server; clients connect directly.
 """
 
 import asyncio
 import secrets
 import time
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from lcu import LCU
 from state import SharedState
 from utils.core.logging import get_logger
 
-from ..network.ws_relay import PartyRelay, compute_room_key
+from ..network.lan_server import PartyLANServer, get_network_interfaces, DEFAULT_PORT
+from ..network.ws_relay import PartyRelay
 from ..protocol.token_codec import PartyToken, create_token
 from ..protocol.message_types import SkinSelection
 from ..discovery.lobby_matcher import LobbyMatcher
@@ -37,10 +39,11 @@ class PartyManager:
 
         self.party_state = PartyState()
 
-        # Networking
+        # Networking — either a LAN server (host) or a relay client (client)
         self._my_key: Optional[bytes] = None
         self._my_token: Optional[PartyToken] = None
-        self._relay: Optional[PartyRelay] = None
+        self._relay: Optional[Union[PartyLANServer, PartyRelay]] = None
+        self._is_host: bool = False
 
         # Discovery
         self._lobby_matcher: Optional[LobbyMatcher] = None
@@ -71,16 +74,26 @@ class PartyManager:
         self._on_state_change = on_state_change
         self._on_peer_update = on_peer_update
 
-    async def enable(self) -> str:
-        """Enable party mode: generate token and connect to relay room."""
+    async def enable(self, host_ip: str = "", host_port: int = DEFAULT_PORT) -> str:
+        """Enable party mode as HOST: start a local WebSocket server.
+
+        Args:
+            host_ip: IP address to advertise in the token (e.g. Hamachi IP).
+            host_port: Port to listen on.
+
+        Returns:
+            The generated party token string.
+        """
         if self.party_state.enabled:
             return self.party_state.my_token or ""
 
-        log.info("[PARTY] Enabling party mode...")
+        log.info("[PARTY] Enabling party mode (LAN host)...")
 
         try:
-            self._lobby_matcher = LobbyMatcher(self.lcu, self.state)
-            self._skin_collector = SkinCollector(self.state)
+            if not self._lobby_matcher:
+                self._lobby_matcher = LobbyMatcher(self.lcu, self.state)
+            if not self._skin_collector:
+                self._skin_collector = SkinCollector(self.state)
 
             my_summoner_id = self._lobby_matcher.get_my_summoner_id()
             my_summoner_name = self._lobby_matcher.get_my_summoner_name()
@@ -91,34 +104,58 @@ class PartyManager:
             self.party_state.my_summoner_id = my_summoner_id
             self.party_state.my_summoner_name = my_summoner_name
 
-            # Generate key and token
+            # If no host_ip provided, auto-detect best interface
+            if not host_ip:
+                interfaces = get_network_interfaces()
+                for iface in interfaces:
+                    if iface["ip"] != "127.0.0.1":
+                        host_ip = iface["ip"]
+                        break
+                if not host_ip:
+                    host_ip = "127.0.0.1"
+                log.info(f"[PARTY] Auto-selected host IP: {host_ip}")
+
+            # Start the local LAN server
+            log.info(f"[PARTY] Starting local WebSocket server on 0.0.0.0:{host_port}...")
+            self._relay = PartyLANServer(host="0.0.0.0", port=host_port)
+            self._relay.set_on_members_changed(self._on_relay_members_changed)
+            self._is_host = True
+
+            if not await self._relay.start():
+                raise RuntimeError(
+                    f"Failed to start party server on port {host_port}. "
+                    f"Is another instance running?"
+                )
+
+            # Host joins its own room
+            await self._relay.join(my_summoner_id, my_summoner_name)
+
+            # Determine actual bound port (PartyLANServer may have fallen back to port + 1)
+            actual_port = getattr(self._relay, "port", host_port)
+
+            # Generate key and token with host IP/port
             self._my_key = secrets.token_bytes(32)
             self._my_token = create_token(
                 summoner_id=my_summoner_id,
                 encryption_key=self._my_key,
+                host_ip=host_ip,
+                host_port=actual_port,
             )
 
             token_str = self._my_token.encode()
             self.party_state.my_token = token_str
+            self.party_state.is_host = True
             self.party_state.enabled = True
-
-            # Connect to relay room
-            room_key = compute_room_key(my_summoner_id, self._my_key)
-            self._relay = PartyRelay(room_key)
-            self._relay.set_on_members_changed(self._on_relay_members_changed)
-
-            if await self._relay.connect():
-                await self._relay.join(my_summoner_id, my_summoner_name)
-                log.info(f"[PARTY] Connected to relay room {room_key[:8]}...")
-            else:
-                log.warning("[PARTY] Relay connection failed, party mode limited")
 
             # Start background tasks
             self._running = True
             self._lobby_check_task = asyncio.create_task(self._lobby_check_loop())
             self._skin_broadcast_task = asyncio.create_task(self._skin_broadcast_loop())
 
-            log.info(f"[PARTY] Party mode enabled. Token: {token_str[:20]}...")
+            log.info(
+                f"[PARTY] Party mode enabled successfully! Hosting at {host_ip}:{host_port} | "
+                f"Token: {token_str[:25]}..."
+            )
             self._notify_state_change()
             return token_str
 
@@ -128,7 +165,7 @@ class PartyManager:
             raise RuntimeError(f"Failed to enable party mode: {e}")
 
     async def disable(self):
-        """Disable party mode."""
+        """Disable party mode (stop server or disconnect from host)."""
         log.info("[PARTY] Disabling party mode...")
         self._running = False
 
@@ -147,6 +184,7 @@ class PartyManager:
             await self._relay.disconnect()
             self._relay = None
 
+        self._is_host = False
         self.party_state.clear_all()
         self._my_key = None
         self._my_token = None
@@ -154,49 +192,90 @@ class PartyManager:
         log.info("[PARTY] Party mode disabled")
         self._notify_state_change()
 
-    async def add_peer(self, token_str: str) -> Tuple[bool, Optional[str]]:
-        """Join another player's party room by pasting their token."""
-        if not self.party_state.enabled:
-            return False, "Party mode not enabled"
+    async def join(self, token_str: str) -> Tuple[bool, Optional[str]]:
+        """Join another player's party room directly as a client without hosting a server.
 
+        Args:
+            token_str: Party token string from the host.
+
+        Returns:
+            Tuple of (success, error_message).
+        """
         token_str = "".join(token_str.split())
+        if not token_str:
+            return False, "Party token cannot be empty"
 
         try:
             token = PartyToken.decode(token_str)
-            log.info(f"[PARTY] Joining party of summoner {token.summoner_id}")
+            log.info(f"[PARTY] Joining party of host {token.summoner_id}")
 
-            if token.summoner_id == self.party_state.my_summoner_id:
-                return False, "You cannot add yourself"
+            if token.version < 3 or not token.host_ip:
+                return False, (
+                    "This token uses an older format that requires a relay server. "
+                    "Ask your friend to update Rose and generate a new token."
+                )
 
-            # Check if peer is already in our room (they joined us)
+            # Initialize discovery components if not already initialized
+            if not self._lobby_matcher:
+                self._lobby_matcher = LobbyMatcher(self.lcu, self.state)
+            if not self._skin_collector:
+                self._skin_collector = SkinCollector(self.state)
+
+            my_summoner_id = self._lobby_matcher.get_my_summoner_id()
+            my_summoner_name = self._lobby_matcher.get_my_summoner_name()
+
+            if not my_summoner_id:
+                return False, "Failed to get summoner ID - is League client running?"
+
+            if token.summoner_id == my_summoner_id:
+                return False, "You cannot join your own party token"
+
+            self.party_state.my_summoner_id = my_summoner_id
+            self.party_state.my_summoner_name = my_summoner_name
+
+            # Check if host is already connected in our current relay
             if self._relay and self._relay.connected:
                 for member in self._relay.members:
                     if member.get("summoner_id") == token.summoner_id:
-                        log.info(f"[PARTY] Peer {token.summoner_id} is already in our room")
+                        log.info(f"[PARTY] Host {token.summoner_id} is already connected")
                         return True, None
 
-            # Check if we're already in the target room
-            target_room_key = compute_room_key(token.summoner_id, token.encryption_key)
-            if self._relay and self._relay.room_key == target_room_key:
-                log.info(f"[PARTY] Already in peer's room")
-                return True, None
-
-            # Disconnect from current room and join the host's room
+            # If we are currently hosting or connected to another room, disconnect first
             if self._relay:
                 await self._relay.disconnect()
+                self._relay = None
 
-            self._relay = PartyRelay(target_room_key)
-            self._relay.set_on_members_changed(self._on_relay_members_changed)
+            self._is_host = False
+            self.party_state.is_host = False
+            self.party_state.my_token = None
 
-            if not await self._relay.connect():
-                return False, "Failed to connect to relay"
+            # Connect directly to the LAN host
+            host_url = f"ws://{token.host_ip}:{token.host_port}"
+            log.info(f"[PARTY] Connecting to LAN host at {host_url}")
 
-            await self._relay.join(
-                self.party_state.my_summoner_id,
-                self.party_state.my_summoner_name,
-            )
+            relay = PartyRelay(room_key="lan-direct")
+            relay.set_on_members_changed(self._on_relay_members_changed)
 
-            log.info(f"[PARTY] Joined party room {target_room_key[:8]}...")
+            if not await relay.connect_to(host_url):
+                return False, (
+                    f"Failed to connect to {token.host_ip}:{token.host_port}. "
+                    f"Make sure your friend is hosting and "
+                    f"you're on the same network (Radmin VPN / Hamachi / LAN)."
+                )
+
+            self._relay = relay
+            await self._relay.join(my_summoner_id, my_summoner_name)
+
+            self.party_state.enabled = True
+
+            # Start background tasks
+            if not self._running:
+                self._running = True
+                self._lobby_check_task = asyncio.create_task(self._lobby_check_loop())
+                self._skin_broadcast_task = asyncio.create_task(self._skin_broadcast_loop())
+
+            log.info(f"[PARTY] Successfully joined LAN party at {host_url}")
+            self._notify_state_change()
             return True, None
 
         except ValueError as e:
@@ -207,6 +286,10 @@ class PartyManager:
         except Exception as e:
             log.error(f"[PARTY] Failed to join party: {e}")
             return False, f"Unexpected error: {e}"
+
+    async def add_peer(self, token_str: str) -> Tuple[bool, Optional[str]]:
+        """Legacy alias: join another player's party by token."""
+        return await self.join(token_str)
 
     async def remove_peer(self, summoner_id: int):
         """Remove a peer (not really applicable in shared room model, but kept for UI)."""
@@ -353,8 +436,17 @@ class PartyManager:
                 if not self._running:
                     continue
 
-                current_skin_id = self.state.last_hovered_skin_id
-                current_chroma_id = getattr(self.state, "selected_chroma_id", None)
+                # Resolve effective skin id (considering random mode and historic mode)
+                if getattr(self.state, "random_mode_active", False) and getattr(self.state, "random_skin_id", None):
+                    current_skin_id = self.state.random_skin_id
+                    current_chroma_id = getattr(self.state, "random_chroma_id", None)
+                elif getattr(self.state, "historic_mode_active", False) and getattr(self.state, "historic_skin_id", None):
+                    current_skin_id = self.state.historic_skin_id
+                    current_chroma_id = None
+                else:
+                    current_skin_id = self.state.last_hovered_skin_id
+                    current_chroma_id = getattr(self.state, "selected_chroma_id", None)
+
                 current_custom_mod = getattr(self.state, "selected_custom_mod", None)
                 # Track custom mod by its path to detect changes
                 custom_mod_key = current_custom_mod.get("relative_path") if current_custom_mod else None

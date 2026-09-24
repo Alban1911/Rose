@@ -290,12 +290,13 @@ hiddenimports = [
     'websocket_client',
     'websockets',
 
-    # Party mode (WebSocket relay)
+    # Party mode (LAN WebSocket server & direct connection)
     'party',
     'party.core',
     'party.core.party_manager',
     'party.core.party_state',
     'party.network',
+    'party.network.lan_server',
     'party.network.peer_connection',
     'party.network.ws_relay',
     'party.protocol',
@@ -304,6 +305,9 @@ hiddenimports = [
     'party.discovery',
     'party.discovery.lobby_matcher',
     'party.discovery.skin_collector',
+    'party.integration',
+    'party.integration.injection_hook',
+    'party.integration.ui_bridge',
     
     # System tray
     'pystray',
