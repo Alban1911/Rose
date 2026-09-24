@@ -1496,6 +1496,8 @@
 
   // Reconnect screen: let the player stop Rose's injection when a mod crashes the game
   let _reconnectObserverStarted = false;
+  // The client detaches the reconnect screen while hidden, so querySelector can't reach it
+  const _stopInjectionButtons = new Set();
   function addStopInjectionButton() {
     const container = document.querySelector(".reconnect-button-container");
     if (!container || container.querySelector(".rose-stop-injection")) return;
@@ -1503,7 +1505,8 @@
     const button = document.createElement("lol-uikit-flat-button");
     button.className = "rose-stop-injection";
     button.setAttribute("margin-right", "10px");
-    button.textContent = "Disable Rose mods";
+    resetStopInjectionButton(button);
+    _stopInjectionButtons.add(button);
     button.title = "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)";
     button.addEventListener("click", () => {
       if (!bridge || button.hasAttribute("disabled")) return;
@@ -1512,6 +1515,18 @@
       button.textContent = "Mods disabled";
     });
     container.appendChild(button);
+  }
+
+  function resetStopInjectionButton(button) {
+    button.removeAttribute("disabled");
+    button.textContent = "Disable Rose mods";
+  }
+
+  // The client reuses the reconnect screen, so re-enable the button for each new game
+  function handleReconnectPhaseChange(payload) {
+    // Keep it disabled only while the same game is running or reconnecting
+    if (["InProgress", "Reconnect", "GameStart"].includes(payload?.phase)) return;
+    _stopInjectionButtons.forEach(resetStopInjectionButton);
   }
 
   function startReconnectObserver() {
@@ -4928,6 +4943,7 @@
       bridge.subscribe("diagnostics-data", handleDiagnosticsData);
       bridge.subscribe("diagnostics-cleared-category", () => requestDiagnostics());
       bridge.subscribe("diagnostics-cleared", () => requestDiagnostics());
+      bridge.subscribe("phase-change", handleReconnectPhaseChange);
       bridge.subscribe("diagnostics-tracker-cleared", () => requestDiagnostics());
       bridge.subscribe("diagnostics-applied-recommended", () => requestDiagnostics());
       bridge.subscribe("path-validation-result", handlePathValidationResult);
