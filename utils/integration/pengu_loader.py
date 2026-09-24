@@ -451,6 +451,27 @@ def _is_league_running() -> bool:
     return False
 
 
+def _close_loader_menu() -> None:
+    """Close open Pengu Loader windows; the CLI refuses --install/--uninstall while one runs."""
+    if not _is_windows() or psutil is None:
+        return
+    current = os.getpid()
+    try:
+        for proc in psutil.process_iter(['pid', 'name']):
+            if proc.info.get('name') != PENGU_EXE.name or proc.info.get('pid') == current:
+                continue
+            log.info('Closing the open Pengu Loader window (PID %s) so Rose can toggle Pengu.', proc.info['pid'])
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except psutil.TimeoutExpired:  # type: ignore[attr-defined]
+                proc.kill()
+            except psutil.Error as exc:  # type: ignore[attr-defined]
+                log.warning('Could not close Pengu Loader PID %s: %s', proc.info['pid'], exc)
+    except (psutil.Error, OSError) as exc:  # type: ignore[attr-defined]
+        log.debug('Failed to inspect running Pengu Loader processes: %s', exc)
+
+
 def set_league_path(league_path: str) -> bool:
     if not _is_available():
         log.warning('Pengu Loader is unavailable; cannot set League path.')
@@ -483,6 +504,7 @@ def get_status() -> PenguStatus:
 
 def activate() -> bool:
     with _operation_lock:
+        _close_loader_menu()
         result = _run_cli_result(['--install', '--silent'])
         if result is None or not result.succeeded:
             log.error('Pengu activation failed.')
@@ -496,6 +518,7 @@ def activate() -> bool:
 
 def deactivate() -> bool:
     with _operation_lock:
+        _close_loader_menu()
         result = _run_cli_result(['--uninstall', '--silent'])
         if result is None or not result.succeeded:
             log.error('Pengu deactivation failed.')

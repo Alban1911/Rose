@@ -18,6 +18,7 @@ except ImportError:
     psutil = None
 
 from utils.core.logging import get_logger
+from ..tools.patcher import LTK_PATCHER_HOST
 from config import (
     PROCESS_TERMINATE_TIMEOUT_S,
     PROCESS_TERMINATE_WAIT_S,
@@ -32,6 +33,15 @@ class ProcessManager:
     
     def __init__(self):
         self.current_overlay_process = None
+        # Set when the user stops injection so the kill isn't reported as a failure
+        self.stopped_by_user = False
+
+    def stop_injection_by_user(self):
+        """Stop the patcher and every mod-tools.exe (e.g. a mod crashes the game on reconnect)."""
+        self.stopped_by_user = True
+        self.stop_overlay_process()
+        self.kill_all_runoverlay_processes()
+        self.kill_all_modtools_processes()
     
     def stop_overlay_process(self):
         """Stop the current overlay process"""
@@ -73,8 +83,9 @@ class ProcessManager:
                     break
                 
                 try:
-                    # Skip if not mod-tools.exe (avoid expensive cmdline check on unrelated processes)
-                    if proc.info.get('name') != 'mod-tools.exe':
+                    # Skip if not mod-tools.exe or the LTK patcher host (avoid expensive cmdline check on unrelated processes)
+                    name = proc.info.get('name')
+                    if name not in ('mod-tools.exe', LTK_PATCHER_HOST):
                         continue
                     
                     # Only fetch cmdline for mod-tools.exe processes with a timeout
@@ -82,9 +93,9 @@ class ProcessManager:
                         # Create Process object for cmdline access
                         p = psutil.Process(proc.info['pid'])
                         # Use a short timeout on cmdline() to prevent hanging
-                        cmdline = p.cmdline()
+                        cmdline = p.cmdline() if name == 'mod-tools.exe' else None
                         
-                        if cmdline and any('runoverlay' in arg for arg in cmdline):
+                        if name == LTK_PATCHER_HOST or (cmdline and any('runoverlay' in arg for arg in cmdline)):
                             log.info(f"[INJECT] Killing runoverlay process PID {proc.info['pid']}")
                             try:
                                 # Try graceful termination first
@@ -146,8 +157,8 @@ class ProcessManager:
                     break
                 
                 try:
-                    # Only kill mod-tools.exe processes
-                    if proc.info.get('name') != 'mod-tools.exe':
+                    # Only kill mod-tools.exe and LTK patcher host processes
+                    if proc.info.get('name') not in ('mod-tools.exe', LTK_PATCHER_HOST):
                         continue
                     
                     # Kill all mod-tools.exe processes regardless of command

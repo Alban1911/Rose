@@ -6,11 +6,13 @@ Handles CSLOL tools detection and validation
 """
 
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from utils.core.logging import get_logger
 
 log = get_logger()
+
+from .patcher import LTK_PATCHER_DLL, LTK_PATCHER_HOST
 
 
 class ToolsManager:
@@ -23,7 +25,9 @@ class ToolsManager:
         """Check if the runtime injection tool is present."""
         required_tools = [
             "mod-tools.exe",
-            "cslol-dll.dll",
+            "cslol-dll.dll",  # Rose's stand-in; mod-tools.exe will not start without it
+            LTK_PATCHER_HOST,
+            LTK_PATCHER_DLL,
         ]
         missing_tools = []
         for tool in required_tools:
@@ -32,8 +36,7 @@ class ToolsManager:
         
         if missing_tools:
             log.warning(f"Missing runtime injection dependencies: {missing_tools}")
-            log.warning("Please place mod-tools.exe in injection/tools/")
-            log.warning("Download from: https://github.com/CommunityDragon/CDTB")
+            log.warning("Please place the missing files in injection/tools/")
             return False
         
         return True
@@ -47,4 +50,15 @@ class ToolsManager:
             if not exe.exists():
                 log.error(f"[INJECTOR] Missing tool: {exe}")
         return tools
+
+    def detect_ltk_patcher(self) -> Optional[Path]:
+        """Return the LTK patcher host if it is installed next to its hook DLL.
+
+        The LTK Manager patcher (ltk_patcher_host.exe + ltk_patcher_dll.dll)
+        serves the overlay built by mkoverlay. Users provide their own copy.
+        """
+        host = self.tools_dir / LTK_PATCHER_HOST
+        if host.exists() and (self.tools_dir / LTK_PATCHER_DLL).exists():
+            return host
+        return None
 

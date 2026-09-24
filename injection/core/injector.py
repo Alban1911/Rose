@@ -296,10 +296,6 @@ class SkinInjector:
             log.error(f"[INJECT] Test injection failed: {e}")
             return False
     
-    def _run_overlay_from_path(self, overlay_path: Path) -> bool:
-        """Run overlay from an overlay directory"""
-        return self.overlay_manager.run_overlay_from_path(overlay_path)
-    
     def clean_system(self) -> bool:
         """Clean the injection system"""
         try:
@@ -329,3 +325,7 @@ class SkinInjector:
     def kill_all_modtools_processes(self):
         """Kill all mod-tools.exe processes (for application shutdown)"""
         self.process_manager.kill_all_modtools_processes()
+
+    def stop_injection_by_user(self):
+        """Stop the running injection at the user's request"""
+        self.process_manager.stop_injection_by_user()

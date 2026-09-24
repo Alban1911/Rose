@@ -23,7 +23,9 @@ PERSISTENT_ROOT_FILES = ("icon.ico", "unins000.exe", "unins000.dat")
 # User-provided files that should survive updates (relative to install dir)
 # In frozen builds, files are under _internal/
 PERSISTENT_USER_FILES = (
-    "_internal/injection/tools/cslol-dll.dll",  # User must provide their own DLL due to DMCA
+    # User-provided LTK patcher, not redistributed with Rose
+    "_internal/injection/tools/ltk_patcher_host.exe",
+    "_internal/injection/tools/ltk_patcher_dll.dll",
 )
 
 # Standalone updater executable name
@@ -150,7 +152,7 @@ class UpdateInstaller:
                 batch.write('echo [%date% %time%] Update start > "%LOG%"\n')
                 batch.write("ping 127.0.0.1 -n 4 >nul\n")
                 batch.write('echo [%date% %time%] Mirroring files >> "%LOG%"\n')
-                batch.write('robocopy "%SOURCE%" "%DEST%" /MIR /NFL /NDL /NJH /NJS /XD __pycache__ "Pengu Loader\\plugins" /XF config.ini cslol-dll.dll hashes.game.txt >> "%LOG%" 2>&1\n')
+                batch.write('robocopy "%SOURCE%" "%DEST%" /MIR /NFL /NDL /NJH /NJS /XD __pycache__ "Pengu Loader\\plugins" /XF config.ini ltk_patcher_host.exe ltk_patcher_dll.dll hashes.game.txt >> "%LOG%" 2>&1\n')
                 batch.write("if %ERRORLEVEL% GEQ 8 goto :robofail\n")
                 batch.write('echo [%date% %time%] Updating ROSE plugins (preserving user-installed) >> "%LOG%"\n')
                 batch.write('if exist "%SOURCE%\\Pengu Loader\\plugins" (\n')

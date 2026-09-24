@@ -198,6 +198,12 @@ class Broadcaster:
         selected_custom_mod = getattr(self.shared_state, 'selected_custom_mod', None)
         active = selected_custom_mod is not None
         mod_name = selected_custom_mod.get("mod_name") if selected_custom_mod else None
+        raw_display_name = selected_custom_mod.get("display_name") if selected_custom_mod else None
+        display_name = (
+            raw_display_name.strip()
+            if isinstance(raw_display_name, str) and raw_display_name.strip()
+            else None
+        )
         skin_id = selected_custom_mod.get("skin_id") if selected_custom_mod else None
         champion_id = selected_custom_mod.get("champion_id") if selected_custom_mod else None
         relative_path = selected_custom_mod.get("relative_path") if selected_custom_mod else None
@@ -210,6 +216,7 @@ class Broadcaster:
             "type": "custom-mod-state",
             "active": active,
             "modName": mod_name,
+            "displayName": display_name,
             "skinId": skin_id,
             "championId": champion_id,
             "relativePath": relative_path,
