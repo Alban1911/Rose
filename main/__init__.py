@@ -48,7 +48,7 @@ LTK_MANAGER_FOLDER = r"%LOCALAPPDATA%\LTK Manager"
 def _dll_dialog_text(reason: str, detail: str = ""):
     """Return (title, status_title, status_body, steps) for an LTK patcher problem."""
     source = (
-        "Install LTK Manager from github.com/LeagueToolkit/ltk-manager/releases.\n"
+        "Install LTK Manager from https://github.com/LeagueToolkit/ltk-manager/releases/latest\n"
         f"   Both files are in its install folder (default: {LTK_MANAGER_FOLDER})"
     )
     if reason == "expired":

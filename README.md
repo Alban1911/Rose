@@ -90,7 +90,7 @@ Rose injects skins with the patcher from LTK Manager: `ltk_patcher_host.exe` wai
 
 **Setup (one time)**
 
-1. Download the latest `LTK.Manager_x.y.z_x64-setup.exe` from the [LTK Manager releases](https://github.com/LeagueToolkit/ltk-manager/releases/latest) and install it. When the installer offers to run LTK Manager, let it: on first launch it looks for your League folder (pick it yourself if it can't find it). You don't need to use LTK Manager for anything else.
+1. Download the latest `LTK.Manager_x.y.z_x64-setup.exe` from **https://github.com/LeagueToolkit/ltk-manager/releases/latest** (under *Assets*) and install it. When the installer offers to run LTK Manager, let it: on first launch it looks for your League folder (pick it yourself if it can't find it). You don't need to use LTK Manager for anything else.
 2. Open LTK Manager's install folder. By default it is `C:\Users\<your Windows user>\AppData\Local\LTK Manager` (if you picked another folder in the installer, use that one). `AppData` is hidden, so the easiest way is: press `Win` + `R`, paste `%LOCALAPPDATA%\LTK Manager` and press Enter; pasting it into File Explorer's address bar works too.
 3. Copy `ltk_patcher_host.exe` and `ltk_patcher_dll.dll` from there.
 4. Paste them into Rose's tools folder, `C:\Program Files\Rose\_internal\injection\tools` (Windows asks for administrator permission). The **Open tools folder** button in Rose's "Missing Patcher" window opens it for you.
