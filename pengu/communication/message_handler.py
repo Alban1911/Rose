@@ -760,6 +760,18 @@ class MessageHandler:
                         'text': 'Low Disk Space -> free up space',
                     }
 
+                # Category: LTK patcher (user-provided injection binaries)
+                if 'ltk patcher' in ml:
+                    if 'end of life' in ml:
+                        return {'code': 'LTK_PATCHER_EOL', 'text': 'LTK patcher outdated -> update'}
+                    if 'missing' in ml:
+                        return {'code': 'LTK_PATCHER_MISSING', 'text': 'LTK patcher missing -> add files'}
+                    return {
+                        'code': 'LTK_PATCHER_FAILED',
+                        'text': 'LTK patcher error',
+                        'detail': msg.split('LTK patcher error:', 1)[-1].strip(),
+                    }
+
                 # Fallback: keep it short
                 short = msg.strip()
                 if len(short) > 60:

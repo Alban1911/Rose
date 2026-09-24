@@ -18,7 +18,7 @@ except ImportError:
     psutil = None
 
 from utils.core.logging import get_logger
-from ..tools.tools_manager import LTK_PATCHER_HOST
+from ..tools.patcher import LTK_PATCHER_HOST
 from config import (
     PROCESS_TERMINATE_TIMEOUT_S,
     PROCESS_TERMINATE_WAIT_S,

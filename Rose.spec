@@ -32,13 +32,15 @@ else:
 import os
 
 # Binary files (executables and DLLs) - these go in binaries, not datas
-# NOTE: cslol-dll.dll is NOT included - users must provide their own due to DMCA
+# NOTE: the LTK patcher (ltk_patcher_host.exe + ltk_patcher_dll.dll) is NOT included - users provide their own
 injection_binaries = [
     'injection/tools/mod-tools.exe',
+    'injection/tools/cslol-dll.dll',  # Rose's stand-in, built from native/cslol_stub
 ]
 # Data files (text files, etc.)
 injection_data_files = [
     'injection/tools/hashes.game.txt',
+    'injection/tools/cslol-dll.stub',  # Copy of the stand-in; the pre-1.2.15 updater skips cslol-dll.dll
 ]
 # Verify and add injection binaries
 binaries = []
@@ -380,10 +382,10 @@ excludes = [
     'relay_server',
 ]
 
-# Filter out cslol-dll.dll from binaries (users must provide their own due to DMCA)
+# Filter out user-provided patcher binaries (not redistributed with Rose)
 def filter_binaries(binaries_list):
     return [(name, path, typ) for name, path, typ in binaries_list
-            if 'cslol-dll' not in name.lower()]
+            if 'ltk_patcher' not in name.lower()]
 
 a = Analysis(
     ['main.py'],
@@ -401,7 +403,7 @@ a = Analysis(
     noarchive=False,
 )
 
-# Remove cslol-dll.dll if PyInstaller auto-detected it
+# Remove user-provided patcher binaries if PyInstaller auto-detected them
 a.binaries = filter_binaries(a.binaries)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)

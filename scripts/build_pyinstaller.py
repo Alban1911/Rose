@@ -78,6 +78,17 @@ def build_pengu_loader():
     return True
 
 
+def build_cslol_stub():
+    """Build the stand-in cslol-dll.dll that mod-tools.exe needs to start."""
+    script = ROOT / "scripts" / "build_cslol_stub.py"
+    result = subprocess.run([sys.executable, str(script)], check=False, cwd=ROOT)
+    if result.returncode != 0:
+        print(f"[ERROR] cslol-dll stub build failed with exit code {result.returncode}")
+        return False
+
+    return True
+
+
 def build_with_pyinstaller():
     """Build executable using PyInstaller with multi-threading"""
     print_step(3, 4, "Building with PyInstaller (Multi-threaded)")
@@ -125,6 +136,9 @@ def main():
         sys.exit(1)
 
     if not build_pengu_loader():
+        sys.exit(1)
+
+    if not build_cslol_stub():
         sys.exit(1)
     
     if not build_with_pyinstaller():

@@ -285,10 +285,6 @@ class SkinInjector:
             log.error(f"[INJECT] Test injection failed: {e}")
             return False
     
-    def _run_overlay_from_path(self, overlay_path: Path) -> bool:
-        """Run overlay from an overlay directory"""
-        return self.overlay_manager.run_overlay_from_path(overlay_path)
-    
     def clean_system(self) -> bool:
         """Clean the injection system"""
         try:

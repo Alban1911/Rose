@@ -174,7 +174,6 @@ GAME_RESUME_MAX_ATTEMPTS = 3                # Max attempts to resume game (handl
 
 # Game delay strategies
 ENABLE_MKOVERLAY_PRIORITY_BOOST = True   # Boost short-lived mkoverlay process priority during injection setup
-ENABLE_RUNOVERLAY_PRIORITY_BOOST = False  # Runoverlay runs for the entire game session; boosting its priority would compete with the game for CPU and cause perf decrease
 ENABLE_GAME_SUSPENSION = True            # Suspend game process during injection (RISKY - may trigger anti-cheat)
 
 

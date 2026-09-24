@@ -28,6 +28,9 @@ _ALLOWED_CODES = {
     'BASE_SKIN_FORCE_SLOW',   # Suggest increasing Injection Threshold
     'BASE_SKIN_VERIFY_FAILED',  # Base skin verification mismatch (often causes skin not to show)
     'LOW_DISK_SPACE',         # Injection could not build an overlay with available disk space
+    'LTK_PATCHER_MISSING',    # User-provided LTK patcher files are missing
+    'LTK_PATCHER_EOL',        # LTK patcher DLL no longer supports the current game build
+    'LTK_PATCHER_FAILED',     # LTK patcher host/DLL reported an error
 }
 
 

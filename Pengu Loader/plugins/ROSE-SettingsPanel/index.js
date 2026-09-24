@@ -3691,6 +3691,37 @@
           };
         }
 
+        if (code === 'LTK_PATCHER_EOL') {
+          return {
+            title: 'LTK patcher is outdated (end of life reached)',
+            details: [
+              'What it means: your ltk_patcher_dll.dll no longer supports the current game build, so skins cannot be injected.',
+              "Fix: update LTK Manager, copy its new ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder, then restart Rose.",
+            ],
+          };
+        }
+
+        if (code === 'LTK_PATCHER_MISSING') {
+          return {
+            title: 'LTK patcher files are missing',
+            details: [
+              'What it means: Rose needs ltk_patcher_host.exe and ltk_patcher_dll.dll to inject skins.',
+              "Fix: copy both files from your LTK Manager install into Rose's tools folder, then restart Rose.",
+            ],
+          };
+        }
+
+        if (code === 'LTK_PATCHER_FAILED') {
+          const detail = String(e?.detail || '').trim();
+          return {
+            title: 'LTK patcher failed during injection',
+            details: [
+              detail ? `What happened: ${detail}` : 'What happened: the LTK patcher reported an error.',
+              'Fix: make sure your LTK patcher files are up to date, then retry. Full output is in rose_runoverlay_*.log in the Rose logs folder.',
+            ],
+          };
+        }
+
         // Fallback: show raw error text as-is.
         return {
           title: raw || "(unknown error)",
