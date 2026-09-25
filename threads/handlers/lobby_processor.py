@@ -8,7 +8,7 @@ Processes lobby state and detects Swiftplay mode
 import logging
 import time
 from lcu import LCU
-from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_ID
+from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_ID, SWIFTPLAY_QUEUE_IDS
 from state import SharedState
 from utils.core.logging import get_logger, log_action
 
@@ -72,18 +72,18 @@ class LobbyProcessor:
         is_swiftplay = False
         if detected_mode and isinstance(detected_mode, str) and detected_mode.upper() in SWIFTPLAY_MODES:
             is_swiftplay = True
-        # Queue ID 480 fallback - reliable Swiftplay indicator even when game_mode is missing
-        elif detected_queue == SWIFTPLAY_QUEUE_ID:
+        # Queue ID fallback - reliable Swiftplay / Quickplay indicator even when game_mode is missing/CLASSIC
+        elif detected_queue in SWIFTPLAY_QUEUE_IDS or detected_queue == SWIFTPLAY_QUEUE_ID:
             is_swiftplay = True
-            log.debug(f"[phase] lobby: Swiftplay via queue 480 fallback (detected_mode={detected_mode})")
+            log.debug(f"[phase] lobby: Swiftplay via queue {detected_queue} fallback (detected_mode={detected_mode})")
             if not detected_mode:
                 detected_mode = "SWIFTPLAY"
         # Stored queue ID fallback: only trust if we were already in Swiftplay mode
         # (prevents stale queue ID from a previous session from triggering false detection)
-        elif detected_queue is None and self.state.current_queue_id == SWIFTPLAY_QUEUE_ID and self.state.is_swiftplay_mode:
+        elif detected_queue is None and (self.state.current_queue_id in SWIFTPLAY_QUEUE_IDS or self.state.current_queue_id == SWIFTPLAY_QUEUE_ID) and self.state.is_swiftplay_mode:
             is_swiftplay = True
-            detected_queue = 480
-            log.debug("[phase] lobby: Swiftplay via stored queue 480 fallback (already in swiftplay mode)")
+            detected_queue = self.state.current_queue_id or SWIFTPLAY_QUEUE_ID
+            log.debug(f"[phase] lobby: Swiftplay via stored queue {detected_queue} fallback (already in swiftplay mode)")
             if not detected_mode:
                 detected_mode = "SWIFTPLAY"
         elif detected_mode is None and self.lcu.ok and self.lcu.is_swiftplay:

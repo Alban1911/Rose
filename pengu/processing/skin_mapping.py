@@ -38,8 +38,16 @@ class SkinMapping:
         """
         language = getattr(self.shared_state, "current_language", None)
         if not language:
-            log.warning("[SkinMonitor] No language detected; cannot load mapping")
-            return False
+            # Fallback: attempt to read from LCU if available
+            lcu = getattr(self.shared_state, "lcu", None)
+            if lcu and hasattr(lcu, "client_language"):
+                raw_lang = lcu.client_language
+                if raw_lang:
+                    language = raw_lang.split('_')[0] if '_' in raw_lang else raw_lang
+                    self.shared_state.current_language = language
+            if not language:
+                log.warning("[SkinMonitor] No language detected; cannot load mapping")
+                return False
         
         mapping_path = (
             get_user_data_dir()

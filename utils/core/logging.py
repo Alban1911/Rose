@@ -12,13 +12,12 @@ import sys
 import threading
 import time
 from datetime import datetime
+import ast
 from pathlib import Path
 from typing import Dict
 
 # Third-party imports
 import logging
-import urllib3
-from urllib3.exceptions import InsecureRequestWarning
 
 # Local imports
 from config import (
@@ -48,6 +47,179 @@ _NAMED_LOGGERS: Dict[str, logging.Logger] = {}
 def get_log_mode() -> str:
     """Get the current logging mode"""
     return _CURRENT_LOG_MODE
+
+
+# ANSI color codes for terminal formatting
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+
+# Standard colors
+GRAY = "\033[90m"
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+MAGENTA = "\033[95m"
+CYAN = "\033[96m"
+WHITE = "\033[97m"
+
+# Level colors
+LEVEL_COLORS = {
+    "TRACE": DIM + MAGENTA,
+    "DEBUG": BLUE,
+    "INFO": GREEN,
+    "WARNING": BOLD + YELLOW,
+    "ERROR": BOLD + RED,
+    "CRITICAL": "\033[41m\033[97m" + BOLD,  # Red background, white text
+}
+
+# Module tag colors (mapped by prefix in brackets)
+TAG_COLORS = {
+    "[LCU": CYAN,
+    "[LCU-SCRAPER": CYAN,
+    "[SkinMonitor": MAGENTA,
+    "[WS": MAGENTA,
+    "[WebSocket": MAGENTA,
+    "[phase": BLUE,
+    "[Swiftplay": BLUE,
+    "[INJECT": GREEN,
+    "[EXTRACT": GREEN,
+    "[monitor": YELLOW,
+    "[MAIN": WHITE + BOLD,
+    "[UI": WHITE + BOLD,
+    "[CHROMA": MAGENTA,
+    "[FormsWheel": MAGENTA,
+    "[LU-ChromaWheel": MAGENTA,
+    "[LU-RandomSkin": YELLOW,
+    "[LU-HistoricMode": CYAN,
+    "[loadout": YELLOW,
+    "[UTILITIES": DIM + WHITE,
+}
+
+
+class _ColoredConsoleFormatter(logging.Formatter):
+    """Format console output with ANSI colors for levels, modules, and important states."""
+
+    def __init__(self, log_mode: str = "customer"):
+        super().__init__()
+        self.log_mode = log_mode
+
+    def format(self, record):
+        orig_levelname = record.levelname
+        orig_msg = record.getMessage()
+
+        # Format timestamp with dim gray
+        when_str = f"{GRAY}{time.strftime('%H:%M:%S', time.localtime())}{RESET}"
+        record._when = when_str
+
+        # Colored level name
+        lvl_color = LEVEL_COLORS.get(orig_levelname, WHITE)
+        colored_level = f"{lvl_color}{orig_levelname:<7}{RESET}"
+
+        # Colorize message content (modules & key states)
+        msg = orig_msg
+
+        # 1. Colorize bracketed module tags, e.g. [SkinMonitor], [INJECT], [LCU]
+        def _color_tag(match):
+            tag = match.group(0)
+            for prefix, col in TAG_COLORS.items():
+                if tag.startswith(prefix):
+                    return f"{BOLD}{col}{tag}{RESET}"
+            return f"{BOLD}{WHITE}{tag}{RESET}"
+
+        msg = re.sub(r"\[[a-zA-Z0-9_\-#]+\]", _color_tag, msg)
+
+        # 2. Highlight special state keywords
+        # Highlights for success/ready states
+        msg = re.sub(r"\b(READY|ACTIVE|Active|Started|started|initialized|successfully|Completed|completed)\b", rf"{BOLD}{GREEN}\1{RESET}", msg)
+        # Highlights for critical transitions and selections
+        msg = re.sub(r"\b(YOUR CHAMPION LOCKED|ROSE STARTING|APP STATUS)\b", rf"{BOLD}{YELLOW}\1{RESET}", msg)
+
+        # Highlight skin selections / tracking
+        msg = re.sub(r"(Skin detected:\s*)('([^']+)')", rf"\1{BOLD}{YELLOW}\2{RESET}", msg)
+        msg = re.sub(r"(Swiftplay skin\s*)('([^']+)')", rf"\1{BOLD}{YELLOW}\2{RESET}", msg)
+        msg = re.sub(r"(Showing skin:\s*)([^\(\n]+)", rf"\1{BOLD}{YELLOW}\2{RESET}", msg)
+        msg = re.sub(r"(base skin\s+)(\d+)", rf"\1{BOLD}{YELLOW}\2{RESET}", msg)
+
+        # Highlight chroma & form selections (Magenta / Pink tone for Chromas)
+        msg = re.sub(r"(Chroma selected:\s*)([^\(\n]+)", rf"\1{BOLD}{MAGENTA}\2{RESET}", msg)
+        msg = re.sub(r"(Form selected:\s*)([^\(\n]+)", rf"\1{BOLD}{MAGENTA}\2{RESET}", msg)
+        msg = re.sub(r"(HOL chroma selected:\s*)([^\(\n]+)", rf"\1{BOLD}{MAGENTA}\2{RESET}", msg)
+        msg = re.sub(r"(Preserving selected chroma\s+)(\d+)", rf"\1{BOLD}{MAGENTA}\2{RESET}", msg)
+        msg = re.sub(r"(selected chroma ID\s+)(\d+)", rf"\1{BOLD}{MAGENTA}\2{RESET}", msg)
+        msg = re.sub(r"(selected chroma:\s*)(\d+)", rf"\1{BOLD}{MAGENTA}\2{RESET}", msg)
+        msg = re.sub(r"(->\s*(?:Sett|Miss Fortune|Elementalist)?\s*form\s+)(\d+)", rf"\1{BOLD}{MAGENTA}\2{RESET}", msg)
+
+        # Highlight warnings and errors
+        msg = re.sub(r"\b(Ignored background|revert|timed out|ACCESS DENIED|Failed|failed|error|Error)\b", rf"{BOLD}{RED}\1{RESET}", msg)
+        # Highlight phases
+        msg = re.sub(r"\b(Phase:\s*\w+)", rf"{BOLD}{CYAN}\1{RESET}", msg)
+        msg = re.sub(r"(Phase transition:\s*)([^\(\n]+)", rf"\1{BOLD}{CYAN}\2{RESET}", msg)
+
+        # Format dictionary blocks & JSON payloads across clean, indented lines:
+        def _style_dict(match):
+            raw_content = match.group(0)
+            try:
+                # 1. Try python dict parsing
+                parsed = ast.literal_eval(raw_content)
+                if isinstance(parsed, dict) and len(parsed) > 1:
+                    indent = " " * 11
+                    lines = ["{"]
+                    for k, v in parsed.items():
+                        k_str = f"{DIM}{GRAY}'{k}'{RESET}"
+                        if isinstance(v, bool):
+                            v_str = f"{BOLD}{GREEN}True{RESET}" if v else f"{DIM}{RED}False{RESET}"
+                        elif v is None:
+                            v_str = f"{DIM}{WHITE}None{RESET}"
+                        elif isinstance(v, (int, float)):
+                            v_str = f"{CYAN}{v}{RESET}"
+                        else:
+                            # Strings: preserve quotes and color
+                            v_str = f"{WHITE}'{v}'{RESET}"
+                        lines.append(f"{indent}  {k_str}: {v_str},")
+                    lines.append(f"{indent}}}")
+                    return "\n".join(lines)
+            except Exception:
+                pass
+
+            # 2. Fallback regex parsing if raw literal eval fails
+            try:
+                pairs = re.findall(r"('[a-zA-Z0-9_\-]+')\s*:\s*([^,{}]+(?:\{[^{}]*\}|\[[^\[\]]*\])?(?:\s*,|\s*$|\s*(?=\})))", raw_content)
+                if pairs and len(pairs) > 1:
+                    indent = " " * 11
+                    lines = ["{"]
+                    for key, val in pairs:
+                        val_clean = val.strip().rstrip(",")
+                        k_str = f"{DIM}{GRAY}{key}{RESET}"
+                        v_str = re.sub(r"\b(True)\b", rf"{BOLD}{GREEN}\1{RESET}", val_clean)
+                        v_str = re.sub(r"\b(False)\b", rf"{DIM}{RED}\1{RESET}", v_str)
+                        v_str = re.sub(r"\b(None)\b", rf"{DIM}{WHITE}\1{RESET}", v_str)
+                        v_str = re.sub(r"\b(\d+)\b", rf"{CYAN}\1{RESET}", v_str)
+                        lines.append(f"{indent}  {k_str}: {v_str},")
+                    lines.append(f"{indent}}}")
+                    return "\n".join(lines)
+            except Exception:
+                pass
+
+            return raw_content
+
+        # Check if line contains a dictionary payload to format
+        try:
+            if "{" in msg and "}" in msg:
+                msg = re.sub(r"\{[^{}]+\}", _style_dict, msg)
+        except Exception:
+            pass
+
+        # Assemble final line based on mode
+        if self.log_mode == "customer":
+            return f"{when_str} {GRAY}|{RESET} {msg}"
+        elif self.log_mode == "verbose":
+            return f"{when_str} {GRAY}|{RESET} {colored_level} {GRAY}|{RESET} {msg}"
+        else:  # debug mode
+            name_str = f"{CYAN}{record.name:<15}{RESET}"
+            func_str = f"{DIM}{WHITE}{record.funcName:<20}{RESET}"
+            return f"{when_str} {GRAY}|{RESET} {colored_level} {GRAY}|{RESET} {name_str} {GRAY}|{RESET} {func_str} {GRAY}|{RESET} {msg}"
 
 
 class SizeRotatingCompositeHandler(logging.Handler):
@@ -179,6 +351,21 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
             sys.stderr.reconfigure(line_buffering=True)
         except (AttributeError, OSError):
             pass  # stderr doesn't support reconfigure or is redirected
+
+    # Enable Virtual Terminal Processing for ANSI colors on Windows (conhost / cmd.exe)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+            kernel32 = ctypes.windll.kernel32
+            for std_handle_id in (-11, -12):  # STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+                h = kernel32.GetStdHandle(std_handle_id)
+                if h and h != -1:
+                    mode = ctypes.c_ulong()
+                    if kernel32.GetConsoleMode(h, ctypes.byref(mode)):
+                        kernel32.SetConsoleMode(h, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+        except Exception:
+            pass
     
     # Create a queue-based non-blocking logging handler
     class QueueHandler(logging.Handler):
@@ -271,23 +458,7 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     # Create a safe stream handler
     safe_handler = SafeStreamHandler(output_stream)
     
-    # Set up formatter based on log mode
-    if log_mode == 'customer':
-        # Clean, minimal format for customer logs
-        fmt = "%(_when)s | %(message)s"
-    elif log_mode == 'verbose':
-        # Detailed format for developer logs
-        fmt = "%(_when)s | %(levelname)-7s | %(message)s"
-    else:  # debug mode
-        # Ultra-detailed format for debug logs
-        fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
-    
-    class _Fmt(logging.Formatter):
-        def format(self, record):
-            record._when = time.strftime("%H:%M:%S", time.localtime())
-            return super().format(record)
-    
-    safe_handler.setFormatter(_Fmt(fmt))
+    safe_handler.setFormatter(_ColoredConsoleFormatter(log_mode))
     
     # Wrap in queue handler to prevent blocking
     h = QueueHandler(safe_handler)
@@ -407,7 +578,13 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     logging.getLogger("requests").setLevel(logging.WARNING)
     
     # Disable SSL warnings for LCU (self-signed cert)
-    urllib3.disable_warnings(InsecureRequestWarning)
+    import warnings
+    warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+    try:
+        if 'urllib3' in sys.modules:
+            sys.modules['urllib3'].disable_warnings()
+    except Exception:
+        pass
     
 
 

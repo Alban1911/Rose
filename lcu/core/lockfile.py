@@ -16,8 +16,9 @@ from utils.core.logging import get_logger
 
 log = get_logger()
 
-SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
-SWIFTPLAY_QUEUE_ID = 480
+SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL", "QUICKPLAY"}
+SWIFTPLAY_QUEUE_IDS = {480, 490}  # 480: Swiftplay/Brawl, 490: Quickplay (Normal)
+SWIFTPLAY_QUEUE_ID = 490          # Default Quickplay queue ID
 
 
 @dataclass

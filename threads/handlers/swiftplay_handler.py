@@ -11,8 +11,9 @@ import time
 from typing import Optional
 
 from lcu import LCU
-from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_ID
+from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_ID, SWIFTPLAY_QUEUE_IDS
 from state import SharedState
+from utils.core.historic import get_historic_skin_for_champion, write_historic_entry
 from utils.core.logging import get_logger, log_action
 
 log = get_logger()
@@ -45,7 +46,7 @@ class SwiftplayHandler:
         self._injection_triggered = False
         self._overlay_done = False  # Set True after overlay completes successfully
         self._last_matchmaking_state = None
-        self._swiftplay_champ_check_interval = 0.5
+        self._swiftplay_champ_check_interval = 2.0
         self._last_swiftplay_champ_check = 0.0
         self._overlay_lock = threading.Lock()
         self._last_detect_result: tuple[Optional[str], Optional[int]] = (None, None)
@@ -108,8 +109,8 @@ class SwiftplayHandler:
                     log.debug(f"[phase] Error checking {endpoint}: {e}")
                     continue
 
-            # Queue ID 480 fallback when game_mode is None/unknown
-            if queue_id == SWIFTPLAY_QUEUE_ID and (not game_mode or game_mode.upper() not in SWIFTPLAY_MODES):
+            # Queue ID (480 / 490) fallback when game_mode is None/unknown/CLASSIC
+            if (queue_id in SWIFTPLAY_QUEUE_IDS or queue_id == SWIFTPLAY_QUEUE_ID) and (not game_mode or game_mode.upper() not in SWIFTPLAY_MODES):
                 game_mode = "SWIFTPLAY"
 
             result = (game_mode, queue_id)
@@ -168,6 +169,7 @@ class SwiftplayHandler:
             
             # Check for champion selection in lobby
             self._check_swiftplay_champion_selection()
+            self._sync_tracking_with_lobby()
             
             # Clean up any existing ClickCatchers for Swiftplay mode
             self._cleanup_click_catchers_for_swiftplay()
@@ -291,28 +293,38 @@ class SwiftplayHandler:
             log.debug(f"[phase] Error polling Swiftplay champion selection: {e}")
 
     def _sync_tracking_with_lobby(self):
-        """Remove tracked skins for champions no longer in lobby slots."""
-        if not self.state.swiftplay_skin_tracking:
-            return
-
+        """Sync tracking dict with active lobby slots, loading historic skins for newly seen champions."""
         try:
-            # Skip the API call if tracking keys match the last known lobby state
-            tracking_keys = frozenset(self.state.swiftplay_skin_tracking)
-            if self._last_sync_active_ids is not None and tracking_keys.issubset(self._last_sync_active_ids):
-                return
-
             active_ids = self._get_active_lobby_champion_ids()
             if not active_ids:
                 return
 
-            self._last_sync_active_ids = frozenset(active_ids)
+            frozen_ids = frozenset(active_ids)
+            if frozen_ids == self._last_sync_active_ids:
+                return
+
+            self._last_sync_active_ids = frozen_ids
 
             with self.state.swiftplay_lock:
+                # Remove stale champions no longer in slots
                 stale = set(self.state.swiftplay_skin_tracking) - active_ids
                 if stale:
                     for cid in stale:
                         self.state.swiftplay_skin_tracking.pop(cid, None)
+                        self._user_changed_since_inject.discard(cid)
                     log.info(f"[phase] Champion swap detected - removed {stale} from skin tracking")
+
+                # Auto-populate historic skin for active champions not yet explicitly tracked/changed
+                for cid in active_ids:
+                    if cid not in self.state.swiftplay_skin_tracking and cid not in self._user_changed_since_inject:
+                        hist_skin = get_historic_skin_for_champion(cid)
+                        if hist_skin is not None:
+                            try:
+                                skin_val = int(hist_skin)
+                                self.state.swiftplay_skin_tracking[cid] = skin_val
+                                log.info(f"[HISTORIC] Swiftplay: Auto-loaded historic skin {skin_val} for champion {cid}")
+                            except (ValueError, TypeError):
+                                pass
         except Exception as e:
             log.debug(f"[phase] Error syncing tracking with lobby: {e}")
     
@@ -484,7 +496,7 @@ class SwiftplayHandler:
                 total_skins = len(filtered_tracking)
                 log.info(f"[phase] Will inject {total_skins} skin(s) from tracking dictionary")
 
-                from utils.core.utilities import is_base_skin
+                from utils.core.utilities import is_base_skin, get_base_skin_id_for_chroma
                 from pathlib import Path
                 import zipfile
                 import shutil
@@ -529,9 +541,29 @@ class SwiftplayHandler:
                             log.warning(f"[phase] Skin ZIP not found: {injection_name}")
                             continue
 
+                        # If this is a chroma/form, also extract its parent base skin if not already extracted,
+                        # so that base textures and skeleton are present in the overlay
+                        if not is_base:
+                            parent_base_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
+                            if parent_base_id and parent_base_id != skin_id:
+                                parent_name = f"skin_{parent_base_id}"
+                                parent_zip = self.injection_manager.injector._resolve_zip(
+                                    parent_name,
+                                    chroma_id=None,
+                                    skin_name=parent_name,
+                                    champion_name=None,
+                                    champion_id=champion_id
+                                )
+                                if parent_zip and parent_zip.exists():
+                                    parent_folder = self.injection_manager.injector._extract_zip_to_mod(parent_zip)
+                                    if parent_folder and parent_folder.name not in extracted_mods:
+                                        extracted_mods.append(parent_folder.name)
+                                        log.info(f"[phase] Extracted base skin {parent_name} for chroma {skin_id}")
+
                         mod_folder = self.injection_manager.injector._extract_zip_to_mod(zip_path)
                         if mod_folder:
-                            extracted_mods.append(mod_folder.name)
+                            if mod_folder.name not in extracted_mods:
+                                extracted_mods.append(mod_folder.name)
                             log.info(f"[phase] Extracted {injection_name} to mods directory")
                     except Exception as e:
                         log.error(f"[phase] Error extracting skin {skin_id}: {e}")
@@ -597,6 +629,14 @@ class SwiftplayHandler:
                     if result == 0:
                         log.info(f"[phase] Successfully injected {len(extracted_mods)} skin(s) for Swiftplay")
                         self._overlay_done = True
+                        # Persist injected skins into historic.json so future matches remember them
+                        try:
+                            for cid, skin_id in self._last_injected_tracking.items():
+                                if cid and skin_id:
+                                    write_historic_entry(int(cid), int(skin_id))
+                                    log.info(f"[HISTORIC] Stored last injected ID {skin_id} for champion {cid} (Swiftplay)")
+                        except Exception as e:
+                            log.debug(f"[HISTORIC] Failed to store historic entry for Swiftplay: {e}")
                     else:
                         log.warning(f"[phase] Injection completed with non-zero exit code: {result}")
                 except Exception as e:

@@ -34,6 +34,8 @@ class SkinProcessor:
         self.skin_scraper = skin_scraper
         self.skin_mapping = skin_mapping
         self.last_skin_name: Optional[str] = None
+        self.swiftplay_active_champion_id: Optional[int] = None
+        self.swiftplay_last_champ_switch_time: float = 0.0
     
     def process_skin_name(self, skin_name: str, broadcaster=None) -> None:
         """Process a skin name and update shared state
@@ -87,7 +89,31 @@ class SkinProcessor:
             )
             return
 
+        now = time.monotonic()
         with self.shared_state.swiftplay_lock:
+            existing_skin = self.shared_state.swiftplay_skin_tracking.get(champion_id)
+            # Protect against background drawer-close reverts:
+            # If the user recently switched to a different champion B, do not let an incoming
+            # background revert for champion A overwrite champion A's explicitly selected skin.
+            if (
+                self.swiftplay_active_champion_id is not None
+                and champion_id != self.swiftplay_active_champion_id
+                and (now - self.swiftplay_last_champ_switch_time) < 2.5
+                and existing_skin is not None
+                and existing_skin != skin_id
+            ):
+                log.info(
+                    "[SkinMonitor] Swiftplay: Ignored background drawer revert for champion %s ('%s'), keeping selected skin %s",
+                    champion_id,
+                    skin_name,
+                    existing_skin,
+                )
+                return
+
+            if self.swiftplay_active_champion_id != champion_id:
+                self.swiftplay_active_champion_id = champion_id
+                self.swiftplay_last_champ_switch_time = now
+
             self.shared_state.swiftplay_skin_tracking[champion_id] = skin_id
             tracking_snapshot = dict(self.shared_state.swiftplay_skin_tracking)
         self.shared_state.ui_skin_id = skin_id
