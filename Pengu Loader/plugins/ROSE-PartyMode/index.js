@@ -27,6 +27,7 @@
   // Party state
   let partyState = {
     enabled: false,
+    connection: "offline",
     my_token: null,
     my_summoner_id: null,
     my_summoner_name: "Unknown",
@@ -202,6 +203,7 @@
 
     .party-status.offline { color: #5b5a56; }
     .party-status.online  { color: #0acbe6; }
+    .party-status.reconnecting { color: #c8aa6e; }
 
     /* Body — matches .lol-friend-finder-modal .modal-body */
     .party-content {
@@ -683,12 +685,13 @@
         <span class="party-status offline">Offline</span>
       </div>
       <div class="party-content">
-        <div class="party-description">Share your skins with friends in the same lobby. Enable party mode and exchange tokens to connect.</div>
+        <div class="party-description">Share your skins with friends in the same game. Send your token to your friends or paste theirs: everyone linked to the party sees each other.</div>
 
         <div class="party-section" id="party-toggle-section">
           <button class="party-toggle-btn enable" id="party-toggle-btn">
             Enable Party Mode
           </button>
+          <div id="party-toggle-message"></div>
         </div>
 
         <div class="party-section" id="party-token-section" style="display: none;">
@@ -749,6 +752,8 @@
     isVisible = !isVisible;
     partyPanel.classList.toggle("visible", isVisible);
     updatePanelState();
+    // Refresh state (and the token's timestamp) whenever the panel opens
+    if (isVisible) sendBridgeMessage({ type: "party-get-state" });
   }
 
   function updateButtonState() {
@@ -768,8 +773,13 @@
     const peersList = document.getElementById("peers-list");
 
     if (partyState.enabled) {
-      statusEl.className = "party-status online";
-      statusEl.textContent = "Online";
+      if (partyState.connection === "reconnecting") {
+        statusEl.className = "party-status reconnecting";
+        statusEl.textContent = "Reconnecting...";
+      } else {
+        statusEl.className = "party-status online";
+        statusEl.textContent = "Online";
+      }
 
       toggleBtn.className = "party-toggle-btn disable";
       toggleBtn.textContent = "Disable Party Mode";
@@ -798,11 +808,9 @@
               ? "Waiting for your friend"
               : cs === "connected"
                 ? (peer.in_lobby ? "In lobby" : "Connected")
-                : cs === "handshaking"
-                  ? "Handshaking"
-                  : cs === "connecting"
-                    ? "Connecting"
-                    : "Disconnected";
+                : cs === "reconnecting"
+                  ? "Reconnecting..."
+                  : "Disconnected";
             const displayName = isWaiting ? "Friend" : escapeHtml(peer.summoner_name);
             const lobbyStatus = peer.in_lobby ? "in-lobby" : "";
             const skinInfo = peer.skin_selection
@@ -817,7 +825,7 @@
                 ${escapeHtml(statusText)}</span>
                 ${skinInfo ? `<span class="peer-skin">${skinInfo}</span>` : ""}
               </div>
-              <button class="peer-remove" title="Remove" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
+              <button class="peer-remove" title="Remove from your party" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                 </svg>
@@ -913,6 +921,7 @@
       case "party-state":
         partyState = {
           enabled: data.enabled || false,
+          connection: data.connection || "offline",
           my_token: data.my_token || null,
           my_summoner_id: data.my_summoner_id || null,
           my_summoner_name: data.my_summoner_name || "Unknown",
@@ -924,16 +933,19 @@
 
       case "party-enabled":
         const toggleBtn = document.getElementById("party-toggle-btn");
-        toggleBtn.disabled = false;
+        if (toggleBtn) toggleBtn.disabled = false;
+        // Shown under the toggle: the add-friend section is hidden while disabled
+        const toggleMessageEl = document.getElementById("party-toggle-message");
 
         if (data.success) {
           partyState.enabled = true;
+          partyState.connection = "online";
           partyState.my_token = data.token;
+          if (toggleMessageEl) toggleMessageEl.innerHTML = "";
           console.log(`${LOG_PREFIX} Party mode enabled`);
         } else {
-          const messageEl = document.getElementById("add-peer-message");
-          if (messageEl) {
-            messageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to enable")}</div>`;
+          if (toggleMessageEl) {
+            toggleMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to enable")}</div>`;
           }
           console.error(`${LOG_PREFIX} Failed to enable:`, data.error);
         }
@@ -946,6 +958,7 @@
         if (toggleBtnDisable) toggleBtnDisable.disabled = false;
 
         partyState.enabled = false;
+        partyState.connection = "offline";
         partyState.my_token = null;
         partyState.peers = [];
         console.log(`${LOG_PREFIX} Party mode disabled`);
@@ -972,10 +985,10 @@
         if (data.success) {
           if (addMessageEl) {
             addMessageEl.innerHTML =
-              '<div class="success-msg">Friend connected!</div>';
+              `<div class="success-msg">${escapeHtml(data.message || "Friend connected!")}</div>`;
             setTimeout(() => {
               addMessageEl.innerHTML = "";
-            }, 3000);
+            }, 6000);
           }
         } else {
           if (addMessageEl) {
