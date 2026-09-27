@@ -7,7 +7,7 @@ Handles game process monitoring, suspension, and resumption
 
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 # Import psutil with fallback for development environments
 try:
@@ -36,6 +36,30 @@ from utils.core.logging import get_logger, log_section, log_event, log_success
 from utils.core.issue_reporter import report_issue
 
 log = get_logger()
+
+
+def make_game_ended_callback(state) -> Callable[[], bool]:
+    """Stop callback for an injection: True once the game it was made for is over.
+
+    The LTK patcher keeps running through reconnects, so every injection must
+    pass one: without it the patcher runs until a later cleanup kills it.
+
+    Args:
+        state: Shared application state (its phase is polled)
+    """
+    has_been_in_progress = False
+
+    def game_ended_callback() -> bool:
+        nonlocal has_been_in_progress
+        phase = state.phase
+        if phase == "InProgress":
+            has_been_in_progress = True
+            return False
+        if phase in ("Reconnect", "GameStart"):
+            return False
+        return has_been_in_progress
+
+    return game_ended_callback
 
 
 class GameMonitor:

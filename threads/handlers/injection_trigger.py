@@ -19,6 +19,7 @@ from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
 from utils.core.utilities import is_default_skin
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
+from injection.game.game_monitor import make_game_ended_callback
 
 log = get_logger()
 
@@ -777,6 +778,7 @@ class InjectionTrigger:
                 if self.injection_manager:
                     self.injection_manager.inject_skin_immediately(
                         name,
+                        stop_callback=make_game_ended_callback(self.state),
                         champion_name=cname,
                         champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
                     )
@@ -794,6 +796,7 @@ class InjectionTrigger:
                 if self.injection_manager:
                     self.injection_manager.inject_skin_immediately(
                         name,
+                        stop_callback=make_game_ended_callback(self.state),
                         champion_name=cname,
                         champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
                     )
@@ -906,17 +909,7 @@ class InjectionTrigger:
                     self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
-            has_been_in_progress = False
-
-            def game_ended_callback():
-                nonlocal has_been_in_progress
-                phase = self.state.phase
-                if phase == "InProgress":
-                    has_been_in_progress = True
-                    return False
-                if phase in ("Reconnect", "GameStart"):
-                    return False
-                return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
+            game_ended_callback = make_game_ended_callback(self.state)
             
             # Inject skin in a separate thread
             log.info(f"[INJECT] Starting injection: {name}")
@@ -1056,17 +1049,7 @@ class InjectionTrigger:
 
     def _inject_party_skins_only(self):
         """Inject only party members' skins (our own champion keeps its default skin)"""
-        has_been_in_progress = False
-
-        def game_ended_callback():
-            nonlocal has_been_in_progress
-            phase = self.state.phase
-            if phase == "InProgress":
-                has_been_in_progress = True
-                return False
-            if phase in ("Reconnect", "GameStart"):
-                return False
-            return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
+        game_ended_callback = make_game_ended_callback(self.state)
 
         def run_injection():
             try:
@@ -1505,17 +1488,7 @@ class InjectionTrigger:
                 self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
-            has_been_in_progress = False
-
-            def game_ended_callback():
-                nonlocal has_been_in_progress
-                phase = self.state.phase
-                if phase == "InProgress":
-                    has_been_in_progress = True
-                    return False
-                if phase in ("Reconnect", "GameStart"):
-                    return False
-                return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
+            game_ended_callback = make_game_ended_callback(self.state)
             
             # All mods are already extracted, create and run overlay with all mods
             result = injector.overlay_manager.mk_run_overlay(

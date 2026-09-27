@@ -10,6 +10,7 @@ import threading
 import time
 from typing import Optional
 
+from injection.game.game_monitor import make_game_ended_callback
 from lcu import LCU
 from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_ID
 from state import SharedState
@@ -544,6 +545,8 @@ class SwiftplayHandler:
 
                 # Store extracted mods for later injection
                 self.state.swiftplay_extracted_mods = extracted_mods
+                # New mods need a new overlay, even if the last game's flag is stale
+                self._overlay_done = False
                 self._last_injected_tracking = dict(filtered_tracking)
                 self._user_changed_since_inject.clear()
                 log.info(f"[phase] Extracted {len(extracted_mods)} skin(s) - will inject on GameStart: {', '.join(extracted_mods)}")
@@ -590,7 +593,7 @@ class SwiftplayHandler:
                     result = self.injection_manager.injector._mk_run_overlay(
                         extracted_mods,
                         timeout=60,
-                        stop_callback=None,
+                        stop_callback=make_game_ended_callback(self.state),
                         injection_manager=self.injection_manager
                     )
 
