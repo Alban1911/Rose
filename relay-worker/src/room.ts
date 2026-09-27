@@ -12,6 +12,7 @@ interface MemberInfo {
   summoner_id: number;
   summoner_name: string;
   skin?: SkinInfo;
+  joined_at?: number;
 }
 
 interface SkinInfo {
@@ -24,6 +25,9 @@ interface SkinInfo {
 
 export class PartyRoom extends DurableObject {
   private static MAX_MEMBERS = 10;
+  // Clients ping every 25s; a socket silent for longer is gone (PC asleep,
+  // network lost...) even though no close frame arrived
+  private static STALE_MS = 90_000;
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
@@ -33,8 +37,7 @@ export class PartyRoom extends DurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
-    const sockets = this.ctx.getWebSockets();
-    const active = sockets.filter(ws => ws.readyState === WebSocket.READY_STATE_OPEN);
+    const active = this.openSockets();
 
     if (active.length >= PartyRoom.MAX_MEMBERS) {
       return new Response('Room is full', { status: 409 });
@@ -69,8 +72,18 @@ export class PartyRoom extends DurableObject {
         const info: MemberInfo = {
           summoner_id: msg.summoner_id,
           summoner_name: msg.summoner_name || 'Unknown',
+          joined_at: Date.now(),
         };
         ws.serializeAttachment(info);
+        // A rejoin replaces the member's previous connection, which dropped
+        // without a close frame
+        for (const other of this.ctx.getWebSockets()) {
+          if (other === ws) continue;
+          const otherInfo = other.deserializeAttachment() as MemberInfo | null;
+          if (otherInfo?.summoner_id === info.summoner_id) {
+            this.closeSocket(other, 'replaced');
+          }
+        }
         this.broadcastMembers();
         break;
       }
@@ -92,8 +105,9 @@ export class PartyRoom extends DurableObject {
   }
 
   async webSocketClose(ws: WebSocket) {
-    // Clear the member info so getMembers() won't include them
-    ws.serializeAttachment(null);
+    // Clear the member info so getMembers() won't include them, and answer
+    // the close frame so the client isn't left waiting
+    this.closeSocket(ws, 'closed');
     this.broadcastMembers();
   }
 
@@ -102,14 +116,41 @@ export class PartyRoom extends DurableObject {
     this.broadcastMembers();
   }
 
+  private closeSocket(ws: WebSocket, reason: string) {
+    try {
+      ws.serializeAttachment(null);
+    } catch {}
+    try {
+      ws.close(1000, reason);
+    } catch {}
+  }
+
+  // Open sockets, closing the ones that stopped pinging
+  private openSockets(): WebSocket[] {
+    const now = Date.now();
+    const open: WebSocket[] = [];
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws.readyState !== WebSocket.READY_STATE_OPEN) continue;
+      const info = ws.deserializeAttachment() as MemberInfo | null;
+      const lastSeen =
+        this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? info?.joined_at ?? now;
+      if (now - lastSeen > PartyRoom.STALE_MS) {
+        this.closeSocket(ws, 'stale');
+        continue;
+      }
+      open.push(ws);
+    }
+    return open;
+  }
+
   private getMembers(): MemberInfo[] {
     const members: MemberInfo[] = [];
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       try {
-        if (ws.readyState !== WebSocket.READY_STATE_OPEN) continue;
         const info = ws.deserializeAttachment() as MemberInfo | null;
         if (info?.summoner_id) {
-          members.push(info);
+          const { joined_at, ...member } = info;
+          members.push(member);
         }
       } catch {}
     }
@@ -119,11 +160,9 @@ export class PartyRoom extends DurableObject {
   private broadcastMembers() {
     const members = this.getMembers();
     const payload = JSON.stringify({ type: 'members', members });
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       try {
-        if (ws.readyState === WebSocket.READY_STATE_OPEN) {
-          ws.send(payload);
-        }
+        ws.send(payload);
       } catch {}
     }
   }
