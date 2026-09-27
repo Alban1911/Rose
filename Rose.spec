@@ -302,8 +302,11 @@ hiddenimports = [
     'party.protocol.message_types',
     'party.protocol.token_codec',
     'party.discovery',
+    'party.discovery.custom_mods',
     'party.discovery.lobby_matcher',
     'party.discovery.skin_collector',
+    'party.integration',
+    'party.integration.injection_hook',
     
     # System tray
     'pystray',
