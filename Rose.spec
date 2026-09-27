@@ -295,6 +295,7 @@ hiddenimports = [
     'party.core',
     'party.core.party_manager',
     'party.core.party_state',
+    'party.core.party_storage',
     'party.network',
     'party.network.peer_connection',
     'party.network.ws_relay',
@@ -307,6 +308,7 @@ hiddenimports = [
     'party.discovery.skin_collector',
     'party.integration',
     'party.integration.injection_hook',
+    'certifi',
     
     # System tray
     'pystray',

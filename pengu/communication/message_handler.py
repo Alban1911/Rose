@@ -3249,17 +3249,18 @@ class MessageHandler:
 
             async def do_add_peer():
                 try:
-                    success, error = await party_manager.add_peer(token)
+                    success, message = await party_manager.add_peer(token)
                     response_payload = {
                         "type": "party-peer-added",
                         "success": success,
-                        "error": error,
+                        "message": message if success else None,
+                        "error": None if success else message,
                     }
                     self._send_response(json.dumps(response_payload))
                     if success:
-                        log.info("[PARTY] Peer added successfully")
+                        log.info(f"[PARTY] Peer added: {message}")
                     else:
-                        log.warning(f"[PARTY] Failed to add peer: {error}")
+                        log.warning(f"[PARTY] Failed to add peer: {message}")
                 except Exception as e:
                     log.error(f"[PARTY] Failed to add peer: {e}")
                     response_payload = {
