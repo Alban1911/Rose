@@ -479,6 +479,10 @@ class OverlayManager:
                 self._report_ltk_patcher_failure(session["error"])
                 return 1
             if not game_ended and proc.returncode not in (0, None):
+                if getattr(proc, "stopped_by_rose", False):
+                    # Rose's own cleanup killed it (end of game, lobby, shutdown)
+                    log.info(f"[INJECT] LTK patcher stopped by Rose (exit code {proc.returncode})")
+                    return 0
                 log.error(f"[INJECT] LTK patcher exited with return code: {proc.returncode}")
                 self._log_runoverlay_tail(runoverlay_log)
                 self._report_ltk_patcher_failure(f"exited with code {proc.returncode}")
