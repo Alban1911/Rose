@@ -21,7 +21,10 @@ log = get_logger()
 TOKEN_PREFIX = "ROSE:"
 # Token version (v2 = WebSocket relay, no IP/port needed)
 TOKEN_VERSION = 2
-# Token expiration time (1 hour)
+# Rose 1.3.1 and older reject tokens older than this, so tokens are
+# re-encoded with a fresh timestamp whenever they're shown. Newer versions
+# accept any age: the party key is kept across sessions, so a token stays a
+# valid address for its owner's room.
 TOKEN_EXPIRY_SECONDS = 3600
 
 
@@ -84,7 +87,7 @@ class PartyToken:
             PartyToken instance
 
         Raises:
-            ValueError: If token is invalid or expired
+            ValueError: If token is invalid
         """
         try:
             if token_str.startswith(TOKEN_PREFIX):
@@ -120,17 +123,12 @@ class PartyToken:
             if len(encryption_key) != 32:
                 raise ValueError("Invalid encryption key length")
 
-            token = cls(
+            return cls(
                 version=version,
                 timestamp=timestamp,
                 summoner_id=summoner_id,
                 encryption_key=encryption_key,
             )
-
-            if token.is_expired():
-                raise ValueError("Token has expired")
-
-            return token
 
         except zlib.error as e:
             raise ValueError(f"Token decompression failed: {e}")
