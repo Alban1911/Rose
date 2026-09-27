@@ -755,9 +755,14 @@ class InjectionTrigger:
             random_active = getattr(self.state, 'random_mode_active', False)
             is_default = effective_skin_id is not None and is_default_skin(effective_skin_id)
             if is_default and not historic_active and not random_active:
-                log.info(f"[INJECT] skipping injection for default skin (skinId={effective_skin_id}) - no mods selected")
-                if self.injection_manager:
-                    self.injection_manager.resume_if_suspended()
+                if self.injection_manager and self._has_party_skins():
+                    # Our champion keeps its default skin, but friends' skins still need an overlay
+                    log.info(f"[INJECT] default skin (skinId={effective_skin_id}) - injecting party members' skins only")
+                    self._inject_party_skins_only()
+                else:
+                    log.info(f"[INJECT] skipping injection for default skin (skinId={effective_skin_id}) - no mods selected")
+                    if self.injection_manager:
+                        self.injection_manager.resume_if_suspended()
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                 if champ_id:
                     from utils.core.historic import clear_historic_entry
@@ -1033,10 +1038,51 @@ class InjectionTrigger:
             
             injection_thread = threading.Thread(target=run_injection, daemon=True, name="InjectionThread")
             injection_thread.start()
-        
+
         except Exception as e:
             log.error(f"[INJECT] injection error: {e}")
-    
+
+    def _has_party_skins(self) -> bool:
+        """Check if party mode has friends' skins to inject for this game"""
+        party_manager = getattr(self.state, "party_manager", None)
+        if not party_manager or not getattr(party_manager, "enabled", False):
+            return False
+        try:
+            from party.integration.injection_hook import PartyInjectionHook
+            return PartyInjectionHook(party_manager, self.state, self.injection_manager).has_party_skins()
+        except Exception as e:
+            log.debug(f"[INJECT] Party injection hook not used: {e}")
+            return False
+
+    def _inject_party_skins_only(self):
+        """Inject only party members' skins (our own champion keeps its default skin)"""
+        has_been_in_progress = False
+
+        def game_ended_callback():
+            nonlocal has_been_in_progress
+            phase = self.state.phase
+            if phase == "InProgress":
+                has_been_in_progress = True
+                return False
+            if phase in ("Reconnect", "GameStart"):
+                return False
+            return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
+
+        def run_injection():
+            try:
+                if not self.lcu.ok:
+                    log.warning(f"[INJECT] LCU not available, skipping injection")
+                    return
+                if self.injection_manager.inject_party_skins_only(stop_callback=game_ended_callback):
+                    log.info("[INJECT] Party members' skins injected")
+                else:
+                    log.warning("[INJECT] Party members' skins were not injected")
+            except Exception as e:
+                log.error(f"[INJECT] party injection thread error: {e}")
+
+        injection_thread = threading.Thread(target=run_injection, daemon=True, name="PartyInjectionThread")
+        injection_thread.start()
+
     def _force_base_skin(self, base_skin_id: int):
         """Force base skin selection via LCU"""
         log.info(f"[INJECT] Forcing base skin (skinId={base_skin_id})")

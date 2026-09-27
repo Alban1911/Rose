@@ -239,19 +239,62 @@ class InjectionManager:
                         return False
             except (ValueError, IndexError):
                 pass  # Not a numeric skin ID, continue with normal injection
-        
+
+        def inject(extra_mods_callback):
+            # Pass the manager instance so injector can call resume_game()
+            return self.injector.inject_skin(
+                skin_name,
+                stop_callback=stop_callback,
+                injection_manager=self,
+                chroma_id=chroma_id,
+                champion_name=champion_name,
+                champion_id=champion_id,
+                extra_mods_callback=extra_mods_callback,
+            )
+
+        success = self._run_injection(skin_name, inject)
+        if success:
+            self.last_skin_name = skin_name
+        return success
+
+    def inject_party_skins_only(self, stop_callback=None) -> bool:
+        """Inject only party members' skins (our own champion keeps its default skin)
+
+        Args:
+            stop_callback: Callback to check if injection should stop
+        """
+        def inject(extra_mods_callback):
+            if not extra_mods_callback:
+                log.info("[INJECT] No party skins to inject")
+                return False
+            return self.injector.inject_extra_mods(
+                extra_mods_callback,
+                stop_callback=stop_callback,
+                injection_manager=self,
+            )
+
+        return self._run_injection("party skins", inject)
+
+    def _run_injection(self, label: str, inject) -> bool:
+        """Run one injection under the injection lock
+
+        Args:
+            label: What is injected (for logs and issue reports)
+            inject: callback(extra_mods_callback) -> bool doing the injection;
+                extra_mods_callback adds party member skins (None without party)
+        """
         self._ensure_initialized()
         self.refresh_injection_threshold()
-        
+
         # Don't attempt injection if system isn't properly initialized
         if not self._initialized or self.injector is None or self.injector.game_dir is None:
             log.error("[INJECT] Cannot inject - League game directory not found")
             log.error("[INJECT] Please ensure League Client is running or manually set the path in config.ini")
             return False
-        
+
         # Check if injection already in progress
         if self._injection_in_progress:
-            log.warning(f"[INJECT] Injection already in progress - skipping request for: {skin_name}")
+            log.warning(f"[INJECT] Injection already in progress - skipping request for: {label}")
             return False
         
         # Try to acquire lock with timeout to prevent indefinite blocking
@@ -262,20 +305,20 @@ class InjectionManager:
                 "INJECTION_LOCK_TIMEOUT",
                 "warning",
                 "Injection skipped (another injection was still running).",
-                details={"lock_timeout_s": f"{INJECTION_LOCK_TIMEOUT_S:.1f}", "skin": skin_name},
+                details={"lock_timeout_s": f"{INJECTION_LOCK_TIMEOUT_S:.1f}", "skin": label},
                 hint="Try again in a few seconds.",
             )
             return False
-        
+
         try:
             self._injection_in_progress = True
-            log.debug(f"[INJECT] Injection started - lock acquired for: {skin_name}")
+            log.debug(f"[INJECT] Injection started - lock acquired for: {label}")
 
             current_time = time.time()
             elapsed = current_time - self.last_injection_time
             if self.last_injection_time and elapsed < self.injection_threshold:
                 remaining = self.injection_threshold - elapsed
-                log.debug(f"[INJECT] Skipping immediate injection for '{skin_name}' (cooldown {remaining:.2f}s remaining)")
+                log.debug(f"[INJECT] Skipping immediate injection for '{label}' (cooldown {remaining:.2f}s remaining)")
                 report_issue(
                     "INJECTION_SKIPPED_COOLDOWN",
                     "info",
@@ -283,7 +326,7 @@ class InjectionManager:
                     details={
                         "remaining_s": f"{remaining:.2f}",
                         "threshold_s": f"{self.injection_threshold:.2f}",
-                        "skin": skin_name,
+                        "skin": label,
                     },
                     hint="Wait a bit, or lower the Injection Cooldown/Threshold in Settings.",
                 )
@@ -319,21 +362,10 @@ class InjectionManager:
                     except Exception as e:
                         log.debug(f"[INJECT] Party injection hook not used: {e}")
 
-            # Pass the manager instance so injector can call resume_game()
-            success = self.injector.inject_skin(
-                skin_name,
-                stop_callback=stop_callback,
-                injection_manager=self,
-                chroma_id=chroma_id,
-                champion_name=champion_name,
-                champion_id=champion_id,
-                extra_mods_callback=extra_mods_callback,
-            )
-            
+            success = inject(extra_mods_callback)
             if success:
-                self.last_skin_name = skin_name
                 self.last_injection_time = current_time
-            
+
             return success
         finally:
             self._injection_in_progress = False

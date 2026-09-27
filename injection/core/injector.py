@@ -236,6 +236,39 @@ class SkinInjector:
         
         return result == 0
     
+    def inject_extra_mods(
+        self,
+        extra_mods_callback: Callable[["SkinInjector"], List[str]],
+        timeout: int = 120,
+        stop_callback=None,
+        injection_manager=None,
+    ) -> bool:
+        """Inject only extra mods (e.g. party members' skins), without a skin of our own
+
+        Args:
+            extra_mods_callback: callback(injector) -> list of mod folder names it prepared
+            timeout: Timeout for injection process
+            stop_callback: Callback to check if injection should stop
+            injection_manager: InjectionManager instance to call resume_game()
+        """
+        self._clean_mods_dir()
+        self._clean_overlay_dir()
+
+        try:
+            mod_names = extra_mods_callback(self) or []
+        except Exception as e:
+            log.warning(f"[INJECT] Extra mods callback failed: {e}")
+            return False
+        if not mod_names:
+            log.info("[INJECT] No party/extra mods to inject")
+            return False
+
+        log.info(f"[INJECT] Injecting {len(mod_names)} party/extra mod(s): {', '.join(mod_names)}")
+        result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
+        if result != 0:
+            log.warning(f"[INJECT] Party/extra mods injection failed with code {result}")
+        return result == 0
+
     def inject_mods_only(self, timeout: int = 60, stop_callback=None, injection_manager=None) -> bool:
         """Disabled: installed mods folder removed"""
         log.warning("[INJECT] Mods-only injection is disabled (installed mods folder removed)")
