@@ -89,10 +89,21 @@ def build_cslol_stub():
     return True
 
 
+def check_relay_config():
+    """Refuse to build without the gitignored party relay config (party mode would ship broken)."""
+    config = ROOT / "party" / "network" / "relay_config.py"
+    if not config.exists() or "RELAY_URL" not in config.read_text(encoding="utf-8"):
+        print(f"[ERROR] Missing {config.relative_to(ROOT)} - party mode cannot reach its relay without it")
+        print('        Create it with: RELAY_URL = "wss://<relay-worker-host>"')
+        return False
+
+    return True
+
+
 def build_with_pyinstaller():
     """Build executable using PyInstaller with multi-threading"""
     print_step(3, 4, "Building with PyInstaller (Multi-threaded)")
-    
+
     # Use spec file which has all the configuration
     cmd = [
         "pyinstaller",
@@ -132,6 +143,9 @@ def main():
     start_time = time.time()
     
     # Execute build steps
+    if not check_relay_config():
+        sys.exit(1)
+
     if not clean_previous_builds():
         sys.exit(1)
 
