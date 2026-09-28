@@ -8,11 +8,15 @@ Classic games spawn separate Jade_<Champion> characters, so regular skin mods
 skins stored in LeagueSkins' classic/ folder instead (%LOCALAPPDATA%/Rose/classic),
 which target Jade_<Champion>'s default skin.
 
-The client reports Classic champions and skins with offset IDs (60000+ and
-60000000+), while the Classic library is stored under the regular IDs.
+The client reports Classic champions and skins with offset IDs (60103 and
+60103001 for Ahri and Dynasty Ahri). The Classic library keeps each champion
+under its Classic ID, the Classic version of a regular skin or chroma under the
+regular ID (classic/60103/103001) and a skin that only exists in Rift Classic
+under its Classic ID (classic/60103/60103301).
 """
 
 import re
+from pathlib import Path
 from typing import Optional
 
 JADE_GAME_MODE = "JADE"
@@ -26,10 +30,10 @@ def is_classic_game_mode(game_mode: Optional[str]) -> bool:
     return isinstance(game_mode, str) and game_mode.upper() == JADE_GAME_MODE
 
 
-def to_regular_champion_id(champion_id: Optional[int]) -> Optional[int]:
-    """Map a Rift Classic champion ID (60001) to the regular one (1)."""
-    if champion_id is not None and champion_id >= CLASSIC_CHAMPION_ID_OFFSET:
-        return champion_id - CLASSIC_CHAMPION_ID_OFFSET
+def to_classic_champion_id(champion_id: Optional[int]) -> Optional[int]:
+    """Map a regular champion ID (1) to the Rift Classic one (60001)."""
+    if champion_id is not None and 0 < champion_id < CLASSIC_CHAMPION_ID_OFFSET:
+        return champion_id + CLASSIC_CHAMPION_ID_OFFSET
     return champion_id
 
 
@@ -40,9 +44,20 @@ def to_regular_skin_id(skin_id: Optional[int]) -> Optional[int]:
     return skin_id
 
 
-def to_regular_skin_name(skin_name: str) -> str:
-    """Map a Rift Classic injection name (skin_60001001) to the regular one (skin_1001)."""
+def to_library_id(champion_dir: Path, skin_id: Optional[int]) -> Optional[int]:
+    """The ID a Classic skin or chroma is stored under in its champion's library folder."""
+    regular_id = to_regular_skin_id(skin_id)
+    if regular_id != skin_id and (
+        (champion_dir / str(regular_id)).is_dir()  # a skin
+        or any(champion_dir.glob(f"*/{regular_id}"))  # a chroma, inside its skin
+    ):
+        return regular_id
+    return skin_id
+
+
+def to_library_skin_name(champion_dir: Path, skin_name: str) -> str:
+    """Map an injection name (skin_60001001) to the ID the Classic library stores it under."""
     match = _INJECTION_NAME_RE.match(skin_name or "")
     if not match:
         return skin_name
-    return f"{match.group(1)}_{to_regular_skin_id(int(match.group(2)))}"
+    return f"{match.group(1)}_{to_library_id(champion_dir, int(match.group(2)))}"

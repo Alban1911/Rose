@@ -13,16 +13,13 @@ from injection.mods.zip_resolver import ZipResolver
 
 
 class ClassicIdTests(unittest.TestCase):
-    def test_classic_ids_map_to_regular_ones(self):
-        self.assertEqual(classic.to_regular_champion_id(60103), 103)
+    def test_classic_ids(self):
         self.assertEqual(classic.to_regular_skin_id(60103052), 103052)
-        self.assertEqual(classic.to_regular_skin_name('chroma_60103052'), 'chroma_103052')
-
-    def test_regular_ids_are_left_alone(self):
-        self.assertEqual(classic.to_regular_champion_id(103), 103)
         self.assertEqual(classic.to_regular_skin_id(103052), 103052)
-        self.assertEqual(classic.to_regular_skin_name('skin_1001'), 'skin_1001')
         self.assertIsNone(classic.to_regular_skin_id(None))
+        self.assertEqual(classic.to_classic_champion_id(103), 60103)
+        self.assertEqual(classic.to_classic_champion_id(60103), 60103)
+        self.assertIsNone(classic.to_classic_champion_id(None))
 
     def test_jade_is_rift_classic(self):
         self.assertTrue(classic.is_classic_game_mode('JADE'))
@@ -39,8 +36,13 @@ class ClassicInjectionTests(unittest.TestCase):
         root = Path(temp_dir.name)
         skins_dir, classic_dir = root / 'skins', root / 'classic'
         self._fantome(skins_dir / '1' / '1001' / '1001.fantome', 'regular')
-        self._fantome(classic_dir / '1' / '1001' / '1001.fantome', 'classic')
-        self._fantome(classic_dir / '103' / '103001' / '103052' / '103052.fantome', 'classic')
+        # LeagueSkins' layout: classic/<Classic champion>/<regular ID, or Classic ID for Classic-only skins>
+        self._fantome(classic_dir / '60001' / '1001' / '1001.fantome', 'classic')
+        self._fantome(classic_dir / '60001' / '60001301' / '60001301.fantome', 'classic')
+        self._fantome(classic_dir / '60001' / '60001301' / '60001302' / '60001302.fantome', 'classic')
+        self._fantome(classic_dir / '60103' / '103001' / '103052' / '103052.fantome', 'classic')
+        # The repository's older tree under regular champion IDs is not used
+        self._fantome(classic_dir / '1' / '1005' / '1005.fantome', 'classic')
 
         # Only what inject_skin uses: no game or tools detection
         self.injector = SkinInjector.__new__(SkinInjector)
@@ -81,6 +83,14 @@ class ClassicInjectionTests(unittest.TestCase):
             'chroma_60103052', chroma_id=60103052, champion_id=60103, classic=True,
         ))
         self.assertEqual(self._injected(), (['103052'], 'classic'))
+
+    def test_skins_only_in_rift_classic(self):
+        self.assertTrue(self.injector.inject_skin('skin_60001301', champion_id=60001, classic=True))
+        self.assertEqual(self._injected(), (['60001301'], 'classic'))
+        self.assertTrue(self.injector.inject_skin(
+            'chroma_60001302', chroma_id=60001302, champion_id=60001, classic=True,
+        ))
+        self.assertEqual(self._injected(), (['60001302'], 'classic'))
 
     def test_regular_games_still_inject_the_regular_skin(self):
         self.assertTrue(self.injector.inject_skin('skin_1001', champion_id=1, extra_mods_callback=self.party))

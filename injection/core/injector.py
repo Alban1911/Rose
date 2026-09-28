@@ -16,7 +16,7 @@ from utils.core.paths import get_classic_skins_dir, get_skins_dir, get_injection
 from utils.core.issue_reporter import report_issue
 from utils.core.junction import safe_remove_entry
 
-from ..classic import to_regular_champion_id, to_regular_skin_id, to_regular_skin_name
+from ..classic import to_classic_champion_id, to_library_id, to_library_skin_name
 from ..config.config_manager import ConfigManager
 from ..game.game_detector import GameDetector
 from ..tools.tools_manager import ToolsManager
@@ -96,7 +96,7 @@ class SkinInjector:
         # Initialize managers
         self.tools_manager = ToolsManager(self.tools_dir)
         self.zip_resolver = ZipResolver(self.zips_dir)
-        # Rift Classic skins (LeagueSkins' classic/ folder, same layout as the skins)
+        # Rift Classic skins (LeagueSkins' classic/ folder, keyed by Classic champion IDs)
         self.classic_dir = get_classic_skins_dir()
         self.classic_resolver = ZipResolver(self.classic_dir)
         self.mod_manager = ModManager(self.mods_dir)
@@ -170,10 +170,12 @@ class SkinInjector:
         
         resolver, skins_dir = self.zip_resolver, self.zips_dir
         if classic:
-            # The Classic library is stored under the regular champion and skin IDs
-            skin_name = to_regular_skin_name(skin_name)
-            chroma_id = to_regular_skin_id(chroma_id)
-            champion_id = to_regular_champion_id(champion_id)
+            # The Classic library keeps champions under their Classic ID and each
+            # skin under the regular or the Classic ID (see injection.classic)
+            champion_id = to_classic_champion_id(champion_id)
+            champion_dir = self.classic_dir / str(champion_id)
+            skin_name = to_library_skin_name(champion_dir, skin_name)
+            chroma_id = to_library_id(champion_dir, chroma_id)
             resolver, skins_dir = self.classic_resolver, self.classic_dir
             if extra_mods_callback:
                 # Party skins are regular skin mods, never loaded by Classic characters
