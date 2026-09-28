@@ -608,9 +608,10 @@
       font-weight: 700;
       color: #f0e6d2;
       font-size: 13px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      /* Long titles (other languages) wrap instead of being cut */
+      min-width: 0;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
       display: flex;
       align-items: center;
       gap: 6px;

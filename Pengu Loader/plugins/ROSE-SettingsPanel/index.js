@@ -21,6 +21,14 @@
   // A finished English text from Rose (error message...), translated when it is a known one
   const tAny = (text) => (window.RoseI18n ? window.RoseI18n.tAny(text) : text);
 
+  // Codes the language picker shows, like the flags of a language menu
+  const LANGUAGE_BADGES = {
+    en: "GB", fr: "FR", de: "DE", es_ES: "ES", es_MX: "MX", pt_BR: "BR", it: "IT",
+    pl: "PL", ro: "RO", hu: "HU", cs: "CZ", el: "GR", ru: "RU", tr: "TR", ar: "AE",
+    ja: "JP", ko: "KR", zh_CN: "CN", zh_TW: "TW", th: "TH", vi: "VN", id: "ID",
+  };
+  const languageBadge = (language) => LANGUAGE_BADGES[language] || String(language || "").slice(0, 2).toUpperCase();
+
   /**
    * Escape HTML special characters to prevent XSS (CWE-79)
    * @param {string} str - String to escape
@@ -466,10 +474,100 @@
       align-items: center;
       margin-top: 8px;
     }
+    /* Long labels (other languages) wrap instead of being cut */
     #${FLYOUT_ID} .settings-checkbox-wrapper span {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      min-width: 0;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+    #${FLYOUT_ID} .settings-checkbox-wrapper input {
+      flex-shrink: 0;
+    }
+
+    /* Language picker: a code badge in the corner of Settings */
+    #${FLYOUT_ID} .rose-language-picker {
+      position: absolute;
+      top: 50%;
+      right: 0;
+      transform: translateY(-50%);
+      z-index: 5;
+    }
+    #${FLYOUT_ID} .rose-language-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 22px;
+      padding: 0 8px;
+      background: #1e2328;
+      border: 1px solid #785a28;
+      color: #cdbe91;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    #${FLYOUT_ID} .rose-language-badge::after {
+      content: "";
+      width: 4px;
+      height: 4px;
+      border-right: 1px solid currentColor;
+      border-bottom: 1px solid currentColor;
+      transform: translateY(-2px) rotate(45deg);
+    }
+    #${FLYOUT_ID} .rose-language-badge:hover,
+    #${FLYOUT_ID} .rose-language-picker.open .rose-language-badge {
+      border-color: #c8aa6e;
+      color: #f0e6d2;
+    }
+    #${FLYOUT_ID} .rose-language-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      width: 230px;
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 4px 0;
+      background: #010a13;
+      border: 1px solid #785a28;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7);
+    }
+    #${FLYOUT_ID} .rose-language-menu::-webkit-scrollbar {
+      width: 6px;
+    }
+    #${FLYOUT_ID} .rose-language-menu::-webkit-scrollbar-thumb {
+      background: #785a28;
+    }
+    #${FLYOUT_ID} .rose-language-picker.open .rose-language-menu {
+      display: block;
+    }
+    #${FLYOUT_ID} .rose-language-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      color: #a09b8c;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+    #${FLYOUT_ID} .rose-language-item:hover {
+      background: rgba(200, 170, 110, 0.1);
+      color: #f0e6d2;
+    }
+    #${FLYOUT_ID} .rose-language-item.selected {
+      background: rgba(200, 170, 110, 0.16);
+      color: #f0e6d2;
+    }
+    #${FLYOUT_ID} .rose-language-code {
+      flex: 0 0 34px;
+      color: #c8aa6e;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
     }
     
     /* Style for the "Add custom mods" dropdown button - match League UI button styling */
@@ -1741,6 +1839,68 @@
     return path.trim().length > 0;
   }
 
+  // Language of Rose's menus: a code badge in the corner of Settings, applied as soon as it is picked
+  function createLanguagePicker() {
+    const i18n = window.RoseI18n;
+    const setting = i18n.setting || "auto";
+    const languages = i18n.languages || {};
+
+    const picker = document.createElement("div");
+    picker.className = "rose-language-picker";
+
+    const badge = document.createElement("button");
+    badge.type = "button";
+    badge.className = "rose-language-badge";
+    badge.textContent = languageBadge(i18n.language);
+    badge.title = `${t("Language:")} ${setting === "auto" ? t("Auto (client language)") : languages[setting] || setting}`;
+    picker.appendChild(badge);
+
+    const menu = document.createElement("div");
+    menu.className = "rose-language-menu";
+    [["auto", t("Auto (client language)")], ...Object.entries(languages)].forEach(([value, name]) => {
+      const item = document.createElement("div");
+      item.className = "rose-language-item";
+      if (value === setting) item.classList.add("selected");
+      const code = document.createElement("span");
+      code.className = "rose-language-code";
+      code.textContent = value === "auto" ? "AUTO" : languageBadge(value);
+      const label = document.createElement("span");
+      label.textContent = name;
+      item.append(code, label);
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        close();
+        if (value !== setting && bridge) bridge.send({ type: "language-save", language: value });
+      });
+      menu.appendChild(item);
+    });
+    picker.appendChild(menu);
+
+    const onOutside = (e) => {
+      if (!picker.contains(e.target)) close();
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+    };
+    function close() {
+      picker.classList.remove("open");
+      document.removeEventListener("mousedown", onOutside, true);
+      document.removeEventListener("keydown", onKey, true);
+    }
+    badge.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!picker.classList.toggle("open")) {
+        close();
+        return;
+      }
+      document.addEventListener("mousedown", onOutside, true);
+      document.addEventListener("keydown", onKey, true);
+      const selected = menu.querySelector(".selected");
+      if (selected) selected.scrollIntoView({ block: "nearest" });
+    });
+    return picker;
+  }
+
   function createSettingsFlyout(navItem) {
     // Remove existing panel if any
     const existingPanel = document.getElementById(PANEL_ID);
@@ -1959,6 +2119,12 @@
     ].join(";");
     versionBadge.textContent = currentSettings.version ? `v${currentSettings.version}` : "";
     titleRow.appendChild(versionBadge);
+
+    if (window.RoseI18n) {
+      titleRow.style.position = "relative";
+      titleRow.style.alignSelf = "stretch";
+      titleRow.appendChild(createLanguagePicker());
+    }
 
     form.appendChild(titleRow);
 
@@ -2266,44 +2432,6 @@
     pathInputWrapper.appendChild(pathStatus);
     pathSection.appendChild(pathInputWrapper);
     form.appendChild(pathSection);
-
-    // Language of Rose's menus: the client's, or one picked here (saved with Save)
-    if (window.RoseI18n) {
-      const languageSection = document.createElement("div");
-      languageSection.className = "settings-section";
-
-      const languageLabel = document.createElement("label");
-      languageLabel.className = "settings-label";
-      languageLabel.textContent = t("Language:");
-      languageSection.appendChild(languageLabel);
-
-      const languageDropdown = document.createElement("lol-uikit-framed-dropdown");
-      languageDropdown.id = "rose-language-dropdown";
-      languageDropdown.className = "lol-publishing-locale-preference-dropdown";
-      languageDropdown.style.width = "100%";
-      languageDropdown.dataset.value = window.RoseI18n.setting || "auto";
-
-      const languageChoices = [["auto", t("Auto (client language)")], ...Object.entries(window.RoseI18n.languages || {})];
-      languageChoices.forEach(([value, name]) => {
-        const option = document.createElement("lol-uikit-dropdown-option");
-        option.setAttribute("slot", "lol-uikit-dropdown-option");
-        option.setAttribute("value", value);
-        option.className = "framed-dropdown-type";
-        option.textContent = name;
-        if (value === languageDropdown.dataset.value) option.setAttribute("selected", "");
-        option.addEventListener("click", () => {
-          languageDropdown.dataset.value = value;
-        });
-        languageDropdown.appendChild(option);
-      });
-      languageDropdown.addEventListener("change", (e) => {
-        const value = e.target.value || e.detail?.value;
-        if (value) languageDropdown.dataset.value = value;
-      });
-
-      languageSection.appendChild(languageDropdown);
-      form.appendChild(languageSection);
-    }
 
     // Add / Manage custom mods dropdowns share one row, half width each
     const customModsRow = document.createElement("div");
@@ -2793,7 +2921,9 @@
     saveButton.id = "save-button";
     saveButton.textContent = t("Save");
     saveButton.style.marginTop = "8px";
-    saveButton.style.width = "21%";
+    // At least its usual size, wider when the text is longer (other languages)
+    saveButton.style.minWidth = "21%";
+    saveButton.style.maxWidth = "100%";
     saveButton.addEventListener("click", () => {
       saveSettings();
     });
@@ -3159,8 +3289,6 @@
     const autostart = autostartCheckbox ? autostartCheckbox.checked : false;
     const hideEmptyCategories = hideEmptyCategoriesCheckbox ? hideEmptyCategoriesCheckbox.checked : false;
     const gamePath = pathInput ? pathInput.value.trim() : "";
-    const languageDropdown = document.getElementById("rose-language-dropdown");
-    const language = languageDropdown ? languageDropdown.dataset.value : undefined;
 
     // Clamp threshold between 0.30 and 2.0
     const clampedThreshold = Math.max(0.3, Math.min(2.0, threshold));
@@ -3177,7 +3305,6 @@
       autostart: autostart,
       hideEmptyCategories: hideEmptyCategories,
       gamePath: gamePath,
-      language: language,
     });
 
     log("info", "Settings save requested", {

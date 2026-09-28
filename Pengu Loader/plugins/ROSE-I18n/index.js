@@ -62,7 +62,10 @@
 
   function apply(next, announce) {
     if (!next || typeof next !== "object" || typeof next.strings !== "object") return;
-    const changed = next.language !== state.language || JSON.stringify(next.strings) !== JSON.stringify(state.strings);
+    const changed =
+      next.language !== state.language ||
+      (next.setting || "auto") !== state.setting ||
+      JSON.stringify(next.strings) !== JSON.stringify(state.strings);
     state = {
       language: next.language || "en",
       setting: next.setting || "auto",

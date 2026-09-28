@@ -283,6 +283,8 @@ class MessageHandler:
             self._handle_open_pengu_loader_ui(payload)
         elif payload_type == "settings-save":
             self._handle_settings_save(payload)
+        elif payload_type == "language-save":
+            self._handle_language_save(payload)
         elif payload_type == "add-custom-mods-category-selected":
             self._handle_add_custom_mods_category_selected(payload)
         elif payload_type == "add-custom-mods-champion-selected":
@@ -2609,6 +2611,18 @@ class MessageHandler:
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to launch Pengu Loader UI: {e}")
     
+    def _handle_language_save(self, payload: dict) -> None:
+        """Save the language of Rose's menus ("auto": the client's) and tell the plugins"""
+        from utils.core.i18n import AUTO, LANGUAGES
+        language = payload.get("language")
+        if language != AUTO and language not in LANGUAGES:
+            log.warning(f"[SkinMonitor] Unknown menu language: {language!r}")
+            return
+        if (get_config_option("General", "language") or AUTO) != language:
+            set_config_option("General", "language", language)
+            log.info(f"[SkinMonitor] Menu language set to {language}")
+            self.broadcaster.broadcast_language_changed()
+
     def _handle_settings_save(self, payload: dict) -> None:
         """Handle settings save"""
         try:
@@ -2618,15 +2632,6 @@ class MessageHandler:
             hide_empty_categories = bool(payload.get("hideEmptyCategories", False))
             game_path = payload.get("gamePath", "")
 
-            language = payload.get("language")
-            if language is not None:
-                from utils.core.i18n import AUTO, LANGUAGES
-                if language == AUTO or language in LANGUAGES:
-                    if (get_config_option("General", "language") or AUTO) != language:
-                        set_config_option("General", "language", language)
-                        log.info(f"[SkinMonitor] Menu language set to {language}")
-                        self.broadcaster.broadcast_language_changed()
-            
             set_config_option("General", "injection_threshold", f"{threshold:.2f}")
             log.info(f"[SkinMonitor] Injection threshold updated to {threshold:.2f}s")
             
