@@ -215,9 +215,10 @@ class PartyManager:
 
         log.info(f"[PARTY] Joining party of summoner {token.summoner_id}")
         if token.summoner_id in self._ignored_peers:
-            # Removed earlier: show them again
+            # Removed earlier: show them again, and tell them (our state listed them as removed)
             self._ignored_peers.discard(token.summoner_id)
             self._refresh_peers()
+            await self._publish_state()
         room_key = compute_room_key(token.summoner_id, token.encryption_key)
 
         if room_key not in self._relays:

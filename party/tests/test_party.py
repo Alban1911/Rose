@@ -260,6 +260,31 @@ class MergedMembersTests(unittest.TestCase):
 
         self.assertEqual(relay.sent[-1]["removed"], [2])
 
+    def test_both_removing_each_other_then_adding_back(self):
+        me = PartyManager(Mock(), make_state())
+        me.party_state.my_summoner_id = 1
+        me.party_state.enabled = True
+        friend = member(2, "B", 11, 11002, removed=[1])  # they removed us too
+        relay = SimpleNamespace(members=[member(1, "Me"), friend], connected=True, sent=[])
+
+        async def send_state(state):
+            relay.sent.append(state)
+        relay.send_state = send_state
+        me._relays = {"a" * 32: relay}
+        asyncio.run(me.remove_peer(2))
+
+        token = create_token(summoner_id=2, encryption_key=b"k" * 32).encode()
+        with patch("party.core.party_manager.PEER_WAIT_TIMEOUT", 0.1),                 patch("party.core.party_manager.compute_room_key", return_value="a" * 32):
+            ok, message = asyncio.run(me.add_peer(token))
+
+        # Our side is undone right away; they still have to add us back
+        self.assertNotIn("removed", relay.sent[-1] or {})
+        self.assertFalse(ok)
+        self.assertIn("removed you", message)
+
+        friend["skin"]["removed"] = []  # they paste our token
+        self.assertEqual(list(me._merged_members()), [2])
+
 
 class InjectionHookTests(unittest.TestCase):
     def setUp(self):
