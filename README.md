@@ -153,6 +153,8 @@ lifecycle integration added around the loader. Please see the
 [official Pengu Loader license](https://github.com/PenguLoader/PenguLoader/blob/main/LICENSE)
 and credit the Pengu Loader contributors.
 
+Thanks to [@minzinccs](https://github.com/minzinccs) for Quickplay support (#244).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and project structure.
