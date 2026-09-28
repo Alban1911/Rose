@@ -1,11 +1,23 @@
+import configparser
+import ctypes
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
+import config
 import utils.integration.pengu_loader as pengu_loader
+
+
+def _ansi_can_encode(text):
+    try:
+        text.encode('mbcs')
+        return True
+    except (LookupError, UnicodeEncodeError):
+        return False
 
 
 class PenguLoaderIntegrationTests(unittest.TestCase):
@@ -275,6 +287,63 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
             result = pengu_loader._run_cli_result(['--status'])
         self.assertEqual(result.returncode, 0)
         self.assertNotIn('should not be included', '\n'.join(logs.output))
+
+
+@unittest.skipUnless(sys.platform == 'win32', 'config.ini is shared through the Windows INI API')
+class ConfigIniTests(unittest.TestCase):
+    """config.ini is read by core.dll and written by the Pengu loader through
+    the Windows INI API (ANSI code page), and by Rose in Python"""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.config_file = Path(temp_dir.name) / 'config.ini'
+        paths = patch.object(config, 'get_config_file_path', return_value=self.config_file)
+        paths.start()
+        self.addCleanup(paths.stop)
+
+    @staticmethod
+    def core_dll_reads(path, key):
+        buffer = ctypes.create_unicode_buffer(1024)
+        ctypes.windll.kernel32.GetPrivateProfileStringW('General', key, '', buffer, 1024, str(path))
+        return buffer.value
+
+    def loader_writes(self, key, value):
+        ctypes.windll.kernel32.WritePrivateProfileStringW('General', key, value, str(self.config_file))
+
+    @unittest.skipUnless(_ansi_can_encode('é'), 'the ANSI code page has no é')
+    def test_non_ascii_loaderpath_survives_rose_writes(self):
+        loader_dir = r'C:\Users\José\AppData\Local\Rose\Pengu Loader'
+        self.config_file.write_text('[General]\ninjection_threshold = 0.5\n', encoding='mbcs')
+        self.loader_writes('disabled', '0')
+        self.loader_writes('loaderpath', loader_dir)
+
+        config.set_config_option('General', 'injection_threshold', '0.8')
+        config.set_config_option('General', 'injection_threshold', '0.9')
+
+        self.assertEqual(self.core_dll_reads(self.config_file, 'loaderpath'), loader_dir)
+        self.assertEqual(self.core_dll_reads(self.config_file, 'injection_threshold'), '0.9')
+        self.assertEqual(config.get_config_option('General', 'loaderpath'), loader_dir)
+
+    @unittest.skipUnless(_ansi_can_encode('é'), 'the ANSI code page has no é')
+    def test_reads_lines_older_rose_wrote_as_utf8(self):
+        self.config_file.write_bytes(
+            '[General]\r\nleaguepath = C:\\Jeux\\Légendes\r\n'.encode('utf-8')
+            + 'loaderpath=C:\\Users\\José\\Pengu Loader\r\n'.encode('mbcs')
+        )
+        parser = configparser.ConfigParser(interpolation=None)
+        config.read_config_file(parser, self.config_file)
+        self.assertEqual(parser.get('General', 'leaguepath'), 'C:\\Jeux\\Légendes')
+        self.assertEqual(parser.get('General', 'loaderpath'), 'C:\\Users\\José\\Pengu Loader')
+
+    def test_write_replaces_the_file_without_leftovers(self):
+        self.config_file.write_text('[General]\nold = 1\n', encoding='mbcs')
+        parser = configparser.ConfigParser()
+        parser['General'] = {'new': '2'}
+        config.write_config_file(parser, self.config_file)
+        self.assertEqual(self.core_dll_reads(self.config_file, 'new'), '2')
+        self.assertEqual(self.core_dll_reads(self.config_file, 'old'), '')
+        self.assertEqual(list(self.config_file.parent.iterdir()), [self.config_file])
 
 
 if __name__ == '__main__':

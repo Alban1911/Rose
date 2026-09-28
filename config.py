@@ -5,9 +5,13 @@ Global constants for Rose
 All arbitrary values are centralized here for easy tracking and modification
 """
 
+import io
+import os
 import shutil
 import sys
 import logging
+import tempfile
+import time
 from typing import TYPE_CHECKING, Optional, Tuple
 from pathlib import Path
 import configparser
@@ -31,6 +35,66 @@ def get_config_file_path() -> Path:
     config_dir = get_user_data_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "config.ini"
+
+
+# config.ini is shared with the Pengu loader and core.dll, which use the Windows
+# INI API: a file without BOM is read and written in the ANSI code page. Writing
+# UTF-8 garbled non-ASCII paths for core.dll (loaderpath under C:\Users\José),
+# which then found no plugins.
+_CONFIG_ENCODING = "mbcs" if sys.platform == "win32" else "utf-8"
+_CONFIG_REPLACE_ATTEMPTS = 5
+
+
+def _decode_config(data: bytes) -> str:
+    """Decode config.ini, including lines older Rose versions wrote as UTF-8."""
+    if data.startswith(b"\xff\xfe"):
+        return data.decode("utf-16")
+    if data.startswith(b"\xef\xbb\xbf"):
+        data = data[3:]
+    lines = []
+    for line in data.split(b"\n"):
+        line = line.rstrip(b"\r")
+        try:
+            lines.append(line.decode("utf-8"))
+        except UnicodeDecodeError:
+            lines.append(line.decode(_CONFIG_ENCODING, errors="replace"))
+    return "\n".join(lines)
+
+
+def read_config_file(config: configparser.ConfigParser, path: Path) -> None:
+    """Read config.ini into config (nothing if it doesn't exist)."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return
+    config.read_string(_decode_config(data), source=str(path))
+
+
+def write_config_file(config: configparser.ConfigParser, path: Path) -> None:
+    """Write config.ini in the ANSI code page, atomically: League processes read
+    it through core.dll at any time and must never see a half-written file."""
+    text = io.StringIO()
+    config.write(text)
+    data = text.getvalue().replace("\n", "\r\n").encode(_CONFIG_ENCODING, errors="replace")
+
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name, suffix=".tmp", delete=False) as fh:
+        fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())
+    temporary = Path(fh.name)
+
+    try:
+        for _ in range(_CONFIG_REPLACE_ATTEMPTS):
+            try:
+                os.replace(temporary, path)
+                return
+            except PermissionError:
+                time.sleep(0.05)  # briefly open elsewhere (core.dll, antivirus)
+
+        # Still locked: write in place rather than lose the change
+        path.write_bytes(data)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _reload_config() -> None:
@@ -60,7 +124,7 @@ def _reload_config() -> None:
     _CONFIG.clear()
     if config_path.exists():
         try:
-            _CONFIG.read(config_path)
+            read_config_file(_CONFIG, config_path)
         except Exception as e:
             log.warning(f"Failed to read config file: {e}")
 
@@ -90,15 +154,14 @@ def set_config_option(section: str, option: str, value: str) -> None:
     config = configparser.ConfigParser()
     if config_path.exists():
         try:
-            config.read(config_path)
+            read_config_file(config, config_path)
         except Exception as e:
             log.debug(f"Failed to read config for update: {e}")
     if section not in config:
         config.add_section(section)
     config.set(section, option, value)
     try:
-        with open(config_path, "w", encoding="utf-8") as fh:
-            config.write(fh)
+        write_config_file(config, config_path)
     except Exception as e:
         log.warning(f"Failed to write config file: {e}")
 

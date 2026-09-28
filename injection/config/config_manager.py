@@ -9,7 +9,7 @@ import configparser
 from pathlib import Path
 from typing import Optional
 
-from config import get_config_file_path
+from config import get_config_file_path, read_config_file, write_config_file
 from utils.core.logging import get_logger
 
 log = get_logger()
@@ -36,7 +36,7 @@ class ConfigManager:
         
         try:
             config = configparser.ConfigParser()
-            config.read(config_path)
+            read_config_file(config, config_path)
             if 'General' in config and 'leaguePath' in config['General']:
                 league_path = config['General']['leaguePath']
                 log.debug(f"Loaded league path from config: {league_path}")
@@ -54,7 +54,7 @@ class ConfigManager:
         
         try:
             config = configparser.ConfigParser()
-            config.read(config_path)
+            read_config_file(config, config_path)
             if 'General' in config and 'clientPath' in config['General']:
                 client_path = config['General']['clientPath']
                 log.debug(f"Loaded client path from config: {client_path}")
@@ -72,7 +72,7 @@ class ConfigManager:
             
             # Load existing config if it exists
             if config_path.exists():
-                config.read(config_path)
+                read_config_file(config, config_path)
             
             # Ensure General section exists
             if 'General' not in config:
@@ -82,8 +82,7 @@ class ConfigManager:
             config.set('General', 'leaguePath', league_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
-                config.write(f)
+            write_config_file(config, config_path)
             
             log.debug(f"Saved league path to config: {league_path}")
         except Exception as e:
@@ -97,7 +96,7 @@ class ConfigManager:
             
             # Load existing config if it exists
             if config_path.exists():
-                config.read(config_path)
+                read_config_file(config, config_path)
             
             # Ensure General section exists
             if 'General' not in config:
@@ -107,8 +106,7 @@ class ConfigManager:
             config.set('General', 'clientPath', client_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
-                config.write(f)
+            write_config_file(config, config_path)
             
             log.debug(f"Saved client path to config: {client_path}")
         except Exception as e:
@@ -122,7 +120,7 @@ class ConfigManager:
             
             # Load existing config if it exists
             if config_path.exists():
-                config.read(config_path)
+                read_config_file(config, config_path)
             
             # Ensure General section exists
             if 'General' not in config:
@@ -133,8 +131,7 @@ class ConfigManager:
             config.set('General', 'clientPath', client_path)
             
             # Write to file
-            with open(config_path, 'w') as f:
-                config.write(f)
+            write_config_file(config, config_path)
             
             log.debug(f"Saved paths to config: league={league_path}, client={client_path}")
         except Exception as e:

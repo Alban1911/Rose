@@ -6,12 +6,11 @@ Handles the update checking and installation sequence
 from __future__ import annotations
 
 import configparser
-import os
 import sys
 from pathlib import Path
 from typing import Callable, Optional
 
-from config import APP_VERSION, get_config_file_path
+from config import APP_VERSION, get_config_file_path, read_config_file, write_config_file
 from utils.core.logging import get_logger, get_named_logger
 
 from .github_client import GitHubClient
@@ -88,10 +87,7 @@ class UpdateSequence:
         """Revert installed_version in config after a failed updater launch."""
         try:
             config.set("General", "installed_version", old_version)
-            with open(config_path, "w", encoding="utf-8") as fh:
-                config.write(fh)
-                fh.flush()
-                os.fsync(fh.fileno())
+            write_config_file(config, config_path)
         except Exception as exc:
             updater_log.warning(
                 f"Failed to revert installed_version in config: {exc}"
@@ -140,7 +136,7 @@ class UpdateSequence:
         config = configparser.ConfigParser()
         if config_path.exists():
             try:
-                config.read(config_path)
+                read_config_file(config, config_path)
             except Exception:
                 pass
         if not config.has_section("General"):
@@ -175,10 +171,7 @@ class UpdateSequence:
                 # re-downloading the same broken release.
                 config.set("General", "update_retry_count", "0")
                 try:
-                    with open(config_path, "w", encoding="utf-8") as fh:
-                        config.write(fh)
-                        fh.flush()
-                        os.fsync(fh.fileno())
+                    write_config_file(config, config_path)
                 except Exception:
                     pass
                 status_callback("Update failed after retries")
@@ -194,10 +187,7 @@ class UpdateSequence:
                 config.set("General", "installed_version", APP_VERSION)
                 config.set("General", "update_retry_count", str(retry_count + 1))
                 try:
-                    with open(config_path, "w", encoding="utf-8") as fh:
-                        config.write(fh)
-                        fh.flush()
-                        os.fsync(fh.fileno())
+                    write_config_file(config, config_path)
                 except Exception:
                     pass
 
@@ -230,10 +220,7 @@ class UpdateSequence:
             if config.getint("General", "update_retry_count", fallback=0) > 0:
                 config.set("General", "update_retry_count", "0")
                 try:
-                    with open(config_path, "w", encoding="utf-8") as fh:
-                        config.write(fh)
-                        fh.flush()
-                        os.fsync(fh.fileno())
+                    write_config_file(config, config_path)
                 except Exception:
                     pass
             status_callback("Launcher is already up to date")
@@ -317,10 +304,7 @@ class UpdateSequence:
         if remote_version:
             config.set("General", "installed_version", remote_version)
             try:
-                with open(config_path, "w", encoding="utf-8") as fh:
-                    config.write(fh)
-                    fh.flush()
-                    os.fsync(fh.fileno())
+                write_config_file(config, config_path)
             except Exception as exc:
                 updater_log.warning(
                     f"Failed to persist installed_version to config before update: {exc}"
