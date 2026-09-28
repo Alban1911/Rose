@@ -15,6 +15,8 @@
   let selectedModId = null;
   let selectedModSkinId = null;
   let modsForCurrentSkin = [];
+  // "championId:skinId" the mods list was answered for
+  let modsForKey = null;
   let pythonChromaState = null;
   let currentPhase = null;
   let panel = null;
@@ -230,6 +232,10 @@
   }
 
   function resetCustomSkinSessionState() {
+    // The skin state of the previous champ select must not answer for this one
+    skinMonitorState = null;
+    lastSkinModsRequestKey = null;
+    modsForKey = null;
     pythonChromaState = null;
     selectedModId = null;
     selectedModSkinId = null;
@@ -505,6 +511,12 @@
     }
 
     const requestKey = `${championId}:${skinId}`;
+    if (requestKey !== modsForKey) {
+      // Until Python answers, the list on screen belongs to another skin
+      modsForCurrentSkin = [];
+      modsForKey = null;
+      scanSkinSelection();
+    }
     const now = Date.now();
     if (
       requestKey === lastSkinModsRequestKey &&
@@ -827,6 +839,7 @@
     modsForCurrentSkin = (Array.isArray(detail.mods) ? detail.mods : []).filter((mod) => (
       isModAvailableForSkin(mod, skinId)
     ));
+    modsForKey = `${championId}:${skinId}`;
 
     if (selectedModId && !pendingSelectionRequest) {
       const selectedEntry = modsForCurrentSkin.find((mod) => (
