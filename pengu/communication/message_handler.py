@@ -9,9 +9,11 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import re
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
@@ -55,6 +57,22 @@ def _is_safe_relative_path(path_value: str) -> bool:
         return False
 
     return all(part not in {"", ".", ".."} for part in candidate.parts)
+
+
+# Messages that wait on the user (file picker) or on disk and LCU work. They run
+# in order on one worker thread, so the bridge keeps answering every plugin
+# meanwhile (Manage Mods stayed on "Loading champions..." during an import)
+BACKGROUND_MESSAGE_TYPES = frozenset({
+    "add-custom-mods-category-selected",
+    "add-custom-mods-champion-selected",
+    "add-custom-mods-skin-selected",
+    "request-manage-champion-mods",
+    "request-manage-category-mods",
+    "delete-champion-mod",
+    "delete-category-mod",
+    "rename-champion-mod",
+    "rename-category-mod",
+})
 
 
 def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
@@ -130,6 +148,9 @@ class MessageHandler:
             port: Server port
         """
         self.shared_state = shared_state
+        # Worker thread for BACKGROUND_MESSAGE_TYPES, started on first use
+        self._background_queue: Optional[queue.Queue] = None
+        self._background_lock = threading.Lock()
         self.websocket_server = websocket_server
         self.broadcaster = broadcaster
         self.skin_processor = skin_processor
@@ -174,7 +195,30 @@ class MessageHandler:
             return
         
         payload_type = payload.get("type")
-        
+        if payload_type in BACKGROUND_MESSAGE_TYPES:
+            self._run_in_background(payload_type, payload)
+        else:
+            self._route(payload_type, payload)
+
+    def _run_in_background(self, payload_type: str, payload: dict) -> None:
+        """Queue a message for the worker thread, starting it on first use."""
+        with self._background_lock:
+            if self._background_queue is None:
+                self._background_queue = queue.Queue()
+                threading.Thread(
+                    target=self._background_worker, name="BridgeWorker", daemon=True
+                ).start()
+            self._background_queue.put((payload_type, payload))
+
+    def _background_worker(self) -> None:
+        while True:
+            payload_type, payload = self._background_queue.get()
+            try:
+                self._route(payload_type, payload)
+            except Exception as e:  # noqa: BLE001
+                log.exception("[SkinMonitor] Failed to handle %s: %s", payload_type, e)
+
+    def _route(self, payload_type: Optional[str], payload: dict) -> None:
         # Route to appropriate handler
         if payload_type == "chroma-log":
             self._handle_chroma_log(payload)
