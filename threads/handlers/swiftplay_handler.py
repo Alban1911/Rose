@@ -14,6 +14,7 @@ from injection.game.game_monitor import make_game_ended_callback
 from lcu import LCU
 from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_IDS
 from state import SharedState
+from utils.core.historic import clear_historic_entry, get_historic_skin_for_champion, write_historic_entry
 from utils.core.logging import get_logger, log_action
 
 log = get_logger()
@@ -53,6 +54,9 @@ class SwiftplayHandler:
         self._last_sync_active_ids: Optional[frozenset] = None
         self._last_injected_tracking: dict = {}  # snapshot of tracking at last successful extraction
         self._user_changed_since_inject: set = set()  # champion IDs explicitly changed by user after last injection
+        # Champions the user set to a non-default skin this lobby session: their
+        # choice wins over the saved (historic) skin, like in champ select
+        self._historic_declined: set = set()
     
     def detect_swiftplay_in_lobby(self) -> tuple[Optional[str], Optional[int]]:
         """Detect lobby game mode using multiple API endpoints."""
@@ -317,9 +321,51 @@ class SwiftplayHandler:
         except Exception as e:
             log.debug(f"[phase] Error syncing tracking with lobby: {e}")
     
-    def mark_champion_changed(self, champion_id: int):
+    def mark_champion_changed(self, champion_id: int, skin_id: Optional[int] = None):
         """Mark a champion as explicitly changed by the user since last injection."""
         self._user_changed_since_inject.add(champion_id)
+        if skin_id is not None and skin_id != champion_id * 1000:
+            self._historic_declined.add(champion_id)
+
+    def _apply_historic_skins(self, active_ids: Optional[set]) -> None:
+        """Give champions left on their default skin their saved (historic) skin.
+
+        Like Historic mode in champ select: it applies while the lobby shows
+        the default skin, and a champion the user set to another skin this
+        session keeps that choice. Caller holds swiftplay_lock.
+        """
+        tracking = self.state.swiftplay_skin_tracking
+        for champion_id in active_ids or ():
+            if champion_id in self._historic_declined:
+                continue
+            current = tracking.get(champion_id)
+            if current is not None and current != champion_id * 1000:
+                continue
+            try:
+                saved = int(get_historic_skin_for_champion(champion_id))
+            except (TypeError, ValueError):
+                continue  # no entry, or a custom mod path (not injected here)
+            if saved != current:
+                tracking[champion_id] = saved
+                log.info(f"[HISTORIC] Swiftplay: using saved skin {saved} for champion {champion_id}")
+
+    def _forget_declined_historic_skins(self, tracking: dict) -> None:
+        """A champion the user set back to its default skin is queued with it:
+        forget its saved skin, as champ select does when the default skin is played."""
+        for champion_id in self._historic_declined:
+            if tracking.get(champion_id) == champion_id * 1000:
+                clear_historic_entry(champion_id)
+
+    def _remember_injected_skins(self) -> None:
+        """Save the skins this game used, like champ select does for Historic mode."""
+        for champion_id, skin_id in self._last_injected_tracking.items():
+            try:
+                champion_id, skin_id = int(champion_id), int(skin_id)
+            except (TypeError, ValueError):
+                continue
+            if skin_id != champion_id * 1000:
+                write_historic_entry(champion_id, skin_id)
+                log.info(f"[HISTORIC] Stored last injected ID {skin_id} for champion {champion_id} (Swiftplay)")
 
     def force_base_skins_if_needed(self):
         """Force base skins for all tracked champions.
@@ -328,6 +374,11 @@ class SwiftplayHandler:
         the Find-Match button, so the PUT happens while the lobby is
         still editable.
         """
+        # Saved skins count too: an unowned one needs the base skin in the client
+        active_ids = self._last_sync_active_ids or self._get_active_lobby_champion_ids()
+        with self.state.swiftplay_lock:
+            self._apply_historic_skins(active_ids)
+
         tracking = self.state.swiftplay_skin_tracking
         if not tracking:
             log.debug("[phase] force_base_skins: no tracked skins, nothing to force")
@@ -408,6 +459,7 @@ class SwiftplayHandler:
                 self._last_sync_active_ids = None
                 self._last_injected_tracking = {}
                 self._user_changed_since_inject = set()
+                self._historic_declined = set()
 
                 # Ensure Swiftplay flag and queue ID are cleared
                 self.state.is_swiftplay_mode = False
@@ -456,16 +508,19 @@ class SwiftplayHandler:
                             log.info(f"[phase] Restoring previous skin for champion {cid}: {current} → {prev_skin}")
                             self.state.swiftplay_skin_tracking[cid] = prev_skin
 
-                if not self.state.swiftplay_skin_tracking:
-                    log.warning("[phase] No tracked skins - cannot trigger injection")
-                    return
-
-                # Filter tracking dict to only include champions currently in lobby slots
+                # Champions currently in lobby slots
                 # Reuse cached IDs from _sync_tracking_with_lobby if available
                 active_champion_ids = (
                     set(self._last_sync_active_ids) if self._last_sync_active_ids
                     else self._get_active_lobby_champion_ids()
                 )
+                self._apply_historic_skins(active_champion_ids)
+
+                if not self.state.swiftplay_skin_tracking:
+                    log.warning("[phase] No tracked skins - cannot trigger injection")
+                    return
+
+                # Filter tracking dict to only include champions currently in lobby slots
                 if active_champion_ids:
                     stale = set(self.state.swiftplay_skin_tracking) - active_champion_ids
                     if stale:
@@ -477,6 +532,7 @@ class SwiftplayHandler:
                 else:
                     log.debug("[phase] Could not determine active lobby champions - injecting all tracked skins")
                     filtered_tracking = dict(self.state.swiftplay_skin_tracking)
+                self._forget_declined_historic_skins(filtered_tracking)
 
                 if not filtered_tracking:
                     log.warning("[phase] No tracked skins for active champions - cannot trigger injection")
@@ -600,6 +656,7 @@ class SwiftplayHandler:
                     if result == 0:
                         log.info(f"[phase] Successfully injected {len(extracted_mods)} skin(s) for Swiftplay")
                         self._overlay_done = True
+                        self._remember_injected_skins()
                     else:
                         log.warning(f"[phase] Injection completed with non-zero exit code: {result}")
                 except Exception as e:
