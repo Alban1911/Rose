@@ -236,7 +236,7 @@
     const lastSlash = name.lastIndexOf("/");
     if (lastSlash >= 0) name = name.substring(lastSlash + 1);
     // Strip common file extensions
-    name = name.replace(/\.(fantome|wad|zip)$/i, "");
+    name = name.replace(/\.(fantome|modpkg|wad|zip)$/i, "");
     // Replace _ and - with spaces
     name = name.replace(/[_\-]/g, " ");
     // Title-case

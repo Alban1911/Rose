@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from utils.core.logging import get_logger
+from utils.core.modpkg import MODPKG_SUFFIX, ModPackage
 from utils.core.paths import get_user_data_dir
+from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
 
 log = get_logger()
 
-ARCHIVE_SUFFIXES = (".zip", ".fantome")
 # Rose metadata stored next to mods, never part of a mod
 _METADATA_FILES = {"rose_mod_targets.json"}
 
@@ -60,6 +61,12 @@ def _folder_content_hash(folder: Path) -> Optional[str]:
 
 def _archive_content_hash(archive_path: Path) -> Optional[str]:
     entries = []
+    if archive_path.suffix.lower() == MODPKG_SUFFIX:
+        # Hash the files the package unpacks to, as the imported folder holds them
+        with ModPackage.open(archive_path) as package:
+            for relative_path, content in package.iter_files():
+                entries.append((relative_path, hashlib.sha256(content).digest()))
+        return _content_digest(entries) if entries else None
     with zipfile.ZipFile(archive_path, "r") as archive:
         for info in archive.infolist():
             if info.is_dir():
@@ -97,7 +104,7 @@ def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
     try:
         if mod_path.is_dir():
             content_hash = _folder_content_hash(mod_path)
-        elif mod_path.suffix.lower() in ARCHIVE_SUFFIXES:
+        elif mod_path.suffix.lower() in MOD_ARCHIVE_SUFFIXES:
             legacy_hash = _legacy_archive_hash(mod_path)
             content_hash = _archive_content_hash(mod_path)
     except (OSError, zipfile.BadZipFile, ValueError) as e:
@@ -123,7 +130,7 @@ def _champion_mod_entries(champion_id: int):
         for entry in skin_dir.iterdir():
             if entry.name in _METADATA_FILES:
                 continue
-            if entry.is_dir() or entry.suffix.lower() in ARCHIVE_SUFFIXES:
+            if entry.is_dir() or entry.suffix.lower() in MOD_ARCHIVE_SUFFIXES:
                 yield entry
 
 

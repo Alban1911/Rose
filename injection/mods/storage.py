@@ -14,14 +14,17 @@ import shutil
 import tempfile
 import threading
 import time
-import zipfile
 from pathlib import Path
 from typing import List, Optional
 
 from utils.core.junction import safe_remove_entry
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
-from utils.core.safe_extract import safe_extractall
+from utils.core.safe_extract import (
+    MOD_ARCHIVE_SUFFIXES,
+    extract_mod_archive,
+    list_mod_archive,
+)
 from utils.core.utilities import get_champion_id_from_skin_id
 
 log = get_logger()
@@ -116,12 +119,9 @@ class ModStorageService:
         path limit.  Truncate only as much as needed, then account for the
         normal `` (2)`` collision suffixes.
         """
-        with zipfile.ZipFile(source, "r") as archive:
-            member_lengths = [
-                len(info.filename.replace("/", "\\"))
-                for info in archive.infolist()
-                if not info.is_dir()
-            ]
+        member_lengths = [
+            len(member.replace("/", "\\")) for member in list_mod_archive(source)
+        ]
 
         longest_member_length = max(member_lengths, default=0)
         fixed_path_length = len(str(parent_dir)) + 2 + longest_member_length
@@ -575,8 +575,8 @@ class ModStorageService:
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
-        if source.suffix.lower() not in {".zip", ".fantome"}:
-            raise ValueError("Only .zip and .fantome mod files are supported")
+        if source.suffix.lower() not in MOD_ARCHIVE_SUFFIXES:
+            raise ValueError("Only .zip, .fantome and .modpkg mod files are supported")
 
         champion_id_int = self._to_int(champion_id)
         if champion_id_int is None or champion_id_int <= 0:
@@ -601,7 +601,7 @@ class ModStorageService:
             )
         )
         try:
-            safe_extractall(source, temporary_dir)
+            extract_mod_archive(source, temporary_dir)
             if not any(temporary_dir.iterdir()):
                 raise ValueError("The selected mod archive contains no files")
             temporary_dir.replace(target_dir)
@@ -793,8 +793,8 @@ class ModStorageService:
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
-        if source.suffix.lower() not in {".zip", ".fantome"}:
-            raise ValueError("Only .zip and .fantome mod files are supported")
+        if source.suffix.lower() not in MOD_ARCHIVE_SUFFIXES:
+            raise ValueError("Only .zip, .fantome and .modpkg mod files are supported")
 
         category_dir = self.mods_root / category
         category_dir.mkdir(parents=True, exist_ok=True)
@@ -816,7 +816,7 @@ class ModStorageService:
         )
         target_created = False
         try:
-            safe_extractall(source, temporary_dir)
+            extract_mod_archive(source, temporary_dir)
             if not any(temporary_dir.iterdir()):
                 raise ValueError("The selected mod archive contains no files")
             temporary_dir.replace(target_dir)
@@ -869,7 +869,7 @@ class ModStorageService:
                 continue
             if candidate.is_dir():
                 mod_name = candidate.name
-            elif candidate.is_file() and candidate.suffix.lower() in {".zip", ".fantome"}:
+            elif candidate.is_file() and candidate.suffix.lower() in MOD_ARCHIVE_SUFFIXES:
                 mod_name = candidate.stem
             else:
                 continue

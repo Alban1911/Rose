@@ -57,6 +57,15 @@ def _is_safe_relative_path(path_value: str) -> bool:
     return all(part not in {"", ".", ".."} for part in candidate.parts)
 
 
+def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
+    """Return a mod folder's preview image (.fantome mods ship a PNG, .modpkg a WebP)."""
+    for name in ("image.png", "image.webp"):
+        thumbnail_path = mod_folder / "META" / name
+        if thumbnail_path.is_file():
+            return thumbnail_path
+    return None
+
+
 def _choose_mod_file() -> Optional[Path]:
     """Show a native file picker for a user-selected mod archive."""
     root = None
@@ -73,9 +82,10 @@ def _choose_mod_file() -> Optional[Path]:
         selected = filedialog.askopenfilename(
             title="Select a Rose mod file",
             filetypes=[
-                ("Rose mods", "*.fantome *.zip"),
+                ("Rose mods", "*.fantome *.zip *.modpkg"),
                 ("Fantome mods", "*.fantome"),
                 ("ZIP mods", "*.zip"),
+                ("Mod packages", "*.modpkg"),
                 ("All files", "*.*"),
             ],
         )
@@ -918,8 +928,8 @@ class MessageHandler:
             thumbnail_url = None
             try:
                 if entry.path.is_dir():
-                    thumbnail_path = entry.path / "META" / "image.png"
-                    if thumbnail_path.exists() and thumbnail_path.is_file():
+                    thumbnail_path = _mod_thumbnail(entry.path)
+                    if thumbnail_path is not None:
                         thumbnail_relative_path = str(
                             thumbnail_path.relative_to(self.mod_storage.mods_root)
                         ).replace("\\", "/")
@@ -1015,8 +1025,8 @@ class MessageHandler:
             thumbnail_url = None
             try:
                 if entry.path.is_dir():
-                    thumbnail_path = entry.path / "META" / "image.png"
-                    if thumbnail_path.exists() and thumbnail_path.is_file():
+                    thumbnail_path = _mod_thumbnail(entry.path)
+                    if thumbnail_path is not None:
                         thumbnail_relative_path = str(
                             thumbnail_path.relative_to(self.mod_storage.mods_root)
                         ).replace("\\", "/")

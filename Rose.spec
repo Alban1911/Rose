@@ -225,6 +225,7 @@ hiddenimports = [
     'utils.core.validation',
     'utils.core.normalization',
     'utils.core.historic',
+    'utils.core.modpkg',
     'utils.system',
     'utils.system.admin_utils',
     'utils.system.win32_base',
@@ -319,6 +320,8 @@ hiddenimports = [
     
     # Other dependencies
     'psutil',
+    'xxhash',  # .modpkg checksums
+    'zstandard',  # .modpkg compression
     
     # Top-level modules
     'config',

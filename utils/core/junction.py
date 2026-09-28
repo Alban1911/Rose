@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Union
 
 from utils.core.logging import get_logger
-from utils.core.safe_extract import safe_extractall
+from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES, extract_mod_archive
 
 log = get_logger()
 
@@ -103,7 +103,7 @@ def safe_remove_entry(path: Union[str, Path]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Cache helpers for ZIP / fantome archives
+# Cache helpers for mod archives (ZIP / fantome / modpkg)
 # ---------------------------------------------------------------------------
 
 def _get_or_extract_to_cache(
@@ -144,7 +144,7 @@ def _get_or_extract_to_cache(
         cached.mkdir(parents=True, exist_ok=True)
 
         log.info(f"[JUNCTION] Extracting {zip_path.name} to cache: {cached}")
-        safe_extractall(zip_path, cached)
+        extract_mod_archive(zip_path, cached)
 
         # Write mtime stamp
         try:
@@ -168,7 +168,7 @@ def link_or_extract(
 
     * **Directory source**: create a junction from *dest* -> *source* (zero
       copy).  Falls back to ``shutil.copytree``.
-    * **ZIP / fantome source**: extract once into *cache_dir*, then junction
+    * **ZIP / fantome / modpkg source**: extract once into *cache_dir*, then junction
       *dest* -> cached directory.  Subsequent calls are instant.
     * **Other file**: plain ``shutil.copy2`` into *dest*.
     """
@@ -178,7 +178,7 @@ def link_or_extract(
     if source.is_dir():
         create_junction(source, dest)
 
-    elif source.is_file() and source.suffix.lower() in {".zip", ".fantome"}:
+    elif source.is_file() and source.suffix.lower() in MOD_ARCHIVE_SUFFIXES:
         folder_name = source.stem
         cached = _get_or_extract_to_cache(source, folder_name, cache_dir)
         create_junction(cached, dest)
