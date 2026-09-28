@@ -3227,10 +3227,13 @@ class MessageHandler:
                     log.info(f"[PARTY] Party mode enabled, token: {token[:30]}...")
                 except Exception as e:
                     log.error(f"[PARTY] Failed to enable party mode: {e}")
+                    from utils.core.i18n import text_fields
+                    error = e.args[0] if e.args else str(e)
                     response_payload = {
                         "type": "party-enabled",
                         "success": False,
-                        "error": str(e),
+                        "error": str(error),
+                        **text_fields("error", error),
                     }
                     self._send_response(json.dumps(response_payload))
 
@@ -3317,11 +3320,13 @@ class MessageHandler:
             async def do_add_peer():
                 try:
                     success, message = await party_manager.add_peer(token)
+                    from utils.core.i18n import text_fields
                     response_payload = {
                         "type": "party-peer-added",
                         "success": success,
                         "message": message if success else None,
                         "error": None if success else message,
+                        **text_fields("message" if success else "error", message),
                     }
                     self._send_response(json.dumps(response_payload))
                     if success:

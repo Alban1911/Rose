@@ -8,6 +8,12 @@
   const REQUEST_TYPE = "request-skin-mods";
   const BUTTON_ICON_ASSET_PATH = "button-skin.png";
 
+  // Rose's menu language (ROSE-I18n); English until it has loaded
+  const t = (text, vars) =>
+    window.RoseI18n
+      ? window.RoseI18n.t(text, vars)
+      : text.replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
+
   let bridge = null;
   let skinMonitorState = null;
   let championLocked = false;
@@ -635,8 +641,8 @@
     };
 
     const noneEntry = {
-      id: "__none__", modName: "Base Skin", thumbnailUrl: "",
-      description: "Disable custom skin mod", _none: true,
+      id: "__none__", modName: t("Base Skin"), thumbnailUrl: "",
+      description: t("Disable custom skin mod"), _none: true,
     };
 
     const visibleMods = [noneEntry, ...mods];
@@ -651,7 +657,7 @@
 
       const wheelButton = document.createElement("div");
       wheelButton.className = `chroma-skin-button ${isSelected ? "selected" : ""}`;
-      wheelButton.title = visibleModName(mod, `Custom Skin ${index + 1}`);
+      wheelButton.title = visibleModName(mod, t("Custom Skin {number}", { number: index + 1 }));
 
       const contents = document.createElement("div");
       contents.className = "contents";

@@ -13,6 +13,14 @@
   const PANEL_ID = "rose-settings-panel";
   const FLYOUT_ID = "rose-settings-flyout";
 
+  // Rose's menu language (ROSE-I18n); English until it has loaded
+  const t = (text, vars) =>
+    window.RoseI18n
+      ? window.RoseI18n.t(text, vars)
+      : text.replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
+  // A finished English text from Rose (error message...), translated when it is a known one
+  const tAny = (text) => (window.RoseI18n ? window.RoseI18n.tAny(text) : text);
+
   /**
    * Escape HTML special characters to prevent XSS (CWE-79)
    * @param {string} str - String to escape
@@ -1507,20 +1515,38 @@
     button.setAttribute("margin-right", "10px");
     resetStopInjectionButton(button);
     _stopInjectionButtons.add(button);
-    button.title = "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)";
     button.addEventListener("click", () => {
       if (!bridge || button.hasAttribute("disabled")) return;
       bridge.send({ type: "stop-injection" });
       button.setAttribute("disabled", "true");
-      button.textContent = "Mods disabled";
+      labelStopInjectionButton(button);
     });
     container.appendChild(button);
   }
 
+  function labelStopInjectionButton(button) {
+    button.title = t("Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)");
+    button.textContent = button.hasAttribute("disabled") ? t("Mods disabled") : t("Disable Rose mods");
+  }
+
   function resetStopInjectionButton(button) {
     button.removeAttribute("disabled");
-    button.textContent = "Disable Rose mods";
+    labelStopInjectionButton(button);
   }
+
+  // Menus on screen follow a language change
+  window.addEventListener("rose-i18n-changed", () => {
+    _stopInjectionButtons.forEach(labelStopInjectionButton);
+    const navItem = document.querySelector("lol-uikit-navigation-item.menu_item_Golden.Rose");
+    if (settingsPanel && document.getElementById(PANEL_ID) && navItem) {
+      createSettingsFlyout(navItem);
+    }
+    if (diagnosticsDialog) {
+      // Closes the open one, then opens it again
+      openDiagnosticsDialog();
+      openDiagnosticsDialog();
+    }
+  });
 
   // The client reuses the reconnect screen, so re-enable the button for each new game
   function handleReconnectPhaseChange(payload) {
@@ -1669,7 +1695,7 @@
       const saveButton = document.getElementById("save-button");
       if (saveButton) {
         const originalText = saveButton.textContent;
-        saveButton.textContent = "Saved!";
+        saveButton.textContent = t("Saved!");
         setTimeout(() => {
           saveButton.textContent = originalText;
         }, 2000);
@@ -1696,7 +1722,7 @@
       const saveButton = document.getElementById("save-button");
       if (saveButton) {
         const originalText = saveButton.textContent;
-        saveButton.textContent = payload.error || "Error saving settings";
+        saveButton.textContent = payload.error ? tAny(payload.error) : t("Error saving settings");
         saveButton.style.background = "#8b0000";
         setTimeout(() => {
           saveButton.textContent = originalText;
@@ -1884,7 +1910,7 @@
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "rose-tooltip-icon";
-      btn.setAttribute("aria-label", ariaLabel || "Info");
+      btn.setAttribute("aria-label", ariaLabel || t("Info"));
 
       // prevent accidental focus/drag interactions with nearby controls
       btn.addEventListener("click", (e) => {
@@ -1919,7 +1945,7 @@
 
     const title = document.createElement("div");
     title.className = "settings-title";
-    title.textContent = "Settings";
+    title.textContent = t("Settings");
     title.style.marginBottom = "0";
     titleRow.appendChild(title);
 
@@ -1943,11 +1969,11 @@
     const thresholdLabel = document.createElement("label");
     thresholdLabel.className = "settings-label";
     const thresholdLabelText = document.createElement("span");
-    thresholdLabelText.textContent = "Injection Threshold (seconds):";
+    thresholdLabelText.textContent = t("Injection Threshold (seconds):");
     thresholdLabel.appendChild(
       createTooltipButton(
-        "Injection threshold is the time window during which the app considers your last hovered skin as the one to inject.\n\nFor example, if your injection threshold is set to 1 second, whichever skin you were hovering 1 second before champ select ends will be the one injected.\n\nIf your PC or connection is on the slower side, you may need to fine-tune this value.",
-        "Injection threshold info"
+        t("Injection threshold is the time window during which the app considers your last hovered skin as the one to inject.\n\nFor example, if your injection threshold is set to 1 second, whichever skin you were hovering 1 second before champ select ends will be the one injected.\n\nIf your PC or connection is on the slower side, you may need to fine-tune this value."),
+        t("Injection threshold info")
       )
     );
     thresholdLabel.appendChild(thresholdLabelText);
@@ -2067,11 +2093,11 @@
     const timeoutLabel = document.createElement("label");
     timeoutLabel.className = "settings-label";
     const timeoutLabelText = document.createElement("span");
-    timeoutLabelText.textContent = "Monitor Auto-Resume Timeout (seconds):";
+    timeoutLabelText.textContent = t("Monitor Auto-Resume Timeout (seconds):");
     timeoutLabel.appendChild(
       createTooltipButton(
-        "Auto-resume is a safety feature.\n\nIf the injection process takes longer than the value you set, the app will automatically cancel the injection and let the game start normally.\n\nThis prevents the injection from looping and blocking the game from launching.\n\nIf you use a lot of custom mods, you may need to adjust this value.",
-        "Auto-resume info"
+        t("Auto-resume is a safety feature.\n\nIf the injection process takes longer than the value you set, the app will automatically cancel the injection and let the game start normally.\n\nThis prevents the injection from looping and blocking the game from launching.\n\nIf you use a lot of custom mods, you may need to adjust this value."),
+        t("Auto-resume info")
       )
     );
     timeoutLabel.appendChild(timeoutLabelText);
@@ -2184,7 +2210,7 @@
     autostartWrapper.appendChild(autostartCheckbox);
 
     const autostartText = document.createElement("span");
-    autostartText.textContent = "Start with Windows";
+    autostartText.textContent = t("Start with Windows");
     autostartWrapper.appendChild(autostartText);
     autostartSection.appendChild(autostartWrapper);
     checkboxRow.appendChild(autostartSection);
@@ -2203,8 +2229,8 @@
     hideEmptyCategoriesWrapper.appendChild(hideEmptyCategoriesCheckbox);
 
     const hideEmptyCategoriesText = document.createElement("span");
-    hideEmptyCategoriesText.textContent = "Hide empty categories";
-    hideEmptyCategoriesWrapper.title = "Hide empty categories in the custom mods wheel";
+    hideEmptyCategoriesText.textContent = t("Hide empty categories");
+    hideEmptyCategoriesWrapper.title = t("Hide empty categories in the custom mods wheel");
     hideEmptyCategoriesWrapper.appendChild(hideEmptyCategoriesText);
     customWheelSection.appendChild(hideEmptyCategoriesWrapper);
     checkboxRow.appendChild(customWheelSection);
@@ -2216,7 +2242,7 @@
 
     const pathLabel = document.createElement("label");
     pathLabel.className = "settings-label";
-    pathLabel.textContent = "League of Legends Game Path:";
+    pathLabel.textContent = t("League of Legends Game Path:");
     pathSection.appendChild(pathLabel);
 
     const pathInputWrapper = document.createElement("div");
@@ -2241,6 +2267,44 @@
     pathSection.appendChild(pathInputWrapper);
     form.appendChild(pathSection);
 
+    // Language of Rose's menus: the client's, or one picked here (saved with Save)
+    if (window.RoseI18n) {
+      const languageSection = document.createElement("div");
+      languageSection.className = "settings-section";
+
+      const languageLabel = document.createElement("label");
+      languageLabel.className = "settings-label";
+      languageLabel.textContent = t("Language:");
+      languageSection.appendChild(languageLabel);
+
+      const languageDropdown = document.createElement("lol-uikit-framed-dropdown");
+      languageDropdown.id = "rose-language-dropdown";
+      languageDropdown.className = "lol-publishing-locale-preference-dropdown";
+      languageDropdown.style.width = "100%";
+      languageDropdown.dataset.value = window.RoseI18n.setting || "auto";
+
+      const languageChoices = [["auto", t("Auto (client language)")], ...Object.entries(window.RoseI18n.languages || {})];
+      languageChoices.forEach(([value, name]) => {
+        const option = document.createElement("lol-uikit-dropdown-option");
+        option.setAttribute("slot", "lol-uikit-dropdown-option");
+        option.setAttribute("value", value);
+        option.className = "framed-dropdown-type";
+        option.textContent = name;
+        if (value === languageDropdown.dataset.value) option.setAttribute("selected", "");
+        option.addEventListener("click", () => {
+          languageDropdown.dataset.value = value;
+        });
+        languageDropdown.appendChild(option);
+      });
+      languageDropdown.addEventListener("change", (e) => {
+        const value = e.target.value || e.detail?.value;
+        if (value) languageDropdown.dataset.value = value;
+      });
+
+      languageSection.appendChild(languageDropdown);
+      form.appendChild(languageSection);
+    }
+
     // Add / Manage custom mods dropdowns share one row, half width each
     const customModsRow = document.createElement("div");
     customModsRow.style.display = "flex";
@@ -2264,7 +2328,7 @@
     placeholderOption.setAttribute("slot", "lol-uikit-dropdown-option");
     placeholderOption.setAttribute("value", "");
     placeholderOption.className = "framed-dropdown-type placeholder-option";
-    placeholderOption.textContent = "Add custom mods";
+    placeholderOption.textContent = t("Add custom mods");
     placeholderOption.style.color = "#7d7d7d";
     placeholderOption.style.opacity = "0.7";
     placeholderOption.style.pointerEvents = "none";
@@ -2297,7 +2361,7 @@
       option.setAttribute("slot", "lol-uikit-dropdown-option");
       option.setAttribute("value", category.id);
       option.className = "framed-dropdown-type";
-      option.textContent = category.name;
+      option.textContent = t(category.name);
       modsDropdown.appendChild(option);
     });
 
@@ -2535,7 +2599,7 @@
     managePlaceholderOption.setAttribute("value", "");
     managePlaceholderOption.setAttribute("selected", "");
     managePlaceholderOption.className = "placeholder-option framed-dropdown-type";
-    managePlaceholderOption.textContent = "Manage custom mods";
+    managePlaceholderOption.textContent = t("Manage custom mods");
     managePlaceholderOption.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2561,7 +2625,7 @@
       option.setAttribute("slot", "lol-uikit-dropdown-option");
       option.setAttribute("value", category.id);
       option.className = "framed-dropdown-type";
-      option.textContent = category.name;
+      option.textContent = t(category.name);
       manageDropdown.appendChild(option);
     });
 
@@ -2693,7 +2757,7 @@
     // Open logs folder button
     const logsButton = document.createElement("lol-uikit-flat-button-secondary");
     logsButton.id = "logs-folder-button";
-    logsButton.textContent = "Open Logs Folder";
+    logsButton.textContent = t("Open Logs Folder");
     logsButton.style.marginTop = "8px";
     logsButton.style.width = "100%";
     logsButton.addEventListener("click", () => {
@@ -2704,7 +2768,7 @@
     // Troubleshooting button (opens a small dialog with compact errors)
     const troubleshootButton = document.createElement("lol-uikit-flat-button-secondary");
     troubleshootButton.id = "troubleshoot-button";
-    troubleshootButton.textContent = "Troubleshooting";
+    troubleshootButton.textContent = t("Troubleshooting");
     troubleshootButton.style.marginTop = "8px";
     troubleshootButton.style.width = "100%";
     troubleshootButton.addEventListener("click", () => {
@@ -2716,7 +2780,7 @@
     // Open Pengu Loader UI button
     const penguUIButton = document.createElement("lol-uikit-flat-button-secondary");
     penguUIButton.id = "pengu-ui-button";
-    penguUIButton.textContent = "Open Pengu Loader UI";
+    penguUIButton.textContent = t("Open Pengu Loader UI");
     penguUIButton.style.marginTop = "8px";
     penguUIButton.style.width = "100%";
     penguUIButton.addEventListener("click", () => {
@@ -2727,7 +2791,7 @@
     // Save button (moved to last position)
     const saveButton = document.createElement("lol-uikit-flat-button-secondary");
     saveButton.id = "save-button";
-    saveButton.textContent = "Save";
+    saveButton.textContent = t("Save");
     saveButton.style.marginTop = "8px";
     saveButton.style.width = "21%";
     saveButton.addEventListener("click", () => {
@@ -3095,6 +3159,8 @@
     const autostart = autostartCheckbox ? autostartCheckbox.checked : false;
     const hideEmptyCategories = hideEmptyCategoriesCheckbox ? hideEmptyCategoriesCheckbox.checked : false;
     const gamePath = pathInput ? pathInput.value.trim() : "";
+    const languageDropdown = document.getElementById("rose-language-dropdown");
+    const language = languageDropdown ? languageDropdown.dataset.value : undefined;
 
     // Clamp threshold between 0.30 and 2.0
     const clampedThreshold = Math.max(0.3, Math.min(2.0, threshold));
@@ -3111,6 +3177,7 @@
       autostart: autostart,
       hideEmptyCategories: hideEmptyCategories,
       gamePath: gamePath,
+      language: language,
     });
 
     log("info", "Settings save requested", {
@@ -3192,7 +3259,7 @@
     // Title
     const title = document.createElement("div");
     title.className = "settings-title";
-    title.textContent = "Add Custom Mods";
+    title.textContent = t("Add Custom Mods");
     flyoutContent.appendChild(title);
 
     // Category buttons container
@@ -3216,7 +3283,7 @@
 
     categories.forEach((category) => {
       const categoryButton = document.createElement("lol-uikit-flat-button-secondary");
-      categoryButton.textContent = category.name;
+      categoryButton.textContent = t(category.name);
       categoryButton.style.width = "100%";
       categoryButton.style.padding = "12px";
       categoryButton.addEventListener("click", () => {
@@ -3299,7 +3366,7 @@
     const backButton = document.createElement("button");
     backButton.className = "back-button";
     backButton.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>';
-    backButton.setAttribute("aria-label", "Go back");
+    backButton.setAttribute("aria-label", t("Go back"));
     backButton.addEventListener("click", () => {
       closeChampionSelection();
     });
@@ -3309,8 +3376,8 @@
     const titleWrapper = document.createElement("div");
     titleWrapper.className = "dialog-title-wrapper";
     titleWrapper.textContent = window.__roseChampionSelectionMode === "manage"
-      ? "Manage Mods - Select Champion"
-      : "Select Champion";
+      ? t("Manage Mods - Select Champion")
+      : t("Select Champion");
     header.appendChild(titleWrapper);
 
     flyoutContent.appendChild(header);
@@ -3333,7 +3400,7 @@
     searchInput.type = "search";
     searchInput.name = "champion_search";
     searchInput.id = "champion-search-input";
-    searchInput.placeholder = "Search champions...";
+    searchInput.placeholder = t("Search champions...");
     searchInput.autocomplete = "off";
     searchInput.autocorrect = "off";
     searchInput.autocapitalize = "off";
@@ -3346,7 +3413,7 @@
     // Loading indicator
     const loadingIndicator = document.createElement("div");
     loadingIndicator.id = "champion-loading";
-    loadingIndicator.textContent = "Loading champions...";
+    loadingIndicator.textContent = t("Loading champions...");
     loadingIndicator.style.color = "#cdbe91";
     loadingIndicator.style.textAlign = "center";
     loadingIndicator.style.padding = "20px";
@@ -3407,7 +3474,7 @@
     championsGrid.innerHTML = "";
 
     if (champions.length === 0) {
-      championsGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">No champions found matching your search.</div>`;
+      championsGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(t("No champions found matching your search."))}</div>`;
       return;
     }
 
@@ -3490,7 +3557,7 @@
     const backButton = document.createElement("button");
     backButton.className = "back-button";
     backButton.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>';
-    backButton.setAttribute("aria-label", "Go back");
+    backButton.setAttribute("aria-label", t("Go back"));
     backButton.addEventListener("click", (e) => {
       e.stopPropagation();
       closeSkinSelection();
@@ -3501,7 +3568,7 @@
     // Title text
     const titleWrapper = document.createElement("div");
     titleWrapper.className = "dialog-title-wrapper";
-    titleWrapper.textContent = "Select Skins & Chromas";
+    titleWrapper.textContent = t("Select Skins & Chromas");
     header.appendChild(titleWrapper);
 
     flyoutContent.appendChild(header);
@@ -3509,7 +3576,7 @@
     // Loading indicator
     const loadingIndicator = document.createElement("div");
     loadingIndicator.id = "skin-loading";
-    loadingIndicator.textContent = "Loading skins...";
+    loadingIndicator.textContent = t("Loading skins...");
     loadingIndicator.style.color = "#cdbe91";
     loadingIndicator.style.textAlign = "center";
     loadingIndicator.style.padding = "20px";
@@ -3538,13 +3605,13 @@
 
     const selectionCount = document.createElement("span");
     selectionCount.id = "skin-selection-count";
-    selectionCount.textContent = "0 targets selected";
+    selectionCount.textContent = t("{count} targets selected", { count: 0 });
     selectionActions.appendChild(selectionCount);
 
     const confirmButton = document.createElement("button");
     confirmButton.id = "skin-selection-confirm";
     confirmButton.type = "button";
-    confirmButton.textContent = "Confirm & Select Mod";
+    confirmButton.textContent = t("Confirm & Select Mod");
     confirmButton.disabled = true;
     confirmButton.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -3600,7 +3667,7 @@
     const selectionCount = document.getElementById("skin-selection-count");
     if (selectionCount) {
       const count = selectedSkinIds.size;
-      selectionCount.textContent = `${count} target${count === 1 ? "" : "s"} selected`;
+      selectionCount.textContent = count === 1 ? t("{count} target selected", { count }) : t("{count} targets selected", { count });
     }
 
     const confirmButton = document.getElementById("skin-selection-confirm");
@@ -3703,7 +3770,7 @@
     const backButton = document.createElement("button");
     backButton.className = "back-button";
     backButton.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>';
-    backButton.setAttribute("aria-label", "Go back");
+    backButton.setAttribute("aria-label", t("Go back"));
     backButton.addEventListener("click", (e) => {
       e.stopPropagation();
       dismiss();
@@ -3723,7 +3790,7 @@
     listContainer.style.overflowX = "hidden";
     listContainer.style.maxHeight = "60vh";
     listContainer.style.marginTop = "12px";
-    listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">Loading mods...</div>`;
+    listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(t("Loading mods..."))}</div>`;
     flyoutContent.appendChild(listContainer);
 
     flyoutFrame.appendChild(flyoutContent);
@@ -3783,7 +3850,7 @@
       const renameButton = document.createElement("button");
       renameButton.type = "button";
       renameButton.className = "mod-rename-button";
-      renameButton.textContent = "Rename";
+      renameButton.textContent = t("Rename");
       renameButton.addEventListener("click", (e) => {
         e.stopPropagation();
         promptRenameMod(displayLabel, (newName) => onRename(renameButton, row, newName));
@@ -3794,7 +3861,7 @@
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "mod-delete-button";
-    deleteButton.textContent = "Delete";
+    deleteButton.textContent = t("Delete");
     deleteButton.addEventListener("click", (e) => {
       e.stopPropagation();
       confirmDeleteMod(displayLabel, () => onDelete(deleteButton, row));
@@ -3824,7 +3891,7 @@
     box.addEventListener("click", (e) => e.stopPropagation());
 
     const label = document.createElement("div");
-    label.textContent = "Rename mod";
+    label.textContent = t("Rename mod");
     label.style.cssText = "color:#c8aa6e;font-family:'Beaufort for LOL',serif;font-size:16px;font-weight:bold;margin-bottom:12px;text-align:center;";
     box.appendChild(label);
 
@@ -3841,7 +3908,7 @@
     const saveButton = document.createElement("button");
     saveButton.type = "button";
     saveButton.className = "mod-save-button";
-    saveButton.textContent = "Save";
+    saveButton.textContent = t("Save");
     const submit = () => {
       const value = input.value.trim();
       if (!value) return;
@@ -3854,7 +3921,7 @@
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
     cancelButton.className = "mod-rename-button";
-    cancelButton.textContent = "Cancel";
+    cancelButton.textContent = t("Cancel");
     cancelButton.addEventListener("click", () => dlg.remove());
     actionsRow.appendChild(cancelButton);
 
@@ -3893,7 +3960,7 @@
     message.style.color = "#cdbe91";
     message.style.fontFamily = '"Beaufort for LOL", serif';
     message.style.marginBottom = "16px";
-    message.textContent = `Delete mod "${modName}"? This cannot be undone.`;
+    message.textContent = t('Delete mod "{name}"? This cannot be undone.', { name: modName });
     box.appendChild(message);
 
     const actions = document.createElement("div");
@@ -3904,14 +3971,14 @@
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
     cancelButton.className = "mod-rename-button";
-    cancelButton.textContent = "Cancel";
+    cancelButton.textContent = t("Cancel");
     cancelButton.addEventListener("click", () => confirmDialog.remove());
     actions.appendChild(cancelButton);
 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "mod-delete-button";
-    deleteButton.textContent = "Delete";
+    deleteButton.textContent = t("Delete");
     deleteButton.addEventListener("click", () => {
       confirmDialog.remove();
       onConfirm();
@@ -3926,7 +3993,7 @@
   function openChampionModsList(championId) {
     createModsListDialog(
       "champion-mods-manage-dialog",
-      "Manage Mods - Loading...",
+      t("Manage Mods - Loading..."),
       () => openChampionSelection("manage"),
       () => { delete window.__roseManageChampionId; }
     );
@@ -3954,14 +4021,14 @@
     const titleWrapper = dialog.querySelector(".dialog-title-wrapper");
     if (titleWrapper) {
       titleWrapper.textContent = payload.championName
-        ? `Manage Mods - ${payload.championName}`
-        : "Manage Mods";
+        ? t("Manage Mods - {name}", { name: payload.championName })
+        : t("Manage Mods");
     }
 
     listContainer.innerHTML = "";
     const mods = payload.mods || [];
     if (mods.length === 0) {
-      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">No custom mods installed for this champion.</div>`;
+      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(t("No custom mods installed for this champion."))}</div>`;
       return;
     }
 
@@ -3976,7 +4043,7 @@
         { name: mod.modName, displayName: mod.displayName, thumbnailUrl: mod.thumbnailUrl },
         (deleteButton, row) => {
           deleteButton.disabled = true;
-          deleteButton.textContent = "Deleting...";
+          deleteButton.textContent = t("Deleting...");
           if (bridge) bridge.send({
             type: "delete-champion-mod",
             championId: window.__roseManageChampionId,
@@ -3986,7 +4053,7 @@
         },
         (renameButton, row, newName) => {
           renameButton.disabled = true;
-          renameButton.textContent = "Saving...";
+          renameButton.textContent = t("Saving...");
           if (bridge) bridge.send({
             type: "rename-champion-mod",
             championId: window.__roseManageChampionId,
@@ -4031,7 +4098,7 @@
     const categoryMeta = MANAGE_MOD_CATEGORIES.find((c) => c.id === category);
     createModsListDialog(
       "category-mods-manage-dialog",
-      `Manage Mods - ${categoryMeta ? categoryMeta.name : category}`,
+      t("Manage Mods - {name}", { name: categoryMeta ? t(categoryMeta.name) : category }),
       null,
       () => { delete window.__roseManageCategory; }
     );
@@ -4052,7 +4119,7 @@
     listContainer.innerHTML = "";
     const mods = payload.mods || [];
     if (mods.length === 0) {
-      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">No custom mods installed in this category.</div>`;
+      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(t("No custom mods installed in this category."))}</div>`;
       return;
     }
 
@@ -4062,7 +4129,7 @@
         { name: mod.name, displayName: mod.displayName },
         (deleteButton) => {
           deleteButton.disabled = true;
-          deleteButton.textContent = "Deleting...";
+          deleteButton.textContent = t("Deleting...");
           if (bridge) bridge.send({
             type: "delete-category-mod",
             category: window.__roseManageCategory,
@@ -4071,7 +4138,7 @@
         },
         (renameButton, row, newName) => {
           renameButton.disabled = true;
-          renameButton.textContent = "Saving...";
+          renameButton.textContent = t("Saving...");
           if (bridge) bridge.send({
             type: "rename-category-mod",
             category: window.__roseManageCategory,
@@ -4121,16 +4188,16 @@
     if (!championsGrid) return;
 
     if (payload.error) {
-      championsGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #ff6b6b; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(payload.error)}</div>`;
+      championsGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #ff6b6b; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(tAny(payload.error))}</div>`;
       return;
     }
 
     const champions = payload.champions || [];
     if (champions.length === 0) {
       const emptyText = window.__roseChampionSelectionMode === "manage"
-        ? "No champions have custom skins yet."
-        : "No champions found. Please ensure League of Legends client is running.";
-      championsGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${emptyText}</div>`;
+        ? t("No champions have custom skins yet.")
+        : t("No champions found. Please ensure League of Legends client is running.");
+      championsGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(emptyText)}</div>`;
       return;
     }
 
@@ -4165,7 +4232,7 @@
       } else {
         skinsListContainer.innerHTML = "";
       }
-      skinsListContainer.innerHTML = `<div style="color: #ff6b6b; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(payload.error)}</div>`;
+      skinsListContainer.innerHTML = `<div style="color: #ff6b6b; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(tAny(payload.error))}</div>`;
       return;
     }
 
@@ -4177,7 +4244,7 @@
     if (header && payload.championName) {
       const titleWrapper = header.querySelector(".dialog-title-wrapper");
       if (titleWrapper) {
-        titleWrapper.textContent = `Select Skins & Chromas - ${payload.championName}`;
+        titleWrapper.textContent = t("Select Skins & Chromas - {name}", { name: payload.championName });
       }
     }
 
@@ -4193,7 +4260,7 @@
     }
 
     if (skins.length === 0) {
-      skinsListContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">No skins found for this champion.</div>`;
+      skinsListContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(t("No skins found for this champion."))}</div>`;
       return;
     }
 
@@ -4232,14 +4299,14 @@
 
       const img = document.createElement("img");
       img.src = getTilePath(skin);
-      img.alt = skin.name || `Skin ${baseSkinId}`;
+      img.alt = skin.name || t("Skin {id}", { id: baseSkinId });
       img.loading = "lazy";
       img.onerror = function () { this.style.display = "none"; };
       front.appendChild(img);
 
       const nameEl = document.createElement("div");
       nameEl.className = "skin-name";
-      nameEl.textContent = skin.name || `Skin ${baseSkinId}`;
+      nameEl.textContent = skin.name || t("Skin {id}", { id: baseSkinId });
       front.appendChild(nameEl);
 
       front.addEventListener("click", () => handleSkinSelection(championId, baseSkinId));
@@ -4248,8 +4315,8 @@
         const chromaButton = document.createElement("button");
         chromaButton.type = "button";
         chromaButton.className = "skin-chroma-button";
-        chromaButton.textContent = `Chromas ${chromas.length}`;
-        chromaButton.setAttribute("aria-label", `Show ${chromas.length} chromas`);
+        chromaButton.textContent = t("Chromas {count}", { count: chromas.length });
+        chromaButton.setAttribute("aria-label", t("Show {count} chromas", { count: chromas.length }));
         chromaButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -4270,7 +4337,7 @@
         backButton.type = "button";
         backButton.className = "skin-card-back-close";
         backButton.textContent = "\u2039";
-        backButton.setAttribute("aria-label", "Back to skin");
+        backButton.setAttribute("aria-label", t("Back to skin"));
         backButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -4279,7 +4346,7 @@
         backHeader.appendChild(backButton);
 
         const backTitle = document.createElement("span");
-        backTitle.textContent = `${skin.name || "Skin"} - Chromas`;
+        backTitle.textContent = t("{name} - Chromas", { name: skin.name || t("Skin") });
         backHeader.appendChild(backTitle);
         back.appendChild(backHeader);
 
@@ -4295,7 +4362,7 @@
 
           const optionImg = document.createElement("img");
           optionImg.src = getTilePath(optionSkin);
-          optionImg.alt = optionSkin.name || `Skin ${optionId}`;
+          optionImg.alt = optionSkin.name || t("Skin {id}", { id: optionId });
           optionImg.loading = "lazy";
           optionImg.onerror = function () { this.style.display = "none"; };
           option.appendChild(optionImg);
@@ -4303,8 +4370,8 @@
           const optionName = document.createElement("span");
           optionName.className = "skin-option-name";
           optionName.textContent = optionIndex === 0
-            ? "Base skin"
-            : (optionSkin.name || `Chroma ${optionId}`);
+            ? t("Base skin")
+            : (optionSkin.name || t("Chroma {id}", { id: optionId }));
           option.appendChild(optionName);
 
           option.addEventListener("click", (event) => {
@@ -4410,7 +4477,7 @@
     panel.style.position = "absolute";
 
     const title = document.createElement("div");
-    title.textContent = "Troubleshooting";
+    title.textContent = t("Troubleshooting");
     title.style.color = "#cdbe91";
     title.style.fontFamily = "'Beaufort for LOL', serif";
     title.style.fontSize = "16px";
@@ -4420,7 +4487,7 @@
     // Top-right close button
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
-    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.setAttribute("aria-label", t("Close"));
     closeBtn.textContent = "×";
     closeBtn.style.position = "absolute";
     closeBtn.style.top = "6px";
@@ -4454,7 +4521,7 @@
     body.style.maxHeight = "220px";
     body.style.overflow = "auto";
     body.style.lineHeight = "1.35";
-    body.textContent = "Loading…";
+    body.textContent = t("Loading…");
     panel.appendChild(body);
 
     const foot = document.createElement("div");
@@ -4503,8 +4570,8 @@
     const errors = Array.isArray(diagnosticsState.errors) ? diagnosticsState.errors : [];
     if (errors.length === 0) {
       body.innerHTML = `
-        <div style="opacity:0.85; margin-bottom:8px;">No recent errors.</div>
-        <div style="opacity:0.75;">If something feels off, open the logs folder and share the latest log in a discord ticket.</div>
+        <div style="opacity:0.85; margin-bottom:8px;">${escapeHtml(t("No recent errors."))}</div>
+        <div style="opacity:0.75;">${escapeHtml(t("If something feels off, open the logs folder and share the latest log in a discord ticket."))}</div>
       `.trim();
     } else {
       const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -4547,22 +4614,22 @@
 
           let fixText;
           if (thresholdAtMax) {
-            fixText = `Fix: you're already at the maximum Injection Threshold. This usually means the injection is extremely slow. Try lighter mods, close heavy apps, move League/mods to an SSD, and consider adding antivirus exclusions for the League and Rose folders. Then retry.`;
+            fixText = t("Fix: you're already at the maximum Injection Threshold. This usually means the injection is extremely slow. Try lighter mods, close heavy apps, move League/mods to an SSD, and consider adding antivirus exclusions for the League and Rose folders. Then retry.");
           } else if (hasTrackerData) {
-            fixText = `Fix: based on ${stats.confirmed_count} game(s), base skin confirmation takes up to ${stats.p90_ms}ms (p90). Recommended threshold: ${recS}s. Use the "Apply recommended" button below, or increase "Injection Threshold" manually.`;
+            fixText = t('Fix: based on {games} game(s), base skin confirmation takes up to {ms}ms (p90). Recommended threshold: {seconds}s. Use the "Apply recommended" button below, or increase "Injection Threshold" manually.', { games: stats.confirmed_count, ms: stats.p90_ms, seconds: recS });
           } else {
-            fixText = `Fix: increase "Injection Threshold (seconds)" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, retry your skin selection.`;
+            fixText = t('Fix: increase "Injection Threshold (seconds)" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, retry your skin selection.');
           }
 
           return {
             title:
               code === "BASE_SKIN_VERIFY_FAILED"
-                ? "Base skin verification failed (selected skin may not apply)"
-                : "Base skin forcing took too long (skin may not appear)",
+                ? t("Base skin verification failed (selected skin may not apply)")
+                : t("Base skin forcing took too long (skin may not appear)"),
             details: [
               code === "BASE_SKIN_VERIFY_FAILED"
-                ? `What it means: the client didn't confirm the base skin change in time.`
-                : `What it means: forcing the base skin took too long, so the selected skin may not show.`,
+                ? t("What it means: the client didn't confirm the base skin change in time.")
+                : t("What it means: forcing the base skin took too long, so the selected skin may not show."),
               fixText,
             ],
           };
@@ -4574,12 +4641,12 @@
             Number.isFinite(curMonitorTimeout) &&
             curMonitorTimeout >= (180 - 1e-6);
           return {
-            title: "Injection exceeded the timeout (process was stopped)",
+            title: t("Injection exceeded the timeout (process was stopped)"),
             details: [
-              `What it means: injection took longer than the allowed time, so ROSE stopped the process.`,
+              t("What it means: injection took longer than the allowed time, so ROSE stopped the process."),
               timeoutAtMax
-                ? `Fix: you're already at the maximum Monitor Auto-Resume Timeout. This usually means the injection is extremely slow. Try lighter mods, close heavy apps, move League/mods to an SSD, and consider adding antivirus exclusions for the League and Rose folders. Then retry.`
-                : `Fix: increase "Monitor Auto-Resume Timeout (seconds)" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, try again.`,
+                ? t("Fix: you're already at the maximum Monitor Auto-Resume Timeout. This usually means the injection is extremely slow. Try lighter mods, close heavy apps, move League/mods to an SSD, and consider adding antivirus exclusions for the League and Rose folders. Then retry.")
+                : t('Fix: increase "Monitor Auto-Resume Timeout (seconds)" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, try again.'),
             ],
           };
         }
@@ -4588,30 +4655,30 @@
           code === 'LOW_DISK_SPACE' || /Low Disk Space/i.test(raw) || /not enough disk space/i.test(raw);
         if (isLowDiskSpace) {
           return {
-            title: 'Not enough disk space for injection',
+            title: t('Not enough disk space for injection'),
             details: [
-              'What it means: Rose could not create the overlay for the selected skin.',
-              'Fix: free up space on the drive containing Rose injection files, then retry. Map mods can require several GB.',
+              t('What it means: Rose could not create the overlay for the selected skin.'),
+              t('Fix: free up space on the drive containing Rose injection files, then retry. Map mods can require several GB.'),
             ],
           };
         }
 
         if (code === 'LTK_PATCHER_EOL') {
           return {
-            title: 'LTK patcher is outdated (end of life reached)',
+            title: t('LTK patcher is outdated (end of life reached)'),
             details: [
-              'What it means: your ltk_patcher_dll.dll no longer supports the current game build, so skins cannot be injected.',
-              "Fix: update LTK Manager, copy its new ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder, then restart Rose.",
+              t('What it means: your ltk_patcher_dll.dll no longer supports the current game build, so skins cannot be injected.'),
+              t("Fix: update LTK Manager, copy its new ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder, then restart Rose."),
             ],
           };
         }
 
         if (code === 'LTK_PATCHER_MISSING') {
           return {
-            title: 'LTK patcher files are missing',
+            title: t('LTK patcher files are missing'),
             details: [
-              'What it means: Rose needs ltk_patcher_host.exe and ltk_patcher_dll.dll to inject skins.',
-              "Fix: copy both files from your LTK Manager install into Rose's tools folder, then restart Rose.",
+              t('What it means: Rose needs ltk_patcher_host.exe and ltk_patcher_dll.dll to inject skins.'),
+              t("Fix: copy both files from your LTK Manager install into Rose's tools folder, then restart Rose."),
             ],
           };
         }
@@ -4619,25 +4686,25 @@
         if (code === 'LTK_PATCHER_FAILED') {
           const detail = String(e?.detail || '').trim();
           return {
-            title: 'LTK patcher failed during injection',
+            title: t('LTK patcher failed during injection'),
             details: [
-              detail ? `What happened: ${detail}` : 'What happened: the LTK patcher reported an error.',
-              'Fix: make sure your LTK patcher files are up to date, then retry. Full output is in rose_runoverlay_*.log in the Rose logs folder.',
+              detail ? t('What happened: {detail}', { detail }) : t('What happened: the LTK patcher reported an error.'),
+              t('Fix: make sure your LTK patcher files are up to date, then retry. Full output is in rose_runoverlay_*.log in the Rose logs folder.'),
             ],
           };
         }
 
         // Fallback: show raw error text as-is.
         return {
-          title: raw || "(unknown error)",
+          title: raw ? tAny(raw) : t("(unknown error)"),
           details: [],
         };
       };
 
       const headerHtml = `
         <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:10px;">
-          <div style="font-weight:700;">Errors (most recent first)</div>
-          <div style="opacity:0.75;">Tip: after changing a setting, click <span style="font-weight:700;">Save</span>, then retry.</div>
+          <div style="font-weight:700;">${escapeHtml(t("Errors (most recent first)"))}</div>
+          <div style="opacity:0.75;">${escapeHtml(t("Tip: after changing a setting, click {save}, then retry.")).replace("{save}", `<span style="font-weight:700;">${escapeHtml(t("Save"))}</span>`)}</div>
         </div>
       `.trim();
 
@@ -4658,14 +4725,14 @@
                 <span style="font-weight:800; color:#c89b3c;">${idx + 1}.</span>
                 ${tsHtml}
                 <span style="font-weight:700; flex:1;">${title}</span>
-                <button class="rose-diagnostics-delete" data-key="${escapeHtml(e?.key || e?.text || "")}" title="Delete this error" style="
+                <button class="rose-diagnostics-delete" data-key="${escapeHtml(e?.key || e?.text || "")}" title="${escapeHtml(t("Delete this error"))}" style="
                   border:none; background:none; color:#cdbe91; cursor:pointer; padding:0 2px; font-size:14px; line-height:1;
                 ">&#x2715;</button>
               </div>
               ${
                 detailsHtml
                   ? `<ul style="margin:0; padding-left:18px;">${detailsHtml}</ul>`
-                  : `<div style="opacity:0.8;">${escapeHtml(String(e?.text || "").trim() || "No additional details.")}</div>`
+                  : `<div style="opacity:0.8;">${escapeHtml(tAny(String(e?.text || "").trim()) || t("No additional details."))}</div>`
               }
             </div>
           `.trim();
@@ -4681,7 +4748,7 @@
     foot.innerHTML = "";
     if (errors.length > 0) {
       const clearAll = document.createElement("button");
-      clearAll.textContent = "Clear all";
+      clearAll.textContent = t("Clear all");
       clearAll.style.cssText = `
         padding:2px 10px; border:1px solid #463714; background:#1e2328;
         color:#cdbe91; cursor:pointer; font-family:'Beaufort for LOL',serif; font-size:12px;
@@ -4716,18 +4783,19 @@
     const curThresholdVal = typeof currentSettings?.threshold === "number" ? currentSettings.threshold : null;
     const needsIncrease = recS !== null && curThresholdVal !== null && curThresholdVal < parseFloat(recS) - 0.001;
     const games = stats.confirmed_count;
-    const label = `${games} game${games > 1 ? "s" : ""}`;
+    const label = games > 1 ? t("{count} games", { count: games }) : t("{count} game", { count: games });
 
     let html;
     if (needsIncrease) {
-      html = `<span style="color:#c8aa6e;">Based on ${label}, we recommend <span style="color:#c89b3c; font-weight:700;">${recS}s</span></span>`;
+      const recommended = `<span style="color:#c89b3c; font-weight:700;">${recS}s</span>`;
+      html = `<span style="color:#c8aa6e;">${escapeHtml(t("Based on {games}, we recommend {value}", { games: label })).replace("{value}", recommended)}</span>`;
       html += ` <button id="rose-apply-recommended-btn" style="
         margin-left:4px; padding:1px 8px; border:1px solid #463714; background:#1e2328;
         color:#cdbe91; cursor:pointer; font-family:'Beaufort for LOL',serif; font-size:11px;
         vertical-align:middle;
-      ">Apply</button>`;
+      ">${escapeHtml(t("Apply"))}</button>`;
     } else {
-      html = `<span style="color:#5b9a32;">Your threshold looks good (based on ${label})</span>`;
+      html = `<span style="color:#5b9a32;">${escapeHtml(t("Your threshold looks good (based on {games})", { games: label }))}</span>`;
     }
 
     el.innerHTML = html;
@@ -4737,7 +4805,7 @@
       applyBtn.addEventListener("click", () => {
         if (bridge) {
           bridge.send({ type: "diagnostics-apply-recommended" });
-          applyBtn.textContent = "Applied!";
+          applyBtn.textContent = t("Applied!");
           applyBtn.disabled = true;
           applyBtn.style.opacity = "0.6";
           setTimeout(() => {

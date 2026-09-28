@@ -6,6 +6,14 @@
  */
 (function initPartyMode() {
   const LOG_PREFIX = "[Rose-PartyMode]";
+
+  // Rose's menu language (ROSE-I18n); English until it has loaded
+  const t = (text, vars) =>
+    window.RoseI18n
+      ? window.RoseI18n.t(text, vars)
+      : text.replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
+  // A message from Rose: its template and values when it has variables
+  const tMessage = (message, template, values) => (template ? t(template, values) : t(message));
   let BRIDGE_PORT = 50000;
   let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
   const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
@@ -569,7 +577,7 @@
       const content = document.createElement("lol-uikit-content-block");
       content.setAttribute("type", "tooltip-system");
       const p = document.createElement("p");
-      p.textContent = text;
+      p.textContent = t(text);
       content.appendChild(p);
       tip.appendChild(content);
       wrapper.appendChild(tip);
@@ -681,47 +689,47 @@
       <lol-uikit-dialog-frame class="party-dialog" orientation="bottom" close-button>
       <div class="party-modal">
       <div class="party-header">
-        <h3>Party Mode</h3>
-        <span class="party-status offline">Offline</span>
+        <h3>${t("Party Mode")}</h3>
+        <span class="party-status offline">${t("Offline")}</span>
       </div>
       <div class="party-content">
-        <div class="party-description">Share your skins with friends in the same game. Send your token to your friends or paste theirs: everyone linked to the party sees each other.</div>
+        <div class="party-description">${t("Share your skins with friends in the same game. Send your token to your friends or paste theirs: everyone linked to the party sees each other.")}</div>
 
         <div class="party-section" id="party-toggle-section">
           <button class="party-toggle-btn enable" id="party-toggle-btn">
-            Enable Party Mode
+            ${t("Enable Party Mode")}
           </button>
           <div id="party-toggle-message"></div>
         </div>
 
         <div class="party-section" id="party-token-section" style="display: none;">
-          <div class="party-section-title">Your Party Token</div>
+          <div class="party-section-title">${t("Your Party Token")}</div>
           <div class="token-container">
-            <input type="text" class="token-input" id="party-token-display" readonly placeholder="Generating...">
-            <button class="copy-btn" id="copy-token-btn">Copy</button>
+            <input type="text" class="token-input" id="party-token-display" readonly placeholder="${t("Generating...")}">
+            <button class="copy-btn" id="copy-token-btn">${t("Copy")}</button>
           </div>
         </div>
 
         <div class="party-section" id="party-add-section" style="display: none;">
-          <div class="party-section-title">Add Friend</div>
+          <div class="party-section-title">${t("Add Friend")}</div>
           <div class="add-peer-container">
-            <input type="text" class="add-peer-input" id="add-peer-input" placeholder="Paste friend's token here...">
-            <button class="add-btn" id="add-peer-btn">Add</button>
+            <input type="text" class="add-peer-input" id="add-peer-input" placeholder="${t("Paste your friend's token here...")}">
+            <button class="add-btn" id="add-peer-btn">${t("Add")}</button>
           </div>
           <div id="add-peer-message"></div>
         </div>
 
         <div class="party-section" id="party-peers-section" style="display: none;">
-          <div class="party-section-title">Connected Friends (<span id="peer-count">0</span>)</div>
+          <div class="party-section-title">${t("Connected Friends")} (<span id="peer-count">0</span>)</div>
           <div class="peers-list" id="peers-list">
-            <div class="no-peers">No friends connected yet</div>
+            <div class="no-peers">${t("No friends connected yet")}</div>
           </div>
         </div>
       </div>
       </div>
       </lol-uikit-dialog-frame>
       <div class="party-footer">
-        <lol-uikit-flat-button id="party-done-btn">Done</lol-uikit-flat-button>
+        <lol-uikit-flat-button id="party-done-btn">${t("Done")}</lol-uikit-flat-button>
       </div>
     `;
 
@@ -753,6 +761,17 @@
   function closePanel() {
     if (!panelLocked) setPanelVisible(false);
   }
+
+  // A new menu language (ROSE-I18n): rebuild the panel in it, open or closed as it was
+  window.addEventListener("rose-i18n-changed", () => {
+    const wasVisible = isVisible;
+    if (partyPanel) partyPanel.remove();
+    partyPanel = null;
+    isVisible = false;
+    createPartyPanel();
+    if (wasVisible) setPanelVisible(true);
+    updatePanelState();
+  });
 
   function setPanelLocked(locked) {
     panelLocked = locked;
@@ -806,14 +825,14 @@
     if (partyState.enabled) {
       if (partyState.connection === "reconnecting") {
         statusEl.className = "party-status reconnecting";
-        statusEl.textContent = "Reconnecting...";
+        statusEl.textContent = t("Reconnecting...");
       } else {
         statusEl.className = "party-status online";
-        statusEl.textContent = "Online";
+        statusEl.textContent = t("Online");
       }
 
       toggleBtn.className = "party-toggle-btn disable";
-      toggleBtn.textContent = "Disable Party Mode";
+      toggleBtn.textContent = t("Disable Party Mode");
 
       tokenSection.style.display = "block";
       addSection.style.display = "block";
@@ -829,23 +848,23 @@
       peerCountEl.textContent = connectedPeers.length;
 
       if (allPeers.length === 0) {
-        peersList.innerHTML = '<div class="no-peers">No friends connected yet</div>';
+        peersList.innerHTML = `<div class="no-peers">${t("No friends connected yet")}</div>`;
       } else {
         peersList.innerHTML = allPeers
           .map((peer) => {
             const cs = (peer.connection_state || "disconnected").toLowerCase();
             const isWaiting = cs === "connecting" || cs === "handshaking";
             const statusText = isWaiting
-              ? "Waiting for your friend"
+              ? t("Waiting for your friend")
               : cs === "connected"
-                ? (peer.in_lobby ? "In lobby" : "Connected")
+                ? (peer.in_lobby ? t("In lobby") : t("Connected"))
                 : cs === "reconnecting"
-                  ? "Reconnecting..."
-                  : "Disconnected";
-            const displayName = isWaiting ? "Friend" : escapeHtml(peer.summoner_name);
+                  ? t("Reconnecting...")
+                  : t("Disconnected");
+            const displayName = isWaiting ? escapeHtml(t("Friend")) : escapeHtml(peer.summoner_name);
             const lobbyStatus = peer.in_lobby ? "in-lobby" : "";
             const skinInfo = peer.skin_selection
-              ? `Skin: ${peer.skin_selection.skin_id}`
+              ? t("Skin: {id}", { id: peer.skin_selection.skin_id })
               : "";
 
             return `
@@ -856,7 +875,7 @@
                 ${escapeHtml(statusText)}</span>
                 ${skinInfo ? `<span class="peer-skin">${skinInfo}</span>` : ""}
               </div>
-              <button class="peer-remove" title="Remove from your party" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
+              <button class="peer-remove" title="${escapeHtml(t("Remove from your party"))}" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                 </svg>
@@ -868,10 +887,10 @@
       }
     } else {
       statusEl.className = "party-status offline";
-      statusEl.textContent = "Offline";
+      statusEl.textContent = t("Offline");
 
       toggleBtn.className = "party-toggle-btn enable";
-      toggleBtn.textContent = "Enable Party Mode";
+      toggleBtn.textContent = t("Enable Party Mode");
 
       tokenSection.style.display = "none";
       addSection.style.display = "none";
@@ -887,12 +906,12 @@
     if (partyState.enabled) {
       // Disable
       toggleBtn.disabled = true;
-      toggleBtn.innerHTML = '<span class="spinner"></span> Disabling...';
+      toggleBtn.innerHTML = `<span class="spinner"></span> ${t("Disabling...")}`;
       sendBridgeMessage({ type: "party-disable" });
     } else {
       // Enable
       toggleBtn.disabled = true;
-      toggleBtn.innerHTML = '<span class="spinner"></span> Enabling...';
+      toggleBtn.innerHTML = `<span class="spinner"></span> ${t("Enabling...")}`;
       sendBridgeMessage({ type: "party-enable" });
     }
   }
@@ -904,10 +923,10 @@
     if (!tokenDisplay.value) return;
 
     navigator.clipboard.writeText(tokenDisplay.value).then(() => {
-      copyBtn.textContent = "Copied!";
+      copyBtn.textContent = t("Copied!");
       copyBtn.classList.add("copied");
       setTimeout(() => {
-        copyBtn.textContent = "Copy";
+        copyBtn.textContent = t("Copy");
         copyBtn.classList.remove("copied");
       }, 2000);
     });
@@ -922,7 +941,7 @@
 
     if (!token) {
       messageEl.innerHTML =
-        '<div class="error-msg">Please enter a token</div>';
+        `<div class="error-msg">${t("Please enter a token")}</div>`;
       return;
     }
 
@@ -934,7 +953,7 @@
     if (toggleBtn) toggleBtn.disabled = true;
     setPanelLocked(true);
     messageEl.innerHTML =
-      '<div class="success-msg"><span class="spinner"></span> Connecting to your friend...</div>';
+      `<div class="success-msg"><span class="spinner"></span> ${t("Connecting to your friend...")}</div>`;
     sendBridgeMessage({ type: "party-add-peer", token: token });
     input.value = "";
   }
@@ -975,7 +994,7 @@
           console.log(`${LOG_PREFIX} Party mode enabled`);
         } else {
           if (toggleMessageEl) {
-            toggleMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to enable")}</div>`;
+            toggleMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error ? tMessage(data.error, data.errorTemplate, data.errorValues) : t("Failed to enable"))}</div>`;
           }
           console.error(`${LOG_PREFIX} Failed to enable:`, data.error);
         }
@@ -1005,7 +1024,7 @@
         if (addInput) addInput.disabled = false;
         if (addBtn) {
           addBtn.disabled = false;
-          addBtn.textContent = "Add";
+          addBtn.textContent = t("Add");
         }
         const unlockToggleBtn = document.getElementById("party-toggle-btn");
         if (unlockToggleBtn) unlockToggleBtn.disabled = false;
@@ -1014,14 +1033,14 @@
         if (data.success) {
           if (addMessageEl) {
             addMessageEl.innerHTML =
-              `<div class="success-msg">${escapeHtml(data.message || "Friend connected!")}</div>`;
+              `<div class="success-msg">${escapeHtml(data.message ? tMessage(data.message, data.messageTemplate, data.messageValues) : t("Friend connected!"))}</div>`;
             setTimeout(() => {
               addMessageEl.innerHTML = "";
             }, 6000);
           }
         } else {
           if (addMessageEl) {
-            addMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to connect")}</div>`;
+            addMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error ? tMessage(data.error, data.errorTemplate, data.errorValues) : t("Failed to connect"))}</div>`;
           }
         }
         // Request updated state

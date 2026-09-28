@@ -18,6 +18,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from lcu import LCU
 from state import SharedState
+from utils.core.i18n import Text
 from utils.core.logging import get_logger
 
 from ..network.ws_relay import PartyRelay, compute_room_key
@@ -143,7 +144,7 @@ class PartyManager:
 
             error = await self._join_room(self._home_room)
             if error:
-                raise RuntimeError(f"Couldn't reach the party server: {error}")
+                raise RuntimeError(Text("Couldn't reach the party server: {error}", error=error))
 
             self.party_state.enabled = True
             self.party_state.connection = "online"
@@ -159,7 +160,7 @@ class PartyManager:
         except Exception as e:
             log.error(f"[PARTY] Failed to enable party mode: {e}")
             await self.disable()
-            raise RuntimeError(str(e))
+            raise RuntimeError(e.args[0] if e.args else str(e)) from e
 
     async def disable(self):
         """Disable party mode."""
@@ -226,14 +227,14 @@ class PartyManager:
                 return False, "You're linked to too many parties. Disable and re-enable party mode, then try again."
             error = await self._join_room(room_key)
             if error:
-                return False, f"Couldn't reach the party server: {error}"
+                return False, Text("Couldn't reach the party server: {error}", error=error)
 
         name = await self._wait_for_peer(token.summoner_id, PEER_WAIT_TIMEOUT)
         if not name and token.summoner_id in self._peers_who_removed_us():
             return False, "This friend removed you from their party - they need to add your token back"
         if name:
             log.info(f"[PARTY] Connected to {name}")
-            return True, f"Connected to {name}"
+            return True, Text("Connected to {name}", name=name)
 
         log.info(f"[PARTY] Joined room {room_key[:8]}, but summoner {token.summoner_id} isn't in it")
         return True, (
