@@ -10,6 +10,7 @@ around the executable bundled alongside Rose.
 
 from __future__ import annotations
 
+import configparser
 import json
 import os
 import re
@@ -28,12 +29,18 @@ try:
 except ImportError:  # pragma: no cover - psutil is part of requirements, but guard just in case
     psutil = None  # type: ignore
 
+from config import get_config_file_path, read_config_file, write_config_file
 from utils.core.logging import get_logger
 from utils.core.paths import get_app_dir, get_state_dir, get_user_data_dir
 
 log = get_logger("pengu_loader")
 
 _SESSION_FILE = get_state_dir() / 'pengu_session.json'
+# core.dll reads its hook switch (disabled, loaderpath) from this file
+_CONFIG_FILE = get_config_file_path()
+# The loader runs elevated: when Rose was elevated with another account's
+# credentials, its own LocalApplicationData isn't the desktop user's config.ini
+os.environ['ROSE_CONFIG_PATH'] = str(_CONFIG_FILE)
 
 _ACTIVE_FLAG = get_state_dir() / "pengu_active.flag"
 _LEGACY_PENGU_LOGS = (
@@ -535,6 +542,35 @@ def restart_client() -> bool:
         return _run_cli(['--restart-client', '--silent'])
 
 
+def _same_path(a: Optional[str], b: str) -> bool:
+    return bool(a) and os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+
+
+def _ensure_loader_config() -> None:
+    """Make config.ini enable the hook for this loader.
+
+    core.dll skips hooking unless disabled=0 and loads plugins from
+    loaderpath. The loader writes both on --install only, so an active hook
+    can be left switched off (another account's loader wrote its own
+    config.ini, or an older Rose garbled loaderpath).
+    """
+    loader_dir = str(PENGU_DIR)
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        read_config_file(parser, _CONFIG_FILE)
+        if (parser.get('General', 'disabled', fallback=None) == '0'
+                and _same_path(parser.get('General', 'loaderpath', fallback=None), loader_dir)):
+            return
+        log.info('Enabling the Pengu hook in %s (loaderpath=%s)', _CONFIG_FILE, loader_dir)
+        if not parser.has_section('General'):
+            parser.add_section('General')
+        parser.set('General', 'disabled', '0')
+        parser.set('General', 'loaderpath', loader_dir)
+        write_config_file(parser, _CONFIG_FILE)
+    except (OSError, configparser.Error) as exc:
+        log.warning('Could not enable the Pengu hook in %s: %s', _CONFIG_FILE, exc)
+
+
 def _write_active_flag() -> None:
     try:
         _ACTIVE_FLAG.parent.mkdir(parents=True, exist_ok=True)
@@ -691,6 +727,7 @@ def activate_on_start(league_path: Optional[str] = None) -> bool:
                 was_active_before_rose = False
             else:
                 log.info('Pengu was already active before Rose; preserving it.')
+        _ensure_loader_config()
 
         if not _write_session(was_active_before_rose, rose_activated):
             if activated_now:

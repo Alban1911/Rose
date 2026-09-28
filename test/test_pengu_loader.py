@@ -1,6 +1,7 @@
 import configparser
 import ctypes
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -29,6 +30,8 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         self.pengu_dir = state_dir / 'Pengu Loader'
         self.pengu_exe = self.pengu_dir / 'Pengu Loader.exe'
         self.pengu_log = self.pengu_dir / 'pengu.log'
+        # Never write the developer's real config.ini
+        self.config_file = state_dir / 'config.ini'
         self.paths = patch.multiple(
             pengu_loader,
             _SESSION_FILE=self.session_file,
@@ -36,6 +39,7 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
             PENGU_DIR=self.pengu_dir,
             PENGU_EXE=self.pengu_exe,
             _PENGU_LOG=self.pengu_log,
+            _CONFIG_FILE=self.config_file,
         )
         self.paths.start()
         self.addCleanup(self.paths.stop)
@@ -287,6 +291,32 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
             result = pengu_loader._run_cli_result(['--status'])
         self.assertEqual(result.returncode, 0)
         self.assertNotIn('should not be included', '\n'.join(logs.output))
+
+    def test_loader_writes_roses_config_ini(self):
+        self.assertEqual(os.environ['ROSE_CONFIG_PATH'], str(config.get_config_file_path()))
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.ACTIVE)
+    @patch.object(pengu_loader, '_is_league_running', return_value=False)
+    @patch.object(pengu_loader, 'activate')
+    def test_active_hook_is_switched_on_in_config_ini(self, activate, _running, _status, _available):
+        # Left off, e.g. by the loader writing another account's config.ini
+        self.config_file.write_text(
+            '[General]\ninjection_threshold = 0.5\ndisabled=1\nloaderpath=\n', encoding='mbcs'
+        )
+        self.assertTrue(pengu_loader.activate_on_start())
+        activate.assert_not_called()
+        self.assertEqual(ConfigIniTests.core_dll_reads(self.config_file, 'disabled'), '0')
+        self.assertEqual(ConfigIniTests.core_dll_reads(self.config_file, 'loaderpath'), str(self.pengu_dir))
+        self.assertEqual(ConfigIniTests.core_dll_reads(self.config_file, 'injection_threshold'), '0.5')
+
+    def test_hook_switch_already_on_is_left_alone(self):
+        self.config_file.write_text(
+            f'[General]\ndisabled=0\nloaderpath={self.pengu_dir}\n', encoding='mbcs'
+        )
+        with patch.object(pengu_loader, 'write_config_file') as write:
+            pengu_loader._ensure_loader_config()
+        write.assert_not_called()
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'config.ini is shared through the Windows INI API')
