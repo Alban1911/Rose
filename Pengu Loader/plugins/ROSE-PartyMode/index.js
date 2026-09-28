@@ -13,6 +13,7 @@
   const DISCOVERY_END_PORT = 50010;
 
   const PANEL_ID = "rose-party-panel";
+  const BACKDROP_ID = "rose-party-backdrop";
   const BUTTON_ID = "rose-party-button";
   const LOBBY_BUTTON_ID = "rose-party-lobby-button";
 
@@ -152,6 +153,22 @@
     }
 
     /* Party Button */
+    /* Backdrop: League's modal backdrop (lol-uikit-full-page-backdrop) */
+    #${BACKDROP_ID} {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.8) 93%);
+      z-index: 9997;
+      display: none;
+    }
+
+    #${BACKDROP_ID}.visible {
+      display: block;
+    }
+
     /* Party Panel */
     /* ===== Panel: Riot dialog-frame style ===== */
     #${PANEL_ID} {
@@ -673,6 +690,8 @@
       if (existing.isConnected && partyPanel === existing) return; // Already good
       existing.remove();
     }
+    const existingBackdrop = document.getElementById(BACKDROP_ID);
+    if (existingBackdrop) existingBackdrop.remove();
 
     // Find a persistent container to attach the panel to
     const container = document.querySelector(".lol-social-actions-bar") || document.body;
@@ -721,7 +740,13 @@
       <button class="party-close-btn" id="party-close-btn"></button>
     `;
 
+    // Dims the client behind the panel; clicking it closes the panel
+    const backdrop = document.createElement("div");
+    backdrop.id = BACKDROP_ID;
+    backdrop.addEventListener("click", () => setPanelVisible(false));
+
     try {
+      container.appendChild(backdrop);
       container.appendChild(panel);
       partyPanel = panel;
       // Use querySelector on panel directly instead of document to avoid ID conflicts
@@ -731,14 +756,18 @@
       panel.querySelector("#add-peer-input").addEventListener("keypress", (e) => {
         if (e.key === "Enter") handleAddPeer();
       });
-      panel.querySelector("#party-close-btn").addEventListener("click", () => {
-        isVisible = false;
-        partyPanel.classList.remove("visible");
-      });
+      panel.querySelector("#party-close-btn").addEventListener("click", () => setPanelVisible(false));
     } catch (e) {
       console.error(`${LOG_PREFIX} Failed to create panel:`, e);
       partyPanel = null;
     }
+  }
+
+  function setPanelVisible(visible) {
+    isVisible = visible;
+    if (partyPanel) partyPanel.classList.toggle("visible", visible);
+    const backdrop = document.getElementById(BACKDROP_ID);
+    if (backdrop) backdrop.classList.toggle("visible", visible);
   }
 
   function togglePanel() {
@@ -749,8 +778,7 @@
       createPartyPanel();
     }
     if (!partyPanel) return;
-    isVisible = !isVisible;
-    partyPanel.classList.toggle("visible", isVisible);
+    setPanelVisible(!isVisible);
     updatePanelState();
     // Refresh state (and the token's timestamp) whenever the panel opens
     if (isVisible) sendBridgeMessage({ type: "party-get-state" });
