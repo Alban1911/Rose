@@ -78,7 +78,7 @@
   "Monitor Auto-Resume Timeout (seconds):": "Délai de reprise automatique (secondes) :",
   "Auto-resume is a safety feature.\n\nIf the injection process takes longer than the value you set, the app will automatically cancel the injection and let the game start normally.\n\nThis prevents the injection from looping and blocking the game from launching.\n\nIf you use a lot of custom mods, you may need to adjust this value.": "La reprise automatique est une sécurité.\n\nSi l'injection prend plus de temps que la valeur définie, l'application annule automatiquement l'injection et laisse la partie démarrer normalement.\n\nCela évite que l'injection tourne en boucle et bloque le lancement de la partie.\n\nSi vous utilisez beaucoup de mods personnalisés, vous devrez peut-être ajuster cette valeur.",
   "Auto-resume info": "Infos sur la reprise automatique",
-  "Start with Windows": "Lancer au démarrage de Windows",
+  "Start with Windows": "Lancer avec Windows",
   "Hide empty categories": "Masquer les catégories vides",
   "Hide empty categories in the custom mods wheel": "Masquer les catégories vides dans la roue des mods personnalisés",
   "League of Legends Game Path:": "Dossier du jeu League of Legends :",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "Impossible de récupérer les champions : {error}",
   "LCU not available - is League client running?": "LCU indisponible. Le client League est-il lancé ?",
   "No token provided": "Aucun code fourni",
-  "Party mode not enabled": "Mode groupe non activé"
+  "Party mode not enabled": "Mode groupe non activé",
+  "League path must be a valid local League of Legends folder.": "Le dossier du jeu doit être un dossier League of Legends valide sur ce PC.",
+  "Administrator privileges are required to enable auto-start.": "Les droits administrateur sont nécessaires pour activer le lancement au démarrage.",
+  "Administrator privileges are required to disable auto-start.": "Les droits administrateur sont nécessaires pour désactiver le lancement au démarrage.",
+  "Failed to enable auto-start: {error}": "Impossible d'activer le lancement au démarrage : {error}",
+  "Failed to disable auto-start: {error}": "Impossible de désactiver le lancement au démarrage : {error}"
 }

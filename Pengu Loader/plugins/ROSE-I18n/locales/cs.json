@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "Cesta ke hře League of Legends:",
   "Language:": "Jazyk:",
   "Auto (client language)": "Automaticky (jazyk klienta)",
-  "Add custom mods": "Přidat vlastní mody",
-  "Manage custom mods": "Spravovat vlastní mody",
+  "Add custom mods": "Přidat mody",
+  "Manage custom mods": "Spravovat mody",
   "Open Logs Folder": "Otevřít složku s logy",
   "Troubleshooting": "Řešení problémů",
   "Open Pengu Loader UI": "Otevřít rozhraní Pengu Loaderu",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "Nepodařilo se načíst šampiony: {error}",
   "LCU not available - is League client running?": "LCU není dostupné – běží klient League?",
   "No token provided": "Nebyl zadán žádný kód",
-  "Party mode not enabled": "Režim skupiny není zapnutý"
+  "Party mode not enabled": "Režim skupiny není zapnutý",
+  "League path must be a valid local League of Legends folder.": "Cesta ke hře musí být platná místní složka League of Legends.",
+  "Administrator privileges are required to enable auto-start.": "K zapnutí automatického spouštění jsou potřeba práva správce.",
+  "Administrator privileges are required to disable auto-start.": "K vypnutí automatického spouštění jsou potřeba práva správce.",
+  "Failed to enable auto-start: {error}": "Automatické spouštění se nepodařilo zapnout: {error}",
+  "Failed to disable auto-start: {error}": "Automatické spouštění se nepodařilo vypnout: {error}"
 }

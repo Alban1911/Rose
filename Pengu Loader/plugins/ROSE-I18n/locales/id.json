@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "Lokasi game League of Legends:",
   "Language:": "Bahasa:",
   "Auto (client language)": "Otomatis (bahasa klien)",
-  "Add custom mods": "Tambah mod kustom",
-  "Manage custom mods": "Kelola mod kustom",
+  "Add custom mods": "Tambah mod",
+  "Manage custom mods": "Kelola mod",
   "Open Logs Folder": "Buka folder log",
   "Troubleshooting": "Pemecahan masalah",
   "Open Pengu Loader UI": "Buka tampilan Pengu Loader",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "Gagal mengambil champion: {error}",
   "LCU not available - is League client running?": "LCU tidak tersedia. Apakah klien League sedang berjalan?",
   "No token provided": "Token tidak diisi",
-  "Party mode not enabled": "Mode party belum diaktifkan"
+  "Party mode not enabled": "Mode party belum diaktifkan",
+  "League path must be a valid local League of Legends folder.": "Lokasi game harus berupa folder League of Legends lokal yang valid.",
+  "Administrator privileges are required to enable auto-start.": "Butuh hak administrator untuk mengaktifkan mulai otomatis.",
+  "Administrator privileges are required to disable auto-start.": "Butuh hak administrator untuk menonaktifkan mulai otomatis.",
+  "Failed to enable auto-start: {error}": "Gagal mengaktifkan mulai otomatis: {error}",
+  "Failed to disable auto-start: {error}": "Gagal menonaktifkan mulai otomatis: {error}"
 }

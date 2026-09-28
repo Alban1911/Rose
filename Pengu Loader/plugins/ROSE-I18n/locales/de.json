@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "Spielpfad von League of Legends:",
   "Language:": "Sprache:",
   "Auto (client language)": "Automatisch (Client-Sprache)",
-  "Add custom mods": "Eigene Mods hinzufügen",
-  "Manage custom mods": "Eigene Mods verwalten",
+  "Add custom mods": "Mods hinzufügen",
+  "Manage custom mods": "Mods verwalten",
   "Open Logs Folder": "Log-Ordner öffnen",
   "Troubleshooting": "Fehlerbehebung",
   "Open Pengu Loader UI": "Pengu-Loader-Oberfläche öffnen",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "Champions konnten nicht abgerufen werden: {error}",
   "LCU not available - is League client running?": "LCU nicht verfügbar – läuft der League-Client?",
   "No token provided": "Kein Token angegeben",
-  "Party mode not enabled": "Gruppenmodus nicht aktiviert"
+  "Party mode not enabled": "Gruppenmodus nicht aktiviert",
+  "League path must be a valid local League of Legends folder.": "Der Spielpfad muss ein gültiger lokaler League-of-Legends-Ordner sein.",
+  "Administrator privileges are required to enable auto-start.": "Zum Aktivieren des Autostarts sind Administratorrechte nötig.",
+  "Administrator privileges are required to disable auto-start.": "Zum Deaktivieren des Autostarts sind Administratorrechte nötig.",
+  "Failed to enable auto-start: {error}": "Autostart konnte nicht aktiviert werden: {error}",
+  "Failed to disable auto-start: {error}": "Autostart konnte nicht deaktiviert werden: {error}"
 }

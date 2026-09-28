@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "Đường dẫn trò chơi League of Legends:",
   "Language:": "Ngôn ngữ:",
   "Auto (client language)": "Tự động (ngôn ngữ của client)",
-  "Add custom mods": "Thêm mod tùy chỉnh",
-  "Manage custom mods": "Quản lý mod tùy chỉnh",
+  "Add custom mods": "Thêm mod",
+  "Manage custom mods": "Quản lý mod",
   "Open Logs Folder": "Mở thư mục nhật ký",
   "Troubleshooting": "Khắc phục sự cố",
   "Open Pengu Loader UI": "Mở giao diện Pengu Loader",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "Không lấy được danh sách tướng: {error}",
   "LCU not available - is League client running?": "LCU không khả dụng. Client League có đang chạy không?",
   "No token provided": "Chưa nhập mã",
-  "Party mode not enabled": "Chế độ nhóm chưa được bật"
+  "Party mode not enabled": "Chế độ nhóm chưa được bật",
+  "League path must be a valid local League of Legends folder.": "Đường dẫn trò chơi phải là một thư mục League of Legends hợp lệ trên máy này.",
+  "Administrator privileges are required to enable auto-start.": "Cần quyền quản trị viên để bật tự khởi động.",
+  "Administrator privileges are required to disable auto-start.": "Cần quyền quản trị viên để tắt tự khởi động.",
+  "Failed to enable auto-start: {error}": "Không bật được tự khởi động: {error}",
+  "Failed to disable auto-start: {error}": "Không tắt được tự khởi động: {error}"
 }

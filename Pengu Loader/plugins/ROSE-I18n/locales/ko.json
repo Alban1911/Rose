@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "League of Legends 게임 경로:",
   "Language:": "언어:",
   "Auto (client language)": "자동 (클라이언트 언어)",
-  "Add custom mods": "커스텀 모드 추가",
-  "Manage custom mods": "커스텀 모드 관리",
+  "Add custom mods": "모드 추가",
+  "Manage custom mods": "모드 관리",
   "Open Logs Folder": "로그 폴더 열기",
   "Troubleshooting": "문제 해결",
   "Open Pengu Loader UI": "Pengu Loader 화면 열기",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "챔피언 목록을 가져오지 못했습니다: {error}",
   "LCU not available - is League client running?": "LCU를 사용할 수 없습니다. League 클라이언트가 실행 중인가요?",
   "No token provided": "토큰이 입력되지 않았습니다",
-  "Party mode not enabled": "파티 모드가 켜져 있지 않습니다"
+  "Party mode not enabled": "파티 모드가 켜져 있지 않습니다",
+  "League path must be a valid local League of Legends folder.": "게임 경로는 이 PC에 있는 올바른 League of Legends 폴더여야 합니다.",
+  "Administrator privileges are required to enable auto-start.": "자동 시작을 켜려면 관리자 권한이 필요합니다.",
+  "Administrator privileges are required to disable auto-start.": "자동 시작을 끄려면 관리자 권한이 필요합니다.",
+  "Failed to enable auto-start: {error}": "자동 시작을 켜지 못했습니다: {error}",
+  "Failed to disable auto-start: {error}": "자동 시작을 끄지 못했습니다: {error}"
 }

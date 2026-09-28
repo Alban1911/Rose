@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "ที่อยู่เกม League of Legends:",
   "Language:": "ภาษา:",
   "Auto (client language)": "อัตโนมัติ (ภาษาของไคลเอนต์)",
-  "Add custom mods": "เพิ่มมอดกำหนดเอง",
-  "Manage custom mods": "จัดการมอดกำหนดเอง",
+  "Add custom mods": "เพิ่มมอด",
+  "Manage custom mods": "จัดการมอด",
   "Open Logs Folder": "เปิดโฟลเดอร์ล็อก",
   "Troubleshooting": "แก้ไขปัญหา",
   "Open Pengu Loader UI": "เปิดหน้าจอ Pengu Loader",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "ดึงข้อมูลแชมเปี้ยนไม่ได้: {error}",
   "LCU not available - is League client running?": "LCU ใช้งานไม่ได้ ไคลเอนต์ League เปิดอยู่หรือไม่?",
   "No token provided": "ไม่ได้ใส่โทเค็น",
-  "Party mode not enabled": "ยังไม่ได้เปิดโหมดปาร์ตี้"
+  "Party mode not enabled": "ยังไม่ได้เปิดโหมดปาร์ตี้",
+  "League path must be a valid local League of Legends folder.": "ที่อยู่เกมต้องเป็นโฟลเดอร์ League of Legends ที่ถูกต้องบนเครื่องนี้",
+  "Administrator privileges are required to enable auto-start.": "ต้องใช้สิทธิ์ผู้ดูแลระบบเพื่อเปิดการเริ่มอัตโนมัติ",
+  "Administrator privileges are required to disable auto-start.": "ต้องใช้สิทธิ์ผู้ดูแลระบบเพื่อปิดการเริ่มอัตโนมัติ",
+  "Failed to enable auto-start: {error}": "เปิดการเริ่มอัตโนมัติไม่สำเร็จ: {error}",
+  "Failed to disable auto-start: {error}": "ปิดการเริ่มอัตโนมัติไม่สำเร็จ: {error}"
 }

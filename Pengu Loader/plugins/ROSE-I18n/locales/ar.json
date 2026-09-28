@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "مسار لعبة League of Legends:",
   "Language:": "اللغة:",
   "Auto (client language)": "تلقائي (لغة العميل)",
-  "Add custom mods": "إضافة تعديلات مخصصة",
-  "Manage custom mods": "إدارة التعديلات المخصصة",
+  "Add custom mods": "إضافة تعديلات",
+  "Manage custom mods": "إدارة التعديلات",
   "Open Logs Folder": "فتح مجلد السجلات",
   "Troubleshooting": "استكشاف الأخطاء وإصلاحها",
   "Open Pengu Loader UI": "فتح واجهة Pengu Loader",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "تعذّر جلب الأبطال: {error}",
   "LCU not available - is League client running?": "LCU غير متاح. هل عميل League قيد التشغيل؟",
   "No token provided": "لم يتم إدخال رمز",
-  "Party mode not enabled": "وضع المجموعة غير مفعّل"
+  "Party mode not enabled": "وضع المجموعة غير مفعّل",
+  "League path must be a valid local League of Legends folder.": "يجب أن يكون مسار اللعبة مجلد League of Legends محليًا صالحًا.",
+  "Administrator privileges are required to enable auto-start.": "يلزم امتلاك صلاحيات المسؤول لتفعيل التشغيل التلقائي.",
+  "Administrator privileges are required to disable auto-start.": "يلزم امتلاك صلاحيات المسؤول لتعطيل التشغيل التلقائي.",
+  "Failed to enable auto-start: {error}": "تعذّر تفعيل التشغيل التلقائي: {error}",
+  "Failed to disable auto-start: {error}": "تعذّر تعطيل التشغيل التلقائي: {error}"
 }

@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "League of Legendsのゲームパス:",
   "Language:": "言語:",
   "Auto (client language)": "自動(クライアントの言語)",
-  "Add custom mods": "カスタムMODを追加",
-  "Manage custom mods": "カスタムMODを管理",
+  "Add custom mods": "MODを追加",
+  "Manage custom mods": "MODを管理",
   "Open Logs Folder": "ログフォルダーを開く",
   "Troubleshooting": "トラブルシューティング",
   "Open Pengu Loader UI": "Pengu Loaderの画面を開く",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "チャンピオンを取得できませんでした: {error}",
   "LCU not available - is League client running?": "LCUを利用できません。Leagueクライアントは起動していますか?",
   "No token provided": "トークンが入力されていません",
-  "Party mode not enabled": "パーティーモードが有効になっていません"
+  "Party mode not enabled": "パーティーモードが有効になっていません",
+  "League path must be a valid local League of Legends folder.": "ゲームパスには、このPC上の有効なLeague of Legendsフォルダーを指定してください。",
+  "Administrator privileges are required to enable auto-start.": "自動起動を有効にするには管理者権限が必要です。",
+  "Administrator privileges are required to disable auto-start.": "自動起動を無効にするには管理者権限が必要です。",
+  "Failed to enable auto-start: {error}": "自動起動を有効にできませんでした: {error}",
+  "Failed to disable auto-start: {error}": "自動起動を無効にできませんでした: {error}"
 }

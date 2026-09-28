@@ -5,7 +5,7 @@
   "Unnamed mod": "Mod sem nome",
   "Choose • {category}": "Escolher • {category}",
   "Custom Mods": "Mods personalizados",
-  "Custom mods": "Mods personalizados",
+  "Custom mods": "Mods",
   "Waiting for mods…": "Aguardando mods…",
   "Loading maps…": "Carregando mapas…",
   "Loading fonts…": "Carregando fontes…",
@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "Caminho do jogo League of Legends:",
   "Language:": "Idioma:",
   "Auto (client language)": "Automático (idioma do cliente)",
-  "Add custom mods": "Adicionar mods personalizados",
-  "Manage custom mods": "Gerenciar mods personalizados",
+  "Add custom mods": "Adicionar mods",
+  "Manage custom mods": "Gerenciar mods",
   "Open Logs Folder": "Abrir pasta de logs",
   "Troubleshooting": "Solução de problemas",
   "Open Pengu Loader UI": "Abrir a interface do Pengu Loader",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "Falha ao buscar os campeões: {error}",
   "LCU not available - is League client running?": "LCU indisponível. O cliente do League está aberto?",
   "No token provided": "Nenhum código informado",
-  "Party mode not enabled": "Modo grupo não ativado"
+  "Party mode not enabled": "Modo grupo não ativado",
+  "League path must be a valid local League of Legends folder.": "O caminho do jogo precisa ser uma pasta local válida do League of Legends.",
+  "Administrator privileges are required to enable auto-start.": "É preciso ter privilégios de administrador para ativar a inicialização automática.",
+  "Administrator privileges are required to disable auto-start.": "É preciso ter privilégios de administrador para desativar a inicialização automática.",
+  "Failed to enable auto-start: {error}": "Falha ao ativar a inicialização automática: {error}",
+  "Failed to disable auto-start: {error}": "Falha ao desativar a inicialização automática: {error}"
 }

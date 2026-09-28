@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "A League of Legends játék elérési útja:",
   "Language:": "Nyelv:",
   "Auto (client language)": "Automatikus (a kliens nyelve)",
-  "Add custom mods": "Egyéni modok hozzáadása",
-  "Manage custom mods": "Egyéni modok kezelése",
+  "Add custom mods": "Modok hozzáadása",
+  "Manage custom mods": "Modok kezelése",
   "Open Logs Folder": "Naplómappa megnyitása",
   "Troubleshooting": "Hibaelhárítás",
   "Open Pengu Loader UI": "A Pengu Loader felületének megnyitása",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "Nem sikerült lekérni a bajnokokat: {error}",
   "LCU not available - is League client running?": "Az LCU nem érhető el – fut a League kliens?",
   "No token provided": "Nincs megadva kód",
-  "Party mode not enabled": "A csapat mód nincs bekapcsolva"
+  "Party mode not enabled": "A csapat mód nincs bekapcsolva",
+  "League path must be a valid local League of Legends folder.": "A játék elérési útjának egy érvényes, helyi League of Legends mappának kell lennie.",
+  "Administrator privileges are required to enable auto-start.": "Az automatikus indítás bekapcsolásához rendszergazdai jogok szükségesek.",
+  "Administrator privileges are required to disable auto-start.": "Az automatikus indítás kikapcsolásához rendszergazdai jogok szükségesek.",
+  "Failed to enable auto-start: {error}": "Nem sikerült bekapcsolni az automatikus indítást: {error}",
+  "Failed to disable auto-start: {error}": "Nem sikerült kikapcsolni az automatikus indítást: {error}"
 }

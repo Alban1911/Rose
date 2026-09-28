@@ -84,8 +84,8 @@
   "League of Legends Game Path:": "英雄聯盟遊戲路徑：",
   "Language:": "語言：",
   "Auto (client language)": "自動（用戶端語言）",
-  "Add custom mods": "新增自訂模組",
-  "Manage custom mods": "管理自訂模組",
+  "Add custom mods": "新增模組",
+  "Manage custom mods": "管理模組",
   "Open Logs Folder": "開啟記錄檔資料夾",
   "Troubleshooting": "疑難排解",
   "Open Pengu Loader UI": "開啟 Pengu Loader 介面",
@@ -180,5 +180,10 @@
   "Failed to fetch champions: {error}": "無法取得英雄：{error}",
   "LCU not available - is League client running?": "LCU 無法使用，英雄聯盟用戶端是否正在執行？",
   "No token provided": "未提供代碼",
-  "Party mode not enabled": "組隊模式未開啟"
+  "Party mode not enabled": "組隊模式未開啟",
+  "League path must be a valid local League of Legends folder.": "遊戲路徑必須是本機上有效的英雄聯盟資料夾。",
+  "Administrator privileges are required to enable auto-start.": "需要系統管理員權限才能開啟開機自動啟動。",
+  "Administrator privileges are required to disable auto-start.": "需要系統管理員權限才能關閉開機自動啟動。",
+  "Failed to enable auto-start: {error}": "無法開啟開機自動啟動：{error}",
+  "Failed to disable auto-start: {error}": "無法關閉開機自動啟動：{error}"
 }
