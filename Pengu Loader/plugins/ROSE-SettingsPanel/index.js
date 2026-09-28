@@ -469,19 +469,23 @@
       color: #f0e6d2;
     }
     
+    /* Box on the first line of its label, so boxes side by side stay aligned
+       when a label wraps (other languages) */
     #${FLYOUT_ID} .settings-checkbox-wrapper {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       margin-top: 8px;
     }
     /* Long labels (other languages) wrap instead of being cut */
     #${FLYOUT_ID} .settings-checkbox-wrapper span {
       min-width: 0;
+      padding-top: 1px;
       line-height: 1.2;
       overflow-wrap: anywhere;
     }
     #${FLYOUT_ID} .settings-checkbox-wrapper input {
       flex-shrink: 0;
+      margin-top: 0;
     }
 
     /* Language picker: a code badge in the corner of Settings */
@@ -2121,8 +2125,20 @@
     titleRow.appendChild(versionBadge);
 
     if (window.RoseI18n) {
+      // The title alone is centered on the panel: the version hangs to its right
+      // and the language picker sits in the corner, above the rest of the panel
       titleRow.style.position = "relative";
+      titleRow.style.zIndex = "1000";
       titleRow.style.alignSelf = "stretch";
+      title.style.width = "auto";
+      title.style.position = "relative";
+      versionBadge.style.position = "absolute";
+      versionBadge.style.left = "100%";
+      versionBadge.style.bottom = "3px";
+      versionBadge.style.marginLeft = "8px";
+      versionBadge.style.fontWeight = "normal";
+      versionBadge.style.whiteSpace = "nowrap";
+      title.appendChild(versionBadge);
       titleRow.appendChild(createLanguagePicker());
     }
 
