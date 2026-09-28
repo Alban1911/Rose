@@ -23,6 +23,7 @@
   let partyPanel = null;
   let lobbyButton = null;
   let isVisible = false;
+  let panelLocked = false;
   let currentUIMode = null; // 'lobby' or 'champselect'
 
   // Party state
@@ -170,16 +171,13 @@
     }
 
     /* Party Panel */
-    /* ===== Panel: Riot dialog-frame style ===== */
+    /* ===== Panel: League's own lol-uikit-dialog-frame, laid out like the Add Friends modal ===== */
     #${PANEL_ID} {
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 380px;
-      background-color: #010a13;
-      border: 2px solid #463714;
-      box-shadow: 0 0 0 1px rgba(1,10,19,.8), 0 8px 30px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.03);
+      width: 420px;
       z-index: 9998;
       display: none;
       flex-direction: column;
@@ -188,16 +186,41 @@
       font-kerning: normal;
     }
 
+    #${PANEL_ID} .party-dialog {
+      display: block;
+      width: 100%;
+    }
+
+    /* .lol-friend-finder-modal: padding 0 18px, room below for the footer button */
+    #${PANEL_ID} .party-modal {
+      display: flex;
+      flex-direction: column;
+      padding: 0 18px 34px;
+    }
+
+    /* The footer button sits on the frame's bottom edge, like "Done" in League's modals */
+    #${PANEL_ID} .party-footer {
+      position: absolute;
+      left: 50%;
+      bottom: -14px;
+      transform: translateX(-50%);
+      z-index: 1;
+    }
+
+    #${PANEL_ID} .party-footer lol-uikit-flat-button {
+      min-width: 110px;
+    }
+
     #${PANEL_ID}.visible {
       display: flex;
     }
 
-    /* Title bar — matches .lol-friend-finder-modal .title */
+    /* Title — .lol-friend-finder-modal .title (centered, margin 15px 0 10px) */
     .party-header {
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: space-between;
-      padding: 15px 18px 10px;
+      margin: 15px 0 10px;
     }
 
     .party-header h3 {
@@ -212,6 +235,7 @@
     }
 
     .party-status {
+      margin-top: 2px;
       font-family: var(--font-body), Arial, sans-serif;
       font-size: 12px;
       font-weight: 400;
@@ -227,7 +251,6 @@
       display: flex;
       flex-direction: column;
       flex: 1;
-      padding: 0 18px;
       overflow: hidden;
     }
 
@@ -250,11 +273,11 @@
     }
 
     .party-section-title {
-      color: #a09b8c;
+      color: #f0e6d2;
       font-family: var(--font-display), "Beaufort for LOL", Arial, sans-serif;
       font-size: 12px;
       font-weight: 700;
-      letter-spacing: .05em;
+      letter-spacing: .075em;
       text-transform: uppercase;
       margin-bottom: 10px;
     }
@@ -454,50 +477,6 @@
       padding: 20px;
     }
 
-    /* Close button — matches lol-uikit-dialog-frame close button */
-    .party-close-btn {
-      position: absolute;
-      top: -14px;
-      right: -14px;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: #1e2328;
-      border: 2px solid #463714;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: border-color .2s;
-      z-index: 1;
-      padding: 0;
-    }
-
-    .party-close-btn:hover {
-      border-color: #c8aa6e;
-    }
-
-    .party-close-btn:active {
-      border-color: #785a28;
-    }
-
-    .party-close-btn::before,
-    .party-close-btn::after {
-      content: "";
-      position: absolute;
-      width: 12px;
-      height: 2px;
-      background: #a09b8c;
-      transition: background .2s;
-    }
-
-    .party-close-btn::before { transform: rotate(45deg); }
-    .party-close-btn::after  { transform: rotate(-45deg); }
-
-    .party-close-btn:hover::before,
-    .party-close-btn:hover::after {
-      background: #f0e6d2;
-    }
 
     /* Loading state */
     .loading {
@@ -699,6 +678,8 @@
     const panel = document.createElement("div");
     panel.id = PANEL_ID;
     panel.innerHTML = `
+      <lol-uikit-dialog-frame class="party-dialog" orientation="bottom" close-button>
+      <div class="party-modal">
       <div class="party-header">
         <h3>Party Mode</h3>
         <span class="party-status offline">Offline</span>
@@ -737,13 +718,17 @@
           </div>
         </div>
       </div>
-      <button class="party-close-btn" id="party-close-btn"></button>
+      </div>
+      </lol-uikit-dialog-frame>
+      <div class="party-footer">
+        <lol-uikit-flat-button id="party-done-btn">Done</lol-uikit-flat-button>
+      </div>
     `;
 
     // Dims the client behind the panel; clicking it closes the panel
     const backdrop = document.createElement("div");
     backdrop.id = BACKDROP_ID;
-    backdrop.addEventListener("click", () => setPanelVisible(false));
+    backdrop.addEventListener("click", () => closePanel());
 
     try {
       container.appendChild(backdrop);
@@ -756,11 +741,29 @@
       panel.querySelector("#add-peer-input").addEventListener("keypress", (e) => {
         if (e.key === "Enter") handleAddPeer();
       });
-      panel.querySelector("#party-close-btn").addEventListener("click", () => setPanelVisible(false));
+      panel.querySelector(".party-dialog").addEventListener("dialogFrameDismissed", () => closePanel());
+      panel.querySelector("#party-done-btn").addEventListener("click", () => closePanel());
     } catch (e) {
       console.error(`${LOG_PREFIX} Failed to create panel:`, e);
       partyPanel = null;
     }
+  }
+
+  // Closing is disabled while a friend is being added
+  function closePanel() {
+    if (!panelLocked) setPanelVisible(false);
+  }
+
+  function setPanelLocked(locked) {
+    panelLocked = locked;
+    if (!partyPanel) return;
+    const frame = partyPanel.querySelector(".party-dialog");
+    if (frame) {
+      if (locked) frame.removeAttribute("close-button");
+      else frame.setAttribute("close-button", "");
+    }
+    const doneBtn = partyPanel.querySelector("#party-done-btn");
+    if (doneBtn) doneBtn.style.display = locked ? "none" : "";
   }
 
   function setPanelVisible(visible) {
@@ -929,8 +932,7 @@
     addBtn.innerHTML = '<span class="spinner"></span>';
     const toggleBtn = document.getElementById("party-toggle-btn");
     if (toggleBtn) toggleBtn.disabled = true;
-    const closeBtn = partyPanel ? partyPanel.querySelector("#party-close-btn") : null;
-    if (closeBtn) closeBtn.style.display = "none";
+    setPanelLocked(true);
     messageEl.innerHTML =
       '<div class="success-msg"><span class="spinner"></span> Connecting to your friend...</div>';
     sendBridgeMessage({ type: "party-add-peer", token: token });
@@ -1007,8 +1009,7 @@
         }
         const unlockToggleBtn = document.getElementById("party-toggle-btn");
         if (unlockToggleBtn) unlockToggleBtn.disabled = false;
-        const unlockCloseBtn = partyPanel ? partyPanel.querySelector("#party-close-btn") : null;
-        if (unlockCloseBtn) unlockCloseBtn.style.display = "";
+        setPanelLocked(false);
 
         if (data.success) {
           if (addMessageEl) {
