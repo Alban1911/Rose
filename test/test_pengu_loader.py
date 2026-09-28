@@ -49,8 +49,9 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
             self.assertNotIn(forbidden, program_source)
 
         self.assertIn('if (!createdNew || (active && Module.IsLoaded))', program_source)
-        self.assertIn('reg add', ifeo_source)
-        self.assertIn('reg delete', ifeo_source)
+        # Registry API like current upstream: v1.1.6's "cmd /C reg add" broke on & and ^ in paths
+        self.assertNotIn('cmd.exe', ifeo_source)
+        self.assertIn('RegistryView.Registry64', ifeo_source)
         self.assertFalse(Path('vendor/PenguLoader-1.1.6/loader/Main/Elevation.cs').exists())
         self.assertFalse(Path('vendor/PenguLoader-1.1.6/loader/Main/Win32Registry.cs').exists())
 
