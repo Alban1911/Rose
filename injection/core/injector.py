@@ -110,9 +110,19 @@ class SkinInjector:
         # Check for CSLOL tools
         self.tools_manager.check_tools_available()
     
-    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Optional[Path]:
-        """Resolve a ZIP by name or path with fuzzy matching"""
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None, classic: bool = False) -> Optional[Path]:
+        """Resolve a ZIP by name or path with fuzzy matching (from the Classic library in Rift Classic)"""
+        if classic:
+            zip_arg, chroma_id, champion_id = self._classic_library_ids(zip_arg, chroma_id, champion_id)
+            return self.classic_resolver.resolve_zip(zip_arg, chroma_id, zip_arg, champion_name, champion_id)
         return self.zip_resolver.resolve_zip(zip_arg, chroma_id, skin_name, champion_name, champion_id)
+
+    def _classic_library_ids(self, skin_name: str, chroma_id: Optional[int], champion_id: Optional[int]):
+        """The names the Classic library stores a skin under: champions under their
+        Classic ID, each skin under the regular or the Classic ID (see injection.classic)"""
+        champion_id = to_classic_champion_id(champion_id)
+        champion_dir = self.classic_dir / str(champion_id)
+        return to_library_skin_name(champion_dir, skin_name), to_library_id(champion_dir, chroma_id), champion_id
     
     def _clean_mods_dir(self):
         """Clean the mods directory"""
@@ -170,17 +180,8 @@ class SkinInjector:
         
         resolver, skins_dir = self.zip_resolver, self.zips_dir
         if classic:
-            # The Classic library keeps champions under their Classic ID and each
-            # skin under the regular or the Classic ID (see injection.classic)
-            champion_id = to_classic_champion_id(champion_id)
-            champion_dir = self.classic_dir / str(champion_id)
-            skin_name = to_library_skin_name(champion_dir, skin_name)
-            chroma_id = to_library_id(champion_dir, chroma_id)
+            skin_name, chroma_id, champion_id = self._classic_library_ids(skin_name, chroma_id, champion_id)
             resolver, skins_dir = self.classic_resolver, self.classic_dir
-            if extra_mods_callback:
-                # Party skins are regular skin mods, never loaded by Classic characters
-                log.info("[INJECT] Rift Classic: party skins are not applied")
-                extra_mods_callback = None
 
         # Find the skin ZIP (with chroma support)
         # Extract base skin name (remove skin ID if present) for chroma path construction

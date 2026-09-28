@@ -266,6 +266,20 @@ class InjectionHookTests(unittest.TestCase):
 
         self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"custom")
 
+    def test_rift_classic_uses_the_classic_skin(self):
+        mod = self.root / "mods" / "skins" / "11000" / "Custom Yi"
+        (mod / "WAD").mkdir(parents=True)
+        (mod / "WAD" / "MasterYi.wad.client").write_bytes(b"custom")
+        hook = PartyInjectionHook(Mock(), make_state())
+        skin = PartySkinData(2, "B", 60011, 60011002, custom_mod_path="skins/11000/Custom Yi")
+        injector = self.injector()
+
+        name = hook._prepare_single_skin(skin, injector, classic=True)
+
+        # Custom mods target the regular characters, which Classic doesn't load
+        self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"skin")
+        self.assertTrue(injector._resolve_zip.call_args.kwargs["classic"])
+
 
 class PartyOnlyInjectionTests(unittest.TestCase):
     def make_manager(self, party_manager):

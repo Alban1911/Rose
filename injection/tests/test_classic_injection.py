@@ -75,8 +75,16 @@ class ClassicInjectionTests(unittest.TestCase):
         self.assertTrue(self.injector.inject_skin(
             'skin_60001001', champion_id=60001, extra_mods_callback=self.party, classic=True,
         ))
-        self.assertEqual(self._injected(), (['1001'], 'classic'))
-        self.party.assert_not_called()  # party skins target regular characters
+        # Friends' skins come along (the party hook takes them from the Classic library)
+        self.assertEqual(self._injected(), (['1001', 'party_42'], 'classic'))
+
+    def test_a_friends_classic_skin_is_found_like_ours(self):
+        archive = self.injector._resolve_zip(
+            'skin_60103001', chroma_id=60103052, champion_id=60103, classic=True,
+        )
+        self.assertEqual(archive.parent.name, '103052')
+        self.assertEqual(self.injector._resolve_zip('skin_60001301', champion_id=60001, classic=True).name,
+                         '60001301.fantome')
 
     def test_classic_chroma(self):
         self.assertTrue(self.injector.inject_skin(
