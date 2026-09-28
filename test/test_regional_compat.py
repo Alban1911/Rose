@@ -266,64 +266,66 @@ class OverlayLifetimeTests(unittest.TestCase):
 
 
 class LoaderFallbackTests(unittest.TestCase):
+    """When the client starts, Rose's loader takes over if no loader is active
+    (a standalone Pengu disabled while Rose runs), without any polling."""
+
     def setUp(self):
         from utils.integration import pengu_loader
         self.loader = pengu_loader
-        self.loader._next_activation_check = 0
         self.loader._restart_pending = False
-        self.loader._waiting_loader_window = False
+        self.addCleanup(setattr, self.loader, '_restart_pending', False)
         self.processes = self.enterContext(patch.object(self.loader, '_process_running', return_value=False))
         self.external = self.enterContext(patch.object(self.loader, '_external_pengu_with_rose_plugins', return_value=None))
         self.registered = self.enterContext(patch.object(self.loader, '_registered_pengu_core', return_value=None))
+        self.enterContext(patch.object(self.loader, '_is_available', return_value=True))
+        self.status = self.enterContext(patch.object(self.loader, 'get_status', return_value=self.loader.PenguStatus.INACTIVE))
         self.activate = self.enterContext(patch.object(self.loader, 'activate_on_start', return_value=True))
-        self.lcu = SimpleNamespace(ok=True, phase='Lobby')
+        self.restart = self.enterContext(patch.object(self.loader, 'restart_client', return_value=True))
+        # Run the restart thread inline
+        thread = self.enterContext(patch.object(self.loader.threading, 'Thread'))
+        thread.side_effect = lambda target, **kwargs: SimpleNamespace(start=target)
 
-    def test_disabled_external_loader_triggers_bundled_loader(self):
-        self.loader.maintain_activation(self.lcu)
+    def test_no_active_loader_enables_rose_loader(self):
+        self.loader.ensure_active_for_client()
         self.activate.assert_called_once()
 
     def test_active_external_loader_is_preserved(self):
         self.external.return_value = Path('C:/StandalonePengu')
-        self.loader.maintain_activation(self.lcu)
+        self.loader.ensure_active_for_client()
         self.activate.assert_not_called()
 
-    def test_active_bundled_loader_does_not_reactivate(self):
+    def test_registered_rose_loader_needs_nothing(self):
         self.registered.return_value = self.loader.PENGU_DIR / 'core.dll'
-        self.loader.maintain_activation(self.lcu)
+        self.loader.ensure_active_for_client()
+        self.status.assert_not_called()
         self.activate.assert_not_called()
 
-    def test_game_process_prevents_switch_even_when_lcu_disconnected(self):
-        self.processes.return_value = True
-        self.loader.maintain_activation(SimpleNamespace(ok=False))
+    def test_another_active_loader_is_kept(self):
+        # An unreadable registry entry must not make Rose take over an active loader
+        self.status.return_value = self.loader.PenguStatus.ACTIVE
+        self.loader.ensure_active_for_client()
         self.activate.assert_not_called()
 
-    def test_champion_select_prevents_switch(self):
-        self.lcu.phase = 'ChampSelect'
-        self.loader.maintain_activation(self.lcu)
+    def test_open_loader_window_waits_for_the_next_client(self):
+        self.processes.side_effect = lambda names: self.loader.PENGU_EXE.name in names
+        self.loader.ensure_active_for_client()
         self.activate.assert_not_called()
 
-    def test_open_gui_delays_activation_until_closed(self):
-        self.processes.side_effect = lambda names: 'Pengu Loader.exe' in names
-        self.loader.maintain_activation(self.lcu)
-        self.activate.assert_not_called()
-        self.loader._next_activation_check = 0
-        self.processes.side_effect = None
-        self.loader.maintain_activation(self.lcu)
-        self.activate.assert_called_once()
-
-    def test_monitor_throttles_attempts(self):
-        self.loader.maintain_activation(self.lcu)
-        self.loader.maintain_activation(self.lcu)
-        self.activate.assert_called_once()
-
-    def test_deferred_restart_retried_without_reactivation(self):
-        self.registered.return_value = self.loader.PENGU_DIR / 'core.dll'
+    def test_deferred_restart_happens_at_a_safe_phase(self):
         self.loader._restart_pending = True
         self.processes.side_effect = lambda names: 'LeagueClientUx.exe' in names
-        with patch.object(self.loader, 'restart_client', return_value=True) as restart:
-            self.loader.maintain_activation(self.lcu)
-            restart.assert_called_once()
-        self.activate.assert_not_called()
+        self.loader.retry_deferred_restart()
+        self.restart.assert_called_once()
+        self.assertFalse(self.loader._restart_pending)
+
+    def test_nothing_deferred_nothing_restarted(self):
+        self.loader.retry_deferred_restart()
+        self.restart.assert_not_called()
+
+    def test_closed_client_needs_no_restart(self):
+        self.loader._restart_pending = True
+        self.loader.retry_deferred_restart()
+        self.restart.assert_not_called()
         self.assertFalse(self.loader._restart_pending)
 
 

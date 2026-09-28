@@ -18,7 +18,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -319,9 +318,8 @@ _LEAGUE_PROCESSES: set[str] = {
 }
 _CREATE_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 _operation_lock = threading.RLock()
-_next_activation_check = 0.0
+# A client restart Rose deferred until a safe phase (see retry_deferred_restart)
 _restart_pending = False
-_waiting_loader_window = False
 
 
 class PenguStatus(Enum):
@@ -729,7 +727,9 @@ def _registered_pengu_core() -> Optional[Path]:
     try:
         import winreg
         key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe"
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+        # The 64-bit view, where Pengu registers it, whatever Rose's own bitness
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0,
+                            winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
             debugger, _ = winreg.QueryValueEx(key, "Debugger")
         match = re.fullmatch(r'rundll32(?:\.exe)?\s+"([^"]+)",\s*#6000\s*', debugger, re.IGNORECASE)
         if not match:
@@ -755,44 +755,44 @@ def _external_pengu_with_rose_plugins() -> Optional[Path]:
     return None
 
 
-def maintain_activation(lcu=None) -> None:
-    """Take over after standalone Pengu is disabled, even without restarting Rose."""
-    global _next_activation_check, _restart_pending, _waiting_loader_window
+def ensure_active_for_client() -> None:
+    """The client just started: enable Rose's loader if none is active any more
+    (a standalone Pengu disabled while Rose runs). Runs on that event, no polling."""
     with _operation_lock:
-        now = time.monotonic()
-        if now < _next_activation_check:
-            return
-        _next_activation_check = now + 5.0
-        from config import GAME_EXECUTABLE_NAMES, get_config_option
-        if _process_running(GAME_EXECUTABLE_NAMES):
-            return
         if _external_pengu_with_rose_plugins() is not None:
-            _restart_pending = False
-            return
-        if lcu is not None and lcu.ok:
-            if lcu.phase not in {'None', 'Lobby', 'EndOfGame'}:
-                return
-        elif _process_running(('LeagueClientUx.exe',)):
             return
         core = _registered_pengu_core()
         if core is not None and core.parent.resolve() == PENGU_DIR.resolve():
-            if _restart_pending:
-                if _process_running(('LeagueClientUx.exe',)):
-                    _restart_pending = not restart_client()
-                else:
-                    _restart_pending = False  # The next UX will load the registered DLL.
             return
-        # Both editions share the official GUI mutex. Wait until the user closes
-        # the loader window instead of repeatedly issuing failing install calls.
-        if _process_running(('Pengu Loader.exe',)):
-            if not _waiting_loader_window:
-                log.info('Waiting for the standalone Pengu Loader window to close before enabling Rose Loader.')
-                _waiting_loader_window = True
+        if not _is_available() or get_status() is not PenguStatus.INACTIVE:
+            return  # Another loader is active (kept, as at startup), or unknown
+        # Both editions share the loader window's mutex: don't close a window
+        # the user has open, try again at the next client start
+        if _process_running((PENGU_EXE.name,)):
+            log.info('No active Pengu Loader, but its window is open; Rose enables its loader at the next client start.')
             return
-        _waiting_loader_window = False
-        client_path = get_config_option('General', 'clientPath')
+        from config import get_config_option
         log.info('No active Pengu Loader; enabling the loader bundled with Rose.')
-        activate_on_start(client_path)
+        activate_on_start(get_config_option('General', 'clientPath'))
+
+
+def retry_deferred_restart() -> None:
+    """The client reached a safe phase: restart it if Rose's loader still waits
+    for that (enabled while a champ select was on)."""
+    if not _restart_pending:
+        return
+
+    def restart() -> None:
+        global _restart_pending
+        with _operation_lock:
+            if not _restart_pending:
+                return
+            if _process_running(('LeagueClientUx.exe',)):
+                _restart_pending = not restart_client()
+            else:
+                _restart_pending = False  # The next client loads the registered loader
+
+    threading.Thread(target=restart, name='PenguClientRestart', daemon=True).start()
 
 
 def activate_on_start(league_path: Optional[str] = None) -> bool:

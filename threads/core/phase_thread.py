@@ -116,6 +116,12 @@ class PhaseThread(threading.Thread):
                 # Handle phase change
                 self.phase_handler.handle_phase_change(ph, self.last_phase)
 
+                # A client restart Rose's loader deferred (enabled during a
+                # champ select) happens once the client is back in a safe phase
+                if ph in ("Lobby", "EndOfGame"):
+                    from utils.integration import pengu_loader
+                    pengu_loader.retry_deferred_restart()
+
                 # Reset lobby tracking when leaving lobby
                 if self.last_phase == "Lobby" and ph != "Lobby":
                     self.lobby_processor.reset_lobby_tracking()

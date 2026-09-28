@@ -73,6 +73,15 @@ class LCUMonitorThread(threading.Thread):
                         log.info("LCU reconnected - waiting for WebSocket...")
                         self.waiting_for_connection = False
                         self._lcu_reconnected = True
+                    # A client that started without a loader (a standalone Pengu
+                    # disabled while Rose runs) gets Rose's
+                    if not self.state.stop:
+                        from utils.integration import pengu_loader
+                        threading.Thread(
+                            target=pengu_loader.ensure_active_for_client,
+                            name="PenguLoaderCheck",
+                            daemon=True,
+                        ).start()
                 
                 # WebSocket connected after LCU reconnection
                 elif current_lcu_ok and current_ws_connected and not self.ws_connected:
@@ -129,12 +138,6 @@ class LCUMonitorThread(threading.Thread):
                     self._maybe_recover_locked_champ_select_state()
 
                 self.last_lcu_ok = current_lcu_ok
-
-                # An external loader may be disabled after Rose starts. Check
-                # independently of reconnect events; activation handles safe phases.
-                if not self.state.stop:
-                    from utils.integration import pengu_loader
-                    pengu_loader.maintain_activation(self.lcu)
 
             except Exception as e:
                 log.debug(f"LCU monitor error: {e}")
