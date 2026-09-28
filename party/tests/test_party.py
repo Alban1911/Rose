@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import time
 import unittest
@@ -231,6 +232,33 @@ class MergedMembersTests(unittest.TestCase):
         state, connected = merged[2]
         self.assertEqual(state["skin"]["skin_id"], 11002)
         self.assertTrue(connected)
+
+    def test_a_friend_who_removed_us_is_gone_for_us_too(self):
+        manager = PartyManager(Mock(), make_state())
+        manager.party_state.my_summoner_id = 1
+        remover = member(2, "B", 11, 11002, removed=[1])
+        manager._relays = {"a" * 32: SimpleNamespace(members=[member(1, "Me"), remover], connected=True)}
+
+        self.assertEqual(manager._merged_members(), {})
+        self.assertEqual(manager._peers_who_removed_us(), {2})
+
+        # Adding us back
+        remover["skin"]["removed"] = []
+        self.assertEqual(list(manager._merged_members()), [2])
+
+    def test_removing_a_friend_tells_them(self):
+        manager = PartyManager(Mock(), make_state())
+        manager.party_state.my_summoner_id = 1
+        relay = SimpleNamespace(members=[], connected=True, sent=[])
+
+        async def send_state(state):
+            relay.sent.append(state)
+        relay.send_state = send_state
+        manager._relays = {"a" * 32: relay}
+
+        asyncio.run(manager.remove_peer(2))
+
+        self.assertEqual(relay.sent[-1]["removed"], [2])
 
 
 class InjectionHookTests(unittest.TestCase):

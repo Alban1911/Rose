@@ -49,6 +49,13 @@ def _to_int(value) -> Optional[int]:
         return None
 
 
+def _removed(member: dict, summoner_id: Optional[int]) -> bool:
+    """Whether this member's state says they removed that summoner."""
+    skin = member.get("skin")
+    removed = skin.get("removed") if isinstance(skin, dict) else None
+    return isinstance(removed, list) and summoner_id is not None and summoner_id in removed
+
+
 def _state_time(member: dict) -> int:
     """When a member's state was sent: 0 for older Rose versions, -1 without state."""
     skin = member.get("skin")
@@ -221,6 +228,8 @@ class PartyManager:
                 return False, f"Couldn't reach the party server: {error}"
 
         name = await self._wait_for_peer(token.summoner_id, PEER_WAIT_TIMEOUT)
+        if not name and token.summoner_id in self._peers_who_removed_us():
+            return False, "This friend removed you from their party - they need to add your token back"
         if name:
             log.info(f"[PARTY] Connected to {name}")
             return True, f"Connected to {name}"
@@ -232,13 +241,17 @@ class PartyManager:
         )
 
     async def remove_peer(self, summoner_id: int):
-        """Hide a peer and ignore their skins (pasting their token brings them back)."""
+        """Hide a peer and ignore their skins (pasting their token brings them back).
+
+        Our state tells them, so they stop showing us and using our skins too.
+        """
         self._ignored_peers.add(summoner_id)
         self.party_state.remove_peer(summoner_id)
         if self._skin_collector:
             self._skin_collector.clear_peer(summoner_id)
         self._notify_state_change()
         log.info(f"[PARTY] Removed peer {summoner_id}")
+        await self._publish_state()
 
     def get_party_skins(self) -> List[PartySkinData]:
         """Get friends' skin selections for injection (last known ones while reconnecting)."""
@@ -348,6 +361,9 @@ class PartyManager:
         if len(self._relays) > 1:
             # Advertise our rooms so the rest of the party joins them too
             state["rooms"] = sorted(self._relays)[:MAX_ROOMS]
+        if self._ignored_peers:
+            # The friends we removed hide us too (see _merged_members)
+            state["removed"] = sorted(self._ignored_peers)
         if state:
             state["sent_at"] = int(time.time() * 1000)
         else:
@@ -380,7 +396,17 @@ class PartyManager:
                 newest = member if _state_time(member) > _state_time(previous[0]) else previous[0]
                 merged[sid] = (newest, previous[1] or relay.connected)
 
-        return merged
+        # A friend who removed us is gone for us too, until they add us back
+        return {sid: entry for sid, entry in merged.items() if not _removed(entry[0], my_id)}
+
+    def _peers_who_removed_us(self) -> Set[int]:
+        my_id = self.party_state.my_summoner_id
+        return {
+            _to_int(member.get("summoner_id"))
+            for relay in list(self._relays.values())
+            for member in relay.members
+            if _removed(member, my_id)
+        }
 
     async def _wait_for_peer(self, summoner_id: int, timeout: float) -> Optional[str]:
         """Wait until a summoner shows up in one of our rooms; returns their name."""
