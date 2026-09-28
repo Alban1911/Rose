@@ -14,7 +14,7 @@ import requests
 
 from utils.core.logging import get_logger, log_section, log_success
 
-from .lockfile import find_lockfile, parse_lockfile
+from .lockfile import find_lockfile, parse_lockfile, find_process_credentials
 
 log = get_logger()
 
@@ -36,6 +36,7 @@ class LCUConnection:
         self._explicit_lockfile = lockfile_path
         self.lf_path = None
         self.lf_mtime = 0.0
+        self._next_credentials_check = 0.0
         self._lock = threading.RLock()
         self._init_from_lockfile()
 
@@ -51,37 +52,34 @@ class LCUConnection:
         return session
     
     def _init_from_lockfile(self, force: bool = False):
-        """Initialize from lockfile"""
+        """Initialize from lockfile or a running regional client's arguments."""
+        previous_path = self.lf_path
         lf = find_lockfile(self._explicit_lockfile)
         self.lf_path = lf
-        
-        if not lf:
-            self._disable("LCU lockfile not found")
-            return
-        
-        lockfile_path = Path(lf)
-        if not lockfile_path.is_file():
-            self._disable("LCU lockfile not found")
-            return
+        self._next_credentials_check = time.monotonic() + 1.0
         
         try:
             # Parse lockfile
-            lockfile_data = parse_lockfile(lf)
+            lockfile_data = parse_lockfile(lf) if lf else None
+            source = "lockfile"
             if not lockfile_data:
-                self._disable("LCU lockfile parsing failed")
-                return
+                lockfile_data = find_process_credentials()
+                source = "client process"
+                if not lockfile_data:
+                    self._disable("LCU credentials unavailable")
+                    return
             
             new_credentials = (lockfile_data.port, lockfile_data.password)
             current_credentials = (self.port, self.pw)
             same_connection = (
                 not force
                 and self.ok
-                and self.lf_path == lf
+                and previous_path == lf
                 and current_credentials == new_credentials
             )
 
             try:
-                self.lf_mtime = lockfile_path.stat().st_mtime
+                self.lf_mtime = Path(lf).stat().st_mtime if lf else 0.0
             except (OSError, IOError) as e:
                 log.debug(f"Failed to get lockfile mtime: {e}")
                 self.lf_mtime = time.time()
@@ -104,7 +102,7 @@ class LCUConnection:
             self.session.auth = ("riot", self.pw)
             self.session.headers.update({"Content-Type": "application/json"})
             self.ok = True
-            log_section(log, "LCU Connected", "", {"Port": self.port, "Status": "Ready"})
+            log_section(log, "LCU Connected", "", {"Port": self.port, "Status": "Ready", "Source": source})
         except Exception as e:
             self._disable(f"LCU unavailable: {e}")
     
@@ -119,36 +117,15 @@ class LCUConnection:
         self.session = self._prepare_session()
     
     def refresh_if_needed(self, force: bool = False):
-        """Refresh connection if needed"""
+        """Refresh once per second, including tokens rotated on client restart."""
         with self._lock:
-            lf = find_lockfile(self._explicit_lockfile)
-
-            if not lf:
-                self._disable("lockfile not found")
-                self.lf_path = None
-                self.lf_mtime = 0.0
+            if not force and time.monotonic() < self._next_credentials_check:
                 return
-
-            lockfile_path = Path(lf)
-            if not lockfile_path.is_file():
-                self._disable("lockfile not found")
-                self.lf_path = None
-                self.lf_mtime = 0.0
-                return
-
-            try:
-                mt = lockfile_path.stat().st_mtime
-            except (OSError, IOError) as e:
-                log.debug(f"Failed to get lockfile mtime during refresh: {e}")
-                mt = 0.0
-
-            if force or lf != self.lf_path or (mt and mt != self.lf_mtime) or not self.ok:
-                old = (self.port, self.pw)
-                self.lf_path = lf
-                self._init_from_lockfile(force=force)
-                new = (self.port, self.pw)
-                if self.ok and old != new:
-                    log_success(log, f"LCU reloaded (port={self.port})", "")
+            old = (self.port, self.pw)
+            self._init_from_lockfile(force=force)
+            new = (self.port, self.pw)
+            if self.ok and old != new:
+                log_success(log, f"LCU reloaded (port={self.port})", "")
 
     def websocket_credentials(self):
         """Return a consistent snapshot for the LCU WebSocket connection."""

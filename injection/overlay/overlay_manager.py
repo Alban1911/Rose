@@ -30,6 +30,7 @@ from utils.core.logging import get_logger, log_action, log_success, log_event
 from utils.core.issue_reporter import report_issue
 from ..tools.patcher import check_ltk_patcher
 from config import (
+    GAME_EXECUTABLE_NAMES,
     PROCESS_TERMINATE_TIMEOUT_S,
     PROCESS_MONITOR_SLEEP_S,
     ENABLE_MKOVERLAY_PRIORITY_BOOST,
@@ -165,6 +166,30 @@ class OverlayManager:
             hint='Free up disk space on the drive containing Rose injection files, then retry the skin.',
         )
         return True
+
+    @staticmethod
+    def _game_process_running() -> Optional[bool]:
+        """LCU may close during a match; inspect the game process separately."""
+        if not PSUTIL_AVAILABLE:
+            return None
+        names = {name.lower() for name in GAME_EXECUTABLE_NAMES}
+        try:
+            return any((proc.info.get('name') or '').lower() in names
+                       for proc in psutil.process_iter(['name']))
+        except (psutil.Error, OSError):
+            return None
+
+    def _overlay_should_stop(self, game_seen: bool, stop_callback) -> tuple[bool, bool]:
+        running = self._game_process_running()
+        if running is True:
+            return False, True
+        if running is None:
+            # An unavailable process snapshot cannot establish that a game ended.
+            return False, game_seen
+        if game_seen:
+            return True, True
+        # Before the game starts, an explicit lobby/cancel transition can stop us.
+        return bool(stop_callback and stop_callback()), False
     
     def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
         """Create and run overlay

@@ -156,6 +156,10 @@ class ConfigManager:
             
             # Try parent directory structure
             parent_dir = league_dir.parent
+            # WeGame keeps Game and LeagueClient in sibling directories.
+            regional_client_dir = parent_dir / "LeagueClient"
+            if (regional_client_dir / "LeagueClient.exe").is_file():
+                return str(regional_client_dir)
             client_exe = parent_dir / "LeagueClient.exe"
             if client_exe.exists():
                 return str(parent_dir)

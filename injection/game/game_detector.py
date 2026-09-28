@@ -6,6 +6,7 @@ Handles detection of League of Legends game directory
 """
 
 from pathlib import Path
+from config import GAME_EXECUTABLE_NAMES
 from typing import Optional, Tuple
 
 # Import psutil with fallback for development environments
@@ -35,12 +36,17 @@ class GameDetector:
         # First, try to load from config
         config_league_path = self.config_manager.load_league_path()
         config_client_path = self.config_manager.load_client_path()
+
+        if config_league_path and not config_client_path:
+            config_client_path = self.config_manager.infer_client_path_from_league_path(config_league_path)
+            if config_client_path:
+                self.config_manager.save_client_path(config_client_path)
         
         if config_league_path and config_client_path:
             league_dir = Path(config_league_path)
             client_dir = Path(config_client_path)
             
-            if (league_dir.exists() and (league_dir / "League of Legends.exe").exists() and
+            if (league_dir.exists() and any((league_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES) and
                 client_dir.exists() and (client_dir / "LeagueClient.exe").exists()):
                 log_success(log, f"Using paths from config: league={league_dir}, client={client_dir}", "")
                 return league_dir, client_dir
@@ -79,7 +85,7 @@ class GameDetector:
             # Find LeagueClient.exe process
             for proc in psutil.process_iter(['pid', 'name', 'exe']):
                 try:
-                    if proc.info['name'] == 'LeagueClient.exe':
+                    if (proc.info.get('name') or '').lower() in {'leagueclient.exe', 'leagueclientux.exe'}:
                         exe_path = proc.info['exe']
                         if exe_path:
                             log.debug(f"Found LeagueClient.exe at: {exe_path}")
@@ -97,7 +103,7 @@ class GameDetector:
                             league_exe = league_dir / "League of Legends.exe"
                             
                             log.debug(f"Checking for League at: {league_exe}")
-                            if league_exe.exists():
+                            if any((league_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES):
                                 log_success(log, f"Found League via LeagueClient.exe: game={league_dir}, client={client_dir}", "")
                                 return league_dir, client_dir
                             else:
@@ -105,11 +111,15 @@ class GameDetector:
                                 
                                 # Try parent directory structure (for different installers)
                                 parent_dir = client_dir.parent
+                                regional_game_dir = parent_dir / "Game"
+                                if any((regional_game_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES):
+                                    log_success(log, f"Found League via regional layout: game={regional_game_dir}, client={client_dir}", "")
+                                    return regional_game_dir, client_dir
                                 parent_league_dir = parent_dir / "League of Legends" / "Game"
                                 parent_league_exe = parent_league_dir / "League of Legends.exe"
                                 
                                 log.debug(f"Trying parent directory structure: {parent_league_exe}")
-                                if parent_league_exe.exists():
+                                if any((parent_league_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES):
                                     log_success(log, f"Found League via parent directory: game={parent_league_dir}, client={client_dir}", "")
                                     return parent_league_dir, client_dir
                                 

@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 
 APP_VERSION = "1.3.2"                           # Application version
 APP_USER_AGENT = f"Rose/{APP_VERSION}"  # User-Agent header for HTTP requests
+GAME_EXECUTABLE_NAMES = ("League of Legends.exe", "League of Legends (TM) Client.exe")
 
 _CONFIG = configparser.ConfigParser()
 _CONFIG_MTIME: float = 0.0  # Last known modification time of config.ini
