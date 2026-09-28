@@ -1,4 +1,5 @@
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,8 @@ from utils.core.i18n import (
     resolve_language,
     text_fields,
 )
+
+SHIPPED_LOCALES = Path(__file__).resolve().parents[2] / "Pengu Loader" / "plugins" / "ROSE-I18n" / "locales"
 
 
 class LanguageTests(unittest.TestCase):
@@ -111,6 +114,23 @@ class LoadStringsTests(unittest.TestCase):
         self.assertEqual(payload["setting"], "fr")
         self.assertEqual(payload["direction"], "ltr")
 
+
+class ShippedLocalesTests(unittest.TestCase):
+    def test_every_language_has_every_text(self):
+        files = {path.stem: path for path in SHIPPED_LOCALES.glob("*.json")}
+        self.assertEqual(set(files), set(LANGUAGES) - {"en"})
+
+        catalogs = {name: json.loads(path.read_text(encoding="utf-8")) for name, path in files.items()}
+        keys = set(catalogs["fr"])
+        self.assertTrue(keys)
+        for name, strings in catalogs.items():
+            with self.subTest(language=name):
+                self.assertEqual(set(strings), keys)
+                for key, value in strings.items():
+                    self.assertTrue(value.strip(), key)
+                    self.assertEqual(
+                        sorted(re.findall(r"\{\w+\}", key)), sorted(re.findall(r"\{\w+\}", value)), key
+                    )
 
 
 if __name__ == "__main__":
