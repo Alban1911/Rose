@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from utils.core.logging import get_logger, log_action, log_success
-from utils.core.paths import get_skins_dir, get_injection_dir
+from utils.core.paths import get_classic_skins_dir, get_skins_dir, get_injection_dir
 from utils.core.issue_reporter import report_issue
 from utils.core.junction import safe_remove_entry
 
+from ..classic import to_regular_champion_id, to_regular_skin_id, to_regular_skin_name
 from ..config.config_manager import ConfigManager
 from ..game.game_detector import GameDetector
 from ..tools.tools_manager import ToolsManager
@@ -95,6 +96,9 @@ class SkinInjector:
         # Initialize managers
         self.tools_manager = ToolsManager(self.tools_dir)
         self.zip_resolver = ZipResolver(self.zips_dir)
+        # Rift Classic skins (LeagueSkins' classic/ folder, same layout as the skins)
+        self.classic_dir = get_classic_skins_dir()
+        self.classic_resolver = ZipResolver(self.classic_dir)
         self.mod_manager = ModManager(self.mods_dir)
         self.process_manager = ProcessManager()
         # Pass process_manager to overlay_manager so they share the process reference
@@ -146,6 +150,7 @@ class SkinInjector:
         champion_name: str = None,
         champion_id: int = None,
         extra_mods_callback: Optional[Callable[["SkinInjector"], List[str]]] = None,
+        classic: bool = False,
     ) -> bool:
         """Inject a single skin (with optional chroma and party mods)
         
@@ -156,30 +161,44 @@ class SkinInjector:
             injection_manager: InjectionManager instance to call resume_game()
             chroma_id: Optional chroma ID to inject specific chroma variant
             extra_mods_callback: Optional callback(injector) -> list of extra mod folder names (e.g. party skins)
+            classic: Rift Classic game: inject the stored Classic skin instead
         """
         injection_start_time = time.time()
         
         # Game suspension is now handled entirely by the monitor in InjectionManager
         # No need for a separate GameMonitor thread
         
+        resolver, skins_dir = self.zip_resolver, self.zips_dir
+        if classic:
+            # The Classic library is stored under the regular champion and skin IDs
+            skin_name = to_regular_skin_name(skin_name)
+            chroma_id = to_regular_skin_id(chroma_id)
+            champion_id = to_regular_champion_id(champion_id)
+            resolver, skins_dir = self.classic_resolver, self.classic_dir
+            if extra_mods_callback:
+                # Party skins are regular skin mods, never loaded by Classic characters
+                log.info("[INJECT] Rift Classic: party skins are not applied")
+                extra_mods_callback = None
+
         # Find the skin ZIP (with chroma support)
         # Extract base skin name (remove skin ID if present) for chroma path construction
         base_skin_name = skin_name
         if skin_name and skin_name.split()[-1].isdigit():
             base_skin_name = ' '.join(skin_name.split()[:-1])
         
-        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name, champion_id=champion_id)
+        zp = resolver.resolve_zip(skin_name, chroma_id, base_skin_name, champion_name, champion_id)
         if not zp:
-            log.error(f"[INJECT] Skin '{skin_name}' not found in {self.zips_dir}")
+            log.error(f"[INJECT] Skin '{skin_name}' not found in {skins_dir}")
             report_issue(
                 "SKIN_ZIP_NOT_FOUND",
                 "error",
-                "Injection failed: skin file not found on your PC.",
+                "Injection failed: skin file not found on your PC."
+                if not classic else "Injection failed: this skin has no Rift Classic version on your PC.",
                 details={"skin": skin_name},
                 hint="Download the skin first, or check your skins folder.",
             )
-            avail_zip = list(self.zips_dir.rglob('*.zip'))
-            avail_fantome = list(self.zips_dir.rglob('*.fantome'))
+            avail_zip = list(skins_dir.rglob('*.zip'))
+            avail_fantome = list(skins_dir.rglob('*.fantome'))
             avail = avail_zip + avail_fantome
             if avail:
                 log.info("[INJECT] Available skins (first 10):")

@@ -18,6 +18,7 @@ from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
 from utils.core.utilities import is_default_skin
+from injection.classic import is_classic_game_mode
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 from injection.game.game_monitor import make_game_ended_callback
 
@@ -1040,6 +1041,8 @@ class InjectionTrigger:
         party_manager = getattr(self.state, "party_manager", None)
         if not party_manager or not getattr(party_manager, "enabled", False):
             return False
+        if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+            return False  # party skins are regular skin mods, never loaded in Rift Classic
         try:
             from party.integration.injection_hook import PartyInjectionHook
             return PartyInjectionHook(party_manager, self.state, self.injection_manager).has_party_skins()

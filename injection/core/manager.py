@@ -19,6 +19,7 @@ from utils.core.logging import get_logger, log_action, log_success
 from utils.core.issue_reporter import report_issue
 
 from .injector import SkinInjector
+from ..classic import is_classic_game_mode
 from ..game.game_monitor import GameMonitor
 from ..config.threshold_manager import ThresholdManager
 
@@ -240,6 +241,8 @@ class InjectionManager:
             except (ValueError, IndexError):
                 pass  # Not a numeric skin ID, continue with normal injection
 
+        classic = is_classic_game_mode(getattr(self.shared_state, "current_game_mode", None))
+
         def inject(extra_mods_callback):
             # Pass the manager instance so injector can call resume_game()
             return self.injector.inject_skin(
@@ -250,6 +253,7 @@ class InjectionManager:
                 champion_name=champion_name,
                 champion_id=champion_id,
                 extra_mods_callback=extra_mods_callback,
+                classic=classic,
             )
 
         success = self._run_injection(skin_name, inject)

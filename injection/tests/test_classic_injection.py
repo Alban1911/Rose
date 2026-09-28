@@ -1,0 +1,96 @@
+import json
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+from injection import classic
+from injection.core import injector as injector_module
+from injection.core.injector import SkinInjector
+from injection.mods.mod_manager import ModManager
+from injection.mods.zip_resolver import ZipResolver
+
+
+class ClassicIdTests(unittest.TestCase):
+    def test_classic_ids_map_to_regular_ones(self):
+        self.assertEqual(classic.to_regular_champion_id(60103), 103)
+        self.assertEqual(classic.to_regular_skin_id(60103052), 103052)
+        self.assertEqual(classic.to_regular_skin_name('chroma_60103052'), 'chroma_103052')
+
+    def test_regular_ids_are_left_alone(self):
+        self.assertEqual(classic.to_regular_champion_id(103), 103)
+        self.assertEqual(classic.to_regular_skin_id(103052), 103052)
+        self.assertEqual(classic.to_regular_skin_name('skin_1001'), 'skin_1001')
+        self.assertIsNone(classic.to_regular_skin_id(None))
+
+    def test_jade_is_rift_classic(self):
+        self.assertTrue(classic.is_classic_game_mode('JADE'))
+        self.assertFalse(classic.is_classic_game_mode('CLASSIC'))
+        self.assertFalse(classic.is_classic_game_mode(None))
+
+
+class ClassicInjectionTests(unittest.TestCase):
+    """Rift Classic games inject the stored Classic skins (%LOCALAPPDATA%/Rose/classic)"""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        skins_dir, classic_dir = root / 'skins', root / 'classic'
+        self._fantome(skins_dir / '1' / '1001' / '1001.fantome', 'regular')
+        self._fantome(classic_dir / '1' / '1001' / '1001.fantome', 'classic')
+        self._fantome(classic_dir / '103' / '103001' / '103052' / '103052.fantome', 'classic')
+
+        # Only what inject_skin uses: no game or tools detection
+        self.injector = SkinInjector.__new__(SkinInjector)
+        self.injector.zips_dir, self.injector.classic_dir = skins_dir, classic_dir
+        self.injector.zip_resolver = ZipResolver(skins_dir)
+        self.injector.classic_resolver = ZipResolver(classic_dir)
+        self.injector.mod_manager = ModManager(root / 'mods')
+        self.injector.last_injection_timing = None
+
+        run_overlay = patch.object(SkinInjector, '_mk_run_overlay', return_value=0)
+        self.run_overlay = run_overlay.start()
+        self.addCleanup(run_overlay.stop)
+        reporter = patch.object(injector_module, 'report_issue')
+        self.report_issue = reporter.start()
+        self.addCleanup(reporter.stop)
+        self.party = MagicMock(return_value=['party_42'])
+
+    @staticmethod
+    def _fantome(path, library):
+        path.parent.mkdir(parents=True)
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr('META/info.json', json.dumps({'Library': library}))
+
+    def _injected(self):
+        mods = self.run_overlay.call_args.args[0]
+        info = self.injector.mod_manager.mods_dir / mods[0] / 'META' / 'info.json'
+        return mods, json.loads(info.read_text())['Library']
+
+    def test_classic_game_injects_the_stored_classic_skin(self):
+        self.assertTrue(self.injector.inject_skin(
+            'skin_60001001', champion_id=60001, extra_mods_callback=self.party, classic=True,
+        ))
+        self.assertEqual(self._injected(), (['1001'], 'classic'))
+        self.party.assert_not_called()  # party skins target regular characters
+
+    def test_classic_chroma(self):
+        self.assertTrue(self.injector.inject_skin(
+            'chroma_60103052', chroma_id=60103052, champion_id=60103, classic=True,
+        ))
+        self.assertEqual(self._injected(), (['103052'], 'classic'))
+
+    def test_regular_games_still_inject_the_regular_skin(self):
+        self.assertTrue(self.injector.inject_skin('skin_1001', champion_id=1, extra_mods_callback=self.party))
+        self.assertEqual(self._injected(), (['1001', 'party_42'], 'regular'))
+
+    def test_skin_without_a_classic_version_is_reported(self):
+        self.assertFalse(self.injector.inject_skin('skin_60001005', champion_id=60001, classic=True))
+        self.run_overlay.assert_not_called()
+        self.assertIn('Rift Classic', self.report_issue.call_args.args[2])
+
+
+if __name__ == '__main__':
+    unittest.main()

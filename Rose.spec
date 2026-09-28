@@ -147,6 +147,7 @@ hiddenimports = [
     'main.runtime.loop',
     # Core app modules
     'injection',
+    'injection.classic',
     'injection.core',
     'injection.core.injector',
     'injection.core.manager',
