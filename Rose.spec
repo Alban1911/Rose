@@ -147,6 +147,7 @@ hiddenimports = [
     'main.runtime.loop',
     # Core app modules
     'injection',
+    'injection.classic',
     'injection.core',
     'injection.core.injector',
     'injection.core.manager',
@@ -226,6 +227,7 @@ hiddenimports = [
     'utils.core.validation',
     'utils.core.normalization',
     'utils.core.historic',
+    'utils.core.modpkg',
     'utils.system',
     'utils.system.admin_utils',
     'utils.system.win32_base',
@@ -297,6 +299,7 @@ hiddenimports = [
     'party.core',
     'party.core.party_manager',
     'party.core.party_state',
+    'party.core.party_storage',
     'party.network',
     'party.network.peer_connection',
     'party.network.ws_relay',
@@ -304,8 +307,12 @@ hiddenimports = [
     'party.protocol.message_types',
     'party.protocol.token_codec',
     'party.discovery',
+    'party.discovery.custom_mods',
     'party.discovery.lobby_matcher',
     'party.discovery.skin_collector',
+    'party.integration',
+    'party.integration.injection_hook',
+    'certifi',
     
     # System tray
     'pystray',
@@ -315,6 +322,8 @@ hiddenimports = [
     
     # Other dependencies
     'psutil',
+    'xxhash',  # .modpkg checksums
+    'zstandard',  # .modpkg compression
     
     # Top-level modules
     'config',

@@ -6,6 +6,14 @@
  */
 (function initPartyMode() {
   const LOG_PREFIX = "[Rose-PartyMode]";
+
+  // Rose's menu language (ROSE-I18n); English until it has loaded
+  const t = (text, vars) =>
+    window.RoseI18n
+      ? window.RoseI18n.t(text, vars)
+      : text.replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
+  // A message from Rose: its template and values when it has variables
+  const tMessage = (message, template, values) => (template ? t(template, values) : t(message));
   let BRIDGE_PORT = 50000;
   let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
   const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
@@ -13,6 +21,7 @@
   const DISCOVERY_END_PORT = 50010;
 
   const PANEL_ID = "rose-party-panel";
+  const BACKDROP_ID = "rose-party-backdrop";
   const BUTTON_ID = "rose-party-button";
   const LOBBY_BUTTON_ID = "rose-party-lobby-button";
 
@@ -22,11 +31,13 @@
   let partyPanel = null;
   let lobbyButton = null;
   let isVisible = false;
+  let panelLocked = false;
   let currentUIMode = null; // 'lobby' or 'champselect'
 
   // Party state
   let partyState = {
     enabled: false,
+    connection: "offline",
     my_token: null,
     my_summoner_id: null,
     my_summoner_name: "Unknown",
@@ -151,17 +162,30 @@
     }
 
     /* Party Button */
+    /* Backdrop: League's modal backdrop (lol-uikit-full-page-backdrop) */
+    #${BACKDROP_ID} {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.8) 93%);
+      z-index: 9997;
+      display: none;
+    }
+
+    #${BACKDROP_ID}.visible {
+      display: block;
+    }
+
     /* Party Panel */
-    /* ===== Panel: Riot dialog-frame style ===== */
+    /* ===== Panel: League's own lol-uikit-dialog-frame, laid out like the Add Friends modal ===== */
     #${PANEL_ID} {
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 380px;
-      background-color: #010a13;
-      border: 2px solid #463714;
-      box-shadow: 0 0 0 1px rgba(1,10,19,.8), 0 8px 30px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.03);
+      width: 420px;
       z-index: 9998;
       display: none;
       flex-direction: column;
@@ -170,16 +194,41 @@
       font-kerning: normal;
     }
 
+    #${PANEL_ID} .party-dialog {
+      display: block;
+      width: 100%;
+    }
+
+    /* .lol-friend-finder-modal: padding 0 18px, room below for the footer button */
+    #${PANEL_ID} .party-modal {
+      display: flex;
+      flex-direction: column;
+      padding: 0 18px 34px;
+    }
+
+    /* The footer button sits on the frame's bottom edge, like "Done" in League's modals */
+    #${PANEL_ID} .party-footer {
+      position: absolute;
+      left: 50%;
+      bottom: -14px;
+      transform: translateX(-50%);
+      z-index: 1;
+    }
+
+    #${PANEL_ID} .party-footer lol-uikit-flat-button {
+      min-width: 110px;
+    }
+
     #${PANEL_ID}.visible {
       display: flex;
     }
 
-    /* Title bar — matches .lol-friend-finder-modal .title */
+    /* Title — .lol-friend-finder-modal .title (centered, margin 15px 0 10px) */
     .party-header {
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: space-between;
-      padding: 15px 18px 10px;
+      margin: 15px 0 10px;
     }
 
     .party-header h3 {
@@ -194,6 +243,7 @@
     }
 
     .party-status {
+      margin-top: 2px;
       font-family: var(--font-body), Arial, sans-serif;
       font-size: 12px;
       font-weight: 400;
@@ -202,13 +252,13 @@
 
     .party-status.offline { color: #5b5a56; }
     .party-status.online  { color: #0acbe6; }
+    .party-status.reconnecting { color: #c8aa6e; }
 
     /* Body — matches .lol-friend-finder-modal .modal-body */
     .party-content {
       display: flex;
       flex-direction: column;
       flex: 1;
-      padding: 0 18px;
       overflow: hidden;
     }
 
@@ -231,11 +281,11 @@
     }
 
     .party-section-title {
-      color: #a09b8c;
+      color: #f0e6d2;
       font-family: var(--font-display), "Beaufort for LOL", Arial, sans-serif;
       font-size: 12px;
       font-weight: 700;
-      letter-spacing: .05em;
+      letter-spacing: .075em;
       text-transform: uppercase;
       margin-bottom: 10px;
     }
@@ -435,50 +485,6 @@
       padding: 20px;
     }
 
-    /* Close button — matches lol-uikit-dialog-frame close button */
-    .party-close-btn {
-      position: absolute;
-      top: -14px;
-      right: -14px;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: #1e2328;
-      border: 2px solid #463714;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: border-color .2s;
-      z-index: 1;
-      padding: 0;
-    }
-
-    .party-close-btn:hover {
-      border-color: #c8aa6e;
-    }
-
-    .party-close-btn:active {
-      border-color: #785a28;
-    }
-
-    .party-close-btn::before,
-    .party-close-btn::after {
-      content: "";
-      position: absolute;
-      width: 12px;
-      height: 2px;
-      background: #a09b8c;
-      transition: background .2s;
-    }
-
-    .party-close-btn::before { transform: rotate(45deg); }
-    .party-close-btn::after  { transform: rotate(-45deg); }
-
-    .party-close-btn:hover::before,
-    .party-close-btn:hover::after {
-      background: #f0e6d2;
-    }
 
     /* Loading state */
     .loading {
@@ -571,7 +577,7 @@
       const content = document.createElement("lol-uikit-content-block");
       content.setAttribute("type", "tooltip-system");
       const p = document.createElement("p");
-      p.textContent = text;
+      p.textContent = t(text);
       content.appendChild(p);
       tip.appendChild(content);
       wrapper.appendChild(tip);
@@ -671,6 +677,8 @@
       if (existing.isConnected && partyPanel === existing) return; // Already good
       existing.remove();
     }
+    const existingBackdrop = document.getElementById(BACKDROP_ID);
+    if (existingBackdrop) existingBackdrop.remove();
 
     // Find a persistent container to attach the panel to
     const container = document.querySelector(".lol-social-actions-bar") || document.body;
@@ -678,47 +686,60 @@
     const panel = document.createElement("div");
     panel.id = PANEL_ID;
     panel.innerHTML = `
+      <lol-uikit-dialog-frame class="party-dialog" orientation="bottom" close-button>
+      <div class="party-modal">
       <div class="party-header">
-        <h3>Party Mode</h3>
-        <span class="party-status offline">Offline</span>
+        <h3>${t("Party Mode")}</h3>
+        <span class="party-status offline">${t("Offline")}</span>
       </div>
       <div class="party-content">
-        <div class="party-description">Share your skins with friends in the same lobby. Enable party mode and exchange tokens to connect.</div>
+        <div class="party-description">${t("Share your skins with friends in the same game. Send your token to your friends or paste theirs: everyone linked to the party sees each other.")}</div>
 
         <div class="party-section" id="party-toggle-section">
           <button class="party-toggle-btn enable" id="party-toggle-btn">
-            Enable Party Mode
+            ${t("Enable Party Mode")}
           </button>
+          <div id="party-toggle-message"></div>
         </div>
 
         <div class="party-section" id="party-token-section" style="display: none;">
-          <div class="party-section-title">Your Party Token</div>
+          <div class="party-section-title">${t("Your Party Token")}</div>
           <div class="token-container">
-            <input type="text" class="token-input" id="party-token-display" readonly placeholder="Generating...">
-            <button class="copy-btn" id="copy-token-btn">Copy</button>
+            <input type="text" class="token-input" id="party-token-display" readonly placeholder="${t("Generating...")}">
+            <button class="copy-btn" id="copy-token-btn">${t("Copy")}</button>
           </div>
         </div>
 
         <div class="party-section" id="party-add-section" style="display: none;">
-          <div class="party-section-title">Add Friend</div>
+          <div class="party-section-title">${t("Add Friend")}</div>
           <div class="add-peer-container">
-            <input type="text" class="add-peer-input" id="add-peer-input" placeholder="Paste friend's token here...">
-            <button class="add-btn" id="add-peer-btn">Add</button>
+            <input type="text" class="add-peer-input" id="add-peer-input" placeholder="${t("Paste your friend's token here...")}">
+            <button class="add-btn" id="add-peer-btn">${t("Add")}</button>
           </div>
           <div id="add-peer-message"></div>
         </div>
 
         <div class="party-section" id="party-peers-section" style="display: none;">
-          <div class="party-section-title">Connected Friends (<span id="peer-count">0</span>)</div>
+          <div class="party-section-title">${t("Connected Friends")} (<span id="peer-count">0</span>)</div>
           <div class="peers-list" id="peers-list">
-            <div class="no-peers">No friends connected yet</div>
+            <div class="no-peers">${t("No friends connected yet")}</div>
           </div>
         </div>
       </div>
-      <button class="party-close-btn" id="party-close-btn"></button>
+      </div>
+      </lol-uikit-dialog-frame>
+      <div class="party-footer">
+        <lol-uikit-flat-button id="party-done-btn">${t("Done")}</lol-uikit-flat-button>
+      </div>
     `;
 
+    // Dims the client behind the panel; clicking it closes the panel
+    const backdrop = document.createElement("div");
+    backdrop.id = BACKDROP_ID;
+    backdrop.addEventListener("click", () => closePanel());
+
     try {
+      container.appendChild(backdrop);
       container.appendChild(panel);
       partyPanel = panel;
       // Use querySelector on panel directly instead of document to avoid ID conflicts
@@ -728,14 +749,47 @@
       panel.querySelector("#add-peer-input").addEventListener("keypress", (e) => {
         if (e.key === "Enter") handleAddPeer();
       });
-      panel.querySelector("#party-close-btn").addEventListener("click", () => {
-        isVisible = false;
-        partyPanel.classList.remove("visible");
-      });
+      panel.querySelector(".party-dialog").addEventListener("dialogFrameDismissed", () => closePanel());
+      panel.querySelector("#party-done-btn").addEventListener("click", () => closePanel());
     } catch (e) {
       console.error(`${LOG_PREFIX} Failed to create panel:`, e);
       partyPanel = null;
     }
+  }
+
+  // Closing is disabled while a friend is being added
+  function closePanel() {
+    if (!panelLocked) setPanelVisible(false);
+  }
+
+  // A new menu language (ROSE-I18n): rebuild the panel in it, open or closed as it was
+  window.addEventListener("rose-i18n-changed", () => {
+    const wasVisible = isVisible;
+    if (partyPanel) partyPanel.remove();
+    partyPanel = null;
+    isVisible = false;
+    createPartyPanel();
+    if (wasVisible) setPanelVisible(true);
+    updatePanelState();
+  });
+
+  function setPanelLocked(locked) {
+    panelLocked = locked;
+    if (!partyPanel) return;
+    const frame = partyPanel.querySelector(".party-dialog");
+    if (frame) {
+      if (locked) frame.removeAttribute("close-button");
+      else frame.setAttribute("close-button", "");
+    }
+    const doneBtn = partyPanel.querySelector("#party-done-btn");
+    if (doneBtn) doneBtn.style.display = locked ? "none" : "";
+  }
+
+  function setPanelVisible(visible) {
+    isVisible = visible;
+    if (partyPanel) partyPanel.classList.toggle("visible", visible);
+    const backdrop = document.getElementById(BACKDROP_ID);
+    if (backdrop) backdrop.classList.toggle("visible", visible);
   }
 
   function togglePanel() {
@@ -746,9 +800,10 @@
       createPartyPanel();
     }
     if (!partyPanel) return;
-    isVisible = !isVisible;
-    partyPanel.classList.toggle("visible", isVisible);
+    setPanelVisible(!isVisible);
     updatePanelState();
+    // Refresh state (and the token's timestamp) whenever the panel opens
+    if (isVisible) sendBridgeMessage({ type: "party-get-state" });
   }
 
   function updateButtonState() {
@@ -768,11 +823,16 @@
     const peersList = document.getElementById("peers-list");
 
     if (partyState.enabled) {
-      statusEl.className = "party-status online";
-      statusEl.textContent = "Online";
+      if (partyState.connection === "reconnecting") {
+        statusEl.className = "party-status reconnecting";
+        statusEl.textContent = t("Reconnecting...");
+      } else {
+        statusEl.className = "party-status online";
+        statusEl.textContent = t("Online");
+      }
 
       toggleBtn.className = "party-toggle-btn disable";
-      toggleBtn.textContent = "Disable Party Mode";
+      toggleBtn.textContent = t("Disable Party Mode");
 
       tokenSection.style.display = "block";
       addSection.style.display = "block";
@@ -788,25 +848,23 @@
       peerCountEl.textContent = connectedPeers.length;
 
       if (allPeers.length === 0) {
-        peersList.innerHTML = '<div class="no-peers">No friends connected yet</div>';
+        peersList.innerHTML = `<div class="no-peers">${t("No friends connected yet")}</div>`;
       } else {
         peersList.innerHTML = allPeers
           .map((peer) => {
             const cs = (peer.connection_state || "disconnected").toLowerCase();
             const isWaiting = cs === "connecting" || cs === "handshaking";
             const statusText = isWaiting
-              ? "Waiting for your friend"
+              ? t("Waiting for your friend")
               : cs === "connected"
-                ? (peer.in_lobby ? "In lobby" : "Connected")
-                : cs === "handshaking"
-                  ? "Handshaking"
-                  : cs === "connecting"
-                    ? "Connecting"
-                    : "Disconnected";
-            const displayName = isWaiting ? "Friend" : escapeHtml(peer.summoner_name);
+                ? (peer.in_lobby ? t("In lobby") : t("Connected"))
+                : cs === "reconnecting"
+                  ? t("Reconnecting...")
+                  : t("Disconnected");
+            const displayName = isWaiting ? escapeHtml(t("Friend")) : escapeHtml(peer.summoner_name);
             const lobbyStatus = peer.in_lobby ? "in-lobby" : "";
             const skinInfo = peer.skin_selection
-              ? `Skin: ${peer.skin_selection.skin_id}`
+              ? t("Skin: {id}", { id: peer.skin_selection.skin_id })
               : "";
 
             return `
@@ -817,7 +875,7 @@
                 ${escapeHtml(statusText)}</span>
                 ${skinInfo ? `<span class="peer-skin">${skinInfo}</span>` : ""}
               </div>
-              <button class="peer-remove" title="Remove" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
+              <button class="peer-remove" title="${escapeHtml(t("Remove from your party"))}" onclick="window.rosePartyRemovePeer(${peer.summoner_id})">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                 </svg>
@@ -829,10 +887,10 @@
       }
     } else {
       statusEl.className = "party-status offline";
-      statusEl.textContent = "Offline";
+      statusEl.textContent = t("Offline");
 
       toggleBtn.className = "party-toggle-btn enable";
-      toggleBtn.textContent = "Enable Party Mode";
+      toggleBtn.textContent = t("Enable Party Mode");
 
       tokenSection.style.display = "none";
       addSection.style.display = "none";
@@ -848,12 +906,12 @@
     if (partyState.enabled) {
       // Disable
       toggleBtn.disabled = true;
-      toggleBtn.innerHTML = '<span class="spinner"></span> Disabling...';
+      toggleBtn.innerHTML = `<span class="spinner"></span> ${t("Disabling...")}`;
       sendBridgeMessage({ type: "party-disable" });
     } else {
       // Enable
       toggleBtn.disabled = true;
-      toggleBtn.innerHTML = '<span class="spinner"></span> Enabling...';
+      toggleBtn.innerHTML = `<span class="spinner"></span> ${t("Enabling...")}`;
       sendBridgeMessage({ type: "party-enable" });
     }
   }
@@ -865,10 +923,10 @@
     if (!tokenDisplay.value) return;
 
     navigator.clipboard.writeText(tokenDisplay.value).then(() => {
-      copyBtn.textContent = "Copied!";
+      copyBtn.textContent = t("Copied!");
       copyBtn.classList.add("copied");
       setTimeout(() => {
-        copyBtn.textContent = "Copy";
+        copyBtn.textContent = t("Copy");
         copyBtn.classList.remove("copied");
       }, 2000);
     });
@@ -883,7 +941,7 @@
 
     if (!token) {
       messageEl.innerHTML =
-        '<div class="error-msg">Please enter a token</div>';
+        `<div class="error-msg">${t("Please enter a token")}</div>`;
       return;
     }
 
@@ -893,10 +951,9 @@
     addBtn.innerHTML = '<span class="spinner"></span>';
     const toggleBtn = document.getElementById("party-toggle-btn");
     if (toggleBtn) toggleBtn.disabled = true;
-    const closeBtn = partyPanel ? partyPanel.querySelector("#party-close-btn") : null;
-    if (closeBtn) closeBtn.style.display = "none";
+    setPanelLocked(true);
     messageEl.innerHTML =
-      '<div class="success-msg"><span class="spinner"></span> Connecting to your friend...</div>';
+      `<div class="success-msg"><span class="spinner"></span> ${t("Connecting to your friend...")}</div>`;
     sendBridgeMessage({ type: "party-add-peer", token: token });
     input.value = "";
   }
@@ -913,6 +970,7 @@
       case "party-state":
         partyState = {
           enabled: data.enabled || false,
+          connection: data.connection || "offline",
           my_token: data.my_token || null,
           my_summoner_id: data.my_summoner_id || null,
           my_summoner_name: data.my_summoner_name || "Unknown",
@@ -924,16 +982,19 @@
 
       case "party-enabled":
         const toggleBtn = document.getElementById("party-toggle-btn");
-        toggleBtn.disabled = false;
+        if (toggleBtn) toggleBtn.disabled = false;
+        // Shown under the toggle: the add-friend section is hidden while disabled
+        const toggleMessageEl = document.getElementById("party-toggle-message");
 
         if (data.success) {
           partyState.enabled = true;
+          partyState.connection = "online";
           partyState.my_token = data.token;
+          if (toggleMessageEl) toggleMessageEl.innerHTML = "";
           console.log(`${LOG_PREFIX} Party mode enabled`);
         } else {
-          const messageEl = document.getElementById("add-peer-message");
-          if (messageEl) {
-            messageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to enable")}</div>`;
+          if (toggleMessageEl) {
+            toggleMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error ? tMessage(data.error, data.errorTemplate, data.errorValues) : t("Failed to enable"))}</div>`;
           }
           console.error(`${LOG_PREFIX} Failed to enable:`, data.error);
         }
@@ -946,6 +1007,7 @@
         if (toggleBtnDisable) toggleBtnDisable.disabled = false;
 
         partyState.enabled = false;
+        partyState.connection = "offline";
         partyState.my_token = null;
         partyState.peers = [];
         console.log(`${LOG_PREFIX} Party mode disabled`);
@@ -962,24 +1024,23 @@
         if (addInput) addInput.disabled = false;
         if (addBtn) {
           addBtn.disabled = false;
-          addBtn.textContent = "Add";
+          addBtn.textContent = t("Add");
         }
         const unlockToggleBtn = document.getElementById("party-toggle-btn");
         if (unlockToggleBtn) unlockToggleBtn.disabled = false;
-        const unlockCloseBtn = partyPanel ? partyPanel.querySelector("#party-close-btn") : null;
-        if (unlockCloseBtn) unlockCloseBtn.style.display = "";
+        setPanelLocked(false);
 
         if (data.success) {
           if (addMessageEl) {
             addMessageEl.innerHTML =
-              '<div class="success-msg">Friend connected!</div>';
+              `<div class="success-msg">${escapeHtml(data.message ? tMessage(data.message, data.messageTemplate, data.messageValues) : t("Friend connected!"))}</div>`;
             setTimeout(() => {
               addMessageEl.innerHTML = "";
-            }, 3000);
+            }, 6000);
           }
         } else {
           if (addMessageEl) {
-            addMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error || "Failed to connect")}</div>`;
+            addMessageEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error ? tMessage(data.error, data.errorTemplate, data.errorValues) : t("Failed to connect"))}</div>`;
           }
         }
         // Request updated state

@@ -97,7 +97,7 @@ class SkinProcessor:
         # won't override the user's choice on re-queue
         swiftplay_handler = getattr(self.shared_state, "swiftplay_handler", None)
         if swiftplay_handler is not None:
-            swiftplay_handler.mark_champion_changed(champion_id)
+            swiftplay_handler.mark_champion_changed(champion_id, skin_id)
 
         log.info(
             "[SkinMonitor] Swiftplay skin '%s' → champion %s (skin_id=%s) | tracking: %s",

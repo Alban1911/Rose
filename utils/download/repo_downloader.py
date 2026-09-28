@@ -7,14 +7,17 @@ Much more efficient than individual API calls
 Supports incremental updates by tracking repository changes
 """
 
+import json
 import time
 import zipfile
 import tempfile
 import requests
 from pathlib import Path
 from typing import Callable, Optional, Dict, List, Tuple
+from utils.core.atomic_file import atomic_write, write_text_atomic
 from utils.core.logging import get_logger
-from utils.core.paths import get_skins_dir
+from utils.core.paths import get_classic_skins_dir, get_skins_dir
+from utils.core.safe_extract import is_safe_path, join_within
 from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
 
 log = get_logger()
@@ -51,6 +54,12 @@ class RepoDownloader:
             'User-Agent': APP_USER_AGENT,
         })
         self.progress_callback = progress_callback
+        self.last_extraction_failures = 0
+
+        # Rift Classic skins (the repository's classic/ folder), next to the skins
+        self.classic_dir = get_classic_skins_dir() if target_dir is None else self.target_dir.parent / "classic"
+        # "_state.json" keeps it out of the removed-files cleanup
+        self.classic_state_file = self.classic_dir / '.classic_state.json'
 
         # Version tracking
         self.version_file = self.target_dir / '.skin_version'
@@ -96,8 +105,7 @@ class RepoDownloader:
     def save_local_sha(self, sha: str):
         """Save the commit SHA locally."""
         try:
-            self.version_file.parent.mkdir(parents=True, exist_ok=True)
-            self.version_file.write_text(sha, encoding='utf-8')
+            write_text_atomic(self.version_file, sha)
         except (IOError, OSError) as e:
             log.warning(f"Failed to save local SHA: {e}")
 
@@ -147,13 +155,30 @@ class RepoDownloader:
             return None
 
     def _resolve_local_path(self, repo_path: str) -> Optional[Path]:
-        """Map a repo-relative path (skins/... or resources/...) to a local path."""
+        """Map a repo-relative path (skins/..., classic/... or resources/...) to a local path."""
         from utils.core.paths import get_user_data_dir
         if repo_path.startswith('skins/'):
-            return self.target_dir / repo_path[len('skins/'):]
+            base_dir, relative = self.target_dir, repo_path[len('skins/'):]
+        elif repo_path.startswith('classic/'):
+            base_dir, relative = self.classic_dir, repo_path[len('classic/'):]
         elif repo_path.startswith('resources/'):
-            return get_user_data_dir() / "resources" / repo_path[len('resources/'):]
-        return None
+            base_dir, relative = get_user_data_dir() / "resources", repo_path[len('resources/'):]
+        else:
+            return None
+        local_path = base_dir / relative
+        if not is_safe_path(base_dir, local_path):
+            log.warning(f"Skipping repository path outside the target folder: {repo_path}")
+            return None
+        return local_path
+
+    def _classic_library_synced(self) -> bool:
+        return self.classic_state_file.exists()
+
+    def _mark_classic_library_synced(self) -> None:
+        try:
+            write_text_atomic(self.classic_state_file, json.dumps({"synced": True}))
+        except OSError as e:
+            log.warning(f"Failed to record the Rift Classic skin library state: {e}")
 
     def download_changed_files(self, changed_files: List[Dict]) -> bool:
         """Download changed files individually via raw.githubusercontent.com.
@@ -204,14 +229,13 @@ class RepoDownloader:
             try:
                 resp = self.session.get(raw_url, stream=True, timeout=SKIN_DOWNLOAD_STREAM_TIMEOUT_S)
                 resp.raise_for_status()
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(local_path, 'wb') as f:
+                with atomic_write(local_path, 'wb', durable=False) as f:
                     for chunk in resp.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
                 success_count += 1
                 log.debug(f"Downloaded {filename}")
-            except requests.RequestException as e:
+            except (requests.RequestException, OSError) as e:
                 log.warning(f"Failed to download {filename}: {e}")
                 fail_count += 1
 
@@ -219,9 +243,11 @@ class RepoDownloader:
             self._emit_progress(progress, f"Updating files... {idx}/{total}")
 
         # Clean up empty directories left by removals/renames
+        from utils.core.paths import get_user_data_dir
+        roots = {self.target_dir, self.classic_dir, get_user_data_dir() / "resources"}
         for dir_path in sorted(dirs_to_check, reverse=True):
             try:
-                while dir_path != self.target_dir and dir_path.exists() and not any(dir_path.iterdir()):
+                while dir_path not in roots and dir_path.exists() and not any(dir_path.iterdir()):
                     dir_path.rmdir()
                     dir_path = dir_path.parent
             except OSError:
@@ -323,8 +349,8 @@ class RepoDownloader:
                 if temp_zip_path and temp_zip_path.exists():
                     try:
                         temp_zip_path.unlink()
-                    except Exception:
-                        pass
+                    except Exception as unlink_error:
+                        log.debug(f"Could not remove partial download {temp_zip_path}: {unlink_error}")
 
                 if attempt < max_retries:
                     delay = base_delay * (2 ** (attempt - 1))  # Exponential backoff: 2s, 4s, 8s
@@ -341,8 +367,8 @@ class RepoDownloader:
                 if temp_zip_path and temp_zip_path.exists():
                     try:
                         temp_zip_path.unlink()
-                    except Exception:
-                        pass
+                    except Exception as unlink_error:
+                        log.debug(f"Could not remove partial download {temp_zip_path}: {unlink_error}")
                 return None
 
         return None
@@ -378,9 +404,11 @@ class RepoDownloader:
             # Convert ZIP path to relative path
             relative_path = file_info.filename.replace('LeagueSkins-main/', '')
 
-            # Remove 'skins/' or 'resources/' prefix to match local structure
+            # Remove 'skins/', 'classic/' or 'resources/' prefix to match local structure
             if relative_path.startswith('skins/'):
                 relative_path = relative_path.replace('skins/', '', 1)
+            elif relative_path.startswith('classic/'):
+                relative_path = relative_path.replace('classic/', '', 1)
             elif relative_path.startswith('resources/'):
                 relative_path = relative_path.replace('resources/', '', 1)
 
@@ -427,8 +455,8 @@ class RepoDownloader:
                 if dir_path.is_dir() and not any(dir_path.iterdir()):
                     try:
                         dir_path.rmdir()
-                    except Exception:
-                        pass
+                    except Exception as rmdir_error:
+                        log.debug(f"Could not remove empty skin directory {dir_path}: {rmdir_error}")
         except Exception as e:
             log.debug(f"Error cleaning up empty directories: {e}")
         
@@ -467,6 +495,14 @@ class RepoDownloader:
                             elif file_info.filename.endswith('.png'):
                                 png_count += 1
                 
+                # Rift Classic skins (classic/ folder) come with the skins
+                classic_files = []
+                if extract_skins:
+                    classic_files = [
+                        info for info in zip_ref.filelist
+                        if info.filename.startswith('LeagueSkins-main/classic/') and not info.filename.endswith('/')
+                    ]
+
                 # Find all files in the resources/ directory (entire folder)
                 resources_files = []
                 resources_count = 0
@@ -490,16 +526,19 @@ class RepoDownloader:
                 if extract_resources and not resources_files:
                     log.warning("No resources folder found in repository ZIP, but resources extraction was requested")
                 
-                log.info(f"Found {zip_count} skin archive files, {png_count} preview .png files, and {resources_count} resource files in repository")
+                log.info(f"Found {zip_count} skin archive files, {png_count} preview .png files, {len(classic_files)} Rift Classic files, "
+                         f"and {resources_count} resource files in repository")
                 
                 # Extract all skins and resource files with byte-level progress tracking
                 extracted_zip_count = 0
                 extracted_png_count = 0
+                extracted_classic_count = 0
                 extracted_resources_count = 0
                 skipped_skin_count = 0
                 skipped_resources_count = 0
 
                 entries: List[Tuple[str, zipfile.ZipInfo]] = [("skin", info) for info in skins_files]
+                entries.extend(("classic", info) for info in classic_files)
                 entries.extend(("resource", info) for info in resources_files)
 
                 def _info_size(info: zipfile.ZipInfo) -> int:
@@ -509,10 +548,17 @@ class RepoDownloader:
                 if total_bytes <= 0:
                     total_bytes = len(entries) or 1
                 processed_bytes = 0
+                failed_count = 0
+                self.last_extraction_failures = 0
 
                 from utils.core.paths import get_user_data_dir
                 # Place the entire resources folder as resources
                 mapping_target_dir = get_user_data_dir() / "resources"
+                resolved_bases = {
+                    "skin": self.target_dir.resolve(),
+                    "classic": self.classic_dir.resolve(),
+                    "resource": mapping_target_dir.resolve(),
+                }
 
                 # Reserve 5% of progress range for cleanup operations
                 cleanup_reserve = 5.0
@@ -533,7 +579,7 @@ class RepoDownloader:
                         if file_info.is_dir():
                             continue
 
-                        label = "Extracting skins..." if entry_type == "skin" else "Extracting skin ID mapping..."
+                        label = "Extracting skins..." if entry_type != "resource" else "Extracting skin ID mapping..."
                         relative_path = file_info.filename.replace('LeagueSkins-main/', '')
                         is_zip = relative_path.endswith(('.zip', '.fantome'))
                         is_png = relative_path.endswith('.png')
@@ -541,20 +587,25 @@ class RepoDownloader:
                         if entry_type == "skin":
                             if relative_path.startswith('skins/'):
                                 relative_path = relative_path.replace('skins/', '', 1)
-                            extract_path = self.target_dir / relative_path
+                        elif entry_type == "classic":
+                            relative_path = relative_path.replace('classic/', '', 1)
                         else:
                             # Extract entire resources folder structure, removing 'resources/' prefix
                             # so it becomes the resources folder
                             if relative_path.startswith('resources/'):
                                 relative_path = relative_path.replace('resources/', '', 1)
-                            extract_path = mapping_target_dir / relative_path
-
-                        extract_path.parent.mkdir(parents=True, exist_ok=True)
+                        extract_path = join_within(resolved_bases[entry_type], relative_path)
 
                         file_bytes = _info_size(file_info) or 1
 
+                        if extract_path is None:
+                            log.warning(f"Skipping ZIP entry outside the target folder: {file_info.filename}")
+                            processed_bytes += file_bytes
+                            update_progress(label)
+                            continue
+
                         if extract_path.exists() and not overwrite_existing:
-                            if entry_type == "skin":
+                            if entry_type != "resource":
                                 skipped_skin_count += 1
                             else:
                                 skipped_resources_count += 1
@@ -562,7 +613,7 @@ class RepoDownloader:
                             update_progress(label)
                             continue
 
-                        with zip_ref.open(file_info) as source, open(extract_path, 'wb') as target:
+                        with zip_ref.open(file_info) as source, atomic_write(extract_path, 'wb', durable=False) as target:
                             while True:
                                 chunk = source.read(64 * 1024)
                                 if not chunk:
@@ -576,11 +627,14 @@ class RepoDownloader:
                                 extracted_zip_count += 1
                             elif is_png:
                                 extracted_png_count += 1
+                        elif entry_type == "classic":
+                            extracted_classic_count += 1
                         else:
                             extracted_resources_count += 1
 
                     except Exception as e:
                         log.warning(f"Failed to extract {file_info.filename}: {e}")
+                        failed_count += 1
                         processed_bytes += _info_size(file_info) or 1
                         update_progress("Extracting...")
 
@@ -598,6 +652,11 @@ class RepoDownloader:
                     deleted_count = self._cleanup_removed_skin_files(skins_files, self.target_dir)
                     if deleted_count > 0:
                         log.info(f"Removed {deleted_count} files that no longer exist in repository")
+
+                if classic_files:
+                    deleted_classic_count = self._cleanup_removed_skin_files(classic_files, self.classic_dir)
+                    if deleted_classic_count > 0:
+                        log.info(f"Removed {deleted_classic_count} Rift Classic files that no longer exist in repository")
                 
                 if extract_resources and resources_files:
                     if extract_skins and skins_files:
@@ -610,9 +669,14 @@ class RepoDownloader:
                     if deleted_resources_count > 0:
                         log.info(f"Removed {deleted_resources_count} resource files that no longer exist in repository")
 
+                self.last_extraction_failures = failed_count
+                if failed_count:
+                    log.warning(f"{failed_count} repository files could not be extracted; they will be retried on the next start")
+                elif extract_skins:
+                    self._mark_classic_library_synced()
                 log.info(f"Extracted {extracted_zip_count} new skin archive files, {extracted_png_count} preview .png files, "
-                        f"and {extracted_resources_count} resource files (skipped {skipped_skin_count} existing skin files, "
-                        f"{skipped_resources_count} existing resource files)")
+                        f"{extracted_classic_count} Rift Classic files, and {extracted_resources_count} resource files "
+                        f"(skipped {skipped_skin_count} existing skin files, {skipped_resources_count} existing resource files)")
 
                 total_mb = _format_size(total_bytes)
                 self._emit_progress(progress_end, f"Extraction complete ({_format_size(processed_bytes)} / {total_mb})")
@@ -640,6 +704,12 @@ class RepoDownloader:
 
             local_sha = self.get_local_sha()
 
+            # classic/ was added to the repository after many installs synced, and
+            # incremental updates only carry later changes: get it with one full download
+            if local_sha and not force_update and not self._classic_library_synced():
+                log.info("Rift Classic skins missing - downloading the full skin repository once")
+                return self.download_and_extract_skins(force_update=True, remote_sha=remote_sha)
+
             # No change
             if not force_update and local_sha == remote_sha:
                 log.info("Repository unchanged, skipping download")
@@ -666,17 +736,20 @@ class RepoDownloader:
                     log.info(f"Too many changed files ({len(changed_files)}), using full ZIP")
 
             # Fall back to full ZIP download
-            return self.download_and_extract_skins(force_update=True)
+            return self.download_and_extract_skins(force_update=True, remote_sha=remote_sha)
 
         except Exception as e:
             log.error(f"Failed to check for updates: {e}")
             self._emit_progress(100, f"Failed: {e}")
             return False
     
-    def download_and_extract_skins(self, force_update: bool = False) -> bool:
+    def download_and_extract_skins(self, force_update: bool = False, remote_sha: Optional[str] = None) -> bool:
         """Download repository ZIP and extract skins + resources"""
         try:
             self._emit_progress(0, "Preparing download...")
+            # Pin the commit before downloading: a commit pushed mid-download must not be recorded as synced
+            if remote_sha is None:
+                remote_sha = self.fetch_remote_sha()
             # Clean up any conflicting files
             if self.target_dir.exists():
                 skins_file = self.target_dir / "skins"
@@ -701,11 +774,12 @@ class RepoDownloader:
                     extract_resources=True,
                 )
 
-                # Save SHA after successful download
-                if success:
-                    remote_sha = self.fetch_remote_sha()
-                    if remote_sha:
+                # Only record the commit when every file landed, so failed files are retried next start
+                if success and remote_sha:
+                    if self.last_extraction_failures == 0:
                         self.save_local_sha(remote_sha)
+                    else:
+                        log.warning("Skin sync incomplete; repository version not recorded")
 
                 if success:
                     self._emit_progress(100, "Skins ready")

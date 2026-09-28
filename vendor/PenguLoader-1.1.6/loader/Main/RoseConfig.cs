@@ -9,10 +9,23 @@ namespace PenguLoader.Main
     // activation state mirrored into its existing config.ini.
     internal static class RoseConfig
     {
-        private static readonly string ConfigPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Rose",
-            "config.ini");
+        // Rose passes its config.ini: the desktop user's, which core.dll reads in
+        // the League client. This process runs elevated, and when Rose was
+        // elevated with another account, LocalApplicationData is that account's.
+        private static string ConfigPath
+        {
+            get
+            {
+                var fromRose = Environment.GetEnvironmentVariable("ROSE_CONFIG_PATH");
+                if (!string.IsNullOrWhiteSpace(fromRose))
+                    return fromRose;
+
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Rose",
+                    "config.ini");
+            }
+        }
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool WritePrivateProfileString(

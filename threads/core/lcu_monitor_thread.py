@@ -73,6 +73,15 @@ class LCUMonitorThread(threading.Thread):
                         log.info("LCU reconnected - waiting for WebSocket...")
                         self.waiting_for_connection = False
                         self._lcu_reconnected = True
+                    # A client that started without a loader (a standalone Pengu
+                    # disabled while Rose runs) gets Rose's
+                    if not self.state.stop:
+                        from utils.integration import pengu_loader
+                        threading.Thread(
+                            target=pengu_loader.ensure_active_for_client,
+                            name="PenguLoaderCheck",
+                            daemon=True,
+                        ).start()
                 
                 # WebSocket connected after LCU reconnection
                 elif current_lcu_ok and current_ws_connected and not self.ws_connected:
@@ -336,6 +345,17 @@ class LCUMonitorThread(threading.Thread):
 
         self._replay_cached_skin_name(ui_thread)
 
+    def _is_locked_champion_skin(self, skin_name: str) -> bool:
+        """Whether the name is exactly one of the locked champion's skins (scraped at the late lock)."""
+        if not self.skin_scraper:
+            return False
+        try:
+            match = self.skin_scraper.find_skin_by_text(skin_name)
+        except Exception as e:
+            log.debug(f"[init-state] Could not match cached skin '{skin_name}': {e}")
+            return False
+        return bool(match) and match[2] >= 1.0
+
     def _replay_cached_skin_name(self, ui_thread) -> None:
         """Replay the cached skin name if the first sync was ignored before lock state existed."""
         cached_skin_name = (getattr(self.state, "ui_last_text", "") or "").strip()
@@ -352,7 +372,19 @@ class LCUMonitorThread(threading.Thread):
             log.debug("[init-state] Ignoring cached skin replay without a locked champion")
             return
 
-        if cached_champ_id != locked_champ_id:
+        # A skin shown before any champion was known carries no champion: it may
+        # be one hovered on another champion, so only an exact skin name of the
+        # locked champion is replayed (fuzzy matching would take PROJECT: Zed
+        # for PROJECT: Yi)
+        if cached_champ_id is None and not self._is_locked_champion_skin(cached_skin_name):
+            log.warning(
+                "[init-state] Discarding cached skin '%s': not a skin of the locked champion %s",
+                cached_skin_name,
+                locked_champ_id,
+            )
+            return
+
+        if cached_champ_id is not None and cached_champ_id != locked_champ_id:
             log.warning(
                 "[init-state] Discarding cached skin '%s': champion mismatch "
                 "(cached=%s, locked=%s)",

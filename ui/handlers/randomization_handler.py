@@ -14,6 +14,31 @@ from utils.core.utilities import is_base_skin
 log = get_logger()
 
 
+def _clear_random_mode(state: SharedState) -> None:
+    """Reset random mode state and notify the JavaScript dice button."""
+    state.random_skin_name = None
+    state.random_skin_id = None
+    state.random_mode_active = False
+
+    try:
+        if state and getattr(state, 'ui_skin_thread', None):
+            state.ui_skin_thread._broadcast_random_mode_state()
+    except Exception as e:
+        log.debug(f"[UI] Failed to broadcast random mode state on cancel: {e}")
+
+
+def cancel_random_mode_for_selection(state: SharedState, selected_skin_id: Optional[int], reason: str) -> bool:
+    """Disable random mode when the user explicitly picks a different skin/chroma."""
+    if not getattr(state, 'random_mode_active', False):
+        return False
+    if selected_skin_id and selected_skin_id == getattr(state, 'random_skin_id', None):
+        return False
+
+    _clear_random_mode(state)
+    log.info(f"[RANDOM] Random mode DISABLED due to {reason}")
+    return True
+
+
 class RandomizationHandler:
     """Handles random skin selection logic"""
     
@@ -150,17 +175,7 @@ class RandomizationHandler:
     
     def cancel(self):
         """Cancel randomization and reset state"""
-        # Reset state
-        self.state.random_skin_name = None
-        self.state.random_skin_id = None
-        self.state.random_mode_active = False
-        
-        # Broadcast random mode state to JavaScript
-        try:
-            if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
-                self.state.ui_skin_thread._broadcast_random_mode_state()
-        except Exception as e:
-            log.debug(f"[UI] Failed to broadcast random mode state on cancel: {e}")
+        _clear_random_mode(self.state)
         
         # Clear randomization flags
         self._randomization_in_progress = False

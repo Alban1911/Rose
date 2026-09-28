@@ -30,6 +30,7 @@ from utils.core.logging import get_logger, log_action, log_success, log_event
 from utils.core.issue_reporter import report_issue
 from ..tools.patcher import check_ltk_patcher
 from config import (
+    GAME_EXECUTABLE_NAMES,
     PROCESS_TERMINATE_TIMEOUT_S,
     PROCESS_MONITOR_SLEEP_S,
     ENABLE_MKOVERLAY_PRIORITY_BOOST,
@@ -76,6 +77,9 @@ class OverlayManager:
         self.game_dir = game_dir
         self.process_manager = process_manager
         self.last_injection_timing = None
+        # Patcher started with the game monitor, before the mods are prepared
+        self._early_patcher: Optional[dict] = None
+        self._early_patcher_lock = threading.Lock()
     
     @property
     def current_overlay_process(self):
@@ -162,6 +166,32 @@ class OverlayManager:
             hint='Free up disk space on the drive containing Rose injection files, then retry the skin.',
         )
         return True
+
+    @staticmethod
+    def _running_game():
+        """The game's process, if a game is running (either executable name)."""
+        if not PSUTIL_AVAILABLE:
+            return None
+        names = {name.lower() for name in GAME_EXECUTABLE_NAMES}
+        try:
+            for proc in psutil.process_iter(['name']):
+                if (proc.info.get('name') or '').lower() in names:
+                    return proc
+        except (psutil.Error, OSError) as e:
+            log.debug(f"[INJECT] Could not look for the game process: {e}")
+        return None
+
+    @staticmethod
+    def _wait_for_game_exit(game, patcher, session: dict) -> None:
+        """Wait on the game process itself; stop early if the patcher dies."""
+        while patcher.poll() is None and session["state"] != "failed":
+            try:
+                game.wait(timeout=1.0)
+                return
+            except psutil.TimeoutExpired:
+                continue
+            except psutil.Error:
+                return
     
     def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
         """Create and run overlay
@@ -212,7 +242,7 @@ class OverlayManager:
         # host must already be scanning when the game starts
         if self.process_manager:
             self.process_manager.stopped_by_user = False
-        patcher_session = self._start_ltk_patcher(ltk_host, overlay_dir)
+        patcher_session = self._take_early_patcher() or self._start_ltk_patcher(ltk_host, overlay_dir)
         if not patcher_session:
             return 1
 
@@ -342,6 +372,46 @@ class OverlayManager:
 
         return self._run_ltk_patcher(patcher_session, overlay_dir, stop_callback, injection_manager)
 
+    def start_patcher_early(self) -> None:
+        """Start the LTK patcher now, before the mods are prepared.
+
+        The DLL only overlays games launched after the host started scanning,
+        and preparing the mods (extraction, loading screen name, party skins)
+        can take seconds on a slow PC while the client launches the game.
+        mk_run_overlay takes this session over; it reports missing or expired
+        patchers itself.
+        """
+        with self._early_patcher_lock:
+            if self._early_patcher is not None or self.game_dir is None:
+                return
+            from ..tools.tools_manager import ToolsManager
+            ltk_host = ToolsManager(self.tools_dir).detect_ltk_patcher()
+            if not ltk_host or check_ltk_patcher(ltk_host.parent).expired:
+                return
+            overlay_dir = self.mods_dir.parent / "overlay"
+            overlay_dir.mkdir(parents=True, exist_ok=True)
+            if self.process_manager:
+                self.process_manager.stopped_by_user = False
+            self._early_patcher = self._start_ltk_patcher(ltk_host, overlay_dir)
+
+    def _take_early_patcher(self) -> Optional[dict]:
+        """The patcher started by start_patcher_early, if it is still running."""
+        with self._early_patcher_lock:
+            patcher_session, self._early_patcher = self._early_patcher, None
+        if patcher_session and patcher_session["proc"].poll() is None:
+            return patcher_session
+        if patcher_session:
+            self._abort_ltk_patcher(patcher_session)
+        return None
+
+    def discard_early_patcher(self) -> None:
+        """Stop an early patcher whose injection never built its overlay."""
+        with self._early_patcher_lock:
+            patcher_session, self._early_patcher = self._early_patcher, None
+        if patcher_session:
+            log.debug("[INJECT] Stopping the LTK patcher started for an injection that did not happen")
+            self._abort_ltk_patcher(patcher_session)
+
     def _start_ltk_patcher(self, host_exe: Path, overlay_dir: Path) -> Optional[dict]:
         """Start the LTK patcher host and begin scanning for the game.
 
@@ -458,6 +528,16 @@ class OverlayManager:
                 if session["state"] == "failed":
                     break
                 if stop_callback and stop_callback():
+                    # The client can close during a match (CN/WeGame), which looks
+                    # like the end of the game: serve the overlay until the game exits
+                    game = self._running_game()
+                    if game is not None:
+                        log.info("[INJECT] The game is still running - keeping the LTK patcher until it exits")
+                        self._wait_for_game_exit(game, proc, session)
+                        if proc.poll() is not None or session["state"] == "failed":
+                            continue  # the patcher itself stopped: handled below as usual
+                        if not stop_callback():
+                            continue  # the game came back (reconnect)
                     log.info("[INJECT] Game ended, stopping LTK patcher")
                     game_ended = True
                     break
@@ -479,6 +559,10 @@ class OverlayManager:
                 self._report_ltk_patcher_failure(session["error"])
                 return 1
             if not game_ended and proc.returncode not in (0, None):
+                if getattr(proc, "stopped_by_rose", False):
+                    # Rose's own cleanup killed it (end of game, lobby, shutdown)
+                    log.info(f"[INJECT] LTK patcher stopped by Rose (exit code {proc.returncode})")
+                    return 0
                 log.error(f"[INJECT] LTK patcher exited with return code: {proc.returncode}")
                 self._log_runoverlay_tail(runoverlay_log)
                 self._report_ltk_patcher_failure(f"exited with code {proc.returncode}")

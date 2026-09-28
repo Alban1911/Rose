@@ -319,6 +319,10 @@ class Broadcaster:
 
         self._send_message(json.dumps(payload))
     
+    def broadcast_language_changed(self) -> None:
+        """Tell the plugins to load the texts of Rose's new menu language (ROSE-I18n)"""
+        self._send_message(json.dumps({"type": "language-changed"}))
+
     def broadcast_raw(self, message: str) -> None:
         """Broadcast a raw message string to all clients
 

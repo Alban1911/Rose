@@ -9,9 +9,11 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import re
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
@@ -24,6 +26,7 @@ from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_di
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.utilities import get_base_skin_id_for_chroma
+from ui.handlers.randomization_handler import cancel_random_mode_for_selection
 from utils.system.admin_utils import (
     is_admin,
     is_registered_for_autostart,
@@ -56,6 +59,31 @@ def _is_safe_relative_path(path_value: str) -> bool:
     return all(part not in {"", ".", ".."} for part in candidate.parts)
 
 
+# Messages that wait on the user (file picker) or on disk and LCU work. They run
+# in order on one worker thread, so the bridge keeps answering every plugin
+# meanwhile (Manage Mods stayed on "Loading champions..." during an import)
+BACKGROUND_MESSAGE_TYPES = frozenset({
+    "add-custom-mods-category-selected",
+    "add-custom-mods-champion-selected",
+    "add-custom-mods-skin-selected",
+    "request-manage-champion-mods",
+    "request-manage-category-mods",
+    "delete-champion-mod",
+    "delete-category-mod",
+    "rename-champion-mod",
+    "rename-category-mod",
+})
+
+
+def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
+    """Return a mod folder's preview image (.fantome mods ship a PNG, .modpkg a WebP)."""
+    for name in ("image.png", "image.webp"):
+        thumbnail_path = mod_folder / "META" / name
+        if thumbnail_path.is_file():
+            return thumbnail_path
+    return None
+
+
 def _choose_mod_file() -> Optional[Path]:
     """Show a native file picker for a user-selected mod archive."""
     root = None
@@ -72,9 +100,10 @@ def _choose_mod_file() -> Optional[Path]:
         selected = filedialog.askopenfilename(
             title="Select a Rose mod file",
             filetypes=[
-                ("Rose mods", "*.fantome *.zip"),
+                ("Rose mods", "*.fantome *.zip *.modpkg"),
                 ("Fantome mods", "*.fantome"),
                 ("ZIP mods", "*.zip"),
+                ("Mod packages", "*.modpkg"),
                 ("All files", "*.*"),
             ],
         )
@@ -119,6 +148,9 @@ class MessageHandler:
             port: Server port
         """
         self.shared_state = shared_state
+        # Worker thread for BACKGROUND_MESSAGE_TYPES, started on first use
+        self._background_queue: Optional[queue.Queue] = None
+        self._background_lock = threading.Lock()
         self.websocket_server = websocket_server
         self.broadcaster = broadcaster
         self.skin_processor = skin_processor
@@ -143,8 +175,8 @@ class MessageHandler:
 
         try:
             if game_dir.exists() and game_dir.is_dir():
-                league_exe = game_dir / "League of Legends.exe"
-                return league_exe.exists() and league_exe.is_file()
+                from config import GAME_EXECUTABLE_NAMES
+                return any((game_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES)
         except Exception:
             return False
 
@@ -163,7 +195,30 @@ class MessageHandler:
             return
         
         payload_type = payload.get("type")
-        
+        if payload_type in BACKGROUND_MESSAGE_TYPES:
+            self._run_in_background(payload_type, payload)
+        else:
+            self._route(payload_type, payload)
+
+    def _run_in_background(self, payload_type: str, payload: dict) -> None:
+        """Queue a message for the worker thread, starting it on first use."""
+        with self._background_lock:
+            if self._background_queue is None:
+                self._background_queue = queue.Queue()
+                threading.Thread(
+                    target=self._background_worker, name="BridgeWorker", daemon=True
+                ).start()
+            self._background_queue.put((payload_type, payload))
+
+    def _background_worker(self) -> None:
+        while True:
+            payload_type, payload = self._background_queue.get()
+            try:
+                self._route(payload_type, payload)
+            except Exception as e:  # noqa: BLE001
+                log.exception("[SkinMonitor] Failed to handle %s: %s", payload_type, e)
+
+    def _route(self, payload_type: Optional[str], payload: dict) -> None:
         # Route to appropriate handler
         if payload_type == "chroma-log":
             self._handle_chroma_log(payload)
@@ -228,6 +283,8 @@ class MessageHandler:
             self._handle_open_pengu_loader_ui(payload)
         elif payload_type == "settings-save":
             self._handle_settings_save(payload)
+        elif payload_type == "language-save":
+            self._handle_language_save(payload)
         elif payload_type == "add-custom-mods-category-selected":
             self._handle_add_custom_mods_category_selected(payload)
         elif payload_type == "add-custom-mods-champion-selected":
@@ -360,6 +417,9 @@ class MessageHandler:
                 self.shared_state.selected_chroma_id = chroma_id if chroma_id != 0 else None
                 self.shared_state.last_hovered_skin_id = chroma_id
                 log.info(f"[SkinMonitor] Chroma selected (fallback): {chroma_name} (ID: {chroma_id})")
+                cancel_random_mode_for_selection(
+                    self.shared_state, chroma_id, f"chroma selection (chromaId={chroma_id})"
+                )
                 
                 try:
                     from ui.chroma.panel import get_chroma_panel
@@ -455,8 +515,8 @@ class MessageHandler:
             log.error(f"[SkinMonitor] Failed to clear diagnostics: {e}")
             try:
                 self._send_response(json.dumps({"type": "diagnostics-cleared", "success": False}))
-            except Exception:
-                pass
+            except Exception as send_error:
+                log.debug('[SkinMonitor] Could not send diagnostics failure response: %s', send_error)
 
     def _handle_stop_injection(self, payload: dict) -> None:
         """Stop injection from the reconnect screen so a crashing mod can be skipped."""
@@ -518,8 +578,8 @@ class MessageHandler:
             log.error(f"[SkinMonitor] Failed to clear diagnostics category: {e}")
             try:
                 self._send_response(json.dumps({"type": "diagnostics-cleared-category", "success": False, "categories": []}))
-            except Exception:
-                pass
+            except Exception as send_error:
+                log.debug('[SkinMonitor] Could not send diagnostics failure response: %s', send_error)
 
     def _handle_diagnostics_clear_tracker(self, payload: dict) -> None:
         """Clear base skin confirmation tracker samples."""
@@ -531,8 +591,8 @@ class MessageHandler:
             log.error(f"[SkinMonitor] Failed to clear tracker samples: {e}")
             try:
                 self._send_response(json.dumps({"type": "diagnostics-tracker-cleared", "success": False}))
-            except Exception:
-                pass
+            except Exception as send_error:
+                log.debug('[SkinMonitor] Could not send diagnostics failure response: %s', send_error)
 
     def _handle_diagnostics_apply_recommended(self, payload: dict) -> None:
         """Apply the tracker-recommended injection threshold value."""
@@ -553,8 +613,8 @@ class MessageHandler:
             try:
                 if hasattr(self, '_injection_manager') and self._injection_manager:
                     self._injection_manager.refresh_injection_threshold()
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning('[SkinMonitor] Recommended threshold saved but not applied to the running injector: %s', e)
 
             self._send_response(json.dumps({
                 "type": "diagnostics-applied-recommended",
@@ -567,8 +627,8 @@ class MessageHandler:
             log.error(f"[SkinMonitor] Failed to apply recommended threshold: {e}")
             try:
                 self._send_response(json.dumps({"type": "diagnostics-applied-recommended", "success": False}))
-            except Exception:
-                pass
+            except Exception as send_error:
+                log.debug('[SkinMonitor] Could not send diagnostics failure response: %s', send_error)
 
     def _clear_issues_categories(self, categories: set[str]) -> bool:
         """Remove matching diagnostics entries from rose_diagnostics.txt (best-effort)."""
@@ -638,8 +698,8 @@ class MessageHandler:
             try:
                 from injection.config.base_skin_tracker import get_stats as _get_skin_stats
                 tracker_stats = _get_skin_stats()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug('[SkinMonitor] Base skin tracker stats unavailable: %s', e)
 
             response_payload = {
                 "type": "diagnostics-data",
@@ -652,8 +712,8 @@ class MessageHandler:
             log.error(f"[SkinMonitor] Failed to handle diagnostics request: {e}")
             try:
                 self._send_response(json.dumps({"type": "diagnostics-data", "errors": [], "path": ""}))
-            except Exception:
-                pass
+            except Exception as send_error:
+                log.debug('[SkinMonitor] Could not send diagnostics failure response: %s', send_error)
 
     def _compute_diagnostics_errors(self, delete_keys: Optional[set[str]] = None) -> list[dict]:
         """Compute compact diagnostics error list from rose_diagnostics.txt (never raises).
@@ -750,8 +810,8 @@ class MessageHandler:
                             recommended_ms = stats["recommended_threshold_ms"]
                             tracker_p90 = stats.get("p90_ms")
                             tracker_samples = stats.get("confirmed_count")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug('[SkinMonitor] Base skin tracker stats unavailable for summary: %s', e)
 
                     force_ms = None
                     thresh_ms = None
@@ -914,15 +974,15 @@ class MessageHandler:
             thumbnail_url = None
             try:
                 if entry.path.is_dir():
-                    thumbnail_path = entry.path / "META" / "image.png"
-                    if thumbnail_path.exists() and thumbnail_path.is_file():
+                    thumbnail_path = _mod_thumbnail(entry.path)
+                    if thumbnail_path is not None:
                         thumbnail_relative_path = str(
                             thumbnail_path.relative_to(self.mod_storage.mods_root)
                         ).replace("\\", "/")
                         quoted_path = quote(thumbnail_relative_path, safe="/")
                         thumbnail_url = f"http://127.0.0.1:{self.port}/mod-asset/{quoted_path}"
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug('[SkinMonitor] Could not build mod thumbnail URL: %s', e)
 
             mods_payload.append(
                 {
@@ -962,8 +1022,8 @@ class MessageHandler:
                     # the UI can restore it before the user chooses a skin.
                     if not matching_mod or not matching_mod.get("availableForRequestedSkin"):
                         historic_mod_path = None
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning('[SkinMonitor] Could not resolve saved custom mod for skin; it will not be restored: %s', e)
 
         response_payload = {
             "type": "skin-mods-response",
@@ -1011,8 +1071,8 @@ class MessageHandler:
             thumbnail_url = None
             try:
                 if entry.path.is_dir():
-                    thumbnail_path = entry.path / "META" / "image.png"
-                    if thumbnail_path.exists() and thumbnail_path.is_file():
+                    thumbnail_path = _mod_thumbnail(entry.path)
+                    if thumbnail_path is not None:
                         thumbnail_relative_path = str(
                             thumbnail_path.relative_to(self.mod_storage.mods_root)
                         ).replace("\\", "/")
@@ -1191,8 +1251,8 @@ class MessageHandler:
         try:
             from utils.core.mod_historic import get_historic_mod
             historic_map_path = get_historic_mod("map")
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning('[SkinMonitor] Could not load saved map selection; it will not be restored: %s', e)
         
         response_payload = {
             "type": "maps-response",
@@ -1222,8 +1282,8 @@ class MessageHandler:
         try:
             from utils.core.mod_historic import get_historic_mod
             historic_font_path = get_historic_mod("font")
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning('[SkinMonitor] Could not load saved font selection; it will not be restored: %s', e)
         
         response_payload = {
             "type": "fonts-response",
@@ -1253,8 +1313,8 @@ class MessageHandler:
         try:
             from utils.core.mod_historic import get_historic_mod
             historic_announcer_path = get_historic_mod("announcer")
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning('[SkinMonitor] Could not load saved announcer selection; it will not be restored: %s', e)
         
         response_payload = {
             "type": "announcers-response",
@@ -1287,8 +1347,8 @@ class MessageHandler:
             # Convert to list if it's a single string (legacy format)
             if isinstance(historic_other_paths, str):
                 historic_other_paths = [historic_other_paths]
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning('[SkinMonitor] Could not load saved other mods selection; it will not be restored: %s', e)
         
         response_payload = {
             "type": "others-response",
@@ -2504,8 +2564,8 @@ class MessageHandler:
             historic_paths = get_historic_mod(str(category))
             if isinstance(historic_paths, str):
                 historic_paths = [historic_paths]
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning('[SkinMonitor] Could not load saved category mod selection; it will not be restored: %s', e)
 
         response_payload = {
             "type": "category-mods-response",
@@ -2551,6 +2611,18 @@ class MessageHandler:
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to launch Pengu Loader UI: {e}")
     
+    def _handle_language_save(self, payload: dict) -> None:
+        """Save the language of Rose's menus ("auto": the client's) and tell the plugins"""
+        from utils.core.i18n import AUTO, LANGUAGES
+        language = payload.get("language")
+        if language != AUTO and language not in LANGUAGES:
+            log.warning(f"[SkinMonitor] Unknown menu language: {language!r}")
+            return
+        if (get_config_option("General", "language") or AUTO) != language:
+            set_config_option("General", "language", language)
+            log.info(f"[SkinMonitor] Menu language set to {language}")
+            self.broadcaster.broadcast_language_changed()
+
     def _handle_settings_save(self, payload: dict) -> None:
         """Handle settings save"""
         try:
@@ -2559,7 +2631,7 @@ class MessageHandler:
             autostart = payload.get("autostart", False)
             hide_empty_categories = bool(payload.get("hideEmptyCategories", False))
             game_path = payload.get("gamePath", "")
-            
+
             set_config_option("General", "injection_threshold", f"{threshold:.2f}")
             log.info(f"[SkinMonitor] Injection threshold updated to {threshold:.2f}s")
             
@@ -2630,8 +2702,8 @@ class MessageHandler:
         # causing "no last hovered skin" at injection time.
         try:
             self.shared_state.ui_last_text = skin_name.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug('[SkinMonitor] Could not store last hovered skin text: %s', e)
         
         if not self.flow_controller.should_process_payload():
             return
@@ -2747,8 +2819,8 @@ class MessageHandler:
                     remaining_items = list(skins_dir.iterdir())
                     if len(remaining_items) == 0:
                         log.debug(f"[SkinMonitor] Skins directory is now empty (kept for future use)")
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug('[SkinMonitor] Could not inspect skins directory after cleanup: %s', e)
         except Exception as e:
             log.debug(f"[SkinMonitor] Error during folder cleanup: {e}")
     
@@ -3160,10 +3232,13 @@ class MessageHandler:
                     log.info(f"[PARTY] Party mode enabled, token: {token[:30]}...")
                 except Exception as e:
                     log.error(f"[PARTY] Failed to enable party mode: {e}")
+                    from utils.core.i18n import text_fields
+                    error = e.args[0] if e.args else str(e)
                     response_payload = {
                         "type": "party-enabled",
                         "success": False,
-                        "error": str(e),
+                        "error": str(error),
+                        **text_fields("error", error),
                     }
                     self._send_response(json.dumps(response_payload))
 
@@ -3249,17 +3324,20 @@ class MessageHandler:
 
             async def do_add_peer():
                 try:
-                    success, error = await party_manager.add_peer(token)
+                    success, message = await party_manager.add_peer(token)
+                    from utils.core.i18n import text_fields
                     response_payload = {
                         "type": "party-peer-added",
                         "success": success,
-                        "error": error,
+                        "message": message if success else None,
+                        "error": None if success else message,
+                        **text_fields("message" if success else "error", message),
                     }
                     self._send_response(json.dumps(response_payload))
                     if success:
-                        log.info("[PARTY] Peer added successfully")
+                        log.info(f"[PARTY] Peer added: {message}")
                     else:
-                        log.warning(f"[PARTY] Failed to add peer: {error}")
+                        log.warning(f"[PARTY] Failed to add peer: {message}")
                 except Exception as e:
                     log.error(f"[PARTY] Failed to add peer: {e}")
                     response_payload = {

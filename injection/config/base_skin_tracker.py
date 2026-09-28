@@ -42,8 +42,8 @@ def _load_samples() -> list[dict]:
             data = json.loads(p.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 return data[-_MAX_SAMPLES:]
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("[TRACKER] Could not load base skin samples: %s", e)
     return []
 
 
@@ -97,8 +97,8 @@ def on_skin_confirmed(skin_id: int) -> Optional[float]:
         samples = _load_samples()
         samples.append(sample)
         _save_samples(samples)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("[TRACKER] Could not record base skin sample: %s", e, exc_info=True)
     return elapsed_s
 
 
@@ -129,8 +129,8 @@ def on_champ_select_exit() -> Optional[float]:
         samples = _load_samples()
         samples.append(sample)
         _save_samples(samples)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("[TRACKER] Could not record base skin sample: %s", e, exc_info=True)
     return elapsed_s
 
 
@@ -183,6 +183,6 @@ def clear_samples() -> None:
         p = _data_path()
         if p.exists():
             p.write_text("[]", encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("[TRACKER] Could not clear base skin samples: %s", e)
     log.info("[TRACKER] Samples cleared")

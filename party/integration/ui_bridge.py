@@ -65,7 +65,7 @@ class PartyUIBridge:
             return self._handle_get_state()
 
         elif msg_type == "party-broadcast-skin":
-            await self.party_manager.broadcast_skin_update()
+            # The party manager broadcasts skin changes by itself
             return {"type": "party-response", "success": True}
 
         return None
@@ -115,12 +115,13 @@ class PartyUIBridge:
             }
 
         try:
-            success = await self.party_manager.add_peer(token)
+            success, message = await self.party_manager.add_peer(token)
             self._broadcast_state()
             return {
                 "type": "party-peer-added",
                 "success": success,
-                "error": None if success else "Failed to connect to peer",
+                "message": message if success else None,
+                "error": None if success else message,
             }
         except Exception as e:
             log.error(f"[PARTY_UI] Failed to add peer: {e}")

@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from utils.core.logging import get_logger, log_action, log_success
-from utils.core.paths import get_skins_dir, get_injection_dir
+from utils.core.paths import get_classic_skins_dir, get_skins_dir, get_injection_dir
 from utils.core.issue_reporter import report_issue
 from utils.core.junction import safe_remove_entry
 
+from ..classic import to_classic_champion_id, to_library_id, to_library_skin_name
 from ..config.config_manager import ConfigManager
 from ..game.game_detector import GameDetector
 from ..tools.tools_manager import ToolsManager
@@ -96,6 +97,9 @@ class SkinInjector:
         # Initialize managers
         self.tools_manager = ToolsManager(self.tools_dir)
         self.zip_resolver = ZipResolver(self.zips_dir)
+        # Rift Classic skins (LeagueSkins' classic/ folder, keyed by Classic champion IDs)
+        self.classic_dir = get_classic_skins_dir()
+        self.classic_resolver = ZipResolver(self.classic_dir)
         self.mod_manager = ModManager(self.mods_dir)
         self.process_manager = ProcessManager()
         # Pass process_manager to overlay_manager so they share the process reference
@@ -107,9 +111,19 @@ class SkinInjector:
         # Check for CSLOL tools
         self.tools_manager.check_tools_available()
     
-    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Optional[Path]:
-        """Resolve a ZIP by name or path with fuzzy matching"""
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None, classic: bool = False) -> Optional[Path]:
+        """Resolve a ZIP by name or path with fuzzy matching (from the Classic library in Rift Classic)"""
+        if classic:
+            zip_arg, chroma_id, champion_id = self._classic_library_ids(zip_arg, chroma_id, champion_id)
+            return self.classic_resolver.resolve_zip(zip_arg, chroma_id, zip_arg, champion_name, champion_id)
         return self.zip_resolver.resolve_zip(zip_arg, chroma_id, skin_name, champion_name, champion_id)
+
+    def _classic_library_ids(self, skin_name: str, chroma_id: Optional[int], champion_id: Optional[int]):
+        """The names the Classic library stores a skin under: champions under their
+        Classic ID, each skin under the regular or the Classic ID (see injection.classic)"""
+        champion_id = to_classic_champion_id(champion_id)
+        champion_dir = self.classic_dir / str(champion_id)
+        return to_library_skin_name(champion_dir, skin_name), to_library_id(champion_dir, chroma_id), champion_id
     
     def _clean_mods_dir(self):
         """Clean the mods directory"""
@@ -147,6 +161,7 @@ class SkinInjector:
         champion_name: str = None,
         champion_id: int = None,
         extra_mods_callback: Optional[Callable[["SkinInjector"], List[str]]] = None,
+        classic: bool = False,
     ) -> bool:
         """Inject a single skin (with optional chroma and party mods)
         
@@ -157,30 +172,37 @@ class SkinInjector:
             injection_manager: InjectionManager instance to call resume_game()
             chroma_id: Optional chroma ID to inject specific chroma variant
             extra_mods_callback: Optional callback(injector) -> list of extra mod folder names (e.g. party skins)
+            classic: Rift Classic game: inject the stored Classic skin instead
         """
         injection_start_time = time.time()
         
         # Game suspension is now handled entirely by the monitor in InjectionManager
         # No need for a separate GameMonitor thread
         
+        resolver, skins_dir = self.zip_resolver, self.zips_dir
+        if classic:
+            skin_name, chroma_id, champion_id = self._classic_library_ids(skin_name, chroma_id, champion_id)
+            resolver, skins_dir = self.classic_resolver, self.classic_dir
+
         # Find the skin ZIP (with chroma support)
         # Extract base skin name (remove skin ID if present) for chroma path construction
         base_skin_name = skin_name
         if skin_name and skin_name.split()[-1].isdigit():
             base_skin_name = ' '.join(skin_name.split()[:-1])
         
-        zp = self._resolve_zip(skin_name, chroma_id=chroma_id, skin_name=base_skin_name, champion_name=champion_name, champion_id=champion_id)
+        zp = resolver.resolve_zip(skin_name, chroma_id, base_skin_name, champion_name, champion_id)
         if not zp:
-            log.error(f"[INJECT] Skin '{skin_name}' not found in {self.zips_dir}")
+            log.error(f"[INJECT] Skin '{skin_name}' not found in {skins_dir}")
             report_issue(
                 "SKIN_ZIP_NOT_FOUND",
                 "error",
-                "Injection failed: skin file not found on your PC.",
+                "Injection failed: skin file not found on your PC."
+                if not classic else "Injection failed: this skin has no Rift Classic version on your PC.",
                 details={"skin": skin_name},
                 hint="Download the skin first, or check your skins folder.",
             )
-            avail_zip = list(self.zips_dir.rglob('*.zip'))
-            avail_fantome = list(self.zips_dir.rglob('*.fantome'))
+            avail_zip = list(skins_dir.rglob('*.zip'))
+            avail_fantome = list(skins_dir.rglob('*.fantome'))
             avail = avail_zip + avail_fantome
             if avail:
                 log.info("[INJECT] Available skins (first 10):")
@@ -247,6 +269,39 @@ class SkinInjector:
         
         return result == 0
     
+    def inject_extra_mods(
+        self,
+        extra_mods_callback: Callable[["SkinInjector"], List[str]],
+        timeout: int = 120,
+        stop_callback=None,
+        injection_manager=None,
+    ) -> bool:
+        """Inject only extra mods (e.g. party members' skins), without a skin of our own
+
+        Args:
+            extra_mods_callback: callback(injector) -> list of mod folder names it prepared
+            timeout: Timeout for injection process
+            stop_callback: Callback to check if injection should stop
+            injection_manager: InjectionManager instance to call resume_game()
+        """
+        self._clean_mods_dir()
+        self._clean_overlay_dir()
+
+        try:
+            mod_names = extra_mods_callback(self) or []
+        except Exception as e:
+            log.warning(f"[INJECT] Extra mods callback failed: {e}")
+            return False
+        if not mod_names:
+            log.info("[INJECT] No party/extra mods to inject")
+            return False
+
+        log.info(f"[INJECT] Injecting {len(mod_names)} party/extra mod(s): {', '.join(mod_names)}")
+        result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
+        if result != 0:
+            log.warning(f"[INJECT] Party/extra mods injection failed with code {result}")
+        return result == 0
+
     def inject_mods_only(self, timeout: int = 60, stop_callback=None, injection_manager=None) -> bool:
         """Disabled: installed mods folder removed"""
         log.warning("[INJECT] Mods-only injection is disabled (installed mods folder removed)")

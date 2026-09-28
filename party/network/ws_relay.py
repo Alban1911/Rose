@@ -9,7 +9,8 @@ import asyncio
 import hashlib
 import json
 import os
-from typing import Callable, Dict, List, Optional
+import ssl
+from typing import Callable, List, Optional
 
 import websockets
 from websockets.exceptions import ConnectionClosed
@@ -25,6 +26,11 @@ except ImportError:
 
 RELAY_URL = os.environ.get("ROSE_RELAY_URL", _CONFIGURED_URL)
 PING_INTERVAL = 25.0
+CONNECT_TIMEOUT = 15.0
+# Wait before each reconnect attempt, in seconds (the last delay repeats)
+RECONNECT_DELAYS = (1.0, 2.0, 5.0, 10.0, 20.0, 30.0)
+
+_ssl_contexts_cache: Optional[List[ssl.SSLContext]] = None
 
 
 def compute_room_key(host_summoner_id: int, host_key: bytes) -> str:
@@ -33,141 +39,272 @@ def compute_room_key(host_summoner_id: int, host_key: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()[:32]
 
 
-class PartyRelay:
-    """WebSocket connection to a shared party room.
+def _ssl_contexts() -> List[ssl.SSLContext]:
+    """Trust stores to try, in order.
 
-    Members join, announce themselves, and broadcast skin selections.
-    The Worker broadcasts the full member list on every change.
+    certifi first: a stale intermediate cached in the Windows store makes
+    OpenSSL fail with "certificate has expired" even though the relay's chain
+    is valid. The Windows store comes second, for antivirus or proxies that
+    re-sign TLS traffic with their own root.
+    """
+    global _ssl_contexts_cache
+    if _ssl_contexts_cache is None:
+        contexts = []
+        try:
+            import certifi
+            contexts.append(ssl.create_default_context(cafile=certifi.where()))
+        except Exception as e:
+            log.debug(f"[RELAY] certifi CA bundle unavailable: {e}")
+        contexts.append(ssl.create_default_context())
+        _ssl_contexts_cache = contexts
+    return _ssl_contexts_cache
+
+
+def _describe_error(error: Optional[BaseException]) -> str:
+    """Short, user-facing reason for a failed connection."""
+    if error is None:
+        return "unknown error"
+    if isinstance(error, ssl.SSLCertVerificationError):
+        return f"secure connection failed ({error.verify_message or error})"
+    status = getattr(error, "status_code", None) or getattr(getattr(error, "response", None), "status_code", None)
+    if status == 409:
+        return "this party is full (10 players max)"
+    if status:
+        return f"the party server answered with HTTP {status}"
+    if isinstance(error, asyncio.TimeoutError):
+        return "the party server did not answer in time"
+    if isinstance(error, OSError):
+        return f"network error ({error.strerror or error})"
+    return str(error) or type(error).__name__
+
+
+class PartyRelay:
+    """WebSocket connection to one shared party room.
+
+    Members join, announce themselves, and broadcast their state (skin pick
+    and the other rooms they are in). The Worker broadcasts the full member
+    list on every change. A dropped connection is reopened in the background,
+    and our join and last state are sent again.
+
+    Our state only goes out while someone else is in the room: every message
+    wakes the room on the relay, whose active time is what the relay pays for,
+    and a room with only us in it has no one to tell. It goes out as soon as
+    someone joins.
     """
 
-    def __init__(self, room_key: str):
+    def __init__(self, room_key: str, summoner_id: int, summoner_name: str):
         self.room_key = room_key
+        self._summoner_id = summoner_id
+        self._join_msg = {
+            "type": "join",
+            "summoner_id": summoner_id,
+            "summoner_name": summoner_name,
+        }
+        self._state: Optional[dict] = None
+        # The state the room has for us on the current connection
+        self._sent_state: Optional[dict] = None
         self._ws = None
         self._connected = False
-        self._recv_task: Optional[asyncio.Task] = None
-        self._ping_task: Optional[asyncio.Task] = None
+        self._closing = False
+        self._run_task: Optional[asyncio.Task] = None
 
-        # Current state: list of members with their skin picks
+        # Last member list received (kept while reconnecting)
         self.members: List[dict] = []
+        # Why the last connection attempt failed, for the UI
+        self.last_error: Optional[str] = None
 
         # Callbacks
-        self._on_members_changed: Optional[Callable[[List[dict]], None]] = None
+        self._on_members_changed: Optional[Callable[["PartyRelay"], None]] = None
+        self._on_connection_changed: Optional[Callable[["PartyRelay"], None]] = None
 
     @property
     def connected(self) -> bool:
         return self._connected and self._ws is not None
 
-    def set_on_members_changed(self, callback: Callable[[List[dict]], None]):
-        """Called whenever the member list changes (join/leave/skin update)."""
-        self._on_members_changed = callback
+    def set_callbacks(
+        self,
+        on_members_changed: Optional[Callable[["PartyRelay"], None]] = None,
+        on_connection_changed: Optional[Callable[["PartyRelay"], None]] = None,
+    ):
+        """on_members_changed: member list changed (join/leave/state update).
+        on_connection_changed: connection lost or restored."""
+        self._on_members_changed = on_members_changed
+        self._on_connection_changed = on_connection_changed
 
-    async def connect(self, timeout: float = 15.0) -> bool:
-        """Connect to the relay room."""
+    async def connect(self, timeout: float = CONNECT_TIMEOUT) -> bool:
+        """Join the room. Returns False if the room can't be reached;
+        once joined, drops are retried in the background until disconnect()."""
+        if not await self._open(timeout):
+            return False
+        if self._closing:
+            # disconnect() was called while we were connecting
+            ws, self._ws = self._ws, None
+            self._connected = False
+            await self._close_ws(ws)
+            return False
+        self._run_task = asyncio.create_task(self._run())
+        return True
+
+    async def send_state(self, state: Optional[dict]):
+        """Share our state with the room (again after reconnects, and when
+        someone joins a room we were alone in)."""
+        self._state = state
+        await self._deliver_state()
+
+    def _others_present(self) -> bool:
+        return any(m.get("summoner_id") != self._summoner_id for m in self.members)
+
+    async def _deliver_state(self):
+        """Send our state if someone else is in the room and it doesn't have it yet."""
+        ws = self._ws
+        if ws is None or not self._connected or not self._others_present():
+            return
+        state = self._state
+        if state == self._sent_state:
+            return
+        try:
+            await ws.send(json.dumps({"type": "skin", "skin": state}))
+            self._sent_state = state
+        except ConnectionClosed:
+            pass  # _run notices the drop and reconnects
+
+    async def disconnect(self):
+        """Leave the room for good."""
+        self._closing = True
+
+        task, self._run_task = self._run_task, None
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        ws, self._ws = self._ws, None
+        self._connected = False
+        await self._close_ws(ws)
+
+        self.members = []
+        log.info(f"[RELAY] Left room {self.room_key[:8]}")
+
+    @staticmethod
+    async def _close_ws(ws):
+        if ws is None:
+            return
+        try:
+            await ws.send(json.dumps({"type": "leave"}))
+            await asyncio.wait_for(ws.close(), timeout=2.0)
+        except Exception:
+            pass
+
+    async def _open(self, timeout: float) -> bool:
+        """Open the connection and announce ourselves."""
         if not RELAY_URL:
+            self.last_error = "no party server is configured in this build"
             log.warning("[RELAY] No relay URL configured")
             return False
 
         url = f"{RELAY_URL}/room?key={self.room_key}"
-        log.info(f"[RELAY] Connecting to room {self.room_key[:8]}...")
+        contexts = _ssl_contexts() if url.startswith("wss://") else [None]
+        error: Optional[BaseException] = None
 
-        try:
-            self._ws = await asyncio.wait_for(
-                websockets.connect(url, max_size=65536),
-                timeout=timeout,
-            )
+        for context in contexts:
+            kwargs = {"max_size": 65536}
+            if context is not None:
+                kwargs["ssl"] = context
+            try:
+                ws = await asyncio.wait_for(websockets.connect(url, **kwargs), timeout=timeout)
+            except ssl.SSLCertVerificationError as e:
+                error = e
+                continue  # try the next trust store
+            except Exception as e:
+                error = e
+                break
+
+            try:
+                # Our state follows once the room's member list shows someone else
+                await ws.send(json.dumps(self._join_msg))
+            except Exception as e:
+                error = e
+                break
+
+            self._ws = ws
             self._connected = True
-            self._recv_task = asyncio.create_task(self._receive_loop())
-            self._ping_task = asyncio.create_task(self._keepalive_loop())
-            log.info("[RELAY] Connected")
+            self._sent_state = None  # a new connection starts without our state
+            self.last_error = None
+            log.info(f"[RELAY] Connected to room {self.room_key[:8]}")
+            self._notify(self._on_connection_changed)
             return True
-        except Exception as e:
-            log.warning(f"[RELAY] Connection failed: {e}")
-            return False
 
-    async def join(self, summoner_id: int, summoner_name: str):
-        """Announce ourselves to the room."""
-        await self._send_json({
-            "type": "join",
-            "summoner_id": summoner_id,
-            "summoner_name": summoner_name,
-        })
+        self.last_error = _describe_error(error)
+        log.warning(f"[RELAY] Connection to room {self.room_key[:8]} failed: {error}")
+        return False
 
-    async def send_skin(self, skin: Optional[dict]):
-        """Broadcast our skin selection to the room."""
-        await self._send_json({
-            "type": "skin",
-            "skin": skin,
-        })
+    async def _run(self):
+        """Receive room updates; reopen the connection whenever it drops."""
+        attempt = 0
+        while not self._closing:
+            if self._ws is None:
+                delay = RECONNECT_DELAYS[min(attempt, len(RECONNECT_DELAYS) - 1)]
+                await asyncio.sleep(delay)
+                if self._closing:
+                    return
+                if not await self._open(CONNECT_TIMEOUT):
+                    attempt += 1
+                    continue
+                attempt = 0
 
-    async def disconnect(self):
-        """Leave the room."""
-        self._connected = False
-
-        for task in [self._ping_task, self._recv_task]:
-            if task:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-        self._ping_task = None
-        self._recv_task = None
-
-        if self._ws:
+            ws = self._ws
+            keepalive = asyncio.create_task(self._keepalive(ws))
             try:
-                await self._ws.send(json.dumps({"type": "leave"}))
-                await self._ws.close()
-            except Exception:
-                pass
+                await self._receive(ws)
+            finally:
+                keepalive.cancel()
+
+            if self._closing:
+                return
             self._ws = None
-
-        self.members = []
-        log.info("[RELAY] Disconnected")
-
-    async def _send_json(self, data: dict):
-        if self._ws and self._connected:
-            try:
-                await self._ws.send(json.dumps(data))
-            except ConnectionClosed:
-                self._connected = False
-
-    async def _receive_loop(self):
-        try:
-            async for message in self._ws:
-                if isinstance(message, str):
-                    if message == "pong":
-                        continue
-                    try:
-                        msg = json.loads(message)
-                    except json.JSONDecodeError:
-                        continue
-
-                    if msg.get("type") == "members":
-                        self.members = msg.get("members", [])
-                        log.info(f"[RELAY] Members updated: {len(self.members)} in room")
-                        if self._on_members_changed:
-                            try:
-                                self._on_members_changed(self.members)
-                            except Exception as e:
-                                log.debug(f"[RELAY] Callback error: {e}")
-        except ConnectionClosed:
-            log.info("[RELAY] Connection closed")
             self._connected = False
+            log.info(f"[RELAY] Lost connection to room {self.room_key[:8]}, reconnecting...")
+            self._notify(self._on_connection_changed)
+
+    async def _receive(self, ws):
+        try:
+            async for message in ws:
+                if not isinstance(message, str) or message == "pong":
+                    continue
+                try:
+                    msg = json.loads(message)
+                except json.JSONDecodeError:
+                    continue
+
+                if isinstance(msg, dict) and msg.get("type") == "members":
+                    members = msg.get("members")
+                    self.members = [m for m in members if isinstance(m, dict)] if isinstance(members, list) else []
+                    log.debug(f"[RELAY] Room {self.room_key[:8]}: {len(self.members)} member(s)")
+                    await self._deliver_state()
+                    self._notify(self._on_members_changed)
+        except ConnectionClosed as e:
+            log.info(f"[RELAY] Room {self.room_key[:8]} connection closed: {e}")
         except asyncio.CancelledError:
-            return
+            raise
         except Exception as e:
-            log.warning(f"[RELAY] Receive error: {e}")
-            self._connected = False
+            log.warning(f"[RELAY] Receive error in room {self.room_key[:8]}: {e}")
 
-    async def _keepalive_loop(self):
+    async def _keepalive(self, ws):
+        """App-level ping; the relay answers it without waking the room."""
         try:
-            while self._connected:
+            while True:
                 await asyncio.sleep(PING_INTERVAL)
-                if self._ws and self._connected:
-                    try:
-                        await self._ws.send("ping")
-                    except Exception:
-                        break
+                await ws.send("ping")
         except asyncio.CancelledError:
-            return
+            raise
+        except Exception:
+            pass  # the receive loop sees the closed connection
+
+    def _notify(self, callback: Optional[Callable[["PartyRelay"], None]]):
+        if callback:
+            try:
+                callback(self)
+            except Exception as e:
+                log.debug(f"[RELAY] Callback error: {e}")

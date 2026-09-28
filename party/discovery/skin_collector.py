@@ -6,15 +6,24 @@ Collects and manages skin selections from party members
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from state import SharedState
+from utils.core.historic import get_custom_mod_path, is_custom_mod_path
 from utils.core.logging import get_logger
 
 from ..protocol.message_types import SkinSelection
 from ..network.peer_connection import PeerConnection
+from .custom_mods import find_local_mod
 
 log = get_logger()
+
+
+def _to_int(value) -> Optional[int]:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -42,6 +51,8 @@ class SkinCollector:
 
         # Cached skin selections by summoner ID
         self._selections: Dict[int, SkinSelection] = {}
+        # (ChampSelect generation, our selection) kept from when our injection started
+        self._frozen: Optional[tuple] = None
 
     def update_from_peer(self, selection: SkinSelection):
         """Update skin selection from peer
@@ -70,10 +81,23 @@ class SkinCollector:
         self._selections.clear()
         log.debug("[SKIN_COLLECT] Cleared all peer selections")
 
+    def freeze_my_selection(self, summoner_id: int, summoner_name: str) -> None:
+        """Keep our selection as it is when our injection starts, for the rest of
+        this champ select. The injection then forces the base skin, and Rift
+        Classic's skin pane shows that as a skin of its own (Morgana Classic),
+        which friends would otherwise get instead of the injected one."""
+        generation = getattr(self.state, "champ_select_generation", 0)
+        self._frozen = (generation, self._current_selection(summoner_id, summoner_name))
+
+    def is_frozen(self) -> bool:
+        """Our injection started in this champ select: our selection is final."""
+        return bool(self._frozen) and self._frozen[0] == getattr(self.state, "champ_select_generation", 0)
+
     def get_my_selection(
         self, summoner_id: int, summoner_name: str
     ) -> Optional[SkinSelection]:
-        """Get our own skin selection from state
+        """Get our own skin selection from state, as it will be injected
+        (HistoricMode and random skins, chromas and custom mods included)
 
         Args:
             summoner_id: Our summoner ID
@@ -82,19 +106,48 @@ class SkinCollector:
         Returns:
             Our skin selection or None
         """
-        champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
-        skin_id = self.state.last_hovered_skin_id
+        if self.is_frozen():
+            return self._frozen[1]
+        return self._current_selection(summoner_id, summoner_name)
 
-        if not champion_id or not skin_id:
+    def _current_selection(
+        self, summoner_id: int, summoner_name: str
+    ) -> Optional[SkinSelection]:
+        state = self.state
+        champion_id = state.locked_champ_id or state.hovered_champ_id
+        if not champion_id:
             return None
 
-        chroma_id = getattr(self.state, "selected_chroma_id", None)
-
-        # Check for custom mod
+        skin_id = None
+        chroma_id = None
         custom_mod_path = None
-        selected_custom_mod = getattr(self.state, "selected_custom_mod", None)
-        if selected_custom_mod and selected_custom_mod.get("skin_id") == skin_id:
-            custom_mod_path = selected_custom_mod.get("relative_path")
+
+        # Same priority as the injection: HistoricMode, random skin, then the hovered skin
+        if getattr(state, "historic_mode_active", False):
+            historic_skin_id = getattr(state, "historic_skin_id", None)
+            if is_custom_mod_path(historic_skin_id):
+                custom_mod_path = get_custom_mod_path(historic_skin_id)
+            else:
+                skin_id = _to_int(historic_skin_id)
+
+        if skin_id is None and not custom_mod_path and getattr(state, "random_mode_active", False):
+            skin_id = _to_int(getattr(state, "random_skin_id", None))
+
+        if skin_id is None:
+            skin_id = state.last_hovered_skin_id
+            if not custom_mod_path and skin_id:
+                selected_chroma_id = getattr(state, "selected_chroma_id", None)
+                if selected_chroma_id and skin_id < selected_chroma_id < skin_id + 100:
+                    chroma_id = selected_chroma_id
+
+                selected_custom_mod = getattr(state, "selected_custom_mod", None)
+                if selected_custom_mod and selected_custom_mod.get("skin_id") == skin_id:
+                    custom_mod_path = selected_custom_mod.get("relative_path")
+
+        if not skin_id:
+            if not custom_mod_path:
+                return None
+            skin_id = champion_id * 1000  # custom mod on the default skin
 
         return SkinSelection(
             summoner_id=summoner_id,
@@ -185,64 +238,79 @@ class SkinCollector:
         members: list,
         my_summoner_id: int,
         team_champions: Dict[int, int],
+        team_champion_ids: Optional[Set[int]] = None,
+        my_champion_id: Optional[int] = None,
     ) -> List[PartySkinData]:
         """Collect skins from relay room members for injection.
+
+        When champion select data is available, members whose champion isn't
+        on our team are skipped. A champion never gets a second skin (ours
+        included): two mods for the same champion conflict.
 
         Args:
             members: List of member dicts from the relay (each has summoner_id, skin, etc.)
             my_summoner_id: Our summoner ID (to exclude ourselves)
             team_champions: Mapping of summoner_id -> champion_id
+            team_champion_ids: Every champion picked on our team
+            my_champion_id: Our own champion
 
         Returns:
             List of PartySkinData for party members
         """
         skins = []
+        taken_champions = {my_champion_id} if my_champion_id else set()
 
         for member in members:
-            sid = member.get("summoner_id", 0)
-            if sid == my_summoner_id or not sid:
+            sid = _to_int(member.get("summoner_id"))
+            if not sid or sid == my_summoner_id:
                 continue
 
+            name = member.get("summoner_name") or "Unknown"
             skin = member.get("skin")
-            if not skin:
-                # Try cached selection
-                cached = self._selections.get(sid)
-                if cached:
-                    skin = {
-                        "champion_id": cached.champion_id,
-                        "skin_id": cached.skin_id,
-                        "chroma_id": cached.chroma_id,
-                    }
-
-            if not skin or not skin.get("skin_id"):
+            if not isinstance(skin, dict):
+                continue
+            champion_id = _to_int(skin.get("champion_id"))
+            skin_id = _to_int(skin.get("skin_id"))
+            if not champion_id or not skin_id:
                 continue
 
-            champion_id = skin.get("champion_id", 0)
+            if team_champion_ids and champion_id not in team_champion_ids:
+                log.info(f"[SKIN_COLLECT] Skipping {name}: champion {champion_id} is not on our team")
+                continue
             expected = team_champions.get(sid)
             if expected and expected != champion_id:
-                log.warning(f"[SKIN_COLLECT] Champion mismatch for {sid}")
+                log.warning(
+                    f"[SKIN_COLLECT] Champion mismatch for {name}: "
+                    f"expected {expected}, got {champion_id}"
+                )
+                continue
+            if champion_id in taken_champions:
+                log.info(f"[SKIN_COLLECT] Skipping {name}: champion {champion_id} already has a skin")
                 continue
 
-            # For custom mods, try to find a local match by content hash
+            # For custom mods, use our own copy of the same mod (matched by content)
             custom_mod_path = None
-            if skin.get("is_custom") and skin.get("custom_mod_hash"):
-                from ..core.party_manager import PartyManager
-                local_path = PartyManager.find_local_mod_by_hash(
-                    skin["custom_mod_hash"], champion_id
+            if skin.get("is_custom"):
+                custom_mod_path = find_local_mod(
+                    champion_id,
+                    content_hash=skin.get("custom_mod_content_hash"),
+                    legacy_hash=skin.get("custom_mod_hash"),
                 )
-                if local_path:
-                    custom_mod_path = local_path
-                    log.info(f"[SKIN_COLLECT] Matched custom mod for peer {sid}: {local_path}")
+                if custom_mod_path:
+                    log.info(f"[SKIN_COLLECT] Matched {name}'s custom mod: {custom_mod_path}")
                 else:
-                    log.info(f"[SKIN_COLLECT] No local match for peer {sid}'s custom mod, skipping")
-                    continue
+                    log.info(f"[SKIN_COLLECT] {name} uses a custom mod we don't have, using the official skin")
 
+            if not custom_mod_path and skin_id == champion_id * 1000:
+                continue  # default skin: nothing to inject
+
+            taken_champions.add(champion_id)
             skins.append(PartySkinData(
                 summoner_id=sid,
-                summoner_name=member.get("summoner_name", "Unknown"),
+                summoner_name=name,
                 champion_id=champion_id,
-                skin_id=skin.get("skin_id", 0),
-                chroma_id=skin.get("chroma_id"),
+                skin_id=skin_id,
+                chroma_id=_to_int(skin.get("chroma_id")),
                 custom_mod_path=custom_mod_path,
                 is_local=False,
             ))

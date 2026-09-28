@@ -7,8 +7,9 @@ Detects game mode and map information from LCU
 
 import logging
 import traceback
+from injection.classic import is_classic_game_mode
 from lcu import LCU
-from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_ID
+from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_IDS
 from state import SharedState
 from utils.core.logging import get_logger
 
@@ -80,8 +81,8 @@ class GameModeDetector:
             self.state.current_queue_id = queue_id
 
             # Compute is_swiftplay_mode without intermediate False visible to other threads
-            # Explicit queue ID 480 check for Swiftplay (may have queue_id without gameMode)
-            if queue_id == SWIFTPLAY_QUEUE_ID:
+            # Explicit queue ID check for Swiftplay/Quickplay (may have queue_id without gameMode)
+            if queue_id in SWIFTPLAY_QUEUE_IDS:
                 new_swiftplay_mode = True
 
             if isinstance(game_mode, str) and game_mode.upper() in SWIFTPLAY_MODES:
@@ -99,6 +100,8 @@ class GameModeDetector:
             # Log detection result
             if map_id == 12 or game_mode == "ARAM":
                 log.info("[WS] ARAM mode detected - chroma panel will use ARAM background")
+            elif is_classic_game_mode(game_mode):
+                log.info("[WS] Rift Classic mode detected - skins will come from the Rift Classic skin library")
             elif map_id == 11 or game_mode == "CLASSIC":
                 log.info("[WS] Summoner's Rift mode detected - chroma panel will use SR background")
             elif new_swiftplay_mode:

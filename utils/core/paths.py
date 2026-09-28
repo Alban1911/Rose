@@ -218,6 +218,16 @@ def get_skins_dir() -> Path:
     return skins_dir
 
 
+def get_classic_skins_dir() -> Path:
+    """
+    Get the Rift Classic skins directory path (LeagueSkins' classic/ folder).
+    Creates the directory if it doesn't exist.
+    """
+    classic_dir = get_user_data_dir() / "classic"
+    classic_dir.mkdir(parents=True, exist_ok=True)
+    return classic_dir
+
+
 def get_state_dir() -> Path:
     """
     Get the state directory path for application state files.

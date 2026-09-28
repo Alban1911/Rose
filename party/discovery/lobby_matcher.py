@@ -5,7 +5,7 @@ Lobby Matcher
 Matches connected peers to lobby/champion select members
 """
 
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from lcu import LCU
 from state import SharedState
@@ -176,32 +176,40 @@ class LobbyMatcher:
 
         return matched
 
-    def get_team_champion_mapping(self) -> Dict[int, int]:
-        """Get mapping of summoner ID to champion ID for our team
+    def get_team_info(self) -> Tuple[Dict[int, int], Set[int]]:
+        """Get our champion select team
 
         Returns:
-            Dict mapping summoner_id to champion_id
+            (summoner_id -> champion_id for players whose name is visible,
+             every champion ID picked on our team). Both are empty outside
+             champion select.
         """
         mapping = {}
+        champions = set()
 
         try:
             session = self.lcu.session
             if not session or not isinstance(session, dict):
-                return mapping
+                return mapping, champions
 
             my_team = session.get("myTeam", [])
             if isinstance(my_team, list):
                 for player in my_team:
-                    if isinstance(player, dict):
-                        summoner_id = player.get("summonerId")
-                        champion_id = player.get("championId")
-                        if summoner_id and champion_id:
-                            mapping[int(summoner_id)] = int(champion_id)
+                    if not isinstance(player, dict):
+                        continue
+                    champion_id = int(player.get("championId") or 0)
+                    if not champion_id:
+                        continue
+                    champions.add(champion_id)
+                    # Hidden names (anonymous champ select) report summonerId 0
+                    summoner_id = int(player.get("summonerId") or 0)
+                    if summoner_id:
+                        mapping[summoner_id] = champion_id
 
         except Exception as e:
             log.debug(f"[LOBBY] Error getting team champions: {e}")
 
-        return mapping
+        return mapping, champions
 
     def is_in_same_lobby(self, peer_summoner_ids: List[int]) -> bool:
         """Check if given peers are in our lobby

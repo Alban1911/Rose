@@ -6,18 +6,32 @@ Provides secure extraction of ZIP files with path traversal protection
 """
 
 import io
+import os
 import zipfile
 from pathlib import Path
-from typing import Union
+from typing import List, Optional, Union
 
 from utils.core.logging import get_logger
+from utils.core.modpkg import MODPKG_SUFFIX, ModPackage, extract_modpkg
 
 log = get_logger()
+
+# Archives a custom mod can come in (.zip and .fantome are ZIP files)
+MOD_ARCHIVE_SUFFIXES = (".zip", ".fantome", MODPKG_SUFFIX)
 
 
 class UnsafePathError(Exception):
     """Raised when a zip file contains paths that would escape the target directory"""
     pass
+
+
+def join_within(resolved_base: Path, relative_path: str) -> Optional[Path]:
+    """Join *relative_path* to an already resolved base, or return None if it escapes the base.
+
+    Purely lexical (no filesystem calls), for bulk extraction where resolving every entry is costly.
+    """
+    candidate = Path(os.path.normpath(resolved_base / relative_path))
+    return candidate if candidate.is_relative_to(resolved_base) else None
 
 
 def is_safe_path(base_dir: Path, target_path: Path) -> bool:
@@ -37,8 +51,8 @@ def is_safe_path(base_dir: Path, target_path: Path) -> bool:
         base_resolved = base_dir.resolve()
         target_resolved = target_path.resolve()
 
-        # Check if target is within base directory
-        return str(target_resolved).startswith(str(base_resolved))
+        # Compare path components: a string prefix check would accept sibling folders such as "skins-evil"
+        return target_resolved.is_relative_to(base_resolved)
     except (OSError, ValueError):
         return False
 
@@ -146,3 +160,21 @@ def safe_extract(zip_path: Union[str, Path], member: str, dest_dir: Union[str, P
         log.debug(f"[EXTRACT] Safely extracted {member} to {dest_dir}")
 
     return target_path
+
+
+def list_mod_archive(archive_path: Union[str, Path]) -> List[str]:
+    """Relative paths of the files extracting a mod archive creates."""
+    archive_path = Path(archive_path)
+    if archive_path.suffix.lower() == MODPKG_SUFFIX:
+        with ModPackage.open(archive_path) as package:
+            return package.file_paths()
+    with zipfile.ZipFile(archive_path, 'r') as zf:
+        return [info.filename for info in zf.infolist() if not info.is_dir()]
+
+
+def extract_mod_archive(archive_path: Union[str, Path], dest_dir: Union[str, Path]) -> None:
+    """Extract a .zip/.fantome mod archive, or unpack a .modpkg, into dest_dir."""
+    if Path(archive_path).suffix.lower() == MODPKG_SUFFIX:
+        extract_modpkg(archive_path, dest_dir)
+    else:
+        safe_extractall(archive_path, dest_dir)

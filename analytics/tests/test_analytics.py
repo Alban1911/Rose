@@ -50,6 +50,21 @@ class AnalyticsClientTests(unittest.TestCase):
         })
         self.assertNotIn("machine_id", payload)
 
+    @patch("analytics.core.analytics_client.requests.post")
+    def test_config_ini_opt_out_disables_pings(self, post):
+        for value in ("false", "0", "Off", " no "):
+            with self.subTest(value=value), \
+                    patch("analytics.core.analytics_client.get_config_option", return_value=value):
+                self.assertFalse(AnalyticsClient().send_ping("1.2.14"))
+        post.assert_not_called()
+
+    @patch("analytics.core.analytics_client.get_install_id", return_value="00000000-0000-4000-8000-000000000000")
+    @patch("analytics.core.analytics_client.requests.post")
+    def test_missing_config_option_keeps_analytics_enabled(self, post, get_install_id):
+        post.return_value = Mock(status_code=204)
+        with patch("analytics.core.analytics_client.get_config_option", return_value=None):
+            self.assertTrue(AnalyticsClient().send_ping("1.2.14"))
+
     def test_presence_interval_is_15_minutes(self):
         self.assertEqual(ANALYTICS_PING_INTERVAL_S, 900)
 

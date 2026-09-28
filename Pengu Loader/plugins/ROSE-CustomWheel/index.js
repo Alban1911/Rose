@@ -138,6 +138,19 @@
   let emittedHistoricSelectionKeys = new Set(); // Avoid re-emitting historic selections across category responses
   let rightPaneMode = "summary"; // "summary" | "picker"
 
+  // Rose's menu language (ROSE-I18n); English until it has loaded
+  const tr = (text, vars) =>
+    window.RoseI18n
+      ? window.RoseI18n.t(text, vars)
+      : text.replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
+  // A category name inside a sentence: lowercase in English ("Loading voiceover…"), as translated otherwise
+  const categoryInSentence = (label) => {
+    const translated = tr(label);
+    return translated === label ? label.toLowerCase() : translated;
+  };
+  // "None" and "Waiting for champ lock…" are texts of ours; mod names are shown as they are
+  const summaryText = (raw) => (raw === "None" || raw === "Waiting for champ lock…" ? tr(raw) : raw);
+
   const OTHER_CATEGORY_TABS = [
     { id: "ui", label: "UI", prefixes: ["ui/"] },
     { id: "voiceover", label: "Voiceover", prefixes: ["voiceover/", "vo/"] },
@@ -236,7 +249,7 @@
     const lastSlash = name.lastIndexOf("/");
     if (lastSlash >= 0) name = name.substring(lastSlash + 1);
     // Strip common file extensions
-    name = name.replace(/\.(fantome|wad|zip)$/i, "");
+    name = name.replace(/\.(fantome|modpkg|wad|zip)$/i, "");
     // Replace _ and - with spaces
     name = name.replace(/[_\-]/g, " ");
     // Title-case
@@ -244,7 +257,7 @@
     return name.trim() || raw;
   }
 
-  function visibleModName(mod, fallback = "Unnamed mod") {
+  function visibleModName(mod, fallback = tr("Unnamed mod")) {
     const alias = typeof mod?.displayName === "string" ? mod.displayName.trim() : "";
     if (alias) return alias;
     return cleanModName(mod?.modName || mod?.name) || fallback;
@@ -260,7 +273,8 @@
   }
 
   function getTabLabel(tabId) {
-    return SUMMARY_TABS.find((t) => t.id === tabId)?.label || String(tabId || "");
+    const label = SUMMARY_TABS.find((t) => t.id === tabId)?.label;
+    return label ? tr(label) : String(tabId || "");
   }
 
   function tabHasInstalledMods(tabId) {
@@ -330,7 +344,7 @@
       const el = panel._summaryValuesByTab[tab.id];
       const raw = getSelectedSummaryForTab(tab.id);
       if (el) {
-        el.textContent = raw;
+        el.textContent = summaryText(raw);
       }
       // Toggle active class on the row
       const row = panel._summaryRowsByTab && panel._summaryRowsByTab[tab.id];
@@ -369,9 +383,9 @@
     if (panel._rightTitle) {
       if (mode === "picker") {
         const icon = SUMMARY_ICONS[activeTab] || "";
-        panel._rightTitle.innerHTML = `<span class="rose-wheel-title-icon">${icon}</span> Choose \u2022 ${escapeHtml(getTabLabel(activeTab))}`;
+        panel._rightTitle.innerHTML = `<span class="rose-wheel-title-icon">${icon}</span> ${escapeHtml(tr("Choose • {category}", { category: getTabLabel(activeTab) }))}`;
       } else {
-        panel._rightTitle.textContent = "Custom Mods";
+        panel._rightTitle.textContent = tr("Custom Mods");
       }
     }
   }
@@ -594,9 +608,10 @@
       font-weight: 700;
       color: #f0e6d2;
       font-size: 13px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      /* Long titles (other languages) wrap instead of being cut */
+      min-width: 0;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -881,7 +896,7 @@
       button = document.createElement("div");
     }
     button.className = "lol-uikit-flat-button idle rose-custom-wheel-button";
-    button.textContent = "Custom mods";
+    button.textContent = tr("Custom mods");
 
     // Ensure button has relative positioning for badge (only if not already positioned)
     const computedStyle = window.getComputedStyle(button);
@@ -996,9 +1011,9 @@
       if (panel && panel._rightTitle) {
         if (rightPaneMode === "picker") {
           const icon = SUMMARY_ICONS[activeTab] || "";
-          panel._rightTitle.innerHTML = `<span class="rose-wheel-title-icon">${icon}</span> Choose \u2022 ${escapeHtml(getTabLabel(activeTab))}`;
+          panel._rightTitle.innerHTML = `<span class="rose-wheel-title-icon">${icon}</span> ${escapeHtml(tr("Choose • {category}", { category: getTabLabel(activeTab) }))}`;
         } else {
-          panel._rightTitle.textContent = "Custom Mods";
+          panel._rightTitle.textContent = tr("Custom Mods");
         }
       }
     };
@@ -1096,28 +1111,28 @@
     // Loading elements for each tab
     const modsLoading = document.createElement("div");
     modsLoading.className = "mod-loading";
-    modsLoading.textContent = "Waiting for mods…";
+    modsLoading.textContent = tr("Waiting for mods…");
     modsLoading.style.display = "none";
 
     const mapsLoading = document.createElement("div");
     mapsLoading.className = "mod-loading";
-    mapsLoading.textContent = "Loading maps…";
+    mapsLoading.textContent = tr("Loading maps…");
     mapsLoading.style.display = "none";
 
     const fontsLoading = document.createElement("div");
     fontsLoading.className = "mod-loading";
-    fontsLoading.textContent = "Loading fonts…";
+    fontsLoading.textContent = tr("Loading fonts…");
     fontsLoading.style.display = "none";
 
     const announcersLoading = document.createElement("div");
     announcersLoading.className = "mod-loading";
-    announcersLoading.textContent = "Loading announcers…";
+    announcersLoading.textContent = tr("Loading announcers…");
     announcersLoading.style.display = "none";
 
     const otherLoadingEls = OTHER_CATEGORY_TABS.reduce((acc, t) => {
       const el = document.createElement("div");
       el.className = "mod-loading";
-      el.textContent = `Loading ${t.label.toLowerCase()}…`;
+      el.textContent = tr("Loading {category}…", { category: categoryInSentence(t.label) });
       el.style.display = "none";
       acc[t.id] = el;
       return acc;
@@ -1156,7 +1171,7 @@
 
     const rightTitle = document.createElement("div");
     rightTitle.className = "rose-wheel-right-title";
-    rightTitle.textContent = "Custom Mods";
+    rightTitle.textContent = tr("Custom Mods");
 
     const headerButtons = document.createElement("div");
     headerButtons.style.display = "flex";
@@ -1164,7 +1179,7 @@
 
     const backBtn = document.createElement("button");
     backBtn.className = "rose-wheel-back-button";
-    backBtn.textContent = "Back";
+    backBtn.textContent = tr("Back");
     backBtn.style.display = "none";
 
     headerButtons.appendChild(backBtn);
@@ -1201,12 +1216,12 @@
       label.appendChild(iconSpan);
 
       const labelText = document.createElement("span");
-      labelText.textContent = tab.label;
+      labelText.textContent = tr(tab.label);
       label.appendChild(labelText);
 
       const value = document.createElement("div");
       value.className = "rose-wheel-summary-value";
-      value.textContent = getSelectedSummaryForTab(tab.id);
+      value.textContent = summaryText(getSelectedSummaryForTab(tab.id));
       panel._summaryValuesByTab[tab.id] = value;
 
       left.appendChild(label);
@@ -1401,7 +1416,7 @@
     // Don't reset selection - restore it if it still exists in the mod list
 
     if (!mods || mods.length === 0) {
-      loadingEl.textContent = "No skins found";
+      loadingEl.textContent = tr("No skins found");
       loadingEl.style.display = "block";
       return;
     }
@@ -1416,7 +1431,7 @@
       noneRow.className = "mod-name-row";
       const noneName = document.createElement("div");
       noneName.className = "mod-name none-label";
-      noneName.textContent = "None";
+      noneName.textContent = tr("None");
       noneRow.appendChild(noneName);
       const nothingSelected = !isSelectedModForSkin(currentSkinId);
       if (nothingSelected) {
@@ -1499,7 +1514,7 @@
     mapsListEl.innerHTML = "";
 
     if (!mapsList || mapsList.length === 0) {
-      loadingEl.textContent = "No maps found";
+      loadingEl.textContent = tr("No maps found");
       loadingEl.style.display = "block";
       return;
     }
@@ -1514,7 +1529,7 @@
       noneRow.className = "mod-name-row";
       const noneName = document.createElement("div");
       noneName.className = "mod-name none-label";
-      noneName.textContent = "None";
+      noneName.textContent = tr("None");
       noneRow.appendChild(noneName);
       const nothingSelected = !selectedMapId;
       if (nothingSelected) { noneItem.classList.add("selected-row"); }
@@ -1544,7 +1559,7 @@
 
       const mapName = document.createElement("div");
       mapName.className = "mod-name";
-      mapName.textContent = visibleModName(map, "Unnamed map");
+      mapName.textContent = visibleModName(map, tr("Unnamed map"));
       mapNameRow.appendChild(mapName);
 
       listItem.setAttribute("data-map-id", mapId);
@@ -1581,7 +1596,7 @@
     fontsListEl.innerHTML = "";
 
     if (!fontsList || fontsList.length === 0) {
-      loadingEl.textContent = "No fonts found";
+      loadingEl.textContent = tr("No fonts found");
       loadingEl.style.display = "block";
       return;
     }
@@ -1596,7 +1611,7 @@
       noneRow.className = "mod-name-row";
       const noneName = document.createElement("div");
       noneName.className = "mod-name none-label";
-      noneName.textContent = "None";
+      noneName.textContent = tr("None");
       noneRow.appendChild(noneName);
       const nothingSelected = !selectedFontId;
       if (nothingSelected) { noneItem.classList.add("selected-row"); }
@@ -1626,7 +1641,7 @@
 
       const fontName = document.createElement("div");
       fontName.className = "mod-name";
-      fontName.textContent = visibleModName(font, "Unnamed font");
+      fontName.textContent = visibleModName(font, tr("Unnamed font"));
       fontNameRow.appendChild(fontName);
 
       listItem.setAttribute("data-font-id", fontId);
@@ -1663,7 +1678,7 @@
     announcersListEl.innerHTML = "";
 
     if (!announcersList || announcersList.length === 0) {
-      loadingEl.textContent = "No announcers found";
+      loadingEl.textContent = tr("No announcers found");
       loadingEl.style.display = "block";
       return;
     }
@@ -1678,7 +1693,7 @@
       noneRow.className = "mod-name-row";
       const noneName = document.createElement("div");
       noneName.className = "mod-name none-label";
-      noneName.textContent = "None";
+      noneName.textContent = tr("None");
       noneRow.appendChild(noneName);
       const nothingSelected = !selectedAnnouncerId;
       if (nothingSelected) { noneItem.classList.add("selected-row"); }
@@ -1708,7 +1723,7 @@
 
       const announcerName = document.createElement("div");
       announcerName.className = "mod-name";
-      announcerName.textContent = visibleModName(announcer, "Unnamed announcer");
+      announcerName.textContent = visibleModName(announcer, tr("Unnamed announcer"));
       announcerNameRow.appendChild(announcerName);
 
       listItem.setAttribute("data-announcer-id", announcerId);
@@ -1748,8 +1763,8 @@
     const selectedIds = getSelectedIdsForCategory(categoryId);
 
     if (!items || items.length === 0) {
-      const label = OTHER_CATEGORY_TABS.find((t) => t.id === categoryId)?.label || "mods";
-      loadingEl.textContent = `No ${label.toLowerCase()} found`;
+      const label = OTHER_CATEGORY_TABS.find((t) => t.id === categoryId)?.label || "Mods";
+      loadingEl.textContent = tr("No {category} found", { category: categoryInSentence(label) });
       loadingEl.style.display = "block";
       return;
     }
@@ -1764,7 +1779,7 @@
       noneRow.className = "mod-name-row";
       const noneName = document.createElement("div");
       noneName.className = "mod-name none-label";
-      noneName.textContent = "None";
+      noneName.textContent = tr("None");
       noneRow.appendChild(noneName);
       const nothingSelected = selectedIds.length === 0;
       if (nothingSelected) { noneItem.classList.add("selected-row"); }
@@ -2041,6 +2056,16 @@
     });
   }
 
+  // After a language change, the button follows right away and the panel on its next opening
+  window.addEventListener("rose-i18n-changed", () => {
+    const label = button && button.firstChild;
+    if (label && label.nodeType === Node.TEXT_NODE) label.textContent = tr("Custom mods");
+    if (panel && !isOpen) {
+      panel.remove();
+      panel = null;
+    }
+  });
+
   function openPanel() {
     if (!championSelectRoot) {
       return;
@@ -2171,7 +2196,7 @@
     if (!championLocked) {
       // Badge reflects selected mods across categories; don't zero it here.
       if (panel && panel._modsLoading) {
-        panel._modsLoading.textContent = "Waiting for champ lock…";
+        panel._modsLoading.textContent = tr("Waiting for champ lock…");
         panel._modsLoading.style.display = "block";
       }
       return;
@@ -2180,7 +2205,7 @@
     if (!championId || !skinId) {
       // Badge reflects selected mods across categories; don't zero it here.
       if (panel && panel._modsLoading) {
-        panel._modsLoading.textContent = "Hover a skin…";
+        panel._modsLoading.textContent = tr("Hover a skin…");
         panel._modsLoading.style.display = "block";
       }
       return;
@@ -2204,7 +2229,7 @@
     }
 
     if (panel && panel._modsLoading) {
-      panel._modsLoading.textContent = "Checking for mods…";
+      panel._modsLoading.textContent = tr("Checking for mods…");
       panel._modsLoading.style.display = "block";
     }
   }
@@ -2214,7 +2239,7 @@
   function requestMaps() {
     if (bridge) bridge.send({ type: "request-maps" });
     if (panel && panel._mapsLoading) {
-      panel._mapsLoading.textContent = "Loading maps…";
+      panel._mapsLoading.textContent = tr("Loading maps…");
       panel._mapsLoading.style.display = "block";
     }
   }
@@ -2224,7 +2249,7 @@
   function requestFonts() {
     if (bridge) bridge.send({ type: "request-fonts" });
     if (panel && panel._fontsLoading) {
-      panel._fontsLoading.textContent = "Loading fonts…";
+      panel._fontsLoading.textContent = tr("Loading fonts…");
       panel._fontsLoading.style.display = "block";
     }
   }
@@ -2234,7 +2259,7 @@
   function requestAnnouncers() {
     if (bridge) bridge.send({ type: "request-announcers" });
     if (panel && panel._announcersLoading) {
-      panel._announcersLoading.textContent = "Loading announcers…";
+      panel._announcersLoading.textContent = tr("Loading announcers…");
       panel._announcersLoading.style.display = "block";
     }
   }
@@ -2248,8 +2273,8 @@
 
     const loadingEl = panel[`_${categoryId}Loading`] || panel._othersLoading;
     if (loadingEl) {
-      const label = OTHER_CATEGORY_TABS.find((t) => t.id === categoryId)?.label || "mods";
-      loadingEl.textContent = `Loading ${label.toLowerCase()}…`;
+      const label = OTHER_CATEGORY_TABS.find((t) => t.id === categoryId)?.label || "Mods";
+      loadingEl.textContent = tr("Loading {category}…", { category: categoryInSentence(label) });
       loadingEl.style.display = "block";
     }
   }

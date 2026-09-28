@@ -62,6 +62,7 @@ class LoadoutTicker(threading.Thread):
         poll_period_s = TIMER_POLL_PERIOD_S
         last_poll = 0.0
         last_bucket = None
+        last_logged_name = object()
         
         # Continue loop only in ChampSelect/FINALIZATION
         while (not self.state.stop) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id) and (self.state.phase in ["ChampSelect", "FINALIZATION"]):
@@ -128,8 +129,9 @@ class LoadoutTicker(threading.Thread):
                 
                 # Resolve injection name
                 name = self.skin_name_resolver.resolve_injection_name()
-                
-                log.debug(f"[INJECT] Final name variable: '{name}'")
+                if name != last_logged_name:
+                    log.debug(f"[INJECT] Final name variable: '{name}'")
+                    last_logged_name = name
                 
                 if name:
                     # Trigger injection

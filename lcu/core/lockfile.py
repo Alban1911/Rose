@@ -17,7 +17,10 @@ from utils.core.logging import get_logger
 log = get_logger()
 
 SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
-SWIFTPLAY_QUEUE_ID = 480
+# Queues where champions and skins are picked in the lobby (no champ select):
+# 480 Swiftplay, 490 Quickplay. Quickplay's game mode is CLASSIC, so only its
+# queue tells it apart from a normal game.
+SWIFTPLAY_QUEUE_IDS = frozenset({480, 490})
 
 
 @dataclass
@@ -104,6 +107,8 @@ def parse_lockfile(lockfile_path: str) -> Optional[Lockfile]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
+        if not content.strip():
+            return None
         name, pid, port, pw, proto = content.split(":")[:5]
         return Lockfile(
             name=name,
@@ -115,4 +120,39 @@ def parse_lockfile(lockfile_path: str) -> Optional[Lockfile]:
     except Exception as e:
         log.debug(f"Failed to parse lockfile: {e}")
         return None
+
+
+def find_process_credentials() -> Optional[Lockfile]:
+    """Read the local LCU endpoint when a regional client leaves lockfile empty.
+
+    Only the main client / UX processes are eligible. Never log their command
+    lines or authentication tokens and never persist these credentials.
+    """
+    try:
+        for proc in psutil.process_iter(attrs=["name"]):
+            try:
+                name = proc.info.get("name") or ""
+                if name.lower() not in {"leagueclientux.exe", "leagueclient.exe"}:
+                    continue
+                args = proc.cmdline()
+                options = {}
+                for index, arg in enumerate(args):
+                    key, separator, value = arg.partition("=")
+                    if key not in {"--app-port", "--remoting-auth-token"}:
+                        continue
+                    if not separator and index + 1 < len(args):
+                        value = args[index + 1]
+                    options[key] = value.strip('"')
+                port_text = options.get("--app-port", "")
+                password = options.get("--remoting-auth-token", "")
+                if not port_text.isdecimal() or not password:
+                    continue
+                port = int(port_text)
+                if 0 < port < 65536:
+                    return Lockfile(name, proc.pid, port, password, "https")
+            except (psutil.Error, OSError, ValueError):
+                continue
+    except (psutil.Error, OSError):
+        pass
+    return None
 

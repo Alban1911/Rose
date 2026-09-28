@@ -8,10 +8,14 @@ Integrates party mode skin collection with injection flow
 from pathlib import Path
 from typing import List, Optional
 
+from injection.classic import is_classic_game_mode
 from state import SharedState
+from utils.core.junction import is_junction, link_or_extract, safe_remove_entry
 from utils.core.logging import get_logger
+from utils.core.paths import get_injection_dir
 
 from ..core.party_manager import PartyManager
+from ..discovery.custom_mods import get_mods_root
 from ..discovery.skin_collector import PartySkinData
 
 log = get_logger()
@@ -38,12 +42,17 @@ class PartyInjectionHook:
         self.injection_manager = injection_manager
 
     def is_enabled(self) -> bool:
-        """Check if party injection is enabled (connected peers; in_lobby can be cleared at injection time)"""
+        """Check if party injection is enabled (any peer, including ones whose
+        room is reconnecting: their last known skins are still used)"""
         return (
             self.party_manager is not None
             and self.party_manager.enabled
-            and len(self.party_manager.party_state.get_connected_peers()) > 0
+            and len(self.party_manager.party_state.peers) > 0
         )
+
+    def has_party_skins(self) -> bool:
+        """Check if any party member has a skin to inject for this game"""
+        return bool(self.get_party_skins_for_injection())
 
     def get_party_skins_for_injection(self) -> List[PartySkinData]:
         """Get party member skins for injection
@@ -66,6 +75,7 @@ class PartyInjectionHook:
             for skin in peer_skins:
                 log.info(
                     f"  - {skin.summoner_name}: Champion {skin.champion_id} -> Skin {skin.skin_id}"
+                    + (f" (chroma {skin.chroma_id})" if skin.chroma_id else "")
                 )
 
         return peer_skins
@@ -87,12 +97,16 @@ class PartyInjectionHook:
             return []
 
         mod_folder_names = []
+        # Rift Classic plays Jade_<Champion> characters: friends' skins come
+        # from the Classic library
+        classic = is_classic_game_mode(getattr(self.state, "current_game_mode", None))
 
         for skin_data in party_skins:
             try:
                 mod_name = self._prepare_single_skin(
                     skin_data=skin_data,
                     injector=injector,
+                    classic=classic,
                 )
                 if mod_name:
                     mod_folder_names.append(mod_name)
@@ -107,80 +121,94 @@ class PartyInjectionHook:
         self,
         skin_data: PartySkinData,
         injector,
+        classic: bool = False,
     ) -> Optional[str]:
         """Prepare a single party member's skin for injection
 
         Args:
             skin_data: Party member's skin data
             injector: Injector instance
+            classic: Rift Classic game (skins from the Classic library)
 
         Returns:
             Mod folder name or None if preparation failed
         """
-        skin_id = skin_data.skin_id
-        champion_id = skin_data.champion_id
-        chroma_id = skin_data.chroma_id
-        custom_mod_path = skin_data.custom_mod_path
+        source = None
 
-        # Determine skin name for ZIP resolution
-        skin_name = f"skin_{skin_id}"
-
-        if custom_mod_path:
-            # Party member has a custom mod that we also have locally (matched by hash)
-            from utils.core.paths import get_user_data_dir
-            mods_root = get_user_data_dir() / "mods"
-            local_mod = mods_root / custom_mod_path
+        if skin_data.custom_mod_path and classic:
+            # Custom mods target the regular characters, which Classic doesn't load
+            log.info(
+                f"[PARTY_INJECT] Rift Classic: {skin_data.summoner_name}'s custom mod "
+                f"does not apply, using the Classic skin"
+            )
+        elif skin_data.custom_mod_path:
+            # Our own copy of the party member's custom mod (folder or archive)
+            local_mod = get_mods_root() / skin_data.custom_mod_path
             if local_mod.exists():
                 log.info(
                     f"[PARTY_INJECT] {skin_data.summoner_name} has custom mod, "
-                    f"using local match: {custom_mod_path}"
+                    f"using local match: {skin_data.custom_mod_path}"
                 )
-                try:
-                    mod_folder = injector._extract_zip_to_mod(local_mod)
-                    if mod_folder:
-                        log.info(
-                            f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s custom mod: "
-                            f"{mod_folder.name}"
-                        )
-                        return mod_folder.name
-                except Exception as e:
-                    log.warning(f"[PARTY_INJECT] Failed to extract custom mod: {e}")
-                    return None
+                source = local_mod
             else:
                 log.warning(
-                    f"[PARTY_INJECT] Custom mod path not found: {custom_mod_path}"
+                    f"[PARTY_INJECT] Custom mod path not found: {skin_data.custom_mod_path}"
                 )
-                return None
 
-        # Resolve the skin ZIP
-        try:
+        if source is None:
+            source = self._resolve_skin_zip(skin_data, injector, classic)
+        if source is None:
+            return None
+
+        # Prefixed so it never collides with our own mod folder
+        mod_folder_name = f"party_{skin_data.summoner_id}"
+        mod_dest = injector.mods_dir / mod_folder_name
+        if mod_dest.exists() or is_junction(mod_dest):
+            safe_remove_entry(mod_dest)
+
+        # Cached extraction: the same skin is instant in later games
+        link_or_extract(source, mod_dest, cache_dir=get_injection_dir() / ".extract_cache")
+        if not (mod_dest.exists() or is_junction(mod_dest)):
+            log.warning(f"[PARTY_INJECT] Mod folder missing after extraction: {mod_dest}")
+            return None
+
+        log.info(
+            f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s skin: {source.name}"
+        )
+        return mod_folder_name
+
+    @staticmethod
+    def _resolve_skin_zip(skin_data: PartySkinData, injector, classic: bool = False) -> Optional[Path]:
+        """Find the skin (or chroma) file of a party member's official skin"""
+        skin_name = f"skin_{skin_data.skin_id}"
+
+        if skin_data.chroma_id:
             zip_path = injector._resolve_zip(
                 skin_name,
+                chroma_id=skin_data.chroma_id,
                 skin_name=skin_name,
                 champion_name=None,
-                champion_id=champion_id,
+                champion_id=skin_data.champion_id,
+                classic=classic,
+            )
+            if zip_path and zip_path.exists():
+                return zip_path
+            log.info(
+                f"[PARTY_INJECT] Chroma {skin_data.chroma_id} not found, "
+                f"using base skin {skin_data.skin_id}"
             )
 
-            if not zip_path or not zip_path.exists():
-                log.warning(
-                    f"[PARTY_INJECT] Could not find skin ZIP for {skin_name}"
-                )
-                return None
-
-            # Extract to mods directory
-            mod_folder = injector._extract_zip_to_mod(zip_path)
-
-            if mod_folder:
-                log.info(
-                    f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s skin: "
-                    f"{mod_folder.name}"
-                )
-                return mod_folder.name
-
-        except Exception as e:
-            log.warning(f"[PARTY_INJECT] Failed to resolve/extract skin: {e}")
-
-        return None
+        zip_path = injector._resolve_zip(
+            skin_name,
+            skin_name=skin_name,
+            champion_name=None,
+            champion_id=skin_data.champion_id,
+            classic=classic,
+        )
+        if not zip_path or not zip_path.exists():
+            log.warning(f"[PARTY_INJECT] Could not find skin ZIP for {skin_name}")
+            return None
+        return zip_path
 
     def get_injection_summary(self) -> dict:
         """Get summary of party injection status

@@ -1,7 +1,4 @@
-﻿using System;
-using System.Diagnostics;
-using System.IO;
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 
 namespace PenguLoader.Main
 {
@@ -12,7 +9,7 @@ namespace PenguLoader.Main
 
         public static string GetDebugger(string target)
         {
-            using (var key = Registry.LocalMachine.OpenSubKey(IFEO_PATH))
+            using (var key = OpenIfeo(false))
             {
                 if (key == null)
                     return string.Empty;
@@ -27,40 +24,34 @@ namespace PenguLoader.Main
             }
         }
 
-        public static void SetDebugger(string t, string d)
+        // Written through the registry API like current upstream: the value went
+        // through "cmd /C reg add" before, which cut it at a & in the user's path
+        // (e.g. C:\Users\Tom&Jerry) and dropped ^, leaving a broken debugger
+        public static void SetDebugger(string target, string debugger)
         {
-            d = d.Replace("\"", "\\\"");
-            Invoke($"reg add \"HKLM\\{IFEO_PATH}\\{t}\" /v \"{VALUE_NAME}\" /t REG_SZ /d \"{d}\" /f");
+            using (var key = OpenIfeo(true))
+            using (var image = key.CreateSubKey(target, true))
+            {
+                image.SetValue(VALUE_NAME, debugger, RegistryValueKind.String);
+            }
         }
 
-        public static void RemoveDebugger(string t)
+        // Only the Debugger value: the key can hold other settings (e.g. exploit protection)
+        public static void RemoveDebugger(string target)
         {
-            Invoke($"reg delete \"HKLM\\{IFEO_PATH}\\{t}\" /f");
+            using (var key = OpenIfeo(true))
+            using (var image = key.OpenSubKey(target, true))
+            {
+                image?.DeleteValue(VALUE_NAME, false);
+            }
         }
 
-        public static void Invoke(string args)
+        // The 64-bit view, which LeagueClientUx.exe uses, whatever this process' bitness
+        private static RegistryKey OpenIfeo(bool writable)
         {
-            using (var process = new Process
+            using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/C {args}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            })
-            {
-                process.Start();
-                process.WaitForExit();
-                var error = process.StandardError.ReadToEnd();
-
-                if (process.ExitCode != 0 || !string.IsNullOrEmpty(error))
-                {
-                    throw new InvalidOperationException(error);
-                }
+                return hklm.OpenSubKey(IFEO_PATH, writable);
             }
         }
     }
