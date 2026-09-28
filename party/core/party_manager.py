@@ -34,6 +34,10 @@ log = get_logger()
 
 LOBBY_CHECK_INTERVAL = 2.0
 SKIN_BROADCAST_INTERVAL = 1.0
+# A pick is shared once it stayed the same this long (hovering skins in champ
+# select would otherwise send, and wake the relay rooms, every second); the
+# pick our injection starts with goes out at once
+SKIN_SETTLE_S = 2.0
 # How long add_peer waits for the token's owner to show up
 PEER_WAIT_TIMEOUT = 4.0
 # Most rooms we stay in at once (ours included)
@@ -517,7 +521,9 @@ class PartyManager:
                 log.info(f"[PARTY] Lobby check error: {e}")
 
     async def _skin_broadcast_loop(self):
-        """Broadcast our pick whenever it changes."""
+        """Broadcast our pick once it settles, or at once when our injection starts."""
+        pending = None
+        pending_since = 0.0
         while self._running:
             try:
                 await asyncio.sleep(SKIN_BROADCAST_INTERVAL)
@@ -531,14 +537,25 @@ class PartyManager:
                     # may still be injecting it while the game starts
                     continue
 
-                if skin_state != self._skin_state:
+                if skin_state == self._skin_state:
+                    pending = None
+                    continue
+                now = time.monotonic()
+                if skin_state != pending:
+                    pending, pending_since = skin_state, now
+                if now - pending_since >= SKIN_SETTLE_S or self._selection_is_final():
                     self._skin_state = skin_state
+                    pending = None
                     await self._publish_state()
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 log.info(f"[PARTY] Skin broadcast error: {e}")
+
+    def _selection_is_final(self) -> bool:
+        collector = self._skin_collector
+        return bool(collector and collector.is_frozen())
 
     def freeze_my_selection(self) -> None:
         """Keep sharing the skin our injection is about to apply (see SkinCollector)."""

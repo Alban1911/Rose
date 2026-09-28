@@ -286,6 +286,110 @@ class MergedMembersTests(unittest.TestCase):
         self.assertEqual(list(me._merged_members()), [2])
 
 
+class FakeSocket:
+    """Records what the relay sends; yields the room messages given."""
+
+    def __init__(self, incoming=()):
+        self.sent = []
+        self._incoming = list(incoming)
+
+    async def send(self, message):
+        self.sent.append(message)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._incoming:
+            raise StopAsyncIteration
+        return self._incoming.pop(0)
+
+
+class RelayQuietWhenAloneTests(unittest.TestCase):
+    """Every message wakes the room on the relay, which the relay pays for:
+    our state only goes out when someone else is there to get it."""
+
+    def setUp(self):
+        from party.network.ws_relay import PartyRelay
+        self.relay = PartyRelay("a" * 32, 1, "Me")
+        self.socket = FakeSocket()
+        self.relay._ws = self.socket
+        self.relay._connected = True
+
+    def skins_sent(self):
+        import json
+        return [json.loads(m)["skin"] for m in self.socket.sent if json.loads(m)["type"] == "skin"]
+
+    def test_alone_in_the_room_nothing_is_sent(self):
+        self.relay.members = [member(1, "Me")]
+        asyncio.run(self.relay.send_state({"skin_id": 103001}))
+        self.assertEqual(self.skins_sent(), [])
+
+    def test_a_friend_joining_gets_our_state(self):
+        import json
+        self.relay.members = [member(1, "Me")]
+        asyncio.run(self.relay.send_state({"skin_id": 103001}))
+        self.socket._incoming = [json.dumps({"type": "members", "members": [member(1, "Me"), member(2, "B")]})]
+
+        asyncio.run(self.relay._receive(self.socket))
+
+        self.assertEqual(self.skins_sent(), [{"skin_id": 103001}])
+
+    def test_the_same_state_is_not_sent_twice(self):
+        self.relay.members = [member(1, "Me"), member(2, "B")]
+        asyncio.run(self.relay.send_state({"skin_id": 103001}))
+        asyncio.run(self.relay.send_state({"skin_id": 103001}))
+        asyncio.run(self.relay.send_state({"skin_id": 103002}))
+        self.assertEqual(self.skins_sent(), [{"skin_id": 103001}, {"skin_id": 103002}])
+
+    def test_a_new_connection_gets_our_state_again(self):
+        self.relay.members = [member(1, "Me"), member(2, "B")]
+        asyncio.run(self.relay.send_state({"skin_id": 103001}))
+        self.relay._sent_state = None  # what _open does on a new connection
+        asyncio.run(self.relay._deliver_state())
+        self.assertEqual(self.skins_sent(), [{"skin_id": 103001}, {"skin_id": 103001}])
+
+
+class SkinBroadcastSettleTests(unittest.TestCase):
+    """Hovering skins in champ select doesn't send every second: a pick goes
+    out once it settles, and the pick our injection starts with at once."""
+
+    def run_loop(self, picks, frozen=False):
+        from party.core import party_manager as module
+        manager = PartyManager(Mock(), make_state())
+        manager._running = True
+        manager._skin_collector = Mock(is_frozen=Mock(return_value=frozen))
+        remaining = list(picks)
+        published = []
+        clock = [0.0]
+
+        def current():
+            if len(remaining) == 1:
+                manager._running = False
+            return remaining.pop(0)
+
+        async def publish():
+            published.append(manager._skin_state)
+
+        async def sleep(seconds):
+            clock[0] += seconds
+
+        manager._current_skin_state = current
+        manager._publish_state = publish
+        fake_time = SimpleNamespace(time=time.time, monotonic=lambda: clock[0])
+        with patch.object(module, "time", fake_time), patch.object(module.asyncio, "sleep", sleep):
+            asyncio.run(manager._skin_broadcast_loop())
+        return published
+
+    def test_hovering_sends_only_the_pick_that_settles(self):
+        a, b, c, d = ({"skin_id": 103000 + n} for n in range(1, 5))
+        self.assertEqual(self.run_loop([a, b, c, d, d, d]), [d])
+
+    def test_the_pick_our_injection_starts_with_goes_out_at_once(self):
+        a = {"skin_id": 103001}
+        self.assertEqual(self.run_loop([a], frozen=True), [a])
+
+
 class InjectionHookTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

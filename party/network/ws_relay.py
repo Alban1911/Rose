@@ -85,16 +85,24 @@ class PartyRelay:
     and the other rooms they are in). The Worker broadcasts the full member
     list on every change. A dropped connection is reopened in the background,
     and our join and last state are sent again.
+
+    Our state only goes out while someone else is in the room: every message
+    wakes the room on the relay, whose active time is what the relay pays for,
+    and a room with only us in it has no one to tell. It goes out as soon as
+    someone joins.
     """
 
     def __init__(self, room_key: str, summoner_id: int, summoner_name: str):
         self.room_key = room_key
+        self._summoner_id = summoner_id
         self._join_msg = {
             "type": "join",
             "summoner_id": summoner_id,
             "summoner_name": summoner_name,
         }
         self._state: Optional[dict] = None
+        # The state the room has for us on the current connection
+        self._sent_state: Optional[dict] = None
         self._ws = None
         self._connected = False
         self._closing = False
@@ -138,13 +146,25 @@ class PartyRelay:
         return True
 
     async def send_state(self, state: Optional[dict]):
-        """Broadcast our state to the room (sent again after reconnects)."""
+        """Share our state with the room (again after reconnects, and when
+        someone joins a room we were alone in)."""
         self._state = state
+        await self._deliver_state()
+
+    def _others_present(self) -> bool:
+        return any(m.get("summoner_id") != self._summoner_id for m in self.members)
+
+    async def _deliver_state(self):
+        """Send our state if someone else is in the room and it doesn't have it yet."""
         ws = self._ws
-        if ws is None or not self._connected:
+        if ws is None or not self._connected or not self._others_present():
+            return
+        state = self._state
+        if state == self._sent_state:
             return
         try:
             await ws.send(json.dumps({"type": "skin", "skin": state}))
+            self._sent_state = state
         except ConnectionClosed:
             pass  # _run notices the drop and reconnects
 
@@ -202,15 +222,15 @@ class PartyRelay:
                 break
 
             try:
+                # Our state follows once the room's member list shows someone else
                 await ws.send(json.dumps(self._join_msg))
-                if self._state is not None:
-                    await ws.send(json.dumps({"type": "skin", "skin": self._state}))
             except Exception as e:
                 error = e
                 break
 
             self._ws = ws
             self._connected = True
+            self._sent_state = None  # a new connection starts without our state
             self.last_error = None
             log.info(f"[RELAY] Connected to room {self.room_key[:8]}")
             self._notify(self._on_connection_changed)
@@ -262,6 +282,7 @@ class PartyRelay:
                     members = msg.get("members")
                     self.members = [m for m in members if isinstance(m, dict)] if isinstance(members, list) else []
                     log.debug(f"[RELAY] Room {self.room_key[:8]}: {len(self.members)} member(s)")
+                    await self._deliver_state()
                     self._notify(self._on_members_changed)
         except ConnectionClosed as e:
             log.info(f"[RELAY] Room {self.room_key[:8]} connection closed: {e}")

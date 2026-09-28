@@ -89,6 +89,10 @@ class SkinCollector:
         generation = getattr(self.state, "champ_select_generation", 0)
         self._frozen = (generation, self._current_selection(summoner_id, summoner_name))
 
+    def is_frozen(self) -> bool:
+        """Our injection started in this champ select: our selection is final."""
+        return bool(self._frozen) and self._frozen[0] == getattr(self.state, "champ_select_generation", 0)
+
     def get_my_selection(
         self, summoner_id: int, summoner_name: str
     ) -> Optional[SkinSelection]:
@@ -102,7 +106,7 @@ class SkinCollector:
         Returns:
             Our skin selection or None
         """
-        if self._frozen and self._frozen[0] == getattr(self.state, "champ_select_generation", 0):
+        if self.is_frozen():
             return self._frozen[1]
         return self._current_selection(summoner_id, summoner_name)
 
