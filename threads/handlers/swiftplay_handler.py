@@ -12,7 +12,7 @@ from typing import Optional
 
 from injection.game.game_monitor import make_game_ended_callback
 from lcu import LCU
-from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_ID
+from lcu.core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_IDS
 from state import SharedState
 from utils.core.logging import get_logger, log_action
 
@@ -109,8 +109,8 @@ class SwiftplayHandler:
                     log.debug(f"[phase] Error checking {endpoint}: {e}")
                     continue
 
-            # Queue ID 480 fallback when game_mode is None/unknown
-            if queue_id == SWIFTPLAY_QUEUE_ID and (not game_mode or game_mode.upper() not in SWIFTPLAY_MODES):
+            # Swiftplay/Quickplay queue ID fallback when game_mode is None/unknown/CLASSIC
+            if queue_id in SWIFTPLAY_QUEUE_IDS and (not game_mode or game_mode.upper() not in SWIFTPLAY_MODES):
                 game_mode = "SWIFTPLAY"
 
             result = (game_mode, queue_id)

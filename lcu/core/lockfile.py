@@ -17,7 +17,10 @@ from utils.core.logging import get_logger
 log = get_logger()
 
 SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
-SWIFTPLAY_QUEUE_ID = 480
+# Queues where champions and skins are picked in the lobby (no champ select):
+# 480 Swiftplay, 490 Quickplay. Quickplay's game mode is CLASSIC, so only its
+# queue tells it apart from a normal game.
+SWIFTPLAY_QUEUE_IDS = frozenset({480, 490})
 
 
 @dataclass
