@@ -198,35 +198,71 @@ class ExternalPenguTests(unittest.TestCase):
 
 
 class OverlayLifetimeTests(unittest.TestCase):
+    """The LTK patcher serves the overlay until the game itself exits, even when
+    the client (and so the phase) goes away mid-match as on CN/WeGame."""
+
     def setUp(self):
+        from injection.overlay import overlay_manager
         from injection.overlay.overlay_manager import OverlayManager
+        self.module = overlay_manager
         self.manager = OverlayManager(Path('tools'), Path('mods'), Path('game'))
+        self.patcher = SimpleNamespace(returncode=None)
+        self.patcher.poll = lambda: self.patcher.returncode
+        self.session = {'proc': self.patcher, 'session': {'state': None, 'error': None, 'eol': False},
+                        'reader': Mock(), 'log': None}
+        stop = self.enterContext(patch.object(self.manager, '_stop_ltk_patcher'))
+        stop.side_effect = lambda proc: proc.returncode is None and setattr(proc, 'returncode', 0)
+        self.stop = stop
+        self.enterContext(patch.object(self.manager, '_wipe_overlay_dir'))
+        self.enterContext(patch.object(overlay_manager.time, 'sleep'))
+        self.report = self.enterContext(patch.object(overlay_manager, 'report_issue'))
 
-    def test_client_disconnect_during_game_keeps_overlay(self):
-        with patch.object(self.manager, '_game_process_running', return_value=True):
-            self.assertEqual(self.manager._overlay_should_stop(True, lambda: True), (False, True))
+    def game(self, timeouts=0, on_wait=None):
+        """A game process that exits after `timeouts` one-second waits."""
+        remaining = [timeouts]
 
-    def test_game_exit_stops_overlay_without_lcu(self):
-        with patch.object(self.manager, '_game_process_running', return_value=False):
-            self.assertEqual(self.manager._overlay_should_stop(True, lambda: False), (True, True))
+        def wait(timeout=None):
+            if on_wait:
+                on_wait()
+            if remaining[0]:
+                remaining[0] -= 1
+                raise self.module.psutil.TimeoutExpired(timeout)
+        return SimpleNamespace(wait=Mock(side_effect=wait))
 
-    def test_wait_for_game_launch(self):
-        with patch.object(self.manager, '_game_process_running', return_value=False):
-            self.assertEqual(self.manager._overlay_should_stop(False, lambda: False), (False, False))
+    def run_patcher(self, stop_callback):
+        return self.manager._run_ltk_patcher(self.session, Path('overlay'), stop_callback)
 
-    def test_cancel_before_game_launch(self):
-        with patch.object(self.manager, '_game_process_running', return_value=False):
-            self.assertEqual(self.manager._overlay_should_stop(False, lambda: True), (True, False))
+    def test_client_gone_keeps_patcher_until_the_game_exits(self):
+        game = self.game(timeouts=2)
+        with patch.object(self.manager, '_running_game', return_value=game):
+            self.assertEqual(self.run_patcher(lambda: True), 0)
+        self.assertEqual(game.wait.call_count, 3)
+        self.stop.assert_called_once()
 
-    def test_failed_process_scan_does_not_kill_overlay(self):
-        with patch.object(self.manager, '_game_process_running', return_value=None):
-            self.assertEqual(self.manager._overlay_should_stop(True, lambda: True), (False, True))
+    def test_game_over_stops_patcher(self):
+        with patch.object(self.manager, '_running_game', return_value=None):
+            self.assertEqual(self.run_patcher(lambda: True), 0)
+        self.stop.assert_called_once()
+        self.report.assert_not_called()
+
+    def test_reconnect_after_the_game_exits_keeps_patcher(self):
+        phases = iter([True, False, True])
+        running = iter([self.game(), None])
+        with patch.object(self.manager, '_running_game', side_effect=lambda: next(running)):
+            self.assertEqual(self.run_patcher(lambda: next(phases)), 0)
+        self.stop.assert_called_once()
+
+    def test_patcher_dying_while_waiting_is_still_reported(self):
+        game = self.game(timeouts=5, on_wait=lambda: setattr(self.patcher, 'returncode', 3))
+        with patch.object(self.manager, '_running_game', return_value=game):
+            self.assertEqual(self.run_patcher(lambda: True), 3)
+        self.report.assert_called_once()
 
     def test_game_detection_accepts_both_names(self):
-        from injection.overlay import overlay_manager
         for name in config.GAME_EXECUTABLE_NAMES:
-            with self.subTest(name=name), patch.object(overlay_manager.psutil, 'process_iter', return_value=[SimpleNamespace(info={'name': name})]):
-                self.assertTrue(self.manager._game_process_running())
+            proc = SimpleNamespace(info={'name': name})
+            with self.subTest(name=name), patch.object(self.module.psutil, 'process_iter', return_value=[proc]):
+                self.assertIs(self.manager._running_game(), proc)
 
 
 class LoaderFallbackTests(unittest.TestCase):

@@ -168,28 +168,30 @@ class OverlayManager:
         return True
 
     @staticmethod
-    def _game_process_running() -> Optional[bool]:
-        """LCU may close during a match; inspect the game process separately."""
+    def _running_game():
+        """The game's process, if a game is running (either executable name)."""
         if not PSUTIL_AVAILABLE:
             return None
         names = {name.lower() for name in GAME_EXECUTABLE_NAMES}
         try:
-            return any((proc.info.get('name') or '').lower() in names
-                       for proc in psutil.process_iter(['name']))
-        except (psutil.Error, OSError):
-            return None
+            for proc in psutil.process_iter(['name']):
+                if (proc.info.get('name') or '').lower() in names:
+                    return proc
+        except (psutil.Error, OSError) as e:
+            log.debug(f"[INJECT] Could not look for the game process: {e}")
+        return None
 
-    def _overlay_should_stop(self, game_seen: bool, stop_callback) -> tuple[bool, bool]:
-        running = self._game_process_running()
-        if running is True:
-            return False, True
-        if running is None:
-            # An unavailable process snapshot cannot establish that a game ended.
-            return False, game_seen
-        if game_seen:
-            return True, True
-        # Before the game starts, an explicit lobby/cancel transition can stop us.
-        return bool(stop_callback and stop_callback()), False
+    @staticmethod
+    def _wait_for_game_exit(game, patcher, session: dict) -> None:
+        """Wait on the game process itself; stop early if the patcher dies."""
+        while patcher.poll() is None and session["state"] != "failed":
+            try:
+                game.wait(timeout=1.0)
+                return
+            except psutil.TimeoutExpired:
+                continue
+            except psutil.Error:
+                return
     
     def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
         """Create and run overlay
@@ -526,6 +528,16 @@ class OverlayManager:
                 if session["state"] == "failed":
                     break
                 if stop_callback and stop_callback():
+                    # The client can close during a match (CN/WeGame), which looks
+                    # like the end of the game: serve the overlay until the game exits
+                    game = self._running_game()
+                    if game is not None:
+                        log.info("[INJECT] The game is still running - keeping the LTK patcher until it exits")
+                        self._wait_for_game_exit(game, proc, session)
+                        if proc.poll() is not None or session["state"] == "failed":
+                            continue  # the patcher itself stopped: handled below as usual
+                        if not stop_callback():
+                            continue  # the game came back (reconnect)
                     log.info("[INJECT] Game ended, stopping LTK patcher")
                     game_ended = True
                     break
