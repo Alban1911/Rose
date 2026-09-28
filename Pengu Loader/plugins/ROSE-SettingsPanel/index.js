@@ -525,11 +525,10 @@
       border-color: #c8aa6e;
       color: #f0e6d2;
     }
-    #${FLYOUT_ID} .rose-language-menu {
-      display: none;
-      position: absolute;
-      top: calc(100% + 6px);
-      right: 0;
+    /* The list opens in <body>, above the Settings panel (z-index 10000-10001) */
+    .rose-language-menu {
+      position: fixed;
+      z-index: 10050;
       width: 230px;
       max-height: 300px;
       overflow-y: auto;
@@ -537,17 +536,15 @@
       background: #010a13;
       border: 1px solid #785a28;
       box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7);
+      box-sizing: border-box;
     }
-    #${FLYOUT_ID} .rose-language-menu::-webkit-scrollbar {
+    .rose-language-menu::-webkit-scrollbar {
       width: 6px;
     }
-    #${FLYOUT_ID} .rose-language-menu::-webkit-scrollbar-thumb {
+    .rose-language-menu::-webkit-scrollbar-thumb {
       background: #785a28;
     }
-    #${FLYOUT_ID} .rose-language-picker.open .rose-language-menu {
-      display: block;
-    }
-    #${FLYOUT_ID} .rose-language-item {
+    .rose-language-menu .rose-language-item {
       display: flex;
       align-items: center;
       gap: 10px;
@@ -558,15 +555,15 @@
       text-align: left;
       cursor: pointer;
     }
-    #${FLYOUT_ID} .rose-language-item:hover {
+    .rose-language-menu .rose-language-item:hover {
       background: rgba(200, 170, 110, 0.1);
       color: #f0e6d2;
     }
-    #${FLYOUT_ID} .rose-language-item.selected {
+    .rose-language-menu .rose-language-item.selected {
       background: rgba(200, 170, 110, 0.16);
       color: #f0e6d2;
     }
-    #${FLYOUT_ID} .rose-language-code {
+    .rose-language-menu .rose-language-code {
       flex: 0 0 34px;
       color: #c8aa6e;
       font-size: 10px;
@@ -1878,34 +1875,49 @@
       });
       menu.appendChild(item);
     });
-    picker.appendChild(menu);
 
     const onOutside = (e) => {
-      if (!picker.contains(e.target)) close();
+      if (!picker.contains(e.target) && !menu.contains(e.target)) close();
     };
     const onKey = (e) => {
       if (e.key === "Escape") close();
     };
+    // The list opens in <body>, above the whole panel: League's dropdowns
+    // further down the panel would cover it otherwise
+    function open() {
+      const rect = badge.getBoundingClientRect();
+      menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+      menu.style.right = `${Math.round(window.innerWidth - rect.right)}px`;
+      document.body.appendChild(menu);
+      picker.classList.add("open");
+      document.addEventListener("mousedown", onOutside, true);
+      document.addEventListener("keydown", onKey, true);
+      window.addEventListener("resize", close);
+      const selected = menu.querySelector(".selected");
+      if (selected) menu.scrollTop = selected.offsetTop - (menu.clientHeight - selected.offsetHeight) / 2;
+    }
     function close() {
       picker.classList.remove("open");
+      menu.remove();
       document.removeEventListener("mousedown", onOutside, true);
       document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", close);
     }
     badge.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (!picker.classList.toggle("open")) {
-        close();
-        return;
-      }
-      document.addEventListener("mousedown", onOutside, true);
-      document.addEventListener("keydown", onKey, true);
-      const selected = menu.querySelector(".selected");
-      if (selected) selected.scrollIntoView({ block: "nearest" });
+      if (picker.classList.contains("open")) close();
+      else open();
     });
     return picker;
   }
 
+  // The language list lives in <body>: it goes with the panel it was opened from
+  function closeLanguageMenu() {
+    document.querySelectorAll(".rose-language-menu").forEach((menu) => menu.remove());
+  }
+
   function createSettingsFlyout(navItem) {
+    closeLanguageMenu();
     // Remove existing panel if any
     const existingPanel = document.getElementById(PANEL_ID);
     if (existingPanel) {
@@ -2126,9 +2138,8 @@
 
     if (window.RoseI18n) {
       // The title alone is centered on the panel: the version hangs to its right
-      // and the language picker sits in the corner, above the rest of the panel
+      // and the language picker sits in the corner
       titleRow.style.position = "relative";
-      titleRow.style.zIndex = "1000";
       titleRow.style.alignSelf = "stretch";
       title.style.width = "auto";
       title.style.position = "relative";
@@ -4968,6 +4979,7 @@
   }
 
   function closeSettingsPanel() {
+    closeLanguageMenu();
     if (!settingsPanel) return;
 
     // Disable selected nav item
