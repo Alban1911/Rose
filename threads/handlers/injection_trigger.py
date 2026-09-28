@@ -256,6 +256,15 @@ class InjectionTrigger:
         log.info(f"PREPARING INJECTION >>> {injection_label} <<<")
         log.info(f"   Loadout Timer: #{ticker_id}")
         log.info("=" * LOG_SEPARATOR_WIDTH)
+
+        # Friends get the skin injected now, not what the client shows once the
+        # base skin is forced below
+        party_manager = getattr(self.state, "party_manager", None)
+        if party_manager and getattr(party_manager, "enabled", False):
+            try:
+                party_manager.freeze_my_selection()
+            except Exception as e:
+                log.debug(f"[PARTY] Could not keep our selection for friends: {e}")
         
         try:
             lcu_skin_id = self.state.selected_skin_id

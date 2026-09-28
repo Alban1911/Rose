@@ -512,6 +512,14 @@ class PartyManager:
             except Exception as e:
                 log.info(f"[PARTY] Skin broadcast error: {e}")
 
+    def freeze_my_selection(self) -> None:
+        """Keep sharing the skin our injection is about to apply (see SkinCollector)."""
+        if self._skin_collector:
+            self._skin_collector.freeze_my_selection(
+                self.party_state.my_summoner_id,
+                self.party_state.my_summoner_name,
+            )
+
     def _current_skin_state(self) -> Optional[dict]:
         """Our current pick as sent to the party, or None."""
         skin_collector = self._skin_collector

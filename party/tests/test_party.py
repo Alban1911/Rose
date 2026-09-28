@@ -160,6 +160,19 @@ class SkinCollectorSelectionTests(unittest.TestCase):
     def test_no_champion_no_selection(self):
         self.assertIsNone(self.pick(locked_champ_id=None))
 
+    def test_friends_keep_the_skin_our_injection_applies(self):
+        state = make_state(locked_champ_id=60025, last_hovered_skin_id=60025026, champ_select_generation=3)
+        collector = SkinCollector(state)
+        collector.freeze_my_selection(1, "Me")
+
+        # Forcing the base skin: Rift Classic shows it as Morgana Classic
+        state.last_hovered_skin_id = 60025301
+        self.assertEqual(collector.get_my_selection(1, "Me").skin_id, 60025026)
+
+        # Next champ select: live selection again
+        state.champ_select_generation = 4
+        self.assertEqual(collector.get_my_selection(1, "Me").skin_id, 60025301)
+
 
 class SkinCollectorInjectionTests(unittest.TestCase):
     def collect(self, members, team_champions=None, team_champion_ids=None, my_champion_id=None):

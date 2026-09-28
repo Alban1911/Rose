@@ -51,6 +51,8 @@ class SkinCollector:
 
         # Cached skin selections by summoner ID
         self._selections: Dict[int, SkinSelection] = {}
+        # (ChampSelect generation, our selection) kept from when our injection started
+        self._frozen: Optional[tuple] = None
 
     def update_from_peer(self, selection: SkinSelection):
         """Update skin selection from peer
@@ -79,6 +81,14 @@ class SkinCollector:
         self._selections.clear()
         log.debug("[SKIN_COLLECT] Cleared all peer selections")
 
+    def freeze_my_selection(self, summoner_id: int, summoner_name: str) -> None:
+        """Keep our selection as it is when our injection starts, for the rest of
+        this champ select. The injection then forces the base skin, and Rift
+        Classic's skin pane shows that as a skin of its own (Morgana Classic),
+        which friends would otherwise get instead of the injected one."""
+        generation = getattr(self.state, "champ_select_generation", 0)
+        self._frozen = (generation, self._current_selection(summoner_id, summoner_name))
+
     def get_my_selection(
         self, summoner_id: int, summoner_name: str
     ) -> Optional[SkinSelection]:
@@ -92,6 +102,13 @@ class SkinCollector:
         Returns:
             Our skin selection or None
         """
+        if self._frozen and self._frozen[0] == getattr(self.state, "champ_select_generation", 0):
+            return self._frozen[1]
+        return self._current_selection(summoner_id, summoner_name)
+
+    def _current_selection(
+        self, summoner_id: int, summoner_name: str
+    ) -> Optional[SkinSelection]:
         state = self.state
         champion_id = state.locked_champ_id or state.hovered_champ_id
         if not champion_id:
