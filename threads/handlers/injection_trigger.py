@@ -19,6 +19,7 @@ from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
 from utils.core.utilities import is_default_skin
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
+from injection.loadingname.loading_name import build as build_loading_name
 
 log = get_logger()
 
@@ -1429,6 +1430,21 @@ class InjectionTrigger:
                         if hasattr(self.state, 'selected_other_mod'):
                             self.state.selected_other_mod = None
             
+            # A custom skin runs as the default one too, so the loading screen gets the skin's name here as it does for a
+            # regular skin (SkinInjector.inject_skin). skin_id is the skin the mod targets; a chroma's mod targets its
+            # base skin, which is the name the game has. It never fails the injection.
+            skin_folder = mod_folder_name or carrier_mod_folder_name
+            if skin_folder and skin_id:
+                try:
+                    loading_name_mod = build_loading_name(
+                        injector.game_dir, injector.mods_dir, injector.mods_dir / skin_folder, int(skin_id)
+                    )
+                    if loading_name_mod:
+                        mod_folder_names.append(loading_name_mod)
+                        mod_names_list.append("Loading screen name")
+                except (TypeError, ValueError) as e:
+                    log.debug(f"[LOADNAME] skipped for custom mod: {e}")
+
             # Add party member skins if party mode is active
             party_manager = getattr(self.state, "party_manager", None)
             if party_manager and getattr(party_manager, "enabled", False):
