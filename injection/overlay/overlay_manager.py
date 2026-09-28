@@ -76,6 +76,9 @@ class OverlayManager:
         self.game_dir = game_dir
         self.process_manager = process_manager
         self.last_injection_timing = None
+        # Patcher started with the game monitor, before the mods are prepared
+        self._early_patcher: Optional[dict] = None
+        self._early_patcher_lock = threading.Lock()
     
     @property
     def current_overlay_process(self):
@@ -212,7 +215,7 @@ class OverlayManager:
         # host must already be scanning when the game starts
         if self.process_manager:
             self.process_manager.stopped_by_user = False
-        patcher_session = self._start_ltk_patcher(ltk_host, overlay_dir)
+        patcher_session = self._take_early_patcher() or self._start_ltk_patcher(ltk_host, overlay_dir)
         if not patcher_session:
             return 1
 
@@ -341,6 +344,46 @@ class OverlayManager:
             return 1
 
         return self._run_ltk_patcher(patcher_session, overlay_dir, stop_callback, injection_manager)
+
+    def start_patcher_early(self) -> None:
+        """Start the LTK patcher now, before the mods are prepared.
+
+        The DLL only overlays games launched after the host started scanning,
+        and preparing the mods (extraction, loading screen name, party skins)
+        can take seconds on a slow PC while the client launches the game.
+        mk_run_overlay takes this session over; it reports missing or expired
+        patchers itself.
+        """
+        with self._early_patcher_lock:
+            if self._early_patcher is not None or self.game_dir is None:
+                return
+            from ..tools.tools_manager import ToolsManager
+            ltk_host = ToolsManager(self.tools_dir).detect_ltk_patcher()
+            if not ltk_host or check_ltk_patcher(ltk_host.parent).expired:
+                return
+            overlay_dir = self.mods_dir.parent / "overlay"
+            overlay_dir.mkdir(parents=True, exist_ok=True)
+            if self.process_manager:
+                self.process_manager.stopped_by_user = False
+            self._early_patcher = self._start_ltk_patcher(ltk_host, overlay_dir)
+
+    def _take_early_patcher(self) -> Optional[dict]:
+        """The patcher started by start_patcher_early, if it is still running."""
+        with self._early_patcher_lock:
+            patcher_session, self._early_patcher = self._early_patcher, None
+        if patcher_session and patcher_session["proc"].poll() is None:
+            return patcher_session
+        if patcher_session:
+            self._abort_ltk_patcher(patcher_session)
+        return None
+
+    def discard_early_patcher(self) -> None:
+        """Stop an early patcher whose injection never built its overlay."""
+        with self._early_patcher_lock:
+            patcher_session, self._early_patcher = self._early_patcher, None
+        if patcher_session:
+            log.debug("[INJECT] Stopping the LTK patcher started for an injection that did not happen")
+            self._abort_ltk_patcher(patcher_session)
 
     def _start_ltk_patcher(self, host_exe: Path, overlay_dir: Path) -> Optional[dict]:
         """Start the LTK patcher host and begin scanning for the game.

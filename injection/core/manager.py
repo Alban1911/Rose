@@ -96,10 +96,16 @@ class InjectionManager:
     def _start_monitor(self):
         """Start game monitor - watches for game and suspends it"""
         self.game_monitor.start()
+        # The LTK patcher only overlays games launched after it started
+        # scanning: start it now, before the mods are prepared
+        if self.injector:
+            self.injector.overlay_manager.start_patcher_early()
     
     def _stop_monitor(self):
         """Stop the game monitor"""
         self.game_monitor.stop()
+        if self.injector:
+            self.injector.overlay_manager.discard_early_patcher()
     
     def _get_suspended_game_process(self):
         """Get the currently suspended game process (if any)"""
