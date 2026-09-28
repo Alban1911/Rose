@@ -62,6 +62,7 @@ class SharedState:
     
     # Language detection
     current_language: Optional[str] = None  # Current client language (e.g., 'en', 'fr', 'de')
+    current_locale: Optional[str] = None  # Current client locale (e.g., 'en_US', 'fr_FR')
     
     # Game mode detection
     current_game_mode: Optional[str] = None  # Current game mode (ARAM, CLASSIC, SWIFT_PLAY, etc.)

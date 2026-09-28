@@ -2617,6 +2617,15 @@ class MessageHandler:
             autostart = payload.get("autostart", False)
             hide_empty_categories = bool(payload.get("hideEmptyCategories", False))
             game_path = payload.get("gamePath", "")
+
+            language = payload.get("language")
+            if language is not None:
+                from utils.core.i18n import AUTO, LANGUAGES
+                if language == AUTO or language in LANGUAGES:
+                    if (get_config_option("General", "language") or AUTO) != language:
+                        set_config_option("General", "language", language)
+                        log.info(f"[SkinMonitor] Menu language set to {language}")
+                        self.broadcaster.broadcast_language_changed()
             
             set_config_option("General", "injection_threshold", f"{threshold:.2f}")
             log.info(f"[SkinMonitor] Injection threshold updated to {threshold:.2f}s")

@@ -24,13 +24,15 @@ class HTTPHandler:
         - File-serving routes resolve paths under explicit Rose-owned directories.
     """
 
-    def __init__(self, port: int):
+    def __init__(self, port: int, shared_state=None):
         """Initialize HTTP handler
 
         Args:
             port: Server port for constructing URLs
+            shared_state: Shared state (the client locale, for /i18n)
         """
         self.port = port
+        self.shared_state = shared_state
 
     def _is_safe_path(self, base_dir: Path, requested_path: Path) -> bool:
         """Validate that requested_path is safely within base_dir.
@@ -113,6 +115,16 @@ class HTTPHandler:
                     str(self.port).encode('utf-8')
                 )
             
+            # The language of Rose's menus and its texts (ROSE-I18n)
+            if path_clean == "/i18n":
+                import json
+                from utils.core.i18n import i18n_payload
+                return (
+                    200,
+                    {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", **cors_headers},
+                    json.dumps(i18n_payload(self.shared_state), ensure_ascii=False).encode("utf-8"),
+                )
+
             # Handle preview requests
             if path_clean.startswith("/preview/"):
                 return self._handle_preview_request(path_clean, cors_headers)

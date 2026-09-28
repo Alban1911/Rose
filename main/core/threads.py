@@ -47,7 +47,16 @@ def initialize_threads(lcu, state, args, injection_manager, skin_scraper, app_st
             # Extract language code from locale (e.g., 'en_US' -> 'en')
             language_code = language.split('_')[0] if '_' in language else language
             state.current_language = language_code
+            locale_changed = getattr(state, "current_locale", None) != language
+            state.current_locale = language
             log.info(f"[Main] Language detected and set: {language_code} (from {language})")
+            ui_thread = getattr(state, "ui_skin_thread", None)
+            if locale_changed and ui_thread:
+                # Menus follow the client's language unless Settings picks one
+                try:
+                    ui_thread._broadcast_language_changed()
+                except Exception as e:
+                    log.debug(f"[Main] Could not announce the language change: {e}")
         else:
             log.warning("[Main] Language detection returned None")
     

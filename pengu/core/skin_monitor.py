@@ -75,7 +75,7 @@ class PenguSkinMonitorThread(threading.Thread):
         self.mod_storage_service = ModStorageService()
 
         # Initialize HTTP handler
-        self.http_handler = HTTPHandler(self.port)
+        self.http_handler = HTTPHandler(self.port, shared_state)
         
         # Initialize WebSocket server
         self.websocket_server = WebSocketServer(
@@ -167,6 +167,10 @@ class PenguSkinMonitorThread(threading.Thread):
         """Broadcast phase change (delegates to broadcaster)"""
         self.broadcaster.broadcast_phase_change(phase)
     
+    def _broadcast_language_changed(self) -> None:
+        """Broadcast a menu language change (delegates to broadcaster)"""
+        self.broadcaster.broadcast_language_changed()
+
     def _broadcast_champion_locked(self, locked: bool) -> None:
         """Broadcast champion lock state (delegates to broadcaster)"""
         self.broadcaster.broadcast_champion_locked(locked)
