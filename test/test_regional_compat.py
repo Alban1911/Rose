@@ -272,9 +272,10 @@ class LoaderFallbackTests(unittest.TestCase):
     def setUp(self):
         from utils.integration import pengu_loader
         self.loader = pengu_loader
-        self.loader._restart_pending = False
-        self.addCleanup(setattr, self.loader, '_restart_pending', False)
+        self.loader._restart_pending = frozenset()
+        self.addCleanup(setattr, self.loader, '_restart_pending', frozenset())
         self.processes = self.enterContext(patch.object(self.loader, '_process_running', return_value=False))
+        self.ux_pids = self.enterContext(patch.object(self.loader, '_process_ids', return_value=frozenset()))
         self.external = self.enterContext(patch.object(self.loader, '_external_pengu_with_rose_plugins', return_value=None))
         self.registered = self.enterContext(patch.object(self.loader, '_registered_pengu_core', return_value=None))
         self.enterContext(patch.object(self.loader, '_is_available', return_value=True))
@@ -312,18 +313,33 @@ class LoaderFallbackTests(unittest.TestCase):
         self.activate.assert_not_called()
 
     def test_deferred_restart_happens_at_a_safe_phase(self):
-        self.loader._restart_pending = True
-        self.processes.side_effect = lambda names: 'LeagueClientUx.exe' in names
+        self.loader._restart_pending = frozenset({1234})
+        self.ux_pids.return_value = frozenset({1234})
         self.loader.retry_deferred_restart()
         self.restart.assert_called_once()
         self.assertFalse(self.loader._restart_pending)
+
+    def test_refused_restart_stays_deferred(self):
+        self.loader._restart_pending = frozenset({1234})
+        self.ux_pids.return_value = frozenset({1234})
+        self.restart.return_value = False
+        self.loader.retry_deferred_restart()
+        self.assertEqual(self.loader._restart_pending, frozenset({1234}))
 
     def test_nothing_deferred_nothing_restarted(self):
         self.loader.retry_deferred_restart()
         self.restart.assert_not_called()
 
     def test_closed_client_needs_no_restart(self):
-        self.loader._restart_pending = True
+        self.loader._restart_pending = frozenset({1234})
+        self.loader.retry_deferred_restart()
+        self.restart.assert_not_called()
+        self.assertFalse(self.loader._restart_pending)
+
+    def test_reopened_client_needs_no_restart(self):
+        # The client was closed and reopened: the new one loads the registered loader
+        self.loader._restart_pending = frozenset({1234})
+        self.ux_pids.return_value = frozenset({5678})
         self.loader.retry_deferred_restart()
         self.restart.assert_not_called()
         self.assertFalse(self.loader._restart_pending)

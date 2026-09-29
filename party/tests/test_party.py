@@ -265,7 +265,7 @@ class MergedMembersTests(unittest.TestCase):
         me.party_state.my_summoner_id = 1
         me.party_state.enabled = True
         friend = member(2, "B", 11, 11002, removed=[1])  # they removed us too
-        relay = SimpleNamespace(members=[member(1, "Me"), friend], connected=True, sent=[])
+        relay = SimpleNamespace(members=[member(1, "Me"), friend], connected=True, sent=[], resume=Mock())
 
         async def send_state(state):
             relay.sent.append(state)
@@ -348,6 +348,99 @@ class RelayQuietWhenAloneTests(unittest.TestCase):
         self.relay._sent_state = None  # what _open does on a new connection
         asyncio.run(self.relay._deliver_state())
         self.assertEqual(self.skins_sent(), [{"skin_id": 103001}, {"skin_id": 103001}])
+
+
+class RelayReconnectTests(unittest.TestCase):
+    """Every connection wakes the room on the relay, which the relay pays for:
+    reconnecting stops instead of looping, until the party needs the room again."""
+
+    def setUp(self):
+        from party.network import ws_relay
+        self.module = ws_relay
+        self.relay = ws_relay.PartyRelay("a" * 32, 1, "Me")
+        self.clock = [0.0]
+        self.delays = []
+        self.opens = 0
+
+        async def sleep(seconds):
+            self.delays.append(seconds)
+            self.clock[0] += seconds
+
+        self.enterContext(patch.object(ws_relay.asyncio, "sleep", sleep))
+        self.enterContext(patch.object(ws_relay, "time", SimpleNamespace(monotonic=lambda: self.clock[0])))
+
+    def run_relay(self, connections, keepalive_ws=None):
+        """connections: one entry per attempt, None for a refused one, else
+        (seconds the connection lasts, reason it was closed with)."""
+        remaining = list(connections)
+
+        async def open_(timeout):
+            self.opens += 1
+            if not remaining:
+                self.relay._closing = True  # the test is over
+                return False
+            outcome = remaining.pop(0)
+            if outcome is None:
+                return False
+            self.relay._ws = SimpleNamespace(lasts=outcome[0], close_reason=outcome[1])
+            self.relay._connected = True
+            return True
+
+        async def receive(ws):
+            self.clock[0] += ws.lasts
+
+        async def keepalive(ws):
+            pass
+
+        self.relay._open = open_
+        self.relay._receive = receive
+        self.relay._keepalive = keepalive
+        asyncio.run(self.relay._run())
+
+    def test_replaced_by_another_connection_stops_reconnecting(self):
+        self.relay._ws = SimpleNamespace(lasts=5, close_reason="replaced")
+        self.relay._connected = True
+        self.run_relay([])
+        self.assertEqual(self.opens, 0)
+        self.assertTrue(self.relay.stopped)
+
+    def test_connections_that_drop_at_once_back_off_then_stop(self):
+        self.run_relay([(1, "")] * 10)
+        self.assertEqual(self.delays, list(self.module.RECONNECT_DELAYS))
+        self.assertEqual(self.opens, len(self.module.RECONNECT_DELAYS))
+        self.assertTrue(self.relay.stopped)
+
+    def test_refused_connections_stop_after_every_delay(self):
+        self.run_relay([None] * 10)
+        self.assertEqual(self.opens, len(self.module.RECONNECT_DELAYS))
+        self.assertTrue(self.relay.stopped)
+
+    def test_a_lasting_connection_starts_the_delays_over(self):
+        self.run_relay([(1, ""), (1, ""), (120, ""), (1, "")])
+        self.assertEqual(self.delays[:4], [1.0, 2.0, 5.0, 1.0])
+
+    def test_a_full_room_stops_at_once(self):
+        async def open_(timeout):
+            self.opens += 1
+            self.relay._room_full = True
+            return False
+        self.relay._open = open_
+        asyncio.run(self.relay._run())
+        self.assertEqual(self.opens, 1)
+        self.assertTrue(self.relay.stopped)
+
+    def test_resume_reconnects_a_stopped_room(self):
+        self.relay._stopped = True
+        run = Mock()
+        with patch.object(self.relay, "_run", run), patch.object(self.module.asyncio, "create_task"):
+            self.relay.resume()
+        run.assert_called_once()
+        self.assertFalse(self.relay.stopped)
+
+    def test_resume_leaves_a_live_room_alone(self):
+        with patch.object(self.module.asyncio, "create_task") as create_task:
+            self.relay.resume()
+        create_task.assert_not_called()
 
 
 class SkinBroadcastSettleTests(unittest.TestCase):

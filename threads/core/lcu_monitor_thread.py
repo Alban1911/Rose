@@ -73,20 +73,23 @@ class LCUMonitorThread(threading.Thread):
                         log.info("LCU reconnected - waiting for WebSocket...")
                         self.waiting_for_connection = False
                         self._lcu_reconnected = True
+
+                # WebSocket connected after LCU reconnection
+                elif current_lcu_ok and current_ws_connected and not self.ws_connected:
+                    log.info("WebSocket connected - detecting language...")
+                    self.ws_connected = True
+
                     # A client that started without a loader (a standalone Pengu
-                    # disabled while Rose runs) gets Rose's
-                    if not self.state.stop:
+                    # disabled while Rose runs) gets Rose's. Only once the
+                    # WebSocket is up: at lockfile time the client refuses the
+                    # restart. The first connection is handled by startup.
+                    if self._initial_ws_done and not self.state.stop:
                         from utils.integration import pengu_loader
                         threading.Thread(
                             target=pengu_loader.ensure_active_for_client,
                             name="PenguLoaderCheck",
                             daemon=True,
                         ).start()
-                
-                # WebSocket connected after LCU reconnection
-                elif current_lcu_ok and current_ws_connected and not self.ws_connected:
-                    log.info("WebSocket connected - detecting language...")
-                    self.ws_connected = True
 
                     # Brief wait for LCU API to stabilize after WebSocket connects
                     time.sleep(1.0)

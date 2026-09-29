@@ -34,23 +34,37 @@ is intentionally not committed to the repository.
 
 In addition to Python 3.11+ and the Python dependencies above, install Visual
 Studio Build Tools with the .NET desktop build tools, WPF support, and the
-.NET Framework 4.7.2 targeting pack. Install Inno Setup 6 only if you also
-want to build the Windows installer.
+.NET Framework 4.7.2 targeting pack (for Pengu Loader), and the MSVC C++ build
+tools (for Rose's stand-in `cslol-dll.dll`, built from `native/cslol_stub/`).
+Install Inno Setup 6 only if you also want to build the Windows installer.
 
 ```powershell
 # Build Pengu Loader only
 python scripts/build_pengu_loader.py
 
-# Build Rose (rebuilds Pengu Loader automatically)
+# Build Rose (rebuilds Pengu Loader and the cslol-dll.dll stand-in)
 python scripts/build_pyinstaller.py
 
-# Build Rose and the Windows installer
+# Build Rose and the Windows installer (installer/Rose_Setup_<version>.exe)
 python scripts/build_all.py
+
+# Zip dist/Rose into the auto-updater's package (installer/update_package_<version>.zip)
+python scripts/create_update_package.py
 ```
+
+To test Rose itself, you also need the LTK patcher (`ltk_patcher_host.exe`
+and `ltk_patcher_dll.dll` from an LTK Manager install) in `injection/tools/`.
 
 `scripts/build_pyinstaller.py` is the canonical Rose package build entry point; it
 compiles the loader before invoking PyInstaller. Use it or `scripts/build_all.py`
 instead of invoking `pyinstaller Rose.spec` directly.
+
+## Translations
+
+Rose's menus are translated in `Pengu Loader/plugins/ROSE-I18n/locales/`, one
+`<language>.json` per language, keyed by the English text. English is the
+fallback, so a missing text shows in English. Both the plugins and the Python
+side (`utils/core/i18n.py`) read these files.
 
 ## Project Structure
 
@@ -78,6 +92,7 @@ Rose/
 │       └── loop.py
 │
 ├── injection/              # Skin injection system
+│   ├── classic.py          # Rift Classic skins
 │   ├── core/               # Core injection logic
 │   │   ├── manager.py      # Injection manager & coordination
 │   │   └── injector.py     # Skin injector
@@ -86,17 +101,20 @@ Rose/
 │   │   └── game_monitor.py
 │   ├── config/             # Configuration management
 │   │   ├── config_manager.py
-│   │   └── threshold_manager.py
+│   │   ├── threshold_manager.py
+│   │   └── base_skin_tracker.py
 │   ├── mods/               # Mod management
 │   │   ├── mod_manager.py
+│   │   ├── storage.py      # Custom mods storage
 │   │   └── zip_resolver.py
 │   ├── overlay/            # Overlay process management
 │   │   ├── overlay_manager.py
 │   │   └── process_manager.py
 │   ├── loadingname/        # Skin name on the loading screen
 │   │   └── loading_name.py
-│   └── tools/              # Injection tools (mod-tools.exe, etc.)
-│       └── tools_manager.py
+│   └── tools/              # Injection tools (mod-tools.exe, the user's LTK patcher)
+│       ├── tools_manager.py
+│       └── patcher.py      # LTK patcher checks (missing files, end of life)
 │
 ├── lcu/                    # League Client API integration
 │   ├── core/               # Core LCU client components
@@ -121,6 +139,7 @@ Rose/
 │   │   ├── phase_thread.py
 │   │   └── lcu_monitor_thread.py
 │   ├── handlers/            # Event handlers
+│   │   ├── champ_select_reset.py
 │   │   ├── champ_thread.py
 │   │   ├── champion_lock_handler.py
 │   │   ├── game_mode_detector.py
@@ -147,10 +166,11 @@ Rose/
 │   │   ├── mod_historic.py
 │   │   ├── issue_reporter.py
 │   │   ├── junction.py
-│   │   └── safe_extract.py
-│   ├── crypto/             # Skin encryption
-│   │   ├── skin_crypto.py
-│   │   └── key_provider.py
+│   │   ├── safe_extract.py
+│   │   ├── atomic_file.py
+│   │   ├── i18n.py         # Interface language
+│   │   ├── modpkg.py       # .modpkg custom mods
+│   │   └── security.py
 │   ├── download/           # Download utilities
 │   │   ├── skin_downloader.py
 │   │   ├── smart_skin_downloader.py
@@ -221,19 +241,20 @@ Rose/
 ├── party/                  # Party mode (skin sharing)
 │   ├── core/               # Party orchestration
 │   │   ├── party_manager.py  # Main party mode orchestrator
-│   │   └── party_state.py
+│   │   ├── party_state.py
+│   │   └── party_storage.py
 │   ├── network/            # Networking layer
 │   │   ├── ws_relay.py     # WebSocket relay client
 │   │   ├── peer_connection.py
 │   │   ├── stun_client.py
 │   │   └── udp_transport.py
 │   ├── protocol/           # Wire protocol
-│   │   ├── crypto.py       # XOR cipher with dynamic keys
 │   │   ├── message_types.py
 │   │   └── token_codec.py
 │   ├── discovery/          # Lobby and skin discovery
 │   │   ├── lobby_matcher.py
-│   │   └── skin_collector.py
+│   │   ├── skin_collector.py
+│   │   └── custom_mods.py  # Custom mod hashes shared with friends
 │   └── integration/        # UI and injection hooks
 │       ├── injection_hook.py
 │       └── ui_bridge.py
@@ -244,30 +265,33 @@ Rose/
 │   │   └── room.ts         # Durable Object party room
 │   └── wrangler.toml
 │
-├── skin-key-worker/        # Cloudflare Worker — skin key server
-│   ├── src/
-│   │   └── index.ts
-│   └── wrangler.toml
-│
 ├── analytics/              # Analytics and user tracking
 │   └── core/
 │       ├── install_id.py   # Pseudonymous persistent installation UUID
+│       ├── machine_id.py   # Old name of install_id, kept for compatibility
 │       ├── analytics_client.py  # HTTP client for analytics and presence pings
 │       └── analytics_thread.py  # Background thread for startup/heartbeat/close pings
 │
+├── scripts/                # Build scripts (loader, stand-in DLL, PyInstaller, installer, update package)
+├── native/cslol_stub/      # Source of Rose's stand-in cslol-dll.dll
+├── vendor/PenguLoader-1.1.6/  # Pengu Loader source, built with Rose
+│
 └── Pengu Loader/           # Runtime loader files and plugins
     ├── Pengu Loader.exe    # Generated during builds from vendor/PenguLoader-1.1.6
+    ├── core.dll            # Pengu Loader's hook, loaded into the League client
     └── plugins/            # JavaScript plugins
         ├── ROSE-UI/
         ├── ROSE-SkinMonitor/
         ├── ROSE-ChromaWheel/
         ├── ROSE-FormsWheel/
+        ├── ROSE-CustomSkinSelector/
         ├── ROSE-CustomWheel/
         ├── ROSE-SettingsPanel/
         ├── ROSE-RandomSkin/
         ├── ROSE-HistoricMode/
         ├── ROSE-PartyMode/
-        └── ROSE-Jade/
+        ├── ROSE-I18n/      # Translations (locales/<language>.json)
+        └── ROSE-Jade/      # Shipped disabled (index.js_)
 ```
 
 ## Credits
