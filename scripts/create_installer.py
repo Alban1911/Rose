@@ -137,9 +137,10 @@ def create_installer():
     print("\n[3/3] Installer created successfully!")
     
     # Check if installer was created
-    installer_files = list(installer_dir.glob("Rose_Setup*.exe"))
+    # Named Rose_Setup_<version>.exe: the one just compiled is the newest
+    installer_files = sorted(installer_dir.glob("Rose_Setup*.exe"), key=lambda p: p.stat().st_mtime)
     if installer_files:
-        installer_file = installer_files[0]
+        installer_file = installer_files[-1]
         size_mb = installer_file.stat().st_size / (1024 * 1024)
         print(f"\nInstaller: {installer_file}")
         print(f"Size: {size_mb:.1f} MB")
