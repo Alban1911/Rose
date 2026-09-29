@@ -48,7 +48,7 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         processes = patch.object(pengu_loader, '_process_running', return_value=False)
         processes.start()
         self.addCleanup(processes.stop)
-        pengu_loader._restart_pending = False
+        pengu_loader._restart_pending = frozenset()
         self.addCleanup(self.paths.stop)
         # Never close the developer's real Pengu Loader windows
         self.close_menu = patch.object(pengu_loader, '_close_loader_menu')
@@ -159,6 +159,20 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         self.assertTrue(pengu_loader.activate_on_start())
         activate.assert_called_once_with()
         restart_client.assert_called_once_with()
+        self.assertFalse(pengu_loader._restart_pending)
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.INACTIVE)
+    @patch.object(pengu_loader, 'activate', return_value=True)
+    @patch.object(pengu_loader, '_process_running', return_value=True)
+    @patch.object(pengu_loader, '_process_ids', return_value=frozenset({1234}))
+    @patch.object(pengu_loader, 'restart_client', return_value=False)
+    def test_refused_restart_waits_for_the_running_client(
+        self, _restart_client, _pids, _running, _activate, _status, _available
+    ):
+        # The client isn't ready yet: restart that client once it is
+        self.assertTrue(pengu_loader.activate_on_start())
+        self.assertEqual(pengu_loader._restart_pending, frozenset({1234}))
 
     @patch.object(pengu_loader, '_is_available', return_value=True)
     @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.ACTIVE)

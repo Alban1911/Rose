@@ -43,6 +43,7 @@ class PhaseThread(threading.Thread):
         self.skin_scraper = skin_scraper
         self.db = db
         self.last_phase = None
+        self._last_raw_phase = None
         self._null_phase_streak = 0
 
         # Initialize handlers
@@ -63,6 +64,16 @@ class PhaseThread(threading.Thread):
                 log.debug(f"LCU refresh failed in phase thread: {e}")
             
             ph = self.lcu.phase if self.lcu.ok else None
+
+            # A client restart Rose's loader deferred (the client wasn't ready,
+            # or a champ select was on) happens once the client is readable in
+            # a safe phase: home ("None"), lobby or end of game
+            if ph != self._last_raw_phase:
+                self._last_raw_phase = ph
+                if ph in ("None", "Lobby", "EndOfGame"):
+                    from utils.integration import pengu_loader
+                    pengu_loader.retry_deferred_restart()
+
             if ph == "None":
                 ph = None
             
@@ -115,12 +126,6 @@ class PhaseThread(threading.Thread):
 
                 # Handle phase change
                 self.phase_handler.handle_phase_change(ph, self.last_phase)
-
-                # A client restart Rose's loader deferred (enabled during a
-                # champ select) happens once the client is back in a safe phase
-                if ph in ("Lobby", "EndOfGame"):
-                    from utils.integration import pengu_loader
-                    pengu_loader.retry_deferred_restart()
 
                 # Reset lobby tracking when leaving lobby
                 if self.last_phase == "Lobby" and ph != "Lobby":

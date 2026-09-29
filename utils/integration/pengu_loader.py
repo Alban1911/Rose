@@ -318,8 +318,9 @@ _LEAGUE_PROCESSES: set[str] = {
 }
 _CREATE_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 _operation_lock = threading.RLock()
-# A client restart Rose deferred until a safe phase (see retry_deferred_restart)
-_restart_pending = False
+# The clients (LeagueClientUx.exe PIDs) Rose's loader waits to restart until a
+# safe phase (see retry_deferred_restart). A client started since then loads it.
+_restart_pending: frozenset[int] = frozenset()
 
 
 class PenguStatus(Enum):
@@ -579,6 +580,17 @@ def _process_running(names: Iterable[str]) -> bool:
         return True
 
 
+def _process_ids(names: Iterable[str]) -> frozenset[int]:
+    if psutil is None:
+        return frozenset()
+    eligible = {name.lower() for name in names}
+    try:
+        return frozenset(proc.info['pid'] for proc in psutil.process_iter(['pid', 'name'])
+                         if (proc.info.get('name') or '').lower() in eligible)
+    except (psutil.Error, OSError):
+        return frozenset()
+
+
 def _same_path(a: Optional[str], b: str) -> bool:
     return bool(a) and os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
 
@@ -778,7 +790,7 @@ def ensure_active_for_client() -> None:
 
 def retry_deferred_restart() -> None:
     """The client reached a safe phase: restart it if Rose's loader still waits
-    for that (enabled while a champ select was on)."""
+    for that (the client wasn't ready yet, or a champ select was on)."""
     if not _restart_pending:
         return
 
@@ -787,10 +799,11 @@ def retry_deferred_restart() -> None:
         with _operation_lock:
             if not _restart_pending:
                 return
-            if _process_running(('LeagueClientUx.exe',)):
-                _restart_pending = not restart_client()
+            if _restart_pending & _process_ids(('LeagueClientUx.exe',)):
+                if restart_client():
+                    _restart_pending = frozenset()
             else:
-                _restart_pending = False  # The next client loads the registered loader
+                _restart_pending = frozenset()  # A client started since loads the registered loader
 
     threading.Thread(target=restart, name='PenguClientRestart', daemon=True).start()
 
@@ -856,9 +869,10 @@ def activate_on_start(league_path: Optional[str] = None) -> bool:
         if _ACTIVE_FLAG.exists():
             _clear_active_flag()
         if restart_needed:
-            _restart_pending = not restart_client()
+            _restart_pending = (frozenset() if restart_client()
+                                else _process_ids(('LeagueClientUx.exe',)))
             if _restart_pending:
-                log.info('Rose Loader enabled; client restart deferred until the lobby is ready.')
+                log.info('Rose Loader enabled; client restart deferred until the client is ready.')
         return True
 
 
