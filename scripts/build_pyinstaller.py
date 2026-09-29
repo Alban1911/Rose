@@ -8,6 +8,7 @@ Fast builds with Windows UI API support
 import sys
 import subprocess
 import shutil
+import stat
 import time
 from pathlib import Path
 
@@ -38,20 +39,36 @@ def print_step(step_num, total_steps, description):
 
 
 def clean_previous_builds():
-    """Clean previous build output (preserves build/ cache for faster rebuilds)"""
+    """Clean only the active output, preserving archived releases and build/ cache."""
     print_step(1, 4, "Cleaning Previous Build Output")
-    
-    # Only clean dist/ - preserve build/ folder for PyInstaller cache
-    dirs_to_clean = ["dist"]
-    
-    for dir_name in dirs_to_clean:
-        directory = ROOT / dir_name
-        if directory.exists():
+
+    try:
+        workspace = ROOT.resolve()
+        output = workspace / "dist" / "Rose"
+        # Validate both paths even when Rose is absent: PyInstaller must not
+        # create its output through a redirected dist directory.
+        for directory in (output.parent, output):
+            resolved = directory.resolve()
+            if not resolved.is_relative_to(workspace) or resolved != directory:
+                raise ValueError(f"Refusing redirected build output: {directory}")
             try:
-                shutil.rmtree(directory)
-                print(f"[OK] Removed {dir_name}/")
-            except Exception as e:
-                print(f"[ERROR] Failed to remove {dir_name}/: {e}")
+                metadata = directory.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISLNK(metadata.st_mode) or (
+                getattr(metadata, "st_file_attributes", 0)
+                & stat.FILE_ATTRIBUTE_REPARSE_POINT
+            ):
+                raise ValueError(f"Refusing linked build output: {directory}")
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError(f"Build output path is not a directory: {directory}")
+
+        if output.exists():
+            shutil.rmtree(output)
+            print("[OK] Removed dist/Rose/ (preserved other dist/ contents)")
+    except (OSError, RuntimeError, ValueError) as e:
+        print(f"[ERROR] Failed to clean dist/Rose/: {e}")
+        return False
     
     # Check if build cache exists
     if (ROOT / "build").exists():
