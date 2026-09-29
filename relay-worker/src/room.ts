@@ -28,6 +28,9 @@ export class PartyRoom extends DurableObject {
   // Clients ping every 25s; a socket silent for longer is gone (PC asleep,
   // network lost...) even though no close frame arrived
   private static STALE_MS = 90_000;
+  // Rose before 1.4.0 never pings: timing its sockets out after 90s made those
+  // clients reconnect, and wake the room, all day. Theirs only go after this
+  private static NEVER_PINGED_STALE_MS = 30 * 60_000;
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
@@ -118,7 +121,9 @@ export class PartyRoom extends DurableObject {
   async webSocketError(ws: WebSocket, error: unknown) {
     const info = ws.deserializeAttachment() as MemberInfo | null;
     this.log('error', { summoner_id: info?.summoner_id, error: String(error) });
-    ws.serializeAttachment(null);
+    try {
+      ws.serializeAttachment(null);
+    } catch {}
     this.broadcastMembers();
   }
 
@@ -142,9 +147,10 @@ export class PartyRoom extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) {
       if (ws.readyState !== WebSocket.READY_STATE_OPEN) continue;
       const info = ws.deserializeAttachment() as MemberInfo | null;
-      const lastSeen =
-        this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? info?.joined_at ?? now;
-      if (now - lastSeen > PartyRoom.STALE_MS) {
+      const lastPing = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime();
+      const lastSeen = lastPing ?? info?.joined_at ?? now;
+      const staleMs = lastPing === undefined ? PartyRoom.NEVER_PINGED_STALE_MS : PartyRoom.STALE_MS;
+      if (now - lastSeen > staleMs) {
         this.closeSocket(ws, 'stale');
         continue;
       }
