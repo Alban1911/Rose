@@ -52,14 +52,16 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 - **ROSE-UI**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
 - **ROSE-SkinMonitor**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket
-- **ROSE-CustomWheel**: Displays custom mod metadata for hovered skins and exposes quick access to the mods folder
+- **ROSE-CustomSkinSelector**: Lists the custom skin mods made for the hovered skin and applies the one you pick
+- **ROSE-CustomWheel**: Custom mods panel for maps, fonts, announcers and other mods
 - **ROSE-ChromaWheel**: Enhanced chroma selection interface for choosing any chroma variant
 - **ROSE-FormsWheel**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
 - **ROSE-SettingsPanel**: Settings panel accessible from the League of Legends Client
 - **ROSE-RandomSkin**: Random skin selection feature
 - **ROSE-HistoricMode**: Access to the last used skin for every champion
 - **ROSE-PartyMode**: Party mode UI — displays a panel in lobby and champion select to enable skin sharing, view connected peers, and see friends' skin selections in real time
-- **ROSE-Jade**: Client customization — regalia borders, backgrounds, banners, icons, titles, and win/loss stats
+- **ROSE-I18n**: Translates Rose's menus into the language picked in Settings, else the League client's
+- **ROSE-Jade**: Client customization — regalia borders, backgrounds, banners, icons, titles, and win/loss stats (shipped disabled)
 
 ## How It Works
 
@@ -72,7 +74,9 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 ## Features
 
 - **Smart Injection**: Never injects skins you already own
-- **Multi-Language Support**: Works with any client language
+- **Custom Mods**: Custom skins, maps, fonts and announcers (`.fantome`, `.zip` and `.modpkg`)
+- **Party Mode**: Friends running Rose see each other's skins in game
+- **Multi-Language Support**: Works with any client language, with Rose's menus in 22 languages
 - **Open Source**: Fully open source and extensible
 - **Free**: If you bought this software, you got scammed 💀
 
@@ -80,13 +84,13 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 - **Windows 10/11**
 - **League of Legends** installed
-- **Injection DLL** - You must provide your own signed DLL (see below)
+- **LTK patcher** - You must provide it yourself (see below)
 
-### DLL Requirement
+### LTK Patcher Requirement
 
-Due to DMCA restrictions, Rose cannot distribute the injection DLL file. You must obtain this file yourself from an authorized source and sign it with your own code signing certificate.
+Due to DMCA restrictions, Rose cannot distribute the LTK patcher. Get its two files, `ltk_patcher_host.exe` and `ltk_patcher_dll.dll`, from an LTK Manager install.
 
-On first launch, Rose will prompt you to provide this file and open the folder where it should be placed.
+On first launch, Rose asks for these files and opens its tools folder, where they go. The patcher stops working with game builds released after its end-of-life date: Rose then tells you to update LTK Manager and replace both files.
 
 ## Installation
 
@@ -105,7 +109,8 @@ to download or commit a prebuilt `Pengu Loader.exe`.
 - Windows 10/11
 - Python 3.11 or newer
 - Visual Studio Build Tools with the .NET desktop build tools, WPF support,
-  and the .NET Framework 4.7.2 targeting pack
+  and the .NET Framework 4.7.2 targeting pack (for Pengu Loader), and the
+  MSVC C++ build tools (for Rose's stand-in `cslol-dll.dll`)
 - Inno Setup 6 if you also want to create the installer
 
 Clone the repository and enter its directory:
@@ -127,7 +132,7 @@ Build the loader by itself, if needed:
 python scripts/build_pengu_loader.py
 ```
 
-Build Rose and automatically rebuild the loader:
+Build Rose (rebuilds the loader and the `cslol-dll.dll` stand-in):
 
 ```powershell
 python scripts/build_pyinstaller.py
@@ -140,10 +145,17 @@ the Windows installer in one step:
 python scripts/build_all.py
 ```
 
-The installer is written to `installer/Rose_Setup.exe`. Use
+The installer is written to `installer/Rose_Setup_<version>.exe`. Use
 `scripts/build_pyinstaller.py` or `scripts/build_all.py` instead of invoking
 `pyinstaller Rose.spec` directly, because the Rose build scripts compile
 Pengu Loader first.
+
+To create the update package the auto-updater downloads from a release
+(`installer/update_package_<version>.zip`, `hashes.game.txt` excluded):
+
+```powershell
+python scripts/create_update_package.py
+```
 
 ## Credits
 
@@ -161,7 +173,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and project structu
 
 This project is not endorsed by or affiliated with Riot Games. Riot Games and all related properties are trademarks or registered trademarks of Riot Games, Inc.
 
-Custom skins are allowed under Riot's terms of service and are not detected. Do not discuss or advertise skin tools in game. Users proceed at their own risk.
+Riot Games does not allow custom skins that reproduce its real skins, which is what Rose does. Use Rose at your own risk: its developers are not responsible for any consequence of using it, including account suspensions or bans.
 
 ## Support
 
