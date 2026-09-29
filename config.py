@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 # APPLICATION METADATA
 # =============================================================================
 
-APP_VERSION = "1.4.1"                           # Application version
+APP_VERSION = "1.4.2"                           # Application version
 APP_USER_AGENT = f"Rose/{APP_VERSION}"  # User-Agent header for HTTP requests
 GAME_EXECUTABLE_NAMES = ("League of Legends.exe", "League of Legends (TM) Client.exe")
 
