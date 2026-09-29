@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from injection import classic
@@ -10,6 +11,8 @@ from injection.core import injector as injector_module
 from injection.core.injector import SkinInjector
 from injection.mods.mod_manager import ModManager
 from injection.mods.zip_resolver import ZipResolver
+from state import SharedState
+from threads.handlers.injection_trigger import InjectionTrigger
 
 
 class ClassicIdTests(unittest.TestCase):
@@ -20,11 +23,86 @@ class ClassicIdTests(unittest.TestCase):
         self.assertEqual(classic.to_classic_champion_id(103), 60103)
         self.assertEqual(classic.to_classic_champion_id(60103), 60103)
         self.assertIsNone(classic.to_classic_champion_id(None))
+        self.assertTrue(classic.is_classic_champion_id(60055))
+        self.assertFalse(classic.is_classic_champion_id(55))
 
     def test_jade_is_rift_classic(self):
         self.assertTrue(classic.is_classic_game_mode('JADE'))
         self.assertFalse(classic.is_classic_game_mode('CLASSIC'))
         self.assertFalse(classic.is_classic_game_mode(None))
+
+    def test_native_skin301_carrier_wins_over_skin0(self):
+        carousel = [
+            {'id': 60055000, 'isBase': True},
+            {'id': 60055301},
+            {'id': 60055029},
+        ]
+        self.assertEqual(
+            classic.resolve_classic_default_skin_id(
+                55, carousel, [60055000, 60055301, 60055029]
+            ),
+            60055301,
+        )
+
+    def test_declared_skin302_resolves_ambiguous_native_slots(self):
+        carousel = [
+            {'id': 60010301},
+            {'id': 60010302, 'isDefault': True},
+        ]
+        self.assertEqual(
+            classic.resolve_classic_default_skin_id(
+                60010, carousel, [60010301, 60010302]
+            ),
+            60010302,
+        )
+
+    def test_skin0_is_used_only_when_no_native_carrier_exists(self):
+        carousel = [{'id': 60002000, 'isBase': True}, {'id': 60002016}]
+        self.assertEqual(
+            classic.resolve_classic_default_skin_id(
+                2, carousel, [60002000, 60002016]
+            ),
+            60002000,
+        )
+
+    def test_unpickable_skin301_does_not_override_skin0(self):
+        carousel = [
+            {'id': 60021000, 'isBase': True},
+            {'id': 60021301},
+        ]
+        self.assertEqual(
+            classic.resolve_classic_default_skin_id(
+                21, carousel, [60021000]
+            ),
+            60021000,
+        )
+
+    def test_missing_live_carrier_does_not_invent_skin0(self):
+        state = SimpleNamespace(current_game_mode='JADE', classic_default_skin_id=None)
+        lcu = MagicMock()
+        lcu.get.side_effect = [[{'id': 60055301}], []]
+        self.assertIsNone(classic.cache_classic_default_skin_id(lcu, state, 55))
+        self.assertIsNone(state.classic_default_skin_id)
+
+    def test_default_skin_check_uses_cached_classic_carrier(self):
+        state = SimpleNamespace(
+            current_game_mode='JADE', classic_default_skin_id=60055301
+        )
+        self.assertTrue(classic.is_default_skin_for_state(state, 60055301))
+        self.assertFalse(classic.is_default_skin_for_state(state, 60055000))
+
+    def test_injection_trigger_uses_the_live_native_carrier(self):
+        state = SharedState(
+            current_game_mode='JADE', locked_champ_id=60055
+        )
+        lcu = MagicMock()
+        lcu.get.side_effect = [
+            [{'id': 60055000, 'isBase': True}, {'id': 60055301}],
+            [60055000, 60055301],
+        ]
+        trigger = InjectionTrigger(lcu, state)
+        self.assertEqual(trigger._injection_carrier_skin_id(60055), 60055301)
+        self.assertEqual(state.classic_default_skin_id, 60055301)
 
 
 class ClassicInjectionTests(unittest.TestCase):
