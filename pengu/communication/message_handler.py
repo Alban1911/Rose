@@ -22,6 +22,7 @@ from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.storage import ModStorageService
+from lcu.features.client_language import ClientLanguageService, LanguageChangeError
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
@@ -159,6 +160,11 @@ class MessageHandler:
         self.port = port
         self.mod_storage = mod_storage or ModStorageService()
         self.injection_manager = injection_manager
+        self.language_service = ClientLanguageService(
+            skin_scraper.lcu, stopped=lambda: shared_state.stop
+        ) if skin_scraper else None
+        self._language_options_lock = threading.Lock()
+        self._language_change_lock = threading.Lock()
 
     def _is_valid_local_league_path(self, game_path: str) -> bool:
         """Validate a League install path without touching UNC/network paths."""
@@ -232,6 +238,10 @@ class MessageHandler:
             self._handle_dice_button_click(payload)
         elif payload_type == "settings-request":
             self._handle_settings_request(payload)
+        elif payload_type == "language-options-request":
+            self._handle_language_options(payload)
+        elif payload_type == "language-change":
+            self._handle_language_change(payload)
         elif payload_type == "path-validate":
             self._handle_path_validate(payload)
         elif payload_type == "open-mods-folder":
@@ -501,6 +511,72 @@ class MessageHandler:
             log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, monitor_auto_resume_timeout={monitor_auto_resume_timeout}, autostart={autostart}, hide_empty_categories={hide_empty_categories}, gamePath={game_path}, valid={path_valid}")
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle settings request: {e}")
+
+    def _send_language_status(self, status: dict) -> None:
+        # League's UX disconnects during the restart. The service retains its
+        # status so the new Settings panel can retrieve it on reconnect.
+        try:
+            self._send_response(json.dumps({"type": "language-status", **status}))
+        except Exception:
+            log.debug("[SkinMonitor] Language status will be sent on reconnect")
+
+    def _handle_language_options(self, payload: dict) -> None:
+        if not self.language_service:
+            self._send_response(json.dumps({
+                "type": "language-options", "error": "League connection unavailable."
+            }))
+            return
+        self._send_language_status(self.language_service.status)
+        if (self.language_service.status.get("busy")
+                or not self._language_options_lock.acquire(blocking=False)):
+            return
+
+        def fetch_options():
+            try:
+                try:
+                    options = self.language_service.options()
+                except Exception as exc:
+                    # Local API errors can carry authentication details. Only
+                    # the service's user-facing errors are safe to display.
+                    options = {"error": str(exc) if isinstance(exc, LanguageChangeError)
+                               else "Could not load languages. Reopen settings to retry."}
+                self._send_response(json.dumps({"type": "language-options", **options}))
+            except Exception:
+                log.debug("[SkinMonitor] Language options client disconnected")
+            finally:
+                self._language_options_lock.release()
+
+        try:
+            threading.Thread(target=fetch_options, name="LanguageOptions", daemon=True).start()
+        except RuntimeError:
+            self._language_options_lock.release()
+            self._send_response(json.dumps({
+                "type": "language-options", "error": "Could not load languages. Reopen settings to retry."
+            }))
+
+    def _handle_language_change(self, payload: dict) -> None:
+        if not self.language_service:
+            self._send_language_status({
+                "busy": False, "stage": "error", "message": "League connection unavailable."
+            })
+            return
+        if not self._language_change_lock.acquire(blocking=False):
+            self._send_language_status(self.language_service.status)
+            return
+
+        def change_language():
+            try:
+                self.language_service.change(payload.get("locale"), self._send_language_status)
+            finally:
+                self._language_change_lock.release()
+
+        try:
+            threading.Thread(target=change_language, name="LanguageChange", daemon=True).start()
+        except RuntimeError:
+            self._language_change_lock.release()
+            self._send_language_status({
+                "busy": False, "stage": "error", "message": "Could not start the language change. Please try again."
+            })
 
     def _handle_diagnostics_clear(self, payload: dict) -> None:
         """Clear rose_diagnostics.txt (Diagnostics)"""
