@@ -40,6 +40,7 @@ export class PartyRoom extends DurableObject {
     const active = this.openSockets();
 
     if (active.length >= PartyRoom.MAX_MEMBERS) {
+      this.log('full', { open: active.length });
       return new Response('Room is full', { status: 409 });
     }
 
@@ -47,6 +48,7 @@ export class PartyRoom extends DurableObject {
     const [client, server] = Object.values(pair);
 
     this.ctx.acceptWebSocket(server);
+    this.log('connect', { open: active.length + 1 });
 
     // Send current member list to the new joiner
     const members = this.getMembers();
@@ -104,19 +106,27 @@ export class PartyRoom extends DurableObject {
     }
   }
 
-  async webSocketClose(ws: WebSocket) {
+  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
+    const info = ws.deserializeAttachment() as MemberInfo | null;
+    this.log('client_close', { summoner_id: info?.summoner_id, code, reason, wasClean });
     // Clear the member info so getMembers() won't include them, and answer
     // the close frame so the client isn't left waiting
     this.closeSocket(ws, 'closed');
     this.broadcastMembers();
   }
 
-  async webSocketError(ws: WebSocket) {
+  async webSocketError(ws: WebSocket, error: unknown) {
+    const info = ws.deserializeAttachment() as MemberInfo | null;
+    this.log('error', { summoner_id: info?.summoner_id, error: String(error) });
     ws.serializeAttachment(null);
     this.broadcastMembers();
   }
 
   private closeSocket(ws: WebSocket, reason: string) {
+    if (reason !== 'closed') {
+      const info = ws.deserializeAttachment() as MemberInfo | null;
+      this.log('server_close', { summoner_id: info?.summoner_id, reason });
+    }
     try {
       ws.serializeAttachment(null);
     } catch {}
@@ -141,6 +151,12 @@ export class PartyRoom extends DurableObject {
       open.push(ws);
     }
     return open;
+  }
+
+  // One line per connection event in Workers Logs, to see why rooms churn.
+  // room matches the objectId of the Durable Objects analytics
+  private log(event: string, fields: Record<string, unknown>) {
+    console.log(JSON.stringify({ event, room: this.ctx.id.toString().slice(0, 12), ...fields }));
   }
 
   private getMembers(): MemberInfo[] {
