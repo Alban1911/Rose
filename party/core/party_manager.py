@@ -226,7 +226,9 @@ class PartyManager:
             await self._publish_state()
         room_key = compute_room_key(token.summoner_id, token.encryption_key)
 
-        if room_key not in self._relays:
+        if room_key in self._relays:
+            self._relays[room_key].resume()
+        else:
             if len(self._relays) >= MAX_ROOMS:
                 return False, "You're linked to too many parties. Disable and re-enable party mode, then try again."
             error = await self._join_room(room_key)
@@ -510,6 +512,7 @@ class PartyManager:
                         changed = True
                         if in_lobby:
                             log.info(f"[PARTY] Peer {peer.summoner_name} joined our lobby")
+                            self._resume_rooms()
                         else:
                             log.info(f"[PARTY] Peer {peer.summoner_name} left our lobby")
                 if changed:
@@ -524,11 +527,18 @@ class PartyManager:
         """Broadcast our pick once it settles, or at once when our injection starts."""
         pending = None
         pending_since = 0.0
+        phase = None
         while self._running:
             try:
                 await asyncio.sleep(SKIN_BROADCAST_INTERVAL)
                 if not self._running:
                     continue
+
+                # The party is needed again: reconnect the rooms we gave up on
+                if self.state.phase != phase:
+                    phase = self.state.phase
+                    if phase in ("Lobby", "ChampSelect"):
+                        self._resume_rooms()
 
                 # Hashing a custom mod reads files: keep it off the event loop
                 skin_state = await asyncio.to_thread(self._current_skin_state)
@@ -552,6 +562,11 @@ class PartyManager:
                 break
             except Exception as e:
                 log.info(f"[PARTY] Skin broadcast error: {e}")
+
+    def _resume_rooms(self):
+        """Reconnect the rooms we stopped reconnecting to (see PartyRelay._run)."""
+        for relay in list(self._relays.values()):
+            relay.resume()
 
     def _selection_is_final(self) -> bool:
         collector = self._skin_collector
