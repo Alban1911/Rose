@@ -53,19 +53,35 @@ class WebSocketEventHandler:
         self.injection_manager = injection_manager
         self.swiftplay_handler = swiftplay_handler
         self._ws_last_phase = None
+        self._last_error = None
     
     def handle_message(self, ws, msg):
         """Handle incoming WebSocket message"""
         try:
             data = json.loads(msg)
-            if isinstance(data, list) and len(data) >= 3:
-                if data[0] == 8 and isinstance(data[2], dict):
-                    self.handle_api_event(data[2])
-                return
-            if isinstance(data, dict) and "uri" in data:
-                self.handle_api_event(data)
-        except Exception:
-            pass
+        except (TypeError, ValueError) as e:
+            # The client also sends frames that are not events: not an error
+            log.debug(f"[WS] Ignoring non-JSON LCU message: {e}")
+            return
+
+        payload = None
+        if isinstance(data, list) and len(data) >= 3:
+            if data[0] == 8 and isinstance(data[2], dict):
+                payload = data[2]
+        elif isinstance(data, dict) and "uri" in data:
+            payload = data
+        if payload is None:
+            return
+
+        try:
+            self.handle_api_event(payload)
+        except Exception as e:
+            # Every LCU event goes through here (phases, champ select): an error
+            # must leave a trace, once per event and error as events come in bursts
+            key = (payload.get("uri"), repr(e))
+            if key != self._last_error:
+                self._last_error = key
+                log.exception(f"[WS] Failed to handle LCU event {payload.get('uri')}: {e}")
     
     def handle_api_event(self, payload: dict):
         """Handle API event from WebSocket"""
@@ -99,8 +115,8 @@ class WebSocketEventHandler:
             if prev_phase == "ChampSelect" and ph != "ChampSelect":
                 try:
                     _on_champ_select_exit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[WS] Could not record the pending base skin timeout: {e}")
             
             if ph == "ChampSelect":
                 # Detect game mode FIRST to get accurate is_swiftplay_mode flag
@@ -275,8 +291,8 @@ class WebSocketEventHandler:
                         # Check if this confirms a pending base skin force
                         try:
                             _on_skin_confirmed(skin_int)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log.debug(f"[WS] Could not record the base skin confirmation: {e}")
                     break
         
         # Visible players (distinct cellIds)

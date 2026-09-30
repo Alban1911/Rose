@@ -182,8 +182,8 @@ class ChampionLockHandler:
             ui = get_user_interface(self.state, self.skin_scraper)
             if ui:
                 ui._try_show_click_blocker()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[exchange] Could not show the click blocker: {e}")
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
     
