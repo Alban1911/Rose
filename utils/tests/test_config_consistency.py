@@ -76,6 +76,18 @@ class PercentSignTests(ConfigTestCase):
         config.set_config_option('General', 'leaguePath', path)
         self.assertEqual(config.get_config_option('General', 'leaguePath'), path)
 
+    def test_the_config_manager_keeps_a_percent_sign_in_game_paths(self):
+        from injection.config.config_manager import ConfigManager
+
+        manager = ConfigManager()
+        manager._config_path = self.path
+        path = r'D:\Games 100%\Riot Games\League of Legends\Game'
+        manager.save_league_path(path)
+        manager.save_client_path(r'D:\Games 100%\Riot Games\League of Legends')
+
+        self.assertEqual(manager.load_league_path(), path)
+        self.assertEqual(manager.load_client_path(), r'D:\Games 100%\Riot Games\League of Legends')
+
 
 if __name__ == '__main__':
     unittest.main()
