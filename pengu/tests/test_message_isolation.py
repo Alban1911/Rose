@@ -30,6 +30,12 @@ class MessageIsolationTests(unittest.TestCase):
             handled.append(request_skin_mods.call_count)
         self.assertEqual(handled, [2])
 
+    def test_a_handler_that_keeps_failing_is_reported_once(self):
+        with patch.object(MessageHandler, "_handle_request_skin_mods", side_effect=KeyError("skinId")),                 self.assertLogs(level="ERROR") as logs:
+            for _ in range(20):
+                self.handler.handle_message(json.dumps({"type": "request-skin-mods"}))
+        self.assertEqual(len(logs.output), 1)
+
     def test_json_that_is_not_an_object_is_ignored(self):
         for message in ("[1, 2]", "42", '"text"', "null"):
             with self.subTest(message=message), self.assertLogs(level="WARNING"):
