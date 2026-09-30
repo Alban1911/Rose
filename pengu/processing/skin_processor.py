@@ -249,12 +249,15 @@ class SkinProcessor:
         try:
             if not self.skin_scraper.scrape_champion_skins(champ_id):
                 return None
-        except Exception:
+        except Exception as e:
+            # The hovered skin cannot be recognised, so nothing would be injected
+            log.warning(f"[SkinMonitor] Could not load the skins of champion {champ_id}: {e}")
             return None
         
         try:
             result = self.skin_scraper.find_skin_by_text(skin_name)
-        except Exception:
+        except Exception as e:
+            log.warning(f"[SkinMonitor] Could not match skin name {skin_name!r}: {e}")
             return None
         
         if result:
