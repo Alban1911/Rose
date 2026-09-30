@@ -76,6 +76,9 @@ class WebSocketConnection:
         self.is_connected = False
         self._stop_event = threading.Event()
         self._retry_attempt = 0
+        self._last_error = None
+        # Reason of the last retry logged as a warning (repeats go to debug)
+        self._warned_retry_reason: Optional[str] = None
     
     def run(self):
         """Main WebSocket connection loop"""
@@ -129,7 +132,11 @@ class WebSocketConnection:
             if self.state.stop or self._stop_event.is_set():
                 break
 
-            if self._wait_before_retry(f"LCU WebSocket unavailable on port {port}"):
+            reason = f"LCU WebSocket unavailable on port {port}"
+            if self._last_error is not None:
+                reason += f" ({self._last_error})"
+                self._last_error = None
+            if self._wait_before_retry(reason):
                 break
 
         # Ensure WebSocket is closed on thread exit
@@ -152,6 +159,7 @@ class WebSocketConnection:
         
         self.is_connected = True
         self._retry_attempt = 0
+        self._warned_retry_reason = None
         
         # Update app status
         if self.app_status_callback:
@@ -170,6 +178,7 @@ class WebSocketConnection:
     def _on_error(self, ws, err):
         """WebSocket error"""
         self.is_connected = False
+        self._last_error = err
         log.debug(f"WebSocket: Error: {err}")
         if self.on_error:
             self.on_error(ws, err)
@@ -211,7 +220,11 @@ class WebSocketConnection:
         )
         jitter = random.uniform(0.0, base_delay * WS_RECONNECT_JITTER)
         delay = min(WS_RECONNECT_MAX_DELAY, base_delay + jitter)
-        log.warning(
+        # While the client is closed this repeats every few seconds for hours:
+        # warn when the reason changes, keep the repeats at debug level
+        log_retry = log.debug if reason == self._warned_retry_reason else log.warning
+        self._warned_retry_reason = reason
+        log_retry(
             "[WS] %s; retrying in %.1fs (attempt %d)",
             reason,
             delay,
