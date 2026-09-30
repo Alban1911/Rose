@@ -6,6 +6,7 @@ Handles chroma selection callbacks and state updates
 """
 
 from typing import Optional
+from injection.classic import default_skin_id_for_state
 from state import SharedState
 from utils.core.logging import get_logger
 from ui.handlers.historic_mode_handler import historic_custom_mod_affects_skin
@@ -510,7 +511,9 @@ class ChromaSelectionHandler:
                 and self.state.locked_champ_id is not None
                 and self.state.last_hovered_skin_id is not None
             ):
-                base_skin_id = self.state.locked_champ_id * 1000
+                base_skin_id = default_skin_id_for_state(
+                    self.state, self.state.locked_champ_id
+                )
                 selected_skin_id = self.state.last_hovered_skin_id
                 if (
                     selected_skin_id != base_skin_id
@@ -528,4 +531,3 @@ class ChromaSelectionHandler:
                         log.debug(f"[CHROMA] Failed to broadcast historic state in safety check: {e}")
         except Exception as e:
             log.debug(f"[CHROMA] Error disabling historic mode: {e}")
-

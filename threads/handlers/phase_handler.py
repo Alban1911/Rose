@@ -234,6 +234,7 @@ class PhaseHandler:
         """Reset state for phase exit"""
         self.state.hovered_champ_id = None
         self.state.locked_champ_id = None
+        self.state.classic_default_skin_id = None
         self.state.locked_champ_timestamp = 0.0
         self.state.players_visible = 0
         self.state.locks_by_cell.clear()
@@ -244,4 +245,3 @@ class PhaseHandler:
         # via cleanup_swiftplay_exit() which also handles the associated
         # tracking/mods state atomically.  Clearing the flag alone would
         # leave orphaned swiftplay_extracted_mods / swiftplay_skin_tracking.
-
