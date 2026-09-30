@@ -59,18 +59,29 @@ class WebSocketEventHandler:
         """Handle incoming WebSocket message"""
         try:
             data = json.loads(msg)
-            if isinstance(data, list) and len(data) >= 3:
-                if data[0] == 8 and isinstance(data[2], dict):
-                    self.handle_api_event(data[2])
-                return
-            if isinstance(data, dict) and "uri" in data:
-                self.handle_api_event(data)
+        except (TypeError, ValueError) as e:
+            # The client also sends frames that are not events: not an error
+            log.debug(f"[WS] Ignoring non-JSON LCU message: {e}")
+            return
+
+        payload = None
+        if isinstance(data, list) and len(data) >= 3:
+            if data[0] == 8 and isinstance(data[2], dict):
+                payload = data[2]
+        elif isinstance(data, dict) and "uri" in data:
+            payload = data
+        if payload is None:
+            return
+
+        try:
+            self.handle_api_event(payload)
         except Exception as e:
             # Every LCU event goes through here (phases, champ select): an error
-            # must leave a trace, once per distinct error as events come in bursts
-            if repr(e) != self._last_error:
-                self._last_error = repr(e)
-                log.exception(f"[WS] Failed to handle LCU event: {e}")
+            # must leave a trace, once per event and error as events come in bursts
+            key = (payload.get("uri"), repr(e))
+            if key != self._last_error:
+                self._last_error = key
+                log.exception(f"[WS] Failed to handle LCU event {payload.get('uri')}: {e}")
     
     def handle_api_event(self, payload: dict):
         """Handle API event from WebSocket"""

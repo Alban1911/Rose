@@ -34,6 +34,31 @@ class EventErrorTests(unittest.TestCase):
 
         self.assertEqual(self.log.exception.call_count, 2)
 
+    def test_the_failing_event_uri_is_logged(self):
+        with patch.object(self.handler, 'handle_api_event', side_effect=KeyError('eventType')):
+            self.handler.handle_message(None, EVENT)
+
+        self.assertIn('/lol-gameflow/v1/gameflow-phase', self.log.exception.call_args[0][0])
+
+    def test_a_message_that_is_not_json_is_not_an_error(self):
+        with patch.object(self.handler, 'handle_api_event') as handle:
+            self.handler.handle_message(None, 'not json')
+
+        handle.assert_not_called()
+        self.log.exception.assert_not_called()
+        self.log.warning.assert_not_called()
+
+    def test_routing_is_unchanged(self):
+        event = {'uri': '/lol-gameflow/v1/gameflow-phase', 'data': 'Lobby'}
+        with patch.object(self.handler, 'handle_api_event') as handle:
+            self.handler.handle_message(None, json.dumps([8, 'OnJsonApiEvent', event]))
+            self.handler.handle_message(None, json.dumps(event))
+            self.handler.handle_message(None, json.dumps([5, 'OnJsonApiEvent', event]))
+            self.handler.handle_message(None, json.dumps({'data': {}}))
+
+        self.assertEqual(handle.call_count, 2)
+        handle.assert_called_with(event)
+
 
 if __name__ == '__main__':
     unittest.main()
