@@ -6,13 +6,19 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-# Isolate import-time configuration from an installed Rose instance.
+# Isolate configuration from an installed Rose instance. The patch is started in
+# setUpModule, not at import: discovery imports every test module before running
+# any, so an import-time patch leaked into the other modules' tests.
 from utils.core import paths
 _test_data = tempfile.TemporaryDirectory()
-unittest.addModuleCleanup(_test_data.cleanup)
 _path_patch = patch.object(paths, '_cached_user_data_dir', Path(_test_data.name))
-_path_patch.start()
-unittest.addModuleCleanup(_path_patch.stop)
+
+
+def setUpModule():
+    _path_patch.start()
+    unittest.addModuleCleanup(_test_data.cleanup)
+    unittest.addModuleCleanup(_path_patch.stop)
+
 
 import config
 from injection.config.config_manager import ConfigManager
