@@ -77,6 +77,8 @@ class WebSocketConnection:
         self._stop_event = threading.Event()
         self._retry_attempt = 0
         self._last_error = None
+        # Reason of the last retry logged as a warning (repeats go to debug)
+        self._warned_retry_reason = None
     
     def run(self):
         """Main WebSocket connection loop"""
@@ -157,6 +159,7 @@ class WebSocketConnection:
         
         self.is_connected = True
         self._retry_attempt = 0
+        self._warned_retry_reason = None
         
         # Update app status
         if self.app_status_callback:
@@ -217,7 +220,11 @@ class WebSocketConnection:
         )
         jitter = random.uniform(0.0, base_delay * WS_RECONNECT_JITTER)
         delay = min(WS_RECONNECT_MAX_DELAY, base_delay + jitter)
-        log.warning(
+        # While the client is closed this repeats every few seconds for hours:
+        # warn when the reason changes, keep the repeats at debug level
+        log_retry = log.debug if reason == self._warned_retry_reason else log.warning
+        self._warned_retry_reason = reason
+        log_retry(
             "[WS] %s; retrying in %.1fs (attempt %d)",
             reason,
             delay,
