@@ -51,7 +51,7 @@ export class PartyRoom extends DurableObject {
     const [client, server] = Object.values(pair);
 
     this.ctx.acceptWebSocket(server);
-    this.log('connect', { open: active.length + 1 });
+    this.log('connect', { open: active.length + 1, v: new URL(request.url).searchParams.get('v') });
 
     // Send current member list to the new joiner
     const members = this.getMembers();
@@ -82,13 +82,16 @@ export class PartyRoom extends DurableObject {
         ws.serializeAttachment(info);
         // A rejoin replaces the member's previous connection, which dropped
         // without a close frame
+        let replaced = 0;
         for (const other of this.ctx.getWebSockets()) {
           if (other === ws) continue;
           const otherInfo = other.deserializeAttachment() as MemberInfo | null;
           if (otherInfo?.summoner_id === info.summoner_id) {
             this.closeSocket(other, 'replaced');
+            replaced++;
           }
         }
+        this.log('join', { summoner_id: info.summoner_id, replaced });
         this.broadcastMembers();
         break;
       }

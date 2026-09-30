@@ -16,6 +16,7 @@ from typing import Callable, List, Optional
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from config import APP_VERSION
 from utils.core.logging import get_logger
 
 log = get_logger()
@@ -233,7 +234,8 @@ class PartyRelay:
             log.warning("[RELAY] No relay URL configured")
             return False
 
-        url = f"{RELAY_URL}/room?key={self.room_key}"
+        # The version tells the relay's logs which Rose a looping connection comes from
+        url = f"{RELAY_URL}/room?key={self.room_key}&v={APP_VERSION}"
         self._room_full = False
         contexts = _ssl_contexts() if url.startswith("wss://") else [None]
         error: Optional[BaseException] = None
