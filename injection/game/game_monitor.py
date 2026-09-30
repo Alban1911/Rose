@@ -64,6 +64,39 @@ def make_game_ended_callback(state) -> Callable[[], bool]:
     return game_ended_callback
 
 
+def resume_orphaned_game() -> int:
+    """Resume a game left suspended by a Rose that died mid-injection.
+
+    Only one Rose runs at a time and nothing else suspends the game, so a
+    suspended game at startup would otherwise stay frozen until the user
+    killed it. Returns how many game processes were resumed.
+    """
+    if not PSUTIL_AVAILABLE:
+        return 0
+    resumed = 0
+    try:
+        processes = list(psutil.process_iter(['name', 'pid']))
+    except Exception as e:
+        log.warning(f"[monitor] Could not look for a suspended game: {e}")
+        return 0
+    for proc in processes:
+        if (proc.info.get('name') or '').lower() not in _GAME_PROCESS_NAMES:
+            continue
+        try:
+            if proc.status() != STATUS_STOPPED:
+                continue
+            proc.resume()
+            resumed += 1
+            log.warning(f"[monitor] Resumed a game left suspended by a previous Rose (PID={proc.info['pid']})")
+        except (NoSuchProcess, AccessDenied) as e:
+            log.warning(f"[monitor] Could not resume the suspended game (PID={proc.info['pid']}): {e}")
+    return resumed
+
+# The monitor loop sleeps in 0.05-0.1s steps, so it notices a lowered flag
+# quickly. The extra margin covers a psutil.process_iter() sweep in progress.
+MONITOR_THREAD_JOIN_TIMEOUT_S = 3.0
+
+
 class GameMonitor:
     """Monitors and controls game process suspension/resume"""
     
@@ -78,12 +111,51 @@ class GameMonitor:
         self._suspended_game_process = None
         self._runoverlay_started = False
         self._get_auto_resume_timeout = get_auto_resume_timeout_callback
-    
+        # Guards _suspended_game_process: the monitor thread, the injection
+        # thread and cleanup all read and clear it.
+        self._process_lock = threading.RLock()
+
+    def _take_suspended_process(self):
+        """Atomically hand over the suspended process reference and clear it."""
+        with self._process_lock:
+            proc = self._suspended_game_process
+            self._suspended_game_process = None
+            return proc
+
+    def _release_suspended_process(self, reason: str) -> None:
+        """Resume the suspended game, if any. Safe to call unconditionally."""
+        proc = self._take_suspended_process()
+        if proc is None or not PSUTIL_AVAILABLE:
+            return
+        try:
+            if proc.status() == STATUS_STOPPED:
+                proc.resume()
+                log_success(log, f"Resumed suspended game on {reason}", "")
+        except (NoSuchProcess, AccessDenied, AttributeError) as e:
+            log.debug(f"[monitor] Could not resume suspended process on {reason}: {e}")
+        except Exception as e:
+            log.debug(f"[monitor] Unexpected error resuming process on {reason}: {e}")
+
     def start(self):
         """Start game monitor - watches for game and suspends it"""
         # Stop any existing monitor first
         self.stop()
-        
+
+        # stop() only lowers the flag; the previous thread may still be inside
+        # a sleep or a process sweep. Raising the flag again here would revive
+        # its `while self._monitor_active` loop, leaving two threads fighting
+        # over the same suspended process.
+        previous = self._monitor_thread
+        if previous is not None and previous.is_alive():
+            previous.join(timeout=MONITOR_THREAD_JOIN_TIMEOUT_S)
+            if previous.is_alive():
+                log.warning(
+                    "[monitor] Previous monitor thread did not stop within %.0fs - "
+                    "not starting a second one",
+                    MONITOR_THREAD_JOIN_TIMEOUT_S,
+                )
+                return
+
         self._monitor_active = True
         self._suspended_game_process = None
         self._runoverlay_started = False  # Reset flag when starting new monitor
@@ -117,7 +189,8 @@ class GameMonitor:
                                     if game_proc.status() == STATUS_STOPPED:
                                         # Already suspended, just track it
                                         if self._suspended_game_process is None:
-                                            self._suspended_game_process = game_proc
+                                            with self._process_lock:
+                                                self._suspended_game_process = game_proc
                                             suspension_start_time = time.time()
                                             log_event(log, "Game already suspended - tracking", "", {"PID": proc.info['pid']})
                                         break
@@ -126,7 +199,8 @@ class GameMonitor:
                                     
                                     try:
                                         game_proc.suspend()
-                                        self._suspended_game_process = game_proc
+                                        with self._process_lock:
+                                            self._suspended_game_process = game_proc
                                         suspension_start_time = time.time()
                                         auto_resume_timeout = self._get_auto_resume_timeout()
                                         log_event(log, "Game suspended immediately", "", {
@@ -197,7 +271,8 @@ class GameMonitor:
                                         log.error(f"[monitor] Auto-resume retry failed: {retry_e}")
                                 # Always clear reference and stop monitor after auto-resume attempt
                                 # Even if resume failed, we can't keep trying forever
-                                self._suspended_game_process = None
+                                with self._process_lock:
+                                    self._suspended_game_process = None
                                 suspension_start_time = None
                                 log.info("[monitor] Stopping monitor after auto-resume - runoverlay should have hooked")
                                 self._monitor_active = False
@@ -225,7 +300,8 @@ class GameMonitor:
                                 # Try to suspend immediately
                                 try:
                                     game_proc.suspend()
-                                    self._suspended_game_process = game_proc
+                                    with self._process_lock:
+                                        self._suspended_game_process = game_proc
                                     suspension_start_time = time.time()  # Start safety timer
                                     auto_resume_timeout = self._get_auto_resume_timeout()
                                     log_event(log, "Game suspended", "", {
@@ -238,12 +314,14 @@ class GameMonitor:
                                     log.error("[monitor] Try running Rose as Administrator")
                                     self._monitor_active = False
                                     # Clear reference if we couldn't suspend (game is running anyway)
-                                    self._suspended_game_process = None
+                                    with self._process_lock:
+                                        self._suspended_game_process = None
                                     break
                                 except Exception as e:
                                     log.error(f"[monitor] Failed to suspend: {e}")
                                     # Clear reference on error (game might not be suspended)
-                                    self._suspended_game_process = None
+                                    with self._process_lock:
+                                        self._suspended_game_process = None
                                     break
                                 
                             except NoSuchProcess:
@@ -251,7 +329,8 @@ class GameMonitor:
                             except Exception as e:
                                 log.error(f"[monitor] Error: {e}")
                                 # Clear reference on error to prevent leaving game suspended
-                                self._suspended_game_process = None
+                                with self._process_lock:
+                                    self._suspended_game_process = None
                                 break
                     
                     # Sleep after checking all processes (not after each process)
@@ -267,23 +346,17 @@ class GameMonitor:
         log.debug("[monitor] Background thread started")
     
     def stop(self):
-        """Stop the game monitor"""
+        """Stop the game monitor and release the game if it is still suspended."""
         if self._monitor_active:
             log.debug("[monitor] Stopping...")
-            self._monitor_active = False
-            
-            # Resume game if still suspended
-            if self._suspended_game_process is not None and PSUTIL_AVAILABLE:
-                try:
-                    if self._suspended_game_process.status() == STATUS_STOPPED:
-                        self._suspended_game_process.resume()
-                        log_success(log, "Resumed suspended game on cleanup", "")
-                except (NoSuchProcess, AccessDenied, AttributeError) as e:
-                    log.debug(f"[INJECT] Could not resume suspended process: {e}")
-                except Exception as e:
-                    log.debug(f"[INJECT] Unexpected error resuming process: {e}")
-                
-            self._suspended_game_process = None
+        self._monitor_active = False
+
+        # The resume must not sit behind the `_monitor_active` check: the loop
+        # deactivates itself when runoverlay starts (see the top of the while)
+        # without clearing the reference, so by the time cleanup calls stop()
+        # the flag is already False while the game is still suspended. Gating
+        # on the flag left the game frozen until the user closed Rose.
+        self._release_suspended_process("cleanup")
     
     def get_suspended_game_process(self):
         """Get the currently suspended game process (if any)"""
@@ -306,7 +379,8 @@ class GameMonitor:
                     status_before = game_proc.status()
                 except (NoSuchProcess, AttributeError):
                     log.debug("[monitor] Game process no longer exists")
-                    self._suspended_game_process = None
+                    with self._process_lock:
+                        self._suspended_game_process = None
                     self._monitor_active = False
                     return
                 
@@ -353,7 +427,8 @@ class GameMonitor:
                             break
                 
                 # Clear the suspended process reference and stop monitoring
-                self._suspended_game_process = None
+                with self._process_lock:
+                    self._suspended_game_process = None
                 self._monitor_active = False
                 log.debug("[monitor] Game resumed - stopping monitor")
                 
@@ -361,12 +436,14 @@ class GameMonitor:
                 log.error(f"[monitor] Error resuming game: {e}")
                 # CRITICAL: Clear reference even on error to prevent permanent lock
                 # If resume failed, stop() will try again later
-                self._suspended_game_process = None
+                with self._process_lock:
+                    self._suspended_game_process = None
                 self._monitor_active = False
         elif self._suspended_game_process is not None and not PSUTIL_AVAILABLE:
             # Clear reference if psutil is not available
             log.warning("[monitor] Cannot resume game - psutil not available")
-            self._suspended_game_process = None
+            with self._process_lock:
+                self._suspended_game_process = None
             self._monitor_active = False
     
     def resume_if_suspended(self):
