@@ -17,6 +17,19 @@ from utils.core.junction import is_junction, safe_remove_entry
 log = get_logger()
 
 
+def empty_directory(path: Path) -> None:
+    """Remove what a directory holds but keep the directory itself.
+
+    The LTK patcher is started before the overlay is built and checks that its
+    overlay directory exists when it is configured: deleting and recreating the
+    directory made it fail, now and then, with "prefix not configured".
+    """
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    for entry in path.iterdir():
+        safe_remove_entry(entry)
+
+
 class ModManager:
     """Manages mod extraction and installation"""
 
@@ -35,13 +48,11 @@ class ModManager:
     def clean_overlay_dir(self):
         """Clean the overlay directory to prevent file lock issues"""
         overlay_dir = self.mods_dir.parent / "overlay"
-        if overlay_dir.exists():
-            try:
-                shutil.rmtree(overlay_dir, ignore_errors=True)
-                log.debug("[INJECT] Cleaned overlay directory")
-            except Exception as e:
-                log.warning(f"[INJECT] Failed to clean overlay directory: {e}")
-        overlay_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            empty_directory(overlay_dir)
+            log.debug("[INJECT] Cleaned overlay directory")
+        except Exception as e:
+            log.warning(f"[INJECT] Failed to clean overlay directory: {e}")
 
     def extract_zip_to_mod(self, zp: Path) -> Path:
         """Extract a ZIP-compatible skin archive to the mod directory."""

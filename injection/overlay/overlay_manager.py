@@ -681,11 +681,11 @@ class OverlayManager:
 
     @staticmethod
     def _wipe_overlay_dir(overlay_dir: Path):
-        """Delete overlay WAD files after runoverlay finishes"""
+        """Delete overlay WAD files after runoverlay finishes (the directory
+        stays: the next game's patcher may already be configured with it)"""
         try:
-            import shutil
-            shutil.rmtree(overlay_dir, ignore_errors=True)
-            overlay_dir.mkdir(parents=True, exist_ok=True)
+            from ..mods.mod_manager import empty_directory
+            empty_directory(overlay_dir)
             log.debug("[INJECT] Wiped overlay directory after game ended")
         except Exception as e:
             log.debug(f"[INJECT] Could not wipe overlay directory: {e}")
