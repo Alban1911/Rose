@@ -416,8 +416,15 @@ class RelayReconnectTests(unittest.TestCase):
         self.assertTrue(self.relay.stopped)
 
     def test_a_lasting_connection_starts_the_delays_over(self):
-        self.run_relay([(1, ""), (1, ""), (120, ""), (1, "")])
+        self.run_relay([(1, ""), (1, ""), (400, ""), (1, "")])
         self.assertEqual(self.delays[:4], [1.0, 2.0, 5.0, 1.0])
+
+    def test_connections_cut_every_100s_back_off_then_stop(self):
+        # Cloudflare cuts a connection that carries nothing after 100s: pings
+        # that never get through must not keep a room waking up all day
+        self.run_relay([(100, "")] * 10)
+        self.assertEqual(self.delays, list(self.module.RECONNECT_DELAYS))
+        self.assertTrue(self.relay.stopped)
 
     def test_a_full_room_stops_at_once(self):
         async def open_(timeout):
@@ -428,6 +435,20 @@ class RelayReconnectTests(unittest.TestCase):
         asyncio.run(self.relay._run())
         self.assertEqual(self.opens, 1)
         self.assertTrue(self.relay.stopped)
+
+    def test_a_relay_asking_for_a_newer_rose_stops_at_once(self):
+        async def open_(timeout):
+            self.opens += 1
+            self.relay._update_required = True
+            return False
+        self.relay._open = open_
+        asyncio.run(self.relay._run())
+        self.assertEqual(self.opens, 1)
+        self.assertTrue(self.relay.stopped)
+
+    def test_the_update_refusal_says_so(self):
+        error = SimpleNamespace(status_code=426)
+        self.assertIn("update Rose", self.module._describe_error(error))
 
     def test_resume_reconnects_a_stopped_room(self):
         self.relay._stopped = True

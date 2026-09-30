@@ -32,11 +32,15 @@ CONNECT_TIMEOUT = 15.0
 # Wait before each reconnect attempt, in seconds
 RECONNECT_DELAYS = (1.0, 2.0, 5.0, 10.0, 20.0, 30.0)
 # A connection that lasted this long was a working one: the next drop starts
-# the delays over. One dropped sooner keeps them growing.
-STABLE_CONNECTION_S = 60.0
+# the delays over. One dropped sooner keeps them growing. Well above the 100s
+# after which Cloudflare cuts a connection that carries nothing: a client whose
+# pings never get through (a firewall...) otherwise reconnected every 100s all day
+STABLE_CONNECTION_S = 300.0
 # The relay closes a connection with this reason when the same player joins the
 # room again: another connection (a second Rose, another PC) now has our place
 REPLACED_REASON = "replaced"
+# The relay refuses a Rose too old for it with this status: no point retrying
+UPDATE_REQUIRED_STATUS = 426
 
 _ssl_contexts_cache: Optional[List[ssl.SSLContext]] = None
 
@@ -81,6 +85,8 @@ def _describe_error(error: Optional[BaseException]) -> str:
     status = _status_code(error)
     if status == 409:
         return "this party is full (10 players max)"
+    if status == UPDATE_REQUIRED_STATUS:
+        return "this version of Rose is too old for party mode, please update Rose"
     if status:
         return f"the party server answered with HTTP {status}"
     if isinstance(error, asyncio.TimeoutError):
@@ -121,8 +127,10 @@ class PartyRelay:
         self._run_task: Optional[asyncio.Task] = None
         # Reconnecting stopped (see _run) until resume()
         self._stopped = False
-        # The last connection attempt was refused because the room is full
+        # The last connection attempt was refused because the room is full,
+        # or because the relay needs a newer Rose
         self._room_full = False
+        self._update_required = False
 
         # Last member list received (kept while reconnecting)
         self.members: List[dict] = []
@@ -237,6 +245,7 @@ class PartyRelay:
         # The version tells the relay's logs which Rose a looping connection comes from
         url = f"{RELAY_URL}/room?key={self.room_key}&v={APP_VERSION}"
         self._room_full = False
+        self._update_required = False
         contexts = _ssl_contexts() if url.startswith("wss://") else [None]
         error: Optional[BaseException] = None
 
@@ -270,6 +279,7 @@ class PartyRelay:
 
         self.last_error = _describe_error(error)
         self._room_full = _status_code(error) == 409
+        self._update_required = _status_code(error) == UPDATE_REQUIRED_STATUS
         log.warning(f"[RELAY] Connection to room {self.room_key[:8]} failed: {error}")
         return False
 
@@ -295,6 +305,9 @@ class PartyRelay:
                 if not await self._open(CONNECT_TIMEOUT):
                     if self._room_full:
                         self._stop("the room is full")
+                        return
+                    if self._update_required:
+                        self._stop("the party server needs a newer Rose")
                         return
                     continue
 
