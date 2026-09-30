@@ -313,9 +313,16 @@ class PartyRelay:
             if getattr(ws, "close_reason", None) == REPLACED_REASON:
                 self._stop("this account joined it from another connection")
                 return
-            if time.monotonic() - opened_at >= STABLE_CONNECTION_S:
+            lasted = time.monotonic() - opened_at
+            if lasted >= STABLE_CONNECTION_S:
                 attempt = 0
-            log.info(f"[RELAY] Lost connection to room {self.room_key[:8]}, reconnecting...")
+            # How long connections last and why they close is what tells a
+            # flaky network from a relay dropping clients (each reconnect is billed)
+            log.info(
+                f"[RELAY] Lost connection to room {self.room_key[:8]} after {lasted:.0f}s "
+                f"(close code {getattr(ws, 'close_code', None)}, reason {getattr(ws, 'close_reason', None)!r}), "
+                f"reconnecting (attempt {attempt + 1})..."
+            )
             self._notify(self._on_connection_changed)
 
     def _stop(self, reason: str):

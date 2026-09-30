@@ -419,6 +419,13 @@ class RelayReconnectTests(unittest.TestCase):
         self.run_relay([(1, ""), (1, ""), (120, ""), (1, "")])
         self.assertEqual(self.delays[:4], [1.0, 2.0, 5.0, 1.0])
 
+    def test_a_lost_connection_logs_how_long_it_lasted_and_why(self):
+        with self.assertLogs(level="INFO") as logs:
+            self.run_relay([(42, "going away")])
+        lost = [line for line in logs.output if "Lost connection" in line]
+        self.assertIn("after 42s", lost[0])
+        self.assertIn("'going away'", lost[0])
+
     def test_a_full_room_stops_at_once(self):
         async def open_(timeout):
             self.opens += 1
