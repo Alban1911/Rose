@@ -78,7 +78,7 @@ class WebSocketConnection:
         self._retry_attempt = 0
         self._last_error = None
         # Reason of the last retry logged as a warning (repeats go to debug)
-        self._warned_retry_reason = None
+        self._warned_retry_reason: Optional[str] = None
     
     def run(self):
         """Main WebSocket connection loop"""

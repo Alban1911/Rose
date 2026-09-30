@@ -46,7 +46,7 @@ class InjectionTrigger:
         self.state = state
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
-        self._last_refusal = None
+        self._last_refusal: Optional[tuple] = None
 
     def _warn_refusal_once(self, reason: str, skin_id, champion_id) -> None:
         """Warn about a refused injection once per skin/champion pair.
