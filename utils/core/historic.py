@@ -61,7 +61,8 @@ def load_historic_target_map() -> Dict[str, int]:
             except (TypeError, ValueError):
                 continue
         return result
-    except Exception:
+    except Exception as e:
+        log.warning(f"[HISTORIC] Could not read the saved custom mod targets: {e}")
         return {}
 
 
@@ -123,7 +124,9 @@ def load_historic_map() -> Dict[str, Union[int, str]]:
                     continue
             return result
         return {}
-    except Exception:
+    except Exception as e:
+        # Historic mode would silently forget every saved skin
+        log.warning(f"[HISTORIC] Could not read the saved skins: {e}")
         return {}
 
 

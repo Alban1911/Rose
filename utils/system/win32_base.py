@@ -10,6 +10,10 @@ import threading
 from ctypes import wintypes
 from typing import Callable, Dict, Optional
 
+from utils.core.logging import get_logger
+
+log = get_logger()
+
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 kernel32 = ctypes.windll.kernel32
@@ -521,7 +525,8 @@ class Win32Window:
             try:
                 action()
             except Exception:
-                pass
+                # A tray or window action failed; without this it did nothing, silently
+                log.exception("[UI] Window action failed")
 
     def set_window_styles(self, hwnd: wintypes.HWND, add: int = 0, remove: int = 0) -> None:
         if not hwnd:
