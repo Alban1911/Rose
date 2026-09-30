@@ -129,7 +129,8 @@ class LCUAPI:
                     return _store(r.json())
                 except Exception:
                     return _store(None)
-            except requests.exceptions.RequestException:
+            except requests.exceptions.RequestException as e:
+                log.debug(f"[LCU] GET {path} failed after reconnecting: {e}")
                 return None
     
     def put(self, path: str, json_data, timeout: float, headers: Optional[dict] = None) -> Optional[requests.Response]:
@@ -232,6 +233,7 @@ class LCUAPI:
                 except Exception:
                     pass
                 return resp
-            except requests.exceptions.RequestException:
+            except requests.exceptions.RequestException as e:
+                log.debug(f"[LCU] PATCH {path} failed after reconnecting: {e}")
                 return None
 
