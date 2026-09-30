@@ -1390,6 +1390,14 @@
   `;
   }
 
+  // For code that runs on every mutation or poll: report each failure once
+  const warnedFailures = new Set();
+  function warnOnce(message, error) {
+    if (warnedFailures.has(message)) return;
+    warnedFailures.add(message);
+    log("warn", message, String(error));
+  }
+
   function log(level, message, data = null) {
     const consoleMethod =
       level === "error"
@@ -1669,7 +1677,9 @@
     const tryApply = () => {
       try {
         applyErrorBadges();
-      } catch (e) {}
+      } catch (e) {
+        warnOnce("Could not show the error badges", e);
+      }
     };
 
     try {
@@ -1809,7 +1819,9 @@
             if (bridge) bridge.send({ type: "diagnostics-clear-category", categories: cats });
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        log("warn", "Could not clear the saved categories from Troubleshooting", String(e));
+      }
       _pendingSave = null;
 
       // Refresh settings + diagnostics + badges after save
@@ -5194,7 +5206,9 @@
               if (!bridge || !bridge.ready) return;
               if (typeof document !== "undefined" && document.hidden) return;
               requestDiagnostics();
-            } catch (e) {}
+            } catch (e) {
+              warnOnce("Could not refresh Troubleshooting", e);
+            }
           }, 15000);
         }
       });
