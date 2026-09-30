@@ -8,6 +8,7 @@ All arbitrary values are centralized here for easy tracking and modification
 import io
 import shutil
 import sys
+import threading
 import logging
 from typing import TYPE_CHECKING, Optional, Tuple
 from pathlib import Path
@@ -26,7 +27,10 @@ APP_VERSION = "1.4.4"                           # Application version
 APP_USER_AGENT = f"Rose/{APP_VERSION}"  # User-Agent header for HTTP requests
 GAME_EXECUTABLE_NAMES = ("League of Legends.exe", "League of Legends (TM) Client.exe")
 
-_CONFIG = configparser.ConfigParser()
+# Values are raw text: a '%' in a path must not be read as interpolation
+_CONFIG = configparser.ConfigParser(interpolation=None)
+# Reloads build a new parser and swap it in, so readers never see a half-read one
+_CONFIG_LOCK = threading.Lock()
 _CONFIG_MTIME: float = 0.0  # Last known modification time of config.ini
 
 
@@ -85,7 +89,7 @@ def write_config_file(config: configparser.ConfigParser, path: Path) -> None:
 
 def _reload_config() -> None:
     """Reload config from disk only when the file has actually been modified."""
-    global _CONFIG_MTIME
+    global _CONFIG, _CONFIG_MTIME
     config_path = get_config_file_path()
 
     # One-time migration of legacy config
@@ -103,16 +107,20 @@ def _reload_config() -> None:
     except OSError:
         current_mtime = 0.0
 
-    if current_mtime == _CONFIG_MTIME and _CONFIG.sections():
-        return  # File unchanged = use cached config
+    with _CONFIG_LOCK:
+        if current_mtime == _CONFIG_MTIME and _CONFIG.sections():
+            return  # File unchanged = use cached config
 
-    _CONFIG_MTIME = current_mtime
-    _CONFIG.clear()
-    if config_path.exists():
-        try:
-            read_config_file(_CONFIG, config_path)
-        except Exception as e:
-            log.warning(f"Failed to read config file: {e}")
+        fresh = configparser.ConfigParser(interpolation=None)
+        if config_path.exists():
+            try:
+                read_config_file(fresh, config_path)
+            except Exception as e:
+                # Keep the last good settings rather than fall back to every default
+                log.warning(f"Failed to read config file, keeping the previous settings: {e}")
+                _CONFIG_MTIME = current_mtime
+                return
+        _CONFIG, _CONFIG_MTIME = fresh, current_mtime
 
 
 _reload_config()
@@ -120,8 +128,9 @@ _reload_config()
 
 def get_config_option(section: str, option: str, fallback: Optional[str] = None) -> Optional[str]:
     _reload_config()
-    if _CONFIG.has_option(section, option):
-        return _CONFIG.get(section, option)
+    config = _CONFIG
+    if config.has_option(section, option):
+        return config.get(section, option)
     return fallback
 
 
@@ -137,7 +146,7 @@ def get_config_float(section: str, option: str, fallback: float) -> float:
 
 def set_config_option(section: str, option: str, value: str) -> None:
     config_path = get_config_file_path()
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     if config_path.exists():
         try:
             read_config_file(config, config_path)
