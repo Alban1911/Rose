@@ -80,6 +80,27 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **Open Source**: Fully open source and extensible
 - **Free**: If you bought this software, you got scammed 💀
 
+### Change League language and reuse downloaded files
+
+In Rose **Settings**, choose **League language**, then **Apply and restart**.
+Rose uses the languages offered by Riot Client for your installation. This
+changes League's language and restarts its client; it can leave your lobby.
+The action is blocked while queued, in champion select, or in a game.
+The language badge in Settings continues to control Rose's own menus.
+
+Language-specific assets are cached under `%LOCALAPPDATA%\Rose\language-cache`
+before switching away and after the new language is confirmed. Switching back
+restores matching files before Riot starts the language change. The cache is
+separate for each installation, live/PBE patchline, and game build, and validates
+file sizes and SHA-256 checksums before restoring an entry. Riot still validates
+the files: first-time languages, updates, and rejected files may require downloads.
+Cache failures leave Riot's normal download flow available and appear in Settings.
+
+The cache uses additional disk space. To reclaim it, delete the `language-cache`
+folder while Rose is closed; future language switches will populate it again.
+If a restart fails, reopen League through Riot Client and check the result in
+Settings. Compatibility depends on the installed Riot Client's local APIs.
+
 ## Requirements
 
 - **Windows 10/11**
@@ -138,8 +159,12 @@ Build Rose (rebuilds the loader and the `cslol-dll.dll` stand-in):
 python scripts/build_pyinstaller.py
 ```
 
-The packaged application is written to `dist/Rose/`. To build both Rose and
-the Windows installer in one step:
+The packaged application is written to `dist/Rose/`. Each build replaces only
+that directory. Keep saved versions in sibling directories such as
+`dist/Rose-1.3.1-stable-local/`; these, ZIP archives, and checksum files are
+preserved, along with the `build/` directory. Cleanup errors stop the build.
+
+To build both Rose and the Windows installer in one step:
 
 ```powershell
 python scripts/build_all.py

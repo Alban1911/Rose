@@ -72,6 +72,13 @@
     version: "",
   };
   let pathValidationTimeout = null;
+  // League's installed language is separate from the ROSE-I18n menu preference.
+  let leagueLanguageOptions = { currentLocale: "", languages: [], error: "" };
+  let leagueLanguageStatus = { busy: false, stage: "idle", message: "" };
+  let leagueLanguageLoading = false;
+  let leagueLanguageOptionsTimer = null;
+  let leagueLanguageAckTimer = null;
+  let leagueLanguagePendingLocale = "";
 
   function getCSSRules() {
     return `
@@ -197,6 +204,19 @@
       border: none !important;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
       margin: 0 !important;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #463714 #010a13;
+    }
+
+    #${FLYOUT_ID} lc-flyout-content::-webkit-scrollbar,
+    #${FLYOUT_ID} .lc-flyout-content::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    #${FLYOUT_ID} lc-flyout-content::-webkit-scrollbar-thumb,
+    #${FLYOUT_ID} .lc-flyout-content::-webkit-scrollbar-thumb {
+      background: #463714;
     }
     
     #${FLYOUT_ID} .settings-title {
@@ -440,6 +460,25 @@
     
     #${FLYOUT_ID} .settings-button:hover {
       background: #1a2332;
+    }
+
+    #${FLYOUT_ID} .settings-button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    #${FLYOUT_ID} .league-language-note {
+      display: block;
+      margin: 6px 0 0;
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+
+    #${FLYOUT_ID} .league-language-confirm {
+      margin-top: 8px;
+      padding: 10px;
+      border: 1px solid #c8aa6e;
     }
     
     #${FLYOUT_ID} .settings-links {
@@ -1431,6 +1470,123 @@
     log("info", "Settings data received", currentSettings);
   }
 
+  function updateLeagueLanguageForm() {
+    const select = document.getElementById("rose-league-language-select");
+    const button = document.getElementById("rose-league-language-apply");
+    const status = document.getElementById("rose-league-language-status");
+    const confirmation = document.getElementById("rose-league-language-confirm");
+    if (!select || !button || !status || !confirmation) return;
+
+    const selected = select.value || leagueLanguageOptions.currentLocale;
+    select.replaceChildren();
+    for (const item of leagueLanguageOptions.languages) {
+      const option = document.createElement("option");
+      option.value = item.locale;
+      option.textContent = `${item.name} (${item.locale})`;
+      select.appendChild(option);
+    }
+    if (leagueLanguageOptions.languages.some((item) => item.locale === selected)) {
+      select.value = selected;
+    }
+    const unavailable = leagueLanguageStatus.busy || leagueLanguageLoading ||
+      !!leagueLanguageOptions.error || !leagueLanguageOptions.languages.length || !bridge?.ready;
+    if (unavailable) leagueLanguagePendingLocale = "";
+    select.disabled = unavailable || !!leagueLanguagePendingLocale;
+    button.disabled = select.disabled || !select.value;
+    button.textContent = leagueLanguageStatus.busy ? t("Applying…") : t("Apply and restart");
+    confirmation.hidden = !leagueLanguagePendingLocale;
+    if (leagueLanguagePendingLocale) {
+      document.getElementById("rose-league-language-confirm-message").textContent = t(
+        "Restart League to apply {locale}? This closes League and may leave your lobby. Rose stays open.",
+        { locale: leagueLanguagePendingLocale }
+      );
+    }
+    status.textContent = !bridge?.ready
+      ? t("Rose is disconnected. Reopen Settings after reconnecting.")
+      : leagueLanguageLoading
+        ? t("Loading League languages…")
+        : tAny(leagueLanguageOptions.error || leagueLanguageStatus.message) ||
+          (leagueLanguageOptions.currentLocale
+            ? t("Configured League language: {locale}", { locale: leagueLanguageOptions.currentLocale })
+            : t("No League languages are available. Reopen Settings to retry."));
+  }
+
+  function requestLeagueLanguages() {
+    if (!bridge?.ready || leagueLanguageLoading) {
+      updateLeagueLanguageForm();
+      return;
+    }
+    leagueLanguageLoading = true;
+    leagueLanguageOptions.error = "";
+    leagueLanguagePendingLocale = "";
+    clearTimeout(leagueLanguageOptionsTimer);
+    leagueLanguageOptionsTimer = setTimeout(() => {
+      leagueLanguageLoading = false;
+      leagueLanguageOptions.error = "Could not load League languages. Reopen Settings to retry.";
+      updateLeagueLanguageForm();
+    }, 10000);
+    updateLeagueLanguageForm();
+    // The backend also returns the latest operation status, including after reconnect.
+    bridge.send({ type: "language-options-request" });
+  }
+
+  function handleLeagueLanguageOptions(payload) {
+    clearTimeout(leagueLanguageOptionsTimer);
+    leagueLanguageLoading = false;
+    leagueLanguageOptions = {
+      currentLocale: typeof payload.currentLocale === "string" ? payload.currentLocale : "",
+      languages: Array.isArray(payload.languages)
+        ? payload.languages.filter((item) => item && typeof item.locale === "string" && typeof item.name === "string")
+        : [],
+      error: typeof payload.error === "string" ? payload.error : "",
+    };
+    updateLeagueLanguageForm();
+  }
+
+  function handleLeagueLanguageStatus(payload) {
+    clearTimeout(leagueLanguageAckTimer);
+    const wasBusy = leagueLanguageStatus.busy;
+    leagueLanguageStatus = {
+      busy: !!payload.busy,
+      stage: typeof payload.stage === "string" ? payload.stage : "idle",
+      message: typeof payload.message === "string" ? payload.message : "",
+    };
+    if (leagueLanguageStatus.busy) {
+      // While changing language the backend returns status without loading options.
+      clearTimeout(leagueLanguageOptionsTimer);
+      leagueLanguageLoading = false;
+      leagueLanguageOptions.error = "";
+    }
+    updateLeagueLanguageForm();
+    if (wasBusy && !leagueLanguageStatus.busy && document.getElementById(PANEL_ID)) {
+      requestLeagueLanguages();
+    }
+  }
+
+  function applyLeagueLanguage() {
+    const select = document.getElementById("rose-league-language-select");
+    if (!select || select.disabled || !bridge?.ready) return;
+    if (!leagueLanguageOptions.languages.some((item) => item.locale === select.value)) return;
+    leagueLanguagePendingLocale = select.value;
+    updateLeagueLanguageForm();
+    document.getElementById("rose-league-language-cancel")?.focus();
+  }
+
+  function confirmLeagueLanguageChange() {
+    const locale = leagueLanguagePendingLocale;
+    if (!locale || leagueLanguageStatus.busy || leagueLanguageLoading || !bridge?.ready) return;
+    leagueLanguagePendingLocale = "";
+    leagueLanguageStatus = { busy: true, stage: "pending", message: "Requesting language change…" };
+    updateLeagueLanguageForm();
+    clearTimeout(leagueLanguageAckTimer);
+    leagueLanguageAckTimer = setTimeout(() => {
+      // Do not assume the backend stopped: reopen/reconnect retrieves its real state.
+      leagueLanguageStatus.message = "No response from Rose. Reopen Settings to check the language change.";
+      updateLeagueLanguageForm();
+    }, 10000);
+    bridge.send({ type: "language-change", locale });
+  }
+
   let diagnosticsDialog = null;
   let diagnosticsState = { errors: [], path: "", settingsSnapshot: null, baseSkinStats: null };
   let errorBadgeState = { hasErrors: false, count: 0 };
@@ -2154,6 +2310,60 @@
     }
 
     form.appendChild(titleRow);
+
+    const leagueLanguageSection = document.createElement("div");
+    leagueLanguageSection.className = "settings-section";
+    const leagueLanguageLabel = document.createElement("label");
+    leagueLanguageLabel.className = "settings-label";
+    leagueLanguageLabel.htmlFor = "rose-league-language-select";
+    leagueLanguageLabel.textContent = t("League language");
+    const leagueLanguageSelect = document.createElement("select");
+    leagueLanguageSelect.id = "rose-league-language-select";
+    leagueLanguageSelect.className = "settings-input";
+    leagueLanguageSelect.style.cssText = "width:100%;background:#010a13;color:#f0e6d2";
+    const leagueLanguageHint = document.createElement("div");
+    leagueLanguageHint.className = "settings-status league-language-note";
+    leagueLanguageHint.textContent = t("Restarts League and may leave your lobby. Rose stays open. Downloaded language files are cached on disk for reuse. New languages and game updates may require downloads.");
+    const leagueLanguageButton = document.createElement("button");
+    leagueLanguageButton.type = "button";
+    leagueLanguageButton.id = "rose-league-language-apply";
+    leagueLanguageButton.className = "settings-button";
+    leagueLanguageButton.addEventListener("click", applyLeagueLanguage);
+
+    const leagueLanguageConfirmation = document.createElement("div");
+    leagueLanguageConfirmation.id = "rose-league-language-confirm";
+    leagueLanguageConfirmation.className = "league-language-confirm";
+    leagueLanguageConfirmation.hidden = true;
+    leagueLanguageConfirmation.setAttribute("role", "group");
+    leagueLanguageConfirmation.setAttribute("aria-labelledby", "rose-league-language-confirm-message");
+    const leagueLanguageConfirmMessage = document.createElement("div");
+    leagueLanguageConfirmMessage.id = "rose-league-language-confirm-message";
+    leagueLanguageConfirmMessage.className = "league-language-note";
+    const leagueLanguageCancel = document.createElement("button");
+    leagueLanguageCancel.type = "button";
+    leagueLanguageCancel.id = "rose-league-language-cancel";
+    leagueLanguageCancel.className = "settings-button";
+    leagueLanguageCancel.textContent = t("Cancel");
+    leagueLanguageCancel.addEventListener("click", () => {
+      leagueLanguagePendingLocale = "";
+      updateLeagueLanguageForm();
+      leagueLanguageButton.focus();
+    });
+    const leagueLanguageConfirm = document.createElement("button");
+    leagueLanguageConfirm.type = "button";
+    leagueLanguageConfirm.className = "settings-button";
+    leagueLanguageConfirm.textContent = t("Restart League");
+    leagueLanguageConfirm.addEventListener("click", confirmLeagueLanguageChange);
+    leagueLanguageConfirmation.append(leagueLanguageConfirmMessage, leagueLanguageCancel, leagueLanguageConfirm);
+
+    const leagueLanguageMessage = document.createElement("div");
+    leagueLanguageMessage.id = "rose-league-language-status";
+    leagueLanguageMessage.className = "settings-status league-language-note";
+    leagueLanguageMessage.setAttribute("role", "status");
+    leagueLanguageMessage.setAttribute("aria-live", "polite");
+    leagueLanguageSection.append(leagueLanguageLabel, leagueLanguageSelect, leagueLanguageHint,
+      leagueLanguageButton, leagueLanguageConfirmation, leagueLanguageMessage);
+    form.appendChild(leagueLanguageSection);
 
     // Injection threshold section
     const thresholdSection = document.createElement("div");
@@ -3012,6 +3222,11 @@
     }, 100);
 
     settingsPanel = panel;
+    // Keep every setting reachable at small League client resolutions.
+    flyoutContent.style.maxHeight = `calc(100vh - ${Math.max(0, iconRect.bottom + 65)}px)`;
+    leagueLanguagePendingLocale = "";
+    updateLeagueLanguageForm();
+    requestLeagueLanguages();
 
     // Recalculate position after adding to DOM to ensure accurate positioning
     _flyoutRepositionTimer = setTimeout(() => {
@@ -3024,6 +3239,7 @@
         navItem.querySelector(".menu-item-icon-wrapper") ||
         navItem;
       const updatedIconRect = updatedIconElement.getBoundingClientRect();
+      flyoutContent.style.maxHeight = `calc(100vh - ${Math.max(0, updatedIconRect.bottom + 65)}px)`;
       liveFlyout.style.top = `${updatedIconRect.bottom + 45}px`;
       liveFlyout.style.left = `${updatedIconRect.left + updatedIconRect.width / 2
         }px`;
@@ -5163,6 +5379,8 @@
       // Subscribe to all message types
       bridge.subscribe("settings-data", handleSettingsData);
       bridge.subscribe("settings-saved", handleSettingsSaved);
+      bridge.subscribe("language-options", handleLeagueLanguageOptions);
+      bridge.subscribe("language-status", handleLeagueLanguageStatus);
       bridge.subscribe("diagnostics-data", handleDiagnosticsData);
       bridge.subscribe("diagnostics-cleared-category", () => requestDiagnostics());
       bridge.subscribe("diagnostics-cleared", () => requestDiagnostics());
@@ -5183,6 +5401,12 @@
       // On every (re)connect, sync state
       bridge.onReady(() => {
         requestSettings();
+        if (document.getElementById(PANEL_ID) || leagueLanguageStatus.busy) {
+          // A request sent on the old connection may never receive its options.
+          clearTimeout(leagueLanguageOptionsTimer);
+          leagueLanguageLoading = false;
+          requestLeagueLanguages();
+        }
         requestDiagnostics();
         startBadgeObserver();
         startReconnectObserver();
