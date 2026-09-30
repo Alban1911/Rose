@@ -15,6 +15,7 @@ from injection.game.game_monitor import resume_orphaned_game
 from injection.mods.storage import ModStorageService
 from utils.core.logging import get_logger, log_success
 from utils.system.admin_utils import ensure_admin_rights
+from utils.threading.thread_manager import create_daemon_thread
 from config import APP_VERSION, set_config_option
 
 log = get_logger()
@@ -78,7 +79,8 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
     try:
         log.info("Initializing injection manager...")
         injection_manager = InjectionManager(shared_state=state)
-        resume_orphaned_game()
+        # Listing processes takes seconds on Windows: keep it off the startup path
+        create_daemon_thread(resume_orphaned_game, "OrphanedGameCheck").start()
         if injection_threshold is not None:
             log.info(f"Launcher override: setting injection threshold to {injection_threshold:.2f}s")
             injection_manager.injection_threshold = max(0.0, injection_threshold)
