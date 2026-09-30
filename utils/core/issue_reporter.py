@@ -140,7 +140,8 @@ def remove_issues(should_remove: Callable[[str, str], bool]) -> bool:
                 i += 1
             p.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
         return True
-    except Exception:
+    except Exception as e:
+        log.debug("[ISSUES] Could not remove diagnostics entries: %s", e)
         return False
 
 

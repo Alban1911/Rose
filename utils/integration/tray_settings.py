@@ -201,7 +201,8 @@ class InjectionSettingsWindow(Win32Window):
                 return False
             from config import GAME_EXECUTABLE_NAMES
             return any((game_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES)
-        except Exception:
+        except Exception as exc:
+            log.debug(f"[Settings] Could not validate the game path: {exc}")
             return False
 
     def _update_path_status(self, path: str = None) -> None:

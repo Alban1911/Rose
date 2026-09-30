@@ -163,7 +163,8 @@ def load_mod_historic() -> Dict[str, Union[str, List[str]]]:
                     out[cat] = items
             return out
         return {}
-    except Exception:
+    except Exception as e:
+        log.warning(f"[HISTORIC] Could not read the saved mods: {e}")
         return {}
 
 
