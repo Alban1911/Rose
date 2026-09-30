@@ -11,6 +11,7 @@ from typing import Optional, Tuple
 from lcu import LCU, LCUSkinScraper
 from state import SharedState, AppStatus
 from injection import InjectionManager
+from injection.game.game_monitor import resume_orphaned_game
 from injection.mods.storage import ModStorageService
 from utils.core.logging import get_logger, log_success
 from utils.system.admin_utils import ensure_admin_rights
@@ -77,6 +78,7 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
     try:
         log.info("Initializing injection manager...")
         injection_manager = InjectionManager(shared_state=state)
+        resume_orphaned_game()
         if injection_threshold is not None:
             log.info(f"Launcher override: setting injection threshold to {injection_threshold:.2f}s")
             injection_manager.injection_threshold = max(0.0, injection_threshold)

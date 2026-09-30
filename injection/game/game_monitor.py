@@ -63,6 +63,35 @@ def make_game_ended_callback(state) -> Callable[[], bool]:
 
     return game_ended_callback
 
+
+def resume_orphaned_game() -> int:
+    """Resume a game left suspended by a Rose that died mid-injection.
+
+    Only one Rose runs at a time and nothing else suspends the game, so a
+    suspended game at startup would otherwise stay frozen until the user
+    killed it. Returns how many game processes were resumed.
+    """
+    if not PSUTIL_AVAILABLE:
+        return 0
+    resumed = 0
+    try:
+        processes = list(psutil.process_iter(['name', 'pid']))
+    except Exception as e:
+        log.warning(f"[monitor] Could not look for a suspended game: {e}")
+        return 0
+    for proc in processes:
+        if (proc.info.get('name') or '').lower() not in _GAME_PROCESS_NAMES:
+            continue
+        try:
+            if proc.status() != STATUS_STOPPED:
+                continue
+            proc.resume()
+            resumed += 1
+            log.warning(f"[monitor] Resumed a game left suspended by a previous Rose (PID={proc.info['pid']})")
+        except (NoSuchProcess, AccessDenied) as e:
+            log.warning(f"[monitor] Could not resume the suspended game (PID={proc.info['pid']}): {e}")
+    return resumed
+
 # The monitor loop sleeps in 0.05-0.1s steps, so it notices a lowered flag
 # quickly. The extra margin covers a psutil.process_iter() sweep in progress.
 MONITOR_THREAD_JOIN_TIMEOUT_S = 3.0
