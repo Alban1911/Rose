@@ -152,7 +152,7 @@ def find_process_credentials() -> Optional[Lockfile]:
                     return Lockfile(name, proc.pid, port, password, "https")
             except (psutil.Error, OSError, ValueError):
                 continue
-    except (psutil.Error, OSError):
-        pass
+    except (psutil.Error, OSError) as e:
+        log.debug(f"[LCU] Could not list client processes: {e}")
     return None
 
