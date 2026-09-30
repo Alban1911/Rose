@@ -194,11 +194,20 @@ class MessageHandler:
             log.warning("[SkinMonitor] Invalid payload: %s (%s)", message, exc)
             return
         
+        if not isinstance(payload, dict):
+            log.warning("[SkinMonitor] Ignoring payload that is not an object: %.200s", message)
+            return
+
         payload_type = payload.get("type")
         if payload_type in BACKGROUND_MESSAGE_TYPES:
             self._run_in_background(payload_type, payload)
-        else:
+            return
+        # An error escaping here would end the bridge connection and drop
+        # every message after it, so it is logged like the background ones
+        try:
             self._route(payload_type, payload)
+        except Exception as e:  # noqa: BLE001
+            log.exception("[SkinMonitor] Failed to handle %s: %s", payload_type, e)
 
     def _run_in_background(self, payload_type: str, payload: dict) -> None:
         """Queue a message for the worker thread, starting it on first use."""
