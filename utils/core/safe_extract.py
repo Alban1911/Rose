@@ -20,9 +20,44 @@ log = get_logger()
 MOD_ARCHIVE_SUFFIXES = (".zip", ".fantome", MODPKG_SUFFIX)
 
 
+# Far above any real skin or map mod; an archive past these is a zip bomb or broken
+MAX_ARCHIVE_ENTRIES = 200_000
+MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 ** 3
+
+
 class UnsafePathError(Exception):
     """Raised when a zip file contains paths that would escape the target directory"""
     pass
+
+
+class ArchiveTooLargeError(UnsafePathError):
+    """Raised when a zip file would unpack to more entries or bytes than any real mod"""
+
+
+def _validate_members(zf: zipfile.ZipFile, dest_resolved: Path) -> None:
+    """Refuse an archive with a path escaping dest_resolved or an absurd unpacked size.
+
+    Sizes are the ones the archive declares; zipfile stops reading an entry at
+    its declared size, so they bound what extraction can write.
+    """
+    members = zf.infolist()
+    if len(members) > MAX_ARCHIVE_ENTRIES:
+        log.error(f"[SECURITY] Blocked archive with {len(members)} entries")
+        raise ArchiveTooLargeError(f"archive has {len(members)} entries (limit {MAX_ARCHIVE_ENTRIES})")
+    total = sum(member.file_size for member in members)
+    if total > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+        log.error(f"[SECURITY] Blocked archive that unpacks to {total} bytes")
+        raise ArchiveTooLargeError(
+            f"archive unpacks to {total / 1024 ** 3:.1f} GiB (limit {MAX_ARCHIVE_UNCOMPRESSED_BYTES / 1024 ** 3:.0f} GiB)"
+        )
+    for member in members:
+        target_path = dest_resolved / member.filename
+        # Validate the path is safe (no path traversal)
+        if not is_safe_path(dest_resolved, target_path):
+            log.error(f"[SECURITY] Blocked unsafe path in archive: {member.filename}")
+            raise UnsafePathError(
+                f"Attempted path traversal detected: '{member.filename}' would extract outside target directory"
+            )
 
 
 def join_within(resolved_base: Path, relative_path: str) -> Optional[Path]:
@@ -68,6 +103,7 @@ def safe_extractall(zip_path: Union[str, Path], dest_dir: Union[str, Path]) -> N
 
     Raises:
         UnsafePathError: If any file in the archive would be extracted outside dest_dir
+            (ArchiveTooLargeError if it would unpack to an absurd size)
         zipfile.BadZipFile: If the file is not a valid ZIP
     """
     zip_path = Path(zip_path)
@@ -78,18 +114,7 @@ def safe_extractall(zip_path: Union[str, Path], dest_dir: Union[str, Path]) -> N
     dest_resolved = dest_dir.resolve()
 
     with zipfile.ZipFile(zip_path, 'r') as zf:
-        for member in zf.namelist():
-            # Construct the target path
-            target_path = dest_resolved / member
-
-            # Validate the path is safe (no path traversal)
-            if not is_safe_path(dest_resolved, target_path):
-                log.error(f"[SECURITY] Blocked unsafe path in archive: {member}")
-                raise UnsafePathError(
-                    f"Attempted path traversal detected: '{member}' would extract outside target directory"
-                )
-
-        # All paths validated, safe to extract
+        _validate_members(zf, dest_resolved)
         zf.extractall(dest_dir)
         log.debug(f"[EXTRACT] Safely extracted {len(zf.namelist())} files to {dest_dir}")
 
@@ -112,13 +137,7 @@ def safe_extractall_from_bytes(data: bytes, dest_dir: Union[str, Path]) -> None:
     dest_resolved = dest_dir.resolve()
 
     with zipfile.ZipFile(io.BytesIO(data), 'r') as zf:
-        for member in zf.namelist():
-            target_path = dest_resolved / member
-            if not is_safe_path(dest_resolved, target_path):
-                log.error(f"[SECURITY] Blocked unsafe path in archive: {member}")
-                raise UnsafePathError(
-                    f"Attempted path traversal detected: '{member}' would extract outside target directory"
-                )
+        _validate_members(zf, dest_resolved)
         zf.extractall(dest_dir)
         log.debug(f"[EXTRACT] Safely extracted {len(zf.namelist())} files from memory to {dest_dir}")
 
