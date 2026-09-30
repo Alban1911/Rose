@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from injection.overlay import overlay_manager
@@ -90,6 +91,22 @@ class FailureContextTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(any('LTK patcher context: last state=failed' in line for line in logs.output))
         self.assertNotIn('up to date', self.report_issue.call_args.kwargs['hint'])
+
+    def test_context_logging_never_changes_the_reported_failure(self):
+        """The patcher's own exit code must survive a context probe that fails"""
+        patcher = SimpleNamespace(returncode=3, poll=lambda: 3, stdin=None)
+        session = {
+            'proc': patcher,
+            'session': {'state': None, 'error': None, 'eol': False},
+            'reader': threading.Thread(target=lambda: None),
+            'log': None,
+        }
+        session['reader'].start()
+        with patch.object(OverlayManager, '_running_game', return_value=SimpleNamespace()),                 patch.object(OverlayManager, '_stop_ltk_patcher'),                 self.assertLogs(level='ERROR'):
+            code = self.overlay._run_ltk_patcher(session, self.overlay_dir)
+
+        self.assertEqual(code, 3)
+        self.assertIn('exited with code 3', self.report_issue.call_args[0][2])
 
 
 if __name__ == '__main__':

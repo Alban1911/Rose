@@ -599,13 +599,19 @@ class OverlayManager:
         )
 
     def _log_patcher_context(self, session: dict, resumed_at: float):
-        """Log what the patcher and the game were doing when the injection failed."""
-        game = self._running_game()
-        game_state = f"running (PID {game.pid})" if game is not None else "not running"
-        log.error(
-            f"[INJECT] LTK patcher context: last state={session['state']}, "
-            f"{time.monotonic() - resumed_at:.1f}s after the game was resumed, game {game_state}"
-        )
+        """Log what the patcher and the game were doing when the injection failed.
+
+        Diagnostics only: it must never change how the failure is reported.
+        """
+        try:
+            game = self._running_game()
+            game_state = f"running (PID {getattr(game, 'pid', '?')})" if game is not None else "not running"
+            log.error(
+                f"[INJECT] LTK patcher context: last state={session.get('state')}, "
+                f"{time.monotonic() - resumed_at:.1f}s after the game was resumed, game {game_state}"
+            )
+        except Exception as e:
+            log.debug(f"[INJECT] Could not log the LTK patcher context: {e}")
 
     @staticmethod
     def _ltk_failure_hint(reason: str) -> str:
