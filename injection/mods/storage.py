@@ -28,6 +28,9 @@ from utils.core.safe_extract import (
 from utils.core.utilities import get_champion_id_from_skin_id
 
 log = get_logger()
+
+# Unreadable manifests already reported, so repeated listings do not flood the log
+_reported_manifests: set[str] = set()
 _STORAGE_LOCK = threading.RLock()
 
 
@@ -230,6 +233,24 @@ class ModStorageService:
                 normalized.add(skin_id)
         return tuple(sorted(normalized))
 
+    @staticmethod
+    def _load_manifest(manifest_path: Path) -> Optional[dict]:
+        """Read a mod manifest: {} when there is none, None when it exists but cannot be read.
+
+        An unreadable manifest used to look empty, so the mods it lists vanished
+        from the UI with no trace, and importing a mod rewrote it with that mod alone.
+        """
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, TypeError, ValueError) as e:
+            if str(manifest_path) not in _reported_manifests:
+                _reported_manifests.add(str(manifest_path))
+                log.warning(f"[MODS] Could not read mod manifest {manifest_path}: {e}")
+            return None
+        return payload if isinstance(payload, dict) else {}
+
     def _load_target_manifest(
         self,
         champion_id: int,
@@ -238,11 +259,8 @@ class ModStorageService:
         payload = None
         for metadata_name in (self.TARGET_METADATA, self.LEGACY_TARGET_METADATA):
             manifest_path = champion_dir / metadata_name
-            try:
-                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except (OSError, TypeError, ValueError, json.JSONDecodeError):
-                continue
-            if isinstance(payload, dict):
+            payload = self._load_manifest(manifest_path)
+            if payload:
                 break
         if not isinstance(payload, dict):
             return (), {}
@@ -451,11 +469,8 @@ class ModStorageService:
         with self._storage_lock:
             champion_dir = self.get_champion_dir(champion_id_int)
             manifest_path = champion_dir / self.TARGET_METADATA
-            try:
-                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except (OSError, TypeError, ValueError, json.JSONDecodeError):
-                payload = None
-            if not isinstance(payload, dict):
+            payload = self._load_manifest(manifest_path)
+            if not payload:
                 raise ValueError("No mod manifest found for this champion")
 
             raw_mods = payload.get("mods")
@@ -524,12 +539,7 @@ class ModStorageService:
         with self._storage_lock:
             category_dir = self.mods_root / category
             manifest_path = category_dir / self.CATEGORY_METADATA
-            try:
-                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except (OSError, TypeError, ValueError, json.JSONDecodeError):
-                payload = {}
-            if not isinstance(payload, dict):
-                payload = {}
+            payload = self._load_manifest(manifest_path) or {}
 
             raw_mods = payload.get("mods")
             mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
@@ -736,12 +746,7 @@ class ModStorageService:
             safe_remove_entry(resolved)
 
             manifest_path = category_dir / self.CATEGORY_METADATA
-            try:
-                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except (OSError, TypeError, ValueError, json.JSONDecodeError):
-                payload = {}
-            if not isinstance(payload, dict):
-                payload = {}
+            payload = self._load_manifest(manifest_path) or {}
             raw_mods = payload.get("mods")
             mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
             if mod_name in mods:
@@ -762,11 +767,8 @@ class ModStorageService:
 
     def _load_category_manifest(self, category: str) -> set[str]:
         manifest_path = self.mods_root / category / self.CATEGORY_METADATA
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            return set()
-        if not isinstance(payload, dict):
+        payload = self._load_manifest(manifest_path)
+        if not payload:
             return set()
 
         raw_mods = payload.get("mods") or {}
@@ -823,12 +825,10 @@ class ModStorageService:
             target_created = True
 
             manifest_path = category_dir / self.CATEGORY_METADATA
-            try:
-                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except (OSError, TypeError, ValueError, json.JSONDecodeError):
-                payload = {}
-            if not isinstance(payload, dict):
-                payload = {}
+            payload = self._load_manifest(manifest_path)
+            if payload is None:
+                # Rewriting it would drop every other mod registered in this category
+                raise ValueError("The list of mods in this category could not be read, so it was left unchanged")
             raw_mods = payload.get("mods")
             mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
             mods[mod_name] = {"name": mod_name, "path": mod_name}
@@ -1023,11 +1023,8 @@ class ModStorageService:
     def _load_category_display_names(self, category: str) -> dict[str, str]:
         """Map registered mod paths (casefolded) to their display aliases."""
         manifest_path = self.mods_root / category / self.CATEGORY_METADATA
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            return {}
-        if not isinstance(payload, dict):
+        payload = self._load_manifest(manifest_path)
+        if not payload:
             return {}
         raw_mods = payload.get("mods") or {}
         if not isinstance(raw_mods, dict):
