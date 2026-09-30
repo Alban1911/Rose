@@ -28,7 +28,7 @@ except ImportError:
 
 from utils.core.logging import get_logger, log_action, log_success, log_event
 from utils.core.issue_reporter import report_issue
-from ..tools.patcher import check_ltk_patcher
+from ..tools.patcher import check_ltk_patcher, describe_ltk_patcher_files
 from config import (
     GAME_EXECUTABLE_NAMES,
     PROCESS_TERMINATE_TIMEOUT_S,
@@ -63,6 +63,8 @@ LTK_PATCHER_LOG_LEVEL = 0x10
 # Printed by the DLL when the game build is newer than its end-of-life date
 END_OF_LIFE_MESSAGE = "end of life reached"
 LATE_JOIN_MESSAGE = "joined too late"
+# Session error Rose records when the DLL reports a late join
+LATE_JOIN_ERROR = "the game started before the patcher, overlay not applied"
 
 # WAD v3 header: magic + version (4), RSA signature (256), checksum (8)
 WAD_HEADER_SIZE = 268
@@ -323,7 +325,7 @@ class OverlayManager:
                     mod_names,
                     result_code=proc.returncode,
                 )
-                log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
+                log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})")
                 self._abort_ltk_patcher(patcher_session)
                 return proc.returncode
             else:
@@ -458,7 +460,7 @@ class OverlayManager:
                         log.error("[INJECT] LTK patcher DLL reached its end of life for this game build")
                     elif parts[0] == "dll" and LATE_JOIN_MESSAGE in line:
                         # The game was launched before the host started scanning
-                        session["error"] = "the game started before the patcher, overlay not applied"
+                        session["error"] = LATE_JOIN_ERROR
                         log.error("[INJECT] LTK patcher DLL joined the game too late - overlay not applied")
                     elif parts[0] == "dll" and " ERROR " in line:
                         # e.g. "overlay verification failed, disabling overlay"
@@ -470,6 +472,7 @@ class OverlayManager:
                 log.debug(f"[INJECT] Error reading LTK patcher output: {e}")
 
         log.debug(f"[INJECT] Starting LTK patcher: {host_exe}")
+        log.info(f"[INJECT] LTK patcher files: {describe_ltk_patcher_files(host_exe.parent)}")
         try:
             proc = subprocess.Popen(
                 [str(host_exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -520,6 +523,7 @@ class OverlayManager:
             if injection_manager:
                 log.info("[INJECT] Overlay ready - resuming game for the LTK patcher")
                 injection_manager.resume_game()
+            resumed_at = time.monotonic()
 
             # "exited" only means this game process closed; the host goes back to
             # scanning so a reconnect is hooked again, so wait for the game to end
@@ -555,6 +559,7 @@ class OverlayManager:
                 return 1
             if session["error"]:
                 log.error(f"[INJECT] LTK patcher failed: {session['error']}")
+                self._log_patcher_context(session, resumed_at)
                 self._log_runoverlay_tail(runoverlay_log)
                 self._report_ltk_patcher_failure(session["error"])
                 return 1
@@ -563,7 +568,8 @@ class OverlayManager:
                     # Rose's own cleanup killed it (end of game, lobby, shutdown)
                     log.info(f"[INJECT] LTK patcher stopped by Rose (exit code {proc.returncode})")
                     return 0
-                log.error(f"[INJECT] LTK patcher exited with return code: {proc.returncode}")
+                log.error(f"[INJECT] LTK patcher exited with return code: {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})")
+                self._log_patcher_context(session, resumed_at)
                 self._log_runoverlay_tail(runoverlay_log)
                 self._report_ltk_patcher_failure(f"exited with code {proc.returncode}")
                 return proc.returncode
@@ -592,14 +598,39 @@ class OverlayManager:
             hint="Update LTK Manager, copy its new ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder, then restart Rose.",
         )
 
+    def _log_patcher_context(self, session: dict, resumed_at: float):
+        """Log what the patcher and the game were doing when the injection failed."""
+        game = self._running_game()
+        game_state = f"running (PID {game.pid})" if game is not None else "not running"
+        log.error(
+            f"[INJECT] LTK patcher context: last state={session['state']}, "
+            f"{time.monotonic() - resumed_at:.1f}s after the game was resumed, game {game_state}"
+        )
+
     @staticmethod
-    def _report_ltk_patcher_failure(reason: str):
+    def _ltk_failure_hint(reason: str) -> str:
+        """What the user can do about a patcher failure, by the cause it reported."""
+        logs = "Details are in rose_runoverlay_*.log."
+        if "SetWindowsHookEx" in reason:
+            return ("The patcher could not attach to the game this time. Retry the next game; "
+                    f"if it fails every game, report it with rose_*.log and rose_runoverlay_*.log. {logs}")
+        if reason == LATE_JOIN_ERROR:
+            return f"The game started before the patcher was ready. Retry the next game. {logs}"
+        if "disabling overlay" in reason:
+            return ("The patcher rejected the overlay built for this game. Try another skin or turn off custom mods; "
+                    f"if every skin fails, update your LTK patcher files. {logs}")
+        if reason.startswith("could not start"):
+            return f"Rose could not start ltk_patcher_host.exe. Check that it is still in Rose's tools folder. {logs}"
+        return f"Make sure your LTK patcher files are up to date, then retry. {logs}"
+
+    @classmethod
+    def _report_ltk_patcher_failure(cls, reason: str):
         """Show an LTK patcher failure in Troubleshooting."""
         report_issue(
             "LTK_PATCHER_FAILED",
             "error",
             f"Injection failed: LTK patcher error: {reason}",
-            hint="Make sure your LTK patcher files are up to date, then retry. Details are in rose_runoverlay_*.log.",
+            hint=cls._ltk_failure_hint(reason),
         )
 
     @staticmethod
@@ -764,7 +795,7 @@ class OverlayManager:
                         mod_names=mod_names,
                         result_code=proc.returncode,
                     )
-                    log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode}")
+                    log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})")
                     return proc.returncode
                 else:
                     log.debug(f"[INJECT] mkoverlay completed in {mkoverlay_duration:.2f}s")
