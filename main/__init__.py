@@ -351,6 +351,7 @@ from .runtime.loop import run_main_loop
 import utils.integration.pengu_loader as pengu_loader
 from state import AppStatus
 from utils.core.logging import get_logger, log_success
+from utils.core.issue_reporter import report_issue
 from utils.threading.thread_manager import create_daemon_thread
 from config import APP_VERSION, MAIN_LOOP_FORCE_QUIT_TIMEOUT_S, set_config_option
 from injection.config.config_manager import ConfigManager
@@ -358,6 +359,42 @@ from injection.game.game_detector import GameDetector
 import time
 
 log = get_logger()
+
+
+def _warn_pengu_activation_failed() -> None:
+    """Tell the user Rose will not show in the client because Pengu Loader is not active.
+
+    Rose's own Troubleshooting panel lives in the client plugins, the part that
+    failed, so this has to be a Windows dialog. It runs on its own thread so
+    startup goes on while it is open.
+    """
+    log = get_logger()
+    log.error("[Pengu] Activation failed - Rose will not appear in the League client")
+    report_issue(
+        "PENGU_ACTIVATION_FAILED",
+        "error",
+        "Pengu Loader could not be activated, so Rose did not appear in the League client.",
+        hint="Close the League client, then restart Rose. If it happens again, make sure your antivirus is not blocking Pengu Loader.",
+    )
+    if sys.platform != "win32":
+        return
+
+    def show():
+        import ctypes
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "Rose could not activate Pengu Loader, so it will not appear in the League client.\n\n"
+                "Close the League client, then restart Rose.\n"
+                "If it happens again, make sure your antivirus is not blocking Pengu Loader.\n\n"
+                "Details are in %LOCALAPPDATA%\\Rose\\logs\\",
+                "Rose - Pengu Loader",
+                0x50030,  # MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST
+            )
+        except Exception as e:
+            log.warning(f"[Pengu] Could not show the activation warning: {e}")
+
+    create_daemon_thread(show, "PenguActivationWarning").start()
 
 
 def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = True) -> None:
@@ -413,7 +450,8 @@ def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = Tr
     # Set client path in Pengu Loader and activate (skip on reconnection)
     if activate_pengu:
         log.info("Setting client path in Pengu Loader and activating...")
-        pengu_loader.activate_on_start(str(client_path))
+        if not pengu_loader.activate_on_start(str(client_path)):
+            _warn_pengu_activation_failed()
 
     # Initialize injection system now (with detected paths already in config.ini)
     log.info("Initializing injection system...")

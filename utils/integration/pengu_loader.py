@@ -311,6 +311,10 @@ def _resolve_pengu_dir() -> Path:
 PENGU_DIR = _resolve_pengu_dir()
 PENGU_EXE = PENGU_DIR / "Pengu Loader.exe"
 _PENGU_LOG = PENGU_DIR / "pengu.log"
+# The CLI normally answers in well under a second. A hung client, a locked
+# handle or a slow disk can block it forever, and on the cleanup path that
+# leaves Rose unable to exit with the game still suspended.
+_CLI_TIMEOUT_S = 15.0
 _LEAGUE_PROCESSES: set[str] = {
     'LeagueClient.exe', 'LeagueClientUx.exe',
     'LeagueClientUxRender.exe', 'League of Legends.exe',
@@ -407,9 +411,18 @@ def _run_cli_result(args: Sequence[str], ok_codes: Iterable[int] = (0,)) -> Opti
         result = subprocess.run(
             command, cwd=str(PENGU_DIR), text=True, capture_output=True,
             check=False, creationflags=_CREATE_NO_WINDOW,
+            timeout=_CLI_TIMEOUT_S,
         )
     except FileNotFoundError:
         log.error('Pengu Loader executable is missing at %s', PENGU_EXE)
+        return None
+    except subprocess.TimeoutExpired:
+        # TimeoutExpired derives from SubprocessError, not OSError, so the
+        # handler below would not catch it and the exception would abort the
+        # remaining cleanup steps (ADR-007).
+        log.error(
+            'Pengu Loader CLI timed out after %.0fs: %s', _CLI_TIMEOUT_S, command
+        )
         return None
     except OSError as exc:
         log.error('Failed to launch Pengu Loader CLI %s: %s', command, exc)
