@@ -1492,7 +1492,7 @@
         startObserver();
       }
     } catch (e) {
-      // Fail silently â€" fallback to Ember-based detection
+      log.warn("Could not switch the skin observer for this phase", String(e));
     }
   }
 
@@ -1519,6 +1519,14 @@
     } else {
       aramBackgroundRequestPending = false;
     }
+  }
+
+  // Errors in helpers that run on every scan are reported once, not on every call
+  const reportedFailures = new Set();
+  function reportOnce(where, error) {
+    if (reportedFailures.has(where)) return;
+    reportedFailures.add(where);
+    log.warn(`${where} failed`, String(error));
   }
 
   const log = {
@@ -2692,7 +2700,7 @@
         }
       }
     } catch (e) {
-      // Silently fail
+      reportOnce("Game mode detection", e);
     }
 
     return null;
@@ -2710,7 +2718,7 @@
         return true;
       }
     } catch (e) {
-      // Silently fail
+      reportOnce("Game mode detection", e);
     }
     return false;
   }
@@ -2731,7 +2739,7 @@
         return true;
       }
     } catch (e) {
-      // Silently fail
+      reportOnce("Game mode detection", e);
     }
     return false;
   }
@@ -2772,7 +2780,7 @@
         }
       }
     } catch (e) {
-      // Silently fail
+      reportOnce("Game mode detection", e);
     }
     return false;
   }

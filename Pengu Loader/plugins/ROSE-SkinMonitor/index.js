@@ -8,6 +8,7 @@
 console.log("[SkinMonitor] Plugin loaded");
 
 const LOG_PREFIX = "[SkinMonitor]";
+let skinSyncErrorLogged = false;
 const STATE_EVENT = "lu-skin-monitor-state";
 const SKIN_SELECTORS = [
   ".skin-name-text", // Classic Champ Select
@@ -244,8 +245,12 @@ function resyncSkinAfterConnect() {
       originalName: name,
       timestamp: Date.now(),
     });
-  } catch {
-    // ignore
+  } catch (e) {
+    // Rose would inject without knowing the hovered skin: say why, once
+    if (!skinSyncErrorLogged) {
+      skinSyncErrorLogged = true;
+      console.warn(`${LOG_PREFIX} Could not send the hovered skin to Rose:`, e);
+    }
   }
 }
 
