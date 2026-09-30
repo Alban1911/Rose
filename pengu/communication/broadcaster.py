@@ -150,7 +150,8 @@ class Broadcaster:
                             break
                     if skin_name is None:
                         skin_name = Path(str(custom_path)).name
-                except Exception:
+                except Exception as e:
+                    log.debug(f"[SkinMonitor] Could not resolve the Historic custom mod name: {e}")
                     skin_name = None
             else:
                 # Check if this is a chroma ID
@@ -405,7 +406,8 @@ class Broadcaster:
                 chromas = self.skin_scraper.get_chromas_for_skin(skin_id)
                 if chromas:
                     return True
-            except Exception:
+            except Exception as e:
+                log.debug(f"[SkinMonitor] Could not load chromas for skin {skin_id}: {e}")
                 return False
         
         return False
