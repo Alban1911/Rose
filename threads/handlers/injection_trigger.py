@@ -19,7 +19,7 @@ from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
 from utils.core.utilities import is_default_skin
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
-from injection.game.game_monitor import make_game_ended_callback
+from injection.loadingname.loading_name import build as build_loading_name
 
 log = get_logger()
 
@@ -256,15 +256,6 @@ class InjectionTrigger:
         log.info(f"PREPARING INJECTION >>> {injection_label} <<<")
         log.info(f"   Loadout Timer: #{ticker_id}")
         log.info("=" * LOG_SEPARATOR_WIDTH)
-
-        # Friends get the skin injected now, not what the client shows once the
-        # base skin is forced below
-        party_manager = getattr(self.state, "party_manager", None)
-        if party_manager and getattr(party_manager, "enabled", False):
-            try:
-                party_manager.freeze_my_selection()
-            except Exception as e:
-                log.debug(f"[PARTY] Could not keep our selection for friends: {e}")
         
         try:
             lcu_skin_id = self.state.selected_skin_id
@@ -765,14 +756,9 @@ class InjectionTrigger:
             random_active = getattr(self.state, 'random_mode_active', False)
             is_default = effective_skin_id is not None and is_default_skin(effective_skin_id)
             if is_default and not historic_active and not random_active:
-                if self.injection_manager and self._has_party_skins():
-                    # Our champion keeps its default skin, but friends' skins still need an overlay
-                    log.info(f"[INJECT] default skin (skinId={effective_skin_id}) - injecting party members' skins only")
-                    self._inject_party_skins_only()
-                else:
-                    log.info(f"[INJECT] skipping injection for default skin (skinId={effective_skin_id}) - no mods selected")
-                    if self.injection_manager:
-                        self.injection_manager.resume_if_suspended()
+                log.info(f"[INJECT] skipping injection for default skin (skinId={effective_skin_id}) - no mods selected")
+                if self.injection_manager:
+                    self.injection_manager.resume_if_suspended()
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                 if champ_id:
                     from utils.core.historic import clear_historic_entry
@@ -787,7 +773,6 @@ class InjectionTrigger:
                 if self.injection_manager:
                     self.injection_manager.inject_skin_immediately(
                         name,
-                        stop_callback=make_game_ended_callback(self.state),
                         champion_name=cname,
                         champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
                     )
@@ -805,7 +790,6 @@ class InjectionTrigger:
                 if self.injection_manager:
                     self.injection_manager.inject_skin_immediately(
                         name,
-                        stop_callback=make_game_ended_callback(self.state),
                         champion_name=cname,
                         champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
                     )
@@ -918,7 +902,17 @@ class InjectionTrigger:
                     self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
-            game_ended_callback = make_game_ended_callback(self.state)
+            has_been_in_progress = False
+
+            def game_ended_callback():
+                nonlocal has_been_in_progress
+                phase = self.state.phase
+                if phase == "InProgress":
+                    has_been_in_progress = True
+                    return False
+                if phase in ("Reconnect", "GameStart"):
+                    return False
+                return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
             
             # Inject skin in a separate thread
             log.info(f"[INJECT] Starting injection: {name}")
@@ -1040,41 +1034,10 @@ class InjectionTrigger:
             
             injection_thread = threading.Thread(target=run_injection, daemon=True, name="InjectionThread")
             injection_thread.start()
-
+        
         except Exception as e:
             log.error(f"[INJECT] injection error: {e}")
-
-    def _has_party_skins(self) -> bool:
-        """Check if party mode has friends' skins to inject for this game"""
-        party_manager = getattr(self.state, "party_manager", None)
-        if not party_manager or not getattr(party_manager, "enabled", False):
-            return False
-        try:
-            from party.integration.injection_hook import PartyInjectionHook
-            return PartyInjectionHook(party_manager, self.state, self.injection_manager).has_party_skins()
-        except Exception as e:
-            log.debug(f"[INJECT] Party injection hook not used: {e}")
-            return False
-
-    def _inject_party_skins_only(self):
-        """Inject only party members' skins (our own champion keeps its default skin)"""
-        game_ended_callback = make_game_ended_callback(self.state)
-
-        def run_injection():
-            try:
-                if not self.lcu.ok:
-                    log.warning(f"[INJECT] LCU not available, skipping injection")
-                    return
-                if self.injection_manager.inject_party_skins_only(stop_callback=game_ended_callback):
-                    log.info("[INJECT] Party members' skins injected")
-                else:
-                    log.warning("[INJECT] Party members' skins were not injected")
-            except Exception as e:
-                log.error(f"[INJECT] party injection thread error: {e}")
-
-        injection_thread = threading.Thread(target=run_injection, daemon=True, name="PartyInjectionThread")
-        injection_thread.start()
-
+    
     def _force_base_skin(self, base_skin_id: int):
         """Force base skin selection via LCU"""
         log.info(f"[INJECT] Forcing base skin (skinId={base_skin_id})")
@@ -1151,8 +1114,8 @@ class InjectionTrigger:
 
                     # Start tracking for WebSocket confirmation
                     _start_skin_tracking(base_skin_id)
-                except Exception as e:
-                    log.warning("[INJECT] Could not start base skin confirmation tracking: %s", e, exc_info=True)
+                except Exception:
+                    pass
             
             # Verify the change
             if base_skin_set_successfully:
@@ -1194,8 +1157,8 @@ class InjectionTrigger:
                                         },
                                         dedupe_window_s=60.0,
                                     )
-                                except Exception as e:
-                                    log.debug("[INJECT] Could not report base skin verification issue: %s", e)
+                                except Exception:
+                                    pass
                             else:
                                 log.info(f"[INJECT] Base skin verified: {current_skin}")
                             break
@@ -1467,6 +1430,21 @@ class InjectionTrigger:
                         if hasattr(self.state, 'selected_other_mod'):
                             self.state.selected_other_mod = None
             
+            # A custom skin runs as the default one too, so the loading screen gets the skin's name here as it does for a
+            # regular skin (SkinInjector.inject_skin). skin_id is the skin the mod targets; a chroma's mod targets its
+            # base skin, which is the name the game has. It never fails the injection.
+            skin_folder = mod_folder_name or carrier_mod_folder_name
+            if skin_folder and skin_id:
+                try:
+                    loading_name_mod = build_loading_name(
+                        injector.game_dir, injector.mods_dir, injector.mods_dir / skin_folder, int(skin_id)
+                    )
+                    if loading_name_mod:
+                        mod_folder_names.append(loading_name_mod)
+                        mod_names_list.append("Loading screen name")
+                except (TypeError, ValueError) as e:
+                    log.debug(f"[LOADNAME] skipped for custom mod: {e}")
+
             # Add party member skins if party mode is active
             party_manager = getattr(self.state, "party_manager", None)
             if party_manager and getattr(party_manager, "enabled", False):
@@ -1497,7 +1475,17 @@ class InjectionTrigger:
                 self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
-            game_ended_callback = make_game_ended_callback(self.state)
+            has_been_in_progress = False
+
+            def game_ended_callback():
+                nonlocal has_been_in_progress
+                phase = self.state.phase
+                if phase == "InProgress":
+                    has_been_in_progress = True
+                    return False
+                if phase in ("Reconnect", "GameStart"):
+                    return False
+                return has_been_in_progress and phase not in ("InProgress", "Reconnect", "GameStart")
             
             # All mods are already extracted, create and run overlay with all mods
             result = injector.overlay_manager.mk_run_overlay(
