@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONUTF8: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  workflow-security:
+    name: Workflow security (actionlint, zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install workflow linters
+        run: python -m pip install zizmor==1.30.1 actionlint-py==1.7.12.24
+      - name: actionlint (syntax, expressions, shell)
+        run: actionlint
+      - name: zizmor (unpinned actions, permissions, injection)
+        run: zizmor --min-severity medium .github
+
+  plugins:
+    name: Pengu plugins (JS syntax)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: node --check on every plugin
+        # A syntax error only shows up inside the League client, where the plugin
+        # silently fails to load; catch it here instead.
+        run: git ls-files -z 'Pengu Loader/plugins/*.js' | xargs -0 -n1 node --check
+
+  python:
+    name: Python (errors lint, unit tests)
+    # Rose is Windows-only: several modules call ctypes.windll at import time.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt ruff==0.16.8
+      - name: Lint (syntax errors and undefined names only)
+        run: python -m ruff check . --select E9,F63,F7,F82 --output-format github
+      - name: Unit tests (test/ and every package's tests/)
+        shell: pwsh
+        run: |
+          $suites = @('test') + (Get-ChildItem -Directory | ForEach-Object { Join-Path $_.Name 'tests' } | Where-Object { Test-Path $_ })
+          $failed = @()
+          foreach ($suite in $suites) {
+            Write-Host "::group::$suite"
+            python -m unittest discover -s $suite -t . -v
+            if ($LASTEXITCODE -ne 0) { $failed += $suite }
+            Write-Host "::endgroup::"
+          }
+          if ($failed) { Write-Host "::error::Failing suites: $($failed -join ', ')"; exit 1 }
+
+  dependency-review:
+    name: Dependency review (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
