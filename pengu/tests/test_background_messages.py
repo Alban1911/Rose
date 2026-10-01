@@ -56,6 +56,21 @@ class BackgroundMessageTests(unittest.TestCase):
             self.assertTrue(finished.wait(5))
         self.assertEqual(self.done, ["import", "champions"])
 
+    def test_plugin_logs_keep_their_source_and_level(self):
+        with self.assertLogs(
+            "pengu.communication.message_handler", level="WARNING"
+        ) as logs:
+            self._send(
+                "plugin-log",
+                source="ClassicRandom",
+                level="warn",
+                message="projection delayed",
+                data={"skinId": 60055029},
+            )
+
+        self.assertIn("[PLUGIN:ClassicRandom] projection delayed", logs.output[0])
+        self.assertIn("60055029", logs.output[0])
+
 
 if __name__ == "__main__":
     unittest.main()
