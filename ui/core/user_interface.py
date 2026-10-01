@@ -10,6 +10,7 @@ Manages ChromaUI and UnownedFrame as separate components
 import threading
 
 # Local imports
+from injection.classic import is_classic_game_mode
 from ui.chroma.ui import ChromaUI
 from utils.core.logging import get_logger
 
@@ -111,8 +112,16 @@ class UserInterface:
                 new_base_skin_id = None
                 prev_base_skin_id = None
             
-            # Cancel randomization if skin changed and random mode is active
-            if self.state.random_mode_active and not self.randomization_handler.randomization_in_progress:
+            # Classic history/random projections trigger ordinary skin
+            # detection too. Only their explicit selection message represents
+            # a user choice, so keep the regular-mode cancellation here.
+            if (
+                self.state.random_mode_active
+                and not is_classic_game_mode(
+                    getattr(self.state, "current_game_mode", None)
+                )
+                and not self.randomization_handler.randomization_in_progress
+            ):
                 self.randomization_handler.cancel()
             
             # Always reset randomization flags if skin changed
