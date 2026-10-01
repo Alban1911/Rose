@@ -51,6 +51,7 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
         
         log.info("Initializing shared state...")
         state = SharedState()
+        lcu.bind_shared_state(state)
         log.info("Shared state initialized")
     except Exception as e:
         log.error("=" * 80)
@@ -118,4 +119,3 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
         sys.exit(1)
     
     return lcu, skin_scraper, state, injection_manager
-
