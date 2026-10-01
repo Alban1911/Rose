@@ -122,6 +122,10 @@ def build_all():
         print("2. Run the build again")
         return False
 
+    # Optional: Marketplace repair tool (GPL-3, downloaded from its own repo)
+    from fetch_rose_repair import fetch_rose_repair
+    fetch_rose_repair()
+
     # Step 1: Build executable
     if not run_build_exe():
         print_header("[FAILED] BUILD FAILED AT STEP 1/3")
