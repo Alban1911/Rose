@@ -36,15 +36,39 @@ def _historic_file_path() -> Path:
     return data_dir / "historic.json"
 
 
+def _historic_path(scope: str = "regular") -> Path:
+    filename = "historic_classic.json" if scope == "classic" else "historic.json"
+    return get_user_data_dir() / filename
+
+
 def _historic_target_file_path() -> Path:
     data_dir = get_user_data_dir()
     return data_dir / "historic_targets.json"
 
 
-def load_historic_target_map() -> Dict[str, int]:
+def _historic_target_path(scope: str = "regular") -> Path:
+    filename = (
+        "historic_targets_classic.json"
+        if scope == "classic"
+        else "historic_targets.json"
+    )
+    return get_user_data_dir() / filename
+
+
+def historic_scope_for_state(state) -> str:
+    from injection.classic import is_classic_game_mode
+
+    return (
+        "classic"
+        if is_classic_game_mode(getattr(state, "current_game_mode", None))
+        else "regular"
+    )
+
+
+def load_historic_target_map(scope: str = "regular") -> Dict[str, int]:
     """Load the exact last skin/chroma target for custom history entries."""
     try:
-        p = _historic_target_file_path()
+        p = _historic_target_path(scope)
         if not p.exists():
             return {}
         with p.open("r", encoding="utf-8") as f:
@@ -66,46 +90,50 @@ def load_historic_target_map() -> Dict[str, int]:
         return {}
 
 
-def get_historic_target_for_champion(champion_id: int) -> Optional[int]:
+def get_historic_target_for_champion(
+    champion_id: int, scope: str = "regular"
+) -> Optional[int]:
     """Return the exact last selected skin/chroma target for a champion."""
-    return load_historic_target_map().get(str(int(champion_id)))
+    return load_historic_target_map(scope).get(str(int(champion_id)))
 
 
-def write_historic_target(champion_id: int, target_skin_id: int) -> None:
+def write_historic_target(
+    champion_id: int, target_skin_id: int, scope: str = "regular"
+) -> None:
     """Persist the exact last selected skin/chroma target for a champion."""
     try:
         target_id = int(target_skin_id)
         if target_id <= 0:
             return
         with _write_lock:
-            targets = load_historic_target_map()
+            targets = load_historic_target_map(scope)
             targets[str(int(champion_id))] = target_id
-            _write_json(_historic_target_file_path(), targets)
+            _write_json(_historic_target_path(scope), targets)
     except Exception as e:
         log.warning(f"[HISTORIC] Could not save target {target_skin_id} for champion {champion_id}: {e}")
 
 
-def clear_historic_target(champion_id: int) -> None:
+def clear_historic_target(champion_id: int, scope: str = "regular") -> None:
     """Remove the exact last selected skin/chroma target for a champion."""
     try:
         with _write_lock:
-            targets = load_historic_target_map()
+            targets = load_historic_target_map(scope)
             if str(int(champion_id)) not in targets:
                 return
             targets.pop(str(int(champion_id)), None)
-            _write_json(_historic_target_file_path(), targets)
+            _write_json(_historic_target_path(scope), targets)
     except Exception as e:
         log.warning(f"[HISTORIC] Could not clear target for champion {champion_id}: {e}")
 
 
-def load_historic_map() -> Dict[str, Union[int, str]]:
+def load_historic_map(scope: str = "regular") -> Dict[str, Union[int, str]]:
     """Load the historic mapping. Returns empty dict if missing or invalid.
     
     Returns:
         Dict mapping champion IDs to either skin/chroma IDs (int) or custom mod paths (str with "path:" prefix)
     """
     try:
-        p = _historic_file_path()
+        p = _historic_path(scope)
         if not p.exists():
             return {}
         with p.open("r", encoding="utf-8") as f:
@@ -130,18 +158,24 @@ def load_historic_map() -> Dict[str, Union[int, str]]:
         return {}
 
 
-def get_historic_skin_for_champion(champion_id: int) -> Optional[Union[int, str]]:
+def get_historic_skin_for_champion(
+    champion_id: int, scope: str = "regular"
+) -> Optional[Union[int, str]]:
     """Get historic entry for a champion.
     
     Returns:
         Integer skin/chroma ID, or string custom mod path (with "path:" prefix), or None
     """
-    m = load_historic_map()
+    m = load_historic_map(scope)
     key = str(int(champion_id))
     return m.get(key)
 
 
-def write_historic_entry(champion_id: int, skin_or_chroma_id: Union[int, str]) -> None:
+def write_historic_entry(
+    champion_id: int,
+    skin_or_chroma_id: Union[int, str],
+    scope: str = "regular",
+) -> None:
     """Write or overwrite the entry for the champion ID.
     
     Args:
@@ -149,26 +183,26 @@ def write_historic_entry(champion_id: int, skin_or_chroma_id: Union[int, str]) -
         skin_or_chroma_id: Either an integer skin/chroma ID, or a string custom mod path (with "path:" prefix)
     """
     with _write_lock:
-        m = load_historic_map()
+        m = load_historic_map(scope)
         m[str(int(champion_id))] = skin_or_chroma_id
         try:
-            _write_json(_historic_file_path(), m)
+            _write_json(_historic_path(scope), m)
         except Exception as e:
             log.warning(f"[HISTORIC] Could not save entry for champion {champion_id}: {e}")
 
 
-def clear_historic_entry(champion_id: int) -> None:
+def clear_historic_entry(champion_id: int, scope: str = "regular") -> None:
     """Remove the historic entry for a champion if it exists."""
     try:
         with _write_lock:
-            m = load_historic_map()
+            m = load_historic_map(scope)
             key = str(int(champion_id))
             if key in m:
                 m.pop(key, None)
-                _write_json(_historic_file_path(), m)
+                _write_json(_historic_path(scope), m)
     except Exception as e:
         log.warning(f"[HISTORIC] Could not clear entry for champion {champion_id}: {e}")
-    clear_historic_target(champion_id)
+    clear_historic_target(champion_id, scope)
 
 
 def is_custom_mod_path(value: Union[int, str]) -> bool:
