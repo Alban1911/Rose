@@ -20,6 +20,7 @@
   let projectedHistoricSkinId = 0;
   let projectionGeneration = 0;
   let projectionPending = false;
+  let projectionSuppressed = false;
   let customModActive = false;
   let customModName = "";
   let customModTargetSkinIds = new Set();
@@ -48,7 +49,10 @@
 
   function projectHistoricSelection(reason = "historic-state") {
     const wheel = window.__roseClassicWheelApi;
-    if (!active || randomModeActive || !isInJadeChampSelect || !jadeActive() || !historicSkinId) {
+    if (
+      !active || randomModeActive || projectionSuppressed ||
+      !isInJadeChampSelect || !jadeActive() || !historicSkinId
+    ) {
       return;
     }
     if (currentSkinId() === historicSkinId) {
@@ -276,6 +280,7 @@
       classicMode && (phase === "ChampSelect" || phase === "FINALIZATION");
     if (!isInJadeChampSelect) {
       presentationReady = false;
+      projectionSuppressed = false;
       cleanup();
     }
     else render();
@@ -305,6 +310,7 @@
         projectionPending = false;
         projectedHistoricSkinId = 0;
         presentationReady = false;
+        projectionSuppressed = false;
       }
       active = nextActive;
       skinName = nextSkinName;
@@ -354,16 +360,19 @@
       const reason = String(event?.detail?.reason || "");
       const selectedSkinId = Number(event?.detail?.selection?.skinId) || 0;
       if (
-        active && projectedHistoricSkinId && selectedSkinId !== historicSkinId &&
+        active && selectedSkinId !== historicSkinId &&
         (reason === "native-card-click" || reason === "visual-center-change")
       ) {
         projectionGeneration += 1;
         projectionPending = false;
         projectedHistoricSkinId = 0;
         presentationReady = false;
+        projectionSuppressed = true;
       }
       render();
-      if (active && !presentationReady) projectHistoricSelection("selection-change");
+      if (active && !presentationReady && !projectionSuppressed) {
+        projectHistoricSelection("selection-change");
+      }
     });
     bridge.subscribe("phase-change", handlePhaseChange);
     const classicState = window.__roseClassicWheelApi?.state?.();

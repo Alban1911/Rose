@@ -65,6 +65,16 @@ def historic_scope_for_state(state) -> str:
     )
 
 
+def _champion_keys(champion_id: int, scope: str) -> tuple[str, ...]:
+    raw_key = str(int(champion_id))
+    if scope != "classic":
+        return (raw_key,)
+    from injection.classic import to_regular_champion_id
+
+    canonical_key = str(int(to_regular_champion_id(int(champion_id)) or 0))
+    return (canonical_key,) if canonical_key == raw_key else (canonical_key, raw_key)
+
+
 def load_historic_target_map(scope: str = "regular") -> Dict[str, int]:
     """Load the exact last skin/chroma target for custom history entries."""
     try:
@@ -94,7 +104,11 @@ def get_historic_target_for_champion(
     champion_id: int, scope: str = "regular"
 ) -> Optional[int]:
     """Return the exact last selected skin/chroma target for a champion."""
-    return load_historic_target_map(scope).get(str(int(champion_id)))
+    targets = load_historic_target_map(scope)
+    return next(
+        (targets[key] for key in _champion_keys(champion_id, scope) if key in targets),
+        None,
+    )
 
 
 def write_historic_target(
@@ -107,7 +121,10 @@ def write_historic_target(
             return
         with _write_lock:
             targets = load_historic_target_map(scope)
-            targets[str(int(champion_id))] = target_id
+            keys = _champion_keys(champion_id, scope)
+            targets[keys[0]] = target_id
+            for legacy_key in keys[1:]:
+                targets.pop(legacy_key, None)
             _write_json(_historic_target_path(scope), targets)
     except Exception as e:
         log.warning(f"[HISTORIC] Could not save target {target_skin_id} for champion {champion_id}: {e}")
@@ -118,9 +135,11 @@ def clear_historic_target(champion_id: int, scope: str = "regular") -> None:
     try:
         with _write_lock:
             targets = load_historic_target_map(scope)
-            if str(int(champion_id)) not in targets:
+            keys = _champion_keys(champion_id, scope)
+            if not any(key in targets for key in keys):
                 return
-            targets.pop(str(int(champion_id)), None)
+            for key in keys:
+                targets.pop(key, None)
             _write_json(_historic_target_path(scope), targets)
     except Exception as e:
         log.warning(f"[HISTORIC] Could not clear target for champion {champion_id}: {e}")
@@ -167,8 +186,10 @@ def get_historic_skin_for_champion(
         Integer skin/chroma ID, or string custom mod path (with "path:" prefix), or None
     """
     m = load_historic_map(scope)
-    key = str(int(champion_id))
-    return m.get(key)
+    return next(
+        (m[key] for key in _champion_keys(champion_id, scope) if key in m),
+        None,
+    )
 
 
 def write_historic_entry(
@@ -184,7 +205,10 @@ def write_historic_entry(
     """
     with _write_lock:
         m = load_historic_map(scope)
-        m[str(int(champion_id))] = skin_or_chroma_id
+        keys = _champion_keys(champion_id, scope)
+        m[keys[0]] = skin_or_chroma_id
+        for legacy_key in keys[1:]:
+            m.pop(legacy_key, None)
         try:
             _write_json(_historic_path(scope), m)
         except Exception as e:
@@ -196,9 +220,10 @@ def clear_historic_entry(champion_id: int, scope: str = "regular") -> None:
     try:
         with _write_lock:
             m = load_historic_map(scope)
-            key = str(int(champion_id))
-            if key in m:
-                m.pop(key, None)
+            keys = _champion_keys(champion_id, scope)
+            if any(key in m for key in keys):
+                for key in keys:
+                    m.pop(key, None)
                 _write_json(_historic_path(scope), m)
     except Exception as e:
         log.warning(f"[HISTORIC] Could not clear entry for champion {champion_id}: {e}")
