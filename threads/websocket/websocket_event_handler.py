@@ -10,6 +10,13 @@ import logging
 from typing import Optional
 
 from config import INTERESTING_PHASES
+from injection.classic import (
+    cache_classic_default_skin_id,
+    is_classic_champion_id,
+    is_classic_game_mode,
+    to_regular_champion_id,
+    to_regular_skin_id,
+)
 from lcu import LCU, compute_locked
 from state import SharedState
 from utils.core.logging import get_logger, log_status, log_event
@@ -250,6 +257,37 @@ class WebSocketEventHandler:
     def _handle_in_progress_entry(self):
         """Handle entering InProgress phase"""
         from utils.core.logging import log_section
+
+        if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+            classic_target = (
+                getattr(self.state, "historic_skin_id", None)
+                if getattr(self.state, "historic_mode_active", False)
+                else getattr(self.state, "random_skin_id", None)
+                if getattr(self.state, "random_mode_active", False)
+                else getattr(self.state, "classic_visual_skin_id", None)
+                or getattr(self.state, "selected_skin_id", None)
+            )
+            log_section(
+                log,
+                "Classic Game Starting",
+                "",
+                {
+                    "TargetSkinID": classic_target,
+                    "LCUSkinID": self.state.selected_lcu_skin_id,
+                    "CarrierSkinID": self.state.classic_default_skin_id,
+                    "HistoricMode": self.state.historic_mode_active,
+                    "RandomMode": self.state.random_mode_active,
+                },
+            )
+            log.info(
+                "[CLASSIC:INJECT] game starting target=%s lcu=%s carrier=%s historic=%s random=%s",
+                classic_target,
+                self.state.selected_lcu_skin_id,
+                self.state.classic_default_skin_id,
+                self.state.historic_mode_active,
+                self.state.random_mode_active,
+            )
+            return
         
         if self.state.last_hovered_skin_key:
             log_section(log, f"Game Starting - Last Detected Skin: {self.state.last_hovered_skin_key.upper()}", "", {
@@ -285,6 +323,7 @@ class WebSocketEventHandler:
         sess = payload.get("data") or {}
         self.state.local_cell_id = sess.get("localPlayerCellId", self.state.local_cell_id)
         
+        raw_selected_skin = None
         # Track selected skin ID from myTeam
         if self.state.local_cell_id is not None:
             my_team = sess.get("myTeam") or []
@@ -292,13 +331,7 @@ class WebSocketEventHandler:
                 if player.get("cellId") == self.state.local_cell_id:
                     selected_skin = player.get("selectedSkinId")
                     if selected_skin is not None:
-                        skin_int = int(selected_skin)
-                        self.state.selected_skin_id = skin_int
-                        # Check if this confirms a pending base skin force
-                        try:
-                            _on_skin_confirmed(skin_int)
-                        except Exception as e:
-                            log.debug(f"[WS] Could not record the base skin confirmation: {e}")
+                        raw_selected_skin = selected_skin
                     break
         
         # Visible players (distinct cellIds)
@@ -323,7 +356,92 @@ class WebSocketEventHandler:
         # Lock counter: diff cellId → championId
         if self.champion_lock_handler:
             self.champion_lock_handler.handle_session_locks(sess)
+
+        if raw_selected_skin is not None:
+            self._update_selected_skin(raw_selected_skin)
         
         # Timer
         if self.timer_manager:
             self.timer_manager.maybe_start_timer(sess)
+
+    def _update_selected_skin(self, raw_skin_id) -> None:
+        """Track the LCU carrier without overwriting a local Classic target."""
+        try:
+            raw_skin_id = int(raw_skin_id)
+        except (TypeError, ValueError):
+            return
+
+        previous_lcu_skin_id = self.state.selected_lcu_skin_id
+        self.state.selected_lcu_skin_id = raw_skin_id
+        if not is_classic_game_mode(self.state.current_game_mode):
+            self.state.selected_skin_id = raw_skin_id
+            try:
+                _on_skin_confirmed(raw_skin_id)
+            except Exception:
+                pass
+            return
+
+        raw_champion_id = raw_skin_id // 1000
+        if not is_classic_champion_id(raw_champion_id):
+            log.warning("[CLASSIC:LCU] Ignored invalid skin ID: %s", raw_skin_id)
+            return
+        champion_id = int(to_regular_champion_id(raw_champion_id) or 0)
+        locked_champion_id = int(
+            to_regular_champion_id(self.state.locked_champ_id) or 0
+        )
+        if locked_champion_id and champion_id != locked_champion_id:
+            log.debug(
+                "[CLASSIC:LCU] Ignored stale champion=%s locked=%s",
+                champion_id,
+                locked_champion_id,
+            )
+            return
+
+        if (
+            self.state.classic_champion_id != champion_id
+            or not self.state.classic_default_skin_id
+        ):
+            carrier = cache_classic_default_skin_id(self.lcu, self.state, raw_champion_id)
+            if carrier is None:
+                log.warning(
+                    "[CLASSIC:LCU] Native carrier unavailable for champion %s",
+                    champion_id,
+                )
+                return
+            self.state.classic_champion_id = champion_id
+
+        selected_skin_id = int(to_regular_skin_id(raw_skin_id) or 0)
+        default_skin_id = int(
+            to_regular_skin_id(self.state.classic_default_skin_id) or 0
+        )
+        owned = {
+            int(to_regular_skin_id(value) or 0)
+            for value in (self.state.owned_skin_ids or ())
+        }
+        projected_skin_id = self.state.classic_visual_skin_id
+        if projected_skin_id is None:
+            self.state.classic_selected_skin_owned = (
+                selected_skin_id == default_skin_id or selected_skin_id in owned
+            )
+        if previous_lcu_skin_id != raw_skin_id:
+            log.info(
+                "[CLASSIC:LCU] observed raw=%s target=%s projected=%s owned=%s carrier=%s",
+                raw_skin_id,
+                selected_skin_id,
+                projected_skin_id or "none",
+                self.state.classic_selected_skin_owned,
+                self.state.classic_default_skin_id,
+            )
+        if projected_skin_id is not None and raw_skin_id == self.state.classic_default_skin_id:
+            log.debug(
+                "[CLASSIC:LCU] Preserving projected target %s on carrier %s",
+                projected_skin_id,
+                raw_skin_id,
+            )
+            return
+
+        self.state.selected_skin_id = selected_skin_id
+        try:
+            _on_skin_confirmed(selected_skin_id)
+        except Exception:
+            pass

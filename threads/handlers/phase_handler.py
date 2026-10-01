@@ -234,6 +234,7 @@ class PhaseHandler:
         """Reset state for phase exit"""
         self.state.hovered_champ_id = None
         self.state.locked_champ_id = None
+        self.state.selected_lcu_skin_id = None
         self.state.classic_default_skin_id = None
         self.state.classic_champion_id = None
         self.state.classic_catalog_skin_ids.clear()

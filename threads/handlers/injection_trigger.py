@@ -980,23 +980,58 @@ class InjectionTrigger:
                 if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
                     self._force_base_skin(base_skin_id)
             
-            # Create callback to check if game ended
+            # Stop work prepared for an older Classic carousel selection.
             game_ended_callback = make_game_ended_callback(self.state)
+            classic_mode = is_classic_game_mode(
+                getattr(self.state, "current_game_mode", None)
+            )
+            selection_generation = getattr(
+                self.state, "classic_selection_generation", None
+            )
+
+            def injection_is_stale() -> bool:
+                return bool(
+                    classic_mode
+                    and (
+                        not is_classic_game_mode(
+                            getattr(self.state, "current_game_mode", None)
+                        )
+                        or getattr(
+                            self.state, "classic_selection_generation", None
+                        )
+                        != selection_generation
+                    )
+                )
+
+            def stop_callback() -> bool:
+                return injection_is_stale() or game_ended_callback()
             
             # Inject skin in a separate thread
-            log.info(f"[INJECT] Starting injection: {name}")
+            prefix = (
+                "[CLASSIC:INJECT]"
+                if is_classic_game_mode(getattr(self.state, "current_game_mode", None))
+                else "[INJECT]"
+            )
+            log.info(f"{prefix} Starting injection target: {name}")
             
             champ_id_for_history = self.state.locked_champ_id
 
             def run_injection():
                 try:
+                    if injection_is_stale():
+                        log.info(
+                            "[CLASSIC:INJECT] Skipped stale target generation=%s current=%s",
+                            selection_generation,
+                            self.state.classic_selection_generation,
+                        )
+                        return
                     if not self.lcu.ok:
                         log.warning(f"[INJECT] LCU not available, skipping injection")
                         return
                     
                     success = self.injection_manager.inject_skin_immediately(
                         name,
-                        stop_callback=game_ended_callback,
+                        stop_callback=stop_callback,
                         champion_name=cname,
                         champion_id=self.state.locked_champ_id
                     )
@@ -1142,7 +1177,12 @@ class InjectionTrigger:
 
     def _force_base_skin(self, base_skin_id: int):
         """Force base skin selection via LCU"""
-        log.info(f"[INJECT] Forcing base skin (skinId={base_skin_id})")
+        prefix = (
+            "[CLASSIC:INJECT]"
+            if is_classic_game_mode(getattr(self.state, "current_game_mode", None))
+            else "[INJECT]"
+        )
+        log.info(f"{prefix} Forcing carrier skin (skinId={base_skin_id})")
 
         # Temporarily skip base skin handling in client
         self.state.ui_skin_thread._broadcast_skip_base_skin()
