@@ -244,6 +244,11 @@ class WebSocketServer:
             return (403, {"Content-Type": "text/plain"}, b"Forbidden")
 
         if self.http_handler:
+            if path.startswith("/market-thumb"):
+                # Fetches a remote image: keep it off the loop so the bridge stays responsive
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, self.http_handler, path, request_headers
+                )
             return self.http_handler(path, request_headers)
         return None
     
