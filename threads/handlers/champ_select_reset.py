@@ -41,6 +41,12 @@ def perform_champ_select_reset(state, lcu) -> bool:
     state.injection_completed = False
     state.loadout_countdown_active = False
     state.locked_champ_id = None
+    state.classic_default_skin_id = None
+    state.classic_champion_id = None
+    state.classic_catalog_skin_ids.clear()
+    state.classic_visual_skin_id = None
+    state.classic_selected_skin_owned = False
+    state.classic_selection_generation = 0
     state.locked_champ_timestamp = 0.0
     state.own_champion_locked = False
     state.reset_last_locked = True

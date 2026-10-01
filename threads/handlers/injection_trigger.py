@@ -17,7 +17,15 @@ from utils.core.issue_reporter import report_issue
 from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
-from utils.core.utilities import is_default_skin
+from injection.classic import (
+    cache_classic_default_skin_id,
+    is_classic_champion_id,
+    is_classic_game_mode,
+    is_default_skin_for_state,
+    to_classic_skin_id,
+    to_regular_champion_id,
+    to_regular_skin_id,
+)
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 from injection.game.game_monitor import make_game_ended_callback
 from injection.loadingname.loading_name import build as build_loading_name
@@ -152,9 +160,31 @@ class InjectionTrigger:
         if skin_id is None or champion_id is None:
             return True
         try:
-            return int(skin_id) // 1000 == int(champion_id)
+            skin_champion_id = to_regular_champion_id(int(skin_id) // 1000)
+            selected_champion_id = to_regular_champion_id(int(champion_id))
+            return skin_champion_id == selected_champion_id
         except (TypeError, ValueError):
             return False
+
+    def _injection_carrier_skin_id(self, champion_id: int) -> Optional[int]:
+        if not (
+            is_classic_game_mode(getattr(self.state, "current_game_mode", None))
+            or is_classic_champion_id(champion_id)
+        ):
+            return int(champion_id) * 1000
+        carrier = cache_classic_default_skin_id(self.lcu, self.state, champion_id)
+        if not carrier:
+            log.warning(
+                "[CLASSIC:CARRIER] Injection aborted: no verified native default for champion %s",
+                champion_id,
+            )
+            return None
+        log.info(
+            "[CLASSIC:CARRIER] Using native default %s (slot %s)",
+            carrier,
+            carrier % 1000,
+        )
+        return carrier
 
     def trigger_injection(self, name: str, ticker_id: int, cname: str = ""):
         """Trigger injection for a skin/chroma
@@ -174,6 +204,12 @@ class InjectionTrigger:
         # Check if custom mod is selected for this skin (before logging)
         ui_skin_id = self.state.last_hovered_skin_id
         locked_champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+        if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+            projected_skin_id = getattr(self.state, "classic_visual_skin_id", None)
+            if projected_skin_id is not None and self._skin_matches_champion(
+                projected_skin_id, locked_champ_id
+            ):
+                ui_skin_id = int(projected_skin_id)
 
         # Determine effective skin/chroma ID based on active modes
         # Priority:
@@ -276,6 +312,11 @@ class InjectionTrigger:
         try:
             lcu_skin_id = self.state.selected_skin_id
             owned_skin_ids = self.state.owned_skin_ids
+            if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+                owned_skin_ids = {
+                    int(to_regular_skin_id(value) or 0)
+                    for value in (owned_skin_ids or ())
+                }
             
             # Auto-select previously used custom mods (so users don't need to open the Custom Mods UI)
             # - Skin custom mod: stored per champion in utils.core.historic as a "path:..."
@@ -753,7 +794,7 @@ class InjectionTrigger:
                 mod_types_str = "/".join(selected_mod_types) if selected_mod_types else "Map/Font/Announcer/Other"
                 
                 # Check if skin needs to be injected (if unowned, inject base skin ZIP along with map/font/announcer/other mods)
-                is_default = target_skin_id is not None and is_default_skin(target_skin_id)
+                is_default = is_default_skin_for_state(self.state, target_skin_id)
                 is_skin_owned = (
                     target_skin_id is not None and (
                         is_default
@@ -781,7 +822,7 @@ class InjectionTrigger:
             # already overrides to the saved skin and injection should proceed normally)
             historic_active = getattr(self.state, 'historic_mode_active', False)
             random_active = getattr(self.state, 'random_mode_active', False)
-            is_default = effective_skin_id is not None and is_default_skin(effective_skin_id)
+            is_default = is_default_skin_for_state(self.state, effective_skin_id)
             if is_default and not historic_active and not random_active:
                 if self.injection_manager and self._has_party_skins():
                     # Our champion keeps its default skin, but friends' skins still need an overlay
@@ -842,6 +883,8 @@ class InjectionTrigger:
         champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
         if champ_id and self.lcu:
             target_skin_id = skin_id
+            if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+                target_skin_id = int(to_classic_skin_id(skin_id) or skin_id)
             log.info(f"[INJECT] Forcing owned skin/chroma (skinId={target_skin_id})")
             
             forced_successfully = False
@@ -914,7 +957,9 @@ class InjectionTrigger:
             # Force base skin selection via LCU before injecting
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champ_id:
-                base_skin_id = champ_id * 1000
+                base_skin_id = self._injection_carrier_skin_id(champ_id)
+                if base_skin_id is None:
+                    return
                 
                 # Read actual current selection from LCU session
                 actual_lcu_skin_id = None
@@ -1542,7 +1587,9 @@ class InjectionTrigger:
             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champion_id and base_skin_name:
                 # Injecting base skin ZIP for unowned skin - force base skin
-                base_skin_id = champion_id * 1000
+                base_skin_id = self._injection_carrier_skin_id(champion_id)
+                if base_skin_id is None:
+                    return
                 self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
@@ -1705,4 +1752,3 @@ class InjectionTrigger:
             log.error(f"[INJECT] Error injecting custom mod: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
-

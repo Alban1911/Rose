@@ -172,6 +172,12 @@ class WebSocketEventHandler:
         # Reset LCU skin selection
         self.state.selected_skin_id = None
         self.state.owned_skin_ids.clear()
+        self.state.classic_default_skin_id = None
+        self.state.classic_champion_id = None
+        self.state.classic_catalog_skin_ids.clear()
+        self.state.classic_visual_skin_id = None
+        self.state.classic_selected_skin_owned = False
+        self.state.classic_selection_generation = 0
         self.state.last_hover_written = False
         
         # Reset injection and countdown state
@@ -321,4 +327,3 @@ class WebSocketEventHandler:
         # Timer
         if self.timer_manager:
             self.timer_manager.maybe_start_timer(sess)
-
