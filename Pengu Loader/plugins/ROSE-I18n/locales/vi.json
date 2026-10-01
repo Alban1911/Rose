@@ -236,5 +236,8 @@
   "{count} mods added": "Đã thêm {count} mod",
   "{name} added to Rose": "Đã thêm {name} vào Rose",
   "{site} can't apply these filters": "{site} không áp dụng được các bộ lọc này",
-  "{site} is unavailable right now": "{site} hiện không khả dụng"
+  "{site} is unavailable right now": "{site} hiện không khả dụng",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }

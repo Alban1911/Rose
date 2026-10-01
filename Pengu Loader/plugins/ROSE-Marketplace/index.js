@@ -712,7 +712,9 @@
 
     if (status && status.active) {
       download.disabled = true;
-      download.textContent = status.percent != null ? `${Math.round(status.percent)}%` : t("Downloading...");
+      download.textContent = status.repairing
+        ? t("Repairing...")
+        : status.percent != null ? `${Math.round(status.percent)}%` : t("Downloading...");
       bar.style.width = `${status.percent || 3}%`;
       return;
     }
@@ -787,7 +789,12 @@
   function handleDownloadProgress(payload) {
     const status = downloads.get(payload.key);
     if (!status || !status.active) return;
-    status.percent = payload.percent;
+    if (payload.stage === "repair") {
+      status.repairing = true;
+      status.percent = 100;
+    } else {
+      status.percent = payload.percent;
+    }
     refreshCard(payload.key);
   }
 
@@ -800,7 +807,14 @@
         item.installed = true;
         item.updateAvailable = false;
       }
-      notify(t("{name} added to Rose", { name: payload.modName || name }));
+      const added = payload.modName || name;
+      if (payload.repair === "repaired") {
+        notify(t("{name} repaired ({count} fixes) and added to Rose", { name: added, count: payload.repairApplied }));
+      } else if (payload.repair === "failed") {
+        notify(t("{name} added to Rose, but it could not be repaired and may crash the game", { name: added }), true);
+      } else {
+        notify(t("{name} added to Rose", { name: added }));
+      }
     } else if (payload.captcha) {
       downloads.set(payload.key, { error: t("The site asks for a captcha: download this mod from its page.") });
       notify(t("The site asks for a captcha: download this mod from its page."), true);

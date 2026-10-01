@@ -236,5 +236,8 @@
   "{count} mods added": "{count} Mods hinzugefügt",
   "{name} added to Rose": "{name} zu Rose hinzugefügt",
   "{site} can't apply these filters": "{site} kann diese Filter nicht anwenden",
-  "{site} is unavailable right now": "{site} ist gerade nicht erreichbar"
+  "{site} is unavailable right now": "{site} ist gerade nicht erreichbar",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }

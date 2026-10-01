@@ -236,5 +236,8 @@
   "{count} mods added": "{count} mod eklendi",
   "{name} added to Rose": "{name} Rose'a eklendi",
   "{site} can't apply these filters": "{site} bu filtreleri uygulayamıyor",
-  "{site} is unavailable right now": "{site} şu anda kullanılamıyor"
+  "{site} is unavailable right now": "{site} şu anda kullanılamıyor",
+  "Repairing...": "Tamir ediliyor...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} tamir edildi ({count} düzeltme) ve Rose'a eklendi",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} Rose'a eklendi ama tamir edilemedi, oyunu çökertebilir"
 }

@@ -236,5 +236,8 @@
   "{count} mods added": "เพิ่มม็อดแล้ว {count} รายการ",
   "{name} added to Rose": "เพิ่ม {name} ลงใน Rose แล้ว",
   "{site} can't apply these filters": "{site} ใช้ตัวกรองเหล่านี้ไม่ได้",
-  "{site} is unavailable right now": "{site} ไม่พร้อมใช้งานในขณะนี้"
+  "{site} is unavailable right now": "{site} ไม่พร้อมใช้งานในขณะนี้",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }

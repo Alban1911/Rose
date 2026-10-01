@@ -38,6 +38,7 @@ from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
 
 from .divine import DivineProvider
 from .http import PoliteSession
+from .repair import repair_archive
 from .models import (
     ROSE_CATEGORIES,
     CaptchaRequired,
@@ -334,6 +335,11 @@ class MarketplaceService:
             spec = provider.resolve_download(item_id)
             temp_dir = self.data_dir / "cache" / "marketplace" / "tmp" / uuid.uuid4().hex
             archive = self.fetch(spec, temp_dir, safe_file_stem(payload.get("name")), key)
+            if category == "skins":
+                self.send({"type": "marketplace-download-progress", "key": key, "stage": "repair"})
+                repair = repair_archive(archive)
+                archive = repair.path
+                result.update({"repair": repair.status, "repairApplied": repair.applied})
 
             if category == "skins":
                 mod_folder, _manifest, mod_name = self.mod_storage.import_mod_file(champion_id, archive, skin_ids)

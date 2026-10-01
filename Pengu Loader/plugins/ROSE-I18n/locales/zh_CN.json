@@ -236,5 +236,8 @@
   "{count} mods added": "已添加 {count} 个模组",
   "{name} added to Rose": "{name} 已添加到 Rose",
   "{site} can't apply these filters": "{site} 无法应用这些筛选条件",
-  "{site} is unavailable right now": "{site} 暂时不可用"
+  "{site} is unavailable right now": "{site} 暂时不可用",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }

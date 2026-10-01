@@ -236,5 +236,8 @@
   "{count} mods added": "{count} mods προστέθηκαν",
   "{name} added to Rose": "Το {name} προστέθηκε στο Rose",
   "{site} can't apply these filters": "Το {site} δεν μπορεί να εφαρμόσει αυτά τα φίλτρα",
-  "{site} is unavailable right now": "Το {site} δεν είναι διαθέσιμο αυτή τη στιγμή"
+  "{site} is unavailable right now": "Το {site} δεν είναι διαθέσιμο αυτή τη στιγμή",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }

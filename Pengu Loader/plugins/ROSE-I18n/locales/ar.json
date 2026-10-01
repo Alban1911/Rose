@@ -236,5 +236,8 @@
   "{count} mods added": "أضيفت {count} تعديلات",
   "{name} added to Rose": "أضيف {name} إلى Rose",
   "{site} can't apply these filters": "لا يستطيع {site} تطبيق عوامل التصفية هذه",
-  "{site} is unavailable right now": "{site} غير متاح حاليًا"
+  "{site} is unavailable right now": "{site} غير متاح حاليًا",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }

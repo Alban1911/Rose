@@ -236,5 +236,8 @@
   "{count} mods added": "{count} mod ditambahkan",
   "{name} added to Rose": "{name} ditambahkan ke Rose",
   "{site} can't apply these filters": "{site} tidak dapat menerapkan filter ini",
-  "{site} is unavailable right now": "{site} sedang tidak tersedia"
+  "{site} is unavailable right now": "{site} sedang tidak tersedia",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }

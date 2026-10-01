@@ -236,5 +236,8 @@
   "{count} mods added": "모드 {count}개 추가됨",
   "{name} added to Rose": "{name}이(가) Rose에 추가됨",
   "{site} can't apply these filters": "{site}에서는 이 필터를 적용할 수 없습니다",
-  "{site} is unavailable right now": "{site}을(를) 지금 사용할 수 없습니다"
+  "{site} is unavailable right now": "{site}을(를) 지금 사용할 수 없습니다",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }

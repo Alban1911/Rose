@@ -236,5 +236,8 @@
   "{count} mods added": "{count} mod hozzáadva",
   "{name} added to Rose": "{name} hozzáadva a Rose-hoz",
   "{site} can't apply these filters": "{site} nem tudja alkalmazni ezeket a szűrőket",
-  "{site} is unavailable right now": "{site} most nem érhető el"
+  "{site} is unavailable right now": "{site} most nem érhető el",
+  "Repairing...": "Repairing...",
+  "{name} repaired ({count} fixes) and added to Rose": "{name} repaired ({count} fixes) and added to Rose",
+  "{name} added to Rose, but it could not be repaired and may crash the game": "{name} added to Rose, but it could not be repaired and may crash the game"
 }
