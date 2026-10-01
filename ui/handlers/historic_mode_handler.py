@@ -18,6 +18,16 @@ from utils.core.logging import get_logger
 log = get_logger()
 
 
+def _skin_id_for_state(state: SharedState, skin_id: object) -> Optional[int]:
+    try:
+        value = int(skin_id)
+    except (TypeError, ValueError):
+        return None
+    if is_classic_game_mode(getattr(state, "current_game_mode", None)):
+        value = int(to_regular_skin_id(value) or 0)
+    return value or None
+
+
 def historic_custom_mod_affects_skin(state: SharedState, *skin_ids: object) -> bool:
     """Return whether the saved custom-mod history applies to any skin ID."""
     try:
@@ -121,7 +131,11 @@ class HistoricModeHandler:
         
         # History may be restored while the client is already showing the
         # manually selected target; do not require a default-skin spawn first.
-        base_skin_id = self.state.locked_champ_id * 1000
+        selected_skin_id = _skin_id_for_state(self.state, skin_id)
+        base_skin_id = _skin_id_for_state(
+            self.state,
+            default_skin_id_for_state(self.state, self.state.locked_champ_id),
+        )
         try:
             from utils.core.historic import (
                 get_historic_skin_for_champion,
@@ -135,7 +149,7 @@ class HistoricModeHandler:
             custom_mod_applies = historic_custom_mod_affects_skin(self.state, skin_id)
 
             if historic_value is not None and (
-                skin_id == base_skin_id or custom_mod_applies
+                selected_skin_id == base_skin_id or custom_mod_applies
             ):
                 self.state.historic_mode_active = True
                 self.state.historic_skin_id = historic_value
@@ -166,9 +180,11 @@ class HistoricModeHandler:
         if not self.state.historic_mode_active or self.state.locked_champ_id is None:
             return
         
-        base_skin_id = default_skin_id_for_state(
-            self.state, self.state.locked_champ_id
+        base_skin_id = _skin_id_for_state(
+            self.state,
+            default_skin_id_for_state(self.state, self.state.locked_champ_id),
         )
+        selected_base_skin_id = _skin_id_for_state(self.state, new_base_skin_id)
         historic_skin_id = getattr(self.state, "historic_skin_id", None)
         if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
             try:
@@ -190,7 +206,7 @@ class HistoricModeHandler:
         # Keep custom-mod history active when the selected skin/chroma is one
         # of the saved mod targets. The client is allowed to remain on that
         # real skin; history is only tracking the mod, not forcing base skin.
-        if new_base_skin_id != base_skin_id and historic_custom_mod_affects_skin(
+        if selected_base_skin_id != base_skin_id and historic_custom_mod_affects_skin(
             self.state, skin_id, new_base_skin_id
         ):
             log.debug(
@@ -201,7 +217,7 @@ class HistoricModeHandler:
             )
             return
 
-        if new_base_skin_id != base_skin_id:
+        if selected_base_skin_id != base_skin_id:
 
             # Skin changed to a different base skin - deactivate historic mode
             self.state.historic_mode_active = False
