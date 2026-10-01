@@ -2909,6 +2909,21 @@
     });
     manageActiveObserver.observe(manageDropdown, { attributes: true, attributeFilter: ['class'] });
 
+    // Marketplace (ROSE-Marketplace plugin): browse RuneForge / Celestial mods
+    const marketplaceButton = document.createElement("lol-uikit-flat-button-secondary");
+    marketplaceButton.id = "marketplace-button";
+    marketplaceButton.textContent = t("Marketplace");
+    marketplaceButton.style.marginTop = "8px";
+    marketplaceButton.style.width = "100%";
+    marketplaceButton.addEventListener("click", () => {
+      if (window.RoseMarketplace && typeof window.RoseMarketplace.open === "function") {
+        window.RoseMarketplace.open();
+      } else {
+        showRoseNotice(t("The marketplace is not available"), true);
+      }
+    });
+    form.appendChild(marketplaceButton);
+
     // Open logs folder button
     const logsButton = document.createElement("lol-uikit-flat-button-secondary");
     logsButton.id = "logs-folder-button";
@@ -3479,8 +3494,13 @@
     }
   }
 
-  function openChampionSelection(mode) {
+  // Set while another plugin (ROSE-Marketplace) borrows the champion / skin pickers
+  let championPickHandler = null;
+  let skinPickHandler = null;
+
+  function openChampionSelection(mode, onPick) {
     window.__roseChampionSelectionMode = mode === "manage" ? "manage" : "add";
+    championPickHandler = typeof onPick === "function" ? onPick : null;
 
     // Remove existing dialog if any
     const existingDialog = document.getElementById("champion-selection-dialog");
@@ -3619,6 +3639,10 @@
     }
     delete window.__roseChampionRenderer;
     delete window.__roseAllChampions;
+    // Closed without a choice: tell the borrowing plugin
+    const handler = championPickHandler;
+    championPickHandler = null;
+    if (handler) handler(null);
   }
 
   function renderChampionsGrid(champions) {
@@ -3655,8 +3679,12 @@
 
   function handleChampionSelection(championId) {
     const mode = window.__roseChampionSelectionMode === "manage" ? "manage" : "add";
+    const pickHandler = championPickHandler;
+    championPickHandler = null;
     closeChampionSelection();
-    if (mode === "manage") {
+    if (pickHandler) {
+      pickHandler(championId);
+    } else if (mode === "manage") {
       openChampionModsList(championId);
       log("info", "Champion selected for mod management: champion=" + championId);
     } else {
@@ -3665,12 +3693,16 @@
     }
   }
 
-  function openSkinSelection(championId) {
+  // options (ROSE-Marketplace): onConfirm({championId, skinIds}) receives the targets
+  // instead of the mod file picker opening, preselect = skin IDs, confirmLabel
+  function openSkinSelection(championId, options = {}) {
     // Remove existing dialog if any
     const existingDialog = document.getElementById("skin-selection-dialog");
     if (existingDialog) {
       existingDialog.remove();
     }
+    skinPickHandler = typeof options.onConfirm === "function" ? options.onConfirm : null;
+    const skinPickOptions = options;
 
     // Dialog is the backdrop itself
     const dialog = document.createElement("div");
@@ -3714,8 +3746,18 @@
     backButton.setAttribute("aria-label", t("Go back"));
     backButton.addEventListener("click", (e) => {
       e.stopPropagation();
+      const handler = skinPickHandler;
+      skinPickHandler = null;
       closeSkinSelection();
-      openChampionSelection();
+      if (handler) {
+        // Back to the champion list, still choosing for the same plugin
+        openChampionSelection("add", (pickedChampionId) => {
+          if (pickedChampionId) openSkinSelection(pickedChampionId, skinPickOptions);
+          else handler(null);
+        });
+      } else {
+        openChampionSelection();
+      }
     });
     header.appendChild(backButton);
 
@@ -3765,7 +3807,7 @@
     const confirmButton = document.createElement("button");
     confirmButton.id = "skin-selection-confirm";
     confirmButton.type = "button";
-    confirmButton.textContent = t("Confirm & Select Mod");
+    confirmButton.textContent = options.confirmLabel || t("Confirm & Select Mod");
     confirmButton.disabled = true;
     confirmButton.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -3777,7 +3819,9 @@
     flyoutFrame.appendChild(flyoutContent);
     dialog.appendChild(flyoutFrame);
 
-    window.__roseSelectedSkinIds = new Set();
+    window.__roseSelectedSkinIds = new Set(
+      (options.preselect || []).map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    );
 
     // Request skins for champion
     if (bridge) bridge.send({
@@ -3796,6 +3840,9 @@
       dialog.remove();
     }
     delete window.__roseSelectedChampionId;
+    const handler = skinPickHandler;
+    skinPickHandler = null;
+    if (handler) handler(null);
   }
 
   function updateSkinSelectionUI() {
@@ -3849,7 +3896,13 @@
     const selectedSkinIds = Array.from(window.__roseSelectedSkinIds || []);
     if (selectedSkinIds.length === 0) return;
 
+    const pickHandler = skinPickHandler;
+    skinPickHandler = null;
     closeSkinSelection();
+    if (pickHandler) {
+      pickHandler({ championId: Number(championId), skinIds: selectedSkinIds });
+      return;
+    }
     if (bridge) bridge.send({
       type: "add-custom-mods-skin-selected",
       action: "create",
@@ -4548,12 +4601,62 @@
   function handleFolderOpenedResponse(payload) {
     if (payload.cancelled) {
       log("info", "Mod import cancelled");
-    } else if (payload.error) {
-      log("error", `Failed to import mod: ${escapeHtml(payload.error)}`);
-      // Could show an error message to user here
-    } else {
-      log("info", `Imported mod: ${payload.modName || payload.path || "success"}`);
+      return;
     }
+    const results = Array.isArray(payload.results) ? payload.results : null;
+    if (!results) {
+      // Older backend: one file per import
+      if (payload.error) {
+        log("error", `Failed to import mod: ${escapeHtml(payload.error)}`);
+        showRoseNotice(t("Couldn't import the mod: {error}", { error: tAny(payload.error) }), true);
+      } else {
+        log("info", `Imported mod: ${payload.modName || payload.path || "success"}`);
+        showRoseNotice(t("{count} mods added", { count: 1 }), false);
+      }
+      return;
+    }
+
+    const failed = results.filter((r) => !r.success);
+    const importedCount = results.length - failed.length;
+    log("info", `Imported ${importedCount}/${results.length} mod(s)`, failed);
+    const lines = [];
+    if (importedCount > 0) lines.push(t("{count} mods added", { count: importedCount }));
+    if (failed.length > 0) {
+      lines.push(t("{count} failed", { count: failed.length }));
+      failed.slice(0, 5).forEach((r) => lines.push(`• ${r.file}: ${tAny(r.error || "")}`));
+      if (failed.length > 5) lines.push("…");
+    }
+    showRoseNotice(lines.join("\n"), failed.length > 0);
+  }
+
+  // Short notice at the bottom of the client (imports gave no feedback before).
+  // Shared with ROSE-Marketplace through window.RoseSettings.notify
+  function showRoseNotice(message, isError) {
+    const NOTICE_ID = "rose-import-notice";
+    document.getElementById(NOTICE_ID)?.remove();
+    const notice = document.createElement("div");
+    notice.id = NOTICE_ID;
+    notice.textContent = message;
+    Object.assign(notice.style, {
+      position: "fixed",
+      left: "50%",
+      bottom: "48px",
+      transform: "translateX(-50%)",
+      zIndex: "10050",
+      maxWidth: "460px",
+      padding: "10px 16px",
+      whiteSpace: "pre-line",
+      background: "#010a13",
+      color: "#f0e6d2",
+      border: `1px solid ${isError ? "#ff6b6b" : "#c8aa6e"}`,
+      boxShadow: "0 0 12px rgba(0, 0, 0, 0.6)",
+      fontFamily: '"Beaufort for LOL", serif',
+      fontSize: "13px",
+      cursor: "pointer",
+    });
+    notice.addEventListener("click", () => notice.remove());
+    document.body.appendChild(notice);
+    setTimeout(() => notice.remove(), isError ? 9000 : 4000);
   }
 
   function openLogsFolder() {
@@ -5209,6 +5312,19 @@
       _initializing = false;
     }
   }
+
+  // Pickers and notices shared with ROSE-Marketplace
+  window.RoseSettings = Object.freeze({
+    // Resolves with a champion ID, or null when the list is closed
+    pickChampion: () =>
+      new Promise((resolve) => openChampionSelection("add", resolve)),
+    // Resolves with {championId, skinIds}, or null when cancelled
+    pickSkinTargets: (championId, options = {}) =>
+      new Promise((resolve) =>
+        openSkinSelection(championId, { ...options, onConfirm: resolve })
+      ),
+    notify: (message, isError = false) => showRoseNotice(String(message), Boolean(isError)),
+  });
 
   if (typeof document === "undefined") {
     log("warn", "document unavailable; aborting");

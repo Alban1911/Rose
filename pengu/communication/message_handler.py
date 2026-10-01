@@ -75,6 +75,15 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
 })
 
 
+# ROSE-Marketplace: browse RuneForge / Celestial and import a mod
+MARKETPLACE_MESSAGE_TYPES = frozenset({
+    "marketplace-facets",
+    "marketplace-search",
+    "marketplace-download",
+    "marketplace-open-page",
+})
+
+
 def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
     """Return a mod folder's preview image (.fantome mods ship a PNG, .modpkg a WebP)."""
     for name in ("image.png", "image.webp"):
@@ -84,8 +93,8 @@ def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
     return None
 
 
-def _choose_mod_file() -> Optional[Path]:
-    """Show a native file picker for a user-selected mod archive."""
+def _choose_mod_files() -> list[Path]:
+    """Show a native file picker that lets the user select one or more mod archives."""
     root = None
     try:
         import tkinter as tk
@@ -97,8 +106,8 @@ def _choose_mod_file() -> Optional[Path]:
             root.attributes("-topmost", True)
         except Exception:
             pass
-        selected = filedialog.askopenfilename(
-            title="Select a Rose mod file",
+        selected = filedialog.askopenfilenames(
+            title="Select Rose mod file(s)",
             filetypes=[
                 ("Rose mods", "*.fantome *.zip *.modpkg"),
                 ("Fantome mods", "*.fantome"),
@@ -107,16 +116,53 @@ def _choose_mod_file() -> Optional[Path]:
                 ("All files", "*.*"),
             ],
         )
-        return Path(selected) if selected else None
+        # Some Tk builds hand back one space-separated string instead of a tuple
+        if isinstance(selected, str):
+            selected = root.tk.splitlist(selected)
+        files = []
+        for entry in selected or ():
+            path = Path(entry)
+            if path not in files:
+                files.append(path)
+        return files
     except Exception as exc:  # noqa: BLE001
         log.error("[SkinMonitor] Could not open the mod file picker: %s", exc)
-        return None
+        return []
     finally:
         if root is not None:
             try:
                 root.destroy()
             except Exception:
                 pass
+
+
+def _import_each(files: list[Path], import_one) -> dict:
+    """Import every picked file on its own so one broken archive does not stop the rest.
+
+    ``import_one(path)`` returns the imported mod name. The result is the
+    per-file part of a ``folder-opened-response`` payload.
+    """
+    results = []
+    for path in files:
+        try:
+            mod_name = import_one(path)
+            results.append({"file": path.name, "success": True, "modName": mod_name})
+        except Exception as exc:  # noqa: BLE001
+            log.error("[SkinMonitor] Failed to import %s: %s", path, exc)
+            results.append({"file": path.name, "success": False, "error": str(exc)})
+    imported = [r for r in results if r["success"]]
+    summary = {
+        "success": bool(imported),
+        "results": results,
+        "importedCount": len(imported),
+        "failedCount": len(results) - len(imported),
+    }
+    if imported:
+        # Single-file fields kept for older listeners
+        summary["modName"] = imported[-1]["modName"]
+    else:
+        summary["error"] = results[0]["error"] if len(results) == 1 else "No mod could be imported"
+    return summary
 
 
 class MessageHandler:
@@ -159,6 +205,21 @@ class MessageHandler:
         self.port = port
         self.mod_storage = mod_storage or ModStorageService()
         self.injection_manager = injection_manager
+        self._marketplace = None
+        self._marketplace_lock = threading.Lock()
+
+    @property
+    def marketplace(self):
+        """ROSE-Marketplace backend, created the first time the plugin uses it."""
+        with self._marketplace_lock:
+            if self._marketplace is None:
+                from utils.download.marketplace import MarketplaceService
+
+                self._marketplace = MarketplaceService(
+                    send=lambda payload: self._send_response(json.dumps(payload)),
+                    mod_storage=self.mod_storage,
+                )
+            return self._marketplace
 
     def _is_valid_local_league_path(self, game_path: str) -> bool:
         """Validate a League install path without touching UNC/network paths."""
@@ -305,6 +366,9 @@ class MessageHandler:
             self._handle_rename_category_mod(payload)
         elif payload_type == "dismiss-historic":
             self._handle_dismiss_historic(payload)
+        elif payload_type in MARKETPLACE_MESSAGE_TYPES:
+            # Runs on the marketplace's own threads and answers when done
+            self.marketplace.handle(payload_type, payload)
         # Party mode messages
         elif payload_type == "party-enable":
             self._handle_party_enable(payload)
@@ -2825,15 +2889,15 @@ class MessageHandler:
             log.debug(f"[SkinMonitor] Error during folder cleanup: {e}")
     
     def _handle_add_custom_mods_category_selected(self, payload: dict) -> None:
-        """Open a file picker and import one mod into the selected category."""
+        """Open a file picker and import the picked mod(s) into the selected category."""
         category = payload.get("category")
         try:
             if category not in self.mod_storage.MOD_CATEGORIES:
                 log.warning(f"[SkinMonitor] Invalid category: {category}")
                 return
 
-            selected_mod_file = _choose_mod_file()
-            if selected_mod_file is None:
+            selected_mod_files = _choose_mod_files()
+            if not selected_mod_files:
                 self._send_response(json.dumps({
                     "type": "folder-opened-response",
                     "success": False,
@@ -2842,20 +2906,21 @@ class MessageHandler:
                 }))
                 return
 
-            mod_folder, mod_name = self.mod_storage.import_category_mod_file(
-                category,
-                selected_mod_file,
-            )
-            log.info(
-                f"[SkinMonitor] Imported {category} mod {mod_name} to {mod_folder}"
-            )
-            
+            def import_one(mod_file: Path) -> str:
+                mod_folder, mod_name = self.mod_storage.import_category_mod_file(
+                    category,
+                    mod_file,
+                )
+                log.info(
+                    f"[SkinMonitor] Imported {category} mod {mod_name} to {mod_folder}"
+                )
+                return mod_name
+
             response_payload = {
                 "type": "folder-opened-response",
-                "success": True,
                 "category": category,
-                "path": str(mod_folder),
-                "modName": mod_name,
+                "path": str(self.mod_storage.mods_root / category),
+                **_import_each(selected_mod_files, import_one),
             }
             self._send_response(json.dumps(response_payload))
         except Exception as e:
@@ -2981,7 +3046,7 @@ class MessageHandler:
             self._send_response(json.dumps(response_payload))
     
     def _handle_add_custom_mods_skin_selected(self, payload: dict) -> None:
-        """Persist manual skin/chroma targets and open one champion mod folder."""
+        """List a champion's skins, or import the picked mod(s) for the selected skin/chroma targets."""
         try:
             action = payload.get("action")
             champion_id = payload.get("championId")
@@ -3141,8 +3206,8 @@ class MessageHandler:
                     self._send_response(json.dumps(response_payload))
                     return
 
-                selected_mod_file = _choose_mod_file()
-                if selected_mod_file is None:
+                selected_mod_files = _choose_mod_files()
+                if not selected_mod_files:
                     self._send_response(json.dumps({
                         "type": "folder-opened-response",
                         "success": False,
@@ -3151,25 +3216,25 @@ class MessageHandler:
                     }))
                     return
 
-                mod_folder, target_manifest, mod_name = self.mod_storage.import_mod_file(
-                    champion_id,
-                    selected_mod_file,
-                    skin_ids,
-                )
-                
-                log.info(
-                    f"[SkinMonitor] Imported mod for champion "
-                    f"{champion_id}, mod {mod_name}, targets {skin_ids}"
-                )
-                
+                def import_one(mod_file: Path) -> str:
+                    mod_folder, _target_manifest, mod_name = self.mod_storage.import_mod_file(
+                        champion_id,
+                        mod_file,
+                        skin_ids,
+                    )
+                    log.info(
+                        f"[SkinMonitor] Imported mod for champion "
+                        f"{champion_id}, mod {mod_name}, targets {skin_ids} ({mod_folder})"
+                    )
+                    return mod_name
+
+                champion_folder = self.mod_storage.get_champion_dir(champion_id)
                 response_payload = {
                     "type": "folder-opened-response",
-                    "success": True,
-                    "path": str(mod_folder),
-                    "championFolder": str(self.mod_storage.get_champion_dir(champion_id)),
-                    "modName": mod_name,
+                    "path": str(champion_folder),
+                    "championFolder": str(champion_folder),
                     "skinIds": skin_ids,
-                    "targetManifest": str(target_manifest),
+                    **_import_each(selected_mod_files, import_one),
                 }
                 self._send_response(json.dumps(response_payload))
         except Exception as e:

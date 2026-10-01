@@ -36,6 +36,7 @@ import os
 injection_binaries = [
     'injection/tools/mod-tools.exe',
     'injection/tools/cslol-dll.dll',  # Rose's stand-in, built from native/cslol_stub
+    'injection/tools/rose-repair.exe',  # LTK Manager repair engine, built from ltk-manager-core
 ]
 # Data files (text files, etc.)
 injection_data_files = [
@@ -237,6 +238,16 @@ hiddenimports = [
     'utils.download.smart_skin_downloader',
     'utils.download.hashes_downloader',
     'utils.download.hash_updater',
+    'utils.download.marketplace',
+    'utils.download.marketplace.base',
+    'utils.download.marketplace.divine',
+    'utils.download.marketplace.http',
+    'utils.download.marketplace.models',
+    'utils.download.marketplace.runeforge',
+    'utils.download.marketplace.service',
+    'utils.download.marketplace.repair',
+    'utils.download.marketplace.thumbs',
+    'utils.download.marketplace.turbo_stream',
     'utils.integration',
     'utils.integration.tray_manager',
     'utils.integration.tray_settings',

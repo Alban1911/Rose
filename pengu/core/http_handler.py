@@ -125,6 +125,10 @@ class HTTPHandler:
                     json.dumps(i18n_payload(self.shared_state), ensure_ascii=False).encode("utf-8"),
                 )
 
+            # Marketplace card images, fetched from the providers' CDNs (allowlisted)
+            if path_clean == "/market-thumb":
+                return self._handle_market_thumb_request(parsed_path.query, cors_headers)
+
             # Handle preview requests
             if path_clean.startswith("/preview/"):
                 return self._handle_preview_request(path_clean, cors_headers)
@@ -282,6 +286,24 @@ class HTTPHandler:
             log.info(f"[SkinMonitor] Invalid plugin path format: {path_clean} (parts: {parts})")
         return None
     
+    def _handle_market_thumb_request(self, query: str, cors_headers: dict[str, str]) -> tuple:
+        """Serve a marketplace thumbnail (?u=<image url>); blocking, see WebSocketServer."""
+        from urllib.parse import parse_qs
+        from utils.download.marketplace.thumbs import fetch_thumbnail, is_allowed_url
+
+        url = (parse_qs(query).get("u") or [""])[0]
+        if not is_allowed_url(url):
+            return (403, {**cors_headers, "Content-Type": "text/plain"}, b"Forbidden")
+        image = fetch_thumbnail(url)
+        if image is None:
+            return (404, {**cors_headers, "Content-Type": "text/plain"}, b"Not Found")
+        content_type, data = image
+        return (
+            200,
+            {"Content-Type": content_type, **cors_headers, "Cache-Control": "public, max-age=86400"},
+            data,
+        )
+
     def _get_content_type(self, file_path: Path) -> str:
         """Determine content type from file extension"""
         suffix = file_path.suffix.lower()
