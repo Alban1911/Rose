@@ -640,11 +640,9 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
 
 def main() -> None:
     """Program entry point that prepares and launches Rose."""
-    # Check for required DLL before anything else
-    if not _check_dll_present():
-        sys.exit(1)
-
     args = setup_arguments()
+    # Update before checking the DLL: a Rose that refuses to start still
+    # receives the version that fixes its check
     if sys.platform == "win32":
         if not args.dev:
             try:
@@ -657,6 +655,9 @@ def main() -> None:
                 print(f"[Launcher] Unable to import launcher module: {err}")
             except Exception as err:  # noqa: BLE001
                 print(f"[Launcher] Launcher encountered an error: {err}")
+
+    if not _check_dll_present():
+        sys.exit(1)
 
     run_league_unlock(args=args)
 
