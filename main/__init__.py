@@ -49,7 +49,7 @@ def _dll_dialog_text(reason: str, detail: str = ""):
         return (
             "Rose - Patcher Outdated",
             "The LTK patcher has reached its end of life",
-            f"The ltk_patcher_dll.dll in Rose's tools folder stopped supporting new game builds on {detail}.",
+            f"The ltk_patcher_dll.dll in Rose's tools folder does not support game builds released after {detail}, and League has updated since.",
             f"1. Update LTK Manager, then get both files from it.\n"
             "2. Open Rose's tools folder.\n"
             "3. Replace both files, then restart Rose.",
@@ -307,12 +307,13 @@ def _sync_cslol_stub(tools_dir: Path) -> None:
 
 
 def _check_dll_present() -> bool:
-    """Check that the user-provided LTK patcher is present and not past its end of life."""
+    """Check that the user-provided LTK patcher is present and supports the installed game."""
     import sys
     if sys.platform != "win32":
         return True  # Only relevant on Windows
 
     from datetime import datetime
+    from config import get_config_option
     from injection.tools.patcher import check_ltk_patcher
 
     tools_dir = _get_tools_dir()
@@ -322,7 +323,10 @@ def _check_dll_present() -> bool:
         return _show_dll_dialog(tools_dir, reason="missing", detail=" and ".join(status.missing))
     if status.eol is None:
         return _show_dll_dialog(tools_dir, reason="invalid")
-    if status.expired:
+    # The DLL keeps working past its end of life until League updates, so only
+    # block when the game Rose last found is a build it refuses
+    league_path = get_config_option("General", "leaguePath")
+    if status.expired_for(Path(league_path) if league_path else None):
         eol = datetime.fromtimestamp(status.eol).strftime("%Y-%m-%d %H:%M")
         return _show_dll_dialog(tools_dir, reason="expired", detail=eol)
     return True

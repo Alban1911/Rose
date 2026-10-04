@@ -230,11 +230,11 @@ class OverlayManager:
             )
             return 1
 
-        # Rose may have been running since before the DLL reached its end of life
+        # League may have updated past the DLL's end of life since Rose started
         patcher = check_ltk_patcher(ltk_host.parent)
-        if patcher.expired:
+        if patcher.expired_for(self.game_dir):
             eol = time.strftime("%Y-%m-%d %H:%M", time.localtime(patcher.eol))
-            log.error(f"[INJECT] LTK patcher reached its end of life on {eol}")
+            log.error(f"[INJECT] LTK patcher does not support game builds after {eol}")
             self._report_ltk_patcher_eol(eol)
             return 1
 
@@ -386,7 +386,7 @@ class OverlayManager:
                 return
             from ..tools.tools_manager import ToolsManager
             ltk_host = ToolsManager(self.tools_dir).detect_ltk_patcher()
-            if not ltk_host or check_ltk_patcher(ltk_host.parent).expired:
+            if not ltk_host or check_ltk_patcher(ltk_host.parent).expired_for(self.game_dir):
                 return
             overlay_dir = self.mods_dir.parent / "overlay"
             overlay_dir.mkdir(parents=True, exist_ok=True)

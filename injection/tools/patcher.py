@@ -5,15 +5,17 @@ LTK patcher binaries (ltk_patcher_host.exe + ltk_patcher_dll.dll).
 
 Users provide their own copy (e.g. from an LTK Manager install); Rose does
 not ship or pin them. The DLL refuses game builds newer than its built-in
-end-of-life date, so we read that date to fail early instead of silently
-injecting nothing.
+end-of-life date, so we read that date and the game's build date to fail
+early instead of silently injecting nothing. A DLL past that date still works
+until League itself updates.
 """
 
 import struct
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from config import GAME_EXECUTABLE_NAMES
 
 LTK_PATCHER_HOST = "ltk_patcher_host.exe"
 LTK_PATCHER_DLL = "ltk_patcher_dll.dll"
@@ -31,9 +33,16 @@ class LtkPatcherStatus:
     missing: list
     eol: Optional[int]  # Unix timestamp, None if it could not be read
 
-    @property
-    def expired(self) -> bool:
-        return self.eol is not None and time.time() > self.eol
+    def expired_for(self, game_dir: Optional[Path]) -> bool:
+        """True when the DLL refuses the game installed in game_dir.
+
+        Unknown game builds count as supported: the DLL still reports a
+        refused build itself when the game starts.
+        """
+        if self.eol is None or game_dir is None:
+            return False
+        build = read_game_build(game_dir)
+        return build is not None and build > self.eol
 
 
 def check_ltk_patcher(tools_dir: Path) -> LtkPatcherStatus:
@@ -80,6 +89,27 @@ def read_dll_eol(dll_path: Path) -> Optional[int]:
         eol = _find_eol_compare(code, i)
         if eol is not None:
             return eol
+    return None
+
+
+def read_game_build(game_dir: Path) -> Optional[int]:
+    """Return the build timestamp of the game executable in game_dir.
+
+    This is the PE header's TimeDateStamp, which the DLL reads from the game's
+    memory and compares against its end-of-life date.
+    """
+    for name in GAME_EXECUTABLE_NAMES:
+        try:
+            with open(Path(game_dir) / name, "rb") as f:
+                header = f.read(0x1000)
+        except OSError:
+            continue
+        try:
+            pe = struct.unpack_from("<I", header, 0x3C)[0]
+            if header[:2] == b"MZ" and header[pe:pe + 4] == b"PE\0\0":
+                return struct.unpack_from("<I", header, pe + 8)[0]
+        except struct.error:
+            pass
     return None
 
 

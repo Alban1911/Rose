@@ -23,7 +23,7 @@ class EarlyPatcherTests(unittest.TestCase):
         self.host = root / 'tools' / 'ltk_patcher_host.exe'
         patches = [
             patch.object(ToolsManager, 'detect_ltk_patcher', side_effect=lambda: self.host),
-            patch.object(overlay_manager, 'check_ltk_patcher', return_value=SimpleNamespace(expired=False)),
+            patch.object(overlay_manager, 'check_ltk_patcher', return_value=SimpleNamespace(expired_for=lambda game_dir: False)),
             patch.object(OverlayManager, '_start_ltk_patcher', side_effect=self._fake_session),
             patch.object(OverlayManager, '_abort_ltk_patcher'),
         ]
