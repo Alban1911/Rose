@@ -26,6 +26,17 @@ def _to_int(value) -> Optional[int]:
         return None
 
 
+def _mod_champion_id(selected_custom_mod: Optional[dict]) -> Optional[int]:
+    """Champion a selected custom mod belongs to, or None."""
+    if not selected_custom_mod:
+        return None
+    champion_id = _to_int(selected_custom_mod.get("champion_id"))
+    if champion_id:
+        return champion_id
+    skin_id = _to_int(selected_custom_mod.get("skin_id"))
+    return skin_id // 1000 if skin_id else None
+
+
 @dataclass
 class PartySkinData:
     """Aggregated skin data from party members"""
@@ -140,9 +151,11 @@ class SkinCollector:
                 if selected_chroma_id and skin_id < selected_chroma_id < skin_id + 100:
                     chroma_id = selected_chroma_id
 
-                selected_custom_mod = getattr(state, "selected_custom_mod", None)
-                if selected_custom_mod and selected_custom_mod.get("skin_id") == skin_id:
-                    custom_mod_path = selected_custom_mod.get("relative_path")
+            # The injection applies the selected mod whatever skin is hovered,
+            # and a mod picked on a chroma or another target keeps that skin ID
+            selected_custom_mod = getattr(state, "selected_custom_mod", None)
+            if not custom_mod_path and _mod_champion_id(selected_custom_mod) == champion_id:
+                custom_mod_path = selected_custom_mod.get("relative_path")
 
         if not skin_id:
             if not custom_mod_path:
