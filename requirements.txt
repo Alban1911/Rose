@@ -13,4 +13,4 @@ xxhash==4.0.1
 zstandard==0.25.0
 
 # Build requirements
-pyinstaller==6.3.0
+pyinstaller==6.22.3
