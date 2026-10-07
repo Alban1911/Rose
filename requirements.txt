@@ -3,7 +3,7 @@
 # App requirements
 # Security: All dependencies pinned to specific versions to prevent supply chain attacks
 psutil==5.9.8
-requests==2.31.0
+requests==2.34.2
 urllib3==2.0.7
 websocket-client==1.7.0
 websockets==12.0
