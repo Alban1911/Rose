@@ -855,26 +855,25 @@ def activate_on_start(league_path: Optional[str] = None) -> bool:
                 PENGU_EXE, league_path,
             )
 
-        restart_needed = initial is PenguStatus.INACTIVE and _process_running(('LeagueClientUx.exe',))
-        rose_activated = False
+        # A running client loads Rose's plugins only when it starts, so it restarts
+        # whatever state an earlier Rose left the loader in
+        restart_needed = _process_running(('LeagueClientUx.exe',))
         activated_now = False
-        was_active_before_rose = initial is PenguStatus.ACTIVE
         if initial is PenguStatus.INACTIVE:
             log.info('Activating Pengu through official CLI (restart League: %s).', restart_needed)
             if not activate():
                 return False
-            rose_activated = True
             activated_now = True
+        elif stale_rose_owned:
+            log.info('Adopted the active Pengu session from the previous Rose process (restart League: %s).',
+                     restart_needed)
         else:
-            if stale_rose_owned:
-                log.info('Adopted the active Pengu session from the previous Rose process.')
-                rose_activated = True
-                was_active_before_rose = False
-            else:
-                log.info('Pengu was already active before Rose; preserving it.')
+            # --status only reports this loader's own core.dll as active, so an
+            # earlier Rose left it on: it's Rose's, and goes when Rose quits
+            log.info("Rose's Pengu Loader was already active; adopting it (restart League: %s).", restart_needed)
         _ensure_loader_config()
 
-        if not _write_session(was_active_before_rose, rose_activated):
+        if not _write_session(was_active=False, rose_activated=True):
             if activated_now:
                 log.error('Could not persist session state; reverting activation.')
                 deactivate()

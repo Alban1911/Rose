@@ -48,6 +48,10 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         processes = patch.object(pengu_loader, '_process_running', return_value=False)
         processes.start()
         self.addCleanup(processes.stop)
+        # Never restart the developer's real client
+        restart = patch.object(pengu_loader, 'restart_client', return_value=False)
+        restart.start()
+        self.addCleanup(restart.stop)
         pengu_loader._restart_pending = frozenset()
         self.addCleanup(self.paths.stop)
         # Never close the developer's real Pengu Loader windows
@@ -194,6 +198,27 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         self.assertFalse(state['pengu_was_active_before_rose'])
 
     @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.ACTIVE)
+    @patch.object(pengu_loader, '_is_league_running', return_value=True)
+    @patch.object(pengu_loader, 'restart_client', return_value=True)
+    @patch.object(pengu_loader, 'deactivate', return_value=True)
+    @patch.object(pengu_loader, 'activate')
+    def test_rose_loader_left_active_is_unloaded_on_exit(
+        self, activate, deactivate, restart_client, _running, _status, _available
+    ):
+        # --status reports only this loader's own core.dll: an earlier Rose left it
+        # on without a session, so this Rose owns it and unloads it when it quits
+        self.assertTrue(pengu_loader.activate_on_start())
+        activate.assert_not_called()
+        state = json.loads(self.session_file.read_text(encoding='utf-8'))
+        self.assertTrue(state['rose_activated_pengu'])
+        self.assertFalse(state['pengu_was_active_before_rose'])
+
+        self.assertTrue(pengu_loader.restore_after_rose())
+        deactivate.assert_called_once_with()
+        restart_client.assert_called_once_with()
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
     @patch.object(pengu_loader, '_is_league_running', return_value=False)
     @patch.object(pengu_loader, 'deactivate', return_value=True)
     def test_successful_shutdown_removes_session(self, deactivate, _running, _available):
@@ -338,6 +363,20 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         with patch.object(pengu_loader, 'write_config_file') as write:
             pengu_loader._ensure_loader_config()
         write.assert_not_called()
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader, 'get_status', return_value=pengu_loader.PenguStatus.ACTIVE)
+    @patch.object(pengu_loader, '_process_running', return_value=True)
+    @patch.object(pengu_loader, 'restart_client', return_value=True)
+    @patch.object(pengu_loader, 'activate')
+    def test_loader_left_active_still_restarts_the_running_client(
+        self, activate, restart_client, _running, _status, _available
+    ):
+        # The client may have started while the hook was off, or still run the
+        # plugins of a closed Rose: it loads Rose's only when it starts
+        self.assertTrue(pengu_loader.activate_on_start())
+        activate.assert_not_called()
+        restart_client.assert_called_once_with()
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'config.ini is shared through the Windows INI API')
