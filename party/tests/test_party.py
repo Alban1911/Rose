@@ -158,6 +158,46 @@ class SkinCollectorSelectionTests(unittest.TestCase):
             (103000, None, "skins/103000/Mod"),
         )
 
+    def test_custom_mod_on_another_skin_or_chroma_is_shared(self):
+        # Picked on a chroma, or auto-selected for another target skin: the
+        # injection applies it all the same
+        for mod_skin_id in (103004, 103015):
+            self.assertEqual(
+                self.pick(selected_custom_mod={
+                    "skin_id": mod_skin_id, "champion_id": 103, "relative_path": "skins/103000/Mod",
+                }),
+                (103001, None, "skins/103000/Mod"),
+            )
+        self.assertEqual(
+            self.pick(last_hovered_skin_id=None, selected_custom_mod={
+                "skin_id": 103000, "champion_id": 103, "relative_path": "skins/103000/Mod",
+            }),
+            (103000, None, "skins/103000/Mod"),
+        )
+
+    def test_custom_mod_of_another_champion_is_not_shared(self):
+        self.assertEqual(
+            self.pick(selected_custom_mod={"skin_id": 60025026, "relative_path": "skins/60025000/Mod"}),
+            (103001, None, None),
+        )
+        self.assertEqual(
+            self.pick(selected_custom_mod={
+                "skin_id": 103001, "champion_id": 60025, "relative_path": "skins/60025000/Mod",
+            }),
+            (103001, None, None),
+        )
+
+    def test_custom_mod_auto_selected_before_freezing_is_kept(self):
+        state = make_state(champ_select_generation=3)
+        collector = SkinCollector(state)
+        # HistoricMode off: the injection auto-selects the saved mod, then freezes
+        state.selected_custom_mod = {
+            "skin_id": 103001, "champion_id": 103, "relative_path": "skins/103000/Mod",
+        }
+        collector.freeze_my_selection(1, "Me")
+        state.selected_custom_mod = None
+        self.assertEqual(collector.get_my_selection(1, "Me").custom_mod_path, "skins/103000/Mod")
+
     def test_no_champion_no_selection(self):
         self.assertIsNone(self.pick(locked_champ_id=None))
 
