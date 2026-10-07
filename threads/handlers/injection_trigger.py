@@ -330,7 +330,8 @@ class InjectionTrigger:
                                     current_skin_id,
                                 )
                                 historic_custom_mod_path = None
-                except Exception:
+                except Exception as e:
+                    log.warning(f"[HISTORIC] Could not look up the saved custom mod: {e}")
                     historic_custom_mod_path = None
 
             if not selected_custom_mod and historic_custom_mod_path:
@@ -974,7 +975,9 @@ class InjectionTrigger:
                                 try:
                                     full_path = mods_root / relative_path.replace("/", "\\")
                                     return full_path.exists()
-                                except Exception:
+                                except Exception as e:
+                                    # False clears the user's selection, so say why
+                                    log.warning(f"[INJECT] Could not check mod file {relative_path}: {e}")
                                     return False
                             
                             # Check and clean map mod

@@ -27,6 +27,7 @@ class ChampThread(threading.Thread):
         self.skin_scraper = skin_scraper
         self.last_hover = None
         self.last_lock = None
+        self._last_error = None
         self.last_locked_champion_id = None  # Track previously locked champion for exchange detection
 
     def _handle_champion_exchange(self, old_champ_id: int, new_champ_id: int, new_champ_label: str):
@@ -87,8 +88,8 @@ class ChampThread(threading.Thread):
             ui = get_user_interface(self.state, self.skin_scraper)
             if ui:
                 ui._try_show_click_blocker()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[exchange] Could not show the click blocker: {e}")
         
         log.info(f"[exchange] Champion exchange complete - ready for {new_champ_label}")
 
@@ -115,8 +116,8 @@ class ChampThread(threading.Thread):
                 return
 
             sp.process_skin_name(cached.strip(), broadcaster=bc)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[lock:champ] Could not resolve the cached skin name after lock: {e}")
 
     def run(self):
         """Main thread loop"""
@@ -211,6 +212,10 @@ class ChampThread(threading.Thread):
                                 self.state.ui_skin_thread._broadcast_historic_state()
                         except Exception as e:
                             log.debug(f"[lock:champ] Failed to broadcast historic state reset: {e}")
-            except Exception:
-                pass
+            except Exception as e:
+                # The champion lock would go unnoticed; report each distinct error once
+                # since this loop runs every interval
+                if repr(e) != self._last_error:
+                    self._last_error = repr(e)
+                    log.exception(f"[lock:champ] Champion lock check failed: {e}")
             time.sleep(self.interval)
