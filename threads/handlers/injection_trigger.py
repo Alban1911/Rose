@@ -1229,6 +1229,20 @@ class InjectionTrigger:
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
     
     def _inject_custom_mod(self, custom_mod: dict, base_skin_name: Optional[str] = None, champion_name: str = ""):
+        """Inject custom mod, then stop the game monitor however the injection ends.
+
+        The monitor suspends the game while mods are prepared. An injection that
+        gives up early (missing carrier archive or mod source, nothing to inject,
+        an error) must still stop it, or the game stays frozen until the
+        monitor's auto-resume timeout.
+        """
+        try:
+            self._run_custom_mod_injection(custom_mod, base_skin_name, champion_name)
+        finally:
+            if self.injection_manager:
+                self.injection_manager._stop_monitor()
+
+    def _run_custom_mod_injection(self, custom_mod: dict, base_skin_name: Optional[str] = None, champion_name: str = ""):
         """Inject custom mod from mods storage (mod should already be extracted)
         
         Args:
@@ -1586,10 +1600,6 @@ class InjectionTrigger:
                 log.debug(f"[MOD_HISTORIC] Failed to clean up missing mods from historic: {e}")
                 import traceback
                 log.debug(f"[MOD_HISTORIC] Traceback: {traceback.format_exc()}")
-            
-            # Stop monitor after injection completes
-            if self.injection_manager:
-                self.injection_manager._stop_monitor()
             
             if result == 0:
                 log.info("=" * LOG_SEPARATOR_WIDTH)
