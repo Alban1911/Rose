@@ -46,6 +46,25 @@ class InjectionTrigger:
         self.state = state
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
+        self._last_refusal: Optional[tuple] = None
+
+    def _warn_refusal_once(self, reason: str, skin_id, champion_id) -> None:
+        """Warn about a refused injection once per skin/champion pair.
+
+        The loadout ticker calls trigger_injection on every tick inside the threshold
+        window and a refusal does not end the window (the player may still change the
+        selection), so without this the same WARNING repeats ~1000 times per second.
+        """
+        key = (reason, skin_id, champion_id)
+        if key == self._last_refusal:
+            return
+        self._last_refusal = key
+        log.warning(
+            "[INJECT] Refusing to inject skin %s for champion %s: %s",
+            skin_id,
+            champion_id,
+            reason,
+        )
 
     def _get_compatible_skin_ids(self, skin_id: int | str) -> set[int]:
         """Return a requested skin plus its explicitly known chroma base."""
@@ -201,11 +220,7 @@ class InjectionTrigger:
 
         skin_to_validate = effective_skin_id if (historic_active or random_active) else ui_skin_id
         if not self._skin_matches_champion(skin_to_validate, locked_champ_id):
-            log.warning(
-                "[INJECT] Refusing to inject skin %s for champion %s: champion mismatch",
-                skin_to_validate,
-                locked_champ_id,
-            )
+            self._warn_refusal_once("champion mismatch", skin_to_validate, locked_champ_id)
             return
         # Mark that we've processed the validated hovered skin.
         self.state.last_hover_written = True
