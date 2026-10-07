@@ -50,6 +50,25 @@ class LoadoutTicker(threading.Thread):
 
     def run(self):
         """Main ticker loop"""
+        try:
+            self._countdown()
+        except Exception:
+            log.exception(f"[loadout #{self.ticker_id}] Ticker stopped by an unexpected error")
+        finally:
+            # Release even after an error: while the flag is set no new ticker
+            # starts, and the champ select would end without an injection
+            if getattr(self.state, 'current_ticker', 0) == self.ticker_id:
+                self.state.loadout_countdown_active = False
+
+    @staticmethod
+    def _log_error_once(what: str, error: Exception, last_logged):
+        """Log a tick error with its traceback once, not on every tick of the loop."""
+        key = (what, repr(error))
+        if key != last_logged:
+            log.exception(f"[loadout] {what}: {error}")
+        return key
+
+    def _countdown(self):
         # Exit immediately if another ticker has taken control
         if getattr(self.state, 'current_ticker', 0) != self.ticker_id:
             return
@@ -63,6 +82,7 @@ class LoadoutTicker(threading.Thread):
         last_poll = 0.0
         last_bucket = None
         last_logged_name = object()
+        error_logged = None
         
         # Continue loop only in ChampSelect/FINALIZATION
         while (not self.state.stop) and self.state.loadout_countdown_active and (self.state.current_ticker == self.ticker_id) and (self.state.phase in ["ChampSelect", "FINALIZATION"]):
@@ -70,21 +90,24 @@ class LoadoutTicker(threading.Thread):
             
             # Periodic LCU resync
             if (now - last_poll) >= poll_period_s:
-                last_poll = now
-                sess = self.lcu.session or {}
-                t = (sess.get("timer") or {})
-                phase = str((t.get("phase") or "")).upper()
-                left_ms = int(t.get("adjustedTimeLeftInPhase") or 0)
+                try:
+                    last_poll = now
+                    sess = self.lcu.session or {}
+                    t = (sess.get("timer") or {})
+                    phase = str((t.get("phase") or "")).upper()
+                    left_ms = int(t.get("adjustedTimeLeftInPhase") or 0)
                 
-                # Check if phase changed to FINALIZATION
-                if phase == "FINALIZATION" and self.state.phase != "FINALIZATION":
-                    log.info(f"[loadout] Phase transition detected: {self.state.phase} → FINALIZATION")
-                    self.state.phase = "FINALIZATION"
+                    # Check if phase changed to FINALIZATION
+                    if phase == "FINALIZATION" and self.state.phase != "FINALIZATION":
+                        log.info(f"[loadout] Phase transition detected: {self.state.phase} → FINALIZATION")
+                        self.state.phase = "FINALIZATION"
                 
-                if phase == "FINALIZATION" and left_ms > 0:
-                    cand_deadline = time.monotonic() + (left_ms / 1000.0)
-                    if cand_deadline < deadline:
-                        deadline = cand_deadline
+                    if phase == "FINALIZATION" and left_ms > 0:
+                        cand_deadline = time.monotonic() + (left_ms / 1000.0)
+                        if cand_deadline < deadline:
+                            deadline = cand_deadline
+                except Exception as e:
+                    error_logged = self._log_error_once("LCU timer resync failed", e, error_logged)
             
             # Local countdown
             remain_ms = int((deadline - time.monotonic()) * 1000.0)
@@ -115,32 +138,31 @@ class LoadoutTicker(threading.Thread):
             # Write last hovered skin at T<=threshold
             thresh = int(getattr(self.state, 'skin_write_ms', SKIN_THRESHOLD_MS_DEFAULT) or SKIN_THRESHOLD_MS_DEFAULT)
             if remain_ms <= thresh and not self.state.last_hover_written:
-                # Build skin label
-                final_label = self.skin_name_resolver.build_skin_label()
-                
-                # Get champion name for injection
-                cname = ""
                 try:
-                    champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
-                    if champ_id and self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(champ_id):
-                        cname = self.skin_scraper.cache.champion_name or ""
-                except Exception:
-                    pass
+                    # Build skin label
+                    final_label = self.skin_name_resolver.build_skin_label()
                 
-                # Resolve injection name
-                name = self.skin_name_resolver.resolve_injection_name()
-                if name != last_logged_name:
-                    log.debug(f"[INJECT] Final name variable: '{name}'")
-                    last_logged_name = name
+                    # Get champion name for injection
+                    cname = ""
+                    try:
+                        champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+                        if champ_id and self.skin_scraper and self.skin_scraper.cache.is_loaded_for_champion(champ_id):
+                            cname = self.skin_scraper.cache.champion_name or ""
+                    except Exception:
+                        pass
                 
-                if name:
-                    # Trigger injection
-                    self.injection_trigger.trigger_injection(name, self.ticker_id, cname)
+                    # Resolve injection name
+                    name = self.skin_name_resolver.resolve_injection_name()
+                    if name != last_logged_name:
+                        log.debug(f"[INJECT] Final name variable: '{name}'")
+                        last_logged_name = name
+                
+                    if name:
+                        # Trigger injection
+                        self.injection_trigger.trigger_injection(name, self.ticker_id, cname)
+                except Exception as e:
+                    error_logged = self._log_error_once("Injection trigger failed", e, error_logged)
 
             if remain_ms <= 0:
                 break
             time.sleep(1.0 / float(self.hz))
-        
-        # End of ticker: only release if we're still the current ticker
-        if getattr(self.state, 'current_ticker', 0) == self.ticker_id:
-            self.state.loadout_countdown_active = False
