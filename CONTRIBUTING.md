@@ -110,6 +110,8 @@ Rose/
 │   ├── overlay/            # Overlay process management
 │   │   ├── overlay_manager.py
 │   │   └── process_manager.py
+│   ├── loadingname/        # Skin name on the loading screen
+│   │   └── loading_name.py
 │   └── tools/              # Injection tools (mod-tools.exe, the user's LTK patcher)
 │       ├── tools_manager.py
 │       └── patcher.py      # LTK patcher checks (missing files, end of life)

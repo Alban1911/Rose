@@ -50,6 +50,8 @@ class ClassicInjectionTests(unittest.TestCase):
         self.injector.zip_resolver = ZipResolver(skins_dir)
         self.injector.classic_resolver = ZipResolver(classic_dir)
         self.injector.mod_manager = ModManager(root / 'mods')
+        # No game files: the loading screen name is skipped
+        self.injector.game_dir, self.injector.mods_dir = root / 'game', root / 'mods'
         self.injector.last_injection_timing = None
 
         run_overlay = patch.object(SkinInjector, '_mk_run_overlay', return_value=0)
