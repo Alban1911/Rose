@@ -5,6 +5,7 @@ Handles downloading update files from GitHub releases
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -22,6 +23,44 @@ class UpdateDownloader:
         self.chunk_size = chunk_size
         self.timeout = timeout
     
+    def _download(
+        self,
+        url: str,
+        target: Path,
+        timeout: int,
+        expected_size: Optional[int] = None,
+        bytes_callback: Optional[Callable[[int, Optional[int]], None]] = None,
+    ) -> None:
+        """Stream url into target, raising if the download is incomplete.
+
+        The data goes to a .part file that only replaces target once it is
+        complete: an interrupted download used to leave a truncated file where
+        the update package already had a good one.
+        """
+        part = target.with_name(target.name + ".part")
+        try:
+            with requests.get(url, stream=True, timeout=timeout) as r:
+                r.raise_for_status()
+                expected = expected_size
+                length = r.headers.get("Content-Length", "")
+                # A compressed response is decoded, so its length would not match
+                if expected is None and length.isdigit() and not r.headers.get("Content-Encoding"):
+                    expected = int(length)
+                bytes_read = 0
+                with open(part, "wb") as fh:
+                    for chunk in r.iter_content(self.chunk_size):
+                        if not chunk:
+                            continue
+                        fh.write(chunk)
+                        bytes_read += len(chunk)
+                        if bytes_callback:
+                            bytes_callback(bytes_read, expected_size)
+            if expected is not None and bytes_read != expected:
+                raise IOError(f"incomplete download: got {bytes_read} of {expected} bytes")
+            os.replace(part, target)
+        finally:
+            part.unlink(missing_ok=True)
+
     def download_update(
         self,
         download_url: str,
@@ -43,17 +82,7 @@ class UpdateDownloader:
             True if successful, False otherwise
         """
         try:
-            with requests.get(download_url, stream=True, timeout=self.timeout) as r:
-                r.raise_for_status()
-                bytes_read = 0
-                with open(zip_path, "wb") as fh:
-                    for chunk in r.iter_content(self.chunk_size):
-                        if not chunk:
-                            continue
-                        fh.write(chunk)
-                        bytes_read += len(chunk)
-                        if bytes_callback:
-                            bytes_callback(bytes_read, total_size)
+            self._download(download_url, zip_path, self.timeout, total_size, bytes_callback)
             return True
         except Exception as exc:  # noqa: BLE001
             status_callback(f"Download failed: {exc}")
@@ -78,12 +107,7 @@ class UpdateDownloader:
         """
         try:
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            with requests.get(download_url, stream=True, timeout=30) as r:
-                r.raise_for_status()
-                with open(target_path, "wb") as fh:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if chunk:
-                            fh.write(chunk)
+            self._download(download_url, target_path, 30)
             return True
         except Exception as exc:  # noqa: BLE001
             status_callback(f"Warning: failed to download hash file: {exc}")
