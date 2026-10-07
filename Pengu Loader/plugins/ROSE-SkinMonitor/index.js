@@ -21,8 +21,9 @@ const RETRY_MAX_MS = 30000;
 let BRIDGE_PORT = 50000; // Default, will be updated from /bridge-port endpoint
 let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
 const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
+// Every port Rose's bridge can take (BRIDGE_FIRST_PORT, BRIDGE_PORT_COUNT in pengu/core/skin_monitor.py)
 const DISCOVERY_START_PORT = 50000;
-const DISCOVERY_END_PORT = 50010;
+const DISCOVERY_END_PORT = 50099;
 
 async function loadBridgePort() {
   try {

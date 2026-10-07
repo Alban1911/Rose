@@ -31,6 +31,11 @@ log = logging.getLogger(__name__)
 logging.getLogger("websockets.server").setLevel(logging.WARNING)
 logging.getLogger("websockets.protocol").setLevel(logging.WARNING)
 
+# The bridge takes the first free one of these ports. The plugins look for it on
+# the same ones (DISCOVERY_*_PORT in ROSE-SkinMonitor and ROSE-PartyMode)
+BRIDGE_FIRST_PORT = 50000
+BRIDGE_PORT_COUNT = 100
+
 
 class PenguSkinMonitorThread(threading.Thread):
     """
@@ -56,7 +61,7 @@ class PenguSkinMonitorThread(threading.Thread):
         
         # Find free port if not specified (use high port range like LCU)
         if port is None:
-            free_port = find_free_port(start_port=50000)
+            free_port = find_free_port(start_port=BRIDGE_FIRST_PORT, max_attempts=BRIDGE_PORT_COUNT)
             if free_port is None:
                 log.error("[SkinMonitor] Failed to find a free port, using default 50000")
                 self.port = 50000

@@ -17,8 +17,9 @@
   let BRIDGE_PORT = 50000;
   let BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
   const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
+  // Every port Rose's bridge can take (BRIDGE_FIRST_PORT, BRIDGE_PORT_COUNT in pengu/core/skin_monitor.py)
   const DISCOVERY_START_PORT = 50000;
-  const DISCOVERY_END_PORT = 50010;
+  const DISCOVERY_END_PORT = 50099;
 
   const PANEL_ID = "rose-party-panel";
   const BACKDROP_ID = "rose-party-backdrop";
