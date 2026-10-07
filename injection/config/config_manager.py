@@ -35,7 +35,7 @@ class ConfigManager:
             return None
         
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             read_config_file(config, config_path)
             if 'General' in config and 'leaguePath' in config['General']:
                 league_path = config['General']['leaguePath']
@@ -53,7 +53,7 @@ class ConfigManager:
             return None
         
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             read_config_file(config, config_path)
             if 'General' in config and 'clientPath' in config['General']:
                 client_path = config['General']['clientPath']
@@ -68,7 +68,7 @@ class ConfigManager:
         """Save league path to config.ini file"""
         config_path = self._get_config_path()
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             
             # Load existing config if it exists
             if config_path.exists():
@@ -92,7 +92,7 @@ class ConfigManager:
         """Save client path to config.ini file"""
         config_path = self._get_config_path()
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             
             # Load existing config if it exists
             if config_path.exists():
@@ -116,7 +116,7 @@ class ConfigManager:
         """Save both league and client paths to config.ini file"""
         config_path = self._get_config_path()
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             
             # Load existing config if it exists
             if config_path.exists():
