@@ -10,7 +10,9 @@ early instead of silently injecting nothing. A DLL past that date still works
 until League itself updates.
 """
 
+import hashlib
 import struct
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -52,6 +54,25 @@ def check_ltk_patcher(tools_dir: Path) -> LtkPatcherStatus:
     missing = [p.name for p in (host, dll) if not p.is_file()]
     eol = read_dll_eol(dll) if dll.is_file() else None
     return LtkPatcherStatus(host=host, dll=dll, missing=missing, eol=eol)
+
+
+def describe_ltk_patcher_files(tools_dir: Path) -> str:
+    """Size, date and SHA-256 of each patcher file, to tell copies apart in logs.
+
+    Users bring their own copy from different LTK Manager releases, so a
+    failure report is only comparable when it says which files were used.
+    """
+    parts = []
+    for name in (LTK_PATCHER_HOST, LTK_PATCHER_DLL):
+        path = tools_dir / name
+        try:
+            data = path.read_bytes()
+            modified = time.strftime("%Y-%m-%d %H:%M", time.localtime(path.stat().st_mtime))
+        except OSError as e:
+            parts.append(f"{name}: unreadable ({e})")
+            continue
+        parts.append(f"{name}: {len(data)} bytes, modified {modified}, sha256 {hashlib.sha256(data).hexdigest()}")
+    return "; ".join(parts)
 
 
 def read_dll_eol(dll_path: Path) -> Optional[int]:
