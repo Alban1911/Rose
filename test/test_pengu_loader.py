@@ -48,7 +48,10 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         processes = patch.object(pengu_loader, '_process_running', return_value=False)
         processes.start()
         self.addCleanup(processes.stop)
-        # Never restart the developer's real client
+        # Never read the developer's real registered hook, or restart their client
+        registered = patch.object(pengu_loader, '_registered_pengu_core', return_value=None)
+        registered.start()
+        self.addCleanup(registered.stop)
         restart = patch.object(pengu_loader, 'restart_client', return_value=False)
         restart.start()
         self.addCleanup(restart.stop)
@@ -377,6 +380,39 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         self.assertTrue(pengu_loader.activate_on_start())
         activate.assert_not_called()
         restart_client.assert_called_once_with()
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader.subprocess, 'run')
+    def test_deactivate_removes_our_own_hook(self, run, _available):
+        run.side_effect = [
+            self._result([], stdout='Pengu has been deactivated.'),
+            self._result([], code=1, stdout='Pengu is currently INACTIVE.'),
+        ]
+        with patch.object(pengu_loader, '_registered_pengu_core', return_value=self.pengu_dir / 'core.dll'):
+            self.assertTrue(pengu_loader.deactivate())
+        self.assertEqual(run.call_args_list[0].args[0][1:], ['--uninstall', '--silent'])
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader.subprocess, 'run')
+    def test_deactivate_leaves_another_loaders_hook_on(self, run, _available):
+        # --uninstall would still switch off the config.ini that loader's core.dll reads
+        other_core = Path(self.temp_dir.name) / 'Other Rose' / 'core.dll'
+        with patch.object(pengu_loader, '_registered_pengu_core', return_value=other_core):
+            self.assertTrue(pengu_loader.deactivate())
+        run.assert_not_called()
+
+    @patch.object(pengu_loader, '_is_available', return_value=True)
+    @patch.object(pengu_loader, '_is_league_running', return_value=True)
+    @patch.object(pengu_loader, 'restart_client')
+    @patch.object(pengu_loader.subprocess, 'run')
+    def test_shutdown_leaves_another_loaders_hook_on(self, run, restart_client, _running, _available):
+        pengu_loader._write_session(False, True)
+        other_core = Path(self.temp_dir.name) / 'Other Rose' / 'core.dll'
+        with patch.object(pengu_loader, '_registered_pengu_core', return_value=other_core):
+            self.assertTrue(pengu_loader.restore_after_rose())
+        run.assert_not_called()
+        restart_client.assert_not_called()
+        self.assertFalse(self.session_file.exists())
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'config.ini is shared through the Windows INI API')

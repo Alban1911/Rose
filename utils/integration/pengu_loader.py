@@ -542,6 +542,12 @@ def activate() -> bool:
 
 def deactivate() -> bool:
     with _operation_lock:
+        other = _hook_of_another_loader()
+        if other is not None:
+            # --uninstall only removes a hook that runs our core.dll, but it would
+            # still switch off the config.ini the other loader's core.dll reads
+            log.info('The Pengu hook runs another loader (%s); leaving it on.', other)
+            return True
         _close_loader_menu()
         result = _run_cli_result(['--uninstall', '--silent'])
         if result is None or not result.succeeded:
@@ -614,7 +620,8 @@ def _ensure_loader_config() -> None:
     core.dll skips hooking unless disabled=0 and loads plugins from
     loaderpath. The loader writes both on --install only, so an active hook
     can be left switched off (another account's loader wrote its own
-    config.ini, or an older Rose garbled loaderpath).
+    config.ini, an older Rose garbled loaderpath, or another Rose's loader
+    deactivated while ours held the hook).
     """
     loader_dir = str(PENGU_DIR)
     parser = configparser.ConfigParser(interpolation=None)
@@ -767,10 +774,19 @@ def _registered_pengu_core() -> Optional[Path]:
     return None
 
 
-def _external_pengu_with_rose_plugins() -> Optional[Path]:
-    """Keep an already configured standalone Pengu installation in place."""
+def _hook_of_another_loader() -> Optional[Path]:
+    """The core.dll the registered hook runs when it isn't ours (another Rose,
+    a standalone Pengu), or None."""
     core = _registered_pengu_core()
     if core is None or core.parent.resolve() == PENGU_DIR.resolve():
+        return None
+    return core
+
+
+def _external_pengu_with_rose_plugins() -> Optional[Path]:
+    """Keep an already configured standalone Pengu installation in place."""
+    core = _hook_of_another_loader()
+    if core is None:
         return None
     external = core.parent
     if ((external / 'Pengu Loader.exe').is_file()
@@ -897,6 +913,12 @@ def restore_after_rose() -> bool:
         should_deactivate = (
             _session_requires_deactivation(session) if session is not None else True
         )
+        other = _hook_of_another_loader() if should_deactivate else None
+        if other is not None:
+            # Another loader took the hook over: not ours to switch off (see
+            # deactivate), and the client runs its plugins, not ours
+            log.info('The Pengu hook runs another loader (%s); leaving it on.', other)
+            should_deactivate = False
         if should_deactivate:
             restart_needed = _is_league_running()
             if not _is_available():
