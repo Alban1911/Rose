@@ -710,7 +710,7 @@
     try {
       skinObserverCleanup();
     } catch (e) {
-      // ignore cleanup errors
+      log.warn("Skin observer cleanup failed", String(e));
     }
     skinObserverCleanup = null;
   }
