@@ -6,7 +6,7 @@ psutil==5.9.8
 requests==2.31.0
 urllib3==2.0.7
 websocket-client==1.7.0
-websockets==12.0
+websockets==17.1
 Pillow==10.4.0
 pystray==0.19.5
 xxhash==4.0.1
