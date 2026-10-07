@@ -250,8 +250,8 @@ def _show_native_dll_dialog(tools_dir, reason="missing", detail=""):
     if selected_button.value == button_open:
         try:
             subprocess.run(["explorer", str(tools_dir)], check=False)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning(f"[DLL] Could not open the tools folder: {exc}")
     return False
 
 
@@ -281,8 +281,8 @@ def _show_dll_dialog(tools_dir, reason="missing", detail="") -> bool:
     if response == 1:
         try:
             subprocess.run(["explorer", str(tools_dir)], check=False)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning(f"[DLL] Could not open the tools folder: {exc}")
     return False
 
 
