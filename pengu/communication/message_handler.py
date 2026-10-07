@@ -177,7 +177,8 @@ class MessageHandler:
             if game_dir.exists() and game_dir.is_dir():
                 from config import GAME_EXECUTABLE_NAMES
                 return any((game_dir / name).is_file() for name in GAME_EXECUTABLE_NAMES)
-        except Exception:
+        except Exception as e:
+            log.debug(f"[Settings] Could not validate League path {game_path!r}: {e}")
             return False
 
         return False
@@ -681,7 +682,8 @@ class MessageHandler:
             # Preserve trailing newline style expected by the reader
             p.write_text("\n".join(kept_lines) + ("\n" if kept_lines else ""), encoding="utf-8", errors="ignore")
             return True
-        except Exception:
+        except Exception as e:
+            log.warning(f"[SkinMonitor] Could not clear diagnostics categories {categories}: {e}")
             return False
 
     def _handle_diagnostics_request(self, payload: dict) -> None:
@@ -908,7 +910,9 @@ class MessageHandler:
                     break
             out.reverse()
             return out
-        except Exception:
+        except Exception as e:
+            # Troubleshooting would look empty while errors were recorded
+            log.warning(f"[SkinMonitor] Could not read the diagnostics entries: {e}")
             return []
     
     def _handle_path_validate(self, payload: dict) -> None:
@@ -1052,7 +1056,8 @@ class MessageHandler:
                 f"/lol-game-data/assets/v1/champions/{champ_id}.json",
                 timeout=5.0,
             )
-        except Exception:
+        except Exception as e:
+            log.debug(f"[SkinMonitor] Could not fetch champion {champ_id} data: {e}")
             return None
         if not isinstance(champion_data, dict):
             return None
@@ -1078,8 +1083,8 @@ class MessageHandler:
                         ).replace("\\", "/")
                         quoted_path = quote(thumbnail_relative_path, safe="/")
                         thumbnail_url = f"http://127.0.0.1:{self.port}/mod-asset/{quoted_path}"
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[SkinMonitor] No thumbnail for mod {entry.path}: {e}")
             mods_payload.append(
                 {
                     "modName": entry.mod_name,
