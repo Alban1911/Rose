@@ -11,6 +11,13 @@ def handle_classic_chroma_selection(message_handler, payload: dict) -> bool:
     if not is_classic_game_mode(getattr(state, "current_game_mode", None)):
         return False
 
+    selection_handler = getattr(message_handler, "_handle_classic_skin_selection", None)
+    champion_id = getattr(state, "classic_champion_id", None)
+    default_skin_id = getattr(state, "classic_default_skin_id", None)
+    catalog = getattr(state, "classic_catalog_skin_ids", None)
+    if not callable(selection_handler) or not champion_id or not catalog:
+        return False
+
     try:
         skin_id = int(to_regular_skin_id(payload.get("skinId")) or 0)
         chroma_id = int(to_regular_skin_id(payload.get("chromaId")) or 0)
@@ -30,17 +37,18 @@ def handle_classic_chroma_selection(message_handler, payload: dict) -> bool:
             "type": "classic-skin-selection",
             "schemaVersion": 1,
             "mode": "JADE",
-            "championId": state.classic_champion_id,
-            "defaultSkinId": state.classic_default_skin_id,
+            "championId": champion_id,
+            "defaultSkinId": default_skin_id,
             "skinId": skin_id,
-            "catalog": [{"id": value} for value in state.classic_catalog_skin_ids],
+            "catalog": [{"id": value} for value in catalog],
             "skin": payload.get("chromaName") or f"skin_{skin_id}",
             "source": "classic-chroma",
             "userInitiated": True,
-            "selectionGeneration": state.classic_selection_generation + 1,
+            "selectionGeneration": getattr(state, "classic_selection_generation", 0)
+            + 1,
         }
     )
-    message_handler._handle_classic_skin_selection(selection)
+    selection_handler(selection)
     if state.last_hovered_skin_id != skin_id:
         return True
 
@@ -49,7 +57,7 @@ def handle_classic_chroma_selection(message_handler, payload: dict) -> bool:
         "[CLASSIC:CHROMA] selected target=%s chroma=%s owned=%s",
         skin_id,
         state.selected_chroma_id,
-        state.classic_selected_skin_owned,
+        getattr(state, "classic_selected_skin_owned", False),
     )
     message_handler.broadcaster.broadcast_chroma_state()
     return True
