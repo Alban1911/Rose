@@ -21,6 +21,7 @@
   let previewGeneration = 0;
   let observer = null;
   let pollTimer = null;
+  let uiClaimed = false;
 
   const CHROMA_CLICK_SOUND_URL =
     "https://127.0.0.1:65236/fe/lol-champ-select/sounds/sfx-cs-button-chromas-click.ogg";
@@ -36,6 +37,16 @@
 
   function api() {
     return window.__roseClassicWheelApi;
+  }
+
+  function claimChromaUi() {
+    if (uiClaimed || !api()) return;
+    uiClaimed = true;
+    const owners = (window.__roseClassicFeatureOwners ||= {});
+    owners.chroma = true;
+    window.dispatchEvent(new CustomEvent("rose-classic-feature-owner-change", {
+      detail: { feature: "chroma", ready: true },
+    }));
   }
 
   function playChromaClickSound() {
@@ -408,6 +419,7 @@
       stopRendering();
       return;
     }
+    claimChromaUi();
     if (isInJadeChampSelect) startRendering();
   }
 
@@ -575,6 +587,7 @@
     const classicState = api()?.state?.();
     if (classicState) handlePhaseChange(classicState);
     window.addEventListener("rose-jade-wheel-layout", handleWheelLayout);
+    claimChromaUi();
   }
 
   start();
