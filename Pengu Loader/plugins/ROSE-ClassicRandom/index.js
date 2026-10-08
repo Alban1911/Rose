@@ -19,6 +19,7 @@
   let flagUrl = "";
   let isInJadeChampSelect = false;
   let championLocked = false;
+  let uiClaimed = false;
 
   function log(level, message, data = null) {
     const method = level === "error" ? "error" : level === "warn" ? "warn" : "log";
@@ -30,6 +31,16 @@
 
   function jadeActive() {
     return window.__roseClassicWheelApi?.state?.().active === true;
+  }
+
+  function claimRandomUi() {
+    if (uiClaimed || !window.__roseClassicWheelApi) return;
+    uiClaimed = true;
+    const owners = (window.__roseClassicFeatureOwners ||= {});
+    owners.random = true;
+    window.dispatchEvent(new CustomEvent("rose-classic-feature-owner-change", {
+      detail: { feature: "random", ready: true },
+    }));
   }
 
   function controlHost() {
@@ -152,6 +163,7 @@
       removeMarker();
       return;
     }
+    claimRandomUi();
     render();
   }
 
@@ -186,6 +198,7 @@
     window.addEventListener("rose-jade-wheel-layout", handleWheelLayout);
     bridge.onReady(requestAssets);
     requestAssets();
+    claimRandomUi();
     log("info", "Classic random plugin initialized");
     new MutationObserver(render).observe(document.body, { childList: true, subtree: true });
     setInterval(render, 500);
