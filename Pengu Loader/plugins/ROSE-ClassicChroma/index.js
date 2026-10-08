@@ -19,7 +19,6 @@
   let panelParentRawId = 0;
   let outsideClickHandler = null;
   let previewGeneration = 0;
-  let observer = null;
   let pollTimer = null;
 
   const CHROMA_CLICK_SOUND_URL =
@@ -175,10 +174,8 @@
       return;
     }
     if (panelParentRawId && panelParentRawId !== rawIdOf(selection.parent)) closePanel();
-    const card = document.querySelector(
-      ".rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
-    );
-    if (!card) return;
+    const host = api()?.controlHost?.() || null;
+    if (!host) return;
     let button = document.getElementById(BUTTON_ID);
     if (!button) {
       button = createChromaButtonFrame(BUTTON_ID, "lu-chroma-button rose-jade-chroma-button");
@@ -195,7 +192,7 @@
         if (latest) renderPanel(latest.parent, latest.rawId);
       });
     }
-    if (button.parentElement !== card) card.appendChild(button);
+    if (button.parentElement !== host) host.appendChild(button);
     setMainButtonColor(button, selection);
   }
 
@@ -412,20 +409,16 @@
   }
 
   function startRendering() {
-    if (observer || !document.body) {
+    if (pollTimer || !document.body) {
       render();
       return;
     }
-    observer = new MutationObserver(render);
-    observer.observe(document.body, { childList: true, subtree: true });
     pollTimer = setInterval(render, 500);
     log("debug", "Classic chroma rendering enabled");
     render();
   }
 
   function stopRendering() {
-    observer?.disconnect();
-    observer = null;
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
     remove();
@@ -575,6 +568,7 @@
     const classicState = api()?.state?.();
     if (classicState) handlePhaseChange(classicState);
     window.addEventListener("rose-jade-wheel-layout", handleWheelLayout);
+    window.addEventListener("rose-classic-selection-change", render);
   }
 
   start();
