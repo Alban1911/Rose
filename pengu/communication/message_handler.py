@@ -601,6 +601,13 @@ class MessageHandler:
         )
     
     def _handle_classic_chroma_selection(self, payload: dict) -> None:
+        """Forward a JADE chroma through the optional Classic wheel pipeline."""
+        selection_handler = getattr(self, "_handle_classic_skin_selection", None)
+        champion_id = getattr(self.shared_state, "classic_champion_id", None)
+        default_skin_id = getattr(self.shared_state, "classic_default_skin_id", None)
+        catalog = getattr(self.shared_state, "classic_catalog_skin_ids", None)
+        if not callable(selection_handler) or not champion_id or not catalog:
+            return
         try:
             skin_id = int(to_regular_skin_id(payload.get("skinId")) or 0)
             chroma_id = int(to_regular_skin_id(payload.get("chromaId")) or 0)
@@ -619,20 +626,20 @@ class MessageHandler:
                 "type": "classic-skin-selection",
                 "schemaVersion": 1,
                 "mode": "JADE",
-                "championId": self.shared_state.classic_champion_id,
-                "defaultSkinId": self.shared_state.classic_default_skin_id,
+                "championId": champion_id,
+                "defaultSkinId": default_skin_id,
                 "skinId": skin_id,
-                "catalog": [
-                    {"id": value}
-                    for value in self.shared_state.classic_catalog_skin_ids
-                ],
+                "catalog": [{"id": value} for value in catalog],
                 "skin": payload.get("chromaName") or f"skin_{skin_id}",
                 "source": "classic-chroma",
                 "userInitiated": True,
-                "selectionGeneration": self.shared_state.classic_selection_generation + 1,
+                "selectionGeneration": getattr(
+                    self.shared_state, "classic_selection_generation", 0
+                )
+                + 1,
             }
         )
-        self._handle_classic_skin_selection(selection)
+        selection_handler(selection)
         if self.shared_state.last_hovered_skin_id != skin_id:
             return
         self.shared_state.selected_chroma_id = skin_id if chroma_id else None
@@ -640,7 +647,7 @@ class MessageHandler:
             "[CLASSIC:CHROMA] selected target=%s chroma=%s owned=%s",
             skin_id,
             self.shared_state.selected_chroma_id,
-            self.shared_state.classic_selected_skin_owned,
+            getattr(self.shared_state, "classic_selected_skin_owned", False),
         )
         self.broadcaster.broadcast_chroma_state()
 
