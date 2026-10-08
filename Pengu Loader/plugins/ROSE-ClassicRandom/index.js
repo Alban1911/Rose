@@ -19,10 +19,6 @@
   let flagUrl = "";
   let isInJadeChampSelect = false;
   let championLocked = false;
-  let phase = "";
-  let randomSkinId = 0;
-  let projectedRandomSkinId = 0;
-  let projectionSuppressed = false;
 
   function log(level, message, data = null) {
     const method = level === "error" ? "error" : level === "warn" ? "warn" : "log";
@@ -36,32 +32,8 @@
     return window.__roseClassicWheelApi?.state?.().active === true;
   }
 
-  function selectedCard() {
-    return document.querySelector(
-      ".rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
-    );
-  }
-
-  function projectionReady() {
-    return phase === "FINALIZATION" || phase === "GameStart" ||
-      document.querySelector(".champion-select.timer-less-than-11-seconds") !== null;
-  }
-
-  function projectPendingRandomSelection(reason = "random-state") {
-    const wheel = window.__roseClassicWheelApi;
-    if (
-      !active || projectionSuppressed || !randomSkinId ||
-      !isInJadeChampSelect || !jadeActive() || !projectionReady()
-    ) {
-      return;
-    }
-    if (projectedRandomSkinId === randomSkinId) return;
-    if (wheel?.projectResourceSelection?.(randomSkinId, "random-state") !== true) return;
-    projectedRandomSkinId = randomSkinId;
-    log("info", "Random skin projected during finalization", {
-      skinId: randomSkinId,
-      reason,
-    });
+  function controlHost() {
+    return window.__roseClassicWheelApi?.controlHost?.() || null;
   }
 
   function removeButton() {
@@ -77,8 +49,8 @@
       removeMarker();
       return;
     }
-    const card = selectedCard();
-    if (!card) {
+    const host = controlHost();
+    if (!host) {
       removeMarker();
       return;
     }
@@ -90,7 +62,7 @@
       marker.setAttribute("aria-label", "Random skin");
     }
     if (flagUrl) marker.style.backgroundImage = `url("${flagUrl}")`;
-    if (marker.parentElement !== card) card.appendChild(marker);
+    if (marker.parentElement !== host) host.appendChild(marker);
   }
 
   function render() {
@@ -99,8 +71,8 @@
       removeMarker();
       return;
     }
-    const card = selectedCard();
-    if (!card) return;
+    const host = controlHost();
+    if (!host) return;
     let button = document.getElementById(BUTTON_ID);
     if (!button) {
       button = document.createElement("button");
@@ -125,7 +97,7 @@
         });
       });
     }
-    if (button.parentElement !== card) card.appendChild(button);
+    if (button.parentElement !== host) host.appendChild(button);
     const image = enabled ? enabledUrl : disabledUrl;
     button.style.backgroundImage = image ? `url("${image}")` : "none";
     button.classList.toggle("rose-jade-random-button--enabled", enabled);
@@ -149,7 +121,7 @@
   }
 
   function handlePhaseChange(data) {
-    phase = String(data?.phase || "");
+    const phase = String(data?.phase || "");
     const classicMode =
       Number(data?.mapId) === 453 ||
       Number(data?.queueId) === 3260 ||
@@ -160,15 +132,11 @@
       championLocked = false;
       active = false;
       enabled = false;
-      randomSkinId = 0;
-      projectedRandomSkinId = 0;
-      projectionSuppressed = false;
       removeButton();
       removeMarker();
       return;
     }
     render();
-    projectPendingRandomSelection("phase-change");
   }
 
   function handleChampionLocked(data) {
@@ -194,7 +162,7 @@
       #${BUTTON_ID} {
         position: absolute; top: -43px; left: 50%; transform: translateX(-50%);
         width: 38px; height: 23px; padding: 0; border: 0; z-index: 25;
-        background: transparent center / contain no-repeat; cursor: pointer;
+        background: transparent center / contain no-repeat; cursor: pointer; pointer-events: auto;
       }
       #${MARK_ID} {
         position: absolute; top: -14px; right: -14px; width: 32px; height: 32px;
@@ -203,24 +171,13 @@
     `;
     document.head.appendChild(style);
     bridge.subscribe("random-mode-state", (data) => {
-      const wasActive = active;
-      const nextRandomSkinId = Number(data?.randomSkinId) || 0;
       active = data?.active === true;
       enabled = active;
-      if (!active) {
-        randomSkinId = 0;
-        projectedRandomSkinId = 0;
-        projectionSuppressed = false;
-      } else {
-        if (!wasActive || nextRandomSkinId !== randomSkinId) {
-          projectedRandomSkinId = 0;
-          projectionSuppressed = false;
-        }
-        randomSkinId = nextRandomSkinId;
-      }
-      log("info", "Random state confirmed", { active, randomSkinId });
+      log("info", "Random state confirmed", {
+        active,
+        randomSkinId: Number(data?.randomSkinId) || 0,
+      });
       render();
-      projectPendingRandomSelection();
     });
     bridge.subscribe("local-asset-url", handleAsset);
     bridge.subscribe("phase-change", handlePhaseChange);
@@ -228,24 +185,12 @@
     const classicState = window.__roseClassicWheelApi?.state?.();
     if (classicState) handlePhaseChange(classicState);
     window.addEventListener("rose-jade-wheel-layout", handleWheelLayout);
-    window.addEventListener("rose-classic-selection-change", (event) => {
-      const reason = String(event?.detail?.reason || "");
-      if (
-        active && reason !== "random-state" &&
-        (reason === "native-card-click" || reason === "visual-center-change")
-      ) {
-        projectionSuppressed = true;
-        projectedRandomSkinId = 0;
-      }
-      render();
-    });
+    window.addEventListener("rose-classic-selection-change", render);
     bridge.onReady(requestAssets);
     requestAssets();
     log("info", "Classic random plugin initialized");
-    new MutationObserver(render).observe(document.body, { childList: true, subtree: true });
     setInterval(() => {
       render();
-      projectPendingRandomSelection("poll");
     }, 500);
   }
 

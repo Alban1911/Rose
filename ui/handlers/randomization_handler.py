@@ -45,13 +45,14 @@ def _clear_random_mode(state: SharedState) -> None:
 
 
 def cancel_random_mode_for_selection(state: SharedState, selected_skin_id: Optional[int], reason: str) -> bool:
-    """Disable random mode when the user explicitly picks a different skin/chroma."""
-    if not getattr(state, 'random_mode_active', False):
-        return False
-    if selected_skin_id and selected_skin_id == getattr(state, 'random_skin_id', None):
+    """Disable active or persisted Classic random mode on an explicit choice."""
+    champion_id = _classic_champion_id(state)
+    persisted = bool(
+        champion_id and is_random_enabled_for_champion(champion_id)
+    )
+    if not getattr(state, 'random_mode_active', False) and not persisted:
         return False
 
-    champion_id = _classic_champion_id(state)
     if champion_id:
         set_random_enabled_for_champion(champion_id, False)
     _clear_random_mode(state)
@@ -163,12 +164,18 @@ class RandomizationHandler:
             self._randomization_in_progress = False
             return
         
-        # Disable HistoricMode if active
+        classic_champion_id = _classic_champion_id(self.state)
+        if classic_champion_id:
+            self.state.historic_first_detection_done = True
+
+        # Disable HistoricMode before random owns the Classic selection.
         try:
-            if getattr(self.state, 'historic_mode_active', False):
+            historic_mode_active = getattr(self.state, 'historic_mode_active', False)
+            if historic_mode_active or classic_champion_id:
                 self.state.historic_mode_active = False
                 self.state.historic_skin_id = None
-                log.info("[HISTORIC] Historic mode DISABLED due to RandomMode activation")
+                if historic_mode_active:
+                    log.info("[HISTORIC] Historic mode DISABLED due to RandomMode activation")
                 # Broadcast state to JavaScript
                 try:
                     if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
