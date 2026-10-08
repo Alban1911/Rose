@@ -175,10 +175,10 @@
       return;
     }
     if (panelParentRawId && panelParentRawId !== rawIdOf(selection.parent)) closePanel();
-    const card = document.querySelector(
-      ".rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
+    const host = api()?.controlHost?.() || document.querySelector(
+      ".skins-pane__skin-card--center-tile:not(.skins-pane__skin-card--placeholder), .rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
     );
-    if (!card) return;
+    if (!host) return;
     let button = document.getElementById(BUTTON_ID);
     if (!button) {
       button = createChromaButtonFrame(BUTTON_ID, "lu-chroma-button rose-jade-chroma-button");
@@ -195,7 +195,7 @@
         if (latest) renderPanel(latest.parent, latest.rawId);
       });
     }
-    if (button.parentElement !== card) card.appendChild(button);
+    if (button.parentElement !== host) host.appendChild(button);
     setMainButtonColor(button, selection);
   }
 
@@ -454,6 +454,7 @@
       #${BUTTON_ID} {
         position: absolute; pointer-events: auto; border: 0; padding: 0; background: transparent;
         width: 25px; height: 25px; cursor: pointer; direction: ltr;
+        top: -12px; bottom: auto; left: 50%; transform: translateX(-50%); z-index: 14;
         -webkit-user-select: none; list-style-type: none;
       }
       #${BUTTON_ID} .outer-mask {
