@@ -32,9 +32,9 @@
     return window.__roseClassicWheelApi?.state?.().active === true;
   }
 
-  function selectedCard() {
-    return document.querySelector(
-      ".rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
+  function controlHost() {
+    return window.__roseClassicWheelApi?.controlHost?.() || document.querySelector(
+      ".skins-pane__skin-card--center-tile:not(.skins-pane__skin-card--placeholder), .rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
     );
   }
 
@@ -51,8 +51,8 @@
       removeMarker();
       return;
     }
-    const card = selectedCard();
-    if (!card) {
+    const host = controlHost();
+    if (!host) {
       removeMarker();
       return;
     }
@@ -64,7 +64,7 @@
       marker.setAttribute("aria-label", "Random skin");
     }
     if (flagUrl) marker.style.backgroundImage = `url("${flagUrl}")`;
-    if (marker.parentElement !== card) card.appendChild(marker);
+    if (marker.parentElement !== host) host.appendChild(marker);
   }
 
   function render() {
@@ -73,8 +73,8 @@
       removeMarker();
       return;
     }
-    const card = selectedCard();
-    if (!card) return;
+    const host = controlHost();
+    if (!host) return;
     let button = document.getElementById(BUTTON_ID);
     if (!button) {
       button = document.createElement("button");
@@ -99,7 +99,7 @@
         });
       });
     }
-    if (button.parentElement !== card) card.appendChild(button);
+    if (button.parentElement !== host) host.appendChild(button);
     const image = enabled ? enabledUrl : disabledUrl;
     button.style.backgroundImage = image ? `url("${image}")` : "none";
     button.classList.toggle("rose-jade-random-button--enabled", enabled);
@@ -164,7 +164,7 @@
       #${BUTTON_ID} {
         position: absolute; top: -43px; left: 50%; transform: translateX(-50%);
         width: 38px; height: 23px; padding: 0; border: 0; z-index: 25;
-        background: transparent center / contain no-repeat; cursor: pointer;
+        background: transparent center / contain no-repeat; cursor: pointer; pointer-events: auto;
       }
       #${MARK_ID} {
         position: absolute; top: -14px; right: -14px; width: 32px; height: 32px;
