@@ -15,10 +15,7 @@
   const SKIN_STATE_TIMEOUT_MS = 4000;
 
   // Rose's menu language (ROSE-I18n); English until it has loaded
-  const t = (text, vars) =>
-    window.RoseI18n
-      ? window.RoseI18n.t(text, vars)
-      : text.replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
+  const t = (text) => (window.RoseI18n ? window.RoseI18n.t(text) : text);
 
   let bridge = null;
   let initialized = false;
@@ -31,13 +28,8 @@
   let selectedModId = null;
   let busyModId = null;
   let selectionRequestCounter = 0;
-  let pendingSelectionRequest = null;
   let activeModState = null;
   const championAliases = new Map();
-
-  function log(message, extra) {
-    console.log(`${LOG_PREFIX} ${message}`, extra ?? "");
-  }
 
   function waitForBridge() {
     return new Promise((resolve, reject) => {
@@ -203,15 +195,13 @@
   function sendSelect(mod, skinId) {
     const championId = currentChampionId();
     if (!bridge || !championId) return;
-    const requestId = createRequestId();
-    pendingSelectionRequest = { requestId, modId: normalizeModId(mod) };
     bridge.send({
       type: "select-skin-mod",
       championId,
       skinId,
       modId: normalizeModId(mod),
       modData: mod,
-      requestId,
+      requestId: createRequestId(),
     });
   }
 
@@ -219,15 +209,13 @@
     const championId = currentChampionId();
     const skinId = currentSkinId();
     if (!bridge || !championId || !skinId || !selectedModId) return;
-    const requestId = createRequestId();
-    pendingSelectionRequest = { requestId, modId: null };
     bridge.send({
       type: "select-skin-mod",
       championId,
       skinId,
       modId: null,
       expectedModId: selectedModId,
-      requestId,
+      requestId: createRequestId(),
     });
   }
 
@@ -256,7 +244,6 @@
         return;
       }
       sendSelect(mod, skinId);
-      log(`Selected ${visibleModName(mod)} on skin ${skinId}`);
     } finally {
       busyModId = null;
       render();
@@ -398,12 +385,9 @@
     selectedModId = null;
     activeModState = null;
     busyModId = null;
-    pendingSelectionRequest = null;
-    render();
   }
 
   function handleModsResponse(data) {
-    if (!data || data.type !== "skin-mods-response") return;
     const championId = currentChampionId();
     const responseChampionId = Number(data.championId);
     if (!championId || (responseChampionId && responseChampionId !== championId)) return;
@@ -413,13 +397,8 @@
   }
 
   function handleSelectionResult(data) {
-    if (!data || data.type !== "custom-mod-selection-result") return;
-    if (!pendingSelectionRequest || data.requestId !== pendingSelectionRequest.requestId) return;
-    pendingSelectionRequest = null;
-    if (!data.success) {
-      console.warn(`${LOG_PREFIX} Custom skin selection failed: ${data.error || "unknown error"}`);
-    }
-    render();
+    if (!String(data?.requestId || "").startsWith(LOG_PREFIX) || data.success) return;
+    console.warn(`${LOG_PREFIX} Custom skin selection failed: ${data.error || "unknown error"}`);
   }
 
   function handleCustomModState(data) {
@@ -519,31 +498,20 @@
     }
 
     const pattern = skinUrlPattern(preview.championId, preview.skinId);
-    const replaced = new Set();
 
-    // Elements we already swapped: keep them swapped unless the client moved
-    // them on to another skin's image
+    // An element we swapped that the client has since given a new image is
+    // treated as fresh by the scan below
     document.querySelectorAll("[data-rose-cs-original]").forEach((element) => {
       const kind = element.dataset.roseCsKind;
-      const current = kind === "bg" ? backgroundUrl(element) : element.getAttribute("src") || "";
-      if (kind === "video" || current === preview.url) {
-        replaced.add(element);
-        return;
-      }
-      if (pattern.test(current)) {
-        element.dataset.roseCsOriginal = current;
-      } else {
+      const current = kind === "bg" ? backgroundUrl(element) : element.getAttribute("src");
+      if (kind !== "video" && current !== preview.url) {
         delete element.dataset.roseCsOriginal;
         delete element.dataset.roseCsKind;
-        return;
       }
-      replaced.add(element);
-      if (kind === "bg") element.style.backgroundImage = cssUrl(preview.url);
-      else element.setAttribute("src", preview.url);
     });
 
-    document.querySelectorAll("img[src], [src], [style*='background']").forEach((element) => {
-      if (replaced.has(element) || element.closest(`#${STRIP_ID}`)) return;
+    document.querySelectorAll("[src], [style*='background']").forEach((element) => {
+      if (element.dataset.roseCsOriginal !== undefined || element.closest(`#${STRIP_ID}`)) return;
 
       if (element.tagName === "VIDEO") {
         // Animated splashes play over the image layer; hide the video
@@ -594,7 +562,7 @@
 
     try {
       bridge = await waitForBridge();
-      log("Bridge connected");
+      console.log(`${LOG_PREFIX} Bridge connected`);
     } catch (error) {
       console.error(`${LOG_PREFIX} Bridge connection failed`, error);
       return;
