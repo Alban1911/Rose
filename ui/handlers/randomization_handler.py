@@ -212,7 +212,15 @@ class RandomizationHandler:
                 self.state.ui_skin_id = random_skin_id
                 self.state.last_hovered_skin_id = random_skin_id
                 self.state.last_hovered_skin_key = random_skin_name
-            log.info(f"[UI] Random skin selected: {random_skin_name} (ID: {random_skin_id})")
+            if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+                log.info(
+                    "[CLASSIC:RANDOM] selected name=%s target=%s owned=%s deferred_projection=true",
+                    random_skin_name,
+                    random_skin_id,
+                    self.state.classic_selected_skin_owned,
+                )
+            else:
+                log.info(f"[UI] Random skin selected: {random_skin_name} (ID: {random_skin_id})")
             
             # Broadcast random mode state to JavaScript
             try:
