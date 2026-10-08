@@ -7,6 +7,8 @@
   const LOG_PREFIX = "[ROSE-CustomSlots]";
   const STRIP_ID = "rose-custom-slots";
   const STYLE_ID = "rose-custom-slots-style";
+  const MOD_ACTIVE_CLASS = "rose-custom-slot-active";
+  const MOD_NAME_POPUP_ID = "historic-popup-layer"; // ROSE-HistoricMode
   const EVENT_SKIN_STATE = "lu-skin-monitor-state";
   const CAROUSEL_SELECTOR = ".skin-selection-carousel-container, .skin-selection-carousel";
 
@@ -133,6 +135,7 @@
   gap: 4px; pointer-events: none; -webkit-user-select: none;
 }
 #${STRIP_ID}[hidden] { display: none; }
+.${MOD_ACTIVE_CLASS} #${MOD_NAME_POPUP_ID} { display: none !important; }
 #${STRIP_ID} .rcs-title {
   color: #c8aa6e; font-family: "LoL Display","Times New Roman",serif; font-size: 11px;
   font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
@@ -317,17 +320,22 @@
     return new RegExp(parts.join("|"), "i");
   }
 
-  function previewForActiveMod() {
+  // Whether the carousel shows a skin the selected custom mod applies to
+  function activeModOnCurrentSkin() {
     const championId = currentChampionId();
     const skinId = currentSkinId();
-    if (!activeModState || !championId || !skinId || currentPhase === "InProgress") return null;
-    if (Number(activeModState.championId) && Number(activeModState.championId) !== championId) return null;
+    if (!activeModState || !championId || !skinId || currentPhase === "InProgress") return false;
+    if (Number(activeModState.championId) && Number(activeModState.championId) !== championId) return false;
 
     const targets = (activeModState.targetSkinIds || []).map(Number);
     const fallbackTarget = Number(activeModState.skinId);
-    const showsTarget = targets.length ? targets.includes(skinId) : fallbackTarget === skinId;
-    if (!showsTarget) return null;
+    return targets.length ? targets.includes(skinId) : fallbackTarget === skinId;
+  }
 
+  function previewForActiveMod() {
+    if (!activeModOnCurrentSkin()) return null;
+    const championId = currentChampionId();
+    const skinId = currentSkinId();
     const mod = mods.find((entry) => normalizeModId(entry) === selectedModId);
     const url = mod?.thumbnailUrl ? String(mod.thumbnailUrl).replace("localhost", "127.0.0.1") : "";
     return url ? { url, championId, skinId } : null;
@@ -363,6 +371,10 @@
   }
 
   function applyPreview() {
+    // The selected slot already names the mod: hide ROSE-HistoricMode's
+    // name popup for it
+    document.documentElement.classList.toggle(MOD_ACTIVE_CLASS, activeModOnCurrentSkin());
+
     const preview = previewForActiveMod();
     if (!preview) {
       restorePreviewElements();
