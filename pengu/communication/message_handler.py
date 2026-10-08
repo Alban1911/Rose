@@ -253,6 +253,10 @@ class MessageHandler:
             self._handle_classic_mode_catalog(payload)
         elif payload_type == "classic-skin-selection":
             self._handle_classic_skin_selection(payload)
+        elif payload_type == "chroma-selection" and is_classic_game_mode(
+            self.shared_state.current_game_mode
+        ):
+            self._handle_classic_chroma_selection(payload)
         elif payload_type == "chroma-selection":
             self._handle_chroma_selection(payload)
         elif payload_type == "dice-button-click":
@@ -596,6 +600,50 @@ class MessageHandler:
             generation,
         )
     
+    def _handle_classic_chroma_selection(self, payload: dict) -> None:
+        try:
+            skin_id = int(to_regular_skin_id(payload.get("skinId")) or 0)
+            chroma_id = int(to_regular_skin_id(payload.get("chromaId")) or 0)
+        except (TypeError, ValueError):
+            return
+        if chroma_id not in (0, skin_id):
+            log.warning(
+                "[CLASSIC:CHROMA] Rejected mismatched skin=%s chroma=%s",
+                skin_id,
+                chroma_id,
+            )
+            return
+        selection = dict(payload)
+        selection.update(
+            {
+                "type": "classic-skin-selection",
+                "schemaVersion": 1,
+                "mode": "JADE",
+                "championId": self.shared_state.classic_champion_id,
+                "defaultSkinId": self.shared_state.classic_default_skin_id,
+                "skinId": skin_id,
+                "catalog": [
+                    {"id": value}
+                    for value in self.shared_state.classic_catalog_skin_ids
+                ],
+                "skin": payload.get("chromaName") or f"skin_{skin_id}",
+                "source": "classic-chroma",
+                "userInitiated": True,
+                "selectionGeneration": self.shared_state.classic_selection_generation + 1,
+            }
+        )
+        self._handle_classic_skin_selection(selection)
+        if self.shared_state.last_hovered_skin_id != skin_id:
+            return
+        self.shared_state.selected_chroma_id = skin_id if chroma_id else None
+        log.info(
+            "[CLASSIC:CHROMA] selected target=%s chroma=%s owned=%s",
+            skin_id,
+            self.shared_state.selected_chroma_id,
+            self.shared_state.classic_selected_skin_owned,
+        )
+        self.broadcaster.broadcast_chroma_state()
+
     def _handle_chroma_selection(self, payload: dict) -> None:
         """Handle chroma selection from JavaScript"""
         chroma_id = payload.get("chromaId") or payload.get("skinId")
