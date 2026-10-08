@@ -32,8 +32,10 @@
     return window.__roseClassicWheelApi?.state?.().active === true;
   }
 
-  function controlHost() {
-    return window.__roseClassicWheelApi?.controlHost?.() || null;
+  function selectedCard() {
+    return document.querySelector(
+      ".rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
+    );
   }
 
   function removeButton() {
@@ -49,8 +51,8 @@
       removeMarker();
       return;
     }
-    const host = controlHost();
-    if (!host) {
+    const card = selectedCard();
+    if (!card) {
       removeMarker();
       return;
     }
@@ -62,7 +64,7 @@
       marker.setAttribute("aria-label", "Random skin");
     }
     if (flagUrl) marker.style.backgroundImage = `url("${flagUrl}")`;
-    if (marker.parentElement !== host) host.appendChild(marker);
+    if (marker.parentElement !== card) card.appendChild(marker);
   }
 
   function render() {
@@ -71,8 +73,8 @@
       removeMarker();
       return;
     }
-    const host = controlHost();
-    if (!host) return;
+    const card = selectedCard();
+    if (!card) return;
     let button = document.getElementById(BUTTON_ID);
     if (!button) {
       button = document.createElement("button");
@@ -97,7 +99,7 @@
         });
       });
     }
-    if (button.parentElement !== host) host.appendChild(button);
+    if (button.parentElement !== card) card.appendChild(button);
     const image = enabled ? enabledUrl : disabledUrl;
     button.style.backgroundImage = image ? `url("${image}")` : "none";
     button.classList.toggle("rose-jade-random-button--enabled", enabled);
@@ -162,7 +164,7 @@
       #${BUTTON_ID} {
         position: absolute; top: -43px; left: 50%; transform: translateX(-50%);
         width: 38px; height: 23px; padding: 0; border: 0; z-index: 25;
-        background: transparent center / contain no-repeat; cursor: pointer; pointer-events: auto;
+        background: transparent center / contain no-repeat; cursor: pointer;
       }
       #${MARK_ID} {
         position: absolute; top: -14px; right: -14px; width: 32px; height: 32px;
@@ -173,10 +175,7 @@
     bridge.subscribe("random-mode-state", (data) => {
       active = data?.active === true;
       enabled = active;
-      log("info", "Random state confirmed", {
-        active,
-        randomSkinId: Number(data?.randomSkinId) || 0,
-      });
+      log("info", "Random state confirmed", { active });
       render();
     });
     bridge.subscribe("local-asset-url", handleAsset);
@@ -185,13 +184,11 @@
     const classicState = window.__roseClassicWheelApi?.state?.();
     if (classicState) handlePhaseChange(classicState);
     window.addEventListener("rose-jade-wheel-layout", handleWheelLayout);
-    window.addEventListener("rose-classic-selection-change", render);
     bridge.onReady(requestAssets);
     requestAssets();
     log("info", "Classic random plugin initialized");
-    setInterval(() => {
-      render();
-    }, 500);
+    new MutationObserver(render).observe(document.body, { childList: true, subtree: true });
+    setInterval(render, 500);
   }
 
   start();
