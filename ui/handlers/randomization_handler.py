@@ -201,7 +201,9 @@ class RandomizationHandler:
                     for value in (self.state.owned_skin_ids or ())
                 }
                 default_id = int(
-                    to_regular_skin_id(self.state.classic_default_skin_id) or 0
+                    to_regular_skin_id(
+                        default_skin_id_for_state(self.state, champion_id)
+                    ) or 0
                 )
                 chroma_ids = {
                     int(to_regular_skin_id(value) or 0)
@@ -276,7 +278,9 @@ class RandomizationHandler:
         champion_id = self.skin_scraper.cache.champion_id
         if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
             default_id = int(
-                to_regular_skin_id(self.state.classic_default_skin_id) or 0
+                to_regular_skin_id(
+                    default_skin_id_for_state(self.state, champion_id)
+                ) or 0
             )
             eligible_ids = {
                 int(to_regular_skin_id(value) or 0)
