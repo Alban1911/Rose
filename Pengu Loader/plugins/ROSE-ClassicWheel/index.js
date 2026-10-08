@@ -417,7 +417,7 @@
         available: entry.available === true,
         timestamp: Date.now(),
       });
-      dispatchSelectionChange(reason, userInitiated);
+      dispatchSelectionChange(reason);
       log("info", "Classic visual skin synced", {
         reason,
         rawSkinId: entry.rawSkinId,
@@ -770,6 +770,9 @@
     lastVisualCenterRawSkinId = 0;
     clearUserNavigation();
     setVisualProtection(entry, reason, visualRollbackProtectionActive);
+    if (visualRollbackProtectionActive) {
+      refreshNativeSkinPresentation?.(entry.rawSkinId);
+    }
     scheduleNativeProjection(projectedCatalogIndex, () => {
       if (
         active &&
@@ -846,6 +849,9 @@
       const selection = catalogSelectionForResourceSkinId(pendingHistoricResourceSkinId);
       if (!selection) return;
       if (pendingHistoricResourceSkinId === lastAppliedHistoricResourceSkinId) {
+        // The catalog is rebuilt every two seconds, so its entry objects are
+        // not stable. Rebind the active projection by ID without replaying the
+        // default-card staging animation.
         visualRollbackProtectionActive = true;
         projectedVariantRawSkinId = selection.rawSkinId;
         desiredVisualSelection = selection.entry;
@@ -1312,6 +1318,7 @@
       const currentIndex = centerEntry ? catalog.indexOf(centerEntry) : -1;
       const direction = arrow.classList.contains("skins-pane__arrow--left") ? -1 : 1;
       const target = currentIndex >= 0 ? catalog[currentIndex + direction] : null;
+      pendingHistoricResourceSkinId = 0;
       projectedVariantRawSkinId = 0;
       beginUserNavigation(target?.rawSkinId || 0);
       return;
@@ -1325,6 +1332,7 @@
     }
     const card = event.target?.closest?.(".skins-pane__skin-card");
     if (card && pane?.contains(card)) {
+      pendingHistoricResourceSkinId = 0;
       projectedVariantRawSkinId = 0;
       const entry = matchCardToCatalog(card);
       if (!entry) return;
@@ -1335,6 +1343,7 @@
       return;
     }
     if (event.target?.closest?.(".champion-select-center-container--picking-skins")) {
+      pendingHistoricResourceSkinId = 0;
       projectedVariantRawSkinId = 0;
       beginUserNavigation();
     }
@@ -1342,6 +1351,7 @@
 
   function handleUserNavigationKey(event) {
     if (active && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      pendingHistoricResourceSkinId = 0;
       projectedVariantRawSkinId = 0;
       const cards = nativeCards();
       const centerCard = selectedNativeCard(cards);
@@ -1372,6 +1382,21 @@
     );
   }
 
+  function ensureHistoryAnchor(centerCard) {
+    if (!centerCard) return;
+    document.querySelectorAll(".rose-jade-history-anchor").forEach((anchor) => {
+      if (anchor.parentElement !== centerCard) anchor.remove();
+    });
+    let anchor = Array.from(centerCard.children).find(
+      (child) => child.classList?.contains("rose-jade-history-anchor")
+    );
+    if (!anchor) {
+      anchor = document.createElement("div");
+      anchor.className = "rose-jade-history-anchor";
+      centerCard.appendChild(anchor);
+    }
+  }
+
   function adaptNativeController() {
     if (!active || !catalog.length) return;
     const nextPane = findNativePane();
@@ -1389,6 +1414,7 @@
       }
       centerCard.appendChild(overlay);
     }
+    ensureHistoryAnchor(centerCard);
     const visualCenterEntry = matchCardToCatalog(centerCard);
     const selectedCatalogEntry = catalogEntryForRawSkinId(selectedRawSkinId)
       || catalog.find((entry) => entry.resourceSkinId === selectedResourceSkinId)
@@ -1554,8 +1580,8 @@
     catalogLoadedAt = Date.now();
     if (!nextCatalog.length) return;
     // Riot's JADE component always moves its native classic default to index
-    // zero. Mirror that order so external projections and the native finite
-    // carousel share the same left/right boundaries.
+    // zero. Mirror that exact order so projected history/random navigation and
+    // the native finite carousel share the same left/right boundaries.
     const defaultIndex = nextCatalog.findIndex((entry) => entry.isBase);
     if (defaultIndex > 0) {
       const [defaultEntry] = nextCatalog.splice(defaultIndex, 1);
@@ -1628,6 +1654,36 @@
         pointer-events: none !important;
       }
 
+      .${CARD_CLASS}.${SELECTED_CLASS} > .rose-jade-history-anchor {
+        position: absolute !important;
+        top: -14px !important;
+        right: -14px !important;
+        left: auto !important;
+        width: 32px !important;
+        height: 32px !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 24 !important;
+        pointer-events: none !important;
+      }
+
+      .${CARD_CLASS}.${SELECTED_CLASS} > .lu-chroma-button,
+      .${CARD_CLASS}.${SELECTED_CLASS} > .forms-wheel-button {
+        top: -12px !important;
+        bottom: auto !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        z-index: 14 !important;
+      }
+
+      .${CARD_CLASS}.${SELECTED_CLASS} > .lu-random-dice-button {
+        top: -43px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        z-index: 15 !important;
+      }
+
       .${UNLOCKED_CLASS} {
         cursor: pointer !important;
       }
@@ -1659,6 +1715,7 @@
       element.classList.remove(HOST_CLASS);
     });
     document.getElementById(ROOT_ID)?.remove();
+    document.querySelectorAll(".rose-jade-history-anchor").forEach((element) => element.remove());
     pane = null;
     overlay = null;
     lastLayoutKey = "";
@@ -1676,9 +1733,6 @@
     installNativeWebsocketProjection();
     injectStyles();
     document.documentElement.classList.add(ACTIVE_ROOT_CLASS);
-    // Phase/lock events and the existing poll already cover native pane
-    // replacement. A document-wide observer can feed our own card mutations
-    // back into adaptNativeController while Riot rebuilds the carousel.
     document.addEventListener("pointerdown", handleUserNavigation, true);
     document.addEventListener("keydown", handleUserNavigationKey, true);
     pollTimer = setInterval(refreshSelection, POLL_INTERVAL_MS);
@@ -1802,15 +1856,10 @@
     };
   }
 
-  function controlHost() {
-    return overlay?.isConnected ? overlay : null;
-  }
-
-  function dispatchSelectionChange(reason, userInitiated = false) {
+  function dispatchSelectionChange(reason) {
     window.dispatchEvent(new CustomEvent(SELECTION_CHANGE_EVENT, {
       detail: {
         reason: String(reason || ""),
-        userInitiated: userInitiated === true,
         selection: currentSelection(),
       },
     }));
@@ -1887,7 +1936,6 @@
     catalogAssetSnapshot,
     catalogData: () => catalog.map((entry) => entry.rawSkin),
     projectResourceSelection,
-    controlHost,
   };
   window.__roseClassicWheelApi = classicWheelApi;
   window.__roseJadeWheelDebug = classicWheelApi;
