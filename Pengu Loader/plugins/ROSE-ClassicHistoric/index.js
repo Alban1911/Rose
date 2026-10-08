@@ -35,7 +35,6 @@
   function cleanup() {
     document.getElementById(MARK_ID)?.remove();
     document.getElementById(TOAST_ID)?.remove();
-    document.querySelectorAll(".rose-jade-history-anchor").forEach((anchor) => anchor.remove());
   }
 
   function currentSkinId() {
@@ -48,8 +47,10 @@
   }
 
   function renderMarker() {
-    const host = window.__roseClassicWheelApi?.controlHost?.() || null;
-    if (!host) {
+    const anchor = document.querySelector(
+      ".rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder) > .rose-jade-history-anchor"
+    );
+    if (!anchor) {
       document.getElementById(MARK_ID)?.remove();
       return;
     }
@@ -61,7 +62,7 @@
     }
     mark.title = "Historic skin";
     if (imageUrl) mark.style.backgroundImage = `url("${imageUrl}")`;
-    if (mark.parentElement !== host) host.appendChild(mark);
+    if (mark.parentElement !== anchor) anchor.appendChild(mark);
   }
 
   function createToast() {
@@ -137,10 +138,8 @@
     style.id = STYLE_ID;
     style.textContent = `
       #${MARK_ID} {
-        position: absolute; top: -14px; right: -14px; left: auto;
-        width: 32px; height: 32px; display: block; visibility: visible;
-        opacity: 1; z-index: 24; pointer-events: none;
-        background: center / contain no-repeat;
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        z-index: 24; pointer-events: none; background: center / contain no-repeat;
       }
       #${TOAST_ID} {
         position: fixed; left: 50%; bottom: calc(10% + 215px);
@@ -242,11 +241,7 @@
       if (!nextActive || nextSkinName !== skinName) presentationReady = false;
       active = nextActive;
       skinName = nextSkinName;
-      log("info", "Historic state updated", {
-        active,
-        skinName,
-        randomModeActive,
-      });
+      log("info", "Historic state updated", { active, skinName, randomModeActive });
       render();
     });
     bridge.subscribe("random-mode-state", (data) => {
@@ -290,6 +285,7 @@
     bridge.onReady(() => bridge.send({ type: "request-local-asset", assetPath: ASSET }));
     bridge.send({ type: "request-local-asset", assetPath: ASSET });
     log("info", "Classic historic plugin initialized");
+    new MutationObserver(render).observe(document.body, { childList: true, subtree: true });
   }
 
   start();
