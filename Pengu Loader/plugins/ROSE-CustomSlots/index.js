@@ -32,6 +32,8 @@
   let busyModId = null;
   let selectionRequestCounter = 0;
   let pendingSelectionRequest = null;
+  let activeModState = null;
+  const championAliases = new Map();
 
   function log(message, extra) {
     console.log(`${LOG_PREFIX} ${message}`, extra ?? "");
@@ -328,6 +330,7 @@
   }
 
   function render() {
+    applyPreview();
     const strip = ensureStrip();
     const championId = currentChampionId();
     const carousel = document.querySelector(CAROUSEL_SELECTOR);
@@ -393,6 +396,7 @@
     modsChampionId = null;
     lastModsRequestAt = 0;
     selectedModId = null;
+    activeModState = null;
     busyModId = null;
     pendingSelectionRequest = null;
     render();
@@ -423,7 +427,150 @@
     selectedModId = data.active === false
       ? null
       : String(data.relativePath || data.modName || "").replace(/\\/g, "/") || null;
+    activeModState = selectedModId ? data : null;
     render();
+  }
+
+  // ----------------------------------------------------------- splash preview
+  //
+  // While a custom mod is selected and the carousel shows its target skin, the
+  // client still draws the official splash. Swap every image of that skin
+  // (champ select background and the carousel thumbnail) for the mod's preview
+  // image, and put the client's own image back once the mod is off.
+
+  async function loadChampionAlias(championId) {
+    if (championAliases.has(championId)) return championAliases.get(championId);
+    championAliases.set(championId, null);
+    try {
+      const response = await fetch(`/lol-game-data/assets/v1/champions/${championId}.json`);
+      const data = response.ok ? await response.json() : null;
+      if (data?.alias) championAliases.set(championId, String(data.alias));
+    } catch {
+      // Champion-specific path patterns are skipped without the alias
+    }
+    return championAliases.get(championId);
+  }
+
+  function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function skinUrlPattern(championId, skinId) {
+    const num = skinId % 1000;
+    const parts = [
+      `champion-splashes/(?:uncentered/)?${championId}/${skinId}\\.`,
+      `champion-tiles/${championId}/${skinId}\\.`,
+    ];
+    const alias = championAliases.get(championId);
+    if (alias) {
+      const a = escapeRegExp(alias);
+      const folder = num === 0 ? "(?:Base|Skin0*0)" : `Skin0*${num}`;
+      parts.push(`/Characters/${a}/Skins/${folder}/`);
+      parts.push(`/${a}_splash_(?:centered|uncentered|tile)_${num}\\.`);
+    }
+    return new RegExp(parts.join("|"), "i");
+  }
+
+  function previewForActiveMod() {
+    const championId = currentChampionId();
+    const skinId = currentSkinId();
+    if (!activeModState || !championId || !skinId || currentPhase === "InProgress") return null;
+    if (Number(activeModState.championId) && Number(activeModState.championId) !== championId) return null;
+
+    const targets = (activeModState.targetSkinIds || []).map(Number);
+    const fallbackTarget = Number(activeModState.skinId);
+    const showsTarget = targets.length ? targets.includes(skinId) : fallbackTarget === skinId;
+    if (!showsTarget) return null;
+
+    const mod = mods.find((entry) => normalizeModId(entry) === selectedModId);
+    const url = mod?.thumbnailUrl ? String(mod.thumbnailUrl).replace("localhost", "127.0.0.1") : "";
+    return url ? { url, championId, skinId } : null;
+  }
+
+  function cssUrl(url) {
+    return `url("${url}")`;
+  }
+
+  function backgroundUrl(element) {
+    const match = /url\(["']?([^"')]+)["']?\)/.exec(element.style.backgroundImage || "");
+    return match ? match[1] : "";
+  }
+
+  function restorePreviewElements() {
+    document.querySelectorAll("[data-rose-cs-original]").forEach((element) => {
+      const original = element.dataset.roseCsOriginal;
+      const kind = element.dataset.roseCsKind;
+      if (kind === "bg") element.style.backgroundImage = cssUrl(original);
+      else if (kind === "video") element.style.removeProperty("visibility");
+      else element.setAttribute("src", original);
+      delete element.dataset.roseCsOriginal;
+      delete element.dataset.roseCsKind;
+    });
+  }
+
+  function applyPreview() {
+    const preview = previewForActiveMod();
+    if (!preview) {
+      restorePreviewElements();
+      return;
+    }
+    if (!championAliases.has(preview.championId)) {
+      loadChampionAlias(preview.championId).then(applyPreview);
+    }
+
+    const pattern = skinUrlPattern(preview.championId, preview.skinId);
+    const replaced = new Set();
+
+    // Elements we already swapped: keep them swapped unless the client moved
+    // them on to another skin's image
+    document.querySelectorAll("[data-rose-cs-original]").forEach((element) => {
+      const kind = element.dataset.roseCsKind;
+      const current = kind === "bg" ? backgroundUrl(element) : element.getAttribute("src") || "";
+      if (kind === "video" || current === preview.url) {
+        replaced.add(element);
+        return;
+      }
+      if (pattern.test(current)) {
+        element.dataset.roseCsOriginal = current;
+      } else {
+        delete element.dataset.roseCsOriginal;
+        delete element.dataset.roseCsKind;
+        return;
+      }
+      replaced.add(element);
+      if (kind === "bg") element.style.backgroundImage = cssUrl(preview.url);
+      else element.setAttribute("src", preview.url);
+    });
+
+    document.querySelectorAll("img[src], [src], [style*='background']").forEach((element) => {
+      if (replaced.has(element) || element.closest(`#${STRIP_ID}`)) return;
+
+      if (element.tagName === "VIDEO") {
+        // Animated splashes play over the image layer; hide the video
+        const src = element.getAttribute("src") || element.querySelector("source")?.getAttribute("src") || "";
+        if (pattern.test(src) || pattern.test(element.getAttribute("poster") || "")) {
+          element.dataset.roseCsOriginal = src;
+          element.dataset.roseCsKind = "video";
+          element.style.setProperty("visibility", "hidden", "important");
+        }
+        return;
+      }
+
+      const src = element.getAttribute("src");
+      if (src && pattern.test(src)) {
+        element.dataset.roseCsOriginal = src;
+        element.dataset.roseCsKind = "src";
+        element.setAttribute("src", preview.url);
+        return;
+      }
+
+      const bg = backgroundUrl(element);
+      if (bg && pattern.test(bg)) {
+        element.dataset.roseCsOriginal = bg;
+        element.dataset.roseCsKind = "bg";
+        element.style.backgroundImage = cssUrl(preview.url);
+      }
+    });
   }
 
   function handleSkinState(event) {
