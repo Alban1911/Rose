@@ -19,6 +19,7 @@
   let panelParentRawId = 0;
   let outsideClickHandler = null;
   let previewGeneration = 0;
+  let observer = null;
   let pollTimer = null;
 
   const CHROMA_CLICK_SOUND_URL =
@@ -174,8 +175,10 @@
       return;
     }
     if (panelParentRawId && panelParentRawId !== rawIdOf(selection.parent)) closePanel();
-    const host = api()?.controlHost?.() || null;
-    if (!host) return;
+    const card = document.querySelector(
+      ".rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
+    );
+    if (!card) return;
     let button = document.getElementById(BUTTON_ID);
     if (!button) {
       button = createChromaButtonFrame(BUTTON_ID, "lu-chroma-button rose-jade-chroma-button");
@@ -192,7 +195,7 @@
         if (latest) renderPanel(latest.parent, latest.rawId);
       });
     }
-    if (button.parentElement !== host) host.appendChild(button);
+    if (button.parentElement !== card) card.appendChild(button);
     setMainButtonColor(button, selection);
   }
 
@@ -409,16 +412,20 @@
   }
 
   function startRendering() {
-    if (pollTimer || !document.body) {
+    if (observer || !document.body) {
       render();
       return;
     }
+    observer = new MutationObserver(render);
+    observer.observe(document.body, { childList: true, subtree: true });
     pollTimer = setInterval(render, 500);
     log("debug", "Classic chroma rendering enabled");
     render();
   }
 
   function stopRendering() {
+    observer?.disconnect();
+    observer = null;
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
     remove();
@@ -447,7 +454,6 @@
       #${BUTTON_ID} {
         position: absolute; pointer-events: auto; border: 0; padding: 0; background: transparent;
         width: 25px; height: 25px; cursor: pointer; direction: ltr;
-        top: -12px; bottom: auto; left: 50%; transform: translateX(-50%); z-index: 14;
         -webkit-user-select: none; list-style-type: none;
       }
       #${BUTTON_ID} .outer-mask {
@@ -568,7 +574,6 @@
     const classicState = api()?.state?.();
     if (classicState) handlePhaseChange(classicState);
     window.addEventListener("rose-jade-wheel-layout", handleWheelLayout);
-    window.addEventListener("rose-classic-selection-change", render);
   }
 
   start();
