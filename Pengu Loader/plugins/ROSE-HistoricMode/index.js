@@ -49,6 +49,8 @@
   let historicFlagImageUrl = null; // HTTP URL from Python
   const pendingHistoricFlagRequest = new Map(); // Track pending requests
   let isInChampSelect = false; // Track if we're in ChampSelect phase
+  let isInClassicMode = false;
+  let lastPhaseData = null;
   let pythonChromaState = null;
   let customModTargetSkinId = null;
   let customModTargetSkinIds = new Set();
@@ -134,10 +136,18 @@
   }
 
   function handlePhaseChange(data) {
+    lastPhaseData = data;
     const wasInChampSelect = isInChampSelect;
+    isInClassicMode =
+      Number(data?.mapId) === 453 ||
+      Number(data?.queueId) === 3260 ||
+      String(data?.gameMode || "").toUpperCase() === "JADE";
+    const classicHistoricOwned =
+      isInClassicMode && window.__roseClassicFeatureOwners?.historic === true;
     // Check if we're entering ChampSelect phase
     isInChampSelect =
-      data.phase === "ChampSelect" || data.phase === "FINALIZATION";
+      !classicHistoricOwned &&
+      (data?.phase === "ChampSelect" || data?.phase === "FINALIZATION");
 
     if (isInChampSelect && !wasInChampSelect) {
       customModPopupActive = false;
@@ -913,6 +923,14 @@
   }
 
   const handleHistoricSkinNameUpdate = (payload) => {
+    if (
+      isInClassicMode &&
+      window.__roseClassicFeatureOwners?.historic === true
+    ) {
+      removeHistoricSkinName();
+      return;
+    }
+
     // A custom-mod popup owns this same visual layer. Historic-state
     // broadcasts can arrive slightly after the custom-mod selection, so do
     // not let an inactive historic update erase the custom-mod name.
@@ -1194,6 +1212,11 @@
     bridge.subscribe("chroma-state", handleChromaStateUpdate);
     bridge.subscribe("local-asset-url", handleLocalAssetUrl);
     bridge.subscribe("phase-change", handlePhaseChange);
+    window.addEventListener("rose-classic-feature-owner-change", (event) => {
+      if (event?.detail?.feature === "historic" && lastPhaseData) {
+        handlePhaseChange(lastPhaseData);
+      }
+    });
 
     // On bridge (re)connect, re-request assets
     bridge.onReady(() => {
