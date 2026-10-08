@@ -806,6 +806,36 @@
     if (hidePresentation) setHistoricPresentationReady(false, reason);
   }
 
+  function completeHistoricPresentation(resourceId, generation, selection) {
+    if (
+      !active || generation !== historicRestoreGeneration ||
+      pendingHistoricResourceSkinId !== resourceId
+    ) {
+      return false;
+    }
+    if (
+      !historicRestoreInProgress &&
+      lastAppliedHistoricResourceSkinId === resourceId
+    ) {
+      return true;
+    }
+    historicRestoreInProgress = false;
+    lastAppliedHistoricResourceSkinId = resourceId;
+    const presentation = variantPresentation(
+      selection?.rawSkinId,
+      selection?.entry
+    );
+    window.dispatchEvent(new CustomEvent("rose-jade-historic-presentation", {
+      detail: presentation,
+    }));
+    log("info", "Classic history projected into native selector", {
+      historicResourceSkinId: resourceId,
+      visualRawSkinId: selection?.entry?.rawSkinId || 0,
+      variantRawSkinId: selection?.rawSkinId || 0,
+    });
+    return true;
+  }
+
   function finishHistoricVisualSelection(resourceId, generation) {
     if (
       !active || generation !== historicRestoreGeneration ||
@@ -816,26 +846,7 @@
     const selection = catalogSelectionForResourceSkinId(resourceId);
     if (
       projectResourceSelection(resourceId, "historic-restore", () => {
-        if (
-          !active || generation !== historicRestoreGeneration ||
-          pendingHistoricResourceSkinId !== resourceId
-        ) {
-          return;
-        }
-        historicRestoreInProgress = false;
-        lastAppliedHistoricResourceSkinId = resourceId;
-        const presentation = variantPresentation(
-          selection?.rawSkinId,
-          selection?.entry
-        );
-        window.dispatchEvent(new CustomEvent("rose-jade-historic-presentation", {
-          detail: presentation,
-        }));
-        log("info", "Classic history projected into native selector", {
-          historicResourceSkinId: resourceId,
-          visualRawSkinId: selection?.entry?.rawSkinId || 0,
-          variantRawSkinId: selection?.rawSkinId || 0,
-        });
+        completeHistoricPresentation(resourceId, generation, selection);
       })
     ) {
       return;
@@ -1365,12 +1376,14 @@
 
   function ensureOverlay() {
     if (!pane) return;
-    if (overlay && overlay.isConnected) return;
+    if (overlay && overlay.isConnected) {
+      overlay.removeAttribute("aria-hidden");
+      return;
+    }
     document.getElementById(ROOT_ID)?.remove();
     overlay = document.createElement("div");
     overlay.id = ROOT_ID;
     overlay.className = "rose-jade-wheel-jade-pane";
-    overlay.setAttribute("aria-hidden", "true");
 
     pane.classList.add(HOST_CLASS);
     pane.addEventListener("click", handleNativePaneClick, true);
@@ -1397,6 +1410,19 @@
     }
   }
 
+  function controlHost() {
+    if (!active || !overlay?.isConnected) return null;
+    const centerCard = selectedNativeCard(nativeCards());
+    if (!centerCard) return null;
+    if (overlay.parentElement !== centerCard) {
+      if (window.getComputedStyle(centerCard).position === "static") {
+        centerCard.style.position = "relative";
+      }
+      centerCard.appendChild(overlay);
+    }
+    return overlay;
+  }
+
   function adaptNativeController() {
     if (!active || !catalog.length) return;
     const nextPane = findNativePane();
@@ -1420,6 +1446,18 @@
       || catalog.find((entry) => entry.resourceSkinId === selectedResourceSkinId)
       || null;
     const centerEntry = visualCenterEntry || selectedCatalogEntry;
+    if (historicRestoreInProgress && pendingHistoricResourceSkinId && centerEntry) {
+      const historicSelection = catalogSelectionForResourceSkinId(
+        pendingHistoricResourceSkinId
+      );
+      if (historicSelection?.entry?.rawSkinId === centerEntry.rawSkinId) {
+        completeHistoricPresentation(
+          pendingHistoricResourceSkinId,
+          historicRestoreGeneration,
+          historicSelection
+        );
+      }
+    }
     const settledOwnedUserSelection = Boolean(
       pendingUserNavigation &&
       Date.now() <= pendingUserNavigationUntil &&
@@ -1666,6 +1704,11 @@
         opacity: 1 !important;
         z-index: 24 !important;
         pointer-events: none !important;
+      }
+
+      .${CARD_CLASS}.${SELECTED_CLASS},
+      .${CARD_CLASS}.skins-pane__skin-card--center-tile {
+        overflow: visible !important;
       }
 
       .${CARD_CLASS}.${SELECTED_CLASS} > .lu-chroma-button,
@@ -1935,6 +1978,7 @@
     getModeSkinData,
     catalogAssetSnapshot,
     catalogData: () => catalog.map((entry) => entry.rawSkin),
+    controlHost,
     projectResourceSelection,
   };
   window.__roseClassicWheelApi = classicWheelApi;
