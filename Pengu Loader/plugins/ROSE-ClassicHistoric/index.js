@@ -16,11 +16,6 @@
   let isInJadeChampSelect = false;
   let randomModeActive = false;
   let presentationReady = false;
-  let historicSkinId = 0;
-  let projectedHistoricSkinId = 0;
-  let projectionGeneration = 0;
-  let projectionPending = false;
-  let projectionSuppressed = false;
   let customModActive = false;
   let customModName = "";
   let customModTargetSkinIds = new Set();
@@ -47,72 +42,16 @@
     return Number(window.__roseClassicWheelApi?.currentSelection?.()?.skinId) || 0;
   }
 
-  function projectHistoricSelection(reason = "historic-state") {
-    const wheel = window.__roseClassicWheelApi;
-    if (
-      !active || randomModeActive || projectionSuppressed ||
-      !isInJadeChampSelect || !jadeActive() || !historicSkinId
-    ) {
-      return;
-    }
-    if (currentSkinId() === historicSkinId) {
-      projectedHistoricSkinId = historicSkinId;
-      presentationReady = true;
-      render();
-      return;
-    }
-    if (projectedHistoricSkinId === historicSkinId || projectionPending) return;
-
-    const generation = ++projectionGeneration;
-    projectionPending = true;
-    presentationReady = false;
-    const accepted = wheel?.projectResourceSelection?.(
-      historicSkinId,
-      "historic-restore",
-      () => {
-        if (generation !== projectionGeneration || !active || historicSkinId <= 0) return;
-        projectionPending = false;
-        projectedHistoricSkinId = historicSkinId;
-        presentationReady = true;
-        log("info", "Historic skin projected into Classic carousel", {
-          skinId: historicSkinId,
-          reason,
-        });
-        render();
-      }
-    );
-    if (accepted !== true) {
-      projectionPending = false;
-      log("debug", "Historic projection is waiting for the Classic catalog", {
-        skinId: historicSkinId,
-        reason,
-      });
-    }
-  }
-
   function customModApplies() {
     const skinId = currentSkinId();
     return customModActive && skinId > 0 && customModTargetSkinIds.has(skinId);
   }
 
   function renderMarker() {
-    const card = document.querySelector(
-      ".rose-jade-native-card.rose-jade-native-card--selected:not(.skins-pane__skin-card--placeholder)"
-    );
-    if (!card) {
+    const host = window.__roseClassicWheelApi?.controlHost?.() || null;
+    if (!host) {
       document.getElementById(MARK_ID)?.remove();
       return;
-    }
-    document.querySelectorAll(".rose-jade-history-anchor").forEach((candidate) => {
-      if (candidate.parentElement !== card) candidate.remove();
-    });
-    let anchor = Array.from(card.children).find(
-      (child) => child.classList?.contains("rose-jade-history-anchor")
-    );
-    if (!anchor) {
-      anchor = document.createElement("div");
-      anchor.className = "rose-jade-history-anchor";
-      card.appendChild(anchor);
     }
     let mark = document.getElementById(MARK_ID);
     if (!mark) {
@@ -122,7 +61,7 @@
     }
     mark.title = "Historic skin";
     if (imageUrl) mark.style.backgroundImage = `url("${imageUrl}")`;
-    if (mark.parentElement !== anchor) anchor.appendChild(mark);
+    if (mark.parentElement !== host) host.appendChild(mark);
   }
 
   function createToast() {
@@ -198,13 +137,10 @@
     style.id = STYLE_ID;
     style.textContent = `
       #${MARK_ID} {
-        position: absolute; inset: 0; width: 100%; height: 100%;
-        z-index: 24; pointer-events: none; background: center / contain no-repeat;
-      }
-      .rose-jade-native-card.rose-jade-native-card--selected > .rose-jade-history-anchor {
         position: absolute; top: -14px; right: -14px; left: auto;
         width: 32px; height: 32px; display: block; visibility: visible;
         opacity: 1; z-index: 24; pointer-events: none;
+        background: center / contain no-repeat;
       }
       #${TOAST_ID} {
         position: fixed; left: 50%; bottom: calc(10% + 215px);
@@ -280,7 +216,6 @@
       classicMode && (phase === "ChampSelect" || phase === "FINALIZATION");
     if (!isInJadeChampSelect) {
       presentationReady = false;
-      projectionSuppressed = false;
       cleanup();
     }
     else render();
@@ -304,36 +239,18 @@
     bridge.subscribe("historic-state", (data) => {
       const nextActive = data?.active === true;
       const nextSkinName = String(data?.historicSkinName || "");
-      const nextSkinId = Number(data?.historicSkinId) || 0;
-      if (!nextActive || nextSkinName !== skinName || nextSkinId !== historicSkinId) {
-        projectionGeneration += 1;
-        projectionPending = false;
-        projectedHistoricSkinId = 0;
-        presentationReady = false;
-        projectionSuppressed = false;
-      }
+      if (!nextActive || nextSkinName !== skinName) presentationReady = false;
       active = nextActive;
       skinName = nextSkinName;
-      historicSkinId = nextSkinId;
       log("info", "Historic state updated", {
         active,
         skinName,
-        historicSkinId,
         randomModeActive,
       });
       render();
-      projectHistoricSelection();
     });
     bridge.subscribe("random-mode-state", (data) => {
       randomModeActive = data?.active === true;
-      if (randomModeActive) {
-        projectionGeneration += 1;
-        projectionPending = false;
-        projectedHistoricSkinId = 0;
-        presentationReady = false;
-      } else {
-        projectHistoricSelection("random-disabled");
-      }
       log("info", "Random state observed", { active: randomModeActive });
       render();
     });
@@ -356,35 +273,23 @@
       imageUrl = String(data.url || "").replace("localhost", "127.0.0.1");
       render();
     });
-    window.addEventListener("rose-classic-selection-change", (event) => {
-      const reason = String(event?.detail?.reason || "");
-      const selectedSkinId = Number(event?.detail?.selection?.skinId) || 0;
-      if (
-        active && selectedSkinId !== historicSkinId &&
-        (reason === "native-card-click" || reason === "visual-center-change")
-      ) {
-        projectionGeneration += 1;
-        projectionPending = false;
-        projectedHistoricSkinId = 0;
-        presentationReady = false;
-        projectionSuppressed = true;
-      }
+    window.addEventListener("rose-jade-historic-presentation", (event) => {
+      skinName = String(event?.detail?.skinName || skinName);
+      presentationReady = true;
       render();
-      if (active && !presentationReady && !projectionSuppressed) {
-        projectHistoricSelection("selection-change");
-      }
     });
+    window.addEventListener("rose-jade-historic-presentation-state", (event) => {
+      presentationReady = event?.detail?.ready === true;
+      render();
+    });
+    window.addEventListener("rose-classic-selection-change", render);
     bridge.subscribe("phase-change", handlePhaseChange);
     const classicState = window.__roseClassicWheelApi?.state?.();
     if (classicState) handlePhaseChange(classicState);
-    window.addEventListener("rose-jade-wheel-layout", (event) => {
-      handleWheelLayout(event);
-      if (event?.detail?.active !== false) projectHistoricSelection("wheel-layout");
-    });
+    window.addEventListener("rose-jade-wheel-layout", handleWheelLayout);
     bridge.onReady(() => bridge.send({ type: "request-local-asset", assetPath: ASSET }));
     bridge.send({ type: "request-local-asset", assetPath: ASSET });
     log("info", "Classic historic plugin initialized");
-    new MutationObserver(render).observe(document.body, { childList: true, subtree: true });
   }
 
   start();

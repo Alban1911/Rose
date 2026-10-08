@@ -918,6 +918,9 @@ class InjectionTrigger:
     def _inject_unowned_skin(self, name: str, cname: str):
         """Inject unowned skin/chroma"""
         try:
+            from utils.core.historic import historic_scope_for_state
+
+            history_scope = historic_scope_for_state(self.state)
             # Force base skin selection via LCU before injecting
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champ_id:

@@ -179,30 +179,19 @@ class HistoricModeHandler:
         """Check and deactivate historic mode if skin changed from default"""
         if not self.state.historic_mode_active or self.state.locked_champ_id is None:
             return
+
+        # Classic carousel projection can expose the parent card while the
+        # active history target is one of its chromas. Only the explicit
+        # Classic selection message can distinguish that projection from a
+        # user choice, and it already owns history cancellation.
+        if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+            return
         
         base_skin_id = _skin_id_for_state(
             self.state,
             default_skin_id_for_state(self.state, self.state.locked_champ_id),
         )
         selected_base_skin_id = _skin_id_for_state(self.state, new_base_skin_id)
-        historic_skin_id = getattr(self.state, "historic_skin_id", None)
-        if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
-            try:
-                selected_ids = {int(skin_id), int(new_base_skin_id)}
-                target_id = int(historic_skin_id)
-                selected_ids.update(
-                    int(to_regular_skin_id(value)) for value in tuple(selected_ids)
-                )
-                target_ids = {target_id, int(to_regular_skin_id(target_id))}
-                if selected_ids & target_ids:
-                    log.debug(
-                        "[HISTORIC] Keeping historic mode active on restored target %s",
-                        historic_skin_id,
-                    )
-                    return
-            except (TypeError, ValueError):
-                pass
-
         # Keep custom-mod history active when the selected skin/chroma is one
         # of the saved mod targets. The client is allowed to remain on that
         # real skin; history is only tracking the mod, not forcing base skin.
