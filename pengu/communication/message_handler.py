@@ -472,6 +472,51 @@ class MessageHandler:
             len(self.shared_state.classic_catalog_skin_ids),
             self.shared_state.classic_default_skin_id,
         )
+        try:
+            from utils.core.random_preferences import is_random_enabled_for_champion
+
+            random_enabled = is_random_enabled_for_champion(
+                self.shared_state.classic_champion_id
+            )
+        except (ImportError, TypeError, ValueError):
+            random_enabled = False
+        if random_enabled:
+            from ui.handlers.randomization_handler import RandomizationHandler
+
+            activate = getattr(
+                RandomizationHandler(self.shared_state, self.skin_scraper),
+                "activate_persisted",
+                None,
+            )
+            if callable(activate) and not self.shared_state.random_mode_active:
+                activate()
+            if (
+                self.shared_state.historic_mode_active
+                or self.shared_state.historic_skin_id is not None
+            ):
+                self.shared_state.historic_mode_active = False
+                self.shared_state.historic_skin_id = None
+                self.broadcaster.broadcast_historic_state()
+            self.shared_state.historic_first_detection_done = True
+            return
+
+        try:
+            from utils.core.historic import get_historic_skin_for_champion
+
+            historic_skin_id = get_historic_skin_for_champion(
+                self.shared_state.classic_champion_id, "classic"
+            )
+        except (ImportError, TypeError, ValueError):
+            historic_skin_id = None
+        if (
+            not self.shared_state.historic_first_detection_done
+            and isinstance(historic_skin_id, int)
+            and historic_skin_id in self.shared_state.classic_catalog_skin_ids
+        ):
+            self.shared_state.historic_mode_active = True
+            self.shared_state.historic_skin_id = historic_skin_id
+            self.broadcaster.broadcast_historic_state()
+        self.shared_state.historic_first_detection_done = True
 
     def _handle_classic_skin_selection(self, payload: dict) -> None:
         """Keep the projected skin separate from the server-visible JADE carrier."""
@@ -511,10 +556,27 @@ class MessageHandler:
         self.shared_state.selected_skin_id = skin_id
         self.shared_state.ui_skin_id = skin_id
         self.shared_state.last_hovered_skin_id = skin_id
+        selection_source = str(payload.get("source") or "")
+
+        if payload.get("userInitiated") is True:
+            cancel_random_mode_for_selection(
+                self.shared_state,
+                skin_id,
+                f"Classic carousel selection (skinId={skin_id})",
+            )
+            self.shared_state.historic_mode_active = False
+            self.shared_state.historic_skin_id = None
+            self.shared_state.historic_first_detection_done = True
+            self.broadcaster.broadcast_historic_state()
+            if selection_source != "classic-chroma":
+                self.shared_state.selected_chroma_id = None
 
         lcu = getattr(self.skin_scraper, "lcu", None)
-        if not owned and lcu is not None:
-            lcu.set_my_selection_skin(self.shared_state.classic_default_skin_id)
+        if lcu is not None:
+            if not owned:
+                lcu.set_my_selection_skin(self.shared_state.classic_default_skin_id)
+            elif selection_source == "classic-chroma":
+                lcu.set_my_selection_skin(to_classic_skin_id(skin_id))
 
         skin_name = str(payload.get("skin") or f"skin_{skin_id}").strip()
         self.shared_state.last_hovered_skin_key = skin_name
@@ -524,7 +586,7 @@ class MessageHandler:
         self.broadcaster.broadcast_skin_state(skin_name, skin_id)
         log.info(
             "[CLASSIC:SELECTION] source=%s target=%s owned=%s carrier=%s generation=%s",
-            str(payload.get("source") or "classic-wheel"),
+            selection_source or "classic-wheel",
             skin_id,
             owned,
             self.shared_state.classic_default_skin_id,
