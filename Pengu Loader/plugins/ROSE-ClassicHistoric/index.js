@@ -19,6 +19,7 @@
   let customModActive = false;
   let customModName = "";
   let customModTargetSkinIds = new Set();
+  let uiClaimed = false;
 
   function log(level, message, data = null) {
     const method = level === "error" ? "error" : level === "warn" ? "warn" : "log";
@@ -30,6 +31,16 @@
 
   function jadeActive() {
     return window.__roseClassicWheelApi?.state?.().active === true;
+  }
+
+  function claimHistoricUi() {
+    if (uiClaimed || !window.__roseClassicWheelApi) return;
+    uiClaimed = true;
+    const owners = (window.__roseClassicFeatureOwners ||= {});
+    owners.historic = true;
+    window.dispatchEvent(new CustomEvent("rose-classic-feature-owner-change", {
+      detail: { feature: "historic", ready: true },
+    }));
   }
 
   function cleanup() {
@@ -226,6 +237,7 @@
       cleanup();
       return;
     }
+    claimHistoricUi();
     render();
   }
 
@@ -284,6 +296,7 @@
     window.addEventListener("rose-jade-wheel-layout", handleWheelLayout);
     bridge.onReady(() => bridge.send({ type: "request-local-asset", assetPath: ASSET }));
     bridge.send({ type: "request-local-asset", assetPath: ASSET });
+    claimHistoricUi();
     log("info", "Classic historic plugin initialized");
     new MutationObserver(render).observe(document.body, { childList: true, subtree: true });
   }
