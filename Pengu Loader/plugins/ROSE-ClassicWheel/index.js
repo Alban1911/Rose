@@ -1,7 +1,13 @@
 /**
  * @name ROSE-ClassicWheel
  * @author Rose contributors
- * @description Compatibility adapter for the native JADE skin selector.
+ * @description Selection adapter for Rose's native Rift Classic skin pane.
+ *
+ * ROSE-UI owns the upstream Rift Classic integration that unlocks and styles
+ * Riot's native `.skins-pane`. This plugin builds on that implementation; it
+ * does not render a replacement carousel or duplicate the Classic injector.
+ * It only coordinates catalog mapping, native arrow projection, selection
+ * publication, and visual rollback protection for that existing carousel.
  */
 (function initJadeWheelAdapter() {
   "use strict";
@@ -43,6 +49,8 @@
   let selectedRawSkinId = 0;
   let selectedResourceSkinId = 0;
   let modeDefaultRawSkinId = 0;
+  let proposedDefaultRawSkinId = 0;
+  let carrierQueryKey = "";
   let catalog = [];
   let catalogLoadedAt = 0;
   let adaptedCards = new Set();
@@ -62,6 +70,14 @@
   let pointerSelectionRawSkinId = 0;
   let pointerSelectionUntil = 0;
   let pointerSelectionCommitted = false;
+  let pendingHistoricResourceSkinId = 0;
+  let lastAppliedHistoricResourceSkinId = 0;
+  let historicRestoreGeneration = 0;
+  let historicRestoreInProgress = false;
+  let randomModeActive = false;
+  let pendingRandomResourceSkinId = 0;
+  let appliedRandomResourceSkinId = 0;
+  let randomProjectionSuppressed = false;
   let visualRollbackProtectionActive = false;
   let projectedVariantRawSkinId = 0;
   let lastVisualCenterRawSkinId = 0;
@@ -401,7 +417,7 @@
         available: entry.available === true,
         timestamp: Date.now(),
       });
-      dispatchSelectionChange(reason);
+      dispatchSelectionChange(reason, userInitiated);
       log("info", "Classic visual skin synced", {
         reason,
         rawSkinId: entry.rawSkinId,
@@ -622,13 +638,51 @@
         : 0;
     }
 
-    // Match the backend carrier rule: only the live carousel/pickable
-    // intersection may identify JADE's real default object graph.
+    // Prefer the verified native default object graph. Skin0 remains a valid
+    // fallback for upstream installations that use the lightweight carrier.
     return (
       (candidates.includes(declaredDefaultId) ? declaredDefaultId : 0) ||
       candidates.find((value) => value % 1000 === 0) ||
       0
     );
+  }
+
+  function requestCarrierPolicy(candidateRawSkinId) {
+    const candidate = numeric(candidateRawSkinId) || 0;
+    if (!bridge || !championId || !rawChampionId || !candidate) return;
+    const skin0RawSkinId = rawChampionId * 1000;
+    const key = `${championId}|${candidate}|${skin0RawSkinId}`;
+    if (key === carrierQueryKey) return;
+    carrierQueryKey = key;
+    proposedDefaultRawSkinId = candidate;
+    bridge.send({
+      type: "classic-carrier-query",
+      schemaVersion: 1,
+      mode: JADE_MODE,
+      championId,
+      proposedDefaultSkinId: resourceSkinId(candidate),
+      skin0SkinId: resourceSkinId(skin0RawSkinId),
+      timestamp: Date.now(),
+    });
+    log("info", "Classic carrier policy requested", {
+      proposedDefaultRawSkinId: candidate,
+      skin0RawSkinId,
+    });
+  }
+
+  function handleCarrierState(data) {
+    const stateChampionId = numeric(data?.championId) || 0;
+    const defaultResourceSkinId = numeric(data?.defaultSkinId) || 0;
+    if (!active || stateChampionId !== championId || !defaultResourceSkinId) return;
+    const confirmedRawSkinId = jadeSkinId(defaultResourceSkinId);
+    if (Math.floor(confirmedRawSkinId / 1000) !== rawChampionId) return;
+    modeDefaultRawSkinId = confirmedRawSkinId;
+    log("info", "Classic carrier policy confirmed", {
+      policy: String(data?.policy || ""),
+      proposedDefaultRawSkinId,
+      carrierRawSkinId: modeDefaultRawSkinId,
+    });
+    setTimeout(() => refreshSelection(true), 0);
   }
 
   function getModeSkinData(rawSkinId) {
@@ -705,6 +759,10 @@
     const selection = catalogSelectionForResourceSkinId(resourceId);
     if (!selection) return false;
     const { entry, rawSkinId } = selection;
+    if (reason === "random-state" || reason === "chroma-state") {
+      pendingHistoricResourceSkinId = 0;
+      lastAppliedHistoricResourceSkinId = 0;
+    }
     visualRollbackProtectionActive = !isModeDefaultResourceSkinId(resourceId);
     projectedVariantRawSkinId = rawSkinId;
     desiredVisualSelection = entry;
@@ -723,16 +781,7 @@
       if (typeof onComplete === "function") onComplete();
     });
     adaptNativeController();
-    const presentation = variantPresentation(rawSkinId, entry);
-    syncVisualSelection(
-      {
-        ...entry,
-        rawSkinId: presentation.rawSkinId,
-        resourceSkinId: presentation.resourceSkinId,
-        name: presentation.skinName,
-      },
-      reason
-    );
+    dispatchSelectionChange(reason);
     log("info", "Classic resource selection projected into native selector", {
       reason,
       resourceSkinId: numeric(resourceId) || 0,
@@ -740,6 +789,156 @@
       variantRawSkinId: rawSkinId,
     });
     return true;
+  }
+
+  function setHistoricPresentationReady(ready, reason) {
+    window.dispatchEvent(new CustomEvent("rose-jade-historic-presentation-state", {
+      detail: { ready: ready === true, reason: String(reason || "") },
+    }));
+  }
+
+  function cancelHistoricVisualRestore(reason, hidePresentation = false) {
+    historicRestoreGeneration += 1;
+    historicRestoreInProgress = false;
+    if (hidePresentation) setHistoricPresentationReady(false, reason);
+  }
+
+  function finishHistoricVisualSelection(resourceId, generation) {
+    if (
+      !active || generation !== historicRestoreGeneration ||
+      pendingHistoricResourceSkinId !== resourceId
+    ) {
+      return;
+    }
+    const selection = catalogSelectionForResourceSkinId(resourceId);
+    if (
+      projectResourceSelection(resourceId, "historic-restore", () => {
+        if (
+          !active || generation !== historicRestoreGeneration ||
+          pendingHistoricResourceSkinId !== resourceId
+        ) {
+          return;
+        }
+        historicRestoreInProgress = false;
+        lastAppliedHistoricResourceSkinId = resourceId;
+        const presentation = variantPresentation(
+          selection?.rawSkinId,
+          selection?.entry
+        );
+        window.dispatchEvent(new CustomEvent("rose-jade-historic-presentation", {
+          detail: presentation,
+        }));
+        log("info", "Classic history projected into native selector", {
+          historicResourceSkinId: resourceId,
+          visualRawSkinId: selection?.entry?.rawSkinId || 0,
+          variantRawSkinId: selection?.rawSkinId || 0,
+        });
+      })
+    ) {
+      return;
+    }
+    historicRestoreInProgress = false;
+  }
+
+  function applyHistoricVisualSelection() {
+    if (!active || !pendingHistoricResourceSkinId || !catalog.length) return;
+    if (!isModeDefaultResourceSkinId(pendingHistoricResourceSkinId)) {
+      const selection = catalogSelectionForResourceSkinId(pendingHistoricResourceSkinId);
+      if (!selection) return;
+      if (pendingHistoricResourceSkinId === lastAppliedHistoricResourceSkinId) {
+        visualRollbackProtectionActive = true;
+        projectedVariantRawSkinId = selection.rawSkinId;
+        desiredVisualSelection = selection.entry;
+        projectedCatalogIndex = catalog.indexOf(selection.entry);
+        setVisualProtection(selection.entry, "historic-catalog-refresh", true);
+        adaptNativeController();
+        return;
+      }
+      if (historicRestoreInProgress) return;
+      historicRestoreInProgress = true;
+      const resourceId = pendingHistoricResourceSkinId;
+      const generation = ++historicRestoreGeneration;
+      setHistoricPresentationReady(false, "historic-restore");
+      finishHistoricVisualSelection(resourceId, generation);
+      return;
+    }
+    cancelHistoricVisualRestore("historic-default", true);
+    pendingHistoricResourceSkinId = 0;
+    lastAppliedHistoricResourceSkinId = 0;
+  }
+
+  function handleHistoricState(data) {
+    if (randomModeActive) {
+      cancelHistoricVisualRestore("random-mode", true);
+      pendingHistoricResourceSkinId = 0;
+      lastAppliedHistoricResourceSkinId = 0;
+      return;
+    }
+    pendingHistoricResourceSkinId = data?.active === true
+      ? numeric(data.historicSkinId) || 0
+      : 0;
+    if (!pendingHistoricResourceSkinId) {
+      cancelHistoricVisualRestore("historic-disabled", true);
+      cancelNativeProjection();
+      lastAppliedHistoricResourceSkinId = 0;
+    }
+    if (pendingHistoricResourceSkinId) applyHistoricVisualSelection();
+  }
+
+  function handleRandomModeState(data) {
+    const wasActive = randomModeActive;
+    randomModeActive = data?.active === true;
+    if (!randomModeActive) {
+      if (wasActive && appliedRandomResourceSkinId) cancelNativeProjection();
+      pendingRandomResourceSkinId = 0;
+      appliedRandomResourceSkinId = 0;
+      randomProjectionSuppressed = false;
+      return;
+    }
+    cancelHistoricVisualRestore("random-mode", true);
+    pendingHistoricResourceSkinId = 0;
+    lastAppliedHistoricResourceSkinId = 0;
+    const nextRandomResourceSkinId = numeric(data?.randomSkinId) || 0;
+    const resultChanged = nextRandomResourceSkinId !== pendingRandomResourceSkinId;
+    if (resultChanged) appliedRandomResourceSkinId = 0;
+    pendingRandomResourceSkinId = nextRandomResourceSkinId;
+    if (!wasActive || resultChanged) {
+      cancelNativeProjection();
+      clearUserNavigation();
+    }
+    if (!wasActive) randomProjectionSuppressed = false;
+    applyPendingRandomVisualSelection();
+  }
+
+  function randomProjectionReady() {
+    return phase === "FINALIZATION" || phase === "GameStart" ||
+      document.querySelector(".champion-select.timer-less-than-11-seconds") !== null;
+  }
+
+  function applyPendingRandomVisualSelection() {
+    if (
+      !active || !randomModeActive || randomProjectionSuppressed ||
+      !pendingRandomResourceSkinId || !randomProjectionReady() || !catalog.length
+    ) {
+      return;
+    }
+    const selection = catalogSelectionForResourceSkinId(pendingRandomResourceSkinId);
+    if (!selection) return;
+    if (pendingRandomResourceSkinId === appliedRandomResourceSkinId) {
+      projectedVariantRawSkinId = selection.rawSkinId;
+      visualRollbackProtectionActive = !selection.entry.isBase;
+      desiredVisualSelection = selection.entry;
+      projectedCatalogIndex = catalog.indexOf(selection.entry);
+      setVisualProtection(selection.entry, "random-catalog-refresh", true);
+      adaptNativeController();
+      return;
+    }
+    if (!projectResourceSelection(pendingRandomResourceSkinId, "random-state")) return;
+    appliedRandomResourceSkinId = pendingRandomResourceSkinId;
+    log("info", "Classic random result projected during finalization window", {
+      rawSkinId: selection.rawSkinId,
+      resourceSkinId: resourceSkinId(selection.rawSkinId),
+    });
   }
 
   function findNativePane() {
@@ -922,7 +1121,19 @@
     const targetId = numeric(targetRawSkinId) || 0;
     const targetEntry = targetId ? catalogEntryForRawSkinId(targetId) : null;
     const hadVisualProtection = visualRollbackProtectionActive;
+    if (
+      historicRestoreInProgress || pendingHistoricResourceSkinId ||
+      lastAppliedHistoricResourceSkinId
+    ) {
+      cancelHistoricVisualRestore("user-navigation", true);
+      pendingHistoricResourceSkinId = 0;
+      lastAppliedHistoricResourceSkinId = 0;
+    }
     cancelNativeProjection();
+    if (randomModeActive) {
+      appliedRandomResourceSkinId = 0;
+      randomProjectionSuppressed = true;
+    }
     if (targetEntry) {
       visualRollbackProtectionActive = !targetEntry.available && !targetEntry.isBase;
       desiredVisualSelection = targetEntry;
@@ -952,6 +1163,11 @@
 
   function publishNativeCardSelection(entry, reason) {
     if (!entry) return;
+    if (pendingHistoricResourceSkinId || lastAppliedHistoricResourceSkinId) {
+      cancelHistoricVisualRestore("explicit-selection", true);
+      pendingHistoricResourceSkinId = 0;
+      lastAppliedHistoricResourceSkinId = 0;
+    }
     projectedVariantRawSkinId = 0;
     visualRollbackProtectionActive = !entry.available && !entry.isBase;
     setVisualProtection(entry, reason, visualRollbackProtectionActive);
@@ -1324,13 +1540,10 @@
       } catch (error) {
         log("debug", "Waiting for classic default skin catalog", String(error));
       }
-      modeDefaultRawSkinId = resolveModeCarrierRawSkinId(rawEntries, candidates);
-      if (!modeDefaultRawSkinId) return;
-      log("info", "Classic champion carrier resolved", {
-        rawChampionId,
-        carrierRawSkinId: modeDefaultRawSkinId,
-        initialSelectedRawSkinId: selectedRawSkinId,
-      });
+      const candidateRawSkinId = resolveModeCarrierRawSkinId(rawEntries, candidates);
+      if (!candidateRawSkinId) return;
+      requestCarrierPolicy(candidateRawSkinId);
+      return;
     }
     const nextCatalog = (Array.isArray(modeSkins) ? modeSkins : [])
       .map(normalizeCatalogEntry)
@@ -1350,6 +1563,8 @@
     }
     catalog = nextCatalog;
     syncModeCatalog(force ? "forced-refresh" : "refresh");
+    applyHistoricVisualSelection();
+    applyPendingRandomVisualSelection();
   }
 
   async function refreshSelection(forceCatalog = false) {
@@ -1367,8 +1582,12 @@
       selectedRawSkinId = nextRawSkin;
       selectedResourceSkinId = resourceSkinId(nextRawSkin);
       if (championChanged) {
+        cancelHistoricVisualRestore("champion-change", true);
         visualRollbackProtectionActive = false;
         projectedCatalogIndex = -1;
+        lastAppliedHistoricResourceSkinId = 0;
+        appliedRandomResourceSkinId = 0;
+        randomProjectionSuppressed = false;
         projectedVariantRawSkinId = 0;
         setVisualProtection(null, "champion-change");
         desiredVisualSelection = null;
@@ -1379,6 +1598,8 @@
         catalog = [];
         catalogLoadedAt = 0;
         modeDefaultRawSkinId = 0;
+        proposedDefaultRawSkinId = 0;
+        carrierQueryKey = "";
         lastCatalogSyncKey = "";
       }
       await loadModeCatalog(forceCatalog || championChanged || !catalog.length);
@@ -1450,6 +1671,7 @@
     active = true;
     requestGeneration += 1;
     selectionGeneration = 0;
+    lastAppliedHistoricResourceSkinId = 0;
     installNativeReadProjection();
     installNativeWebsocketProjection();
     injectStyles();
@@ -1484,13 +1706,22 @@
     selectedRawSkinId = 0;
     selectedResourceSkinId = 0;
     modeDefaultRawSkinId = 0;
+    proposedDefaultRawSkinId = 0;
+    carrierQueryKey = "";
     catalog = [];
     catalogLoadedAt = 0;
     desiredVisualSelection = null;
     projectedCatalogIndex = -1;
     clearUserNavigation();
     visualRollbackProtectionActive = false;
+    pendingHistoricResourceSkinId = 0;
+    lastAppliedHistoricResourceSkinId = 0;
+    cancelHistoricVisualRestore("runtime-stop", true);
     nativeProjectionComplete = null;
+    randomModeActive = false;
+    pendingRandomResourceSkinId = 0;
+    appliedRandomResourceSkinId = 0;
+    randomProjectionSuppressed = false;
     projectedVariantRawSkinId = 0;
     pointerSelectionRawSkinId = 0;
     pointerSelectionUntil = 0;
@@ -1542,6 +1773,7 @@
     mapId = data.mapId ?? mapId;
     queueId = data.queueId ?? queueId;
     reconcileRuntime();
+    applyPendingRandomVisualSelection();
     if (isChampSelectPhase() && !isJadeClassicContext()) syncContextFromLcu();
   }
 
@@ -1570,10 +1802,15 @@
     };
   }
 
-  function dispatchSelectionChange(reason) {
+  function controlHost() {
+    return overlay?.isConnected ? overlay : null;
+  }
+
+  function dispatchSelectionChange(reason, userInitiated = false) {
     window.dispatchEvent(new CustomEvent(SELECTION_CHANGE_EVENT, {
       detail: {
         reason: String(reason || ""),
+        userInitiated: userInitiated === true,
         selection: currentSelection(),
       },
     }));
@@ -1611,9 +1848,12 @@
     bridge = await waitForBridge();
     installNativeWebsocketProjection();
     bridge.subscribe("phase-change", handlePhaseChange);
+    bridge.subscribe("classic-carrier-state", handleCarrierState);
     bridge.subscribe("champion-locked", () => {
       if (active) refreshSelection(true);
     });
+    bridge.subscribe("historic-state", handleHistoricState);
+    bridge.subscribe("random-mode-state", handleRandomModeState);
     bridge.onReady?.(replayBridgeState);
     await syncContextFromLcu();
     log("info", "Plugin initialized");
@@ -1647,6 +1887,7 @@
     catalogAssetSnapshot,
     catalogData: () => catalog.map((entry) => entry.rawSkin),
     projectResourceSelection,
+    controlHost,
   };
   window.__roseClassicWheelApi = classicWheelApi;
   window.__roseJadeWheelDebug = classicWheelApi;

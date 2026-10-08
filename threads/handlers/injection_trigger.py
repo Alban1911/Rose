@@ -18,7 +18,6 @@ from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
 from injection.classic import (
-    cache_classic_default_skin_id,
     is_classic_champion_id,
     is_classic_game_mode,
     is_default_skin_for_state,
@@ -172,15 +171,12 @@ class InjectionTrigger:
             or is_classic_champion_id(champion_id)
         ):
             return int(champion_id) * 1000
-        carrier = cache_classic_default_skin_id(self.lcu, self.state, champion_id)
-        if not carrier:
-            log.warning(
-                "[CLASSIC:CARRIER] Injection aborted: no verified native default for champion %s",
-                champion_id,
-            )
-            return None
+        mode_champion_id = int(to_classic_champion_id(champion_id) or 0)
+        carrier = getattr(
+            self.state, "classic_default_skin_id", None
+        ) or mode_champion_id * 1000
         log.info(
-            "[CLASSIC:CARRIER] Using native default %s (slot %s)",
+            "[CLASSIC:CARRIER] Using confirmed default %s (slot %s)",
             carrier,
             carrier % 1000,
         )

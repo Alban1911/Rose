@@ -241,12 +241,14 @@ class MessageHandler:
 
     def _route(self, payload_type: Optional[str], payload: dict) -> None:
         # Route to appropriate handler
-        if payload_type == "chroma-log":
+        if payload_type in {"chroma-log", "plugin-log"}:
             self._handle_chroma_log(payload)
         elif payload_type == "request-local-preview":
             self._handle_request_local_preview(payload)
         elif payload_type == "request-local-asset":
             self._handle_request_local_asset(payload)
+        elif payload_type == "classic-carrier-query":
+            self._handle_classic_carrier_query(payload)
         elif payload_type == "classic-mode-catalog":
             self._handle_classic_mode_catalog(payload)
         elif payload_type == "classic-skin-selection":
@@ -346,11 +348,22 @@ class MessageHandler:
             self._handle_skin_detection(payload)
     
     def _handle_chroma_log(self, payload: dict) -> None:
-        """Handle chroma log message"""
-        source = payload.get("source", "ChromaWheel")
+        """Forward structured plugin logs at their requested severity."""
+        source = str(payload.get("source") or "UnknownPlugin")[:64]
         event = payload.get("event") or payload.get("message") or "unknown"
-        details = payload.get("data") or payload
-        log.info("[%s] %s | %s", source, event, details)
+        level = str(payload.get("level") or "info").lower()
+        logger = {
+            "debug": log.debug,
+            "warn": log.warning,
+            "warning": log.warning,
+            "error": log.error,
+            "critical": log.critical,
+        }.get(level, log.info)
+        details = payload.get("data")
+        if details is None:
+            logger("[PLUGIN:%s] %s", source, event)
+        else:
+            logger("[PLUGIN:%s] %s | %s", source, event, details)
     
     def _handle_request_local_preview(self, payload: dict) -> None:
         """Handle request for local preview image"""
@@ -416,6 +429,58 @@ class MessageHandler:
             except Exception as e:
                 log.debug(f"[SkinMonitor] Failed to get local asset: {e}")
 
+    def _native_classic_carrier_available(self) -> bool:
+        """Return whether the optional native-carrier change is present."""
+        fields = getattr(type(self.shared_state), "__dataclass_fields__", {})
+        return "classic_default_skin_id" in fields
+
+    def _handle_classic_carrier_query(self, payload: dict) -> None:
+        if (
+            payload.get("schemaVersion") != 1
+            or not is_classic_game_mode(self.shared_state.current_game_mode)
+            or str(payload.get("mode") or "JADE").upper() != "JADE"
+        ):
+            return
+        try:
+            champion_id = int(payload.get("championId") or 0)
+            proposed_id = int(
+                to_regular_skin_id(payload.get("proposedDefaultSkinId")) or 0
+            )
+            skin0_id = int(to_regular_skin_id(payload.get("skin0SkinId")) or 0)
+        except (TypeError, ValueError):
+            return
+        locked_champion_id = to_regular_champion_id(
+            self.shared_state.locked_champ_id
+        )
+        if (
+            champion_id <= 0
+            or proposed_id // 1000 != champion_id
+            or skin0_id != champion_id * 1000
+            or (
+                locked_champion_id is not None
+                and champion_id != int(locked_champion_id)
+            )
+        ):
+            return
+
+        native_policy = self._native_classic_carrier_available()
+        default_resource_id = proposed_id if native_policy else skin0_id
+        response = {
+            "type": "classic-carrier-state",
+            "championId": champion_id,
+            "defaultSkinId": default_resource_id,
+            "policy": "native" if native_policy else "skin0",
+            "timestamp": int(time.time() * 1000),
+        }
+        self.broadcaster.broadcast_raw(json.dumps(response))
+        log.info(
+            "[CLASSIC:CARRIER] policy=%s champion=%s proposed=%s selected=%s",
+            response["policy"],
+            champion_id,
+            proposed_id,
+            default_resource_id,
+        )
+
     def _cache_classic_catalog(self, payload: dict) -> bool:
         """Accept a JADE catalog only for the currently locked champion."""
         if (
@@ -472,51 +537,6 @@ class MessageHandler:
             len(self.shared_state.classic_catalog_skin_ids),
             self.shared_state.classic_default_skin_id,
         )
-        try:
-            from utils.core.random_preferences import is_random_enabled_for_champion
-
-            random_enabled = is_random_enabled_for_champion(
-                self.shared_state.classic_champion_id
-            )
-        except (ImportError, TypeError, ValueError):
-            random_enabled = False
-        if random_enabled:
-            from ui.handlers.randomization_handler import RandomizationHandler
-
-            activate = getattr(
-                RandomizationHandler(self.shared_state, self.skin_scraper),
-                "activate_persisted",
-                None,
-            )
-            if callable(activate) and not self.shared_state.random_mode_active:
-                activate()
-            if (
-                self.shared_state.historic_mode_active
-                or self.shared_state.historic_skin_id is not None
-            ):
-                self.shared_state.historic_mode_active = False
-                self.shared_state.historic_skin_id = None
-                self.broadcaster.broadcast_historic_state()
-            self.shared_state.historic_first_detection_done = True
-            return
-
-        try:
-            from utils.core.historic import get_historic_skin_for_champion
-
-            historic_skin_id = get_historic_skin_for_champion(
-                self.shared_state.classic_champion_id, "classic"
-            )
-        except (ImportError, TypeError, ValueError):
-            historic_skin_id = None
-        if (
-            not self.shared_state.historic_first_detection_done
-            and isinstance(historic_skin_id, int)
-            and historic_skin_id in self.shared_state.classic_catalog_skin_ids
-        ):
-            self.shared_state.historic_mode_active = True
-            self.shared_state.historic_skin_id = historic_skin_id
-            self.broadcaster.broadcast_historic_state()
-        self.shared_state.historic_first_detection_done = True
 
     def _handle_classic_skin_selection(self, payload: dict) -> None:
         """Keep the projected skin separate from the server-visible JADE carrier."""
@@ -556,27 +576,10 @@ class MessageHandler:
         self.shared_state.selected_skin_id = skin_id
         self.shared_state.ui_skin_id = skin_id
         self.shared_state.last_hovered_skin_id = skin_id
-        selection_source = str(payload.get("source") or "")
-
-        if payload.get("userInitiated") is True:
-            cancel_random_mode_for_selection(
-                self.shared_state,
-                skin_id,
-                f"Classic carousel selection (skinId={skin_id})",
-            )
-            self.shared_state.historic_mode_active = False
-            self.shared_state.historic_skin_id = None
-            self.shared_state.historic_first_detection_done = True
-            self.broadcaster.broadcast_historic_state()
-            if selection_source != "classic-chroma":
-                self.shared_state.selected_chroma_id = None
 
         lcu = getattr(self.skin_scraper, "lcu", None)
-        if lcu is not None:
-            if not owned:
-                lcu.set_my_selection_skin(self.shared_state.classic_default_skin_id)
-            elif selection_source == "classic-chroma":
-                lcu.set_my_selection_skin(to_classic_skin_id(skin_id))
+        if not owned and lcu is not None:
+            lcu.set_my_selection_skin(self.shared_state.classic_default_skin_id)
 
         skin_name = str(payload.get("skin") or f"skin_{skin_id}").strip()
         self.shared_state.last_hovered_skin_key = skin_name
@@ -586,7 +589,7 @@ class MessageHandler:
         self.broadcaster.broadcast_skin_state(skin_name, skin_id)
         log.info(
             "[CLASSIC:SELECTION] source=%s target=%s owned=%s carrier=%s generation=%s",
-            selection_source or "classic-wheel",
+            str(payload.get("source") or "classic-wheel"),
             skin_id,
             owned,
             self.shared_state.classic_default_skin_id,

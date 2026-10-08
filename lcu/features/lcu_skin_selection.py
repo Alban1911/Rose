@@ -51,7 +51,9 @@ class LCUSkinSelection:
             return False
         resource_skin_id = int(to_regular_skin_id(raw_skin_id) or 0)
         default_skin_id = int(
-            to_regular_skin_id(getattr(state, "classic_default_skin_id", None)) or 0
+            to_regular_skin_id(
+                getattr(state, "classic_default_skin_id", raw_champion_id * 1000)
+            ) or 0
         )
         owned = {
             int(to_regular_skin_id(value) or 0)
