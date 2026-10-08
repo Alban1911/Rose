@@ -69,7 +69,6 @@ class SharedState:
     current_game_mode: Optional[str] = None  # Current game mode (ARAM, CLASSIC, SWIFT_PLAY, etc.)
     current_map_id: Optional[int] = None  # Current map ID (12 = ARAM, 11 = SR)
     current_queue_id: Optional[int] = None  # Current queue ID (2400 = ARAM: Mayhem, etc.)
-    classic_default_skin_id: Optional[int] = None  # Live JADE default carrier (Skin0/Skin301/Skin302)
     classic_champion_id: Optional[int] = None
     classic_catalog_skin_ids: set = field(default_factory=set)
     classic_visual_skin_id: Optional[int] = None

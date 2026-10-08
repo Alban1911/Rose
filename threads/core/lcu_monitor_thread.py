@@ -284,15 +284,12 @@ class LCUMonitorThread(threading.Thread):
         self.state.own_champion_locked = True
         self.state.locks_by_cell = dict(locked_champions)
 
-        from injection.classic import cache_classic_default_skin_id
         self.state.classic_default_skin_id = None
         self.state.classic_champion_id = None
         self.state.classic_catalog_skin_ids.clear()
         self.state.classic_visual_skin_id = None
         self.state.classic_selected_skin_owned = False
         self.state.classic_selection_generation = 0
-        cache_classic_default_skin_id(self.lcu, self.state, locked_champ_id)
-
         self.state.historic_mode_active = False
         self.state.historic_skin_id = None
         self.state.historic_first_detection_done = False

@@ -11,7 +11,6 @@ from typing import Optional
 
 from config import INTERESTING_PHASES
 from injection.classic import (
-    cache_classic_default_skin_id,
     is_classic_champion_id,
     is_classic_game_mode,
     to_regular_champion_id,
@@ -397,22 +396,15 @@ class WebSocketEventHandler:
             )
             return
 
-        if (
-            self.state.classic_champion_id != champion_id
-            or not self.state.classic_default_skin_id
-        ):
-            carrier = cache_classic_default_skin_id(self.lcu, self.state, raw_champion_id)
-            if carrier is None:
-                log.warning(
-                    "[CLASSIC:LCU] Native carrier unavailable for champion %s",
-                    champion_id,
-                )
-                return
+        carrier = getattr(self.state, "classic_default_skin_id", None)
+        if self.state.classic_champion_id != champion_id or not carrier:
+            carrier = raw_champion_id * 1000
+            self.state.classic_default_skin_id = carrier
             self.state.classic_champion_id = champion_id
 
         selected_skin_id = int(to_regular_skin_id(raw_skin_id) or 0)
         default_skin_id = int(
-            to_regular_skin_id(self.state.classic_default_skin_id) or 0
+            to_regular_skin_id(carrier) or 0
         )
         owned = {
             int(to_regular_skin_id(value) or 0)
@@ -430,9 +422,9 @@ class WebSocketEventHandler:
                 selected_skin_id,
                 projected_skin_id or "none",
                 self.state.classic_selected_skin_owned,
-                self.state.classic_default_skin_id,
+                carrier,
             )
-        if projected_skin_id is not None and raw_skin_id == self.state.classic_default_skin_id:
+        if projected_skin_id is not None and raw_skin_id == carrier:
             log.debug(
                 "[CLASSIC:LCU] Preserving projected target %s on carrier %s",
                 projected_skin_id,
