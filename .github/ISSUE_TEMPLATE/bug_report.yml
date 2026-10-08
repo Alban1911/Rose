@@ -1,0 +1,141 @@
+name: Bug report
+description: Report a reproducible problem with Rose
+title: "[BUG] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Rose. Please search existing issues before reporting a new one.
+
+        For installation help or general questions, use the Rose Discord linked on the issue chooser instead.
+
+  - type: input
+    id: rose-version
+    attributes:
+      label: Rose version
+      description: You can find this in the tray menu or the installed app.
+      placeholder: "1.4.7"
+    validations:
+      required: true
+
+  - type: input
+    id: league-patch
+    attributes:
+      label: League patch
+      placeholder: "16.20"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: League client
+      options:
+        - Riot client
+        - WeGame / Tencent client
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: region
+    attributes:
+      label: Region
+      description: The League region where the problem occurs.
+      placeholder: "EUW, NA, BR, KR, CN, etc."
+
+  - type: dropdown
+    id: game-mode
+    attributes:
+      label: Game mode
+      options:
+        - Summoner's Rift
+        - Swiftplay
+        - Quickplay
+        - Rift Classic
+        - ARAM
+        - Practice Tool
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: skin-type
+    attributes:
+      label: Skin or mod type
+      options:
+        - Official skin or chroma
+        - Custom skin
+        - Map, font, announcer, or other custom mod
+        - No skin or mod involved
+    validations:
+      required: true
+
+  - type: dropdown
+    id: party-mode
+    attributes:
+      label: Party Mode
+      options:
+        - Disabled
+        - Enabled
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Tell us exactly what you did, from starting Rose to seeing the problem.
+      placeholder: |
+        1. Start Rose...
+        2. Open...
+        3. Select...
+        4. See the error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: Describe what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: Describe what happened instead, including the exact error message.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Troubleshooting details and logs
+      description: |
+        Paste the message shown in Rose's Troubleshooting panel and attach the latest file from Open Logs Folder.
+        Remove party tokens, account identifiers, and personal paths before posting.
+      placeholder: Drag and drop the latest log file here, or paste the relevant lines.
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add screenshots, videos, affected champion/skin names, or anything else that may help.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and did not find a duplicate.
+          required: true
+        - label: I reproduced the problem on the latest available Rose version.
+          required: true
+        - label: I removed party tokens, account identifiers, and other private information from logs and screenshots.
+          required: true
