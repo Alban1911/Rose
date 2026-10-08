@@ -1,7 +1,7 @@
 /**
  * @name ROSE-CustomSlots
  * @author Rose Team
- * @description Shows each installed custom skin mod as its own slot above the skin carousel
+ * @description Shows the custom skin mods of the hovered skin as slots above the skin carousel
  */
 (function createCustomSlots() {
   const LOG_PREFIX = "[ROSE-CustomSlots]";
@@ -9,10 +9,6 @@
   const STYLE_ID = "rose-custom-slots-style";
   const EVENT_SKIN_STATE = "lu-skin-monitor-state";
   const CAROUSEL_SELECTOR = ".skin-selection-carousel-container, .skin-selection-carousel";
-  const CENTER_OFFSET = 2;
-  const NAV_STEP_DELAY_MS = 220;
-  const NAV_MAX_STEPS = 60;
-  const SKIN_STATE_TIMEOUT_MS = 4000;
 
   // Rose's menu language (ROSE-I18n); English until it has loaded
   const t = (text) => (window.RoseI18n ? window.RoseI18n.t(text) : text);
@@ -26,7 +22,6 @@
   let modsChampionId = null;
   let lastModsRequestAt = 0;
   let selectedModId = null;
-  let busyModId = null;
   let selectionRequestCounter = 0;
   let activeModState = null;
   const championAliases = new Map();
@@ -45,8 +40,6 @@
       check();
     });
   }
-
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   function normalizeModId(mod) {
     return String(mod?.relativePath || mod?.modName || "").replace(/\\/g, "/");
@@ -67,109 +60,11 @@
     return Number.isFinite(skinId) && skinId > 0 ? skinId : null;
   }
 
-  // The skin a mod's slot moves the carousel to: the current skin when the mod
-  // targets it, otherwise its first target, otherwise the champion's base skin.
-  function targetSkinIdForMod(mod, championId) {
-    const targets = (Array.isArray(mod?.targetSkinIds) ? mod.targetSkinIds : [])
-      .map(Number)
-      .filter((id) => Number.isFinite(id) && id > 0 && Math.floor(id / 1000) === championId);
-    const current = currentSkinId();
-    if (current && targets.includes(current)) return current;
-    if (targets.length) return targets[0];
-    return championId * 1000;
-  }
-
-  // ---------------------------------------------------------------- carousel
-
-  function parseOffset(skinItem) {
-    const cls = Array.from(skinItem.classList).find((c) => c.startsWith("skin-carousel-offset"));
-    const match = cls && cls.match(/skin-carousel-offset-(-?\d+)/);
-    return match ? Number.parseInt(match[1], 10) : null;
-  }
-
-  function carouselSkinId(skinItem) {
-    const dataId =
-      skinItem.getAttribute("data-skin-id") ||
-      skinItem.querySelector("[data-skin-id]")?.getAttribute("data-skin-id");
-    if (dataId && Number(dataId) > 0) return Number(dataId);
-
-    const thumbnail = skinItem.querySelector(".skin-selection-thumbnail");
-    if (thumbnail) {
-      const bg = thumbnail.style.backgroundImage || window.getComputedStyle(thumbnail).backgroundImage;
-      const match = bg && bg.match(/champion-(?:splashes|tiles)\/(\d+)\/(\d+)\.jpg/);
-      if (match) return Number(match[2]);
-    }
-    return null;
-  }
-
-  function carouselItems() {
-    return Array.from(document.querySelectorAll(".skin-selection-carousel .skin-selection-item"))
-      .map((element) => ({ element, offset: parseOffset(element), skinId: carouselSkinId(element) }))
-      .filter((item) => item.offset !== null);
-  }
-
-  function clickElement(element) {
-    const target = element.querySelector(".skin-selection-thumbnail") || element;
-    for (const type of ["mousedown", "mouseup", "click"]) {
-      target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-    }
-  }
-
-  // Step the carousel one visible item at a time until the target skin sits
-  // in the center slot. Returns false when the target cannot be reached.
-  async function centerCarouselOn(skinId) {
-    for (let step = 0; step < NAV_MAX_STEPS; step += 1) {
-      const items = carouselItems();
-      if (!items.length) return false;
-
-      const center = items.find((item) => item.offset === CENTER_OFFSET);
-      if (center && center.skinId === skinId) return true;
-
-      const target = items.find((item) => item.skinId === skinId);
-      if (!target) return false;
-
-      // Click the visible item closest to the target (offsets 0..4 are visible)
-      const clickOffset = Math.max(0, Math.min(4, target.offset));
-      const clickItem = items.find((item) => item.offset === clickOffset);
-      if (!clickItem || clickOffset === CENTER_OFFSET) return false;
-
-      clickElement(clickItem.element);
-      await sleep(NAV_STEP_DELAY_MS);
-    }
-    return false;
-  }
-
-  async function selectOwnedSkinViaApi(skinId) {
-    try {
-      const response = await fetch("/lol-champ-select/v1/session/my-selection", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedSkinId: skinId }),
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  function waitForSkinState(skinId, timeoutMs) {
-    if (currentSkinId() === skinId) return Promise.resolve(true);
-    return new Promise((resolve) => {
-      const onState = (event) => {
-        if (Number(event?.detail?.skinId) !== skinId) return;
-        cleanup();
-        resolve(true);
-      };
-      const timer = setTimeout(() => {
-        cleanup();
-        resolve(false);
-      }, timeoutMs);
-      const cleanup = () => {
-        clearTimeout(timer);
-        window.removeEventListener(EVENT_SKIN_STATE, onState);
-      };
-      window.addEventListener(EVENT_SKIN_STATE, onState);
-    });
+  // Rose always reports at least one target per mod (the base skin by default)
+  function modsForCurrentSkin() {
+    const skinId = currentSkinId();
+    if (!skinId) return [];
+    return mods.filter((mod) => (mod.targetSkinIds || []).map(Number).includes(skinId));
   }
 
   // --------------------------------------------------------------- bridge I/O
@@ -219,35 +114,11 @@
     });
   }
 
-  async function activateMod(mod) {
-    const championId = currentChampionId();
-    if (!championId || busyModId) return;
-
-    const modId = normalizeModId(mod);
-    if (selectedModId === modId) {
-      sendDeselect();
-      return;
-    }
-
-    busyModId = modId;
-    render();
-    try {
-      const skinId = targetSkinIdForMod(mod, championId);
-      let centered = await centerCarouselOn(skinId);
-      if (!centered) centered = await selectOwnedSkinViaApi(skinId);
-      if (!centered) {
-        console.warn(`${LOG_PREFIX} Could not move the carousel to skin ${skinId}`);
-        return;
-      }
-      if (!(await waitForSkinState(skinId, SKIN_STATE_TIMEOUT_MS))) {
-        console.warn(`${LOG_PREFIX} Rose did not report skin ${skinId} in time`);
-        return;
-      }
-      sendSelect(mod, skinId);
-    } finally {
-      busyModId = null;
-      render();
-    }
+  function activateMod(mod) {
+    const skinId = currentSkinId();
+    if (!skinId) return;
+    if (selectedModId === normalizeModId(mod)) sendDeselect();
+    else sendSelect(mod, skinId);
   }
 
   // ---------------------------------------------------------------------- UI
@@ -280,7 +151,6 @@
   border-image: linear-gradient(0deg,#c8aa6e 0%,#c89b3c 44%,#a07b32 59%,#785a28 100%) 1;
 }
 #${STRIP_ID} .rcs-slot.selected { box-shadow: 0 0 8px 1px rgba(200,155,60,.6); }
-#${STRIP_ID} .rcs-slot.busy { opacity: .55; cursor: progress; }
 #${STRIP_ID} .rcs-name {
   position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 2px;
   background: rgba(1,10,19,.78); color: #f0e6d2; font-size: 9px; line-height: 12px;
@@ -310,9 +180,8 @@
     return strip;
   }
 
-  function slotThumbnail(mod, championId) {
+  function slotThumbnail(mod, championId, skinId) {
     if (mod.thumbnailUrl) return String(mod.thumbnailUrl).replace("localhost", "127.0.0.1");
-    const skinId = targetSkinIdForMod(mod, championId);
     return `/lol-game-data/assets/v1/champion-tiles/${championId}/${skinId}.jpg`;
   }
 
@@ -320,13 +189,13 @@
     applyPreview();
     const strip = ensureStrip();
     const championId = currentChampionId();
+    const skinId = currentSkinId();
+    const skinMods = modsChampionId === championId ? modsForCurrentSkin() : [];
     const carousel = document.querySelector(CAROUSEL_SELECTOR);
     const visible =
       currentPhase !== "InProgress" &&
       championLocked &&
-      championId &&
-      modsChampionId === championId &&
-      mods.length > 0 &&
+      skinMods.length > 0 &&
       carousel &&
       carousel.getBoundingClientRect().width > 0;
 
@@ -337,18 +206,17 @@
 
     strip.querySelector(".rcs-title").textContent = t("Custom Skins");
     const list = strip.querySelector(".rcs-list");
-    const signature = JSON.stringify([championId, selectedModId, busyModId, mods.map(normalizeModId)]);
+    const signature = JSON.stringify([championId, skinId, selectedModId, skinMods.map(normalizeModId)]);
     if (list.dataset.signature !== signature) {
       list.dataset.signature = signature;
       list.replaceChildren(
-        ...mods.map((mod) => {
+        ...skinMods.map((mod) => {
           const modId = normalizeModId(mod);
           const slot = document.createElement("div");
           slot.className = "rcs-slot";
           if (modId === selectedModId) slot.classList.add("selected");
-          if (modId === busyModId) slot.classList.add("busy");
           slot.title = visibleModName(mod);
-          slot.style.backgroundImage = `url('${slotThumbnail(mod, championId)}')`;
+          slot.style.backgroundImage = `url('${slotThumbnail(mod, championId, skinId)}')`;
 
           const badge = document.createElement("div");
           badge.className = "rcs-badge";
@@ -384,7 +252,6 @@
     lastModsRequestAt = 0;
     selectedModId = null;
     activeModState = null;
-    busyModId = null;
   }
 
   function handleModsResponse(data) {
@@ -475,15 +342,23 @@
     return match ? match[1] : "";
   }
 
+  function shownImage(element) {
+    return element.dataset.roseCsKind === "bg" ? backgroundUrl(element) : element.getAttribute("src");
+  }
+
+  // Put the client's image back, unless the client has already drawn a new
+  // one over the preview (for example after moving to another skin)
   function restorePreviewElements() {
     document.querySelectorAll("[data-rose-cs-original]").forEach((element) => {
-      const original = element.dataset.roseCsOriginal;
-      const kind = element.dataset.roseCsKind;
-      if (kind === "bg") element.style.backgroundImage = cssUrl(original);
-      else if (kind === "video") element.style.removeProperty("visibility");
-      else element.setAttribute("src", original);
+      const { roseCsOriginal: original, roseCsKind: kind, roseCsPreview: preview } = element.dataset;
+      if (kind === "video") element.style.removeProperty("visibility");
+      else if (shownImage(element) === preview) {
+        if (kind === "bg") element.style.backgroundImage = cssUrl(original);
+        else element.setAttribute("src", original);
+      }
       delete element.dataset.roseCsOriginal;
       delete element.dataset.roseCsKind;
+      delete element.dataset.roseCsPreview;
     });
   }
 
@@ -502,11 +377,10 @@
     // An element we swapped that the client has since given a new image is
     // treated as fresh by the scan below
     document.querySelectorAll("[data-rose-cs-original]").forEach((element) => {
-      const kind = element.dataset.roseCsKind;
-      const current = kind === "bg" ? backgroundUrl(element) : element.getAttribute("src");
-      if (kind !== "video" && current !== preview.url) {
+      if (element.dataset.roseCsKind !== "video" && shownImage(element) !== preview.url) {
         delete element.dataset.roseCsOriginal;
         delete element.dataset.roseCsKind;
+        delete element.dataset.roseCsPreview;
       }
     });
 
@@ -528,6 +402,7 @@
       if (src && pattern.test(src)) {
         element.dataset.roseCsOriginal = src;
         element.dataset.roseCsKind = "src";
+        element.dataset.roseCsPreview = preview.url;
         element.setAttribute("src", preview.url);
         return;
       }
@@ -536,6 +411,7 @@
       if (bg && pattern.test(bg)) {
         element.dataset.roseCsOriginal = bg;
         element.dataset.roseCsKind = "bg";
+        element.dataset.roseCsPreview = preview.url;
         element.style.backgroundImage = cssUrl(preview.url);
       }
     });
