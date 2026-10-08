@@ -537,6 +537,61 @@ class MessageHandler:
             len(self.shared_state.classic_catalog_skin_ids),
             self.shared_state.classic_default_skin_id,
         )
+        try:
+            from utils.core.random_preferences import is_random_enabled_for_champion
+
+            random_enabled = is_random_enabled_for_champion(
+                self.shared_state.classic_champion_id
+            )
+        except (ImportError, TypeError, ValueError):
+            random_enabled = False
+        if random_enabled:
+            from ui.handlers.randomization_handler import (
+                RandomizationHandler,
+                clear_random_runtime,
+            )
+
+            random_target = int(
+                to_regular_skin_id(self.shared_state.random_skin_id) or 0
+            )
+            random_active = bool(
+                self.shared_state.random_mode_active
+                and random_target in self.shared_state.classic_catalog_skin_ids
+            )
+            if self.shared_state.random_mode_active and not random_active:
+                clear_random_runtime(self.shared_state)
+            if not random_active:
+                random_active = RandomizationHandler(
+                    self.shared_state, self.skin_scraper
+                ).activate_persisted()
+            if random_active:
+                if (
+                    self.shared_state.historic_mode_active
+                    or self.shared_state.historic_skin_id is not None
+                ):
+                    self.shared_state.historic_mode_active = False
+                    self.shared_state.historic_skin_id = None
+                    self.broadcaster.broadcast_historic_state()
+                self.shared_state.historic_first_detection_done = True
+                return
+
+        try:
+            from utils.core.historic import get_historic_skin_for_champion
+
+            historic_skin_id = get_historic_skin_for_champion(
+                self.shared_state.classic_champion_id, "classic"
+            )
+        except (ImportError, TypeError, ValueError):
+            historic_skin_id = None
+        if (
+            not self.shared_state.historic_first_detection_done
+            and isinstance(historic_skin_id, int)
+            and historic_skin_id in self.shared_state.classic_catalog_skin_ids
+        ):
+            self.shared_state.historic_mode_active = True
+            self.shared_state.historic_skin_id = historic_skin_id
+            self.broadcaster.broadcast_historic_state()
+        self.shared_state.historic_first_detection_done = True
 
     def _handle_classic_skin_selection(self, payload: dict) -> None:
         """Keep the projected skin separate from the server-visible JADE carrier."""

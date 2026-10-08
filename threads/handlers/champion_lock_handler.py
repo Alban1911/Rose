@@ -16,6 +16,7 @@ from injection.classic import (
 )
 from state import SharedState
 from ui.chroma.selector import get_chroma_selector
+from ui.handlers.randomization_handler import clear_random_runtime
 from utils.core.logging import get_logger, log_status, log_event
 
 log = get_logger()
@@ -52,6 +53,17 @@ class ChampionLockHandler:
         self.state.classic_visual_skin_id = None
         self.state.classic_selected_skin_owned = False
         self.state.classic_selection_generation = 0
+        if not (
+            is_classic_game_mode(getattr(self.state, "current_game_mode", None))
+            or is_classic_champion_id(champion_id)
+        ):
+            return
+        if (
+            self.state.random_mode_active
+            or self.state.random_skin_id is not None
+            or self.state.random_skin_name is not None
+        ):
+            clear_random_runtime(self.state)
     
     def handle_session_locks(self, sess: dict):
         """Handle champion locks from session data"""
