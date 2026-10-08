@@ -31,8 +31,8 @@ def _classic_champion_id(state: SharedState) -> Optional[int]:
     return int(value) if value else None
 
 
-def _clear_random_mode(state: SharedState) -> None:
-    """Reset random mode state and notify the JavaScript dice button."""
+def clear_random_runtime(state: SharedState) -> None:
+    """Reset the active result without changing its per-champion preference."""
     state.random_skin_name = None
     state.random_skin_id = None
     state.random_mode_active = False
@@ -55,7 +55,7 @@ def cancel_random_mode_for_selection(state: SharedState, selected_skin_id: Optio
 
     if champion_id:
         set_random_enabled_for_champion(champion_id, False)
-    _clear_random_mode(state)
+    clear_random_runtime(state)
     log.info(f"[RANDOM] Random mode DISABLED due to {reason}")
     return True
 
@@ -250,7 +250,7 @@ class RandomizationHandler:
         champion_id = _classic_champion_id(self.state)
         if champion_id:
             set_random_enabled_for_champion(champion_id, False)
-        _clear_random_mode(self.state)
+        clear_random_runtime(self.state)
         
         # Clear randomization flags
         self._randomization_in_progress = False
