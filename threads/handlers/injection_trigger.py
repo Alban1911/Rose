@@ -21,6 +21,11 @@ from utils.core.utilities import is_default_skin
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 from injection.game.game_monitor import make_game_ended_callback
 from injection.loadingname.loading_name import build as build_loading_name
+from injection.classic_carrier import (
+    cached_classic_carrier_for_champion,
+    carrier_skin_id_for_force,
+    classic_carrier_needs_refresh,
+)
 
 log = get_logger()
 
@@ -931,8 +936,18 @@ class InjectionTrigger:
                 except Exception as e:
                     log.debug(f"[INJECT] Failed to read actual LCU skin ID: {e}")
                 
-                # Only force base skin if current selection is not already base skin
-                if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
+                # A generated Classic Skin0 can match the current LCU value while
+                # still being the wrong native carrier. Resolve it once before
+                # treating that equality as final.
+                expected_carrier = (
+                    cached_classic_carrier_for_champion(self.state, champ_id)
+                    or base_skin_id
+                )
+                if (
+                    classic_carrier_needs_refresh(self.state, champ_id)
+                    or actual_lcu_skin_id is None
+                    or actual_lcu_skin_id != expected_carrier
+                ):
                     self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
@@ -1101,6 +1116,17 @@ class InjectionTrigger:
 
         # Temporarily skip base skin handling in client
         self.state.ui_skin_thread._broadcast_skip_base_skin()
+
+        requested_skin_id = base_skin_id
+        base_skin_id = carrier_skin_id_for_force(
+            self.lcu, self.state, requested_skin_id
+        )
+        if base_skin_id != requested_skin_id:
+            log.info(
+                "[CLASSIC:CARRIER] Replaced requested carrier %s with %s",
+                requested_skin_id,
+                base_skin_id,
+            )
 
         # Hide chroma border/wheel immediately
         try:
@@ -1705,4 +1731,3 @@ class InjectionTrigger:
             log.error(f"[INJECT] Error injecting custom mod: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
-
