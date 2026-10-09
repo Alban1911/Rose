@@ -21,6 +21,7 @@ from injection.classic import (
     is_classic_champion_id,
     is_classic_game_mode,
     is_default_skin_for_state,
+    to_classic_champion_id,
     to_classic_skin_id,
     to_regular_champion_id,
     to_regular_skin_id,
