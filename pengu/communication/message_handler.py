@@ -235,7 +235,7 @@ class MessageHandler:
 
     def _route(self, payload_type: Optional[str], payload: dict) -> None:
         # Route to appropriate handler
-        if payload_type == "chroma-log":
+        if payload_type in {"chroma-log", "plugin-log"}:
             self._handle_chroma_log(payload)
         elif payload_type == "request-local-preview":
             self._handle_request_local_preview(payload)
@@ -338,11 +338,22 @@ class MessageHandler:
             self._handle_skin_detection(payload)
     
     def _handle_chroma_log(self, payload: dict) -> None:
-        """Handle chroma log message"""
-        source = payload.get("source", "ChromaWheel")
+        """Forward structured plugin logs at their requested severity."""
+        source = str(payload.get("source") or "UnknownPlugin")[:64]
         event = payload.get("event") or payload.get("message") or "unknown"
-        details = payload.get("data") or payload
-        log.info("[%s] %s | %s", source, event, details)
+        level = str(payload.get("level") or "info").lower()
+        logger = {
+            "debug": log.debug,
+            "warn": log.warning,
+            "warning": log.warning,
+            "error": log.error,
+            "critical": log.critical,
+        }.get(level, log.info)
+        details = payload.get("data")
+        if details is None:
+            logger("[PLUGIN:%s] %s", source, event)
+        else:
+            logger("[PLUGIN:%s] %s | %s", source, event, details)
     
     def _handle_request_local_preview(self, payload: dict) -> None:
         """Handle request for local preview image"""
