@@ -10,6 +10,10 @@ import time
 from typing import Optional
 
 from lcu import LCU, compute_locked
+from injection.classic import (
+    is_classic_champion_id,
+    is_classic_game_mode,
+)
 from state import SharedState
 from ui.chroma.selector import get_chroma_selector
 from utils.core.logging import get_logger, log_status, log_event
@@ -40,6 +44,14 @@ class ChampionLockHandler:
         self.injection_manager = injection_manager
         self.skin_scraper = skin_scraper
         self.last_locked_champion_id: Optional[int] = None
+
+    def _reset_classic_selection(self, champion_id: int) -> None:
+        self.state.classic_default_skin_id = None
+        self.state.classic_champion_id = None
+        self.state.classic_catalog_skin_ids.clear()
+        self.state.classic_visual_skin_id = None
+        self.state.classic_selected_skin_owned = False
+        self.state.classic_selection_generation = 0
     
     def handle_session_locks(self, sess: dict):
         """Handle champion locks from session data"""
@@ -140,6 +152,7 @@ class ChampionLockHandler:
         self.state.locked_champ_id = new_champ_id
         self.state.locked_champ_timestamp = time.time()
         self.state.own_champion_locked = True
+        self._reset_classic_selection(new_champ_id)
         
         # Reset HistoricMode state
         try:
@@ -218,6 +231,8 @@ class ChampionLockHandler:
             log.info(f"   Champion: {champion_label}")
             log.info(f"   ID: {champion_id}")
             log.info(separator)
+
+            self._reset_classic_selection(champion_id)
             
             # Clear cache
             if self.state.ui_skin_thread:
@@ -268,4 +283,3 @@ class ChampionLockHandler:
                     self.state.ui_skin_thread._broadcast_champion_locked(True)
             except Exception as e:
                 log.debug(f"[lock:champ] Failed to broadcast champion lock state: {e}")
-
