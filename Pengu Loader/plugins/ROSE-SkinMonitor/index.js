@@ -187,6 +187,7 @@ let retryDelay = RETRY_BASE_MS;
 // --- Bridge subscription infrastructure ---
 const _subscribers = new Map(); // type -> Set<callback>
 const _readyCallbacks = new Set();
+const _disconnectCallbacks = new Set();
 
 function subscribe(type, cb) {
   if (!_subscribers.has(type)) _subscribers.set(type, new Set());
@@ -201,6 +202,11 @@ function unsubscribe(type, cb) {
 function onReady(cb) {
   _readyCallbacks.add(cb);
   if (bridgeReady) cb();
+}
+
+// Called when an open connection to Rose closes (not on failed reconnect attempts)
+function onDisconnect(cb) {
+  _disconnectCallbacks.add(cb);
 }
 
 function _notifySubscribers(data) {
@@ -218,6 +224,14 @@ function _notifyReady() {
   for (const cb of _readyCallbacks) {
     try { cb(); } catch (e) {
       console.warn(`${LOG_PREFIX} onReady callback error:`, e);
+    }
+  }
+}
+
+function _notifyDisconnect() {
+  for (const cb of _disconnectCallbacks) {
+    try { cb(); } catch (e) {
+      console.warn(`${LOG_PREFIX} onDisconnect callback error:`, e);
     }
   }
 }
@@ -355,7 +369,9 @@ function setupBridgeSocket() {
     return;
   }
 
+  let opened = false;
   bridgeSocket.addEventListener("open", () => {
+    opened = true;
     bridgeReady = true;
     retryDelay = RETRY_BASE_MS;
     if (retryTimer) {
@@ -449,6 +465,7 @@ function setupBridgeSocket() {
 
   bridgeSocket.addEventListener("close", () => {
     bridgeReady = false;
+    if (opened) _notifyDisconnect();
     scheduleBridgeRetry();
   });
 
@@ -660,6 +677,7 @@ async function start() {
       subscribe,
       unsubscribe,
       onReady,
+      onDisconnect,
       get port() { return BRIDGE_PORT; },
       get ready() { return bridgeReady; },
     });
