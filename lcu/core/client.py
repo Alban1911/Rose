@@ -127,6 +127,10 @@ class LCU:
     def set_my_selection_skin(self, skin_id: int) -> bool:
         """Set the selected skin using my-selection endpoint"""
         return self._skin_selection.set_my_selection_skin(skin_id)
+
+    def bind_shared_state(self, shared_state) -> None:
+        """Bind runtime state used by mode-specific LCU write guards."""
+        self._skin_selection.bind_shared_state(shared_state)
     
     # Game mode properties (delegated to game mode handler)
     @property

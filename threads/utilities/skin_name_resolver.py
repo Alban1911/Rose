@@ -32,6 +32,26 @@ class SkinNameResolver:
         self._no_skin_id_last_payload = None
         self._no_skin_id_suppressed: int = 0
 
+    def _is_chroma(self, skin_id: int) -> bool:
+        cache = getattr(self.skin_scraper, "cache", None)
+        chroma_map = getattr(cache, "chroma_id_map", None) or {}
+        if skin_id in chroma_map:
+            return True
+        from injection.classic import is_classic_game_mode, to_regular_skin_id
+
+        if not is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+            return False
+        canonical_id = int(to_regular_skin_id(skin_id) or 0)
+        selected_chroma_id = getattr(self.state, "selected_chroma_id", None)
+        if selected_chroma_id is not None and canonical_id == int(
+            to_regular_skin_id(selected_chroma_id) or 0
+        ):
+            return True
+        return any(
+            canonical_id == int(to_regular_skin_id(value) or 0)
+            for value in chroma_map
+        )
+
     def _log_no_skin_id_available(self) -> None:
         """Rate-limit 'no skin id' logs to avoid spam in tight polling loops."""
         # Keep payload small but useful for diagnosis.
@@ -113,8 +133,7 @@ class SkinNameResolver:
                 # It's a skin/chroma ID
                 try:
                     hist_id = int(hist_value)
-                    chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
-                    if chroma_id_map and hist_id in chroma_id_map:
+                    if self._is_chroma(hist_id):
                         name = f"chroma_{hist_id}"
                         log.info(f"[HISTORIC] Using historic chroma ID for injection: {hist_id}")
                     else:
@@ -131,7 +150,7 @@ class SkinNameResolver:
         if random_mode_active and random_skin_name:
             random_skin_id = getattr(self.state, 'random_skin_id', None)
             if random_skin_id:
-                if self.skin_scraper and self.skin_scraper.cache and random_skin_id in self.skin_scraper.cache.chroma_id_map:
+                if self._is_chroma(random_skin_id):
                     name = f"chroma_{random_skin_id}"
                     log.info(f"[RANDOM] Injecting random chroma: {random_skin_name} (ID: {random_skin_id})")
                 else:
@@ -141,6 +160,23 @@ class SkinNameResolver:
             else:
                 log.error(f"[RANDOM] No random skin ID available for injection")
                 return None
+
+        # JADE may keep its real default carrier selected while ClassicWheel
+        # protects a different visual/injection target from LCU rollback.
+        classic_visual_skin_id = getattr(
+            self.state, "classic_visual_skin_id", None
+        )
+        if classic_visual_skin_id:
+            from injection.classic import is_classic_game_mode
+
+            if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+                prefix = "chroma" if self._is_chroma(int(classic_visual_skin_id)) else "skin"
+                name = f"{prefix}_{int(classic_visual_skin_id)}"
+                log.info(
+                    "[CLASSIC:INJECT] Using protected Classic target: %s",
+                    name,
+                )
+                return name
         
         # Normal hovered skin
         skin_id = getattr(self.state, 'last_hovered_skin_id', None)
@@ -148,7 +184,7 @@ class SkinNameResolver:
             from utils.core.utilities import is_base_skin
             chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
             
-            if is_base_skin(skin_id, chroma_id_map):
+            if not self._is_chroma(int(skin_id)) and is_base_skin(skin_id, chroma_id_map):
                 name = f"skin_{skin_id}"
                 log.debug(f"[INJECT] Using base skin ID from state: '{name}' (ID: {skin_id})")
             else:
@@ -208,4 +244,3 @@ class SkinNameResolver:
             return final_label
         except Exception:
             return raw or ""
-
