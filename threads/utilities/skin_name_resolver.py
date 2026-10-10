@@ -141,6 +141,22 @@ class SkinNameResolver:
             else:
                 log.error(f"[RANDOM] No random skin ID available for injection")
                 return None
+
+        # JADE may keep its real default carrier selected while ClassicWheel
+        # protects a different visual/injection target from LCU rollback.
+        classic_visual_skin_id = getattr(
+            self.state, "classic_visual_skin_id", None
+        )
+        if classic_visual_skin_id:
+            from injection.classic import is_classic_game_mode
+
+            if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+                name = f"skin_{int(classic_visual_skin_id)}"
+                log.info(
+                    "[CLASSIC:INJECT] Using protected Classic target: %s",
+                    name,
+                )
+                return name
         
         # Normal hovered skin
         skin_id = getattr(self.state, 'last_hovered_skin_id', None)
@@ -208,4 +224,3 @@ class SkinNameResolver:
             return final_label
         except Exception:
             return raw or ""
-
