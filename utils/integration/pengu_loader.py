@@ -277,12 +277,21 @@ def _resolve_pengu_dir() -> Path:
         # IMPORTANT: preserve the runtime `datastore` file.
         # Pengu Loader stores plugin/user settings there via `DataStore.*`. Overwriting it on
         # app update would wipe user preferences (e.g., enabled plugins, selected borders/icons).
-        shutil.copytree(
-            bundled_dir,
-            runtime_dir,
-            dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns("datastore"),
-        )
+        try:
+            shutil.copytree(
+                bundled_dir,
+                runtime_dir,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("datastore"),
+            )
+        except shutil.Error as exc:
+            # copytree copies what it can and lists the rest. A running client
+            # keeps core.dll loaded, so it can't be replaced: the hook runs the
+            # loader already here. Running the bundled copy instead made Rose
+            # take this one for another loader and leave its hook on at exit.
+            if not ((runtime_dir / "Pengu Loader.exe").is_file() and (runtime_dir / "core.dll").is_file()):
+                raise
+            log.warning("Some Pengu Loader files are in use and were not updated: %s", exc)
 
         # If this is a fresh runtime directory (no datastore yet), seed it once from bundled.
         bundled_datastore = bundled_dir / "datastore"
@@ -557,6 +566,11 @@ def deactivate() -> bool:
         if status is not PenguStatus.INACTIVE:
             log.error('Pengu deactivation command succeeded, but status is %s.', status.value)
             return False
+        # --uninstall and --status only know a hook that runs this loader's
+        # core.dll: one left on the bundled copy stayed while both said done
+        core = _registered_pengu_core()
+        if core is not None and _is_bundled_copy(core) and core.parent.resolve() != PENGU_DIR.resolve():
+            return _remove_hook(core)
         return True
 
 
@@ -752,15 +766,17 @@ def cleanup_if_dirty() -> bool:
     return recover_stale_session(adopt_active=True)
 
 
+_IFEO_KEY = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe"
+
+
 def _registered_pengu_core() -> Optional[Path]:
     """Read the configured loader without starting a CLI process."""
     if not _is_windows():
         return None
     try:
         import winreg
-        key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LeagueClientUx.exe"
         # The 64-bit view, where Pengu registers it, whatever Rose's own bitness
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0,
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _IFEO_KEY, 0,
                             winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
             debugger, _ = winreg.QueryValueEx(key, "Debugger")
         match = re.fullmatch(r'rundll32(?:\.exe)?\s+"([^"]+)",\s*#6000\s*', debugger, re.IGNORECASE)
@@ -774,13 +790,36 @@ def _registered_pengu_core() -> Optional[Path]:
     return None
 
 
+def _is_bundled_copy(core: Path) -> bool:
+    """The core.dll bundled with this Rose: it ran that copy when it couldn't
+    update the runtime one (older versions did whenever the client was open)."""
+    bundled = _get_bundled_pengu_dir()
+    return bundled is not None and core.parent.resolve() == bundled.resolve()
+
+
 def _hook_of_another_loader() -> Optional[Path]:
     """The core.dll the registered hook runs when it isn't ours (another Rose,
     a standalone Pengu), or None."""
     core = _registered_pengu_core()
-    if core is None or core.parent.resolve() == PENGU_DIR.resolve():
+    if core is None or core.parent.resolve() == PENGU_DIR.resolve() or _is_bundled_copy(core):
         return None
     return core
+
+
+def _remove_hook(core: Path) -> bool:
+    """Remove the hook's Debugger value, as the loader's --uninstall does."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _IFEO_KEY, 0,
+                            winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as key:
+            winreg.DeleteValue(key, "Debugger")
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        log.error('Could not remove the Pengu hook left on %s: %s', core, exc)
+        return False
+    log.info('Removed the Pengu hook left on the bundled loader: %s', core)
+    return True
 
 
 def _external_pengu_with_rose_plugins() -> Optional[Path]:
