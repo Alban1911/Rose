@@ -161,6 +161,11 @@ class MessageHandler:
         self.mod_storage = mod_storage or ModStorageService()
         self.injection_manager = injection_manager
 
+    def _historic_scope(self) -> str:
+        from utils.core.historic import historic_scope_for_state
+
+        return historic_scope_for_state(self.shared_state)
+
     def _is_valid_local_league_path(self, game_path: str) -> bool:
         """Validate a League install path without touching UNC/network paths."""
         if not isinstance(game_path, str):
@@ -1024,7 +1029,9 @@ class MessageHandler:
         try:
             from utils.core.historic import get_historic_skin_for_champion, is_custom_mod_path, get_custom_mod_path
             if champion_id:
-                historic_value = get_historic_skin_for_champion(champion_id)
+                historic_value = get_historic_skin_for_champion(
+                    champion_id, self._historic_scope()
+                )
                 if historic_value and is_custom_mod_path(historic_value):
                     historic_mod_path = get_custom_mod_path(historic_value)
                     historic_identifier = self._normalize_mod_identifier(historic_mod_path)
@@ -1499,11 +1506,14 @@ class MessageHandler:
                     champ_id = self.shared_state.selected_custom_mod.get("champion_id")
                     rel_path = self.shared_state.selected_custom_mod.get("relative_path")
                     if champ_id and rel_path:
-                        historic_value = get_historic_skin_for_champion(int(champ_id))
+                        scope = self._historic_scope()
+                        historic_value = get_historic_skin_for_champion(
+                            int(champ_id), scope
+                        )
                         if historic_value is not None and is_custom_mod_path(historic_value):
                             historic_path = get_custom_mod_path(historic_value)
                             if historic_path and historic_path.replace("\\", "/") == str(rel_path).replace("\\", "/"):
-                                clear_historic_entry(int(champ_id))
+                                clear_historic_entry(int(champ_id), scope)
                                 log.info("[HISTORIC] Cleared saved custom mod for champion %s", champ_id)
                 except Exception as exc:
                     log.debug("[HISTORIC] Failed to clear saved custom mod on deselect: %s", exc)
@@ -1766,11 +1776,14 @@ class MessageHandler:
             champ_id = self.shared_state.selected_custom_mod.get("champion_id")
             rel_path = self.shared_state.selected_custom_mod.get("relative_path")
             if champ_id and rel_path:
-                historic_value = get_historic_skin_for_champion(int(champ_id))
+                scope = self._historic_scope()
+                historic_value = get_historic_skin_for_champion(
+                    int(champ_id), scope
+                )
                 if historic_value is not None and is_custom_mod_path(historic_value):
                     historic_path = get_custom_mod_path(historic_value)
                     if historic_path and historic_path.replace("\\", "/") == str(rel_path).replace("\\", "/"):
-                        clear_historic_entry(int(champ_id))
+                        clear_historic_entry(int(champ_id), scope)
                         log.info("[Dismiss] Cleared historic entry for champion %s", champ_id)
         except Exception as exc:
             log.debug("[Dismiss] Failed to clear historic entry: %s", exc)
@@ -1810,11 +1823,14 @@ class MessageHandler:
                 get_custom_mod_path,
             )
             if champion_id:
-                historic_value = get_historic_skin_for_champion(int(champion_id))
+                scope = self._historic_scope()
+                historic_value = get_historic_skin_for_champion(
+                    int(champion_id), scope
+                )
                 if historic_value is not None and is_custom_mod_path(historic_value):
                     historic_path = get_custom_mod_path(historic_value)
                     if historic_path and historic_path.replace("\\", "/") == normalized_target:
-                        clear_historic_entry(int(champion_id))
+                        clear_historic_entry(int(champion_id), scope)
                         log.info("[DeleteMod] Cleared historic entry for champion %s", champion_id)
         except Exception as exc:
             log.debug("[DeleteMod] Failed to clear historic entry: %s", exc)
@@ -2102,12 +2118,14 @@ class MessageHandler:
                 or self.shared_state.hovered_champ_id
             )
             historic_value = (
-                get_historic_skin_for_champion(int(champ_id))
+                get_historic_skin_for_champion(
+                    int(champ_id), self._historic_scope()
+                )
                 if champ_id is not None
                 else None
             )
             if champ_id is not None and is_custom_mod_path(historic_value):
-                clear_historic_entry(int(champ_id))
+                clear_historic_entry(int(champ_id), self._historic_scope())
                 log.info("[Dismiss] Cleared custom historic entry for champion %s", champ_id)
         except Exception as exc:
             log.debug("[Dismiss] Failed to clear custom historic entry: %s", exc)
