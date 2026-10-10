@@ -25,8 +25,11 @@ class ConfigTestCase(unittest.TestCase):
     def rewrite(self, text):
         """Change the file with a new modification time, like a settings save"""
         self.path.write_text(text, encoding='utf-8')
-        mtime = time.time() + 10
-        os.utime(self.path, (mtime, mtime))
+        # Each rewrite gets a later time than the last: two in one tick of
+        # Python 3.12's Windows clock (15.6 ms) had the same one, so the second
+        # looked unchanged and was never read
+        self.mtime = getattr(self, 'mtime', time.time()) + 10
+        os.utime(self.path, (self.mtime, self.mtime))
 
 
 class ReloadConsistencyTests(ConfigTestCase):
