@@ -23,6 +23,9 @@ interface SkinInfo {
   champion_name?: string;
 }
 
+// What a connection carries: its member once joined, or that it was dropped
+type Attachment = MemberInfo | { dropped: true } | null;
+
 export class PartyRoom extends DurableObject {
   private static MAX_MEMBERS = 10;
   // Clients ping every 25s; a socket silent for longer is gone (PC asleep,
@@ -85,9 +88,9 @@ export class PartyRoom extends DurableObject {
         let replaced = 0;
         for (const other of this.ctx.getWebSockets()) {
           if (other === ws) continue;
-          const otherInfo = other.deserializeAttachment() as MemberInfo | null;
-          if (otherInfo?.summoner_id === info.summoner_id) {
-            this.closeSocket(other, 'replaced');
+          const otherInfo = other.deserializeAttachment() as Attachment;
+          if (otherInfo && 'summoner_id' in otherInfo && otherInfo.summoner_id === info.summoner_id) {
+            this.dropSocket(other, 'replaced');
             replaced++;
           }
         }
@@ -97,8 +100,8 @@ export class PartyRoom extends DurableObject {
       }
       case 'skin': {
         // Member updated their skin selection
-        const existing = ws.deserializeAttachment() as MemberInfo | null;
-        if (existing) {
+        const existing = ws.deserializeAttachment() as Attachment;
+        if (existing && 'summoner_id' in existing) {
           existing.skin = msg.skin || null;
           ws.serializeAttachment(existing);
           this.broadcastMembers();
@@ -115,9 +118,13 @@ export class PartyRoom extends DurableObject {
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
     const info = ws.deserializeAttachment() as MemberInfo | null;
     this.log('client_close', { summoner_id: info?.summoner_id, code, reason, wasClean });
-    // Clear the member info so getMembers() won't include them, and answer
-    // the close frame so the client isn't left waiting
-    this.closeSocket(ws, 'closed');
+    // Answer the close frame so the client isn't left waiting. A connection
+    // lost without one (1006) has no one left to answer (see dropSocket)
+    if (wasClean) {
+      try {
+        ws.close(1000, 'closed');
+      } catch {}
+    }
     this.broadcastMembers();
   }
 
@@ -130,31 +137,32 @@ export class PartyRoom extends DurableObject {
     this.broadcastMembers();
   }
 
-  private closeSocket(ws: WebSocket, reason: string) {
-    if (reason !== 'closed') {
-      const info = ws.deserializeAttachment() as MemberInfo | null;
-      this.log('server_close', { summoner_id: info?.summoner_id, reason });
-    }
+  // A connection whose other end is gone (it stopped pinging, or its player
+  // joined again) is left out of the room rather than closed: closing it waits
+  // on a client that never answers, which kept rooms awake, and billed, for up
+  // to 15 minutes each time. Cloudflare cuts it once nothing goes through it
+  // for 100s
+  private dropSocket(ws: WebSocket, reason: string) {
+    const info = ws.deserializeAttachment() as Attachment;
+    this.log('drop', { summoner_id: info && 'summoner_id' in info ? info.summoner_id : undefined, reason });
     try {
-      ws.serializeAttachment(null);
-    } catch {}
-    try {
-      ws.close(1000, reason);
+      ws.serializeAttachment({ dropped: true });
     } catch {}
   }
 
-  // Open sockets, closing the ones that stopped pinging
+  // Open sockets, dropping the ones that stopped pinging
   private openSockets(): WebSocket[] {
     const now = Date.now();
     const open: WebSocket[] = [];
     for (const ws of this.ctx.getWebSockets()) {
       if (ws.readyState !== WebSocket.READY_STATE_OPEN) continue;
-      const info = ws.deserializeAttachment() as MemberInfo | null;
+      const info = ws.deserializeAttachment() as Attachment;
+      if (info && 'dropped' in info) continue;
       const lastPing = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime();
       const lastSeen = lastPing ?? info?.joined_at ?? now;
       const staleMs = lastPing === undefined ? PartyRoom.NEVER_PINGED_STALE_MS : PartyRoom.STALE_MS;
       if (now - lastSeen > staleMs) {
-        this.closeSocket(ws, 'stale');
+        this.dropSocket(ws, 'stale');
         continue;
       }
       open.push(ws);
