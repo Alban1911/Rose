@@ -969,6 +969,27 @@ class ModStorageService:
     def has_mods_for_skin(self, skin_id: int | str) -> bool:
         return bool(self.list_mods_for_skin(skin_id))
 
+    def categories_with_mods(self) -> List[str]:
+        """Root categories holding at least one mod, in menu order."""
+        categories = [self.CATEGORY_SKINS] if self._has_skin_mods() else []
+        categories.extend(
+            category for category in self.MOD_CATEGORIES
+            if self.list_mods_for_category(category)
+        )
+        return categories
+
+    def _has_skin_mods(self) -> bool:
+        try:
+            directories = [child for child in self.skins_dir.iterdir() if child.is_dir()]
+        except OSError:
+            return False
+        champion_ids = {
+            get_champion_id_from_skin_id(skin_id)
+            for skin_id in (self._to_int(child.name) for child in directories)
+            if skin_id is not None
+        }
+        return any(self.list_mods_for_champion(champion_id) for champion_id in champion_ids)
+
     def list_mods_for_category(self, category: str) -> List[dict]:
         with self._storage_lock:
             return self._list_mods_for_category(category)

@@ -117,6 +117,7 @@
   "Deleting...": "삭제 중...",
   "Saving...": "저장 중...",
   "No custom mods installed in this category.": "이 카테고리에 설치된 커스텀 모드가 없습니다.",
+  "No custom mods added yet": "아직 추가된 커스텀 모드가 없습니다",
   "No champions have custom skins yet.": "아직 커스텀 스킨이 있는 챔피언이 없습니다.",
   "No champions found. Please ensure League of Legends client is running.": "챔피언을 찾을 수 없습니다. League of Legends 클라이언트가 실행 중인지 확인하세요.",
   "Select Skins & Chromas - {name}": "스킨 및 크로마 선택 - {name}",

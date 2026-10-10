@@ -66,6 +66,7 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
     "add-custom-mods-category-selected",
     "add-custom-mods-champion-selected",
     "add-custom-mods-skin-selected",
+    "request-manage-categories",
     "request-manage-champion-mods",
     "request-manage-category-mods",
     "delete-champion-mod",
@@ -252,6 +253,8 @@ class MessageHandler:
             self._handle_open_mods_folder(payload)
         elif payload_type == "request-skin-mods":
             self._handle_request_skin_mods(payload)
+        elif payload_type == "request-manage-categories":
+            self._handle_request_manage_categories(payload)
         elif payload_type == "request-manage-champion-mods":
             self._handle_request_manage_champion_mods(payload)
         elif payload_type == "request-manage-category-mods":
@@ -1131,6 +1134,20 @@ class MessageHandler:
             "championName": self._lookup_champion_name(champion_id),
             "mods": self._serialize_manage_champion_mods(entries),
             "timestamp": int(time.time() * 1000),
+        }))
+
+    def _handle_request_manage_categories(self, payload: dict) -> None:
+        """List the categories Manage Mods offers: only those with a mod added."""
+        if not self.mod_storage:
+            return
+        try:
+            categories = self.mod_storage.categories_with_mods()
+        except Exception as exc:
+            log.error("[ManageMods] Failed to list categories with mods: %s", exc)
+            categories = []
+        self._send_response(json.dumps({
+            "type": "manage-categories-response",
+            "categories": categories,
         }))
 
     def _handle_request_manage_category_mods(self, payload: dict) -> None:

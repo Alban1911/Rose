@@ -852,6 +852,17 @@
     #manage-custom-mods-dropdown .framed-dropdown-type {
       text-align: left !important;
     }
+    #manage-custom-mods-dropdown lol-uikit-dropdown-option.rose-empty-category {
+      display: none !important;
+    }
+    #manage-custom-mods-dropdown .rose-no-mods-option {
+      display: none !important;
+    }
+    #manage-custom-mods-dropdown.rose-no-mods .rose-no-mods-option {
+      display: block !important;
+      color: #a09b8c !important;
+      cursor: default !important;
+    }
     #manage-custom-mods-dropdown[class*="active"] .placeholder-option,
     #manage-custom-mods-dropdown.active .placeholder-option {
       display: none !important;
@@ -2887,6 +2898,19 @@
       manageDropdown.appendChild(option);
     });
 
+    // Listed alone when no mod is added yet; clicking it does nothing
+    const manageNoModsOption = document.createElement("lol-uikit-dropdown-option");
+    manageNoModsOption.setAttribute("slot", "lol-uikit-dropdown-option");
+    manageNoModsOption.setAttribute("value", "");
+    manageNoModsOption.className = "framed-dropdown-type rose-no-mods-option";
+    manageNoModsOption.textContent = t("No custom mods added yet");
+    manageNoModsOption.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }, true);
+    manageDropdown.appendChild(manageNoModsOption);
+
     const removeManageFocusAndGlow = () => {
       if (document.activeElement === manageDropdown || manageDropdown.contains(document.activeElement)) {
         manageDropdown.blur();
@@ -2957,6 +2981,7 @@
 
     manageDropdownContainer.appendChild(manageDropdown);
     customModsRow.appendChild(manageDropdownContainer);
+    applyManageCategories(manageDropdown);
 
     let manageRetryCount = 0;
     const injectManageShadowStyles = () => {
@@ -3136,6 +3161,7 @@
     // Request current settings and benchmark data
     requestSettings();
     requestDiagnostics();
+    requestManageCategories();
   }
 
   function setupSliderInteractions(sliderId, slider, button, fill, valueDisplay, min, max, valueConverter, displayFormatter) {
@@ -3977,6 +4003,30 @@
     { id: "others", name: "Others" },
   ];
 
+  // Manage Mods only offers the categories Rose says have a mod added (null until it answers)
+  let categoriesWithMods = null;
+
+  function requestManageCategories() {
+    if (bridge && document.getElementById("manage-custom-mods-dropdown")) {
+      bridge.send({ type: "request-manage-categories" });
+    }
+  }
+
+  function handleManageCategoriesResponse(payload) {
+    categoriesWithMods = Array.isArray(payload.categories) ? payload.categories : [];
+    applyManageCategories();
+  }
+
+  function applyManageCategories(dropdown = document.getElementById("manage-custom-mods-dropdown")) {
+    if (!dropdown) return;
+    const categories = categoriesWithMods || [];
+    dropdown.querySelectorAll('lol-uikit-dropdown-option:not([value=""])').forEach((option) => {
+      option.classList.toggle("rose-empty-category", !categories.includes(option.getAttribute("value")));
+    });
+    // Before Rose answers nothing is offered, but "no mods" isn't claimed yet either
+    dropdown.classList.toggle("rose-no-mods", categoriesWithMods !== null && categories.length === 0);
+  }
+
   function handleManageCategorySelection(category) {
     if (category === "skins") {
       openChampionSelection("manage");
@@ -4328,6 +4378,7 @@
       log("error", "Failed to delete champion mod: " + (payload.error || "unknown error"));
     } else {
       log("info", `Champion mod deleted: champion=${payload.championId}, mod=${payload.modName}`);
+      requestManageCategories();
     }
     if (
       document.getElementById("champion-mods-manage-dialog") &&
@@ -4412,6 +4463,7 @@
       log("error", "Failed to delete category mod: " + (payload.error || "unknown error"));
     } else {
       log("info", `Category mod deleted: category=${payload.category}, mod=${payload.modName}`);
+      requestManageCategories();
     }
     if (
       document.getElementById("category-mods-manage-dialog") &&
@@ -4712,6 +4764,7 @@
       const loadingLeft = MOD_IMPORT_MIN_LOADING_MS - (Date.now() - modImportShownAt);
       clearTimeout(modImportTimer);
       modImportTimer = setTimeout(showModImportDone, Math.max(0, loadingLeft));
+      requestManageCategories();
     } else {
       hideModImportLoading();
     }
@@ -5345,6 +5398,7 @@
       bridge.subscribe("folder-opened-response", handleFolderOpenedResponse);
       // A Rose that closes mid-import never answers it
       bridge.onDisconnect(hideModImportLoading);
+      bridge.subscribe("manage-categories-response", handleManageCategoriesResponse);
       bridge.subscribe("manage-champion-mods-response", handleManageSkinModsResponse);
       bridge.subscribe("manage-category-mods-response", handleManageCategoryModsResponse);
       bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);

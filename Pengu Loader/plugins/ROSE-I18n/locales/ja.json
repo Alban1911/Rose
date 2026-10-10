@@ -117,6 +117,7 @@
   "Deleting...": "削除中...",
   "Saving...": "保存中...",
   "No custom mods installed in this category.": "このカテゴリーにはカスタムMODがインストールされていません。",
+  "No custom mods added yet": "カスタムMODはまだ追加されていません",
   "No champions have custom skins yet.": "カスタムスキンのあるチャンピオンはまだいません。",
   "No champions found. Please ensure League of Legends client is running.": "チャンピオンが見つかりません。League of Legendsクライアントが起動しているか確認してください。",
   "Select Skins & Chromas - {name}": "スキンとクロマを選択 - {name}",
