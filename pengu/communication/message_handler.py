@@ -2795,6 +2795,13 @@ class MessageHandler:
                 self.websocket_server.broadcast(message), self.websocket_server.loop
             )
     
+    def _send_mod_import_started(self, mod_file: Path) -> None:
+        """Tell the plugins a picked mod is being imported; the folder-opened-response ends it"""
+        self._send_response(json.dumps({
+            "type": "mod-import-started",
+            "fileName": mod_file.name,
+        }))
+
     def _send_settings_save_success(self) -> None:
         """Send settings save success response"""
         payload = {"type": "settings-saved", "success": True}
@@ -2860,6 +2867,7 @@ class MessageHandler:
                 }))
                 return
 
+            self._send_mod_import_started(selected_mod_file)
             mod_folder, mod_name = self.mod_storage.import_category_mod_file(
                 category,
                 selected_mod_file,
@@ -3169,6 +3177,7 @@ class MessageHandler:
                     }))
                     return
 
+                self._send_mod_import_started(selected_mod_file)
                 mod_folder, target_manifest, mod_name = self.mod_storage.import_mod_file(
                     champion_id,
                     selected_mod_file,

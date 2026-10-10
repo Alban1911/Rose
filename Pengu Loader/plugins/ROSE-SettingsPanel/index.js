@@ -1387,6 +1387,60 @@
       opacity: 0.45;
       cursor: default;
     }
+
+    /* Shown while Rose imports a picked mod */
+    #rose-mod-import-loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10003;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .rose-mod-import-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      min-width: 280px;
+      max-width: 420px;
+      padding: 24px 28px;
+      box-sizing: border-box;
+      background: #010a13;
+      border: 1px solid #c8aa6e;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      font-family: "Beaufort for LOL", serif;
+      text-align: center;
+    }
+    .rose-mod-import-spinner {
+      width: 36px;
+      height: 36px;
+      box-sizing: border-box;
+      border: 3px solid rgba(200, 170, 110, 0.25);
+      border-top-color: #c8aa6e;
+      border-radius: 50%;
+      animation: roseModImportSpin 0.8s linear infinite;
+    }
+    @keyframes roseModImportSpin {
+      to { transform: rotate(360deg); }
+    }
+    .rose-mod-import-title {
+      color: #f0e6d2;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .rose-mod-import-file {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #a09b8c;
+      font-size: 12px;
+    }
   `;
   }
 
@@ -4557,7 +4611,46 @@
     updateSkinSelectionUI();
   }
 
+  // Rose sends mod-import-started once a file is picked and folder-opened-response
+  // when the import is over. It can't be dismissed: only the answer or losing Rose ends it
+  function showModImportLoading(payload) {
+    hideModImportLoading();
+
+    const overlay = document.createElement("div");
+    overlay.id = "rose-mod-import-loading";
+
+    const card = document.createElement("div");
+    card.className = "rose-mod-import-card";
+    card.setAttribute("role", "status");
+
+    const spinner = document.createElement("div");
+    spinner.className = "rose-mod-import-spinner";
+    card.appendChild(spinner);
+
+    const title = document.createElement("div");
+    title.className = "rose-mod-import-title";
+    title.textContent = t("Adding mod...");
+    card.appendChild(title);
+
+    if (payload.fileName) {
+      const fileName = document.createElement("div");
+      fileName.className = "rose-mod-import-file";
+      fileName.textContent = payload.fileName;
+      fileName.title = payload.fileName;
+      card.appendChild(fileName);
+    }
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+  }
+
+  function hideModImportLoading() {
+    const overlay = document.getElementById("rose-mod-import-loading");
+    if (overlay) overlay.remove();
+  }
+
   function handleFolderOpenedResponse(payload) {
+    hideModImportLoading();
     if (payload.cancelled) {
       log("info", "Mod import cancelled");
     } else if (payload.error) {
@@ -5184,7 +5277,10 @@
       bridge.subscribe("path-validation-result", handlePathValidationResult);
       bridge.subscribe("champions-list-response", handleChampionsListResponse);
       bridge.subscribe("champion-skins-response", handleChampionSkinsResponse);
+      bridge.subscribe("mod-import-started", showModImportLoading);
       bridge.subscribe("folder-opened-response", handleFolderOpenedResponse);
+      // A Rose that closes mid-import never answers it
+      bridge.onDisconnect(hideModImportLoading);
       bridge.subscribe("manage-champion-mods-response", handleManageSkinModsResponse);
       bridge.subscribe("manage-category-mods-response", handleManageCategoryModsResponse);
       bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
