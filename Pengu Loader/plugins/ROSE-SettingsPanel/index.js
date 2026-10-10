@@ -1428,6 +1428,43 @@
     @keyframes roseModImportSpin {
       to { transform: rotate(360deg); }
     }
+    /* Once added: a green check draws itself, then the whole overlay fades out */
+    #rose-mod-import-loading.is-done {
+      pointer-events: none;
+      animation: roseModImportFadeOut 0.25s ease 1.25s forwards;
+    }
+    @keyframes roseModImportFadeOut {
+      to { opacity: 0; }
+    }
+    .rose-mod-import-check {
+      display: block;
+      width: 36px;
+      height: 36px;
+      fill: none;
+      stroke: #2ec27e;
+      stroke-width: 4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      animation: roseModImportPop 0.3s ease-out 0.5s;
+    }
+    .rose-mod-import-check circle {
+      stroke-dasharray: 151;
+      stroke-dashoffset: 151;
+      transform: rotate(-90deg);
+      transform-origin: 26px 26px;
+      animation: roseModImportDraw 0.4s ease-out forwards;
+    }
+    .rose-mod-import-check path {
+      stroke-dasharray: 32;
+      stroke-dashoffset: 32;
+      animation: roseModImportDraw 0.25s ease-out 0.35s forwards;
+    }
+    @keyframes roseModImportDraw {
+      to { stroke-dashoffset: 0; }
+    }
+    @keyframes roseModImportPop {
+      50% { transform: scale(1.12); }
+    }
     .rose-mod-import-title {
       color: #f0e6d2;
       font-size: 14px;
@@ -4611,10 +4648,18 @@
     updateSkinSelectionUI();
   }
 
+  // A small mod imports almost instantly: the spinner stays at least this long first
+  const MOD_IMPORT_MIN_LOADING_MS = 700;
+  // Matches the is-done fade out (1.25s delay + 0.25s)
+  const MOD_IMPORT_DONE_MS = 1500;
+  let modImportShownAt = 0;
+  let modImportTimer = null;
+
   // Rose sends mod-import-started once a file is picked and folder-opened-response
   // when the import is over. It can't be dismissed: only the answer or losing Rose ends it
   function showModImportLoading(payload) {
     hideModImportLoading();
+    modImportShownAt = Date.now();
 
     const overlay = document.createElement("div");
     overlay.id = "rose-mod-import-loading";
@@ -4644,13 +4689,32 @@
     document.body.appendChild(overlay);
   }
 
+  function showModImportDone() {
+    const overlay = document.getElementById("rose-mod-import-loading");
+    if (!overlay || overlay.classList.contains("is-done")) return;
+
+    overlay.classList.add("is-done");
+    overlay.querySelector(".rose-mod-import-spinner").outerHTML =
+      '<svg class="rose-mod-import-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"></circle><path d="M15 27l7 7 15-15"></path></svg>';
+    overlay.querySelector(".rose-mod-import-title").textContent = t("Mod added");
+    modImportTimer = setTimeout(hideModImportLoading, MOD_IMPORT_DONE_MS);
+  }
+
   function hideModImportLoading() {
+    clearTimeout(modImportTimer);
+    modImportTimer = null;
     const overlay = document.getElementById("rose-mod-import-loading");
     if (overlay) overlay.remove();
   }
 
   function handleFolderOpenedResponse(payload) {
-    hideModImportLoading();
+    if (payload.success) {
+      const loadingLeft = MOD_IMPORT_MIN_LOADING_MS - (Date.now() - modImportShownAt);
+      clearTimeout(modImportTimer);
+      modImportTimer = setTimeout(showModImportDone, Math.max(0, loadingLeft));
+    } else {
+      hideModImportLoading();
+    }
     if (payload.cancelled) {
       log("info", "Mod import cancelled");
     } else if (payload.error) {
