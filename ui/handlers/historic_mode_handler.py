@@ -6,6 +6,7 @@ Handles historic mode activation and deactivation
 """
 
 from typing import Optional
+from injection.classic_carrier import default_skin_id_for_state
 from state import SharedState
 from utils.core.logging import get_logger
 
@@ -112,7 +113,9 @@ class HistoricModeHandler:
         
         # History may be restored while the client is already showing the
         # manually selected target; do not require a default-skin spawn first.
-        base_skin_id = self.state.locked_champ_id * 1000
+        base_skin_id = default_skin_id_for_state(
+            self.state, self.state.locked_champ_id
+        )
         try:
             from utils.core.historic import (
                 get_historic_skin_for_champion,
@@ -153,7 +156,9 @@ class HistoricModeHandler:
         if not self.state.historic_mode_active or self.state.locked_champ_id is None:
             return
         
-        base_skin_id = self.state.locked_champ_id * 1000
+        base_skin_id = default_skin_id_for_state(
+            self.state, self.state.locked_champ_id
+        )
         # Keep custom-mod history active when the selected skin/chroma is one
         # of the saved mod targets. The client is allowed to remain on that
         # real skin; history is only tracking the mod, not forcing base skin.
@@ -181,4 +186,3 @@ class HistoricModeHandler:
                     self.state.ui_skin_thread._broadcast_historic_state()
             except Exception as e:
                 log.debug(f"[UI] Failed to broadcast historic state on deactivation: {e}")
-
