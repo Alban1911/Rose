@@ -58,6 +58,7 @@ body:
         - ARAM
         - Practice Tool
         - Other
+        - Not applicable
     validations:
       required: true
 
