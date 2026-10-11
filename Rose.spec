@@ -246,6 +246,7 @@ hiddenimports = [
     'utils.download.hash_updater',
     'utils.integration',
     'utils.integration.tray_manager',
+    'utils.integration.diagnostics_progress',
     'utils.integration.tray_settings',
     'utils.integration.pengu_loader',
     'utils.threading',

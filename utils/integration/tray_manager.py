@@ -41,6 +41,7 @@ class TrayManager:
         self._stop_event = threading.Event()
         self._diagnostics_lock = threading.Lock()
         self._diagnostics_thread = None
+        self._diagnostics_dialog = None
         self._locked_icon_image = None
         self._unlocked_icon_image = None
         self._base_icon_image = None  # Current base icon (locked or unlocked)
@@ -261,13 +262,22 @@ class TrayManager:
 
     def _collect_startup_diagnostics(self):
         try:
-            self._notify_diagnostics(
-                "Checking Windows and Rose. Keep the League client open. This may take up to 3 minutes."
-            )
+            try:
+                from utils.integration.diagnostics_progress import DiagnosticsProgressDialog
+
+                if self._diagnostics_dialog:
+                    self._diagnostics_dialog.close()
+                self._diagnostics_dialog = DiagnosticsProgressDialog()
+                self._diagnostics_dialog.start()
+            except Exception:
+                log.exception("Could not open diagnostics progress window")
+                self._notify_diagnostics("Diagnostics started. Checking Windows and Rose; this can take up to 3 minutes.")
             result = run_startup_diagnostics(self._stop_event)
             log.info("Startup diagnostics: %s Reports: %s", result.message, result.directory)
             if result.cancelled or self._stop_event.is_set():
                 return
+            if self._diagnostics_dialog:
+                self._diagnostics_dialog.finish(result.message, result.directory, result.completed)
             self._notify_diagnostics(result.message)
             try:
                 open_folder_in_explorer(result.directory)
@@ -276,8 +286,12 @@ class TrayManager:
                 self._notify_diagnostics("Reports saved. Use Open Diagnostics Folder in the tray menu.")
         except Exception:
             log.exception("Startup diagnostics failed")
+            if self._diagnostics_dialog:
+                self._diagnostics_dialog.finish("Could not save diagnostics. Check the Rose logs and folder permissions.")
             self._notify_diagnostics("Could not save diagnostics. Check the Rose logs and folder permissions.")
         finally:
+            if self._stop_event.is_set() and self._diagnostics_dialog:
+                self._diagnostics_dialog.close()
             self._diagnostics_lock.release()
             self._refresh_diagnostics_menu()
 
@@ -343,6 +357,8 @@ class TrayManager:
     def stop(self):
         """Stop the system tray icon"""
         self._stop_event.set()
+        if self._diagnostics_dialog:
+            self._diagnostics_dialog.close()
         if self._diagnostics_thread and self._diagnostics_thread.is_alive():
             self._diagnostics_thread.join(timeout=TRAY_THREAD_JOIN_TIMEOUT_S)
         if self.icon:

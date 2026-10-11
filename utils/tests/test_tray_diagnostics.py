@@ -15,6 +15,10 @@ class TrayDiagnosticsTests(unittest.TestCase):
         logger = patch.object(tray_manager, "log")
         logger.start()
         self.addCleanup(logger.stop)
+        progress = patch("utils.integration.diagnostics_progress.DiagnosticsProgressDialog")
+        self.dialog_class = progress.start()
+        self.dialog = self.dialog_class.return_value
+        self.addCleanup(progress.stop)
 
     def test_collector_runs_off_tray_thread_and_duplicate_clicks_are_ignored(self):
         entered = threading.Event()
@@ -22,6 +26,7 @@ class TrayDiagnosticsTests(unittest.TestCase):
         thread_ids = []
 
         def collect(stop_event):
+            self.dialog.start.assert_called_once()
             thread_ids.append(threading.get_ident())
             entered.set()
             release.wait(5)
@@ -44,6 +49,7 @@ class TrayDiagnosticsTests(unittest.TestCase):
                 release.set()
                 self.tray._diagnostics_thread.join(5)
             open_folder.assert_called_once_with(self.result.directory)
+            self.dialog.finish.assert_called_once_with(self.result.message, self.result.directory, True)
         self.assertFalse(self.tray._diagnostics_lock.locked())
         self.assertEqual(item.text, "Diagnose Rose startup")
         self.assertTrue(item.enabled)
@@ -54,6 +60,23 @@ class TrayDiagnosticsTests(unittest.TestCase):
             self.tray._collect_startup_diagnostics()
         self.assertFalse(self.tray._diagnostics_lock.locked())
         self.assertIn("Could not save", self.tray.icon.notify.call_args.args[0])
+        self.assertIn("Could not save", self.dialog.finish.call_args.args[0])
+
+    def test_progress_window_failure_still_runs_collector(self):
+        self.tray._diagnostics_lock.acquire()
+        self.dialog.start.side_effect = RuntimeError("window unavailable")
+        with (
+            patch.object(tray_manager, "run_startup_diagnostics", return_value=self.result) as run,
+            patch.object(tray_manager, "open_folder_in_explorer"),
+        ):
+            self.tray._collect_startup_diagnostics()
+        run.assert_called_once_with(self.tray._stop_event)
+        self.assertFalse(self.tray._diagnostics_lock.locked())
+
+    def test_stop_closes_progress_window(self):
+        self.tray._diagnostics_dialog = self.dialog
+        self.tray.stop()
+        self.dialog.close.assert_called_once()
 
     def test_thread_launch_failure_allows_retry(self):
         with patch.object(tray_manager.threading, "Thread") as thread:

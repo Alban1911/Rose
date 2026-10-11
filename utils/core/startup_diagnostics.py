@@ -53,8 +53,7 @@ def run_startup_diagnostics(stop_event: threading.Event) -> DiagnosticsResult:
 
     def finish(message: str, completed: bool = False, cancelled: bool = False):
         status_path.write_text(
-            f"Rose {APP_VERSION} startup diagnostics\n{message}\n"
-            "Reports stay on this PC. Review them before sharing with support.\n",
+            f"Rose {APP_VERSION} startup diagnostics\n{message}\n",
             encoding="utf-8",
         )
         return DiagnosticsResult(directory, completed, message, cancelled)

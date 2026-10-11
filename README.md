@@ -102,8 +102,11 @@ On first launch, Rose asks for these files and opens its tools folder, where the
 
 If Rose is missing from the League client or game skins do not load, reproduce
 the problem, leave Rose and League open, then right-click Rose's system tray icon
-and choose **Diagnose Rose startup**. The check runs in the background and opens
-its report folder when finished. **Open Diagnostics Folder** reopens past runs.
+and choose **Diagnose Rose startup**. A progress window immediately confirms the
+run started, with an animated loading bar and elapsed time. **Run in background**
+hides the window while collection continues. The window shows completion or a
+failure, and the report folder opens when finished. **Open Diagnostics Folder**
+reopens past runs.
 
 Reports live in `logs\diagnostics\Rose-Diagnostics-<timestamp>-<id>` under Rose's
 user data folder (normally `%LOCALAPPDATA%\Rose`), separate from the ordinary log

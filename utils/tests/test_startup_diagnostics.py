@@ -53,6 +53,7 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertNotEqual(first.directory, second.directory)
         self.assertEqual(first.directory.parent, self.root / "user data" / "logs" / "diagnostics")
         self.assertIn("1 FAIL", first.message)
+        self.assertNotIn("Reports stay on this PC", (first.directory / "collector-status.txt").read_text())
         self.assertEqual(self.command[self.command.index("-DataPath") + 1], str(self.root / "user data"))
         self.assertEqual(self.command[self.command.index("-RosePath") + 1], str(self.root / "Rose app"))
         self.assertEqual(self.command[0], str(self.shell))
