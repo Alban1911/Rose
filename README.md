@@ -98,6 +98,32 @@ On first launch, Rose asks for these files and opens its tools folder, where the
 2. Run the installer as Administrator
 3. Launch Rose from the Start Menu or desktop shortcut
 
+## Diagnose startup problems
+
+If Rose is missing from the League client or game skins do not load, reproduce
+the problem, leave Rose and League open, then right-click Rose's system tray icon
+and choose **Diagnose Rose startup**. The check runs in the background and opens
+its report folder when finished. **Open Diagnostics Folder** reopens past runs.
+
+Reports live in `logs\diagnostics\Rose-Diagnostics-<timestamp>-<id>` under Rose's
+user data folder (normally `%LOCALAPPDATA%\Rose`), separate from the ordinary log
+files. Each run includes `report.txt`, `report.json`, and `collector-status.txt`.
+If collection is blocked or times out after three minutes, the status explains
+the failure and any partial reports are marked incomplete.
+
+The bundled Windows PowerShell 5.1 collector checks Windows/runtime differences,
+Pengu configuration and activation, patcher files, relevant security events,
+process privileges, bridge connectivity, and selected recent error excerpts.
+It reads system state without applying repairs, restarting League, or changing
+security settings. A clock check contacts `time.windows.com`; reports are never
+uploaded. Common credentials and profile paths are redacted, but review reports
+before sharing them with support. `UNKNOWN` means a check was unavailable, and
+a warning is a possible cause rather than proof of failed injection.
+
+For manual collection, run `assets\diagnostics\Diagnose-Rose.ps1`; its optional
+`-SkipNetworkChecks` flag skips the external clock comparison. No Python or
+PowerShell 7 installation is needed in packaged Rose.
+
 ## Building from source
 
 Rose builds the Pengu Loader executable from the vendored source in

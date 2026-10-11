@@ -11,6 +11,7 @@ import pystray
 from PIL import Image, ImageDraw
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir, open_folder_in_explorer
+from utils.core.startup_diagnostics import get_diagnostics_dir, run_startup_diagnostics
 from config import (
     APP_VERSION,
     TRAY_READY_MAX_WAIT_S, TRAY_READY_CHECK_INTERVAL_S,
@@ -38,6 +39,8 @@ class TrayManager:
         self.icon = None
         self.tray_thread = None
         self._stop_event = threading.Event()
+        self._diagnostics_lock = threading.Lock()
+        self._diagnostics_thread = None
         self._locked_icon_image = None
         self._unlocked_icon_image = None
         self._base_icon_image = None  # Current base icon (locked or unlocked)
@@ -226,12 +229,77 @@ class TrayManager:
             except Exception as e:
                 log.debug(f"Error stopping tray icon: {e}")
 
+    def _refresh_diagnostics_menu(self):
+        try:
+            if self.icon and not self._stop_event.is_set():
+                self.icon.update_menu()
+        except Exception as e:
+            log.debug(f"Could not refresh diagnostics menu: {e}")
+
+    def _notify_diagnostics(self, message):
+        try:
+            if self.icon and not self._stop_event.is_set():
+                self.icon.notify(message, "Rose startup diagnostics")
+        except Exception as e:
+            log.debug(f"Could not show diagnostics notification: {e}")
+
+    def _on_diagnose_startup(self, icon, item):
+        """Start one collector at a time, without blocking the tray event loop."""
+        if self._stop_event.is_set() or not self._diagnostics_lock.acquire(blocking=False):
+            return
+        try:
+            self._refresh_diagnostics_menu()
+            self._diagnostics_thread = threading.Thread(
+                target=self._collect_startup_diagnostics, name="RoseStartupDiagnostics", daemon=True,
+            )
+            self._diagnostics_thread.start()
+        except Exception:
+            self._diagnostics_lock.release()
+            self._refresh_diagnostics_menu()
+            log.exception("Could not start startup diagnostics")
+            self._notify_diagnostics("Could not start diagnostics. Please retry.")
+
+    def _collect_startup_diagnostics(self):
+        try:
+            self._notify_diagnostics(
+                "Checking Windows and Rose. Keep the League client open. This may take up to 3 minutes."
+            )
+            result = run_startup_diagnostics(self._stop_event)
+            log.info("Startup diagnostics: %s Reports: %s", result.message, result.directory)
+            if result.cancelled or self._stop_event.is_set():
+                return
+            self._notify_diagnostics(result.message)
+            try:
+                open_folder_in_explorer(result.directory)
+            except Exception as e:
+                log.warning(f"Could not open diagnostics folder: {e}")
+                self._notify_diagnostics("Reports saved. Use Open Diagnostics Folder in the tray menu.")
+        except Exception:
+            log.exception("Startup diagnostics failed")
+            self._notify_diagnostics("Could not save diagnostics. Check the Rose logs and folder permissions.")
+        finally:
+            self._diagnostics_lock.release()
+            self._refresh_diagnostics_menu()
+
+    def _on_open_diagnostics(self, icon, item):
+        try:
+            open_folder_in_explorer(get_diagnostics_dir())
+        except Exception as e:
+            log.error(f"Failed to open diagnostics folder: {e}")
+            self._notify_diagnostics("Could not open the diagnostics folder. Check folder permissions.")
+
     def _create_menu(self) -> pystray.Menu:
         """Create the context menu for the tray icon"""
         return pystray.Menu(
             pystray.MenuItem(f"Rose v{APP_VERSION}", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Open Mods Folder", self._on_open_mods),
+            pystray.MenuItem(
+                lambda item: "Diagnosing Rose startup..." if self._diagnostics_lock.locked() else "Diagnose Rose startup",
+                self._on_diagnose_startup,
+                enabled=lambda item: not self._diagnostics_lock.locked(),
+            ),
+            pystray.MenuItem("Open Diagnostics Folder", self._on_open_diagnostics),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Restart", self._on_restart),
             pystray.MenuItem("Quit", self._on_quit),
@@ -274,6 +342,9 @@ class TrayManager:
     
     def stop(self):
         """Stop the system tray icon"""
+        self._stop_event.set()
+        if self._diagnostics_thread and self._diagnostics_thread.is_alive():
+            self._diagnostics_thread.join(timeout=TRAY_THREAD_JOIN_TIMEOUT_S)
         if self.icon:
             try:
                 self.icon.stop()
