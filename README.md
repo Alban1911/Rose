@@ -45,13 +45,14 @@ dashboard; raw activity and server credentials remain private.
 
 ### Cloudflare Workers
 
-- **rose-party-relay**: Durable Object-backed WebSocket relay that manages party rooms (max 10 members per room) for real-time skin selection broadcasting between friends
+- **rose-party-relay**: Durable Object-backed WebSocket relay that manages party rooms (max 10 members per room) for real-time skin selection broadcasting between friends. It refuses Rose versions older than 1.4.4
+
 ### Pengu Loader Plugins
 
 Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 - **ROSE-UI**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
-- **ROSE-SkinMonitor**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket
+- **ROSE-SkinMonitor**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket. It also hosts the bridge the other plugins use to talk to Rose
 - **ROSE-CustomSkinSelector**: Lists the custom skin mods made for the hovered skin and applies the one you pick
 - **ROSE-CustomWheel**: Custom mods panel for maps, fonts, announcers and other mods
 - **ROSE-ChromaWheel**: Enhanced chroma selection interface for choosing any chroma variant
@@ -65,9 +66,9 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 ## How It Works
 
-1. **League Client Integration**: Rose activates **[Pengu Loader](https://github.com/PenguLoader/PenguLoader)** on startup, which injects the JavaScript plugins into the League Client
+1. **League Client Integration**: Rose activates **[Pengu Loader](https://github.com/PenguLoader/PenguLoader)** on startup, which injects the JavaScript plugins into the League Client. If the client is already open, Rose restarts it so the plugins load (during champion select, the restart waits for the lobby or the end of the game)
 2. **Skin Detection**: When you hover over a skin in champion select, `ROSE-SkinMonitor` detects the selection and sends it to the Python backend
-3. **Game Opening Delay**: To make sure the injection has time to occur we suspend League of Legend's game process as long as the overlay is not ran
+3. **Game Opening Delay**: To give the injection time to happen, Rose suspends the game process until the overlay is ready. If Rose closes during that window, it resumes the game the next time it starts
 4. **Game Injection**: Rose injects the selected skin when the game starts
 5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact (Rose will **never** provide any competitive advantage to its users)
 
@@ -75,7 +76,8 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 - **Smart Injection**: Never injects skins you already own
 - **Custom Mods**: Custom skins, maps, fonts and announcers (`.fantome`, `.zip` and `.modpkg`)
-- **Party Mode**: Friends running Rose see each other's skins in game
+- **Party Mode**: Friends running Rose 1.4.4 or newer see each other's skins and custom mods in game
+- **Loading Screen Name**: The loading screen shows the injected skin's name; the chat and the name over your champion keep the champion's
 - **Multi-Language Support**: Works with any client language, with Rose's menus in 22 languages
 - **Open Source**: Fully open source and extensible
 - **Free**: If you bought this software, you got scammed 💀
@@ -167,7 +169,12 @@ and credit the Pengu Loader contributors.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and project structure.
+Contributions are welcome. Report bugs and suggest features through the
+[issue forms](https://github.com/Alban1911/Rose/issues/new/choose), and ask
+for installation help on [Discord](https://discord.com/invite/roseskins).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, the tests and
+checks that CI runs on every pull request, and the project structure.
 
 ## Legal Disclaimer
 

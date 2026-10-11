@@ -1,6 +1,14 @@
 # Contributing to Rose
 
-Contributions are welcome! Report bugs or suggest features via GitHub Issues, submit pull requests, or join our [Discord](https://discord.com/invite/roseskins) for discussions.
+Contributions are welcome! Report bugs or suggest features through the [issue forms](https://github.com/Alban1911/Rose/issues/new/choose), submit pull requests, or join our [Discord](https://discord.com/invite/roseskins) for discussions and installation help.
+
+## Reporting bugs
+
+Use the **Bug report** form. Besides your Rose version, League patch, client,
+region and game mode, it asks for the message shown in Rose's Troubleshooting
+panel and the latest log file from **Open Logs Folder**. Remove party tokens,
+account identifiers and personal paths before posting. For ideas, use the
+**Feature request** form.
 
 ## Setting up dev environment
 
@@ -59,6 +67,46 @@ and `ltk_patcher_dll.dll` from an LTK Manager install) in `injection/tools/`.
 compiles the loader before invoking PyInstaller. Use it or `scripts/build_all.py`
 instead of invoking `pyinstaller Rose.spec` directly.
 
+## Tests and checks
+
+CI runs these on every push to `main` and every pull request; run them before
+opening one. The Python tests need Windows, since several modules call
+`ctypes.windll` when imported.
+
+```powershell
+# Unit tests: test/ and every package's tests/ folder
+$suites = @('test') + (Get-ChildItem -Directory | ForEach-Object { Join-Path $_.Name 'tests' } | Where-Object { Test-Path $_ })
+foreach ($suite in $suites) { python -m unittest discover -s $suite -t . }
+
+# Lint limited to syntax errors and undefined names
+pip install ruff
+python -m ruff check . --select E9,F63,F7,F82
+
+# Plugin syntax (needs Node.js): a broken plugin otherwise just fails to load in the client
+git ls-files 'Pengu Loader/plugins/*.js' | ForEach-Object { node --check $_ }
+```
+
+Add tests to the `tests/` folder of the package they cover (with an
+`__init__.py`); CI picks up a new package's `tests/` folder by itself. CI also
+lints the workflows in `.github/` (actionlint, zizmor) and reviews dependency
+changes on pull requests.
+
+## Pull requests
+
+- Branch off `main`, with a name like the ones in the setup above
+- Write commit messages as `type(scope): summary`, like the history
+  (`fix(party): ...`, `feat(mods): ...`)
+- Keep a pull request to one change, and make sure CI passes
+
+## Writing plugins
+
+`ROSE-SkinMonitor` hosts the WebSocket bridge to Rose and exposes it as
+`window.__roseBridge` once the bridge port is known; other plugins wait for
+that object to appear. It offers `send(payload)`, `subscribe(type, cb)` /
+`unsubscribe(type, cb)` for messages from Rose, `onReady(cb)`, and
+`onDisconnect(cb)`, which runs when an open connection to Rose closes (not on
+each failed reconnect), so a plugin waiting on an answer can give up.
+
 ## Translations
 
 Rose's menus are translated in `Pengu Loader/plugins/ROSE-I18n/locales/`, one
@@ -74,6 +122,8 @@ Rose/
 ├── config.py               # Configuration constants
 ├── requirements.txt        # Python dependencies
 ├── assets/                 # Application assets (icons, fonts, images)
+├── test/                   # Cross-package tests (each package also has its own tests/)
+├── .github/                # CI workflow and issue forms
 │
 ├── main/                   # Main application package
 │   ├── core/               # Core initialization and lifecycle
