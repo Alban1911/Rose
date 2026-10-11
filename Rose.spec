@@ -249,6 +249,7 @@ hiddenimports = [
     'utils.integration.diagnostics_progress',
     'utils.integration.tray_settings',
     'utils.integration.pengu_loader',
+    'utils.integration.startup_verifier',
     'utils.threading',
     'utils.threading.thread_manager',
     'ui',
