@@ -11,7 +11,7 @@ import pystray
 from PIL import Image, ImageDraw
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir, open_folder_in_explorer
-from utils.core.startup_diagnostics import get_diagnostics_dir, run_startup_diagnostics
+from utils.core.startup_diagnostics import run_startup_diagnostics
 from config import (
     APP_VERSION,
     TRAY_READY_MAX_WAIT_S, TRAY_READY_CHECK_INTERVAL_S,
@@ -283,7 +283,7 @@ class TrayManager:
                 open_folder_in_explorer(result.directory)
             except Exception as e:
                 log.warning(f"Could not open diagnostics folder: {e}")
-                self._notify_diagnostics("Reports saved. Use Open Diagnostics Folder in the tray menu.")
+                self._notify_diagnostics("Reports saved. Use Open Logs folder in the tray menu.")
         except Exception:
             log.exception("Startup diagnostics failed")
             if self._diagnostics_dialog:
@@ -295,12 +295,12 @@ class TrayManager:
             self._diagnostics_lock.release()
             self._refresh_diagnostics_menu()
 
-    def _on_open_diagnostics(self, icon, item):
+    def _on_open_logs(self, icon, item):
         try:
-            open_folder_in_explorer(get_diagnostics_dir())
+            open_folder_in_explorer(get_user_data_dir() / "logs")
         except Exception as e:
-            log.error(f"Failed to open diagnostics folder: {e}")
-            self._notify_diagnostics("Could not open the diagnostics folder. Check folder permissions.")
+            log.error(f"Failed to open logs folder: {e}")
+            self._notify_diagnostics("Could not open the logs folder. Check folder permissions.")
 
     def _create_menu(self) -> pystray.Menu:
         """Create the context menu for the tray icon"""
@@ -313,7 +313,7 @@ class TrayManager:
                 self._on_diagnose_startup,
                 enabled=lambda item: not self._diagnostics_lock.locked(),
             ),
-            pystray.MenuItem("Open Diagnostics Folder", self._on_open_diagnostics),
+            pystray.MenuItem("Open Logs folder", self._on_open_logs),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Restart", self._on_restart),
             pystray.MenuItem("Quit", self._on_quit),

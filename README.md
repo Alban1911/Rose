@@ -105,8 +105,8 @@ the problem, leave Rose and League open, then right-click Rose's system tray ico
 and choose **Diagnose Rose startup**. A progress window immediately confirms the
 run started, with an animated loading bar and elapsed time. **Run in background**
 hides the window while collection continues. The window shows completion or a
-failure, and the report folder opens when finished. **Open Diagnostics Folder**
-reopens past runs.
+failure, and the report folder opens when finished. **Open Logs folder** opens
+Rose's `logs` folder, including the `diagnostics` subfolder for past runs.
 
 Reports live in `logs\diagnostics\Rose-Diagnostics-<timestamp>-<id>` under Rose's
 user data folder (normally `%LOCALAPPDATA%\Rose`), separate from the ordinary log

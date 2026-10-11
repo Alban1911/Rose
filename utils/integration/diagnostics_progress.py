@@ -96,7 +96,7 @@ class _ProgressWindow(Win32Window):
                 open_folder_in_explorer(self.directory)
             except OSError:
                 log.exception("Could not open diagnostic reports")
-                self.set_label_text(self.elapsed_label, "Could not open reports. Use Open Diagnostics Folder in the tray.")
+                self.set_label_text(self.elapsed_label, "Could not open reports. Use Open Logs folder in the tray.")
             return 0
         return None
 
