@@ -7,15 +7,32 @@ Handles random skin selection logic
 
 import random
 from typing import Optional, Tuple
+from injection.classic import (
+    default_skin_id_for_state,
+    is_classic_game_mode,
+    to_regular_champion_id,
+    to_regular_skin_id,
+)
 from state import SharedState
 from utils.core.logging import get_logger
+from utils.core.random_preferences import (
+    is_random_enabled_for_champion,
+    set_random_enabled_for_champion,
+)
 from utils.core.utilities import is_base_skin
 
 log = get_logger()
 
 
-def _clear_random_mode(state: SharedState) -> None:
-    """Reset random mode state and notify the JavaScript dice button."""
+def _classic_champion_id(state: SharedState) -> Optional[int]:
+    if not is_classic_game_mode(getattr(state, "current_game_mode", None)):
+        return None
+    value = to_regular_champion_id(getattr(state, "locked_champ_id", None))
+    return int(value) if value else None
+
+
+def clear_random_runtime(state: SharedState) -> None:
+    """Reset the active result without changing its per-champion preference."""
     state.random_skin_name = None
     state.random_skin_id = None
     state.random_mode_active = False
@@ -28,13 +45,17 @@ def _clear_random_mode(state: SharedState) -> None:
 
 
 def cancel_random_mode_for_selection(state: SharedState, selected_skin_id: Optional[int], reason: str) -> bool:
-    """Disable random mode when the user explicitly picks a different skin/chroma."""
-    if not getattr(state, 'random_mode_active', False):
-        return False
-    if selected_skin_id and selected_skin_id == getattr(state, 'random_skin_id', None):
+    """Disable active or persisted Classic random mode on an explicit choice."""
+    champion_id = _classic_champion_id(state)
+    persisted = bool(
+        champion_id and is_random_enabled_for_champion(champion_id)
+    )
+    if not getattr(state, 'random_mode_active', False) and not persisted:
         return False
 
-    _clear_random_mode(state)
+    if champion_id:
+        set_random_enabled_for_champion(champion_id, False)
+    clear_random_runtime(state)
     log.info(f"[RANDOM] Random mode DISABLED due to {reason}")
     return True
 
@@ -67,6 +88,10 @@ class RandomizationHandler:
         
         log.info("[UI] Starting random skin selection")
         self._randomization_started = True
+
+        if _classic_champion_id(self.state):
+            self._start_randomization()
+            return True
         
         # Force champion's base skin first
         champion_id = self.skin_scraper.cache.champion_id if self.skin_scraper and self.skin_scraper.cache else None
@@ -94,6 +119,10 @@ class RandomizationHandler:
         if not self.state.locked_champ_id:
             log.warning("[UI] Cannot force base skin - no locked champion")
             return False
+
+        if _classic_champion_id(self.state):
+            self._start_randomization()
+            return True
         
         # Set flag to prevent cancellation during randomization
         self._randomization_in_progress = True
@@ -135,12 +164,18 @@ class RandomizationHandler:
             self._randomization_in_progress = False
             return
         
-        # Disable HistoricMode if active
+        classic_champion_id = _classic_champion_id(self.state)
+        if classic_champion_id:
+            self.state.historic_first_detection_done = True
+
+        # Disable HistoricMode before random owns the Classic selection.
         try:
-            if getattr(self.state, 'historic_mode_active', False):
+            historic_mode_active = getattr(self.state, 'historic_mode_active', False)
+            if historic_mode_active or classic_champion_id:
                 self.state.historic_mode_active = False
                 self.state.historic_skin_id = None
-                log.info("[HISTORIC] Historic mode DISABLED due to RandomMode activation")
+                if historic_mode_active:
+                    log.info("[HISTORIC] Historic mode DISABLED due to RandomMode activation")
                 # Broadcast state to JavaScript
                 try:
                     if self.state and hasattr(self.state, 'ui_skin_thread') and self.state.ui_skin_thread:
@@ -157,7 +192,44 @@ class RandomizationHandler:
             self.state.random_skin_name = random_skin_name
             self.state.random_skin_id = random_skin_id
             self.state.random_mode_active = True
-            log.info(f"[UI] Random skin selected: {random_skin_name} (ID: {random_skin_id})")
+            if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+                champion_id = _classic_champion_id(self.state)
+                if champion_id:
+                    set_random_enabled_for_champion(champion_id, True)
+                owned_ids = {
+                    int(to_regular_skin_id(value) or 0)
+                    for value in (self.state.owned_skin_ids or ())
+                }
+                default_id = int(
+                    to_regular_skin_id(
+                        default_skin_id_for_state(self.state, champion_id)
+                    ) or 0
+                )
+                chroma_ids = {
+                    int(to_regular_skin_id(value) or 0)
+                    for value in (self.skin_scraper.cache.chroma_id_map or {})
+                }
+                self.state.classic_selected_skin_owned = (
+                    random_skin_id == default_id or random_skin_id in owned_ids
+                )
+                self.state.classic_visual_skin_id = (
+                    None if self.state.classic_selected_skin_owned else random_skin_id
+                )
+                self.state.selected_chroma_id = (
+                    random_skin_id if random_skin_id in chroma_ids else None
+                )
+                self.state.ui_skin_id = random_skin_id
+                self.state.last_hovered_skin_id = random_skin_id
+                self.state.last_hovered_skin_key = random_skin_name
+            if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+                log.info(
+                    "[CLASSIC:RANDOM] selected name=%s target=%s owned=%s deferred_projection=true",
+                    random_skin_name,
+                    random_skin_id,
+                    self.state.classic_selected_skin_owned,
+                )
+            else:
+                log.info(f"[UI] Random skin selected: {random_skin_name} (ID: {random_skin_id})")
             
             # Broadcast random mode state to JavaScript
             try:
@@ -175,11 +247,23 @@ class RandomizationHandler:
     
     def cancel(self):
         """Cancel randomization and reset state"""
-        _clear_random_mode(self.state)
+        champion_id = _classic_champion_id(self.state)
+        if champion_id:
+            set_random_enabled_for_champion(champion_id, False)
+        clear_random_runtime(self.state)
         
         # Clear randomization flags
         self._randomization_in_progress = False
         self._randomization_started = False
+
+    def activate_persisted(self) -> bool:
+        """Restore the per-champion Classic random toggle after the catalog loads."""
+        champion_id = _classic_champion_id(self.state)
+        if not champion_id or not is_random_enabled_for_champion(champion_id):
+            return False
+        self._randomization_started = True
+        self._start_randomization()
+        return bool(self.state.random_mode_active)
     
     def select_random_skin(self) -> Optional[Tuple[str, int]]:
         """Select a random skin from available skins (excluding base skin)
@@ -191,9 +275,62 @@ class RandomizationHandler:
             log.warning("[UI] No skins available for random selection")
             return None
         
-        # Filter out the champion's base skin and actual chromas
         champion_id = self.skin_scraper.cache.champion_id
-        base_champion_skin_id = champion_id * 1000 if champion_id else None
+        if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+            default_id = int(
+                to_regular_skin_id(
+                    default_skin_id_for_state(self.state, champion_id)
+                ) or 0
+            )
+            eligible_ids = {
+                int(to_regular_skin_id(value) or 0)
+                for value in self.state.classic_catalog_skin_ids
+                if int(to_regular_skin_id(value) or 0) > 0
+                and int(to_regular_skin_id(value) or 0) != default_id
+            }
+            cached_skins = {
+                int(to_regular_skin_id(skin.get("skinId")) or 0): skin
+                for skin in self.skin_scraper.cache.skins
+                if skin.get("skinId")
+            }
+            cached_chromas = {
+                int(to_regular_skin_id(value) or 0)
+                for value in (self.skin_scraper.cache.chroma_id_map or {})
+            }
+            base_ids = [
+                skin_id for skin_id in eligible_ids
+                if skin_id in cached_skins and skin_id not in cached_chromas
+            ]
+            if not base_ids:
+                log.warning("[CLASSIC:RANDOM] No carousel-backed skins available")
+                return None
+
+            base_id = random.choice(base_ids)
+            skin_data = cached_skins[base_id]
+            raw_base_id = int(skin_data.get("skinId") or base_id)
+            base_name = skin_data.get("skinName") or f"skin_{base_id}"
+            options = [(base_name, base_id)]
+            options.extend(
+                (
+                    chroma.get("name") or base_name,
+                    int(to_regular_skin_id(chroma.get("id")) or 0),
+                )
+                for chroma in self.skin_scraper.get_chromas_for_skin(raw_base_id) or ()
+                if int(to_regular_skin_id(chroma.get("id")) or 0) in eligible_ids
+            )
+            selected_name, selected_id = random.choice(options)
+            log.info(
+                "[CLASSIC:RANDOM] Selected carousel target '%s' (ID: %s)",
+                selected_name,
+                selected_id,
+            )
+            return selected_name, selected_id
+
+        # Filter out the champion's base skin and actual chromas
+        base_champion_skin_id = (
+            int(to_regular_skin_id(default_skin_id_for_state(self.state, champion_id)) or 0)
+            if champion_id else None
+        )
         
         chroma_id_map = self.skin_scraper.cache.chroma_id_map if self.skin_scraper and self.skin_scraper.cache else None
         available_skins = [
@@ -310,4 +447,3 @@ class RandomizationHandler:
                             self.state.ui_skin_thread._broadcast_random_mode_state()
                     except Exception as e:
                         log.debug(f"[UI] Failed to broadcast random mode state on skin change: {e}")
-
