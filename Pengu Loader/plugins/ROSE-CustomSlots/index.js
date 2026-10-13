@@ -11,6 +11,8 @@
   const MOD_NAME_POPUP_ID = "historic-popup-layer"; // ROSE-HistoricMode
   const EVENT_SKIN_STATE = "lu-skin-monitor-state";
   const CAROUSEL_SELECTOR = ".skin-selection-carousel-container, .skin-selection-carousel";
+  const LAYOUT_INTERVAL_MS = 500;
+  const ALIAS_RETRY_MS = 2000;
 
   // Rose's menu language (ROSE-I18n); English until it has loaded
   const t = (text) => (window.RoseI18n ? window.RoseI18n.t(text) : text);
@@ -26,7 +28,9 @@
   let selectedModId = null;
   let selectionRequestCounter = 0;
   let activeModState = null;
-  const championAliases = new Map();
+  let layoutTimer = null;
+  let roseUpdates = 0; // phase-change and champion-locked messages received
+  let clientSyncs = 0; // client reads started (the latest one wins)
 
   function waitForBridge() {
     return new Promise((resolve, reject) => {
@@ -43,6 +47,7 @@
     });
   }
 
+  // Works for a mod from skin-mods-response and for a custom-mod-state message
   function normalizeModId(mod) {
     return String(mod?.relativePath || mod?.modName || "").replace(/\\/g, "/");
   }
@@ -50,6 +55,11 @@
   function visibleModName(mod) {
     const alias = typeof mod?.displayName === "string" ? mod.displayName.trim() : "";
     return alias || mod?.modName || t("Custom Skin");
+  }
+
+  // Rose serves the preview image at http://127.0.0.1:<port>/mod-asset/...
+  function modPreviewUrl(mod) {
+    return mod?.thumbnailUrl ? String(mod.thumbnailUrl) : "";
   }
 
   function currentChampionId() {
@@ -60,6 +70,12 @@
   function currentSkinId() {
     const skinId = Number(skinMonitorState?.skinId);
     return Number.isFinite(skinId) && skinId > 0 ? skinId : null;
+  }
+
+  // Rose only tells plugins about a lock once it happens, and it does not
+  // unlock when champ select ends: the phase is checked as well
+  function inLockedChampSelect() {
+    return championLocked && currentPhase === "ChampSelect";
   }
 
   // Rose always reports at least one target per mod (the base skin by default)
@@ -73,7 +89,7 @@
 
   function requestMods(force = false) {
     const championId = currentChampionId();
-    if (!bridge || !championLocked || !championId) return;
+    if (!bridge || !inLockedChampSelect() || !championId) return;
     const now = Date.now();
     if (!force && modsChampionId === championId && now - lastModsRequestAt < 5000) return;
     lastModsRequestAt = now;
@@ -184,8 +200,7 @@
   }
 
   function slotThumbnail(mod, championId, skinId) {
-    if (mod.thumbnailUrl) return String(mod.thumbnailUrl).replace("localhost", "127.0.0.1");
-    return `/lol-game-data/assets/v1/champion-tiles/${championId}/${skinId}.jpg`;
+    return modPreviewUrl(mod) || `/lol-game-data/assets/v1/champion-tiles/${championId}/${skinId}.jpg`;
   }
 
   function render() {
@@ -196,11 +211,16 @@
     const skinMods = modsChampionId === championId ? modsForCurrentSkin() : [];
     const carousel = document.querySelector(CAROUSEL_SELECTOR);
     const visible =
-      currentPhase !== "InProgress" &&
-      championLocked &&
+      inLockedChampSelect() &&
       skinMods.length > 0 &&
       carousel &&
       carousel.getBoundingClientRect().width > 0;
+
+    // The selected slot names the mod, so ROSE-HistoricMode's name popup is
+    // hidden only while that slot is actually on screen
+    const selectedSlotShown =
+      Boolean(visible && selectedModId) && skinMods.some((mod) => normalizeModId(mod) === selectedModId);
+    document.documentElement.classList.toggle(MOD_ACTIVE_CLASS, selectedSlotShown);
 
     if (!visible) {
       strip.hidden = true;
@@ -219,7 +239,7 @@
           slot.className = "rcs-slot";
           if (modId === selectedModId) slot.classList.add("selected");
           slot.title = visibleModName(mod);
-          slot.style.backgroundImage = `url('${slotThumbnail(mod, championId, skinId)}')`;
+          slot.style.backgroundImage = cssUrl(slotThumbnail(mod, championId, skinId));
 
           const badge = document.createElement("div");
           badge.className = "rcs-badge";
@@ -249,6 +269,8 @@
 
   // ----------------------------------------------------------------- events
 
+  // Only the plugin's copy is dropped: Rose still knows the selected mod and
+  // the next skin-mods-response carries it back (customModState)
   function resetSession() {
     mods = [];
     modsChampionId = null;
@@ -257,12 +279,19 @@
     activeModState = null;
   }
 
+  function applyCustomModState(data) {
+    if (!data || typeof data !== "object") return;
+    selectedModId = data.active === false ? null : normalizeModId(data) || null;
+    activeModState = selectedModId ? data : null;
+  }
+
   function handleModsResponse(data) {
     const championId = currentChampionId();
     const responseChampionId = Number(data.championId);
     if (!championId || (responseChampionId && responseChampionId !== championId)) return;
     mods = Array.isArray(data.mods) ? data.mods : [];
     modsChampionId = championId;
+    applyCustomModState(data.customModState);
     render();
   }
 
@@ -272,32 +301,52 @@
   }
 
   function handleCustomModState(data) {
-    if (!data) return;
-    selectedModId = data.active === false
-      ? null
-      : String(data.relativePath || data.modName || "").replace(/\\/g, "/") || null;
-    activeModState = selectedModId ? data : null;
+    applyCustomModState(data);
     render();
   }
 
   // ----------------------------------------------------------- splash preview
   //
-  // While a custom mod is selected and the carousel shows its target skin, the
-  // client still draws the official splash. Swap every image of that skin
-  // (champ select background and the carousel thumbnail) for the mod's preview
-  // image, and put the client's own image back once the mod is off.
+  // While a custom mod is selected and the carousel shows a skin it targets,
+  // the client still draws the official art. Every image of that skin (the
+  // champ select background, the carousel thumbnail) shows the mod's preview
+  // instead, and gets the client's own image back once it no longer should.
+  //
+  // `swapped` remembers what was written to each element. An element that no
+  // longer shows it has been redrawn by the client: it is forgotten (never
+  // restored over the client's new image) and checked again like any other.
 
-  async function loadChampionAlias(championId) {
-    if (championAliases.has(championId)) return championAliases.get(championId);
-    championAliases.set(championId, null);
-    try {
-      const response = await fetch(`/lol-game-data/assets/v1/champions/${championId}.json`);
-      const data = response.ok ? await response.json() : null;
-      if (data?.alias) championAliases.set(championId, String(data.alias));
-    } catch {
-      // Champion-specific path patterns are skipped without the alias
-    }
-    return championAliases.get(championId);
+  const PREVIEW_TARGETS = "img[src], video, [style*='background']";
+  const swapped = new Map(); // element -> { kind, original, written, previewUrl }
+  let previewKey = null;
+  let previewObserver = null;
+
+  const championAliases = new Map(); // championId -> alias ("" if the client has none)
+  const aliasRequests = new Set(); // championIds being fetched
+  const aliasRetryAt = new Map(); // championId -> earliest retry after a failed fetch
+
+  function loadChampionAlias(championId) {
+    if (championAliases.has(championId) || aliasRequests.has(championId)) return;
+    if (Date.now() < (aliasRetryAt.get(championId) || 0)) return;
+
+    aliasRequests.add(championId);
+    fetch(`/lol-game-data/assets/v1/champions/${championId}.json`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((data) => {
+        championAliases.set(championId, data?.alias ? String(data.alias) : "");
+        aliasRetryAt.delete(championId);
+      })
+      .catch(() => {
+        // Game data can be missing early in champ select; ask again later
+        aliasRetryAt.set(championId, Date.now() + ALIAS_RETRY_MS);
+      })
+      .finally(() => {
+        aliasRequests.delete(championId);
+        render();
+      });
   }
 
   function escapeRegExp(text) {
@@ -324,7 +373,7 @@
   function activeModOnCurrentSkin() {
     const championId = currentChampionId();
     const skinId = currentSkinId();
-    if (!activeModState || !championId || !skinId || currentPhase === "InProgress") return false;
+    if (!activeModState || !inLockedChampSelect() || !championId || !skinId) return false;
     if (Number(activeModState.championId) && Number(activeModState.championId) !== championId) return false;
 
     const targets = (activeModState.targetSkinIds || []).map(Number);
@@ -336,97 +385,259 @@
     if (!activeModOnCurrentSkin()) return null;
     const championId = currentChampionId();
     const skinId = currentSkinId();
-    const mod = mods.find((entry) => normalizeModId(entry) === selectedModId);
-    const url = mod?.thumbnailUrl ? String(mod.thumbnailUrl).replace("localhost", "127.0.0.1") : "";
+    const url = modPreviewUrl(mods.find((entry) => normalizeModId(entry) === selectedModId));
     return url ? { url, championId, skinId } : null;
   }
 
+  // CSS url() tokens: double quoted, single quoted or bare
+  const CSS_URL = /url\(\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([^"'()\s]*))\s*\)/gi;
+
   function cssUrl(url) {
-    return `url("${url}")`;
+    return `url("${String(url).replace(/["\\]/g, "\\$&")}")`;
   }
 
-  function backgroundUrl(element) {
-    const match = /url\(["']?([^"')]+)["']?\)/.exec(element.style.backgroundImage || "");
-    return match ? match[1] : "";
+  function cssUrls(value) {
+    return Array.from(String(value || "").matchAll(CSS_URL), (match) =>
+      (match[1] ?? match[2] ?? match[3] ?? "").replace(/\\(.)/g, "$1")
+    );
   }
 
-  function shownImage(element) {
-    return element.dataset.roseCsKind === "bg" ? backgroundUrl(element) : element.getAttribute("src");
-  }
-
-  // Put the client's image back, unless the client has already drawn a new
-  // one over the preview (for example after moving to another skin)
-  function restorePreviewElements() {
-    document.querySelectorAll("[data-rose-cs-original]").forEach((element) => {
-      const { roseCsOriginal: original, roseCsKind: kind, roseCsPreview: preview } = element.dataset;
-      if (kind === "video") element.style.removeProperty("visibility");
-      else if (shownImage(element) === preview) {
-        if (kind === "bg") element.style.backgroundImage = cssUrl(original);
-        else element.setAttribute("src", original);
-      }
-      delete element.dataset.roseCsOriginal;
-      delete element.dataset.roseCsKind;
-      delete element.dataset.roseCsPreview;
+  // `value` with the skin's url() layers pointed at `url`; other layers
+  // (gradients, other images) are kept. null if no layer is the skin's.
+  function swapSkinUrls(value, pattern, url) {
+    let swappedAny = false;
+    const result = String(value || "").replace(CSS_URL, (token, doubleQuoted, singleQuoted, bare) => {
+      const tokenUrl = (doubleQuoted ?? singleQuoted ?? bare ?? "").replace(/\\(.)/g, "$1");
+      if (!pattern.test(tokenUrl)) return token;
+      swappedAny = true;
+      return cssUrl(url);
     });
+    return swappedAny ? result : null;
+  }
+
+  // Animated splashes play over the image layer as <video src> or
+  // <video><source src></video>
+  function videoMatches(video, pattern) {
+    const urls = [video.getAttribute("src"), video.getAttribute("poster")];
+    video.querySelectorAll("source").forEach((source) => urls.push(source.getAttribute("src")));
+    return urls.some((url) => url && pattern.test(url));
+  }
+
+  function shownValue(element, kind) {
+    return kind === "img" ? element.getAttribute("src") : element.style.backgroundImage;
+  }
+
+  function originalMatches(record, pattern) {
+    if (record.kind === "img") return pattern.test(record.original);
+    return cssUrls(record.original).some((url) => pattern.test(url));
+  }
+
+  // Write the preview over the client's image and remember both
+  function writePreview(element, kind, original, pattern, previewUrl) {
+    if (kind === "img") {
+      element.setAttribute("src", previewUrl);
+    } else {
+      const value = swapSkinUrls(original, pattern, previewUrl);
+      if (value === null) return false;
+      element.style.backgroundImage = value;
+    }
+    // Read back: the browser normalizes what is written to the style
+    swapped.set(element, { kind, original, written: shownValue(element, kind), previewUrl });
+    return true;
+  }
+
+  function restore(element, record) {
+    swapped.delete(element);
+    if (record.kind === "video") {
+      if (record.original.value) {
+        element.style.setProperty("visibility", record.original.value, record.original.priority);
+      } else {
+        element.style.removeProperty("visibility");
+      }
+    } else if (record.kind === "img") {
+      element.setAttribute("src", record.original);
+    } else {
+      element.style.backgroundImage = record.original;
+    }
+  }
+
+  // Bring one element in line with the wanted preview (null: none)
+  function reconcile(element, preview, pattern) {
+    if (element.closest(`#${STRIP_ID}`)) return;
+
+    const record = swapped.get(element);
+    if (record) {
+      if (!element.isConnected) {
+        // The client may attach it again: leave its own image on it
+        if (record.kind === "video" || shownValue(element, record.kind) === record.written) restore(element, record);
+        else swapped.delete(element);
+        return;
+      }
+      if (record.kind === "video") {
+        if (!preview || !videoMatches(element, pattern)) restore(element, record);
+        return;
+      }
+      if (shownValue(element, record.kind) !== record.written) {
+        // The client drew a new image over the preview: look at it afresh
+        swapped.delete(element);
+      } else if (preview && originalMatches(record, pattern)) {
+        if (record.previewUrl !== preview.url) {
+          writePreview(element, record.kind, record.original, pattern, preview.url);
+        }
+        return;
+      } else {
+        // Another skin, another target of the mod, or no mod at all
+        restore(element, record);
+        return;
+      }
+    }
+
+    if (!preview) return;
+    if (element.tagName === "VIDEO") {
+      if (!videoMatches(element, pattern)) return;
+      const original = {
+        value: element.style.getPropertyValue("visibility"),
+        priority: element.style.getPropertyPriority("visibility"),
+      };
+      element.style.setProperty("visibility", "hidden", "important");
+      swapped.set(element, { kind: "video", original });
+    } else if (element.tagName === "IMG") {
+      const src = element.getAttribute("src");
+      if (src && pattern.test(src)) writePreview(element, "img", src, pattern, preview.url);
+    } else if (element.style.backgroundImage) {
+      writePreview(element, "bg", element.style.backgroundImage, pattern, preview.url);
+    }
+  }
+
+  function reconcileTracked(preview, pattern) {
+    Array.from(swapped.keys()).forEach((element) => reconcile(element, preview, pattern));
+  }
+
+  // Images the client adds or redraws while a preview is shown
+  function handlePreviewMutations(records) {
+    const preview = previewForActiveMod();
+    if (!preview) return;
+    const pattern = skinUrlPattern(preview.championId, preview.skinId);
+    const candidates = new Set();
+    const collect = (node, withSubtree) => {
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node.tagName === "SOURCE") {
+        const video = node.closest("video");
+        if (video) candidates.add(video);
+        return;
+      }
+      if (node.matches(PREVIEW_TARGETS)) candidates.add(node);
+      if (withSubtree) node.querySelectorAll(PREVIEW_TARGETS).forEach((element) => candidates.add(element));
+    };
+    records.forEach((record) => {
+      if (record.type === "attributes") {
+        // Only the element itself: style changes on containers are frequent
+        collect(record.target, false);
+        return;
+      }
+      record.addedNodes.forEach((node) => collect(node, true));
+      // A <video> that lost or swapped a <source> may no longer be the skin's
+      const video = record.target.nodeType === Node.ELEMENT_NODE ? record.target.closest("video") : null;
+      if (video) candidates.add(video);
+    });
+    candidates.forEach((element) => reconcile(element, preview, pattern));
+  }
+
+  function setPreviewObserver(enabled) {
+    if (enabled && !previewObserver) {
+      previewObserver = new MutationObserver(handlePreviewMutations);
+      previewObserver.observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["src", "style", "poster"],
+      });
+    } else if (!enabled && previewObserver) {
+      previewObserver.disconnect();
+      previewObserver = null;
+    }
   }
 
   function applyPreview() {
-    // The selected slot already names the mod: hide ROSE-HistoricMode's
-    // name popup for it
-    document.documentElement.classList.toggle(MOD_ACTIVE_CLASS, activeModOnCurrentSkin());
-
     const preview = previewForActiveMod();
-    if (!preview) {
-      restorePreviewElements();
-      return;
+    if (preview && !championAliases.has(preview.championId)) loadChampionAlias(preview.championId);
+
+    const pattern = preview ? skinUrlPattern(preview.championId, preview.skinId) : null;
+    const key = preview ? `${preview.url}|${pattern.source}` : null;
+    reconcileTracked(preview, pattern);
+    if (preview && key !== previewKey) {
+      document.querySelectorAll(PREVIEW_TARGETS).forEach((element) => {
+        if (!swapped.has(element)) reconcile(element, preview, pattern);
+      });
     }
-    if (!championAliases.has(preview.championId)) {
-      loadChampionAlias(preview.championId).then(applyPreview);
+    previewKey = key;
+    setPreviewObserver(Boolean(preview));
+  }
+
+  // ------------------------------------------------------------------ setup
+
+  // The strip follows the carousel, so it is laid out again while it can be
+  // shown
+  function syncLayoutTimer() {
+    const enabled = inLockedChampSelect();
+    if (enabled && !layoutTimer) layoutTimer = setInterval(render, LAYOUT_INTERVAL_MS);
+    else if (!enabled && layoutTimer) {
+      clearInterval(layoutTimer);
+      layoutTimer = null;
     }
+  }
 
-    const pattern = skinUrlPattern(preview.championId, preview.skinId);
+  function ownChampionLocked(session) {
+    const cellId = session?.localPlayerCellId;
+    if (typeof cellId !== "number" || cellId < 0) return false; // -1: spectating
+    const picks = (session.actions || [])
+      .flat()
+      .filter((action) => action?.actorCellId === cellId && action.type === "pick");
+    if (picks.length) return picks.some((action) => action.completed);
+    // Modes without a pick turn (ARAM) hand the champion out directly; this
+    // part follows Rose's compute_locked (lcu/data/utils.py)
+    const player = (session.myTeam || []).find((member) => member?.cellId === cellId);
+    const intent = Number(player?.championPickIntent || player?.pickIntentChampionId || 0);
+    return Number(player?.championId) > 0 && intent === 0 && !player.isPickIntenting;
+  }
 
-    // An element we swapped that the client has since given a new image is
-    // treated as fresh by the scan below
-    document.querySelectorAll("[data-rose-cs-original]").forEach((element) => {
-      if (element.dataset.roseCsKind !== "video" && shownImage(element) !== preview.url) {
-        delete element.dataset.roseCsOriginal;
-        delete element.dataset.roseCsKind;
-        delete element.dataset.roseCsPreview;
+  function setPhase(phase) {
+    const previous = currentPhase;
+    currentPhase = phase;
+    if ((phase === "ChampSelect") !== (previous === "ChampSelect")) {
+      resetSession();
+      championLocked = false;
+    }
+  }
+
+  // Rose announces the phase and the lock only when they change, so a plugin
+  // loaded during champ select (a client reload) or a bridge that reconnects
+  // can miss them: read them from the client. Rose's own phase-change or
+  // champion-locked message wins if one arrives meanwhile.
+  async function syncFromClient() {
+    const roseUpdatesAtStart = roseUpdates;
+    const sync = ++clientSyncs;
+    try {
+      const phaseResponse = await fetch("/lol-gameflow/v1/gameflow-phase");
+      if (!phaseResponse.ok) return;
+      const phase = await phaseResponse.json();
+      if (typeof phase !== "string") return;
+
+      let locked = false;
+      if (phase === "ChampSelect") {
+        const sessionResponse = await fetch("/lol-champ-select/v1/session");
+        locked = sessionResponse.ok && ownChampionLocked(await sessionResponse.json());
       }
-    });
+      if (roseUpdates !== roseUpdatesAtStart || sync !== clientSyncs) return;
 
-    document.querySelectorAll("[src], [style*='background']").forEach((element) => {
-      if (element.dataset.roseCsOriginal !== undefined || element.closest(`#${STRIP_ID}`)) return;
-
-      if (element.tagName === "VIDEO") {
-        // Animated splashes play over the image layer; hide the video
-        const src = element.getAttribute("src") || element.querySelector("source")?.getAttribute("src") || "";
-        if (pattern.test(src) || pattern.test(element.getAttribute("poster") || "")) {
-          element.dataset.roseCsOriginal = src;
-          element.dataset.roseCsKind = "video";
-          element.style.setProperty("visibility", "hidden", "important");
-        }
-        return;
-      }
-
-      const src = element.getAttribute("src");
-      if (src && pattern.test(src)) {
-        element.dataset.roseCsOriginal = src;
-        element.dataset.roseCsKind = "src";
-        element.dataset.roseCsPreview = preview.url;
-        element.setAttribute("src", preview.url);
-        return;
-      }
-
-      const bg = backgroundUrl(element);
-      if (bg && pattern.test(bg)) {
-        element.dataset.roseCsOriginal = bg;
-        element.dataset.roseCsKind = "bg";
-        element.dataset.roseCsPreview = preview.url;
-        element.style.backgroundImage = cssUrl(preview.url);
-      }
-    });
+      setPhase(phase);
+      if (locked) championLocked = true;
+      syncLayoutTimer();
+      requestMods(); // onReady has just asked already
+      render();
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} Could not read the champ select state`, error);
+    }
   }
 
   function handleSkinState(event) {
@@ -462,23 +673,30 @@
     bridge.subscribe("custom-mod-selection-result", handleSelectionResult);
     bridge.subscribe("custom-mod-state", handleCustomModState);
     bridge.subscribe("phase-change", (data) => {
-      const phase = String(data?.phase || "");
-      const previous = currentPhase;
-      currentPhase = phase;
-      if ((phase === "ChampSelect") !== (previous === "ChampSelect")) resetSession();
+      roseUpdates += 1;
+      setPhase(String(data?.phase || ""));
+      syncLayoutTimer();
       render();
     });
     bridge.subscribe("champion-locked", (data) => {
+      roseUpdates += 1;
       championLocked = Boolean(data?.locked);
+      // Rose only reports a lock in champ select; its phase-change may have
+      // been sent while the bridge was down
+      if (championLocked && currentPhase !== "ChampSelect") currentPhase = "ChampSelect";
       if (championLocked) requestMods(true);
       else resetSession();
+      syncLayoutTimer();
       render();
     });
-    bridge.onReady(() => requestMods(true));
+    // Runs now if the bridge is up, then on every reconnect
+    bridge.onReady(() => {
+      requestMods(true);
+      syncFromClient();
+    });
 
     window.addEventListener(EVENT_SKIN_STATE, handleSkinState, { passive: true });
     window.addEventListener("resize", render);
-    setInterval(render, 500);
     render();
   }
 
