@@ -336,6 +336,9 @@ class OverlayManager:
                     'timestamp': time.time()
                 }
 
+                from injection.loadingname.loading_name import MOD_FOLDER, repair_locale_overlays
+                if MOD_FOLDER in mod_names:
+                    repair_locale_overlays(Path(gpath), self.mods_dir, overlay_dir, exe)
                 self._restore_wad_headers(overlay_dir, Path(gpath))
 
                 # Wipe extracted skin files now that mkoverlay is done with them

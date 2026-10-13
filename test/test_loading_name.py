@@ -81,7 +81,7 @@ class LoadingNameTests(unittest.TestCase):
 
         name = loading_name.build(game, mods, mod, 238001)
         self.assertEqual(name, loading_name.MOD_FOLDER)
-        written = (mods / name / loading_name.TABLE_PATH).read_bytes()
+        written = (mods / name / 'WAD' / 'Global.en_US.wad.client' / loading_name.TABLE_PATH.relative_to('RAW')).read_bytes()
         self.assertEqual(
             loading_name._text_of(written, loading_name._key_hash('game_character_displayname_Zed')),
             'Shockblade Zed')
@@ -124,7 +124,7 @@ class LoadingNameTests(unittest.TestCase):
         mods.mkdir()
 
         name = loading_name.build(game, mods, mod, 238001)
-        table = (mods / name / loading_name.TABLE_PATH).read_bytes()
+        table = (mods / name / 'WAD' / 'Global.en_US.wad.client' / loading_name.TABLE_PATH.relative_to('RAW')).read_bytes()
         self.assertEqual(loading_name._text_of(table, loading_name._key_hash('game_character_displayname_Zed')),
                          'Shockblade Zed')
         self.assertEqual(loading_name._text_of(table, loading_name._key_hash('rose_character_displayname_Zed')),

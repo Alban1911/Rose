@@ -12,9 +12,10 @@ The skin's name is already in the player's game, translated, for every skin: thi
 installed, writes the skin's text over the champion's, and leaves the copy in the mods directory as one more mod. The
 language and the patch are therefore always the player's own, and nothing has to be downloaded or shipped.
 
-The mod is a loose file, RAW/DATA/Menu/en_US/lol.stringtable (the folder is en_US in every language: the language is
-in the name of the game's wad, not in the path inside it). mod-tools resolves that path by its hash and packs it into
-whichever Global.<locale>.wad.client the player has.
+Each table is scoped to WAD/Global.<locale>.wad.client/DATA/Menu/en_US/lol.stringtable.
+The inner en_US path is shared by all languages; only the enclosing WAD selects the locale.
+A loose RAW table would replace EVERY matching language WAD with the first locale's text.
+Build each installed locale independently instead, keeping its unrelated text unchanged.
 
 The champion's text is also what the chat ("Player (Champion): ...") and the name over the champion's head print, and
 those should keep the champion's name. They read the key the champion's own record names
@@ -26,6 +27,9 @@ holds the champion's name: RAW/data/characters/<champion>/<champion>.bin.
 import json
 import re
 import struct
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -46,6 +50,44 @@ RECORD_KEY_OWN = "rose_character_displayname_"
 # --------------------------------------------------------------------------------------
 # the game's files
 # --------------------------------------------------------------------------------------
+
+def repair_locale_overlays(game_dir: Path, mods_dir: Path, overlay_dir: Path, mod_tools: Path):
+    """Pack locales independently: mod-tools globally deduplicates equal entry hashes.
+
+    Merely scoping loose tables to named WAD folders is insufficient. A separate
+    build per locale prevents collisions; copy back ONLY that locale's output.
+    Run before header restoration, extracted-mod cleanup, or game resume.
+    A failed build raises, so a known mixed-language overlay is not served.
+    """
+    source = Path(mods_dir) / MOD_FOLDER / 'WAD'
+    if not source.is_dir():
+        return
+    tables = sorted(p for p in source.glob('Global.*.wad.client') if p.is_dir())
+    for wad in tables:
+        with tempfile.TemporaryDirectory(prefix='rose-locale-', dir=Path(mods_dir).parent) as tmp:
+            root = Path(tmp)
+            isolated_mods = root / 'mods'
+            isolated_mod = isolated_mods / MOD_FOLDER
+            destination = isolated_mod / 'WAD' / wad.name
+            shutil.copytree(wad, destination)
+            (isolated_mod / 'META').mkdir()
+            (isolated_mod / 'META/info.json').write_text(
+                json.dumps({'Name': 'Loading screen locale', 'Version': '1.0.0'}), encoding='utf-8')
+            output = root / 'overlay'
+            result = subprocess.run(
+                [str(mod_tools), 'mkoverlay', str(isolated_mods), str(output),
+                 f'--game:{game_dir}', f'--mods:{MOD_FOLDER}', '--noTFT', '--ignoreConflict'],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding='utf-8', errors='replace', timeout=60,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            generated = output / 'DATA/FINAL/Localized' / wad.name
+            expected = (wad / TABLE_PATH.relative_to('RAW')).read_bytes()
+            if result.returncode or not generated.is_file() or _read_table(generated) != expected:
+                raise RuntimeError(f'Locale overlay validation failed for {wad.name}')
+            final = Path(overlay_dir) / 'DATA/FINAL/Localized' / wad.name
+            final.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(generated, final)
+            log.info(f'[LOADNAME] Preserved independent locale table: {wad.name}')
 
 def _language_wads(game_dir: Path) -> List[Path]:
     localized = Path(game_dir) / "DATA" / "FINAL" / "Localized"
@@ -329,8 +371,23 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Opt
             log.debug("[LOADNAME] no language wad in the game folder, skipped")
             return None
 
+        # If any installed locale cannot be rebuilt, skip this cosmetic feature
+        # entirely. Otherwise the packer's first pass could still replace that
+        # locale with another language before the per-locale repair.
+        tables = {}
         for wad in wads:
             table = _read_table(wad)
+            if not table or table[:4] != b'RST\x05' or not any(
+                _text_of(table, _key_hash(f'game_character_skin_displayname_{alias}_{skin_id % 1000}'))
+                and _text_of(table, _key_hash(f'{RECORD_KEY}{alias}')) is not None
+                for alias in aliases
+            ):
+                log.warning(f'[LOADNAME] missing locale data in {wad.name}; keeping original language tables')
+                return None
+            tables[wad] = table
+        built = False
+        for wad in wads:
+            table = tables[wad]
             if not table or table[:3] != b"RST" or table[3] != 5:
                 continue
             for alias in aliases:
@@ -342,7 +399,8 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Opt
                 if champion_name is None:
                     continue
                 target = Path(mods_dir) / MOD_FOLDER
-                (target / TABLE_PATH.parent).mkdir(parents=True, exist_ok=True)
+                table_path = target / "WAD" / wad.name / TABLE_PATH.relative_to("RAW")
+                table_path.parent.mkdir(parents=True, exist_ok=True)
                 (target / "META").mkdir(parents=True, exist_ok=True)
                 (target / "META" / "info.json").write_text(json.dumps({
                     "Author": "Rose",
@@ -363,9 +421,12 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Opt
                 else:
                     log.debug(f"[LOADNAME] {alias}'s record not found, the chat shows the skin's name too")
 
-                (target / TABLE_PATH).write_bytes(table)
-                log.info(f"[LOADNAME] the loading screen will show '{name}'")
-                return MOD_FOLDER
+                table_path.write_bytes(table)
+                log.info(f"[LOADNAME] {wad.name}: the loading screen will show '{name}'")
+                built = True
+                break
+        if built:
+            return MOD_FOLDER
         log.debug(f"[LOADNAME] the game has no name for skin {skin_id}, skipped")
         return None
     except Exception as e:
