@@ -225,6 +225,26 @@ def is_base_skin_owned(skin_id: int, owned_skin_ids: set, chroma_id_map: Optiona
         return is_owned(base_skin_id, owned_skin_ids) if base_skin_id is not None else False
 
 
+def is_selectable_owned(skin_id: int, owned_skin_ids: set, chroma_id_map: Optional[dict]) -> bool:
+    """Check if an owned skin or chroma can be picked in the client
+
+    A chroma bought without its skin (Mythic Shop) is in the inventory, but
+    the client refuses it until the skin is owned too
+
+    Args:
+        skin_id: The skin or chroma ID
+        owned_skin_ids: Set of owned skin IDs from LCU
+        chroma_id_map: Dictionary mapping chroma IDs to chroma data
+
+    Returns:
+        True if the skin is owned and, for a chroma, its skin is owned too
+    """
+    if skin_id not in owned_skin_ids:
+        return False
+    base_skin_id = get_base_skin_id_for_chroma(skin_id, chroma_id_map)
+    return base_skin_id is None or is_owned(base_skin_id, owned_skin_ids)
+
+
 # No longer converting to English - using LCU localized names directly
 
 

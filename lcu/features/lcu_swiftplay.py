@@ -9,6 +9,7 @@ from typing import Optional
 
 from config import LCU_API_TIMEOUT_S
 from utils.core.logging import get_logger
+from utils.core.utilities import is_selectable_owned
 
 from ..core.lockfile import SWIFTPLAY_MODES, SWIFTPLAY_QUEUE_IDS
 
@@ -347,6 +348,18 @@ class LCUSwiftplay:
             log.debug(f"Error extracting dual champion selection from data: {e}")
             return None
 
+    def _get_chroma_id_map(self, champion_id: int) -> dict:
+        """Map each chroma of a champion to the skin it belongs to"""
+        data = self.api.get(f"/lol-game-data/assets/v1/champions/{champion_id}.json", LCU_API_TIMEOUT_S)
+        if not isinstance(data, dict):
+            log.debug(f"[Swiftplay] No skin data for champion {champion_id}")
+            return {}
+        return {
+            chroma.get("id"): {"skinId": skin.get("id")}
+            for skin in data.get("skins") or []
+            for chroma in skin.get("chromas") or []
+        }
+
     def force_base_skin_slots(self, skin_tracking: dict, owned_skin_ids: set = None) -> bool:
         """Force base skins on swiftplay player slots for tracked champions.
 
@@ -358,7 +371,8 @@ class LCUSwiftplay:
             skin_tracking: ``{champion_id: custom_skin_id}`` mapping built
                            by the skin processor during lobby.
             owned_skin_ids: Set of skin IDs the player owns. Owned skins
-                            are left untouched.
+                            are left untouched, except a chroma whose skin
+                            is not owned (the client refuses it).
 
         Returns:
             True if the PUT succeeded, False otherwise.
@@ -390,7 +404,9 @@ class LCUSwiftplay:
                 champ_id = slot.get("championId")
                 if champ_id and int(champ_id) in skin_tracking:
                     tracked_skin = skin_tracking[int(champ_id)]
-                    if tracked_skin in owned:
+                    if tracked_skin in owned and is_selectable_owned(
+                        tracked_skin, owned, self._get_chroma_id_map(int(champ_id))
+                    ):
                         log.debug(f"[Swiftplay] Skin {tracked_skin} for champion {champ_id} is owned — skipping")
                         continue
                     base_skin_id = int(champ_id) * 1000

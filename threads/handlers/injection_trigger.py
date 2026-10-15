@@ -17,7 +17,7 @@ from utils.core.issue_reporter import report_issue
 from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.paths import get_injection_dir
-from utils.core.utilities import is_default_skin
+from utils.core.utilities import is_default_skin, is_selectable_owned
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 from injection.game.game_monitor import make_game_ended_callback
 from injection.loadingname.loading_name import build as build_loading_name
@@ -83,6 +83,16 @@ class InjectionTrigger:
             except (KeyError, TypeError, ValueError):
                 pass
         return compatible
+
+    def _is_selectable_owned(self, skin_id: Optional[int], owned_skin_ids: set) -> bool:
+        """Return whether the client lets the player pick an owned skin or chroma.
+
+        A chroma bought without its skin is owned but refused by the client,
+        so it needs the base skin forced and injected like an unowned skin.
+        """
+        cache = getattr(self.skin_scraper, "cache", None)
+        chroma_map = getattr(cache, "chroma_id_map", None)
+        return is_selectable_owned(skin_id, owned_skin_ids or set(), chroma_map)
 
     @staticmethod
     def _get_entry_target_skin_ids(entry) -> set[int]:
@@ -681,7 +691,7 @@ class InjectionTrigger:
                 # carrier's skin0 paths and prevent a mod targeting the actual
                 # owned skin (for example Spirit Blossom Sett) from applying.
                 target_is_owned = (
-                    effective_skin_id in owned_skin_ids
+                    self._is_selectable_owned(effective_skin_id, owned_skin_ids)
                     or ui_skin_id in owned_skin_ids
                 )
 
@@ -757,7 +767,7 @@ class InjectionTrigger:
                 is_skin_owned = (
                     target_skin_id is not None and (
                         is_default
-                        or target_skin_id in (owned_skin_ids or set())
+                        or self._is_selectable_owned(target_skin_id, owned_skin_ids)
                     )
                 )
                 base_skin_name_for_injection = None
@@ -799,7 +809,8 @@ class InjectionTrigger:
 
             # Force owned skins/chromas via LCU
             # Use effective_skin_id which includes the selected chroma if applicable
-            elif effective_skin_id in owned_skin_ids and not is_default:
+            # (a chroma owned without its skin can't be picked, so it is injected)
+            elif self._is_selectable_owned(effective_skin_id, owned_skin_ids) and not is_default:
                 self._force_owned_skin(effective_skin_id)
                 # Still run injection so overlay is built with our skin + friends' party skins
                 if self.injection_manager:
