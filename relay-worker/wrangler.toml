@@ -6,6 +6,11 @@ compatibility_date = "2025-01-01"
 [observability]
 enabled = true
 
+# One log per Worker and room invocation was ~70% of the 200K events/day
+# allowance: the room's own lines already trace each connection
+[observability.logs]
+invocation_logs = false
+
 [[durable_objects.bindings]]
 name = "ROOM"
 class_name = "PartyRoom"
