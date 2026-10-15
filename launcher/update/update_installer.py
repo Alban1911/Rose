@@ -197,6 +197,12 @@ class UpdateInstaller:
             LOG=str(log_path),
             PID=str(os.getpid()),
         )
+        # With System32 missing from the user's PATH, cmd found no robocopy and
+        # the update copied nothing (#363)
+        system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+        env["PATH"] = os.pathsep.join(
+            [str(system32), str(system32 / "WindowsPowerShell" / "v1.0"), os.environ.get("PATH", "")]
+        )
         # /s keeps the quotes around the path: without it, cmd drops them when
         # the path holds & or parentheses, and runs a cut off path
         try:
