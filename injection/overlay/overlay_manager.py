@@ -384,8 +384,14 @@ class OverlayManager:
         patchers itself.
         """
         with self._early_patcher_lock:
-            if self._early_patcher is not None or self.game_dir is None:
+            if self.game_dir is None:
                 return
+            if self._early_patcher is not None:
+                if self._early_patcher["proc"].poll() is None:
+                    return
+                # Rose stopped it after the last game: scan again for this one
+                self._abort_ltk_patcher(self._early_patcher)
+                self._early_patcher = None
             from ..tools.tools_manager import ToolsManager
             ltk_host = ToolsManager(self.tools_dir).detect_ltk_patcher()
             if not ltk_host or check_ltk_patcher(ltk_host.parent).expired_for(self.game_dir):

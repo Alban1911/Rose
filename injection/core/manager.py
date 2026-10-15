@@ -93,11 +93,36 @@ class InjectionManager:
                         )
                         self._initialized = False
     
+    def start_patcher_in_background(self):
+        """Start the LTK patcher when the loadout countdown begins.
+
+        The DLL only overlays games launched after the host started scanning.
+        Started with the injection at T-2, it had a few seconds before the
+        client launched the game, and a PC that froze for 4s at that moment
+        lost the overlay. In the background: starting it must not hold up the
+        countdown.
+        """
+        if not self._initialized or self.injector is None:
+            return
+
+        def start():
+            try:
+                self.injector.overlay_manager.start_patcher_early()
+            except Exception as e:
+                log.warning(f"[INJECT] Could not start the LTK patcher early: {e}")
+
+        threading.Thread(target=start, daemon=True, name="LTKPatcherStart").start()
+
+    def discard_early_patcher(self):
+        """Stop the patcher started for a countdown that ends without an injection."""
+        if self.injector:
+            self.injector.overlay_manager.discard_early_patcher()
+
     def _start_monitor(self):
         """Start game monitor - watches for game and suspends it"""
         self.game_monitor.start()
         # The LTK patcher only overlays games launched after it started
-        # scanning: start it now, before the mods are prepared
+        # scanning: start it now if the countdown did not already
         if self.injector:
             self.injector.overlay_manager.start_patcher_early()
     

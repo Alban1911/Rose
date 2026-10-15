@@ -801,6 +801,7 @@ class InjectionTrigger:
                     log.info(f"[INJECT] skipping injection for default skin (skinId={effective_skin_id}) - no mods selected")
                     if self.injection_manager:
                         self.injection_manager.resume_if_suspended()
+                        self.injection_manager.discard_early_patcher()
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                 if champ_id:
                     from utils.core.historic import clear_historic_entry
@@ -845,7 +846,9 @@ class InjectionTrigger:
         
         except Exception as e:
             log.warning(f"[loadout #{ticker_id}] injection setup failed: {e}")
-    
+            if self.injection_manager:
+                self.injection_manager.discard_early_patcher()
+
     def _force_owned_skin(self, skin_id: int):
         """Force owned skin/chroma selection via LCU"""
         log.info(f"[INJECT] User owns this skin/chroma (skinId={skin_id}), forcing selection via LCU")

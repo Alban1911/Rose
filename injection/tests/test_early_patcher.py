@@ -54,6 +54,13 @@ class EarlyPatcherTests(unittest.TestCase):
         self.assertIsNone(self.overlay._take_early_patcher())
         self.abort.assert_called_once()
 
+    def test_a_patcher_stopped_after_the_last_game_is_replaced(self):
+        self.overlay.start_patcher_early()
+        self.running = False  # Rose stopped it at the end of the game
+        self.overlay.start_patcher_early()
+        self.assertEqual(self.start.call_count, 2)
+        self.abort.assert_called_once()
+
     def test_an_injection_that_gave_up_stops_its_patcher(self):
         self.overlay.start_patcher_early()
         self.overlay.discard_early_patcher()
@@ -84,6 +91,44 @@ class MonitorStartsThePatcherTests(unittest.TestCase):
         manager._start_monitor()
         manager._stop_monitor()
         manager.game_monitor.start.assert_called_once()
+
+
+class _InlineThread:
+    def __init__(self, target, **_):
+        self.target = target
+
+    def start(self):
+        self.target()
+
+
+class CountdownStartsThePatcherTests(unittest.TestCase):
+    """Started at T-2, the patcher had a few seconds before the client launched
+    the game, and a PC that froze for 4s then lost the overlay"""
+
+    def setUp(self):
+        self.manager = InjectionManager.__new__(InjectionManager)
+        self.manager._initialized = True
+        self.manager.injector = MagicMock()
+        threads = patch('injection.core.manager.threading', SimpleNamespace(Thread=_InlineThread))
+        threads.start()
+        self.addCleanup(threads.stop)
+
+    def test_the_countdown_starts_the_patcher(self):
+        self.manager.start_patcher_in_background()
+        self.manager.injector.overlay_manager.start_patcher_early.assert_called_once()
+
+    def test_a_failed_start_does_not_reach_the_countdown(self):
+        self.manager.injector.overlay_manager.start_patcher_early.side_effect = OSError('denied')
+        self.manager.start_patcher_in_background()
+
+    def test_nothing_starts_before_the_injection_system_is_ready(self):
+        self.manager._initialized = False
+        self.manager.start_patcher_in_background()
+        self.manager.injector.overlay_manager.start_patcher_early.assert_not_called()
+
+    def test_a_countdown_without_injection_stops_it(self):
+        self.manager.discard_early_patcher()
+        self.manager.injector.overlay_manager.discard_early_patcher.assert_called_once()
 
 
 if __name__ == '__main__':
