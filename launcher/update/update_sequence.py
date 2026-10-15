@@ -310,22 +310,9 @@ class UpdateSequence:
                     f"Failed to persist installed_version to config before update: {exc}"
                 )
 
-        # Prepare and launch standalone updater (falls back to batch script if needed)
-        updater_params = self.installer.prepare_updater_launch(
+        # Start the script that copies the update over this install once Rose exits
+        if not self.installer.install(
             extracted_root,
-            install_dir,
-            updates_root,
-            zip_path,
-            staging_dir,
-            status_callback,
-        )
-        if not updater_params:
-            # Revert installed_version so the next run retries the update
-            self._revert_installed_version(config, config_path, old_installed_version)
-            return False
-
-        if not self.installer.launch_updater(
-            updater_params,
             install_dir,
             updates_root,
             zip_path,
@@ -340,6 +327,5 @@ class UpdateSequence:
         if bytes_callback and total_size:
             bytes_callback(total_size, total_size)
         status_callback("Update installed")
-        updater_log.info(f"Auto-update completed. Update installed: True")
         return True
 
