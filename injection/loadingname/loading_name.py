@@ -14,7 +14,7 @@ language and the patch are therefore always the player's own, and nothing has to
 
 The mod is a loose file, RAW/DATA/Menu/en_US/lol.stringtable (the folder is en_US in every language: the language is
 in the name of the game's wad, not in the path inside it). mod-tools resolves that path by its hash and packs it into
-whichever Global.<locale>.wad.client the player has.
+every Global.<locale>.wad.client the player has, so the table is copied from the language the client runs the game in.
 
 The champion's text is also what the chat ("Player (Champion): ...") and the name over the champion's head print, and
 those should keep the champion's name. They read the key the champion's own record names
@@ -50,6 +50,36 @@ RECORD_KEY_OWN = "rose_character_displayname_"
 def _language_wads(game_dir: Path) -> List[Path]:
     localized = Path(game_dir) / "DATA" / "FINAL" / "Localized"
     return sorted(localized.glob("Global.*.wad.client")) if localized.is_dir() else []
+
+
+def _client_locale(game_dir: Path) -> Optional[str]:
+    """The language the client launches the game in (zh_TW...), from the settings it writes next to the game."""
+    settings = Path(game_dir).parent / "Config" / "LeagueClientSettings.yaml"
+    try:
+        text = settings.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    match = re.search(
+        r'^[ \t]+globals:[ \t]*\n(?:[ \t]+(?!locale:)[\w-]+:.*\n)*?[ \t]+locale:[ \t]*"?([A-Za-z]{2}_[A-Za-z]{2})"?',
+        text, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _language_wad(game_dir: Path) -> Optional[Path]:
+    """The language wad the game reads, or None when it can't be told.
+
+    mod-tools packs the mod's one table into every Global wad the game has, so the table has to come from the game's
+    own language. Copied from the first wad by name instead, a TW install that also had Global.en_US played its whole
+    match in English (#353).
+    """
+    wads = _language_wads(game_dir)
+    locale = _client_locale(game_dir)
+    if locale:
+        for wad in wads:
+            if wad.name.lower() == f"global.{locale.lower()}.wad.client":
+                return wad
+    # Without the client's language, only a lone wad is surely the game's
+    return wads[0] if len(wads) == 1 else None
 
 
 def _read_entry(wad: Path, path_hash: int) -> Optional[bytes]:
@@ -324,15 +354,13 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Opt
             log.debug("[LOADNAME] the skin carries no champion wad, skipped")
             return None
 
-        wads = _language_wads(Path(game_dir))
-        if not wads:
-            log.debug("[LOADNAME] no language wad in the game folder, skipped")
+        wad = _language_wad(Path(game_dir))
+        if not wad:
+            log.debug("[LOADNAME] the game's language wad is unknown, skipped")
             return None
 
-        for wad in wads:
-            table = _read_table(wad)
-            if not table or table[:3] != b"RST" or table[3] != 5:
-                continue
+        table = _read_table(wad)
+        if table and table[:3] == b"RST" and table[3] == 5:
             for alias in aliases:
                 name = _text_of(table, _key_hash(f"game_character_skin_displayname_{alias}_{skin_id % 1000}"))
                 if not name:

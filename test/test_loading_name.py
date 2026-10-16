@@ -88,6 +88,58 @@ class LoadingNameTests(unittest.TestCase):
         meta = json.loads((mods / name / 'META' / 'info.json').read_text(encoding='utf-8'))
         self.assertEqual(meta['Description'], 'Shockblade Zed')
 
+    def _game_with_languages(self, names, locale=None):
+        """A game folder with these language wads, each naming the skin in its own language."""
+        game = self.root / 'League of Legends' / 'Game'
+        wad_dir = game / 'DATA' / 'FINAL' / 'Localized'
+        wad_dir.mkdir(parents=True)
+        for language, skin_name in names.items():
+            (wad_dir / f'Global.{language}.wad.client').write_bytes(make_wad(make_table({
+                'game_character_displayname_Zed': 'Zed',
+                'game_character_skin_displayname_Zed_1': skin_name,
+            })))
+        if locale:
+            config = game.parent / 'Config'
+            config.mkdir()
+            (config / 'LeagueClientSettings.yaml').write_text(
+                'install:\n'
+                '    gameflow-spectate-reconnect-info: null\n'
+                '    globals:\n'
+                f'        locale: "{locale}"\n'
+                '        region: "TW"\n'
+                '    patcher:\n'
+                '        locales:\n'
+                '        - "en_US"\n', encoding='utf-8')
+        mod = self.root / 'mod'
+        (mod / 'WAD').mkdir(parents=True)
+        (mod / 'WAD' / 'Zed.wad.client').touch()
+        mods = self.root / 'mods'
+        mods.mkdir()
+        return game, mods, mod
+
+    def test_the_table_comes_from_the_clients_language(self):
+        """#353: en_US sorts first, and its table turned a Chinese match English"""
+        game, mods, mod = self._game_with_languages(
+            {'en_US': 'Shockblade Zed', 'zh_TW': '電刃 劫'}, locale='zh_TW')
+        name = loading_name.build(game, mods, mod, 238001)
+        table = (mods / name / loading_name.TABLE_PATH).read_bytes()
+        self.assertEqual(loading_name._text_of(table, loading_name._key_hash('game_character_displayname_Zed')),
+                         '電刃 劫')
+
+    def test_several_languages_and_no_known_locale_build_nothing(self):
+        game, mods, mod = self._game_with_languages({'en_US': 'Shockblade Zed', 'zh_MY': '影刃 劫'})
+        self.assertIsNone(loading_name.build(game, mods, mod, 238001))
+        self.assertFalse((mods / loading_name.MOD_FOLDER).exists())
+
+    def test_a_locale_without_its_wad_falls_back_to_a_lone_wad_only(self):
+        game, mods, mod = self._game_with_languages({'zh_MY': '影刃 劫'}, locale='zh_TW')
+        self.assertEqual(loading_name.build(game, mods, mod, 238001), loading_name.MOD_FOLDER)
+
+    def test_the_locale_is_read_under_globals(self):
+        game, _, _ = self._game_with_languages({'en_US': 'x'}, locale='zh_TW')
+        self.assertEqual(loading_name._client_locale(game), 'zh_TW')
+        self.assertIsNone(loading_name._client_locale(self.root / 'nowhere' / 'Game'))
+
     def test_a_base_skin_builds_nothing(self):
         self.assertIsNone(loading_name.build(self.root, self.root, self.root, 238000))
 
