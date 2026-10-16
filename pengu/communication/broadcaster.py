@@ -120,11 +120,15 @@ class Broadcaster:
         historic_skin_id = getattr(self.shared_state, 'historic_skin_id', None)
         locked_champ_id = getattr(self.shared_state, 'locked_champ_id', None)
         historic_entry_available = bool(historic_mode_active)
-        historic_base_skin_id = (
-            int(locked_champ_id) * 1000
-            if historic_entry_available and locked_champ_id is not None
-            else None
-        )
+        if historic_entry_available and locked_champ_id is not None:
+            from injection.classic import default_skin_id_for_state, to_regular_skin_id
+
+            historic_base_skin_id = default_skin_id_for_state(
+                self.shared_state, int(locked_champ_id)
+            )
+            historic_base_skin_id = to_regular_skin_id(historic_base_skin_id)
+        else:
+            historic_base_skin_id = None
         # Handle chroma IDs - they're not in the skin mapping, need to get from chroma cache
         skin_name = None
         if historic_skin_id is not None:
@@ -159,10 +163,22 @@ class Broadcaster:
                 if self.skin_scraper and self.skin_scraper.cache:
                     chroma_id_map = getattr(self.skin_scraper.cache, "chroma_id_map", None)
                 
-                if is_chroma_id(historic_skin_id, chroma_id_map):
+                cache_historic_id = historic_skin_id
+                if chroma_id_map and historic_skin_id not in chroma_id_map:
+                    from injection.classic import to_regular_skin_id
+
+                    canonical_id = int(to_regular_skin_id(historic_skin_id) or 0)
+                    cache_historic_id = next(
+                        (
+                            value for value in chroma_id_map
+                            if int(to_regular_skin_id(value) or 0) == canonical_id
+                        ),
+                        historic_skin_id,
+                    )
+                if is_chroma_id(cache_historic_id, chroma_id_map):
                     # It's a chroma - get chroma name from cache
-                    if chroma_id_map and historic_skin_id in chroma_id_map:
-                        chroma_info = chroma_id_map[historic_skin_id]
+                    if chroma_id_map and cache_historic_id in chroma_id_map:
+                        chroma_info = chroma_id_map[cache_historic_id]
                         chroma_name = chroma_info.get('name', '')
                         skin_name = chroma_name if chroma_name else None
                     else:
@@ -411,4 +427,3 @@ class Broadcaster:
                 return False
         
         return False
-
