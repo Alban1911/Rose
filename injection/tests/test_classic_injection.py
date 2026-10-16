@@ -3,13 +3,16 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from injection import classic
+from injection import classic_carrier
 from injection.core import injector as injector_module
 from injection.core.injector import SkinInjector
 from injection.mods.mod_manager import ModManager
 from injection.mods.zip_resolver import ZipResolver
+from threads.handlers.injection_trigger import InjectionTrigger
 
 
 class ClassicIdTests(unittest.TestCase):
@@ -25,6 +28,136 @@ class ClassicIdTests(unittest.TestCase):
         self.assertTrue(classic.is_classic_game_mode('JADE'))
         self.assertFalse(classic.is_classic_game_mode('CLASSIC'))
         self.assertFalse(classic.is_classic_game_mode(None))
+
+    def test_native_skin301_carrier_wins_over_skin0(self):
+        carousel = [
+            {'id': 60055000, 'isBase': True},
+            {'id': 60055301},
+            {'id': 60055029},
+        ]
+        self.assertEqual(
+            classic_carrier.resolve_classic_default_skin_id(
+                55, carousel, [60055000, 60055301, 60055029]
+            ),
+            60055301,
+        )
+
+    def test_declared_skin302_resolves_ambiguous_native_slots(self):
+        carousel = [
+            {'id': 60010301},
+            {'id': 60010302, 'isDefault': True},
+        ]
+        self.assertEqual(
+            classic_carrier.resolve_classic_default_skin_id(
+                60010, carousel, [60010301, 60010302]
+            ),
+            60010302,
+        )
+
+    def test_skin0_is_used_only_when_no_native_carrier_exists(self):
+        carousel = [{'id': 60002000, 'isBase': True}, {'id': 60002016}]
+        self.assertEqual(
+            classic_carrier.resolve_classic_default_skin_id(
+                2, carousel, [60002000, 60002016]
+            ),
+            60002000,
+        )
+
+    def test_unpickable_skin301_does_not_override_skin0(self):
+        carousel = [
+            {'id': 60021000, 'isBase': True},
+            {'id': 60021301},
+        ]
+        self.assertEqual(
+            classic_carrier.resolve_classic_default_skin_id(
+                21, carousel, [60021000]
+            ),
+            60021000,
+        )
+
+    def test_missing_live_carrier_does_not_invent_skin0(self):
+        state = SimpleNamespace(current_game_mode='JADE', classic_default_skin_id=None)
+        lcu = MagicMock()
+        lcu.get.side_effect = [[{'id': 60055301}], []]
+        self.assertIsNone(
+            classic_carrier.cache_classic_default_skin_id(lcu, state, 55)
+        )
+        self.assertIsNone(state.classic_default_skin_id)
+
+    def test_force_uses_cached_wheel_carrier_without_querying_lcu(self):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60055,
+            hovered_champ_id=None,
+            classic_default_skin_id=60055301,
+        )
+        lcu = MagicMock()
+        self.assertEqual(
+            classic_carrier.carrier_skin_id_for_force(lcu, state, 60055000),
+            60055301,
+        )
+        lcu.get.assert_not_called()
+
+    def test_regular_force_keeps_requested_skin0(self):
+        state = SimpleNamespace(
+            current_game_mode='CLASSIC', locked_champ_id=55, hovered_champ_id=None
+        )
+        self.assertEqual(
+            classic_carrier.carrier_skin_id_for_force(
+                MagicMock(), state, 55000
+            ),
+            55000,
+        )
+
+    @patch("threads.handlers.injection_trigger.threading.Thread")
+    def test_unowned_skin_refreshes_carrier_when_lcu_already_reports_skin0(
+        self, thread_cls
+    ):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60055,
+            hovered_champ_id=None,
+            local_cell_id=1,
+            classic_default_skin_id=None,
+        )
+        lcu = MagicMock()
+        lcu.session = {
+            'myTeam': [{'cellId': 1, 'selectedSkinId': 60055000}]
+        }
+        trigger = InjectionTrigger(lcu, state, injection_manager=MagicMock())
+        trigger._force_base_skin = MagicMock()
+
+        trigger._inject_unowned_skin('skin_55029', 'Katarina')
+
+        trigger._force_base_skin.assert_called_once_with(60055000)
+        thread_cls.return_value.start.assert_called_once()
+
+    @patch("threads.handlers.injection_trigger.threading.Thread")
+    def test_unowned_skin_restores_cached_native_carrier_after_lcu_rollback(
+        self, thread_cls
+    ):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60055,
+            hovered_champ_id=None,
+            local_cell_id=1,
+            classic_default_skin_id=60055301,
+        )
+        lcu = MagicMock()
+        lcu.session = {
+            'myTeam': [{'cellId': 1, 'selectedSkinId': 60055000}]
+        }
+        trigger = InjectionTrigger(lcu, state, injection_manager=MagicMock())
+        trigger._force_base_skin = MagicMock()
+
+        trigger._inject_unowned_skin('skin_55029', 'Katarina')
+
+        trigger._force_base_skin.assert_called_once()
+        self.assertIn(
+            trigger._force_base_skin.call_args.args[0],
+            (60055000, 60055301),
+        )
+        thread_cls.return_value.start.assert_called_once()
 
 
 class ClassicInjectionTests(unittest.TestCase):
