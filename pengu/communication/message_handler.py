@@ -22,6 +22,7 @@ from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.storage import ModStorageService
+from injection.overlay.overlay_manager import ltk_failure_cause
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
@@ -883,10 +884,14 @@ class MessageHandler:
                         return {'code': 'LTK_PATCHER_EOL', 'text': 'LTK patcher outdated -> update'}
                     if 'missing' in ml:
                         return {'code': 'LTK_PATCHER_MISSING', 'text': 'LTK patcher missing -> add files'}
+                    detail = msg.split('LTK patcher error:', 1)[-1].strip()
                     return {
                         'code': 'LTK_PATCHER_FAILED',
                         'text': 'LTK patcher error',
-                        'detail': msg.split('LTK patcher error:', 1)[-1].strip(),
+                        'detail': detail,
+                        # Picks the panel's hint: most failures have nothing to
+                        # do with outdated patcher files
+                        'cause': ltk_failure_cause(detail),
                     }
 
                 # Fallback: keep it short

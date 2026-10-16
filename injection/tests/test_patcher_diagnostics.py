@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from injection.overlay import overlay_manager
-from injection.overlay.overlay_manager import LATE_JOIN_ERROR, OverlayManager
+from injection.overlay.overlay_manager import LATE_JOIN_ERROR, OverlayManager, ltk_failure_cause
 from injection.overlay.process_manager import ProcessManager
 from injection.tools.patcher import LTK_PATCHER_DLL, LTK_PATCHER_HOST, describe_ltk_patcher_files
 
@@ -50,8 +50,35 @@ class FailureHintTests(unittest.TestCase):
     def test_disabled_overlay_points_at_the_skin_or_mods(self):
         self.assertIn('custom mods', self.hint('overlay verification failed, disabling overlay'))
 
-    def test_unknown_failures_keep_the_update_hint(self):
-        self.assertIn('up to date', self.hint('exited with code 3'))
+    def test_unknown_failures_do_not_blame_the_files(self):
+        self.assertNotIn('update', self.hint('exited with code 3 (0x00000003)'))
+
+    def test_a_patcher_killed_by_another_program_points_at_the_antivirus(self):
+        # 0x40010004, seen on a PC whose antivirus closed the patcher
+        hint = self.hint('exited with code 1073807364 (0x40010004)')
+        self.assertIn('antivirus', hint)
+        self.assertNotIn('update', hint)
+
+    def test_a_crashed_patcher_suggests_updating_it(self):
+        self.assertIn('update your LTK patcher files', self.hint('exited with code 3221225477 (0xC0000005)'))
+
+
+class FailureCauseTests(unittest.TestCase):
+    """Troubleshooting picks its hint by cause"""
+
+    def test_each_reason_has_its_cause(self):
+        for reason, cause in [
+            ('SetWindowsHookEx failed: 0x00000000', 'hook'),
+            (LATE_JOIN_ERROR, 'late'),
+            ('overlay verification failed, disabling overlay', 'rejected'),
+            ('could not start ([WinError 2] file not found)', 'start'),
+            ('exited with code 1073807364 (0x40010004)', 'killed'),
+            ('exited with code 3221225477 (0xC0000005)', 'crashed'),
+            ('exited with code -1073741819', 'crashed'),
+            ('exited with code 3 (0x00000003)', 'unknown'),
+            ('something new', 'unknown'),
+        ]:
+            self.assertEqual(ltk_failure_cause(reason), cause, reason)
 
 
 class FailureContextTests(unittest.TestCase):

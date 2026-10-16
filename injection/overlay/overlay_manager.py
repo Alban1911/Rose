@@ -11,6 +11,7 @@ Security Notes:
     - Commands only execute mod-tools.exe from the verified tools directory
 """
 
+import re
 import shutil
 import subprocess
 import threading
@@ -65,6 +66,31 @@ END_OF_LIFE_MESSAGE = "end of life reached"
 LATE_JOIN_MESSAGE = "joined too late"
 # Session error Rose records when the DLL reports a late join
 LATE_JOIN_ERROR = "the game started before the patcher, overlay not applied"
+# Exit code of a process another program terminated (DBG_TERMINATE_PROCESS),
+# most often an antivirus
+KILLED_EXIT_CODE = 0x40010004
+
+
+def ltk_failure_cause(reason: str) -> str:
+    """Why the patcher failed, from the reason Rose reported: what to do about
+    it depends on it (Troubleshooting shows a hint for each)"""
+    if "SetWindowsHookEx" in reason:
+        return "hook"
+    if reason == LATE_JOIN_ERROR:
+        return "late"
+    if "disabling overlay" in reason:
+        return "rejected"
+    if reason.startswith("could not start"):
+        return "start"
+    exit_code = re.match(r"exited with code (-?\d+)", reason)
+    if exit_code:
+        code = int(exit_code.group(1)) & 0xFFFFFFFF
+        if code == KILLED_EXIT_CODE:
+            return "killed"
+        # NTSTATUS errors (access violation...): the patcher itself crashed
+        if code >= 0xC0000000:
+            return "crashed"
+    return "unknown"
 
 # WAD v3 header: magic + version (4), RSA signature (256), checksum (8)
 WAD_HEADER_SIZE = 268
@@ -577,7 +603,9 @@ class OverlayManager:
                 log.error(f"[INJECT] LTK patcher exited with return code: {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})")
                 self._log_patcher_context(session, resumed_at)
                 self._log_runoverlay_tail(runoverlay_log)
-                self._report_ltk_patcher_failure(f"exited with code {proc.returncode}")
+                self._report_ltk_patcher_failure(
+                    f"exited with code {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})"
+                )
                 return proc.returncode
             log.debug("[INJECT] LTK patcher session completed successfully")
             return 0
@@ -623,17 +651,26 @@ class OverlayManager:
     def _ltk_failure_hint(reason: str) -> str:
         """What the user can do about a patcher failure, by the cause it reported."""
         logs = "Details are in rose_runoverlay_*.log."
-        if "SetWindowsHookEx" in reason:
+        report = "report it with rose_*.log and rose_runoverlay_*.log"
+        cause = ltk_failure_cause(reason)
+        if cause == "hook":
             return ("The patcher could not attach to the game this time. Retry the next game; "
-                    f"if it fails every game, report it with rose_*.log and rose_runoverlay_*.log. {logs}")
-        if reason == LATE_JOIN_ERROR:
+                    f"if it fails every game, {report}. {logs}")
+        if cause == "late":
             return f"The game started before the patcher was ready. Retry the next game. {logs}"
-        if "disabling overlay" in reason:
+        if cause == "rejected":
             return ("The patcher rejected the overlay built for this game. Try another skin or turn off custom mods; "
                     f"if every skin fails, update your LTK patcher files. {logs}")
-        if reason.startswith("could not start"):
-            return f"Rose could not start ltk_patcher_host.exe. Check that it is still in Rose's tools folder. {logs}"
-        return f"Make sure your LTK patcher files are up to date, then retry. {logs}"
+        if cause == "start":
+            return ("Rose could not start ltk_patcher_host.exe. Check that it is still in Rose's tools folder: "
+                    f"an antivirus may have removed it. {logs}")
+        if cause == "killed":
+            return ("Another program closed the LTK patcher, most often an antivirus. "
+                    f"Add Rose's folder to its exclusions, then retry. {logs}")
+        if cause == "crashed":
+            return ("The LTK patcher crashed. Retry the next game; if it crashes every game, "
+                    f"update your LTK patcher files and {report}. {logs}")
+        return f"Retry the next game. If it fails every game, {report}. {logs}"
 
     @classmethod
     def _report_ltk_patcher_failure(cls, reason: str):

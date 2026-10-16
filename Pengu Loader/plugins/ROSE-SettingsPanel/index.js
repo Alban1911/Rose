@@ -5061,11 +5061,23 @@
 
         if (code === 'LTK_PATCHER_FAILED') {
           const detail = String(e?.detail || '').trim();
+          // Why it failed (ltk_failure_cause in overlay_manager.py): most
+          // failures have nothing to do with outdated patcher files
+          const fixes = {
+            killed: () => t("Fix: another program closed the LTK patcher, most often an antivirus. Add Rose's folder to its exclusions, then retry."),
+            hook: () => t('Fix: the patcher could not attach to the game this time. Retry the next game.'),
+            late: () => t('Fix: the game started before the patcher was ready. Retry the next game.'),
+            rejected: () => t('Fix: the patcher rejected the overlay built for this game. Try another skin or turn off custom mods. If every skin fails, update your LTK patcher files.'),
+            start: () => t("Fix: Rose could not start ltk_patcher_host.exe. Check that it is still in Rose's tools folder: an antivirus may have removed it."),
+            crashed: () => t('Fix: the LTK patcher crashed. Retry the next game. If it crashes every game, update your LTK patcher files.'),
+          };
+          const fix = fixes[e?.cause];
           return {
             title: t('LTK patcher failed during injection'),
             details: [
               detail ? t('What happened: {detail}', { detail }) : t('What happened: the LTK patcher reported an error.'),
-              t('Fix: make sure your LTK patcher files are up to date, then retry. Full output is in rose_runoverlay_*.log in the Rose logs folder.'),
+              fix ? fix() : t('Fix: retry the next game. If it fails every game, report it with your Rose logs.'),
+              t('Full output is in rose_runoverlay_*.log in the Rose logs folder.'),
             ],
           };
         }
