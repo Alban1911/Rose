@@ -70,8 +70,10 @@ class LCU:
         """Return a consistent port/password snapshot for the LCU WebSocket."""
         return self._connection.websocket_credentials()
     
-    def get(self, path: str, timeout: float = 1.0):
+    def get(self, path: str, timeout: float = 1.0, *, use_cache: bool = True):
         """Make GET request to LCU API"""
+        if not use_cache:
+            return self._api.get(path, timeout, use_cache=False)
         return self._api.get(path, timeout)
     
     # Properties (delegated to properties handler)

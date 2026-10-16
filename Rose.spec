@@ -28,6 +28,10 @@ else:
 
 # Icons have been moved to assets folder, no separate icons directory needed
 
+# The tray collector ships within assets, using the same frozen path resolver.
+if not Path('assets/diagnostics/Diagnose-Rose.ps1').is_file():
+    raise RuntimeError("Startup diagnostic collector is missing from assets/diagnostics.")
+
 # Injection tools - separate binaries (.exe, .dll) from data files (.bat)
 import os
 
@@ -223,6 +227,7 @@ hiddenimports = [
     'utils.core',
     'utils.core.logging',
     'utils.core.paths',
+    'utils.core.startup_diagnostics',
     'utils.core.utilities',
     'utils.core.validation',
     'utils.core.normalization',
@@ -241,8 +246,10 @@ hiddenimports = [
     'utils.download.hash_updater',
     'utils.integration',
     'utils.integration.tray_manager',
+    'utils.integration.diagnostics_progress',
     'utils.integration.tray_settings',
     'utils.integration.pengu_loader',
+    'utils.integration.startup_verifier',
     'utils.threading',
     'utils.threading.thread_manager',
     'ui',

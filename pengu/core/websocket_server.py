@@ -59,6 +59,11 @@ class WebSocketServer:
         self._connections: Set[WebSocketServerProtocol] = set()
         self._stop_event = threading.Event()
         self.ready_event = threading.Event()
+        # Positive evidence from the injected Rose plugin, not an LCU connection.
+        self.plugin_ready_event = threading.Event()
+        # Latch even brief/legacy connections. Avoid a startup failure popup
+        # after a working older plugin disconnected between verifier polls.
+        self.client_seen_event = threading.Event()
     
         # Watchdog: the loop beats while it's free; the message being handled
         # is logged if it blocks
@@ -156,8 +161,18 @@ class WebSocketServer:
         client = websocket.remote_address
         log.info("[SkinMonitor] Client connected: %s", client)
         self._connections.add(websocket)
+        self.client_seen_event.set()
         try:
             async for message in websocket:
+                try:
+                    payload = json.loads(message)
+                    if (isinstance(payload, dict) and payload.get("type") == "rose-plugin-ready"
+                            and payload.get("plugin") == "ROSE-SkinMonitor"
+                            and payload.get("protocol") == 1):
+                        self.plugin_ready_event.set()
+                        continue
+                except (ValueError, TypeError, UnicodeError):
+                    pass
                 if self.message_handler:
                     self._handling = message
                     try:
@@ -259,6 +274,12 @@ class WebSocketServer:
         for ws in stale:
             self._connections.discard(ws)
     
+    @property
+    def is_responsive(self) -> bool:
+        """A stopped or blocked bridge cannot support an injection-failure verdict."""
+        return (self.ready_event.is_set() and not self._stop_event.is_set()
+                and time.monotonic() - self._last_beat < BLOCKED_LOOP_WARNING_S)
+
     @property
     def connections(self) -> Set[WebSocketServerProtocol]:
         """Get set of active connections"""
