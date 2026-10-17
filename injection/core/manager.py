@@ -233,20 +233,29 @@ class InjectionManager:
         # This prevents unnecessary suspension for base skins and owned skins
         pass
     
+    def has_classic_skin(
+        self,
+        skin_name: str,
+        champion_id: Optional[int],
+        chroma_id: Optional[int] = None,
+        native: bool = False,
+    ) -> bool:
+        """Return whether the matching Classic archive is installed."""
+        self._ensure_initialized()
+        return bool(
+            self.injector
+            and self.injector.has_classic_skin(
+                skin_name, champion_id, chroma_id, native=native
+            )
+        )
+
     def has_classic_native_skin(
         self,
         skin_name: str,
         champion_id: Optional[int],
         chroma_id: Optional[int] = None,
     ) -> bool:
-        """Return whether the matching native-carrier archive is installed."""
-        self._ensure_initialized()
-        return bool(
-            self.injector
-            and self.injector.has_classic_native_skin(
-                skin_name, champion_id, chroma_id
-            )
-        )
+        return self.has_classic_skin(skin_name, champion_id, chroma_id, native=True)
 
     def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None, classic_native: bool = False) -> bool:
         """Immediately inject a specific skin (with optional chroma)

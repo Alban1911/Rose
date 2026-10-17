@@ -107,15 +107,43 @@ class ClassicIdTests(unittest.TestCase):
         )
         self.assertEqual(
             classic_carrier.classic_injection_plan(
-                MagicMock(), state, 60055000, native_package_available=True
+                MagicMock(), state, 60055000, True, True
             ),
             (60055301, True, None),
         )
         self.assertEqual(
             classic_carrier.classic_injection_plan(
-                MagicMock(), state, 60055000, native_package_available=False
+                MagicMock(), state, 60055000, False, True
             ),
-            (60055000, False, 'native-package-unavailable'),
+            (60055000, False, 'default-package-unavailable'),
+        )
+
+    def test_auto_prefers_default_slot_library_for_native_skin0(self):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60002,
+            hovered_champ_id=None,
+            classic_default_skin_id=60002000,
+        )
+        self.assertEqual(
+            classic_carrier.classic_injection_plan(
+                MagicMock(), state, 60002000, True, True
+            ),
+            (60002000, True, None),
+        )
+
+    def test_auto_keeps_skin0_when_default_slot_package_is_unusable(self):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60002,
+            hovered_champ_id=None,
+            classic_default_skin_id=60002000,
+        )
+        self.assertEqual(
+            classic_carrier.classic_injection_plan(
+                MagicMock(), state, 60002000, False, True
+            ),
+            (60002000, False, 'default-package-unavailable'),
         )
 
     def test_auto_falls_back_when_live_carrier_is_unavailable(self):
@@ -129,10 +157,47 @@ class ClassicIdTests(unittest.TestCase):
         lcu.get.return_value = None
         self.assertEqual(
             classic_carrier.classic_injection_plan(
-                lcu, state, 60055000, native_package_available=True
+                lcu, state, 60055000, True, True
             ),
             (60055000, False, 'carrier-unresolved'),
         )
+
+    def test_auto_stops_when_both_package_families_are_unavailable(self):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60055,
+            hovered_champ_id=None,
+            classic_default_skin_id=60055301,
+        )
+        self.assertEqual(
+            classic_carrier.classic_injection_plan(
+                MagicMock(), state, 60055000, False, False
+            ),
+            (None, False, 'package-unavailable'),
+        )
+
+    @patch("threads.handlers.injection_trigger.threading.Thread")
+    def test_unowned_skin_stops_before_lcu_write_when_no_package_is_available(
+        self, thread_cls
+    ):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60055,
+            hovered_champ_id=None,
+            local_cell_id=1,
+            classic_default_skin_id=60055301,
+        )
+        lcu = MagicMock()
+        manager = MagicMock()
+        manager.has_classic_native_skin.return_value = False
+        manager.has_classic_skin.return_value = False
+        trigger = InjectionTrigger(lcu, state, injection_manager=manager)
+        trigger._force_base_skin = MagicMock()
+
+        trigger._inject_unowned_skin('skin_55029', 'Katarina')
+
+        trigger._force_base_skin.assert_not_called()
+        thread_cls.assert_not_called()
 
     def test_regular_force_keeps_requested_skin0(self):
         state = SimpleNamespace(
@@ -259,6 +324,7 @@ class ClassicInjectionTests(unittest.TestCase):
         self.assertEqual(self._injected(), (['1001', 'party_42'], 'classic'))
 
     def test_native_carrier_uses_parallel_package_family(self):
+        self.assertTrue(self.injector.has_classic_skin('skin_60001001', 60001))
         self.assertTrue(self.injector.has_classic_native_skin('skin_60001001', 60001))
         self.assertTrue(self.injector.inject_skin(
             'skin_60001001',
@@ -267,6 +333,25 @@ class ClassicInjectionTests(unittest.TestCase):
             classic_native=True,
         ))
         self.assertEqual(self._injected(), (['1001'], 'classic-native'))
+
+    def test_damaged_default_slot_package_is_unavailable(self):
+        damaged = self.injector.classic_native_dir / '60001' / '1001' / '1001.fantome'
+        damaged.write_bytes(b'not a zip archive')
+        self.assertFalse(self.injector.has_classic_native_skin('skin_60001001', 60001))
+        self.assertTrue(self.injector.has_classic_skin('skin_60001001', 60001))
+
+    def test_damaged_compressed_member_is_unavailable(self):
+        damaged = self.injector.classic_native_dir / '60001' / '1002' / '1002.fantome'
+        damaged.parent.mkdir(parents=True)
+        with zipfile.ZipFile(damaged, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('payload.bin', b'A' * 10_000)
+        contents = bytearray(damaged.read_bytes())
+        name_length = int.from_bytes(contents[26:28], 'little')
+        extra_length = int.from_bytes(contents[28:30], 'little')
+        contents[30 + name_length + extra_length + 5] ^= 0xFF
+        damaged.write_bytes(contents)
+
+        self.assertFalse(self.injector.has_classic_native_skin('skin_60001002', 60001))
 
     def test_a_friends_classic_skin_is_found_like_ours(self):
         archive = self.injector._resolve_zip(

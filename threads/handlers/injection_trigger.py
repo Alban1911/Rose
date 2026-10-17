@@ -180,7 +180,7 @@ class InjectionTrigger:
         skin_name: str,
         champion_id: int,
         chroma_id: Optional[int] = None,
-    ) -> tuple[int, bool]:
+    ) -> tuple[Optional[int], bool]:
         """Choose one matching carrier and package family for this injection."""
         classic_mode = (
             is_classic_game_mode(getattr(self.state, "current_game_mode", None))
@@ -199,21 +199,30 @@ class InjectionTrigger:
                 skin_name, effective_champion_id, chroma_id
             )
         )
+        legacy_package_available = bool(
+            classic_mode
+            and self.injection_manager
+            and self.injection_manager.has_classic_skin(
+                skin_name, effective_champion_id, chroma_id
+            )
+        )
         carrier, classic_native, fallback_reason = classic_injection_plan(
             self.lcu,
             self.state,
             requested_skin_id,
             native_package_available,
+            legacy_package_available,
         )
         package_family = "native" if classic_native else "legacy"
         if fallback_reason:
+            message = (
+                "[CLASSIC:CARRIER] Injection aborted"
+                if carrier is None
+                else "[CLASSIC:CARRIER] Auto fallback"
+            )
             log.warning(
-                "[CLASSIC:CARRIER] Auto fallback champion=%s carrier=%s "
-                "package=%s reason=%s",
-                champion_id,
-                carrier,
-                package_family,
-                fallback_reason,
+                "%s champion=%s carrier=%s package=%s reason=%s",
+                message, champion_id, carrier, package_family, fallback_reason,
             )
         elif is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
             log.info(
@@ -990,6 +999,8 @@ class InjectionTrigger:
                 base_skin_id, classic_native = self._automatic_classic_injection(
                     name, champ_id
                 )
+                if base_skin_id is None:
+                    return
                 
                 # Read actual current selection from LCU session
                 actual_lcu_skin_id = None

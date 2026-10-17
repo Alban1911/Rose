@@ -8,6 +8,9 @@ Handles the actual skin injection using CSLOL tools
 import sys
 import time
 import shutil
+import zipfile
+import zlib
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -32,6 +35,25 @@ from ..overlay.process_manager import ProcessManager
 from ..loadingname.loading_name import build as build_loading_name, parse_skin_id
 
 log = get_logger()
+
+
+@lru_cache(maxsize=512)
+def _archive_is_usable(path: str, size: int, mtime_ns: int) -> bool:
+    """Validate an archive once per file version."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            damaged_member = archive.testzip()
+    except (OSError, EOFError, RuntimeError, zipfile.BadZipFile, zlib.error) as error:
+        log.warning("[CLASSIC:CARRIER] Package preflight failed path=%s error=%s", path, error)
+        return False
+    if damaged_member:
+        log.warning(
+            "[CLASSIC:CARRIER] Package preflight failed path=%s member=%s",
+            path,
+            damaged_member,
+        )
+        return False
+    return True
 
 
 class SkinInjector:
@@ -140,20 +162,41 @@ class SkinInjector:
         champion_dir = (classic_dir or self.classic_dir) / str(champion_id)
         return to_library_skin_name(champion_dir, skin_name), to_library_id(champion_dir, chroma_id), champion_id
 
+    def has_classic_skin(
+        self,
+        skin_name: str,
+        champion_id: Optional[int],
+        chroma_id: Optional[int] = None,
+        native: bool = False,
+    ) -> bool:
+        archive = self._resolve_zip(
+            skin_name,
+            chroma_id=chroma_id,
+            skin_name=skin_name,
+            champion_id=champion_id,
+            classic=True,
+            classic_native=native,
+        )
+        if archive is None:
+            return False
+        try:
+            stat = archive.stat()
+        except OSError as error:
+            log.warning(
+                "[CLASSIC:CARRIER] Package preflight failed path=%s error=%s",
+                archive,
+                error,
+            )
+            return False
+        return _archive_is_usable(str(archive), stat.st_size, stat.st_mtime_ns)
+
     def has_classic_native_skin(
         self,
         skin_name: str,
         champion_id: Optional[int],
         chroma_id: Optional[int] = None,
     ) -> bool:
-        return self._resolve_zip(
-            skin_name,
-            chroma_id=chroma_id,
-            skin_name=skin_name,
-            champion_id=champion_id,
-            classic=True,
-            classic_native=True,
-        ) is not None
+        return self.has_classic_skin(skin_name, champion_id, chroma_id, native=True)
     
     def _clean_mods_dir(self):
         """Clean the mods directory"""

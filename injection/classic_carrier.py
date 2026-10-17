@@ -103,8 +103,9 @@ def classic_injection_plan(
     state,
     requested_skin_id: int,
     native_package_available: bool,
-) -> tuple[int, bool, Optional[str]]:
-    """Choose one matching carrier and Classic package family."""
+    legacy_package_available: bool = True,
+) -> tuple[Optional[int], bool, Optional[str]]:
+    """Prefer the default-slot package, then fall back atomically to Skin0."""
     champion_id = getattr(state, "locked_champ_id", None) or getattr(
         state, "hovered_champ_id", None
     )
@@ -115,12 +116,14 @@ def classic_injection_plan(
         return int(requested_skin_id), False, None
     carrier = cache_classic_default_skin_id(lcu, state, int(champion_id))
     if carrier is None:
+        if not legacy_package_available:
+            return None, False, "package-unavailable"
         return int(requested_skin_id), False, "carrier-unresolved"
-    if carrier == int(requested_skin_id):
-        return carrier, False, None
-    if not native_package_available:
-        return int(requested_skin_id), False, "native-package-unavailable"
-    return carrier, True, None
+    if native_package_available:
+        return carrier, True, None
+    if legacy_package_available:
+        return int(requested_skin_id), False, "default-package-unavailable"
+    return None, False, "package-unavailable"
 
 
 def carrier_skin_id_for_force(lcu, state, requested_skin_id: int) -> int:
