@@ -98,8 +98,13 @@ def cache_classic_default_skin_id(lcu, state, champion_id: int) -> Optional[int]
     return carrier
 
 
-def carrier_skin_id_for_force(lcu, state, requested_skin_id: int) -> int:
-    """Replace a generated Classic Skin0 request with its verified carrier."""
+def classic_injection_plan(
+    lcu,
+    state,
+    requested_skin_id: int,
+    native_package_available: bool,
+) -> tuple[int, bool, Optional[str]]:
+    """Choose one matching carrier and Classic package family."""
     champion_id = getattr(state, "locked_champ_id", None) or getattr(
         state, "hovered_champ_id", None
     )
@@ -107,10 +112,25 @@ def carrier_skin_id_for_force(lcu, state, requested_skin_id: int) -> int:
         is_classic_game_mode(getattr(state, "current_game_mode", None))
         or is_classic_champion_id(champion_id)
     ):
-        return int(requested_skin_id)
+        return int(requested_skin_id), False, None
     carrier = cache_classic_default_skin_id(lcu, state, int(champion_id))
     if carrier is None:
-        raise RuntimeError("Classic native carrier is unavailable; refusing Skin0 fallback")
+        return int(requested_skin_id), False, "carrier-unresolved"
+    if carrier == int(requested_skin_id):
+        return carrier, False, None
+    if not native_package_available:
+        return int(requested_skin_id), False, "native-package-unavailable"
+    return carrier, True, None
+
+
+def carrier_skin_id_for_force(lcu, state, requested_skin_id: int) -> int:
+    """Return the automatic carrier, falling back to the requested Skin0."""
+    carrier, _, _ = classic_injection_plan(
+        lcu,
+        state,
+        requested_skin_id,
+        native_package_available=True,
+    )
     return carrier
 
 

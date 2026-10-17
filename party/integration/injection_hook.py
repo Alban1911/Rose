@@ -80,7 +80,7 @@ class PartyInjectionHook:
 
         return peer_skins
 
-    def prepare_party_mods(self, injector) -> List[str]:
+    def prepare_party_mods(self, injector, classic_native: bool = False) -> List[str]:
         """Prepare party member skin mods for injection
 
         Args:
@@ -107,6 +107,7 @@ class PartyInjectionHook:
                     skin_data=skin_data,
                     injector=injector,
                     classic=classic,
+                    classic_native=classic_native,
                 )
                 if mod_name:
                     mod_folder_names.append(mod_name)
@@ -122,6 +123,7 @@ class PartyInjectionHook:
         skin_data: PartySkinData,
         injector,
         classic: bool = False,
+        classic_native: bool = False,
     ) -> Optional[str]:
         """Prepare a single party member's skin for injection
 
@@ -156,7 +158,9 @@ class PartyInjectionHook:
                 )
 
         if source is None:
-            source = self._resolve_skin_zip(skin_data, injector, classic)
+            source = self._resolve_skin_zip(
+                skin_data, injector, classic, classic_native
+            )
         if source is None:
             return None
 
@@ -178,7 +182,12 @@ class PartyInjectionHook:
         return mod_folder_name
 
     @staticmethod
-    def _resolve_skin_zip(skin_data: PartySkinData, injector, classic: bool = False) -> Optional[Path]:
+    def _resolve_skin_zip(
+        skin_data: PartySkinData,
+        injector,
+        classic: bool = False,
+        classic_native: bool = False,
+    ) -> Optional[Path]:
         """Find the skin (or chroma) file of a party member's official skin"""
         skin_name = f"skin_{skin_data.skin_id}"
 
@@ -190,6 +199,7 @@ class PartyInjectionHook:
                 champion_name=None,
                 champion_id=skin_data.champion_id,
                 classic=classic,
+                classic_native=classic_native,
             )
             if zip_path and zip_path.exists():
                 return zip_path
@@ -204,6 +214,7 @@ class PartyInjectionHook:
             champion_name=None,
             champion_id=skin_data.champion_id,
             classic=classic,
+            classic_native=classic_native,
         )
         if not zip_path or not zip_path.exists():
             log.warning(f"[PARTY_INJECT] Could not find skin ZIP for {skin_name}")

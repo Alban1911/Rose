@@ -1,4 +1,4 @@
-# Riftbound Classic native carriers
+# Rift Classic native carriers
 
 ## Carrier IDs
 
@@ -67,8 +67,10 @@ injection boundary verifies and reuses that value.
    marked `isBase` or `isDefault`.
 7. If there is no native candidate, use the unique declared default or a
    Skin0 ID that is actually present in both catalogs.
-8. If the result is missing or ambiguous, stop Classic injection before
-   writing a guessed ID to LCU.
+8. Use the native carrier only when its matching package is available under
+   `classic-native/`.
+9. If discovery or package resolution fails, keep the existing Skin0 carrier
+   and use the matching package under `classic/`.
 
 The intersection is important. A Classic-only Skin301 archive can exist in
 the library or carousel without being pickable for the current session, and
@@ -170,16 +172,18 @@ validation.
 
 The LCU carrier and the root object replaced by a Fantome archive must match.
 Do not select Skin301 while installing a Skin0 adapter, or select Skin0 while
-installing an archive rooted at Skin301.
+installing an archive rooted at Skin301. Rose makes this choice automatically;
+there is no user-facing slot setting.
 
-- Skin0 champions retain the upstream lightweight packages rooted at
-  `Jade_<Champion>/Skins/Skin0`.
-- Skin301 and Skin302 champions use carrier-compatible packages rooted at
-  their native mode objects.
-- Each target skin remains one archive in the existing
-  `classic/<Classic champion>/<target skin>` layout. Regular skins use their
-  regular IDs, while Classic-only skins use their full Classic IDs. A
-  parallel copy of the library for each carrier is not required.
+- `classic/` retains the existing Skin0 package family for released Rose
+  versions and for automatic fallback.
+- `classic-native/` contains the matching native-carrier package family used
+  by the revised Rose version.
+- Rose selects the native carrier and `classic-native/` together only when the
+  live carrier and requested archive both resolve. Otherwise it selects Skin0
+  and `classic/` together.
+- Regular skins keep their regular IDs inside either library, while
+  Classic-only skins use their full Classic IDs.
 - Package metadata may record the actor, carrier, source skin, and target
   identity for audit purposes, but Rose derives the runtime carrier from LCU,
   not from a filename or a hard-coded champion table.

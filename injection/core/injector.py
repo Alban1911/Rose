@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from utils.core.logging import get_logger, log_action, log_success
-from utils.core.paths import get_classic_skins_dir, get_skins_dir, get_injection_dir
+from utils.core.paths import (
+    get_classic_native_skins_dir,
+    get_classic_skins_dir,
+    get_skins_dir,
+    get_injection_dir,
+)
 from utils.core.issue_reporter import report_issue
 from utils.core.junction import safe_remove_entry
 
@@ -100,6 +105,8 @@ class SkinInjector:
         # Rift Classic skins (LeagueSkins' classic/ folder, keyed by Classic champion IDs)
         self.classic_dir = get_classic_skins_dir()
         self.classic_resolver = ZipResolver(self.classic_dir)
+        self.classic_native_dir = get_classic_native_skins_dir()
+        self.classic_native_resolver = ZipResolver(self.classic_native_dir)
         self.mod_manager = ModManager(self.mods_dir)
         self.process_manager = ProcessManager()
         # Pass process_manager to overlay_manager so they share the process reference
@@ -111,19 +118,42 @@ class SkinInjector:
         # Check for CSLOL tools
         self.tools_manager.check_tools_available()
     
-    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None, classic: bool = False) -> Optional[Path]:
+    def _classic_library(self, native: bool = False):
+        if native:
+            return self.classic_native_resolver, self.classic_native_dir
+        return self.classic_resolver, self.classic_dir
+
+    def _resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None, classic: bool = False, classic_native: bool = False) -> Optional[Path]:
         """Resolve a ZIP by name or path with fuzzy matching (from the Classic library in Rift Classic)"""
         if classic:
-            zip_arg, chroma_id, champion_id = self._classic_library_ids(zip_arg, chroma_id, champion_id)
-            return self.classic_resolver.resolve_zip(zip_arg, chroma_id, zip_arg, champion_name, champion_id)
+            resolver, classic_dir = self._classic_library(classic_native)
+            zip_arg, chroma_id, champion_id = self._classic_library_ids(
+                zip_arg, chroma_id, champion_id, classic_dir
+            )
+            return resolver.resolve_zip(zip_arg, chroma_id, zip_arg, champion_name, champion_id)
         return self.zip_resolver.resolve_zip(zip_arg, chroma_id, skin_name, champion_name, champion_id)
 
-    def _classic_library_ids(self, skin_name: str, chroma_id: Optional[int], champion_id: Optional[int]):
+    def _classic_library_ids(self, skin_name: str, chroma_id: Optional[int], champion_id: Optional[int], classic_dir: Optional[Path] = None):
         """The names the Classic library stores a skin under: champions under their
         Classic ID, each skin under the regular or the Classic ID (see injection.classic)"""
         champion_id = to_classic_champion_id(champion_id)
-        champion_dir = self.classic_dir / str(champion_id)
+        champion_dir = (classic_dir or self.classic_dir) / str(champion_id)
         return to_library_skin_name(champion_dir, skin_name), to_library_id(champion_dir, chroma_id), champion_id
+
+    def has_classic_native_skin(
+        self,
+        skin_name: str,
+        champion_id: Optional[int],
+        chroma_id: Optional[int] = None,
+    ) -> bool:
+        return self._resolve_zip(
+            skin_name,
+            chroma_id=chroma_id,
+            skin_name=skin_name,
+            champion_id=champion_id,
+            classic=True,
+            classic_native=True,
+        ) is not None
     
     def _clean_mods_dir(self):
         """Clean the mods directory"""
@@ -162,6 +192,7 @@ class SkinInjector:
         champion_id: int = None,
         extra_mods_callback: Optional[Callable[["SkinInjector"], List[str]]] = None,
         classic: bool = False,
+        classic_native: bool = False,
     ) -> bool:
         """Inject a single skin (with optional chroma and party mods)
         
@@ -173,6 +204,7 @@ class SkinInjector:
             chroma_id: Optional chroma ID to inject specific chroma variant
             extra_mods_callback: Optional callback(injector) -> list of extra mod folder names (e.g. party skins)
             classic: Rift Classic game: inject the stored Classic skin instead
+            classic_native: use the native-carrier Classic package family
         """
         injection_start_time = time.time()
         
@@ -181,8 +213,10 @@ class SkinInjector:
         
         resolver, skins_dir = self.zip_resolver, self.zips_dir
         if classic:
-            skin_name, chroma_id, champion_id = self._classic_library_ids(skin_name, chroma_id, champion_id)
-            resolver, skins_dir = self.classic_resolver, self.classic_dir
+            resolver, skins_dir = self._classic_library(classic_native)
+            skin_name, chroma_id, champion_id = self._classic_library_ids(
+                skin_name, chroma_id, champion_id, skins_dir
+            )
 
         # Find the skin ZIP (with chroma support)
         # Extract base skin name (remove skin ID if present) for chroma path construction

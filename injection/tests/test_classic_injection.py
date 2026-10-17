@@ -98,6 +98,42 @@ class ClassicIdTests(unittest.TestCase):
         )
         lcu.get.assert_not_called()
 
+    def test_auto_uses_native_carrier_only_with_matching_package(self):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60055,
+            hovered_champ_id=None,
+            classic_default_skin_id=60055301,
+        )
+        self.assertEqual(
+            classic_carrier.classic_injection_plan(
+                MagicMock(), state, 60055000, native_package_available=True
+            ),
+            (60055301, True, None),
+        )
+        self.assertEqual(
+            classic_carrier.classic_injection_plan(
+                MagicMock(), state, 60055000, native_package_available=False
+            ),
+            (60055000, False, 'native-package-unavailable'),
+        )
+
+    def test_auto_falls_back_when_live_carrier_is_unavailable(self):
+        state = SimpleNamespace(
+            current_game_mode='JADE',
+            locked_champ_id=60055,
+            hovered_champ_id=None,
+            classic_default_skin_id=None,
+        )
+        lcu = MagicMock()
+        lcu.get.return_value = None
+        self.assertEqual(
+            classic_carrier.classic_injection_plan(
+                lcu, state, 60055000, native_package_available=True
+            ),
+            (60055000, False, 'carrier-unresolved'),
+        )
+
     def test_regular_force_keeps_requested_skin0(self):
         state = SimpleNamespace(
             current_game_mode='CLASSIC', locked_champ_id=55, hovered_champ_id=None
@@ -110,7 +146,7 @@ class ClassicIdTests(unittest.TestCase):
         )
 
     @patch("threads.handlers.injection_trigger.threading.Thread")
-    def test_unowned_skin_refreshes_carrier_when_lcu_already_reports_skin0(
+    def test_unowned_skin_keeps_skin0_when_auto_falls_back(
         self, thread_cls
     ):
         state = SimpleNamespace(
@@ -129,7 +165,7 @@ class ClassicIdTests(unittest.TestCase):
 
         trigger._inject_unowned_skin('skin_55029', 'Katarina')
 
-        trigger._force_base_skin.assert_called_once_with(60055000)
+        trigger._force_base_skin.assert_not_called()
         thread_cls.return_value.start.assert_called_once()
 
     @patch("threads.handlers.injection_trigger.threading.Thread")
@@ -153,6 +189,7 @@ class ClassicIdTests(unittest.TestCase):
         trigger._inject_unowned_skin('skin_55029', 'Katarina')
 
         trigger._force_base_skin.assert_called_once()
+        self.assertTrue(trigger._force_base_skin.call_args.kwargs['resolved'])
         self.assertIn(
             trigger._force_base_skin.call_args.args[0],
             (60055000, 60055301),
@@ -167,7 +204,9 @@ class ClassicInjectionTests(unittest.TestCase):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         root = Path(temp_dir.name)
-        skins_dir, classic_dir = root / 'skins', root / 'classic'
+        skins_dir = root / 'skins'
+        classic_dir = root / 'classic'
+        classic_native_dir = root / 'classic-native'
         self._fantome(skins_dir / '1' / '1001' / '1001.fantome', 'regular')
         # LeagueSkins' layout: classic/<Classic champion>/<regular ID, or Classic ID for Classic-only skins>
         self._fantome(classic_dir / '60001' / '1001' / '1001.fantome', 'classic')
@@ -176,12 +215,18 @@ class ClassicInjectionTests(unittest.TestCase):
         self._fantome(classic_dir / '60103' / '103001' / '103052' / '103052.fantome', 'classic')
         # The repository's older tree under regular champion IDs is not used
         self._fantome(classic_dir / '1' / '1005' / '1005.fantome', 'classic')
+        self._fantome(
+            classic_native_dir / '60001' / '1001' / '1001.fantome',
+            'classic-native',
+        )
 
         # Only what inject_skin uses: no game or tools detection
         self.injector = SkinInjector.__new__(SkinInjector)
         self.injector.zips_dir, self.injector.classic_dir = skins_dir, classic_dir
+        self.injector.classic_native_dir = classic_native_dir
         self.injector.zip_resolver = ZipResolver(skins_dir)
         self.injector.classic_resolver = ZipResolver(classic_dir)
+        self.injector.classic_native_resolver = ZipResolver(classic_native_dir)
         self.injector.mod_manager = ModManager(root / 'mods')
         # No game files: the loading screen name is skipped
         self.injector.game_dir, self.injector.mods_dir = root / 'game', root / 'mods'
@@ -212,6 +257,16 @@ class ClassicInjectionTests(unittest.TestCase):
         ))
         # Friends' skins come along (the party hook takes them from the Classic library)
         self.assertEqual(self._injected(), (['1001', 'party_42'], 'classic'))
+
+    def test_native_carrier_uses_parallel_package_family(self):
+        self.assertTrue(self.injector.has_classic_native_skin('skin_60001001', 60001))
+        self.assertTrue(self.injector.inject_skin(
+            'skin_60001001',
+            champion_id=60001,
+            classic=True,
+            classic_native=True,
+        ))
+        self.assertEqual(self._injected(), (['1001'], 'classic-native'))
 
     def test_a_friends_classic_skin_is_found_like_ours(self):
         archive = self.injector._resolve_zip(
