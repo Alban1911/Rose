@@ -855,8 +855,11 @@ class InjectionTrigger:
 
             # Inject if user doesn't own the hovered skin
             elif self.injection_manager:
-                chroma_id_to_inject = effective_skin_id if (effective_skin_id and effective_skin_id != ui_skin_id) else None
-                self._inject_unowned_skin(name, cname, chroma_id=chroma_id_to_inject)
+                chroma_id_to_inject = effective_skin_id if (effective_skin_id and effective_skin_id != ui_skin_id and not name.startswith("chroma_")) else None
+                if chroma_id_to_inject:
+                    self._inject_unowned_skin(name, cname, chroma_id=chroma_id_to_inject)
+                else:
+                    self._inject_unowned_skin(name, cname)
         
         except Exception as e:
             log.warning(f"[loadout #{ticker_id}] injection setup failed: {e}")
