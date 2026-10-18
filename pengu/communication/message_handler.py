@@ -255,6 +255,10 @@ class MessageHandler:
             self._handle_classic_mode_catalog(payload)
         elif payload_type == "classic-skin-selection":
             self._handle_classic_skin_selection(payload)
+        elif payload_type == "chroma-selection" and self._handle_optional_classic_chroma(
+            payload
+        ):
+            pass
         elif payload_type == "chroma-selection":
             self._handle_chroma_selection(payload)
         elif payload_type == "dice-button-click":
@@ -610,6 +614,13 @@ class MessageHandler:
             self.shared_state.classic_default_skin_id,
             generation,
         )
+
+    def _handle_optional_classic_chroma(self, payload: dict) -> bool:
+        try:
+            from ui.chroma.classic_integration import handle_classic_chroma_selection
+        except ImportError:
+            return False
+        return handle_classic_chroma_selection(self, payload)
     
     def _handle_chroma_selection(self, payload: dict) -> None:
         """Handle chroma selection from JavaScript"""
