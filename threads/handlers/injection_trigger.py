@@ -177,22 +177,71 @@ class InjectionTrigger:
         except (TypeError, ValueError):
             return False
 
-    def _injection_carrier_skin_id(self, champion_id: int) -> Optional[int]:
-        if not (
+    def _automatic_classic_injection(
+        self,
+        skin_name: str,
+        champion_id: int,
+        chroma_id: Optional[int] = None,
+    ) -> tuple[Optional[int], bool]:
+        """Use the optional native-carrier policy, or keep upstream Skin0."""
+        classic_mode = (
             is_classic_game_mode(getattr(self.state, "current_game_mode", None))
             or is_classic_champion_id(champion_id)
-        ):
-            return int(champion_id) * 1000
-        mode_champion_id = int(to_classic_champion_id(champion_id) or 0)
-        carrier = getattr(
-            self.state, "classic_default_skin_id", None
-        ) or mode_champion_id * 1000
-        log.info(
-            "[CLASSIC:CARRIER] Using confirmed default %s (slot %s)",
-            carrier,
-            carrier % 1000,
         )
-        return carrier
+        effective_champion_id = (
+            int(to_classic_champion_id(champion_id) or champion_id)
+            if classic_mode
+            else int(champion_id)
+        )
+        requested_skin_id = effective_champion_id * 1000
+        try:
+            from injection.classic_carrier import classic_injection_plan
+        except ImportError:
+            return requested_skin_id, False
+
+        native_checker = getattr(
+            self.injection_manager, "has_classic_native_skin", None
+        )
+        legacy_checker = getattr(self.injection_manager, "has_classic_skin", None)
+        native_package_available = bool(
+            classic_mode
+            and callable(native_checker)
+            and native_checker(skin_name, effective_champion_id, chroma_id)
+        )
+        legacy_package_available = bool(
+            not callable(legacy_checker)
+            or legacy_checker(skin_name, effective_champion_id, chroma_id)
+        )
+        carrier, classic_native, fallback_reason = classic_injection_plan(
+            self.lcu,
+            self.state,
+            requested_skin_id,
+            native_package_available,
+            legacy_package_available,
+        )
+        package_family = "native" if classic_native else "legacy"
+        if fallback_reason:
+            message = (
+                "[CLASSIC:CARRIER] Injection aborted"
+                if carrier is None
+                else "[CLASSIC:CARRIER] Auto fallback"
+            )
+            log.warning(
+                "%s champion=%s carrier=%s package=%s reason=%s",
+                message,
+                champion_id,
+                carrier,
+                package_family,
+                fallback_reason,
+            )
+        elif classic_mode:
+            log.info(
+                "[CLASSIC:CARRIER] Auto selected champion=%s carrier=%s package=%s",
+                champion_id,
+                carrier,
+                package_family,
+            )
+        return carrier, classic_native
 
     def trigger_injection(self, name: str, ticker_id: int, cname: str = ""):
         """Trigger injection for a skin/chroma
@@ -968,8 +1017,11 @@ class InjectionTrigger:
         try:
             # Force base skin selection via LCU before injecting
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+            classic_native = False
             if champ_id:
-                base_skin_id = self._injection_carrier_skin_id(champ_id)
+                base_skin_id, classic_native = self._automatic_classic_injection(
+                    name, champ_id
+                )
                 if base_skin_id is None:
                     return
                 
@@ -988,9 +1040,8 @@ class InjectionTrigger:
                 except Exception as e:
                     log.debug(f"[INJECT] Failed to read actual LCU skin ID: {e}")
                 
-                # Only force base skin if current selection is not already base skin
                 if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
-                    self._force_base_skin(base_skin_id)
+                    self._force_base_skin(base_skin_id, resolved=True)
             
             # Stop work prepared for an older Classic carousel selection.
             game_ended_callback = make_game_ended_callback(self.state)
@@ -1041,11 +1092,15 @@ class InjectionTrigger:
                         log.warning(f"[INJECT] LCU not available, skipping injection")
                         return
                     
+                    injection_options = (
+                        {"classic_native": True} if classic_native else {}
+                    )
                     success = self.injection_manager.inject_skin_immediately(
                         name,
                         stop_callback=stop_callback,
                         champion_name=cname,
-                        champion_id=self.state.locked_champ_id
+                        champion_id=self.state.locked_champ_id,
+                        **injection_options,
                     )
                     
                     # Clear random state after injection
@@ -1187,7 +1242,7 @@ class InjectionTrigger:
         injection_thread = threading.Thread(target=run_injection, daemon=True, name="PartyInjectionThread")
         injection_thread.start()
 
-    def _force_base_skin(self, base_skin_id: int):
+    def _force_base_skin(self, base_skin_id: int, resolved: bool = False):
         """Force base skin selection via LCU"""
         prefix = (
             "[CLASSIC:INJECT]"
@@ -1195,6 +1250,23 @@ class InjectionTrigger:
             else "[INJECT]"
         )
         log.info(f"{prefix} Forcing carrier skin (skinId={base_skin_id})")
+
+        if not resolved:
+            try:
+                from injection.classic_carrier import carrier_skin_id_for_force
+            except ImportError:
+                carrier_skin_id_for_force = None
+            if carrier_skin_id_for_force is not None:
+                requested_skin_id = base_skin_id
+                base_skin_id = carrier_skin_id_for_force(
+                    self.lcu, self.state, requested_skin_id
+                )
+                if base_skin_id != requested_skin_id:
+                    log.info(
+                        "[CLASSIC:CARRIER] Replaced requested carrier %s with %s",
+                        requested_skin_id,
+                        base_skin_id,
+                    )
 
         # Temporarily skip base skin handling in client
         self.state.ui_skin_thread._broadcast_skip_base_skin()
@@ -1639,9 +1711,7 @@ class InjectionTrigger:
             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
             if champion_id and base_skin_name:
                 # Injecting base skin ZIP for unowned skin - force base skin
-                base_skin_id = self._injection_carrier_skin_id(champion_id)
-                if base_skin_id is None:
-                    return
+                base_skin_id = champion_id * 1000
                 self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
