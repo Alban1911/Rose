@@ -67,9 +67,15 @@ def _champion_keys(champion_id: int, scope: str) -> tuple[str, ...]:
     raw_key = str(int(champion_id))
     if scope != "classic":
         return (raw_key,)
-    from injection.classic import to_regular_champion_id
+    import injection.classic as classic
 
-    canonical_key = str(int(to_regular_champion_id(int(champion_id)) or 0))
+    resolver = getattr(classic, "to_regular_champion_id", None)
+    value = int(champion_id)
+    if callable(resolver):
+        value = resolver(value)
+    elif classic.CLASSIC_CHAMPION_ID_OFFSET < value < classic.CLASSIC_CHAMPION_ID_OFFSET + 1000:
+        value -= classic.CLASSIC_CHAMPION_ID_OFFSET
+    canonical_key = str(int(value or 0))
     return (canonical_key,) if canonical_key == raw_key else (canonical_key, raw_key)
 
 

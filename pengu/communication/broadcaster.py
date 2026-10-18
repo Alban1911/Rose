@@ -121,10 +121,14 @@ class Broadcaster:
         locked_champ_id = getattr(self.shared_state, 'locked_champ_id', None)
         historic_entry_available = bool(historic_mode_active)
         if historic_entry_available and locked_champ_id is not None:
-            from injection.classic import default_skin_id_for_state, to_regular_skin_id
+            import injection.classic as classic
+            from injection.classic import to_regular_skin_id
 
-            historic_base_skin_id = default_skin_id_for_state(
-                self.shared_state, int(locked_champ_id)
+            resolver = getattr(classic, "default_skin_id_for_state", None)
+            historic_base_skin_id = (
+                resolver(self.shared_state, int(locked_champ_id))
+                if callable(resolver)
+                else int(locked_champ_id) * 1000
             )
             historic_base_skin_id = to_regular_skin_id(historic_base_skin_id)
         else:

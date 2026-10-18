@@ -7,15 +7,21 @@ Handles historic mode activation and deactivation
 
 from typing import Optional
 
-from injection.classic import (
-    default_skin_id_for_state,
-    is_classic_game_mode,
-    to_regular_skin_id,
-)
+import injection.classic as classic
+from injection.classic import is_classic_game_mode, to_regular_skin_id
 from state import SharedState
 from utils.core.logging import get_logger
 
 log = get_logger()
+
+
+def _default_skin_id_for_state(state: SharedState, champion_id: int) -> int:
+    resolver = getattr(classic, "default_skin_id_for_state", None)
+    return (
+        int(resolver(state, champion_id))
+        if callable(resolver)
+        else int(champion_id) * 1000
+    )
 
 
 def _skin_id_for_state(state: SharedState, skin_id: object) -> Optional[int]:
@@ -134,7 +140,7 @@ class HistoricModeHandler:
         selected_skin_id = _skin_id_for_state(self.state, skin_id)
         base_skin_id = _skin_id_for_state(
             self.state,
-            default_skin_id_for_state(self.state, self.state.locked_champ_id),
+            _default_skin_id_for_state(self.state, self.state.locked_champ_id),
         )
         try:
             from utils.core.historic import (
@@ -189,7 +195,7 @@ class HistoricModeHandler:
         
         base_skin_id = _skin_id_for_state(
             self.state,
-            default_skin_id_for_state(self.state, self.state.locked_champ_id),
+            _default_skin_id_for_state(self.state, self.state.locked_champ_id),
         )
         selected_base_skin_id = _skin_id_for_state(self.state, new_base_skin_id)
         # Keep custom-mod history active when the selected skin/chroma is one
