@@ -49,6 +49,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
+; Restore the patcher files a previous uninstall saved. Hidden when there is no
+; backup, so it never shows an option that would do nothing; see
+; _ShouldOfferLtkRestore() in [Code].
+Name: "restoreltk"; Description: "Restore the LTK patcher files saved by a previous uninstall"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; Check: _ShouldOfferLtkRestore
 
 [Files]
 ; Main application files
@@ -118,12 +122,55 @@ begin
     Result := ExpandConstant('{app}\injection\tools\') + FileName;
 end;
 
+{ Where a restored file has to be written. Unlike _LtkToolPath, which looks
+  for a file that is already there, this has to decide by folder: during a
+  restore the file does not exist yet, so the check above would pick the bare
+  path and drop it outside _internal, where the patcher host would not see it. }
+function _LtkToolsDir(): String;
+begin
+  if DirExists(ExpandConstant('{app}\_internal\injection\tools')) then
+    Result := ExpandConstant('{app}\_internal\injection\tools')
+  else
+    Result := ExpandConstant('{app}\injection\tools');
+end;
+
 { Rose does not ship the patcher binaries, so an install may have neither or
   only one of them. There is nothing to offer a checkbox for in that case. }
 function _HasLtkFiles(): Boolean;
 begin
   Result := FileExists(_LtkToolPath(LtkHostFileName)) or
             FileExists(_LtkToolPath(LtkDllFileName));
+end;
+
+{ A previous uninstall left copies behind. They are only worth offering when
+  the install does not already ship the files, so restoring stays a choice
+  rather than something that silently overwrites. }
+function _ShouldOfferLtkRestore(): Boolean;
+begin
+  Result := (FileExists(_LtkBackupFolder() + '\' + LtkHostFileName) or
+             FileExists(_LtkBackupFolder() + '\' + LtkDllFileName)) and
+            not _HasLtkFiles();
+end;
+
+{ Put a saved patcher file back where the patcher host expects to find it. }
+procedure _RestoreLtkFile(const FileName: String);
+var
+  Source, ToolsDir: String;
+begin
+  Source := _LtkBackupFolder() + '\' + FileName;
+  if not FileExists(Source) then
+    Exit;
+
+  ToolsDir := _LtkToolsDir();
+  if not DirExists(ToolsDir) then
+    CreateDir(ToolsDir);
+  FileCopy(Source, ToolsDir + '\' + FileName, False);
+end;
+
+procedure _RestoreLtkFiles();
+begin
+  _RestoreLtkFile(LtkHostFileName);
+  _RestoreLtkFile(LtkDllFileName);
 end;
 
 { The patcher binaries come from the user's own LTK Manager install and cannot
@@ -525,6 +572,11 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    { Put back the patcher files a previous uninstall saved, before anything
+      reads them. [Files] has already unpacked the install by now. }
+    if WizardIsTaskSelected('restoreltk') then
+      _RestoreLtkFiles();
+
     { Clean up a dead hook left by an older Rose uninstall }
     _RemoveDeadPenguIfeo();
 
