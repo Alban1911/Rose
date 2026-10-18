@@ -52,6 +52,13 @@ class ChampionLockHandler:
         self.state.classic_visual_skin_id = None
         self.state.classic_selected_skin_owned = False
         self.state.classic_selection_generation = 0
+        try:
+            from ui.handlers.classic_random_integration import (
+                reset_classic_random_runtime,
+            )
+        except ImportError:
+            return
+        reset_classic_random_runtime(self.state, champion_id)
     
     def handle_session_locks(self, sess: dict):
         """Handle champion locks from session data"""

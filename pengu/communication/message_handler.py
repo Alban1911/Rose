@@ -541,6 +541,17 @@ class MessageHandler:
             len(self.shared_state.classic_catalog_skin_ids),
             self.shared_state.classic_default_skin_id,
         )
+        try:
+            from ui.handlers.classic_random_integration import (
+                restore_classic_random_from_catalog,
+            )
+        except ImportError:
+            return
+        restore_classic_random_from_catalog(
+            self.shared_state,
+            self.skin_scraper,
+            self.broadcaster,
+        )
 
     def _handle_classic_skin_selection(self, payload: dict) -> None:
         """Keep the projected skin separate from the server-visible JADE carrier."""
