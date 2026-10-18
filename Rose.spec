@@ -227,6 +227,7 @@ hiddenimports = [
     'utils.core.validation',
     'utils.core.normalization',
     'utils.core.historic',
+    'utils.core.favorites',
     'utils.core.modpkg',
     'utils.system',
     'utils.system.admin_utils',
