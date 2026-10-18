@@ -62,6 +62,7 @@ class RandomizationHandler:
         self.skin_scraper = skin_scraper
         self._randomization_in_progress = False
         self._randomization_started = False
+        self._forced_base_skin_id: Optional[int] = None
     
     def handle_dice_click_disabled(self, current_skin_id: Optional[int], mode: str = "all") -> bool:
         """Handle dice button click in disabled state - start randomization
@@ -114,10 +115,12 @@ class RandomizationHandler:
         
         # Set flag to prevent cancellation during randomization
         self._randomization_in_progress = True
+        self._randomization_started = True
         
         # Get champion's base skin ID (champion_id * 1000)
         champion_id = self.state.locked_champ_id
         base_skin_id = champion_id * 1000
+        self._forced_base_skin_id = base_skin_id
         log.info(f"[UI] Forcing champion base skin: {base_skin_id} (champion {champion_id})")
         
         # Force base skin via LCU
@@ -125,6 +128,7 @@ class RandomizationHandler:
             if not lcu:
                 log.warning("[UI] No LCU instance available")
                 self._randomization_in_progress = False
+                self._forced_base_skin_id = None
                 return False
             
             # Try to set base skin
@@ -137,11 +141,13 @@ class RandomizationHandler:
                 log.warning("[UI] Failed to force champion base skin")
                 self._randomization_in_progress = False
                 self._randomization_started = False
+                self._forced_base_skin_id = None
                 return False
         except Exception as e:
             log.error(f"[UI] Error forcing champion base skin: {e}")
             self._randomization_in_progress = False
             self._randomization_started = False
+            self._forced_base_skin_id = None
             return False
     
     def _start_randomization(self, mode: str = "all"):
@@ -203,6 +209,7 @@ class RandomizationHandler:
         # Clear randomization flags
         self._randomization_in_progress = False
         self._randomization_started = False
+        self._forced_base_skin_id = None
     
     def select_random_skin(self, mode: str = "all") -> Optional[Tuple[str, int, Optional[int]]]:
         """Select a random skin from available skins (excluding base champion skin)
