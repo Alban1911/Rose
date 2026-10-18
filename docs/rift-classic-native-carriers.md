@@ -67,10 +67,10 @@ injection boundary verifies and reuses that value.
    marked `isBase` or `isDefault`.
 7. If there is no native candidate, use the unique declared default or a
    Skin0 ID that is actually present in both catalogs.
-8. Use the native carrier only when its matching package is available under
-   `classic-native/`.
-9. If discovery or package resolution fails, keep the existing Skin0 carrier
-   and use the matching package under `classic/`.
+8. Stop before changing LCU when the live default carrier cannot be resolved.
+9. Use the resolved carrier with `classic-native/` when the matching package
+   is available; otherwise switch the carrier and package together to Skin0
+   and `classic/`.
 
 The intersection is important. A Classic-only Skin301 archive can exist in
 the library or carousel without being pickable for the current session, and

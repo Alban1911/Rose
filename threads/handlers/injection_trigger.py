@@ -190,9 +190,23 @@ class InjectionTrigger:
         )
         requested_skin_id = effective_champion_id * 1000
         try:
-            from injection.classic_carrier import classic_injection_plan
+            from injection.classic_carrier import (
+                cache_classic_default_skin_id,
+                classic_injection_plan,
+            )
         except ImportError:
             return requested_skin_id, False
+
+        carrier = cache_classic_default_skin_id(
+            self.lcu, self.state, effective_champion_id
+        )
+        if carrier is None:
+            log.warning(
+                "[CLASSIC:CARRIER] Injection aborted champion=%s "
+                "reason=carrier-unresolved",
+                champion_id,
+            )
+            return None, False
 
         native_checker = getattr(
             self.injection_manager, "has_classic_native_skin", None
@@ -1023,7 +1037,7 @@ class InjectionTrigger:
                     log.debug(f"[INJECT] Failed to read actual LCU skin ID: {e}")
                 
                 if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
-                    self._force_base_skin(base_skin_id, resolved=True)
+                    self._force_base_skin(base_skin_id)
             
             # Create callback to check if game ended
             game_ended_callback = make_game_ended_callback(self.state)
@@ -1189,28 +1203,11 @@ class InjectionTrigger:
         injection_thread = threading.Thread(target=run_injection, daemon=True, name="PartyInjectionThread")
         injection_thread.start()
 
-    def _force_base_skin(self, base_skin_id: int, resolved: bool = False):
+    def _force_base_skin(self, base_skin_id: int):
         """Force base skin selection via LCU"""
         log.info(f"[INJECT] Forcing base skin (skinId={base_skin_id})")
 
-        if not resolved:
-            try:
-                from injection.classic_carrier import carrier_skin_id_for_force
-            except ImportError:
-                carrier_skin_id_for_force = None
-            if carrier_skin_id_for_force is not None:
-                requested_skin_id = base_skin_id
-                base_skin_id = carrier_skin_id_for_force(
-                    self.lcu, self.state, requested_skin_id
-                )
-                if base_skin_id != requested_skin_id:
-                    log.info(
-                        "[CLASSIC:CARRIER] Replaced requested carrier %s with %s",
-                        requested_skin_id,
-                        base_skin_id,
-                    )
-
-        # The automatic carrier/package decision is complete before this UI state changes.
+        # Do not change the carrier after this UI state transition begins.
         self.state.ui_skin_thread._broadcast_skip_base_skin()
 
         # Hide chroma border/wheel immediately

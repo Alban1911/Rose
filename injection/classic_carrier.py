@@ -108,25 +108,12 @@ def classic_injection_plan(
         return int(requested_skin_id), False, None
     carrier = cache_classic_default_skin_id(lcu, state, int(champion_id))
     if carrier is None:
-        if not legacy_package_available:
-            return None, False, "package-unavailable"
-        return int(requested_skin_id), False, "carrier-unresolved"
+        return None, False, "carrier-unresolved"
     if native_package_available:
         return carrier, True, None
     if legacy_package_available:
         return int(requested_skin_id), False, "default-package-unavailable"
     return None, False, "package-unavailable"
-
-
-def carrier_skin_id_for_force(lcu, state, requested_skin_id: int) -> int:
-    """Return the automatic carrier, falling back to the requested Skin0."""
-    carrier, _, _ = classic_injection_plan(
-        lcu,
-        state,
-        requested_skin_id,
-        native_package_available=True,
-    )
-    return carrier
 
 
 def cached_classic_carrier_for_champion(state, champion_id: int) -> Optional[int]:

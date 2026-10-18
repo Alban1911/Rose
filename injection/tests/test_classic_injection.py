@@ -84,20 +84,6 @@ class ClassicIdTests(unittest.TestCase):
         )
         self.assertIsNone(state.classic_default_skin_id)
 
-    def test_force_uses_cached_wheel_carrier_without_querying_lcu(self):
-        state = SimpleNamespace(
-            current_game_mode='JADE',
-            locked_champ_id=60055,
-            hovered_champ_id=None,
-            classic_default_skin_id=60055301,
-        )
-        lcu = MagicMock()
-        self.assertEqual(
-            classic_carrier.carrier_skin_id_for_force(lcu, state, 60055000),
-            60055301,
-        )
-        lcu.get.assert_not_called()
-
     def test_auto_uses_native_carrier_only_with_matching_package(self):
         state = SimpleNamespace(
             current_game_mode='JADE',
@@ -146,7 +132,7 @@ class ClassicIdTests(unittest.TestCase):
             (60002000, False, 'default-package-unavailable'),
         )
 
-    def test_auto_falls_back_when_live_carrier_is_unavailable(self):
+    def test_auto_stops_when_live_carrier_is_unavailable(self):
         state = SimpleNamespace(
             current_game_mode='JADE',
             locked_champ_id=60055,
@@ -159,7 +145,7 @@ class ClassicIdTests(unittest.TestCase):
             classic_carrier.classic_injection_plan(
                 lcu, state, 60055000, True, True
             ),
-            (60055000, False, 'carrier-unresolved'),
+            (None, False, 'carrier-unresolved'),
         )
 
     def test_auto_stops_when_both_package_families_are_unavailable(self):
@@ -199,17 +185,6 @@ class ClassicIdTests(unittest.TestCase):
         trigger._force_base_skin.assert_not_called()
         thread_cls.assert_not_called()
 
-    def test_regular_force_keeps_requested_skin0(self):
-        state = SimpleNamespace(
-            current_game_mode='CLASSIC', locked_champ_id=55, hovered_champ_id=None
-        )
-        self.assertEqual(
-            classic_carrier.carrier_skin_id_for_force(
-                MagicMock(), state, 55000
-            ),
-            55000,
-        )
-
     def test_regular_mode_skips_classic_package_preflight(self):
         state = SimpleNamespace(
             current_game_mode='CLASSIC', locked_champ_id=55, hovered_champ_id=None
@@ -227,7 +202,7 @@ class ClassicIdTests(unittest.TestCase):
         lcu.get.assert_not_called()
 
     @patch("threads.handlers.injection_trigger.threading.Thread")
-    def test_unowned_skin_keeps_skin0_when_auto_falls_back(
+    def test_unowned_skin_stops_when_carrier_is_unresolved(
         self, thread_cls
     ):
         state = SimpleNamespace(
@@ -241,13 +216,16 @@ class ClassicIdTests(unittest.TestCase):
         lcu.session = {
             'myTeam': [{'cellId': 1, 'selectedSkinId': 60055000}]
         }
-        trigger = InjectionTrigger(lcu, state, injection_manager=MagicMock())
+        manager = MagicMock()
+        trigger = InjectionTrigger(lcu, state, injection_manager=manager)
         trigger._force_base_skin = MagicMock()
 
         trigger._inject_unowned_skin('skin_55029', 'Katarina')
 
         trigger._force_base_skin.assert_not_called()
-        thread_cls.return_value.start.assert_called_once()
+        thread_cls.assert_not_called()
+        manager.has_classic_native_skin.assert_not_called()
+        manager.has_classic_skin.assert_not_called()
 
     @patch("threads.handlers.injection_trigger.threading.Thread")
     def test_unowned_skin_restores_cached_native_carrier_after_lcu_rollback(
@@ -270,7 +248,6 @@ class ClassicIdTests(unittest.TestCase):
         trigger._inject_unowned_skin('skin_55029', 'Katarina')
 
         trigger._force_base_skin.assert_called_once()
-        self.assertTrue(trigger._force_base_skin.call_args.kwargs['resolved'])
         self.assertIn(
             trigger._force_base_skin.call_args.args[0],
             (60055000, 60055301),
