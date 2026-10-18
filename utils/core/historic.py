@@ -37,8 +37,9 @@ def _historic_file_path() -> Path:
 
 
 def _historic_path(scope: str = "regular") -> Path:
-    filename = "historic_classic.json" if scope == "classic" else "historic.json"
-    return get_user_data_dir() / filename
+    if scope != "classic":
+        return _historic_file_path()
+    return get_user_data_dir() / "historic_classic.json"
 
 
 def _historic_target_file_path() -> Path:
@@ -47,12 +48,9 @@ def _historic_target_file_path() -> Path:
 
 
 def _historic_target_path(scope: str = "regular") -> Path:
-    filename = (
-        "historic_targets_classic.json"
-        if scope == "classic"
-        else "historic_targets.json"
-    )
-    return get_user_data_dir() / filename
+    if scope != "classic":
+        return _historic_target_file_path()
+    return get_user_data_dir() / "historic_targets_classic.json"
 
 
 def historic_scope_for_state(state) -> str:
