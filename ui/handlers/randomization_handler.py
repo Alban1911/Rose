@@ -7,10 +7,10 @@ Handles random skin selection logic
 
 import random
 from typing import Optional, Tuple
+
+import injection.classic as classic
 from injection.classic import (
-    default_skin_id_for_state,
     is_classic_game_mode,
-    to_regular_champion_id,
     to_regular_skin_id,
 )
 from state import SharedState
@@ -24,10 +24,36 @@ from utils.core.utilities import is_base_skin
 log = get_logger()
 
 
+def _default_skin_id_for_state(state: SharedState, champion_id: int) -> int:
+    resolver = getattr(classic, "default_skin_id_for_state", None)
+    return (
+        int(resolver(state, champion_id))
+        if callable(resolver)
+        else int(champion_id) * 1000
+    )
+
+
+def _to_regular_champion_id(champion_id: object) -> Optional[int]:
+    resolver = getattr(classic, "to_regular_champion_id", None)
+    if callable(resolver):
+        return resolver(champion_id)
+    try:
+        value = int(champion_id)
+    except (TypeError, ValueError):
+        return None
+    if (
+        classic.CLASSIC_CHAMPION_ID_OFFSET
+        < value
+        < classic.CLASSIC_CHAMPION_ID_OFFSET + 1000
+    ):
+        return value - classic.CLASSIC_CHAMPION_ID_OFFSET
+    return value
+
+
 def _classic_champion_id(state: SharedState) -> Optional[int]:
     if not is_classic_game_mode(getattr(state, "current_game_mode", None)):
         return None
-    value = to_regular_champion_id(getattr(state, "locked_champ_id", None))
+    value = _to_regular_champion_id(getattr(state, "locked_champ_id", None))
     return int(value) if value else None
 
 
@@ -202,7 +228,7 @@ class RandomizationHandler:
                 }
                 default_id = int(
                     to_regular_skin_id(
-                        default_skin_id_for_state(self.state, champion_id)
+                        _default_skin_id_for_state(self.state, champion_id)
                     ) or 0
                 )
                 chroma_ids = {
@@ -279,7 +305,7 @@ class RandomizationHandler:
         if is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
             default_id = int(
                 to_regular_skin_id(
-                    default_skin_id_for_state(self.state, champion_id)
+                    _default_skin_id_for_state(self.state, champion_id)
                 ) or 0
             )
             eligible_ids = {
@@ -328,7 +354,12 @@ class RandomizationHandler:
 
         # Filter out the champion's base skin and actual chromas
         base_champion_skin_id = (
-            int(to_regular_skin_id(default_skin_id_for_state(self.state, champion_id)) or 0)
+            int(
+                to_regular_skin_id(
+                    _default_skin_id_for_state(self.state, champion_id)
+                )
+                or 0
+            )
             if champion_id else None
         )
         

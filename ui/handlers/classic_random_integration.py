@@ -1,10 +1,7 @@
 """Optional ClassicWheel lifecycle hooks for Classic randomization."""
 
-from injection.classic import (
-    is_classic_champion_id,
-    is_classic_game_mode,
-    to_regular_skin_id,
-)
+import injection.classic as classic
+from injection.classic import is_classic_game_mode, to_regular_skin_id
 from ui.handlers.randomization_handler import (
     RandomizationHandler,
     clear_random_runtime,
@@ -12,10 +9,25 @@ from ui.handlers.randomization_handler import (
 from utils.core.random_preferences import is_random_enabled_for_champion
 
 
+def _is_classic_champion_id(champion_id: object) -> bool:
+    resolver = getattr(classic, "is_classic_champion_id", None)
+    if callable(resolver):
+        return bool(resolver(champion_id))
+    try:
+        value = int(champion_id)
+    except (TypeError, ValueError):
+        return False
+    return (
+        classic.CLASSIC_CHAMPION_ID_OFFSET
+        < value
+        < classic.CLASSIC_CHAMPION_ID_OFFSET + 1000
+    )
+
+
 def reset_classic_random_runtime(state, champion_id: int) -> None:
     if not (
         is_classic_game_mode(getattr(state, "current_game_mode", None))
-        or is_classic_champion_id(champion_id)
+        or _is_classic_champion_id(champion_id)
     ):
         return
     if (
