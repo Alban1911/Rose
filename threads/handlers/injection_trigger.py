@@ -188,10 +188,11 @@ class InjectionTrigger:
             is_classic_game_mode(getattr(self.state, "current_game_mode", None))
             or is_classic_champion_id(champion_id)
         )
-        effective_champion_id = (
-            int(to_classic_champion_id(champion_id) or champion_id)
-            if classic_mode
-            else int(champion_id)
+        if not classic_mode:
+            return int(champion_id) * 1000, False
+
+        effective_champion_id = int(
+            to_classic_champion_id(champion_id) or champion_id
         )
         requested_skin_id = effective_champion_id * 1000
         try:
