@@ -28,22 +28,38 @@ def reset_classic_random_runtime(state, champion_id: int) -> None:
 
 def restore_classic_random_from_catalog(state, skin_scraper, broadcaster) -> bool:
     champion_id = getattr(state, "classic_champion_id", None)
-    if not champion_id or not is_random_enabled_for_champion(champion_id):
+    if not champion_id:
         return False
 
     catalog_ids = getattr(state, "classic_catalog_skin_ids", set())
-    random_target = int(to_regular_skin_id(state.random_skin_id) or 0)
-    random_active = bool(state.random_mode_active and random_target in catalog_ids)
-    if state.random_mode_active and not random_active:
-        clear_random_runtime(state)
-    if not random_active:
-        random_active = RandomizationHandler(state, skin_scraper).activate_persisted()
-    if not random_active:
-        return False
+    if is_random_enabled_for_champion(champion_id):
+        random_target = int(to_regular_skin_id(state.random_skin_id) or 0)
+        random_active = bool(state.random_mode_active and random_target in catalog_ids)
+        if state.random_mode_active and not random_active:
+            clear_random_runtime(state)
+        if not random_active:
+            random_active = RandomizationHandler(state, skin_scraper).activate_persisted()
+        if random_active:
+            if state.historic_mode_active or state.historic_skin_id is not None:
+                state.historic_mode_active = False
+                state.historic_skin_id = None
+                broadcaster.broadcast_historic_state()
+            state.historic_first_detection_done = True
+            return True
 
-    if state.historic_mode_active or state.historic_skin_id is not None:
-        state.historic_mode_active = False
-        state.historic_skin_id = None
+    try:
+        from utils.core.historic import get_historic_skin_for_champion
+
+        historic_skin_id = get_historic_skin_for_champion(champion_id, "classic")
+    except (ImportError, TypeError, ValueError):
+        historic_skin_id = None
+    if (
+        not state.historic_first_detection_done
+        and isinstance(historic_skin_id, int)
+        and historic_skin_id in catalog_ids
+    ):
+        state.historic_mode_active = True
+        state.historic_skin_id = historic_skin_id
         broadcaster.broadcast_historic_state()
     state.historic_first_detection_done = True
-    return True
+    return False
