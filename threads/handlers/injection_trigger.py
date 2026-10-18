@@ -196,9 +196,23 @@ class InjectionTrigger:
         )
         requested_skin_id = effective_champion_id * 1000
         try:
-            from injection.classic_carrier import classic_injection_plan
+            from injection.classic_carrier import (
+                cache_classic_default_skin_id,
+                classic_injection_plan,
+            )
         except ImportError:
             return requested_skin_id, False
+
+        carrier = cache_classic_default_skin_id(
+            self.lcu, self.state, effective_champion_id
+        )
+        if carrier is None:
+            log.warning(
+                "[CLASSIC:CARRIER] Injection aborted champion=%s "
+                "reason=carrier-unresolved",
+                champion_id,
+            )
+            return None, False
 
         native_checker = getattr(
             self.injection_manager, "has_classic_native_skin", None
