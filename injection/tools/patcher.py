@@ -8,6 +8,11 @@ not ship or pin them. The DLL refuses game builds newer than its built-in
 end-of-life date, so we read that date and the game's build date to fail
 early instead of silently injecting nothing. A DLL past that date still works
 until League itself updates.
+
+A download manager that renames the file to "ltk_patcher_dll(1).dll" leaves the
+bytes alone and used to make the pair undetectable, so both are also recognised
+by content and renamed back: the host loads its hook by the literal name
+"ltk_patcher_dll.dll" and cannot work with a copy called anything else.
 """
 
 import hashlib
@@ -18,9 +23,30 @@ from pathlib import Path
 from typing import Optional
 
 from config import GAME_EXECUTABLE_NAMES
+from utils.core.logging import get_logger
+
+log = get_logger()
 
 LTK_PATCHER_HOST = "ltk_patcher_host.exe"
 LTK_PATCHER_DLL = "ltk_patcher_dll.dll"
+
+# SHA-256 of one specific LeagueToolkit build (ltk-manager's
+# src-tauri/resources). An exact match, so it stays the fast path -- but these
+# binaries are replaced often (11 host updates between July and October 2026,
+# and the DLL grew from 764160 to 1013152 bytes), so a hash alone would stop
+# matching whatever build the user's LTK Manager ships. The signatures below are
+# what carries recognition across builds.
+KNOWN_HOST_SHA256 = frozenset({
+    "23fa1aaeda1a0c743da44227f179084e1fb81c7cd262144a3c8604ffc49d3bc1",
+})
+KNOWN_DLL_SHA256 = frozenset({
+    "6d419057e6667994ba752ad0fb089b363db98267618644d7f7b6632441a21d74",
+})
+
+# Strings baked into the patcher host in every release checked since July 2026:
+# the hook DLL it loads and the named pipe it talks over. All of them together
+# are specific enough that an unrelated .exe will not match.
+_HOST_SIGNATURES = (b"ltk_patcher_dll.dll", b"ltk-patcher-pipe")
 
 # Log line the DLL prints when the game build is newer than its EOL date
 _EOL_MESSAGE = b"end of life reached, please update: "
@@ -47,11 +73,92 @@ class LtkPatcherStatus:
         return build is not None and build > self.eol
 
 
+def _file_sha256(path: Path) -> Optional[str]:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _carries_eol_signature(path: Path) -> bool:
+    """True when the file is an LTK patcher DLL, whatever its name or build.
+
+    The EOL message is compiled into the DLL and present in every release since
+    at least July 2026, so it recognises builds the pinned hash has moved past.
+    """
+    try:
+        return _EOL_MESSAGE in path.read_bytes()
+    except OSError:
+        return False
+
+
+def _looks_like_patcher_host(path: Path) -> bool:
+    """True when the file is an LTK patcher host, whatever its name or build.
+
+    The host has no EOL message of its own, so it is recognised by the strings
+    it cannot work without: the hook DLL it loads and its named pipe. Without
+    this a renamed host would only be found for the one build pinned above.
+    """
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return False
+    return all(marker in data for marker in _HOST_SIGNATURES)
+
+
+def _restore_name(found: Path, canonical: Path) -> Path:
+    """Put the canonical name back; returns the path the caller should use.
+
+    ltk_patcher_host.exe carries the literal string "ltk_patcher_dll.dll" and
+    loads it with LoadLibraryExW, so a copy that merely kept a mangled name
+    would be found by Rose and still fail to attach in the host.
+    """
+    try:
+        found.replace(canonical)
+    except OSError as e:
+        log.warning(f"[LTK] Could not rename {found.name} to {canonical.name}: {e}")
+        return found
+    log.info(f"[LTK] Renamed {found.name} back to {canonical.name}")
+    return canonical
+
+
+def _files_with_suffix(tools_dir: Path, suffix: str):
+    """Sorted files of one kind; an unreadable folder yields nothing to match."""
+    try:
+        entries = sorted(tools_dir.iterdir())
+    except OSError:
+        return []
+    return [e for e in entries if e.is_file() and e.suffix.lower() == suffix]
+
+
+def resolve_ltk_host(tools_dir: Path) -> Optional[Path]:
+    """The patcher host, restored to its real name when a download renamed it."""
+    direct = tools_dir / LTK_PATCHER_HOST
+    if direct.is_file():
+        return direct
+    for entry in _files_with_suffix(tools_dir, ".exe"):
+        if _file_sha256(entry) in KNOWN_HOST_SHA256 or _looks_like_patcher_host(entry):
+            return _restore_name(entry, direct)
+    return None
+
+
+def resolve_ltk_dll(tools_dir: Path) -> Optional[Path]:
+    """The hook DLL, restored to its real name when a download renamed it."""
+    direct = tools_dir / LTK_PATCHER_DLL
+    if direct.is_file():
+        return direct
+    for entry in _files_with_suffix(tools_dir, ".dll"):
+        if _file_sha256(entry) in KNOWN_DLL_SHA256 or _carries_eol_signature(entry):
+            return _restore_name(entry, direct)
+    return None
+
+
 def check_ltk_patcher(tools_dir: Path) -> LtkPatcherStatus:
     """Report which LTK patcher files are missing and the DLL's EOL date."""
-    host = tools_dir / LTK_PATCHER_HOST
-    dll = tools_dir / LTK_PATCHER_DLL
-    missing = [p.name for p in (host, dll) if not p.is_file()]
+    host = resolve_ltk_host(tools_dir) or tools_dir / LTK_PATCHER_HOST
+    dll = resolve_ltk_dll(tools_dir) or tools_dir / LTK_PATCHER_DLL
+    missing = [name for name, path in ((LTK_PATCHER_HOST, host), (LTK_PATCHER_DLL, dll))
+               if not path.is_file()]
     eol = read_dll_eol(dll) if dll.is_file() else None
     return LtkPatcherStatus(host=host, dll=dll, missing=missing, eol=eol)
 
@@ -63,15 +170,18 @@ def describe_ltk_patcher_files(tools_dir: Path) -> str:
     failure report is only comparable when it says which files were used.
     """
     parts = []
-    for name in (LTK_PATCHER_HOST, LTK_PATCHER_DLL):
-        path = tools_dir / name
+    for name, path in ((LTK_PATCHER_HOST, resolve_ltk_host(tools_dir)),
+                       (LTK_PATCHER_DLL, resolve_ltk_dll(tools_dir))):
+        if path is None:
+            parts.append(f"{name}: missing")
+            continue
         try:
             data = path.read_bytes()
             modified = time.strftime("%Y-%m-%d %H:%M", time.localtime(path.stat().st_mtime))
         except OSError as e:
             parts.append(f"{name}: unreadable ({e})")
             continue
-        parts.append(f"{name}: {len(data)} bytes, modified {modified}, sha256 {hashlib.sha256(data).hexdigest()}")
+        parts.append(f"{path.name}: {len(data)} bytes, modified {modified}, sha256 {hashlib.sha256(data).hexdigest()}")
     return "; ".join(parts)
 
 

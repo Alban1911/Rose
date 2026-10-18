@@ -11,7 +11,13 @@ from unittest.mock import patch
 from injection.overlay import overlay_manager
 from injection.overlay.overlay_manager import LATE_JOIN_ERROR, OverlayManager, ltk_failure_cause
 from injection.overlay.process_manager import ProcessManager
-from injection.tools.patcher import LTK_PATCHER_DLL, LTK_PATCHER_HOST, describe_ltk_patcher_files
+from injection.tools import patcher
+from injection.tools.patcher import (
+    LTK_PATCHER_DLL,
+    LTK_PATCHER_HOST,
+    check_ltk_patcher,
+    describe_ltk_patcher_files,
+)
 
 
 class PatcherFilesTests(unittest.TestCase):
@@ -32,7 +38,105 @@ class PatcherFilesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             description = describe_ltk_patcher_files(Path(temp))
 
-        self.assertIn(f"{LTK_PATCHER_DLL}: unreadable", description)
+        self.assertIn(f"{LTK_PATCHER_DLL}: missing", description)
+
+
+class MisnamedPatcherFilesTests(unittest.TestCase):
+    """A browser download appends "(1)" and the patcher is then never found"""
+
+    # What read_dll_eol() looks for; present in every release of the patcher DLL
+    EOL_SIGNATURE = b"end of life reached, please update: "
+
+    def test_a_dll_with_the_patcher_signature_is_renamed_back(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tools = Path(temp)
+            (tools / "ltk_patcher_dll(1).dll").write_bytes(b'MZ' + self.EOL_SIGNATURE)
+            (tools / LTK_PATCHER_HOST).write_bytes(b'host')
+
+            status = check_ltk_patcher(tools)
+
+            self.assertEqual([], status.missing)
+            self.assertTrue((tools / LTK_PATCHER_DLL).is_file())
+            self.assertFalse((tools / "ltk_patcher_dll(1).dll").exists())
+            self.assertEqual(tools / LTK_PATCHER_DLL, status.dll)
+
+    def test_a_dll_matching_a_pinned_hash_is_renamed_back(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tools = Path(temp)
+            digest = hashlib.sha256(b'release').hexdigest()
+            with patch.object(patcher, 'KNOWN_DLL_SHA256', frozenset({digest})):
+                (tools / "ltk_patcher_dll (1).dll").write_bytes(b'release')
+                (tools / LTK_PATCHER_HOST).write_bytes(b'host')
+
+                status = check_ltk_patcher(tools)
+
+            self.assertEqual([], status.missing)
+            self.assertTrue((tools / LTK_PATCHER_DLL).is_file())
+
+    def test_a_host_matching_a_pinned_hash_is_renamed_back(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tools = Path(temp)
+            digest = hashlib.sha256(b'host').hexdigest()
+            with patch.object(patcher, 'KNOWN_HOST_SHA256', frozenset({digest})):
+                (tools / "ltk_patcher_host(1).exe").write_bytes(b'host')
+                (tools / LTK_PATCHER_DLL).write_bytes(b'dll')
+
+                status = check_ltk_patcher(tools)
+
+            self.assertEqual([], status.missing)
+            self.assertTrue((tools / LTK_PATCHER_HOST).is_file())
+            self.assertEqual(tools / LTK_PATCHER_HOST, status.host)
+
+    def test_a_host_from_another_build_is_found_without_the_pinned_hash(self):
+        """The pinned hash covers one release; LeagueToolkit ships new ones
+        often, and a renamed host must still be recognised"""
+        with tempfile.TemporaryDirectory() as temp:
+            tools = Path(temp)
+            host = (b'MZ' + b'ltk_patcher_dll.dll' + b'\x00' + b'\\\\.\\pipe\\ltk-patcher-pipe')
+            with patch.object(patcher, 'KNOWN_HOST_SHA256', frozenset()):
+                (tools / "ltk_patcher_host (1).exe").write_bytes(host)
+                (tools / LTK_PATCHER_DLL).write_bytes(b'dll')
+
+                status = check_ltk_patcher(tools)
+
+            self.assertEqual([], status.missing)
+            self.assertTrue((tools / LTK_PATCHER_HOST).is_file())
+
+    def test_an_exe_with_only_one_signature_is_not_a_patcher(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tools = Path(temp)
+            (tools / "random.exe").write_bytes(b'MZ ltk_patcher_dll.dll')
+            (tools / LTK_PATCHER_DLL).write_bytes(b'dll')
+
+            status = check_ltk_patcher(tools)
+
+            self.assertIn(LTK_PATCHER_HOST, status.missing)
+            self.assertTrue((tools / "random.exe").is_file())
+
+    def test_a_file_matching_nothing_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tools = Path(temp)
+            (tools / "cslol-dll.dll").write_bytes(b'stub')
+            (tools / "mod-tools.exe").write_bytes(b'tools')
+            (tools / LTK_PATCHER_HOST).write_bytes(b'host')
+
+            status = check_ltk_patcher(tools)
+
+            self.assertEqual([LTK_PATCHER_DLL], status.missing)
+            self.assertTrue((tools / "cslol-dll.dll").is_file())
+            self.assertTrue((tools / "mod-tools.exe").is_file())
+
+    def test_the_canonical_name_is_never_moved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tools = Path(temp)
+            (tools / LTK_PATCHER_DLL).write_bytes(b'dll')
+            (tools / LTK_PATCHER_HOST).write_bytes(b'host')
+
+            check_ltk_patcher(tools)
+
+            # resolve_*() short-circuits on the exact name, so a same-content
+            # copy elsewhere is left where it is
+            self.assertEqual(b'dll', (tools / LTK_PATCHER_DLL).read_bytes())
 
 
 class FailureHintTests(unittest.TestCase):
