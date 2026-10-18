@@ -210,6 +210,22 @@ class ClassicIdTests(unittest.TestCase):
             55000,
         )
 
+    def test_regular_mode_skips_classic_package_preflight(self):
+        state = SimpleNamespace(
+            current_game_mode='CLASSIC', locked_champ_id=55, hovered_champ_id=None
+        )
+        lcu = MagicMock()
+        manager = MagicMock()
+        trigger = InjectionTrigger(lcu, state, injection_manager=manager)
+
+        self.assertEqual(
+            trigger._automatic_classic_injection('skin_55001', 55),
+            (55000, False),
+        )
+        manager.has_classic_native_skin.assert_not_called()
+        manager.has_classic_skin.assert_not_called()
+        lcu.get.assert_not_called()
+
     @patch("threads.handlers.injection_trigger.threading.Thread")
     def test_unowned_skin_keeps_skin0_when_auto_falls_back(
         self, thread_cls
