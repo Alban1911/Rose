@@ -4,18 +4,10 @@ from collections.abc import Iterable
 from typing import Optional
 
 from injection.classic import (
-    CLASSIC_CHAMPION_ID_OFFSET,
+    is_classic_champion_id,
     is_classic_game_mode,
     to_classic_champion_id,
 )
-
-
-def is_classic_champion_id(champion_id: object) -> bool:
-    try:
-        value = int(champion_id)
-    except (TypeError, ValueError):
-        return False
-    return CLASSIC_CHAMPION_ID_OFFSET < value < CLASSIC_CHAMPION_ID_OFFSET + 1000
 
 
 def _skin_ids(values: object, champion_id: int) -> set[int]:
@@ -158,12 +150,3 @@ def classic_carrier_needs_refresh(state, champion_id: int) -> bool:
         is_classic_game_mode(getattr(state, "current_game_mode", None))
         or is_classic_champion_id(champion_id)
     ) and cached_classic_carrier_for_champion(state, champion_id) is None
-
-
-def default_skin_id_for_state(state, champion_id: int) -> Optional[int]:
-    if (
-        is_classic_game_mode(getattr(state, "current_game_mode", None))
-        or is_classic_champion_id(champion_id)
-    ):
-        return getattr(state, "classic_default_skin_id", None)
-    return int(champion_id) * 1000

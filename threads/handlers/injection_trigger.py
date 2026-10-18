@@ -22,11 +22,9 @@ from injection.config.base_skin_tracker import start_tracking as _start_skin_tra
 from injection.game.game_monitor import make_game_ended_callback
 from injection.loadingname.loading_name import build as build_loading_name
 from injection.classic import (
+    is_classic_champion_id,
     is_classic_game_mode,
     to_classic_champion_id,
-)
-from injection.classic_carrier import (
-    is_classic_champion_id,
 )
 
 log = get_logger()
