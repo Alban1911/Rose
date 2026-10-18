@@ -15,6 +15,7 @@ from typing import Optional
 
 from config import (
     INJECTION_LOCK_TIMEOUT_S,
+    SKIN_SWAP_STOP_TIMEOUT_S,
     get_config_file_path
 )
 from utils.core.logging import get_logger, log_action, log_success
@@ -622,12 +623,14 @@ class InjectionManager:
 
             return success
         finally:
+            # The injection took the countdown's session over: staging ends.
+            # Before the release, or it could stop the patcher of an injection
+            # waiting for it (a skin swap).
+            self.discard_early_patcher()
+
             self._injection_in_progress = False
             self.injection_lock.release()
             log.debug(f"[INJECT] Injection completed - lock released")
-            
-            # The injection took the countdown's session over: staging ends
-            self.discard_early_patcher()
     
     def inject_skin_for_testing(self, skin_name: str) -> bool:
         """Inject a skin for testing purposes - stops overlay immediately after mkoverlay"""
@@ -743,6 +746,30 @@ class InjectionManager:
             log.info("[INJECT] Injection stopped by the user")
         except Exception as e:
             log.warning(f"[INJECT] Failed to stop injection: {e}")
+
+    def swap_skin_for_reconnect(self, skin_id: int, champion_id: int, stop_callback=None) -> bool:
+        """Rebuild the overlay with another skin while the player is out of the game.
+
+        Returns once the injection has started. A reconnect before the overlay
+        is ready is handled as at a normal game start.
+        """
+        self.stop_injection_by_user()
+        # The champ select injection serves its overlay until the game ends
+        deadline = time.monotonic() + SKIN_SWAP_STOP_TIMEOUT_S
+        while self._injection_in_progress:
+            if time.monotonic() > deadline:
+                log.warning("[INJECT] Skin swap: the previous injection did not stop")
+                return False
+            time.sleep(0.05)
+        threading.Thread(
+            target=self.inject_skin_immediately,
+            args=(f"skin_{skin_id}",),
+            kwargs={"stop_callback": stop_callback, "champion_id": champion_id},
+            daemon=True,
+            name="SkinSwapInjection",
+        ).start()
+        log.info(f"[INJECT] Skin swap for the reconnect: skin {skin_id}")
+        return True
 
     def kill_all_modtools_processes(self):
         """Kill all LTK Manager processes (for application shutdown)"""

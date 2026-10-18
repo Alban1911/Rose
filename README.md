@@ -60,7 +60,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **ROSE-CustomWheel**: Custom mods panel for maps, fonts, announcers and other mods
 - **ROSE-ChromaWheel**: Enhanced chroma selection interface for choosing any chroma variant
 - **ROSE-FormsWheel**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
-- **ROSE-SettingsPanel**: Settings panel accessible from the League of Legends Client
+- **ROSE-SettingsPanel**: Settings panel accessible from the League of Legends Client, plus the reconnect screen's buttons to disable Rose's mods or change your skin for the reconnect
 - **ROSE-RandomSkin**: Random skin selection feature
 - **ROSE-HistoricMode**: Access to the last used skin for every champion
 - **ROSE-PartyMode**: Party mode UI — displays a panel in lobby and champion select to enable skin sharing, view connected peers, and see friends' skin selections in real time

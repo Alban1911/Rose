@@ -11,6 +11,7 @@ from lcu.core.lockfile import SWIFTPLAY_QUEUE_IDS
 from state import SharedState
 from ui.chroma.selector import get_chroma_selector
 from utils.core.logging import get_logger, log_action
+from utils.core.utilities import is_default_skin
 
 log = get_logger()
 
@@ -59,6 +60,7 @@ class PhaseHandler:
             fix_stored_skins_when_idle(phase, self.injection_manager, self.state)
         except Exception as e:  # noqa: BLE001 - phase handling goes on
             log.warning(f"[phase] Could not start checking the stored skins against the base skin: {e}")
+        self._track_game_skin_swap(phase)
         if phase == "Matchmaking":
             if self.state.is_swiftplay_mode:
                 log.info("[phase] Matchmaking phase detected in Swiftplay mode - triggering injection")
@@ -180,6 +182,23 @@ class PhaseHandler:
                     log.info(f"[phase] Returned to Lobby from {previous_phase} - queue changed, cleaning up Swiftplay state")
                     self.swiftplay_handler.cleanup_swiftplay_exit()
     
+    def _track_game_skin_swap(self, phase: str):
+        """Remember the game's champion for the reconnect screen's skin swap.
+
+        Taken at game start: the locked champion is cleared on Reconnect. An
+        injected skin replaces the default one, so a swap only shows if the
+        game loaded the default skin, not an owned one the server knows about.
+        """
+        if phase in ("GameStart", "InProgress"):
+            if self.state.game_skin_swap is None and self.state.locked_champ_id and not self.state.is_swiftplay_mode:
+                selected = self.state.selected_skin_id
+                self.state.game_skin_swap = {
+                    "champion_id": self.state.locked_champ_id,
+                    "swappable": selected is None or is_default_skin(selected),
+                }
+        elif phase != "Reconnect":
+            self.state.game_skin_swap = None
+
     def _handle_in_progress(self):
         """Handle InProgress phase"""
         # If Swiftplay overlay is still running, wait for it to finish before
