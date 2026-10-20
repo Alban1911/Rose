@@ -36,8 +36,11 @@ RECONNECT_DELAYS = (1.0, 2.0, 5.0, 10.0, 20.0, 30.0)
 # after which Cloudflare cuts a connection that carries nothing: a client whose
 # pings never get through (a firewall...) otherwise reconnected every 100s all day
 STABLE_CONNECTION_S = 300.0
-# The relay closes a connection with this reason when the same player joins the
-# room again: another connection (a second Rose, another PC) now has our place
+# The relay sends this message when the same player joins the room again:
+# another connection (a second Rose, another PC) now has our place, and the
+# room stops listening to this one. Relays from before it closed the
+# connection with this reason instead
+REPLACED_EVENT = "replaced"
 REPLACED_REASON = "replaced"
 # The relay refuses a Rose too old for it with this status: no point retrying
 UPDATE_REQUIRED_STATUS = 426
@@ -131,6 +134,8 @@ class PartyRelay:
         # or because the relay needs a newer Rose
         self._room_full = False
         self._update_required = False
+        # The relay gave our place in the room to another connection of ours
+        self._replaced = False
 
         # Last member list received (kept while reconnecting)
         self.members: List[dict] = []
@@ -195,7 +200,7 @@ class PartyRelay:
     async def _deliver_state(self):
         """Send our state if someone else is in the room and it doesn't have it yet."""
         ws = self._ws
-        if ws is None or not self._connected or not self._others_present():
+        if ws is None or not self._connected or self._replaced or not self._others_present():
             return
         state = self._state
         if state == self._sent_state:
@@ -271,6 +276,7 @@ class PartyRelay:
 
             self._ws = ws
             self._connected = True
+            self._replaced = False
             self._sent_state = None  # a new connection starts without our state
             self.last_error = None
             log.info(f"[RELAY] Connected to room {self.room_key[:8]}")
@@ -323,13 +329,28 @@ class PartyRelay:
                 return
             self._ws = None
             self._connected = False
-            if getattr(ws, "close_reason", None) == REPLACED_REASON:
+            if self._replaced or getattr(ws, "close_reason", None) == REPLACED_REASON:
+                # The room no longer reaches us: the members we last saw are stale
+                self.members = []
+                self._sent_state = None
+                if self._replaced:
+                    # The relay stopped listening but left the connection open
+                    await self._close_replaced(ws)
                 self._stop("this account joined it from another connection")
                 return
             if time.monotonic() - opened_at >= STABLE_CONNECTION_S:
                 attempt = 0
             log.info(f"[RELAY] Lost connection to room {self.room_key[:8]}, reconnecting...")
             self._notify(self._on_connection_changed)
+
+    @staticmethod
+    async def _close_replaced(ws):
+        """Close a connection the relay gave away. No leave message: the room
+        already dropped us, and our player is in it on the other connection."""
+        try:
+            await asyncio.wait_for(ws.close(), timeout=2.0)
+        except Exception:
+            pass
 
     def _stop(self, reason: str):
         self._stopped = True
@@ -346,6 +367,10 @@ class PartyRelay:
                 except json.JSONDecodeError:
                     continue
 
+                if isinstance(msg, dict) and msg.get("type") == REPLACED_EVENT:
+                    log.info(f"[RELAY] Room {self.room_key[:8]}: this account joined it from another connection")
+                    self._replaced = True
+                    return
                 if isinstance(msg, dict) and msg.get("type") == "members":
                     members = msg.get("members")
                     self.members = [m for m in members if isinstance(m, dict)] if isinstance(members, list) else []
