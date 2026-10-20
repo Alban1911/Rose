@@ -116,10 +116,12 @@ class _ResolverTestBase(unittest.TestCase):
         resolver.stop("test setup")
         self._wait_idle()
         resolver._handled_keys.clear()
+        resolver._served_game = False
 
         self.state = SharedState()
         self.state.phase = "GameStart"
         self.state.current_queue_id = 1750
+        self.state.current_map_id = 30
         self.injection_manager = MagicMock()
         self.injection_manager.inject_skin_immediately.return_value = True
         self.historic = patch.object(
@@ -127,8 +129,12 @@ class _ResolverTestBase(unittest.TestCase):
         )
         self.historic.start()
         self.addCleanup(self.historic.stop)
+        self.pick_local = patch.object(resolver, "pick_local_skin", return_value=None)
+        self.pick_local.start()
+        self.addCleanup(self.pick_local.stop)
         self.settings = [
             patch.object(resolver, "enabled", return_value=True),
+            patch.object(resolver, "fallback_enabled", return_value=True),
             patch.object(resolver, "ARENA_LATE_RESOLVE_INTERVAL_MS", 1),
             patch.object(resolver, "ARENA_LATE_RESOLVE_TIMEOUT_S", 0.5),
         ]
@@ -140,6 +146,7 @@ class _ResolverTestBase(unittest.TestCase):
         resolver.stop("test teardown")
         self._wait_idle()
         resolver._handled_keys.clear()
+        resolver._served_game = False
 
     def _wait_idle(self, timeout=2.0):
         deadline = time.monotonic() + timeout
@@ -252,12 +259,32 @@ class LateInjectionTests(_ResolverTestBase):
         self._wait_for_injection()
         self._wait_idle()
 
-        started_again, _api = self._start()
-        self.assertTrue(started_again)
+        # A second hook for the same game (GameStart -> InProgress) is a no-op.
+        started_again, _api = self._start(phase="InProgress", previous="GameStart")
+        self.assertFalse(started_again)
         self._wait_idle()
 
         self.assertEqual(
             self.injection_manager.inject_skin_immediately.call_count, 1
+        )
+
+    def test_a_new_game_is_served_again_after_leaving_the_previous_one(self):
+        started, _api = self._start()
+        self.assertTrue(started)
+        self._wait_for_injection()
+        self._wait_idle()
+
+        # EndOfGame/ChampSelect reset the per-game flag (called by the phase hooks).
+        resolver.on_phase_change(
+            "EndOfGame", "InProgress", state=self.state, lcu=None
+        )
+        self.state.phase = "GameStart"
+        resolver._handled_keys.clear()  # next game has its own gameId anyway
+        started_again, _api = self._start()
+        self.assertTrue(started_again)
+        self._wait_for_injection()
+        self.assertEqual(
+            self.injection_manager.inject_skin_immediately.call_count, 2
         )
 
     def test_an_unresolvable_champion_times_out_without_injecting(self):
@@ -284,6 +311,48 @@ class LateInjectionTests(_ResolverTestBase):
 
         self.assertFalse(resolver.is_active())
 
+    def test_without_a_historic_entry_a_local_skin_is_used_in_arena(self):
+        with patch.object(resolver, "get_historic_skin_for_champion", return_value=None), \
+             patch.object(resolver, "pick_local_skin", return_value=420018):
+            started, _api = self._start()
+            self.assertTrue(started)
+            self._wait_for_injection()
+
+        self.assertEqual(
+            self.injection_manager.inject_skin_immediately.call_args.args[0],
+            "skin_420018",
+        )
+
+    def test_the_local_fallback_is_not_used_outside_arena(self):
+        self.state.current_map_id = 11
+        self.state.current_queue_id = 420
+        with patch.object(resolver, "get_historic_skin_for_champion", return_value=None), \
+             patch.object(resolver, "pick_local_skin", return_value=420018):
+            started, _api = self._start()
+            self.assertTrue(started)
+            self._wait_idle()
+
+        self.injection_manager.inject_skin_immediately.assert_not_called()
+
+    def test_the_local_fallback_can_be_disabled(self):
+        with patch.object(resolver, "get_historic_skin_for_champion", return_value=None), \
+             patch.object(resolver, "fallback_enabled", return_value=False), \
+             patch.object(resolver, "pick_local_skin", return_value=420018):
+            started, _api = self._start()
+            self.assertTrue(started)
+            self._wait_idle()
+
+        self.injection_manager.inject_skin_immediately.assert_not_called()
+
+    def test_a_champion_without_any_local_skin_is_not_injected(self):
+        with patch.object(resolver, "get_historic_skin_for_champion", return_value=None), \
+             patch.object(resolver, "pick_local_skin", return_value=None):
+            started, _api = self._start()
+            self.assertTrue(started)
+            self._wait_idle()
+
+        self.injection_manager.inject_skin_immediately.assert_not_called()
+
     def test_lcu_reads_bypass_the_shared_cache(self):
         started, api = self._start()
         self.assertTrue(started)
@@ -291,6 +360,55 @@ class LateInjectionTests(_ResolverTestBase):
 
         self.assertTrue(api.calls)
         self.assertTrue(all(use_cache is False for _, use_cache in api.calls))
+
+
+class LocalSkinLibraryTests(unittest.TestCase):
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+
+    def _make(self, champion_id, skin_id, ext=".fantome", archive=True):
+        folder = self.root / str(champion_id) / str(skin_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        if archive:
+            (folder / f"{skin_id}{ext}").write_bytes(b"x")
+
+    def test_only_skin_ids_with_an_archive_are_returned(self):
+        self._make(420, 420001)
+        self._make(420, 420002, ext=".zip")
+        self._make(420, 420003, archive=False)
+        self._make(420, 420000)  # base skin: never injected
+        (self.root / "420" / "not-a-number").mkdir()
+
+        self.assertEqual(resolver.local_skin_ids(420, self.root), [420001, 420002])
+
+    def test_chromas_nested_under_a_skin_are_not_fake_skins(self):
+        self._make(420, 420002)
+        self._make(420, 420003, archive=False)  # would be a chroma folder
+        (self.root / "420" / "420002" / "420003").mkdir()
+
+        self.assertEqual(resolver.local_skin_ids(420, self.root), [420002])
+
+    def test_unknown_champion_or_missing_dir_returns_nothing(self):
+        self.assertEqual(resolver.local_skin_ids(999, self.root), [])
+        self.assertEqual(resolver.local_skin_ids(420, self.root / "missing"), [])
+        self.assertIsNone(resolver.pick_local_skin(999, self.root))
+
+    def test_pick_returns_one_of_the_local_skins(self):
+        self._make(420, 420001)
+        self._make(420, 420002)
+
+        self.assertIn(resolver.pick_local_skin(420, self.root), (420001, 420002))
+
+
+class IsArenaTests(unittest.TestCase):
+    def test_map_id_or_queue_id_marks_arena(self):
+        self.assertTrue(resolver.is_arena(SimpleNamespace(current_map_id=30, current_queue_id=None)))
+        self.assertTrue(resolver.is_arena(SimpleNamespace(current_map_id=None, current_queue_id=1750)))
+        self.assertTrue(resolver.is_arena(SimpleNamespace(current_map_id=None, current_queue_id=1700)))
+        self.assertFalse(resolver.is_arena(SimpleNamespace(current_map_id=11, current_queue_id=420)))
+        self.assertFalse(resolver.is_arena(SimpleNamespace()))
 
 
 class EnableSwitchTests(unittest.TestCase):
@@ -319,6 +437,15 @@ class EnableSwitchTests(unittest.TestCase):
         os.utime(self.path, (time.time() + 10, time.time() + 10))
 
         self.assertTrue(resolver.enabled())
+
+    def test_the_local_fallback_can_be_disabled_in_config_ini(self):
+        self.assertTrue(resolver.fallback_enabled())
+        self.path.write_text(
+            "[Debug]\narena_late_fallback_local_skin = false\n", encoding="utf-8"
+        )
+        os.utime(self.path, (time.time() + 10, time.time() + 10))
+
+        self.assertFalse(resolver.fallback_enabled())
 
     def test_the_phase_hook_does_nothing_while_disabled(self):
         self.addCleanup(resolver.stop)

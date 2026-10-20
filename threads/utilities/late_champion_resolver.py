@@ -11,7 +11,9 @@ nothing.
 This module watches ``/lol-gameflow/v1/session`` right after the game starts,
 matches the local player in ``teamOne``/``teamTwo`` by summoner id, and - if a
 numeric historic skin exists for that champion - runs the normal injection
-path late.
+path late. Without a historic entry it falls back to a random downloaded skin
+of that champion (Arena only, disable with
+``[Debug] arena_late_fallback_local_skin = false``).
 
 Best effort by design:
 - only while the champion is still unknown (normal flow always wins),
@@ -26,11 +28,14 @@ Enable/disable with ``[Debug] arena_late_injection = false`` in config.ini.
 
 from __future__ import annotations
 
+import random
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from config import (
+    ARENA_LATE_FALLBACK_LOCAL_SKIN,
     ARENA_LATE_GAMEFLOW_PATH,
     ARENA_LATE_INJECTION_ENABLED,
     ARENA_LATE_LCU_TIMEOUT_S,
@@ -42,6 +47,7 @@ from config import (
 from injection.game.game_monitor import make_game_ended_callback
 from utils.core.historic import get_historic_skin_for_champion, is_custom_mod_path
 from utils.core.logging import get_logger
+from utils.core.paths import get_skins_dir
 
 log = get_logger()
 
@@ -52,6 +58,9 @@ _START_PHASES = frozenset({"GameStart", "InProgress"})
 # reconnect must not trigger an injection into a game that is already running.
 _IN_PROGRESS_FROM = frozenset({"ChampSelect", "FINALIZATION", "GameStart"})
 _HANDLED_KEYS_MAX = 8
+_ARCHIVE_EXTENSIONS = (".zip", ".fantome")
+_ARENA_MAP_ID = 30
+_ARENA_QUEUE_IDS = frozenset({1700, 1750})
 
 
 def enabled() -> bool:
@@ -59,6 +68,14 @@ def enabled() -> bool:
     raw = get_config_option("Debug", "arena_late_injection")
     if raw is None:
         return bool(ARENA_LATE_INJECTION_ENABLED)
+    return raw.strip().lower() in _TRUTHY
+
+
+def fallback_enabled() -> bool:
+    """Random local skin when the champion has no historic entry (Arena only)."""
+    raw = get_config_option("Debug", "arena_late_fallback_local_skin")
+    if raw is None:
+        return bool(ARENA_LATE_FALLBACK_LOCAL_SKIN)
     return raw.strip().lower() in _TRUTHY
 
 
@@ -135,6 +152,45 @@ def build_injection_name(
     if skin_id // 1000 != champion:
         return (None, f"skin {skin_id} does not belong to champion {champion}")
     return (f"skin_{skin_id}", None)
+
+
+def local_skin_ids(champion_id: int, skins_dir: Optional[Path] = None) -> list:
+    """Skin ids with a local archive for the champion (base skin excluded)."""
+    try:
+        base = Path(skins_dir) if skins_dir is not None else get_skins_dir()
+        champ_dir = base / str(int(champion_id))
+    except (TypeError, ValueError):
+        return []
+    if not champ_dir.is_dir():
+        return []
+    base_skin_id = int(champion_id) * 1000
+    skin_ids = []
+    try:
+        entries = list(champ_dir.iterdir())
+    except OSError:
+        return []
+    for entry in entries:
+        if not entry.is_dir() or not entry.name.isdigit():
+            continue
+        skin_id = int(entry.name)
+        if skin_id <= 0 or skin_id == base_skin_id:
+            continue
+        if any((entry / f"{entry.name}{ext}").exists() for ext in _ARCHIVE_EXTENSIONS):
+            skin_ids.append(skin_id)
+    return sorted(skin_ids)
+
+
+def pick_local_skin(champion_id: int, skins_dir: Optional[Path] = None) -> Optional[int]:
+    """Random downloaded skin id for the champion, or None when nothing is local."""
+    candidates = local_skin_ids(champion_id, skins_dir)
+    return random.choice(candidates) if candidates else None
+
+
+def is_arena(state) -> bool:
+    """Whether the current game is Arena (where random champions happen)."""
+    if getattr(state, "current_map_id", None) == _ARENA_MAP_ID:
+        return True
+    return getattr(state, "current_queue_id", None) in _ARENA_QUEUE_IDS
 
 
 def _game_key(game_data: Dict[str, Any]) -> Optional[tuple]:
@@ -288,21 +344,41 @@ class _LateInjectionSession:
             return
 
         name, reason = build_injection_name(champion_id, historic)
+        source = "historic"
         if not name:
+            if not fallback_enabled() or not is_arena(self._state):
+                log.info(
+                    "[arena-late] champion %s resolved, nothing to inject: %s",
+                    champion_id,
+                    reason,
+                )
+                return
+            skin_id = pick_local_skin(champion_id)
+            if not skin_id:
+                log.info(
+                    "[arena-late] champion %s resolved, nothing to inject: %s "
+                    "(no local skin either)",
+                    champion_id,
+                    reason,
+                )
+                return
+            name = f"skin_{skin_id}"
+            source = "random local"
             log.info(
-                "[arena-late] champion %s resolved, nothing to inject: %s",
+                "[arena-late] champion %s: %s - falling back to local skin %s",
                 champion_id,
                 reason,
+                skin_id,
             )
-            return
 
         if self._injection_manager is None:
             log.warning("[arena-late] no injection manager available")
             return
 
         log.info(
-            "[arena-late] injecting %s for champion %s (%dms after start)",
+            "[arena-late] injecting %s (%s) for champion %s (%dms after start)",
             name,
+            source,
             champion_id,
             self.elapsed_ms(),
         )
@@ -330,6 +406,7 @@ _SESSION: Optional[_LateInjectionSession] = None
 _SESSION_LOCK = threading.Lock()
 _STATE_LOCK = threading.Lock()
 _handled_keys: list = []
+_served_game = False
 
 
 def is_active() -> bool:
@@ -346,8 +423,10 @@ def maybe_start(
     previous_phase: Optional[str] = None,
 ) -> bool:
     """Start resolving once per game. Returns False when not applicable."""
-    global _SESSION
+    global _SESSION, _served_game
     if phase not in _START_PHASES:
+        return False
+    if _served_game:
         return False
     if not enabled():
         return False
@@ -374,6 +453,8 @@ def maybe_start(
     except Exception as exc:  # noqa: BLE001 - a failed thread must not break the phase flow
         log.warning("[arena-late] could not start resolver thread: %s", exc)
         return False
+    with _SESSION_LOCK:
+        _served_game = True
     return True
 
 
@@ -393,6 +474,7 @@ def on_phase_change(
     injection_manager=None,
 ) -> None:
     """Single hook called for every gameflow phase change (see PhaseHandler)."""
+    global _served_game
     if phase in _START_PHASES:
         maybe_start(
             state=state,
@@ -402,4 +484,6 @@ def on_phase_change(
             previous_phase=previous_phase,
         )
     else:
+        # Leaving the game (or champ select/lobby) ends the current match.
+        _served_game = False
         stop(reason=str(phase))

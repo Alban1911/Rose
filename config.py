@@ -280,6 +280,7 @@ LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g
 # Override at runtime with `[Debug] arena_late_injection = false` in config.ini.
 
 ARENA_LATE_INJECTION_ENABLED = True          # On by default; config.ini can disable it
+ARENA_LATE_FALLBACK_LOCAL_SKIN = True        # No historic entry -> random downloaded skin (Arena only)
 ARENA_LATE_RESOLVE_INTERVAL_MS = 300         # Milliseconds between gameflow polls
 ARENA_LATE_RESOLVE_TIMEOUT_S = 25            # Give up resolving after this many seconds
 ARENA_LATE_LCU_TIMEOUT_S = 1.0               # Timeout for LCU requests made by the resolver
