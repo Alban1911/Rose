@@ -173,7 +173,7 @@ class LCUAPI:
             try:
                 t0 = time.perf_counter()
                 resp = self.connection.session.put(
-                    url,
+                    (self.connection.base or "") + path,
                     json=json_data,
                     timeout=timeout,
                     headers=headers,
