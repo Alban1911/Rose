@@ -26,6 +26,12 @@ TOKEN_VERSION = 2
 # accept any age: the party key is kept across sessions, so a token stays a
 # valid address for its owner's room.
 TOKEN_EXPIRY_SECONDS = 3600
+# Exact payload size of each token version, before compression
+TOKEN_PAYLOAD_SIZES = {1: 57, 2: 45}
+# A real token is under 100 characters (a v1 payload that zlib can't shrink
+# encodes to 91, plus the prefix). Anything far longer is not a token, and a
+# pasted one is decompressed on the bridge loop: refuse it before decoding
+MAX_TOKEN_LENGTH = 160
 
 
 @dataclass
@@ -90,6 +96,8 @@ class PartyToken:
             ValueError: If token is invalid
         """
         try:
+            if len(token_str) > MAX_TOKEN_LENGTH:
+                raise ValueError("Token is too long")
             if token_str.startswith(TOKEN_PREFIX):
                 token_str = token_str[len(TOKEN_PREFIX):]
 
@@ -98,27 +106,22 @@ class PartyToken:
                 token_str += "=" * padding
 
             compressed = base64.urlsafe_b64decode(token_str.encode("ascii"))
-            data = zlib.decompress(compressed)
-
-            if len(data) < 13:
-                raise ValueError("Token data too short")
+            data = cls._decompress(compressed)
 
             version = data[0]
+            if TOKEN_PAYLOAD_SIZES.get(version) != len(data):
+                if version not in TOKEN_PAYLOAD_SIZES:
+                    raise ValueError(f"Unsupported token version: {version}")
+                raise ValueError(f"Token data has the wrong size for v{version}")
 
             if version == 1:
                 # Legacy v1 token: has IP/port fields
-                if len(data) < 57:
-                    raise ValueError("Token data too short for v1")
                 _, timestamp, summoner_id, _, _ = struct.unpack(">BIQHH", data[:17])
                 encryption_key = data[25:57]
-            elif version == 2:
+            else:
                 # v2 token: relay-only, no IP/port
-                if len(data) < 45:
-                    raise ValueError("Token data too short for v2")
                 _, timestamp, summoner_id = struct.unpack(">BIQ", data[:13])
                 encryption_key = data[13:45]
-            else:
-                raise ValueError(f"Unsupported token version: {version}")
 
             if len(encryption_key) != 32:
                 raise ValueError("Invalid encryption key length")
@@ -137,6 +140,26 @@ class PartyToken:
         except Exception as e:
             log.error(f"[TOKEN] Failed to decode token: {e}")
             raise ValueError(f"Token decoding failed: {e}")
+
+    @staticmethod
+    def _decompress(compressed: bytes) -> bytes:
+        """Inflate a token payload, never past the largest known payload size.
+
+        The stream must end exactly where the data does: a truncated stream,
+        or bytes after its end, is not a token Rose made.
+        """
+        limit = max(TOKEN_PAYLOAD_SIZES.values())
+        inflater = zlib.decompressobj()
+        data = inflater.decompress(compressed, limit + 1)
+        if len(data) > limit or inflater.unconsumed_tail:
+            raise ValueError("Token data too long")
+        if not inflater.eof:
+            raise ValueError("Token data is truncated")
+        if inflater.unused_data:
+            raise ValueError("Token has trailing data")
+        if not data:
+            raise ValueError("Token data too short")
+        return data
 
     def is_expired(self) -> bool:
         return time.time() > (self.timestamp + TOKEN_EXPIRY_SECONDS)
