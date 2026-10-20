@@ -329,14 +329,16 @@ class PartyRelay:
                 return
             self._ws = None
             self._connected = False
-            if self._replaced or getattr(ws, "close_reason", None) == REPLACED_REASON:
+            replaced = self._replaced
+            if replaced or getattr(ws, "close_reason", None) == REPLACED_REASON:
                 # The room no longer reaches us: the members we last saw are stale
                 self.members = []
                 self._sent_state = None
-                if self._replaced:
+                # Stop before closing, so a resume() while it closes reconnects
+                self._stop("this account joined it from another connection")
+                if replaced:
                     # The relay stopped listening but left the connection open
                     await self._close_replaced(ws)
-                self._stop("this account joined it from another connection")
                 return
             if time.monotonic() - opened_at >= STABLE_CONNECTION_S:
                 attempt = 0
