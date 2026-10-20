@@ -76,6 +76,11 @@ export class PartyRoom extends DurableObject {
 
     switch (msg.type) {
       case 'join': {
+        // A connection left out of the room (replaced, or gone silent) stays
+        // out: joining again over it would bring a stale copy of its player back
+        const current = ws.deserializeAttachment() as Attachment;
+        if (current && 'dropped' in current) break;
+
         // Member announces themselves
         const info: MemberInfo = {
           summoner_id: msg.summoner_id,
@@ -90,6 +95,7 @@ export class PartyRoom extends DurableObject {
           if (other === ws) continue;
           const otherInfo = other.deserializeAttachment() as Attachment;
           if (otherInfo && 'summoner_id' in otherInfo && otherInfo.summoner_id === info.summoner_id) {
+            this.notifyReplaced(other);
             this.dropSocket(other, 'replaced');
             replaced++;
           }
@@ -147,6 +153,15 @@ export class PartyRoom extends DurableObject {
     this.log('drop', { summoner_id: info && 'summoner_id' in info ? info.summoner_id : undefined, reason });
     try {
       ws.serializeAttachment({ dropped: true });
+    } catch {}
+  }
+
+  // Tell a replaced connection that its player joined again elsewhere, so a
+  // Rose still behind it stops instead of pinging a room that no longer
+  // hears it. A message only: unlike a close, it waits on nothing
+  private notifyReplaced(ws: WebSocket) {
+    try {
+      ws.send(JSON.stringify({ type: 'replaced' }));
     } catch {}
   }
 
