@@ -23,6 +23,7 @@ from urllib.parse import quote
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.storage import ModStorageService
 from injection.overlay.overlay_manager import ltk_failure_cause
+from pengu.communication.broadcaster import custom_mod_state_payload
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
@@ -1067,6 +1068,7 @@ class MessageHandler:
             "championId": champion_id,
             "skinId": skin_id,
             "mods": mods_payload,
+            "customModState": custom_mod_state_payload(getattr(self.shared_state, "selected_custom_mod", None)),
             "hideEmptyCategories": (get_config_option("General", "hide_empty_categories", "false") or "false").lower() == "true",
             "historicMod": historic_mod_path,  # Add historic mod path if available
             "compatibleSkinIds": sorted(compatible_skin_ids),
