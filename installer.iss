@@ -237,6 +237,27 @@ begin
     RegDeleteKeyIncludingSubkeys(HKLM, IfeoKey);
 end;
 
+const
+  LegacyUninstallKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}';
+
+procedure _CleanupLegacyUninstallEntry();
+var
+  InstallLocation: string;
+  DisplayName: string;
+  Publisher: string;
+begin
+  { Inno owns the AppId-based Apps entry. Remove only our duplicate from older
+    installers, and only when it belongs to this installation. }
+  if RegQueryStringValue(HKLM, LegacyUninstallKey, 'InstallLocation', InstallLocation) and
+     RegQueryStringValue(HKLM, LegacyUninstallKey, 'DisplayName', DisplayName) and
+     RegQueryStringValue(HKLM, LegacyUninstallKey, 'Publisher', Publisher) and
+     (CompareText(AddBackslash(InstallLocation), AddBackslash(ExpandConstant('{app}'))) = 0) and
+     (DisplayName = '{#MyAppName}') and (Publisher = '{#MyAppPublisher}') then
+  begin
+    RegDeleteKeyIncludingSubkeys(HKLM, LegacyUninstallKey);
+  end;
+end;
+
 procedure _DeleteLocalAppDataRose();
 begin
   { Ensure user data is removed before running external cleanup }
@@ -248,14 +269,15 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     _CleanupStartupRegistry();
+    _CleanupLegacyUninstallEntry();
   end;
 
   if CurUninstallStep = usPostUninstall then
   begin
     _DeleteLocalAppDataRose();
-    { Remove the entire install directory (Program Files\Rose) in case
-      runtime-generated files (logs, caches, etc.) were left behind. }
-    DelTree(ExpandConstant('{app}'), True, True, True);
+    { Inno removes installed files; a shared/custom install root may also
+      contain unrelated files. Remove the root only when it is empty. }
+    RemoveDir(ExpandConstant('{app}'));
     { Safety net if Pengu's own --uninstall could not run }
     _RemoveDeadPenguIfeo();
   end;
@@ -268,15 +290,6 @@ begin
     { Clean up a dead hook left by an older Rose uninstall }
     _RemoveDeadPenguIfeo();
 
-    // Create registry entries for Windows Apps list
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayName', '{#MyAppName}');
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayVersion', '{#MyAppVersion}');
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'Publisher', '{#MyAppPublisher}');
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'URLInfoAbout', '{#MyAppURL}');
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'InstallLocation', ExpandConstant('{app}'));
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'UninstallString', ExpandConstant('{uninstallexe}'));
-    RegWriteDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'NoModify', 1);
-    RegWriteDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'NoRepair', 1);
-    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}', 'DisplayIcon', ExpandConstant('{app}\{#MyAppExeName}'));
+    _CleanupLegacyUninstallEntry();
   end;
 end;
