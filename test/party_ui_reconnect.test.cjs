@@ -325,6 +325,7 @@ test("a dropped connection while adding a friend gives the panel back, token inc
   ui.socket.open();
   assert.notEqual(ui.socket, first);
   assert.deepEqual(ui.socket.types(), ["party-get-state"]);
+  assert.equal(ui.text("add-peer-message"), "", "the connection error is gone");
   ui.state(true);
   ui.el("add-peer-btn").click();
   assert.deepEqual(ui.socket.sent.at(-1), { type: "party-add-peer", token: "ROSE:friend" });

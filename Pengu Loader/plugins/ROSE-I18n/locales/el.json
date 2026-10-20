@@ -65,6 +65,8 @@
   "Failed to enable": "Η ενεργοποίηση απέτυχε",
   "Friend connected!": "Ο φίλος συνδέθηκε!",
   "Failed to connect": "Η σύνδεση απέτυχε",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Δεν είναι δυνατή η σύνδεση με το Rose. Βεβαιωθείτε ότι το Rose εκτελείται και δοκιμάστε ξανά.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Η σύνδεση με το Rose χάθηκε. Βεβαιωθείτε ότι το Rose εκτελείται και δοκιμάστε ξανά.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Διακοπή της έγχυσης του Rose και επανασύνδεση χωρίς mods (χρησιμοποιήστε το αν κάποιο mod κάνει το παιχνίδι να κρασάρει)",
   "Mods disabled": "Τα mods απενεργοποιήθηκαν",
   "Disable Rose mods": "Απενεργοποίηση mods Rose",

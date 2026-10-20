@@ -911,9 +911,17 @@
     updateButtonState();
   }
 
-  function showError(elementId, text) {
+  // Rose can't be reached. Marked, so reconnecting clears it
+  function showConnectionError(elementId, text) {
     const el = document.getElementById(elementId);
-    if (el) el.innerHTML = `<div class="error-msg">${escapeHtml(text)}</div>`;
+    if (el) el.innerHTML = `<div class="error-msg connection-error">${escapeHtml(text)}</div>`;
+  }
+
+  function clearConnectionErrors() {
+    for (const id of ["party-toggle-message", "add-peer-message"]) {
+      const el = document.getElementById(id);
+      if (el && el.querySelector(".connection-error")) el.innerHTML = "";
+    }
   }
 
   // Give the controls back after a request Rose will not answer (the
@@ -940,7 +948,7 @@
     pendingToken = "";
 
     updatePanelState();
-    if (message) showError(action === "add-peer" ? "add-peer-message" : "party-toggle-message", message);
+    if (message) showConnectionError(action === "add-peer" ? "add-peer-message" : "party-toggle-message", message);
   }
 
   // Rose's party state settles a request whose answer was lost
@@ -958,7 +966,7 @@
     const action = partyState.enabled ? "disable" : "enable";
     if (pendingAction) return;
     if (!sendBridgeAction({ type: `party-${action}` })) {
-      showError("party-toggle-message", t("Rose is not reachable. Check that Rose is running, then try again."));
+      showConnectionError("party-toggle-message", t("Rose is not reachable. Check that Rose is running, then try again."));
       return;
     }
     pendingAction = action;
@@ -997,7 +1005,7 @@
     }
     if (pendingAction) return;
     if (!sendBridgeAction({ type: "party-add-peer", token: token })) {
-      showError("add-peer-message", t("Rose is not reachable. Check that Rose is running, then try again."));
+      showConnectionError("add-peer-message", t("Rose is not reachable. Check that Rose is running, then try again."));
       return;
     }
 
@@ -1018,7 +1026,7 @@
   // Global function for remove button onclick
   window.rosePartyRemovePeer = function (summonerId) {
     if (!sendBridgeAction({ type: "party-remove-peer", summoner_id: summonerId })) {
-      showError("add-peer-message", t("Rose is not reachable. Check that Rose is running, then try again."));
+      showConnectionError("add-peer-message", t("Rose is not reachable. Check that Rose is running, then try again."));
     }
   };
 
@@ -1142,6 +1150,7 @@
     bridgeSocket.onopen = () => {
       console.log(`${LOG_PREFIX} Bridge connected`);
       bridgeReady = true;
+      clearConnectionErrors();
 
       // Flush queued messages
       while (bridgeQueue.length > 0) {

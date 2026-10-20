@@ -65,6 +65,8 @@
   "Failed to enable": "開啟失敗",
   "Friend connected!": "好友已連線！",
   "Failed to connect": "連線失敗",
+  "Rose is not reachable. Check that Rose is running, then try again.": "無法連線到 Rose。請確認 Rose 正在執行，然後再試一次。",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "與 Rose 的連線已中斷。請確認 Rose 正在執行，然後再試一次。",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "停止 Rose 的注入，然後不使用模組重新連線（如果某個模組讓遊戲當機，請使用此功能）",
   "Mods disabled": "模組已停用",
   "Disable Rose mods": "停用 Rose 模組",

@@ -65,6 +65,8 @@
   "Failed to enable": "有効化に失敗しました",
   "Friend connected!": "フレンドが接続しました!",
   "Failed to connect": "接続に失敗しました",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Roseに接続できません。Roseが起動していることを確認してから、再試行してください。",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Roseとの接続が切れました。Roseが起動していることを確認してから、再試行してください。",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Roseのインジェクションを停止し、MODなしで再接続します(MODのせいでゲームがクラッシュする場合に使用)",
   "Mods disabled": "MOD無効化済み",
   "Disable Rose mods": "Rose MODを無効化",

@@ -65,6 +65,8 @@
   "Failed to enable": "A bekapcsolás nem sikerült",
   "Friend connected!": "Barát csatlakozott!",
   "Failed to connect": "A csatlakozás nem sikerült",
+  "Rose is not reachable. Check that Rose is running, then try again.": "A Rose nem érhető el. Ellenőrizd, hogy fut-e a Rose, majd próbáld újra.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Megszakadt a kapcsolat a Rose-zal. Ellenőrizd, hogy fut-e a Rose, majd próbáld újra.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "A Rose injektálásának leállítása, majd újracsatlakozás modok nélkül (használd, ha egy mod miatt összeomlik a játék)",
   "Mods disabled": "Modok kikapcsolva",
   "Disable Rose mods": "Rose modok kikapcsolása",

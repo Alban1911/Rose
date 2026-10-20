@@ -65,6 +65,8 @@
   "Failed to enable": "开启失败",
   "Friend connected!": "好友已连接！",
   "Failed to connect": "连接失败",
+  "Rose is not reachable. Check that Rose is running, then try again.": "无法连接到 Rose。请确认 Rose 正在运行，然后重试。",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "与 Rose 的连接已断开。请确认 Rose 正在运行，然后重试。",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "停止 Rose 的注入，然后不带模组重新连接（如果某个模组导致游戏崩溃，请使用此功能）",
   "Mods disabled": "模组已停用",
   "Disable Rose mods": "停用 Rose 模组",

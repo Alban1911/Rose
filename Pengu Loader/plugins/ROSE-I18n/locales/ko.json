@@ -65,6 +65,8 @@
   "Failed to enable": "켜지 못했습니다",
   "Friend connected!": "친구가 연결되었습니다!",
   "Failed to connect": "연결하지 못했습니다",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Rose에 연결할 수 없습니다. Rose가 실행 중인지 확인한 뒤 다시 시도하세요.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Rose와의 연결이 끊어졌습니다. Rose가 실행 중인지 확인한 뒤 다시 시도하세요.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Rose 인젝션을 중지하고 모드 없이 다시 연결합니다 (모드 때문에 게임이 튕길 때 사용하세요)",
   "Mods disabled": "모드 꺼짐",
   "Disable Rose mods": "Rose 모드 끄기",

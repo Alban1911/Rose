@@ -65,6 +65,8 @@
   "Failed to enable": "Açılamadı",
   "Friend connected!": "Arkadaş bağlandı!",
   "Failed to connect": "Bağlanılamadı",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Rose'a ulaşılamıyor. Rose'un çalıştığından emin ol ve tekrar dene.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Rose ile bağlantı koptu. Rose'un çalıştığından emin ol ve tekrar dene.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Rose enjeksiyonunu durdur, sonra modsuz yeniden bağlan (bir mod oyununu çökertiyorsa bunu kullan)",
   "Mods disabled": "Modlar kapatıldı",
   "Disable Rose mods": "Rose modlarını kapat",

@@ -65,6 +65,8 @@
   "Failed to enable": "Không bật được",
   "Friend connected!": "Bạn bè đã kết nối!",
   "Failed to connect": "Không kết nối được",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Không thể kết nối tới Rose. Hãy kiểm tra xem Rose có đang chạy không rồi thử lại.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Đã mất kết nối với Rose. Hãy kiểm tra xem Rose có đang chạy không rồi thử lại.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Dừng tiêm của Rose rồi kết nối lại không dùng mod (dùng khi một mod làm trò chơi bị lỗi)",
   "Mods disabled": "Đã tắt mod",
   "Disable Rose mods": "Tắt mod của Rose",

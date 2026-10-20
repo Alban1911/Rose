@@ -65,6 +65,8 @@
   "Failed to enable": "Zapnutí se nezdařilo",
   "Friend connected!": "Přítel připojen!",
   "Failed to connect": "Připojení se nezdařilo",
+  "Rose is not reachable. Check that Rose is running, then try again.": "K Rose se nelze připojit. Zkontroluj, že Rose běží, a zkus to znovu.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Spojení s Rose se přerušilo. Zkontroluj, že Rose běží, a zkus to znovu.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Zastavit injektování Rose a znovu se připojit bez modů (použij, pokud ti mod shazuje hru)",
   "Mods disabled": "Mody vypnuty",
   "Disable Rose mods": "Vypnout mody Rose",

@@ -65,6 +65,8 @@
   "Failed to enable": "เปิดไม่สำเร็จ",
   "Friend connected!": "เพื่อนเชื่อมต่อแล้ว!",
   "Failed to connect": "เชื่อมต่อไม่สำเร็จ",
+  "Rose is not reachable. Check that Rose is running, then try again.": "ไม่สามารถติดต่อ Rose ได้ ตรวจสอบว่า Rose กำลังทำงานอยู่ แล้วลองอีกครั้ง",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "การเชื่อมต่อกับ Rose ขาดหายไป ตรวจสอบว่า Rose กำลังทำงานอยู่ แล้วลองอีกครั้ง",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "หยุดการอินเจกต์ของ Rose แล้วเชื่อมต่อใหม่โดยไม่ใช้มอด (ใช้เมื่อมอดทำให้เกมแครช)",
   "Mods disabled": "ปิดมอดแล้ว",
   "Disable Rose mods": "ปิดมอดของ Rose",

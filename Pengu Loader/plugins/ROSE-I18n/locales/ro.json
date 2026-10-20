@@ -65,6 +65,8 @@
   "Failed to enable": "Activarea a eșuat",
   "Friend connected!": "Prieten conectat!",
   "Failed to connect": "Conectarea a eșuat",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Nu se poate stabili legătura cu Rose. Verifică dacă Rose rulează, apoi încearcă din nou.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Conexiunea cu Rose s-a pierdut. Verifică dacă Rose rulează, apoi încearcă din nou.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Oprește injectarea Rose, apoi reconectează-te fără moduri (folosește asta dacă un mod îți blochează jocul)",
   "Mods disabled": "Moduri dezactivate",
   "Disable Rose mods": "Oprește modurile Rose",

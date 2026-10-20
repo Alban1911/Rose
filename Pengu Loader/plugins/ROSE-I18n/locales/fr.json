@@ -65,6 +65,8 @@
   "Failed to enable": "Échec de l'activation",
   "Friend connected!": "Ami connecté !",
   "Failed to connect": "Échec de la connexion",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Impossible de joindre Rose. Vérifiez que Rose est en cours d'exécution, puis réessayez.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "La connexion à Rose a été perdue. Vérifiez que Rose est en cours d'exécution, puis réessayez.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Arrêter l'injection de Rose, puis se reconnecter sans mods (à utiliser si un mod fait planter votre partie)",
   "Mods disabled": "Mods désactivés",
   "Disable Rose mods": "Désactiver les mods Rose",

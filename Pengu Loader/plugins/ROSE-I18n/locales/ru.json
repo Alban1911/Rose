@@ -65,6 +65,8 @@
   "Failed to enable": "Не удалось включить",
   "Friend connected!": "Друг подключён!",
   "Failed to connect": "Не удалось подключиться",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Не удаётся связаться с Rose. Убедитесь, что Rose работает, и попробуйте снова.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Соединение с Rose потеряно. Убедитесь, что Rose работает, и попробуйте снова.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Остановить внедрение Rose и переподключиться без модов (используйте, если мод вызывает вылет игры)",
   "Mods disabled": "Моды отключены",
   "Disable Rose mods": "Отключить моды Rose",

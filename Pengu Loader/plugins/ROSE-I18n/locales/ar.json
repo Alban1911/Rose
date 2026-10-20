@@ -65,6 +65,8 @@
   "Failed to enable": "تعذّر التفعيل",
   "Friend connected!": "اتصل الصديق!",
   "Failed to connect": "تعذّر الاتصال",
+  "Rose is not reachable. Check that Rose is running, then try again.": "تعذّر الوصول إلى Rose. تأكد من أن Rose قيد التشغيل، ثم أعد المحاولة.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "انقطع الاتصال بـ Rose. تأكد من أن Rose قيد التشغيل، ثم أعد المحاولة.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "إيقاف حقن Rose ثم إعادة الاتصال بدون تعديلات (استخدم هذا إذا تسبب تعديل في تعطل لعبتك)",
   "Mods disabled": "تم تعطيل التعديلات",
   "Disable Rose mods": "تعطيل تعديلات Rose",

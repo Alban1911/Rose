@@ -65,6 +65,8 @@
   "Failed to enable": "Gagal mengaktifkan",
   "Friend connected!": "Teman terhubung!",
   "Failed to connect": "Gagal terhubung",
+  "Rose is not reachable. Check that Rose is running, then try again.": "Rose tidak dapat dihubungi. Pastikan Rose sedang berjalan, lalu coba lagi.",
+  "Lost the connection to Rose. Check that Rose is running, then try again.": "Koneksi ke Rose terputus. Pastikan Rose sedang berjalan, lalu coba lagi.",
   "Stop Rose's injection, then reconnect without mods (use this if a mod crashes your game)": "Hentikan injeksi Rose, lalu sambungkan ulang tanpa mod (gunakan ini jika mod membuat game-mu crash)",
   "Mods disabled": "Mod dinonaktifkan",
   "Disable Rose mods": "Nonaktifkan mod Rose",
