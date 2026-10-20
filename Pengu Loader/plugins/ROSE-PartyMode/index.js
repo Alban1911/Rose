@@ -33,6 +33,10 @@
   let lobbyButton = null;
   let isVisible = false;
   let panelLocked = false;
+  // The request ("enable", "disable" or "add-peer") Rose hasn't answered yet,
+  // and the token being added, given back to the user if Rose never answers
+  let pendingAction = null;
+  let pendingToken = "";
   let currentUIMode = null; // 'lobby' or 'champselect'
 
   // Party state
@@ -898,23 +902,69 @@
       peersSection.style.display = "none";
     }
 
+    // The toggle waits on Rose's answer to any request still pending
+    toggleBtn.disabled = pendingAction !== null;
+    if (pendingAction === "enable" || pendingAction === "disable") {
+      toggleBtn.innerHTML = `<span class="spinner"></span> ${t(pendingAction === "enable" ? "Enabling..." : "Disabling...")}`;
+    }
+
     updateButtonState();
   }
 
-  async function handleToggleParty() {
-    const toggleBtn = document.getElementById("party-toggle-btn");
+  function showError(elementId, text) {
+    const el = document.getElementById(elementId);
+    if (el) el.innerHTML = `<div class="error-msg">${escapeHtml(text)}</div>`;
+  }
 
-    if (partyState.enabled) {
-      // Disable
-      toggleBtn.disabled = true;
-      toggleBtn.innerHTML = `<span class="spinner"></span> ${t("Disabling...")}`;
-      sendBridgeMessage({ type: "party-disable" });
-    } else {
-      // Enable
-      toggleBtn.disabled = true;
-      toggleBtn.innerHTML = `<span class="spinner"></span> ${t("Enabling...")}`;
-      sendBridgeMessage({ type: "party-enable" });
+  // Give the controls back after a request Rose will not answer (the
+  // connection to it dropped), keeping the panel as it is. The token being
+  // added goes back in its field, so trying again is one click
+  function releasePendingAction(message) {
+    const action = pendingAction;
+    if (!action) return;
+    pendingAction = null;
+
+    if (action === "add-peer") {
+      const input = document.getElementById("add-peer-input");
+      const addBtn = document.getElementById("add-peer-btn");
+      if (input) {
+        input.disabled = false;
+        if (!input.value) input.value = pendingToken;
+      }
+      if (addBtn) {
+        addBtn.disabled = false;
+        addBtn.textContent = t("Add");
+      }
+      setPanelLocked(false);
     }
+    pendingToken = "";
+
+    updatePanelState();
+    if (message) showError(action === "add-peer" ? "add-peer-message" : "party-toggle-message", message);
+  }
+
+  // Rose's party state settles a request whose answer was lost
+  function settlePendingAction() {
+    if (
+      (pendingAction === "enable" && partyState.enabled) ||
+      (pendingAction === "disable" && !partyState.enabled) ||
+      (pendingAction === "add-peer" && !partyState.enabled)
+    ) {
+      releasePendingAction(null);
+    }
+  }
+
+  function handleToggleParty() {
+    const action = partyState.enabled ? "disable" : "enable";
+    if (pendingAction) return;
+    if (!sendBridgeAction({ type: `party-${action}` })) {
+      showError("party-toggle-message", t("Rose is not reachable. Check that Rose is running, then try again."));
+      return;
+    }
+    pendingAction = action;
+    const toggleMessageEl = document.getElementById("party-toggle-message");
+    if (toggleMessageEl) toggleMessageEl.innerHTML = "";
+    updatePanelState();
   }
 
   function handleCopyToken() {
@@ -945,8 +995,15 @@
         `<div class="error-msg">${t("Please enter a token")}</div>`;
       return;
     }
+    if (pendingAction) return;
+    if (!sendBridgeAction({ type: "party-add-peer", token: token })) {
+      showError("add-peer-message", t("Rose is not reachable. Check that Rose is running, then try again."));
+      return;
+    }
 
     // Lock the entire panel during connection
+    pendingAction = "add-peer";
+    pendingToken = token;
     input.disabled = true;
     addBtn.disabled = true;
     addBtn.innerHTML = '<span class="spinner"></span>';
@@ -955,13 +1012,14 @@
     setPanelLocked(true);
     messageEl.innerHTML =
       `<div class="success-msg"><span class="spinner"></span> ${t("Connecting to your friend...")}</div>`;
-    sendBridgeMessage({ type: "party-add-peer", token: token });
     input.value = "";
   }
 
   // Global function for remove button onclick
   window.rosePartyRemovePeer = function (summonerId) {
-    sendBridgeMessage({ type: "party-remove-peer", summoner_id: summonerId });
+    if (!sendBridgeAction({ type: "party-remove-peer", summoner_id: summonerId })) {
+      showError("add-peer-message", t("Rose is not reachable. Check that Rose is running, then try again."));
+    }
   };
 
   function handleBridgeMessage(data) {
@@ -979,9 +1037,11 @@
         };
         updateButtonState();
         updatePanelState();
+        settlePendingAction();
         break;
 
       case "party-enabled":
+        if (pendingAction === "enable") pendingAction = null;
         const toggleBtn = document.getElementById("party-toggle-btn");
         if (toggleBtn) toggleBtn.disabled = false;
         // Shown under the toggle: the add-friend section is hidden while disabled
@@ -1004,6 +1064,7 @@
         break;
 
       case "party-disabled":
+        if (pendingAction === "disable") pendingAction = null;
         const toggleBtnDisable = document.getElementById("party-toggle-btn");
         if (toggleBtnDisable) toggleBtnDisable.disabled = false;
 
@@ -1014,6 +1075,7 @@
         console.log(`${LOG_PREFIX} Party mode disabled`);
         updateButtonState();
         updatePanelState();
+        settlePendingAction();
         break;
 
       case "party-peer-added": {
@@ -1022,6 +1084,8 @@
         const addMessageEl = document.getElementById("add-peer-message");
 
         // Unlock the panel
+        if (pendingAction === "add-peer") pendingAction = null;
+        pendingToken = "";
         if (addInput) addInput.disabled = false;
         if (addBtn) {
           addBtn.disabled = false;
@@ -1101,6 +1165,8 @@
     bridgeSocket.onclose = () => {
       console.log(`${LOG_PREFIX} Bridge disconnected, reconnecting...`);
       bridgeReady = false;
+      // Rose won't answer what it was asked on this connection
+      releasePendingAction(t("Lost the connection to Rose. Check that Rose is running, then try again."));
       setTimeout(connectBridge, 1000);
     };
 
@@ -1114,6 +1180,20 @@
       bridgeSocket.send(JSON.stringify(msg));
     } else {
       bridgeQueue.push(msg);
+    }
+  }
+
+  // Send a request the user made. Never queued: when Rose isn't reachable,
+  // the user is told and can try again, rather than the request going out
+  // later on a new connection after they gave up on it
+  function sendBridgeAction(msg) {
+    if (!bridgeReady || !bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) return false;
+    try {
+      bridgeSocket.send(JSON.stringify(msg));
+      return true;
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} Could not send ${msg.type}:`, e);
+      return false;
     }
   }
 

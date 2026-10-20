@@ -53,6 +53,8 @@ jobs:
         # A syntax error only shows up inside the League client, where the plugin
         # silently fails to load; catch it here instead.
         run: git ls-files -z 'Pengu Loader/plugins/*.js' | xargs -0 -n1 node --check
+      - name: Party Mode reconnect regression tests
+        run: node --test test/party_ui_reconnect.test.cjs
 
   python:
     name: Python (errors lint, unit tests)
