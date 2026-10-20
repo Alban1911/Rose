@@ -453,10 +453,6 @@ class InjectionTrigger:
                         if not injector:
                             return
                         
-                        historic_path = historic_mods.get(mod_type)
-                        if not historic_path:
-                            return
-
                         # For category-mods selection, historic data is stored per category key
                         # (ui/voiceover/loading_screen/vfx/sfx/others). We treat them together here.
                         if mod_type == "other":
@@ -574,6 +570,10 @@ class InjectionTrigger:
                             return
                         
                         # For other mod types (map, font, announcer), handle single mod
+                        historic_path = historic_mods.get(mod_type)
+                        if not historic_path:
+                            return
+
                         # Check if already selected
                         selected_attr = f'selected_{mod_type}_mod'
                         if getattr(self.state, selected_attr, None):

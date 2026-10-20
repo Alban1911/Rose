@@ -218,12 +218,12 @@ def _write_historic_mod_locked(mod_type: str, relative_path: Union[str, List[str
         for cat, paths in grouped.items():
             if paths:
                 m[cat] = _dedupe_keep_order(paths)
+            else:
+                m.pop(cat, None)
         # Avoid writing legacy key
         if "other" in m:
             del m["other"]
-        mod_type = "others"
-
-    if mod_type in _CATEGORY_KEYS:
+    elif mod_type in _CATEGORY_KEYS:
         items = _as_list(relative_path)
         if items:
             m[mod_type] = _dedupe_keep_order(items)
