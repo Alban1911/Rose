@@ -504,6 +504,39 @@ class RelayReconnectTests(unittest.TestCase):
         create_task.assert_not_called()
 
 
+class EnableTwiceTests(unittest.TestCase):
+    """The plugin can lose its connection while an enable is still joining,
+    and the user then clicks Enable again."""
+
+    def test_an_enable_sent_while_one_is_joining_waits_for_it(self):
+        from party.core import party_manager as module
+        manager = PartyManager(Mock(), make_state())
+        joins = []
+        loops = []
+
+        async def join_room(room):
+            joins.append(room)
+            await asyncio.sleep(0.01)
+            return None
+
+        async def loop():
+            loops.append(1)
+
+        matcher = Mock(get_my_summoner_id=Mock(return_value=1), get_my_summoner_name=Mock(return_value="Me"))
+        manager._join_room = join_room
+        manager._lobby_check_loop = loop
+        manager._skin_broadcast_loop = loop
+        manager._fresh_token = lambda: "token"
+
+        async def enable_twice():
+            return await asyncio.gather(manager.enable(), manager.enable())
+
+        with patch.object(module, "LobbyMatcher", return_value=matcher),                 patch.object(module, "SkinCollector"),                 patch.object(module, "load_party_key", return_value=b"k" * 32),                 patch.object(module, "compute_room_key", return_value="room"):
+            self.assertEqual(asyncio.run(enable_twice()), ["token", "token"])
+        self.assertEqual(joins, ["room"])
+        self.assertEqual(len(loops), 2)  # one lobby check and one skin broadcast
+
+
 class SkinBroadcastSettleTests(unittest.TestCase):
     """Hovering skins in champ select doesn't send every second: a pick goes
     out once it settles, and the pick our injection starts with at once."""

@@ -98,6 +98,7 @@ class PartyManager:
 
         # Background tasks
         self._running = False
+        self._enable_lock = asyncio.Lock()
         self._lobby_check_task: Optional[asyncio.Task] = None
         self._skin_broadcast_task: Optional[asyncio.Task] = None
 
@@ -123,6 +124,13 @@ class PartyManager:
 
     async def enable(self) -> str:
         """Enable party mode: open our room and return our token."""
+        # An enable sent again while the first is still joining (the plugin
+        # lost its connection to Rose and the user tried again) waits for it,
+        # rather than starting the background loops a second time
+        async with self._enable_lock:
+            return await self._enable()
+
+    async def _enable(self) -> str:
         if self.party_state.enabled:
             return self._fresh_token() or ""
 
