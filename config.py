@@ -271,6 +271,23 @@ LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g
 
 
 # =============================================================================
+# ARENA RANDOM CHAMPION - LATE SKIN INJECTION
+# =============================================================================
+# Arena can reveal the champion only once the game starts. When the champion is
+# still unknown at GameStart/InProgress and a historic skin exists for it, Rose
+# resolves it from the gameflow session and injects that skin late (best effort:
+# any failure just means "no skin", the match is never touched).
+# Override at runtime with `[Debug] arena_late_injection = false` in config.ini.
+
+ARENA_LATE_INJECTION_ENABLED = True          # On by default; config.ini can disable it
+ARENA_LATE_RESOLVE_INTERVAL_MS = 300         # Milliseconds between gameflow polls
+ARENA_LATE_RESOLVE_TIMEOUT_S = 25            # Give up resolving after this many seconds
+ARENA_LATE_LCU_TIMEOUT_S = 1.0               # Timeout for LCU requests made by the resolver
+ARENA_LATE_GAMEFLOW_PATH = "/lol-gameflow/v1/session"
+ARENA_LATE_SUMMONER_PATH = "/lol-summoner/v1/current-summoner"
+
+
+# =============================================================================
 # PROCESS & THREAD TIMEOUT CONSTANTS
 # =============================================================================
 
