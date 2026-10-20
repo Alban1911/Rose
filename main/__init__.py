@@ -469,16 +469,24 @@ def _update_registry_version() -> None:
     After an auto-update the Inno Setup registry entry still shows the version
     that was originally installed.  Writing the current ``APP_VERSION`` on every
     startup keeps "Apps & features" in sync.
+
+    Inno names its entry after the AppId (``AppId={{...}}`` keeps the closing
+    ``}}``). Older installers also wrote ``Uninstall\\Rose``, which stays until
+    a newer installer runs, so that one is kept in sync too while it exists.
     """
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         return
     try:
         import winreg
-        key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Rose"
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, APP_VERSION)
-    except Exception:
-        pass
+    except ImportError:
+        return
+    uninstall = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+    for name in ("{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}}_is1", "Rose"):
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, rf"{uninstall}\{name}", 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, APP_VERSION)
+        except Exception:
+            pass
 
 def _schedule_restart() -> bool:
     """Spawn a detached helper that relaunches Rose after this process exits.
