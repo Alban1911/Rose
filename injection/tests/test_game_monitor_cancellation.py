@@ -206,3 +206,43 @@ class MonitorCancellationTests(unittest.TestCase):
         monitor.stop()
         self.assertEqual(proc.resume.call_count, 2)
         self.assertIsNone(monitor.get_suspended_game_process())
+
+    def test_process_exiting_before_suspension_does_not_stop_monitor(self):
+        for path in ('immediate', 'regular'):
+            with self.subTest(path=path):
+                gone = Mock(pid=456)
+                gone.info = {'name': 'test-game.exe', 'pid': 456}
+                gone.status.side_effect = game_monitor.NoSuchProcess(456)
+                suspended = [False]
+                game = Mock(pid=123)
+                game.info = {'name': 'test-game.exe', 'pid': 123}
+                game.status.side_effect = lambda: game_monitor.STATUS_STOPPED if suspended[0] else 'running'
+                game.suspend.side_effect = lambda: suspended.__setitem__(0, True)
+                game.resume.side_effect = lambda: suspended.__setitem__(0, False)
+                calls = [0]
+
+                def processes(*args):
+                    calls[0] += 1
+                    return [] if path == 'regular' and calls[0] <= 10 else [gone, game]
+
+                fake = SimpleNamespace(process_iter=processes, Process=lambda pid: gone if pid == 456 else game)
+                monitor = game_monitor.GameMonitor(lambda: 60)
+                self.addCleanup(monitor.stop)
+                with patch.object(game_monitor, 'psutil', fake), \
+                        patch.object(game_monitor, '_GAME_PROCESS_NAMES', {'test-game.exe'}), \
+                        patch.object(game_monitor, 'PSUTIL_AVAILABLE', True):
+                    monitor.start()
+                    acquired = threading.Event()
+                    for _ in range(300):
+                        if monitor.get_suspended_game_process() is game:
+                            acquired.set()
+                            break
+                        acquired.wait(0.01)
+                    try:
+                        self.assertTrue(acquired.is_set(), 'monitor stopped instead of suspending the game')
+                        self.assertTrue(monitor.is_active)
+                        self.assertEqual(game.suspend.call_count, 1)
+                    finally:
+                        monitor.stop()
+                        monitor._monitor_thread.join(3)
+                    self.assertFalse(suspended[0])

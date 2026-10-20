@@ -232,6 +232,8 @@ class GameMonitor:
                                         log.error("[monitor] Try running Rose as Administrator")
                                         self.stop()
                                         break
+                                    except NoSuchProcess:
+                                        continue  # exited before we could suspend it
                                     except Exception as e:
                                         log.error(f"[monitor] Failed to suspend existing game: {e}")
                                         self.stop()
@@ -333,6 +335,8 @@ class GameMonitor:
                                     log.error("[monitor] Try running Rose as Administrator")
                                     self.stop()
                                     break
+                                except NoSuchProcess:
+                                    continue  # exited before we could suspend it
                                 except Exception as e:
                                     log.error(f"[monitor] Failed to suspend: {e}")
                                     self.stop()
