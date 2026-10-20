@@ -254,12 +254,16 @@ class ModStorageService:
     def _load_target_manifest(
         self,
         champion_id: int,
+        *,
+        require_readable: bool = False,
     ) -> tuple[tuple[int, ...], dict[str, dict]]:
         champion_dir = self.get_champion_dir(champion_id)
         payload = None
         for metadata_name in (self.TARGET_METADATA, self.LEGACY_TARGET_METADATA):
             manifest_path = champion_dir / metadata_name
             payload = self._load_manifest(manifest_path)
+            if payload is None and require_readable:
+                raise ValueError("The saved skin mod targets could not be read, so they were left unchanged")
             if payload:
                 break
         if not isinstance(payload, dict):
@@ -397,7 +401,7 @@ class ModStorageService:
 
         champion_dir = self.get_champion_dir(champion_id_int)
         champion_dir.mkdir(parents=True, exist_ok=True)
-        default_targets, mod_targets = self._load_target_manifest(champion_id_int)
+        default_targets, mod_targets = self._load_target_manifest(champion_id_int, require_readable=True)
         if mod_name:
             if mod_path is not None:
                 folder_hash, wad_hashes = self._hash_mod_folder(Path(mod_path))
@@ -610,11 +614,13 @@ class ModStorageService:
                 dir=str(champion_dir),
             )
         )
+        target_created = False
         try:
             extract_mod_archive(source, temporary_dir)
             if not any(temporary_dir.iterdir()):
                 raise ValueError("The selected mod archive contains no files")
             temporary_dir.replace(target_dir)
+            target_created = True
             manifest_path = self.set_champion_target_ids(
                 champion_id_int,
                 skin_ids,
@@ -624,6 +630,8 @@ class ModStorageService:
             return target_dir, manifest_path, mod_name
         except Exception:
             safe_remove_entry(temporary_dir)
+            if target_created:
+                safe_remove_entry(target_dir)
             raise
 
     def _resolve_mod_path(self, base_dir: Path, relative_path: object) -> Optional[Path]:
