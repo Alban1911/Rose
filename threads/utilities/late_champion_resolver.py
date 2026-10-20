@@ -13,7 +13,8 @@ matches the local player in ``teamOne``/``teamTwo`` by summoner id, and - if a
 numeric historic skin exists for that champion - runs the normal injection
 path late. Without a historic entry it falls back to a random downloaded skin
 of that champion (Arena only, disable with
-``[Debug] arena_late_fallback_local_skin = false``).
+``[Debug] arena_late_fallback_local_skin = false``). A skin the client has
+already applied itself (an owned one) is never overridden.
 
 Best effort by design:
 - only while the champion is still unknown (normal flow always wins),
@@ -122,6 +123,37 @@ def find_my_champion(
             if champion and _same_id(member.get("summonerId"), summoner_id):
                 return (key, champion)
     return (None, None)
+
+
+def find_my_skin_choice(
+    game_data: Optional[Dict[str, Any]], summoner_id: Any
+) -> Optional[int]:
+    """Skin the client already applied for the local player (0 = base skin).
+
+    The game flow only carries it for some payloads, hence Optional: without a
+    value the caller keeps its own logic. A positive value means an *owned* skin
+    is already in use, which the client will load on its own - there is nothing
+    to inject (and no reason to override the player's choice).
+    """
+    if not isinstance(game_data, dict) or summoner_id is None:
+        return None
+    for key in ("teamOne", "teamTwo"):
+        members = game_data.get(key)
+        if not isinstance(members, list):
+            continue
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            if not _same_id(member.get("summonerId"), summoner_id):
+                continue
+            for field in ("selectedSkinIndex", "selectedSkinId", "skinId"):
+                value = member.get(field)
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    continue
+            return None
+    return None
 
 
 def build_injection_name(
@@ -322,7 +354,7 @@ class _LateInjectionSession:
             getattr(self._state, "current_queue_id", None),
         )
         self._handled = True
-        self._inject(champion_id)
+        self._inject(champion_id, find_my_skin_choice(game_data, summoner_id))
         return "done"
 
     def _my_summoner(self) -> Optional[Any]:
@@ -335,7 +367,7 @@ class _LateInjectionSession:
             self._summoner_id = payload["summonerId"]
         return self._summoner_id
 
-    def _inject(self, champion_id: int) -> None:
+    def _inject(self, champion_id: int, selected_skin: Optional[int] = None) -> None:
         """Inject the historic skin for the champion, if there is one."""
         try:
             historic = get_historic_skin_for_champion(champion_id)
@@ -346,6 +378,14 @@ class _LateInjectionSession:
         name, reason = build_injection_name(champion_id, historic)
         source = "historic"
         if not name:
+            if selected_skin is not None and selected_skin > 0:
+                log.info(
+                    "[arena-late] champion %s already runs its selected (owned) skin "
+                    "%s - nothing to inject",
+                    champion_id,
+                    selected_skin,
+                )
+                return
             if not fallback_enabled() or not is_arena(self._state):
                 log.info(
                     "[arena-late] champion %s resolved, nothing to inject: %s",

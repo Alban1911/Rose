@@ -82,6 +82,30 @@ class FindMyChampionTests(unittest.TestCase):
                 self.assertEqual(resolver.find_my_champion(game, summoner), (None, None))
 
 
+class FindMySkinChoiceTests(unittest.TestCase):
+    def test_the_selected_skin_index_of_the_local_player_is_reported(self):
+        game = {
+            "teamOne": [{"championId": 22, "summonerId": 7, "selectedSkinIndex": 3}],
+            "teamTwo": [],
+        }
+        self.assertEqual(resolver.find_my_skin_choice(game, 7), 3)
+
+    def test_it_also_reads_other_teams_and_string_values(self):
+        game = {
+            "teamOne": [],
+            "teamTwo": [{"championId": 22, "summonerId": "7", "selectedSkinIndex": "1"}],
+        }
+        self.assertEqual(resolver.find_my_skin_choice(game, 7), 1)
+
+    def test_base_skin_and_absent_fields_are_reported_as_is(self):
+        game = {"teamOne": [{"championId": 22, "summonerId": 7, "selectedSkinIndex": 0}]}
+        self.assertEqual(resolver.find_my_skin_choice(game, 7), 0)
+        self.assertIsNone(
+            resolver.find_my_skin_choice(GAMEFLOW_SESSION["gameData"], 3113557841716864)
+        )
+        self.assertIsNone(resolver.find_my_skin_choice(None, 7))
+
+
 class BuildInjectionNameTests(unittest.TestCase):
     def test_a_numeric_skin_is_injected_as_skin_id(self):
         self.assertEqual(resolver.build_injection_name(22, 22008), ("skin_22008", None))
@@ -322,6 +346,29 @@ class LateInjectionTests(_ResolverTestBase):
             self.injection_manager.inject_skin_immediately.call_args.args[0],
             "skin_420018",
         )
+
+    def test_an_owned_skin_selected_by_the_client_is_not_overridden(self):
+        session = {
+            "gameData": {
+                "gameId": 777,
+                "teamOne": [
+                    {
+                        "championId": 22,
+                        "summonerId": 3113557841716864,
+                        "selectedSkinIndex": 1,
+                    }
+                ],
+                "teamTwo": [],
+            },
+            "phase": "InProgress",
+        }
+        with patch.object(resolver, "get_historic_skin_for_champion", return_value=None), \
+             patch.object(resolver, "pick_local_skin", return_value=22008):
+            started, _api = self._start(session=session)
+            self.assertTrue(started)
+            self._wait_idle()
+
+        self.injection_manager.inject_skin_immediately.assert_not_called()
 
     def test_the_local_fallback_is_not_used_outside_arena(self):
         self.state.current_map_id = 11
