@@ -503,7 +503,32 @@ class LocalSkinLibraryTests(unittest.TestCase):
         self._make(420, 420001)
         self._make(420, 420002)
 
-        self.assertIn(resolver.pick_local_skin(420, self.root), (420001, 420002))
+        with patch.object(resolver, "skin_selection_mode", return_value="random"), \
+             patch.object(resolver, "preferred_skin_ids", return_value=[]):
+            self.assertIn(resolver.pick_local_skin(420, self.root), (420001, 420002))
+
+    def test_the_newest_local_skin_is_picked_by_default(self):
+        self._make(420, 420001)
+        self._make(420, 420003)
+        self._make(420, 420002)
+
+        with patch.object(resolver, "skin_selection_mode", return_value="newest"), \
+             patch.object(resolver, "preferred_skin_ids", return_value=[]):
+            self.assertEqual(resolver.pick_local_skin(420, self.root), 420003)
+
+    def test_a_preferred_skin_wins_over_the_newest(self):
+        self._make(420, 420001)
+        self._make(420, 420003)
+
+        with patch.object(resolver, "preferred_skin_ids", return_value=[999999, 420001]):
+            self.assertEqual(resolver.pick_local_skin(420, self.root), 420001)
+
+    def test_a_preferred_skin_that_is_not_local_is_ignored(self):
+        self._make(420, 420001)
+
+        with patch.object(resolver, "preferred_skin_ids", return_value=[420002]), \
+             patch.object(resolver, "skin_selection_mode", return_value="newest"):
+            self.assertEqual(resolver.pick_local_skin(420, self.root), 420001)
 
 
 class IsArenaTests(unittest.TestCase):
@@ -591,6 +616,35 @@ class EnableSwitchTests(unittest.TestCase):
         os.utime(self.path, (time.time() + 10, time.time() + 10))
 
         self.assertFalse(resolver.fallback_enabled())
+
+    def test_the_skin_selection_defaults_to_the_newest(self):
+        self.assertEqual(resolver.skin_selection_mode(), "newest")
+
+    def test_config_ini_can_choose_a_random_local_skin(self):
+        self.path.write_text(
+            "[Debug]\narena_late_skin_selection = random\n", encoding="utf-8"
+        )
+        os.utime(self.path, (time.time() + 10, time.time() + 10))
+
+        self.assertEqual(resolver.skin_selection_mode(), "random")
+
+    def test_an_unknown_selection_mode_falls_back_to_the_newest(self):
+        self.path.write_text(
+            "[Debug]\narena_late_skin_selection = whatever\n", encoding="utf-8"
+        )
+        os.utime(self.path, (time.time() + 10, time.time() + 10))
+
+        self.assertEqual(resolver.skin_selection_mode(), "newest")
+
+    def test_preferred_skins_are_parsed_from_config_ini(self):
+        self.assertEqual(resolver.preferred_skin_ids(), [])
+        self.path.write_text(
+            "[Debug]\narena_late_preferred_skins = 41033, 22008;bad\n",
+            encoding="utf-8",
+        )
+        os.utime(self.path, (time.time() + 10, time.time() + 10))
+
+        self.assertEqual(resolver.preferred_skin_ids(), [41033, 22008])
 
     def test_the_phase_hook_does_nothing_while_disabled(self):
         self.addCleanup(resolver.stop)

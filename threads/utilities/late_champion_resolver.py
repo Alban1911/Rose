@@ -40,8 +40,10 @@ from config import (
     ARENA_LATE_GAMEFLOW_PATH,
     ARENA_LATE_INJECTION_ENABLED,
     ARENA_LATE_LCU_TIMEOUT_S,
+    ARENA_LATE_PREFERRED_SKINS,
     ARENA_LATE_RESOLVE_INTERVAL_MS,
     ARENA_LATE_RESOLVE_TIMEOUT_S,
+    ARENA_LATE_SKIN_SELECTION,
     ARENA_LATE_SUMMONER_PATH,
     get_config_option,
 )
@@ -70,6 +72,8 @@ _SUSPENDED_WAIT_LIMIT_S = 6.0
 _RELEASE_PHASES = frozenset(
     {"ChampSelect", "Matchmaking", "ReadyCheck", "Lobby", "WaitingForStats", "EndOfGame"}
 )
+# Local fallback pickers; anything else falls back to the default (newest).
+_SKIN_SELECTION_MODES = frozenset({"newest", "random"})
 
 
 def enabled() -> bool:
@@ -86,6 +90,28 @@ def fallback_enabled() -> bool:
     if raw is None:
         return bool(ARENA_LATE_FALLBACK_LOCAL_SKIN)
     return raw.strip().lower() in _TRUTHY
+
+
+def skin_selection_mode() -> str:
+    """How the local fallback picks a skin: ``newest`` (default) or ``random``."""
+    raw = get_config_option("Debug", "arena_late_skin_selection")
+    if raw is None:
+        raw = ARENA_LATE_SKIN_SELECTION
+    mode = str(raw).strip().lower()
+    return mode if mode in _SKIN_SELECTION_MODES else "newest"
+
+
+def preferred_skin_ids() -> list:
+    """Skin ids pinned in config.ini; they win over the selection mode."""
+    raw = get_config_option("Debug", "arena_late_preferred_skins")
+    if raw is None:
+        raw = ARENA_LATE_PREFERRED_SKINS
+    ids = []
+    for part in str(raw).replace(";", ",").split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.append(int(part))
+    return ids
 
 
 def _lcu_get(lcu, path: str) -> Tuple[Any, Optional[str]]:
@@ -221,9 +247,21 @@ def local_skin_ids(champion_id: int, skins_dir: Optional[Path] = None) -> list:
 
 
 def pick_local_skin(champion_id: int, skins_dir: Optional[Path] = None) -> Optional[int]:
-    """Random downloaded skin id for the champion, or None when nothing is local."""
+    """Downloaded skin id for the champion, or None when nothing is local.
+
+    ``arena_late_preferred_skins`` wins when one of its ids is local; otherwise
+    the selection mode decides: the newest skin by default (skins are released
+    in id order and the newer ones are the ones worth seeing), or a random one.
+    """
     candidates = local_skin_ids(champion_id, skins_dir)
-    return random.choice(candidates) if candidates else None
+    if not candidates:
+        return None
+    for skin_id in preferred_skin_ids():
+        if skin_id in candidates:
+            return skin_id
+    if skin_selection_mode() == "random":
+        return random.choice(candidates)
+    return max(candidates)
 
 
 def is_arena(state) -> bool:
@@ -460,12 +498,14 @@ class _LateInjectionSession:
                 self._release_game()
                 return
             name = f"skin_{skin_id}"
-            source = "random local"
+            selection = "preferred" if skin_id in preferred_skin_ids() else skin_selection_mode()
+            source = f"local {selection}"
             log.info(
-                "[arena-late] champion %s: %s - falling back to local skin %s",
+                "[arena-late] champion %s: %s - falling back to local skin %s (%s)",
                 champion_id,
                 reason,
                 skin_id,
+                selection,
             )
 
         if self._injection_manager is None:
