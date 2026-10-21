@@ -143,6 +143,28 @@ class InjectionManager:
     def resume_if_suspended(self):
         """Resume game if monitor suspended it (for when injection is skipped)"""
         self.game_monitor.resume_if_suspended()
+
+    def prepare_late_injection(self):
+        """Freeze the game the moment it launches, before the champion is known.
+
+        Arena random champions are only revealed once the game starts, so the
+        late resolver injects after the process exists. Suspending it that late
+        races the game's own start-up (and its anti-cheat), and the overlay then
+        arrives after the loading screen. Starting the monitor during the
+        loadout countdown catches the process at creation instead.
+        """
+        if self._monitor_active:
+            return
+        log.info("[INJECT] Starting game monitor early for late champion resolution")
+        self._start_monitor()
+
+    def abort_late_injection(self):
+        """Release the monitor/patcher of a late injection that will not happen."""
+        self._stop_monitor()
+
+    def is_game_suspended(self) -> bool:
+        """Whether the game is currently frozen by the monitor."""
+        return self.game_monitor.get_suspended_game_process() is not None
     
     @property
     def _monitor_active(self) -> bool:

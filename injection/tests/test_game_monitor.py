@@ -1,7 +1,7 @@
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import psutil
 
@@ -52,6 +52,40 @@ class SuspendedGameTests(unittest.TestCase):
         monitor._monitor_active = False  # the loop exits on its own once the patcher starts
         monitor.stop()
         self.assertNotEqual(self.game.status(), psutil.STATUS_STOPPED)
+
+
+class SuspendRetryTests(unittest.TestCase):
+    """A game that refuses the handle once must still be frozen in time."""
+
+    def setUp(self):
+        self.monitor = GameMonitor(lambda: 60.0)
+
+    def test_a_transient_access_denied_is_retried(self):
+        proc = MagicMock()
+        proc.suspend.side_effect = [psutil.AccessDenied(pid=1), None]
+
+        with patch.object(game_monitor.time, 'sleep') as sleep:
+            self.assertTrue(self.monitor._suspend_process(proc))
+
+        self.assertEqual(proc.suspend.call_count, 2)
+        sleep.assert_called_once_with(game_monitor.SUSPEND_RETRY_DELAY_S)
+
+    def test_a_permanent_access_denied_gives_up_after_the_retries(self):
+        proc = MagicMock()
+        proc.suspend.side_effect = psutil.AccessDenied(pid=1)
+
+        with patch.object(game_monitor, 'SUSPEND_RETRY_ATTEMPTS', 3), \
+             patch.object(game_monitor.time, 'sleep'):
+            self.assertFalse(self.monitor._suspend_process(proc))
+
+        self.assertEqual(proc.suspend.call_count, 3)
+
+    def test_a_vanished_process_is_not_retried(self):
+        proc = MagicMock()
+        proc.suspend.side_effect = psutil.NoSuchProcess(pid=1)
+
+        self.assertFalse(self.monitor._suspend_process(proc))
+        self.assertEqual(proc.suspend.call_count, 1)
 
 
 if __name__ == '__main__':

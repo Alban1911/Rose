@@ -61,7 +61,15 @@ _IN_PROGRESS_FROM = frozenset({"ChampSelect", "FINALIZATION", "GameStart"})
 _HANDLED_KEYS_MAX = 8
 _ARCHIVE_EXTENSIONS = (".zip", ".fantome")
 _ARENA_MAP_ID = 30
-_ARENA_QUEUE_IDS = frozenset({1700, 1750})
+_ARENA_QUEUE_IDS = frozenset({1700, 1740, 1750})
+# A game frozen by the early monitor must not stay frozen while the resolver
+# keeps retrying: past this point an injection would be too late anyway.
+_SUSPENDED_WAIT_LIMIT_S = 6.0
+# Phases that mean the game is over (or never started): release the monitor
+# and the patcher a late injection may have prepared.
+_RELEASE_PHASES = frozenset(
+    {"ChampSelect", "Matchmaking", "ReadyCheck", "Lobby", "WaitingForStats", "EndOfGame"}
+)
 
 
 def enabled() -> bool:
@@ -225,6 +233,22 @@ def is_arena(state) -> bool:
     return getattr(state, "current_queue_id", None) in _ARENA_QUEUE_IDS
 
 
+def expects_late_injection(state) -> bool:
+    """Whether this game may need the late path (Arena, champion still unknown).
+
+    Used before the game starts to keep the monitor and the patcher ready: the
+    champion only appears at game start, so the injection cannot be prepared
+    the normal way.
+    """
+    if not enabled():
+        return False
+    if getattr(state, "is_swiftplay_mode", False):
+        return False
+    if getattr(state, "locked_champ_id", None):
+        return False
+    return is_arena(state)
+
+
 def _game_key(game_data: Dict[str, Any]) -> Optional[tuple]:
     """Stable per-match key, used to inject at most once per game."""
     game_id = game_data.get("gameId")
@@ -302,24 +326,52 @@ class _LateInjectionSession:
                 return
             if outcome == "abort":
                 return
+            if self._game_is_waiting() and self.elapsed_ms() >= _SUSPENDED_WAIT_LIMIT_S * 1000:
+                log.warning(
+                    "[arena-late] giving up after %dms - the game is frozen and waiting",
+                    self.elapsed_ms(),
+                )
+                break
             self._stop_event.wait(interval_s)
         if not self._handled:
             log.info(
                 "[arena-late] giving up after %dms (champion not resolved)",
                 self.elapsed_ms(),
             )
+            self._release_game()
+
+    def _game_is_waiting(self) -> bool:
+        """Whether the early monitor froze the game while the champion resolves."""
+        manager = self._injection_manager
+        try:
+            return bool(manager is not None and manager.is_game_suspended())
+        except Exception:  # noqa: BLE001 - a broken manager must not block the retry loop
+            return False
+
+    def _release_game(self) -> None:
+        """Resume the game and stop the patcher when no injection will happen."""
+        manager = self._injection_manager
+        if manager is None:
+            return
+        try:
+            manager.abort_late_injection()
+        except Exception as exc:  # noqa: BLE001 - releasing is best effort
+            log.debug("[arena-late] could not release the early injection: %s", exc)
 
     def _attempt(self) -> str:
         phase = getattr(self._state, "phase", None)
         if phase not in _START_PHASES:
             log.info("[arena-late] abort: phase is now %s", phase)
+            self._release_game()
             return "abort"
         if getattr(self._state, "is_swiftplay_mode", False):
             log.info("[arena-late] abort: Swiftplay game")
+            self._release_game()
             return "abort"
         locked = getattr(self._state, "locked_champ_id", None)
         if locked:
             log.info("[arena-late] abort: champion already known (%s)", locked)
+            self._release_game()
             return "abort"
 
         session, error = _lcu_get(self._lcu, ARENA_LATE_GAMEFLOW_PATH)
@@ -340,6 +392,7 @@ class _LateInjectionSession:
         key = _game_key(game_data)
         with _STATE_LOCK:
             if key is not None and key in _handled_keys:
+                self._release_game()
                 return "abort"
             if key is not None:
                 _handled_keys.append(key)
@@ -373,6 +426,7 @@ class _LateInjectionSession:
             historic = get_historic_skin_for_champion(champion_id)
         except Exception as exc:  # noqa: BLE001 - a broken historic file is not fatal
             log.warning("[arena-late] could not read historic skins: %s", exc)
+            self._release_game()
             return
 
         name, reason = build_injection_name(champion_id, historic)
@@ -385,6 +439,7 @@ class _LateInjectionSession:
                     champion_id,
                     selected_skin,
                 )
+                self._release_game()
                 return
             if not fallback_enabled() or not is_arena(self._state):
                 log.info(
@@ -392,6 +447,7 @@ class _LateInjectionSession:
                     champion_id,
                     reason,
                 )
+                self._release_game()
                 return
             skin_id = pick_local_skin(champion_id)
             if not skin_id:
@@ -401,6 +457,7 @@ class _LateInjectionSession:
                     champion_id,
                     reason,
                 )
+                self._release_game()
                 return
             name = f"skin_{skin_id}"
             source = "random local"
@@ -413,6 +470,7 @@ class _LateInjectionSession:
 
         if self._injection_manager is None:
             log.warning("[arena-late] no injection manager available")
+            self._release_game()
             return
 
         log.info(
@@ -433,6 +491,7 @@ class _LateInjectionSession:
             log.warning(
                 "[arena-late] injection raised %s: %s", type(exc).__name__, exc
             )
+            self._release_game()
             return
 
         log.info(
@@ -527,3 +586,10 @@ def on_phase_change(
         # Leaving the game (or champ select/lobby) ends the current match.
         _served_game = False
         stop(reason=str(phase))
+        if phase in _RELEASE_PHASES and injection_manager is not None:
+            # A late injection may have frozen the game and kept the patcher
+            # scanning; release both once the game is over (or never started).
+            try:
+                injection_manager.abort_late_injection()
+            except Exception as exc:  # noqa: BLE001 - releasing is best effort
+                log.debug("[arena-late] could not release the early injection: %s", exc)

@@ -335,6 +335,63 @@ class LateInjectionTests(_ResolverTestBase):
 
         self.assertFalse(resolver.is_active())
 
+    def test_leaving_the_game_releases_the_early_injection(self):
+        started, _api = self._start(session=NO_CHAMPION_SESSION)
+        self.assertTrue(started)
+
+        resolver.on_phase_change(
+            "EndOfGame",
+            "InProgress",
+            state=self.state,
+            lcu=None,
+            injection_manager=self.injection_manager,
+        )
+        self._wait_idle()
+
+        self.injection_manager.abort_late_injection.assert_called()
+
+    def test_nothing_to_inject_releases_the_early_injection(self):
+        """A frozen game must never stay frozen when no skin is injected."""
+        with patch.object(resolver, "get_historic_skin_for_champion", return_value=None), \
+             patch.object(resolver, "pick_local_skin", return_value=None):
+            started, _api = self._start()
+            self.assertTrue(started)
+            self._wait_idle()
+
+        self.injection_manager.inject_skin_immediately.assert_not_called()
+        self.injection_manager.abort_late_injection.assert_called_once()
+
+    def test_an_owned_selected_skin_releases_the_early_injection(self):
+        session = {
+            "gameData": {
+                "gameId": 778,
+                "teamOne": [
+                    {
+                        "championId": 22,
+                        "summonerId": 3113557841716864,
+                        "selectedSkinIndex": 1,
+                    }
+                ],
+                "teamTwo": [],
+            },
+            "phase": "InProgress",
+        }
+        with patch.object(resolver, "get_historic_skin_for_champion", return_value=None):
+            started, _api = self._start(session=session)
+            self.assertTrue(started)
+            self._wait_idle()
+
+        self.injection_manager.abort_late_injection.assert_called_once()
+
+    def test_an_injection_leaves_the_release_to_the_injection(self):
+        started, _api = self._start()
+        self.assertTrue(started)
+        self._wait_for_injection()
+        self._wait_idle()
+
+        # The injection path stops the monitor when it completes.
+        self.injection_manager.abort_late_injection.assert_not_called()
+
     def test_without_a_historic_entry_a_local_skin_is_used_in_arena(self):
         with patch.object(resolver, "get_historic_skin_for_champion", return_value=None), \
              patch.object(resolver, "pick_local_skin", return_value=420018):
@@ -456,6 +513,47 @@ class IsArenaTests(unittest.TestCase):
         self.assertTrue(resolver.is_arena(SimpleNamespace(current_map_id=None, current_queue_id=1700)))
         self.assertFalse(resolver.is_arena(SimpleNamespace(current_map_id=11, current_queue_id=420)))
         self.assertFalse(resolver.is_arena(SimpleNamespace()))
+
+
+class ExpectsLateInjectionTests(unittest.TestCase):
+    """Rose prepares the monitor and the patcher before an Arena game starts."""
+
+    @staticmethod
+    def _state(**overrides):
+        state = SimpleNamespace(
+            current_map_id=30,
+            current_queue_id=1740,
+            locked_champ_id=None,
+            is_swiftplay_mode=False,
+        )
+        for key, value in overrides.items():
+            setattr(state, key, value)
+        return state
+
+    def test_arena_without_a_known_champion_expects_it(self):
+        with patch.object(resolver, "enabled", return_value=True):
+            self.assertTrue(resolver.expects_late_injection(self._state()))
+
+    def test_a_known_champion_is_left_to_the_normal_flow(self):
+        with patch.object(resolver, "enabled", return_value=True):
+            self.assertFalse(
+                resolver.expects_late_injection(self._state(locked_champ_id=22))
+            )
+
+    def test_swiftplay_and_other_maps_do_not(self):
+        with patch.object(resolver, "enabled", return_value=True):
+            self.assertFalse(
+                resolver.expects_late_injection(self._state(is_swiftplay_mode=True))
+            )
+            self.assertFalse(
+                resolver.expects_late_injection(
+                    self._state(current_map_id=11, current_queue_id=420)
+                )
+            )
+
+    def test_a_disabled_resolver_does_not(self):
+        with patch.object(resolver, "enabled", return_value=False):
+            self.assertFalse(resolver.expects_late_injection(self._state()))
 
 
 class EnableSwitchTests(unittest.TestCase):
