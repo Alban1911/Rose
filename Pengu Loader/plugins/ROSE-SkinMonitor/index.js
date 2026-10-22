@@ -727,4 +727,6 @@ function whenReady(callback) {
 }
 
 whenReady(start);
-window.addEventListener("beforeunload", stop);
+// pagehide, not beforeunload: the client fires beforeunload without leaving the
+// page, and stop() would end the bridge for every plugin until League restarts
+window.addEventListener("pagehide", stop);
