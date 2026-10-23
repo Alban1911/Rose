@@ -74,6 +74,30 @@ class BridgeWatchdogTests(unittest.TestCase):
         disconnect = next(line for line in logs.output if 'Client disconnected' in line)
         self.assertIn('code 1000', disconnect)
 
+    def test_plugin_readiness_requires_the_explicit_plugin_message(self):
+        with connect(f'ws://127.0.0.1:{self.server.port}') as client:
+            client.send('{"type": "ping"}')
+            client.send('{"type": "rose-plugin-ready", "plugin": "Other", "protocol": 1}')
+            self.assertTrue(self._wait_for(lambda: len(self.messages) == 2))
+            self.assertFalse(self.server.plugin_ready_event.is_set())
+            client.send('{"type": "rose-plugin-ready", "plugin": "ROSE-SkinMonitor", "protocol": 1}')
+            self.assertTrue(self.server.plugin_ready_event.wait(2))
+        # Once startup was verified, reconnects do not cause a failure popup.
+        self.assertTrue(self.server.plugin_ready_event.is_set())
+
+    def test_legacy_connection_is_remembered_after_disconnect(self):
+        with connect(f'ws://127.0.0.1:{self.server.port}') as client:
+            client.send('{"type": "settings-request"}')
+            self.assertTrue(self._wait_for(lambda: self.messages))
+        self.assertTrue(self._wait_for(lambda: not self.server.connections))
+        self.assertTrue(self.server.client_seen_event.is_set())
+        self.assertFalse(self.server.plugin_ready_event.is_set())
+
+    def test_stopped_bridge_is_not_responsive(self):
+        self.assertTrue(self.server.is_responsive)
+        self.server.stop()
+        self.assertFalse(self.server.is_responsive)
+
 
 if __name__ == '__main__':
     unittest.main()

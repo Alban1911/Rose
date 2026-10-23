@@ -365,40 +365,34 @@ import time
 log = get_logger()
 
 
-def _warn_pengu_activation_failed() -> None:
-    """Tell the user Rose will not show in the client because Pengu Loader is not active.
-
-    Rose's own Troubleshooting panel lives in the client plugins, the part that
-    failed, so this has to be a Windows dialog. It runs on its own thread so
-    startup goes on while it is open.
-    """
+def _warn_pengu_injection_failed(client_pid: int) -> None:
+    """Called on the verifier thread only after repeated live absence checks."""
     log = get_logger()
-    log.error("[Pengu] Activation failed - Rose will not appear in the League client")
     report_issue(
-        "PENGU_ACTIVATION_FAILED",
+        "PENGU_INJECTION_FAILED",
         "error",
-        "Pengu Loader could not be activated, so Rose did not appear in the League client.",
-        hint="Close the League client, then restart Rose. If it happens again, make sure your antivirus is not blocking Pengu Loader.",
+        "Pengu was absent in repeated module checks of the ready League client.",
+        details={"client_pid": client_pid},
+        hint="Right-click Rose in the system tray and choose Diagnose Rose startup.",
     )
     if sys.platform != "win32":
         return
 
-    def show():
-        import ctypes
-        try:
-            ctypes.windll.user32.MessageBoxW(
-                0,
-                "Rose could not activate Pengu Loader, so it will not appear in the League client.\n\n"
-                "Close the League client, then restart Rose.\n"
-                "If it happens again, make sure your antivirus is not blocking Pengu Loader.\n\n"
-                "Details are in %LOCALAPPDATA%\\Rose\\logs\\",
-                "Rose - Pengu Loader",
-                0x50030,  # MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST
-            )
-        except Exception as e:
-            log.warning(f"[Pengu] Could not show the activation warning: {e}")
-
-    create_daemon_thread(show, "PenguActivationWarning").start()
+    import ctypes
+    try:
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "Rose did not load into this League client.\n\n"
+            "The client is ready, but repeated checks confirmed that Pengu Loader's DLL is missing.\n\n"
+            "Right-click Rose's system tray icon and choose Diagnose Rose startup. "
+            "Keep League open while collecting the report.\n\n"
+            "Once the reports are ready, paste the contents of report.txt and report.json into any AI assistant "
+            "and ask it to help you find out why Rose is not injecting.",
+            "Rose - Client injection failed",
+            0x50030,  # MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST
+        )
+    except Exception as e:
+        log.warning(f"[Pengu] Could not show the injection warning: {e}")
 
 
 def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = True) -> None:
@@ -456,7 +450,7 @@ def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = Tr
     if activate_pengu:
         log.info("Setting client path in Pengu Loader and activating...")
         if not pengu_loader.activate_on_start(str(client_path)):
-            _warn_pengu_activation_failed()
+            log.warning("[Pengu] Activation was not confirmed; the startup verifier will check the live client.")
 
     # Initialize injection system now (with detected paths already in config.ini)
     log.info("Initializing injection system...")
@@ -687,6 +681,11 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
 
     # Setup Pengu Loader and injection system (LCU is already connected when WebSocket is active)
     _setup_pengu_and_injection(lcu, injection_manager, activate_pengu=not pengu_active)
+
+    from utils.integration.startup_verifier import StartupInjectionVerifier
+    verifier = StartupInjectionVerifier(lcu, state, t_ui.websocket_server, _warn_pengu_injection_failed)
+    thread_manager.register("Startup injection verifier", verifier, stop_method=verifier.stop)
+    verifier.start()
     
     # Run main loop
     try:
