@@ -209,6 +209,7 @@ class RepoDownloader:
                         log.debug(f"Removed old path {file_info['previous_filename']}")
                     except OSError as e:
                         log.warning(f"Failed to remove old path {old_path}: {e}")
+                        fail_count += 1
 
             # Handle removals
             if status == 'removed':
@@ -219,6 +220,8 @@ class RepoDownloader:
                         log.debug(f"Removed {filename}")
                     except OSError as e:
                         log.warning(f"Failed to remove {local_path}: {e}")
+                        fail_count += 1
+                        continue
                 success_count += 1
                 progress = 10 + int(80 * idx / total)
                 self._emit_progress(progress, f"Updating files... {idx}/{total}")
@@ -427,8 +430,11 @@ class RepoDownloader:
             if not local_file.is_file():
                 continue
             
-            # Skip state files (like .repo_state.json) but keep other files
-            if local_file.name.startswith('.') and local_file.name.endswith('_state.json'):
+            # Keep the sync marker until every extraction and removal succeeds.
+            # Other state files (like .repo_state.json) also belong to Rose.
+            if local_file == self.version_file or (
+                local_file.name.startswith('.') and local_file.name.endswith('_state.json')
+            ):
                 continue
             
             # Get relative path from target_dir
@@ -448,6 +454,7 @@ class RepoDownloader:
                     log.debug(f"Removed obsolete file: {local_file}")
                 except Exception as e:
                     log.warning(f"Failed to remove {local_file}: {e}")
+                    self.last_extraction_failures += 1
         
         # Clean up empty directories
         try:
@@ -472,6 +479,7 @@ class RepoDownloader:
         extract_resources: bool = True,
     ) -> bool:
         """Extract skins, previews, and resources folder from the LeagueSkins repository ZIP"""
+        self.last_extraction_failures = 0
         try:
             log.info("Extracting skins, previews, and resources folder from LeagueSkins repository ZIP...")
 
@@ -549,7 +557,6 @@ class RepoDownloader:
                     total_bytes = len(entries) or 1
                 processed_bytes = 0
                 failed_count = 0
-                self.last_extraction_failures = 0
 
                 from utils.core.paths import get_user_data_dir
                 # Place the entire resources folder as resources
@@ -669,9 +676,9 @@ class RepoDownloader:
                     if deleted_resources_count > 0:
                         log.info(f"Removed {deleted_resources_count} resource files that no longer exist in repository")
 
-                self.last_extraction_failures = failed_count
-                if failed_count:
-                    log.warning(f"{failed_count} repository files could not be extracted; they will be retried on the next start")
+                self.last_extraction_failures += failed_count
+                if self.last_extraction_failures:
+                    log.warning(f"{self.last_extraction_failures} repository files could not be synchronized; they will be retried on the next start")
                 elif extract_skins:
                     self._mark_classic_library_synced()
                 log.info(f"Extracted {extracted_zip_count} new skin archive files, {extracted_png_count} preview .png files, "
