@@ -111,13 +111,26 @@ class UserInterface:
                 new_base_skin_id = None
                 prev_base_skin_id = None
             
-            # Cancel randomization if skin changed and random mode is active
+            # Calculate base skin ID for champion (champion_id * 1000)
+            champ_id = champion_id or self.current_champion_id or self.state.locked_champ_id
+            base_skin_id = (champ_id * 1000) if champ_id else None
+
+            forced_base_id = getattr(self.randomization_handler, '_forced_base_skin_id', None)
+            is_forced_base_skin = (forced_base_id is not None and skin_id == forced_base_id)
+            if is_forced_base_skin:
+                self.randomization_handler._forced_base_skin_id = None
+                log.debug(f"[UI] Detected expected forced base skin: {skin_id}, maintaining random mode")
+
+            # Cancel randomization only if skin changed to a different non-base skin while random mode is active
             if self.state.random_mode_active and not self.randomization_handler.randomization_in_progress:
-                self.randomization_handler.cancel()
-            
-            # Always reset randomization flags if skin changed
-            self.randomization_handler.reset_on_skin_change()
-            
+                if not is_forced_base_skin and base_skin_id is not None and skin_id != base_skin_id:
+                    log.info(f"[UI] User selected different skin {skin_id} (base: {base_skin_id}), cancelling random mode")
+                    self.randomization_handler.cancel()
+
+            # Always reset randomization flags if skin changed to a non-base skin
+            if not is_forced_base_skin and (base_skin_id is None or skin_id != base_skin_id):
+                self.randomization_handler.reset_on_skin_change()
+
             # Broadcast dice button state to JavaScript
             self.randomization_handler.update_dice_button(self.current_skin_id)
             
@@ -210,15 +223,15 @@ class UserInterface:
         # Clear skin display handler reference
         self.skin_display_handler = None
     
-    def _handle_dice_click_disabled(self):
+    def _handle_dice_click_disabled(self, mode: str = "all"):
         """Handle dice button click in disabled state - start randomization"""
-        if self.randomization_handler.handle_dice_click_disabled(self.current_skin_id):
+        if self.randomization_handler.handle_dice_click_disabled(self.current_skin_id, mode=mode):
             return
         
         # Need to force base skin first
         lcu = self.skin_scraper.lcu if self.skin_scraper and hasattr(self.skin_scraper, 'lcu') else None
         if lcu:
-            self.randomization_handler.force_base_skin_and_randomize(lcu)
+            self.randomization_handler.force_base_skin_and_randomize(lcu, mode=mode)
     
     def _handle_dice_click_enabled(self):
         """Handle dice button click in enabled state - cancel randomization"""
@@ -239,6 +252,7 @@ class UserInterface:
             
             # Reset randomization state
             self.randomization_handler.randomization_started = False
+            self.randomization_handler._forced_base_skin_id = None
             
             # Force UI recreation for new ChampSelect
             self.lifecycle_manager.reset_skin_state()
