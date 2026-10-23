@@ -87,12 +87,12 @@ def create_installer():
     
     print("\n[1/3] Preparing installer files...")
     
-    # Convert tray_ready.png to ICO format for installer
+    # Preserve the tracked ICO; convert the PNG only when the ICO is missing.
     # Inno Setup requires ICO format for SetupIconFile
     png_icon = ROOT / "assets/tray_ready.png"
     ico_icon = ROOT / "assets/icon.ico"
     
-    if png_icon.exists() and PIL_AVAILABLE:
+    if not ico_icon.exists() and png_icon.exists() and PIL_AVAILABLE:
         try:
             # Convert PNG to ICO with multiple sizes for best compatibility
             with Image.open(png_icon) as img:
