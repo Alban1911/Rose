@@ -12,7 +12,7 @@ from utils.core.logging import get_logger
 
 log = get_logger()
 
-from .patcher import LTK_PATCHER_DLL, LTK_PATCHER_HOST
+from .patcher import LTK_PATCHER_DLL, LTK_PATCHER_HOST, resolve_ltk_dll, resolve_ltk_host
 
 
 class ToolsManager:
@@ -23,16 +23,18 @@ class ToolsManager:
     
     def check_tools_available(self) -> bool:
         """Check if the runtime injection tool is present."""
-        required_tools = [
-            "mod-tools.exe",
-            "cslol-dll.dll",  # Rose's stand-in; mod-tools.exe will not start without it
-            LTK_PATCHER_HOST,
-            LTK_PATCHER_DLL,
+        # cslol-dll.dll is Rose's stand-in; mod-tools.exe will not start without it
+        missing_tools = [
+            tool for tool in ("mod-tools.exe", "cslol-dll.dll")
+            if not (self.tools_dir / tool).exists()
         ]
-        missing_tools = []
-        for tool in required_tools:
-            if not (self.tools_dir / tool).exists():
-                missing_tools.append(tool)
+
+        # The patcher pair is matched by content too, so a copy a download
+        # manager renamed is still found.
+        if resolve_ltk_host(self.tools_dir) is None:
+            missing_tools.append(LTK_PATCHER_HOST)
+        if resolve_ltk_dll(self.tools_dir) is None:
+            missing_tools.append(LTK_PATCHER_DLL)
         
         if missing_tools:
             log.warning(f"Missing runtime injection dependencies: {missing_tools}")
@@ -55,10 +57,11 @@ class ToolsManager:
         """Return the LTK patcher host if it is installed next to its hook DLL.
 
         The LTK Manager patcher (ltk_patcher_host.exe + ltk_patcher_dll.dll)
-        serves the overlay built by mkoverlay. Users provide their own copy.
+        serves the overlay built by mkoverlay. Users provide their own copy,
+        under whatever name their download manager left it.
         """
-        host = self.tools_dir / LTK_PATCHER_HOST
-        if host.exists() and (self.tools_dir / LTK_PATCHER_DLL).exists():
+        host = resolve_ltk_host(self.tools_dir)
+        if host is not None and resolve_ltk_dll(self.tools_dir) is not None:
             return host
         return None
 
