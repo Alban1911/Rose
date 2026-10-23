@@ -77,6 +77,20 @@ class LoadoutTicker(threading.Thread):
         if self.injection_manager:
             self.injection_manager.start_patcher_in_background()
 
+        # Arena hands out random champions: the champion is only revealed once
+        # the game starts, so the late resolver injects after the process exists.
+        # Keep the game monitor running from now on to freeze that process at
+        # launch - a suspend attempted later races the game's own start-up.
+        late_injection_expected = False
+        if self.injection_manager:
+            try:
+                from .late_champion_resolver import expects_late_injection
+                late_injection_expected = expects_late_injection(self.state)
+                if late_injection_expected:
+                    self.injection_manager.prepare_late_injection()
+            except Exception as e:
+                log.debug(f"[loadout] late injection preparation failed: {e}")
+
         # Local variables to avoid cross-resets
         left0_ms = self.state.loadout_left0_ms
         t0 = self.state.loadout_t0
@@ -180,4 +194,9 @@ class LoadoutTicker(threading.Thread):
             and not injection_triggered
             and getattr(self.state, 'current_ticker', 0) == self.ticker_id
         ):
-            self.injection_manager.discard_early_patcher()
+            if late_injection_expected:
+                # The champion is still unknown: the late resolver takes over
+                # with this patcher and the already running monitor.
+                log.debug("[loadout] keeping patcher and monitor for the late champion resolution")
+            else:
+                self.injection_manager.discard_early_patcher()

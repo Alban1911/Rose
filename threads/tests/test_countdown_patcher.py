@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from state import SharedState
 from threads.handlers.injection_trigger import InjectionTrigger
-from threads.utilities import loadout_ticker
+from threads.utilities import late_champion_resolver, loadout_ticker
 from threads.utilities.loadout_ticker import LoadoutTicker
 
 TICKER_ID = 4
@@ -67,6 +67,30 @@ class CountdownPatcherTests(unittest.TestCase):
         self.ticker.run()
 
         self.manager.discard_early_patcher.assert_not_called()
+
+    def test_arena_random_keeps_the_patcher_and_freezes_the_game_early(self):
+        self.state.current_map_id = 30
+        self.state.current_queue_id = 1740
+        self.state.locked_champ_id = None
+        self.ticker.skin_name_resolver.resolve_injection_name.return_value = None
+
+        with patch.object(late_champion_resolver, 'enabled', return_value=True):
+            self.ticker.run()
+
+        self.manager.prepare_late_injection.assert_called_once()
+        self.manager.discard_early_patcher.assert_not_called()
+
+    def test_a_known_champion_still_stops_the_unused_patcher(self):
+        self.state.current_map_id = 30
+        self.state.current_queue_id = 1740
+        self.state.locked_champ_id = CASSIOPEIA
+        self.ticker.skin_name_resolver.resolve_injection_name.return_value = None
+
+        with patch.object(late_champion_resolver, 'enabled', return_value=True):
+            self.ticker.run()
+
+        self.manager.prepare_late_injection.assert_not_called()
+        self.manager.discard_early_patcher.assert_called_once()
 
 
 class TriggerStopsTheUnusedPatcherTests(unittest.TestCase):
