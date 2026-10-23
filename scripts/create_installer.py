@@ -4,6 +4,8 @@
 Create Windows installer for Rose using Inno Setup
 """
 
+import os
+import re
 import sys
 import subprocess
 import shutil
@@ -39,6 +41,151 @@ if hasattr(sys.stderr, "reconfigure"):
         pass
 
 
+ISCC_NAME = "ISCC.exe"
+# Escape hatch for installs we cannot see (a zip/portable ISCC, an unusual target)
+ISCC_ENV_VARS = ("INNO_SETUP_PATH", "ISCC")
+
+
+def _version_key(path: Path) -> tuple[int, ...]:
+    """Order two ISCC candidates: "Inno Setup 6" outranks "Inno Setup 5"."""
+    numbers = tuple(int(part) for part in re.findall(r"\d+", path.parent.name))
+    return numbers or (0,)
+
+
+def _looks_like_inno(name: str) -> bool:
+    """True for "Inno Setup 6", "InnoSetup", an uninstaller DisplayName, ..."""
+    return name.lower().replace(" ", "").startswith("innosetup")
+
+
+def _standard_inno_directories() -> list[Path]:
+    """Inno Setup folders under the install roots Windows reports.
+
+    Every root is read from the environment instead of being spelled out, so
+    the search follows Program Files to another drive or another Windows user.
+    """
+    roots = []
+
+    for variable in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        value = os.environ.get(variable)
+        if value:
+            roots.append(Path(value))
+
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata:
+        # A per-user install lands in ...\Programs, an older one directly in ...
+        roots.append(Path(local_appdata) / "Programs")
+        roots.append(Path(local_appdata))
+
+    directories = []
+    for root in roots:
+        try:
+            entries = sorted(root.iterdir())
+        except OSError:  # missing or unreadable root, e.g. no ProgramW6432 on 32-bit
+            continue
+        directories.extend(
+            entry
+            for entry in entries
+            if entry.is_dir() and _looks_like_inno(entry.name)
+        )
+    return directories
+
+
+def _registered_inno_directories() -> list[Path]:
+    """Inno Setup folders taken from the uninstall registry entries.
+
+    A normal install registers itself wherever it was installed to, which is
+    how a non-default location such as D:\\Apps\\Inno Setup 6 is found without
+    hardcoding the drive.
+    """
+    try:
+        import winreg
+    except ImportError:  # not Windows
+        return []
+
+    def read_string(key, name: str) -> str | None:
+        try:
+            value, _ = winreg.QueryValueEx(key, name)
+        except OSError:  # value absent
+            return None
+        return value if isinstance(value, str) else None
+
+    def containing_folder(value: str) -> Path | None:
+        """The folder an UninstallString/DisplayIcon value points into.
+
+        Those read D:\\Apps\\Inno Setup 6\\unins000.exe, optionally quoted and
+        followed by an icon index.
+        """
+        cleaned = value.strip().strip('"').split(",", 1)[0].strip().strip('"')
+        return Path(cleaned).parent if cleaned else None
+
+    subkey = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+    # A 32-bit Python is redirected to Wow6432Node, so ask for both views.
+    hives = (
+        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY),
+        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY),
+        (winreg.HKEY_CURRENT_USER, 0),
+    )
+
+    directories = []
+    for hive, access in hives:
+        try:
+            key = winreg.OpenKey(hive, subkey, 0, winreg.KEY_READ | access)
+        except OSError:  # hive or subkey absent
+            continue
+        with key:
+            for index in range(winreg.QueryInfoKey(key)[0]):
+                with winreg.OpenKey(key, winreg.EnumKey(key, index)) as entry:
+                    display_name = read_string(entry, "DisplayName")
+                    if not display_name or not _looks_like_inno(display_name):
+                        continue
+
+                    install_location = read_string(entry, "InstallLocation")
+                    if install_location:
+                        folders = [Path(install_location.strip().strip('"'))]
+                    else:
+                        folders = [
+                            folder
+                            for folder in (
+                                containing_folder(read_string(entry, "DisplayIcon") or ""),
+                                containing_folder(read_string(entry, "UninstallString") or ""),
+                            )
+                            if folder
+                        ]
+                    directories.extend(folders)
+    return directories
+
+
+def find_iscc() -> str | None:
+    """Locate ISCC.exe without hardcoding drives or Inno Setup versions.
+
+    An explicit override wins, then every install the registry and the standard
+    roots reveal -- newest version first -- and finally PATH.
+    """
+    for variable in ISCC_ENV_VARS:
+        override = os.environ.get(variable)
+        if not override:
+            continue
+        candidate = Path(override)
+        if candidate.is_dir():
+            candidate = candidate / ISCC_NAME
+        if candidate.is_file():
+            return str(candidate)
+
+    candidates = set()
+    for directory in _registered_inno_directories() + _standard_inno_directories():
+        candidates.add(directory / ISCC_NAME)
+
+    found = sorted(
+        (candidate for candidate in candidates if candidate.is_file()),
+        key=_version_key,
+        reverse=True,
+    )
+    if found:
+        return str(found[0])
+
+    return shutil.which("ISCC")
+
+
 def create_installer():
     """Create Windows installer using Inno Setup"""
     
@@ -46,26 +193,13 @@ def create_installer():
     print("Creating Rose Windows Installer")
     print("=" * 60)
     
-    # Check if Inno Setup is installed
-    local_appdata = Path.home() / "AppData" / "Local" / "Programs"
-    inno_setup_paths = [
-        str(local_appdata / "Inno Setup 6" / "ISCC.exe"),
-        r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-        r"C:\Program Files\Inno Setup 6\ISCC.exe",
-        r"C:\Program Files (x86)\Inno Setup 5\ISCC.exe",
-        r"C:\Program Files\Inno Setup 5\ISCC.exe",
-    ]
-    
-    iscc_path = None
-    for path in inno_setup_paths:
-        if Path(path).exists():
-            iscc_path = path
-            break
+    iscc_path = find_iscc()
     
     if not iscc_path:
         print("Inno Setup not found!")
         print("\nPlease install Inno Setup from: https://jrsoftware.org/isdl.php")
         print("Then run this script again.")
+        print(f"Or point {' or '.join(ISCC_ENV_VARS)} at the ISCC.exe to use.")
         return False
     
     print(f"Found Inno Setup: {iscc_path}")
