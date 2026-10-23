@@ -109,3 +109,6 @@ class SharedState:
     party_mode_enabled: bool = False
     party_token: Optional[str] = None  # Our party token for sharing
     party_manager = None  # Reference to PartyManager instance
+
+    # Optional Rift Classic native-carrier capability used by ClassicWheel.
+    classic_default_skin_id: Optional[int] = None

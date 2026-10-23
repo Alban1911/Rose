@@ -16,7 +16,11 @@ from pathlib import Path
 from typing import Callable, Optional, Dict, List, Tuple
 from utils.core.atomic_file import atomic_write, write_text_atomic
 from utils.core.logging import get_logger
-from utils.core.paths import get_classic_skins_dir, get_skins_dir
+from utils.core.paths import (
+    get_classic_native_skins_dir,
+    get_classic_skins_dir,
+    get_skins_dir,
+)
 from utils.core.safe_extract import is_safe_path, join_within
 from config import APP_USER_AGENT, SKIN_DOWNLOAD_STREAM_TIMEOUT_S
 
@@ -58,8 +62,10 @@ class RepoDownloader:
 
         # Rift Classic skins (the repository's classic/ folder), next to the skins
         self.classic_dir = get_classic_skins_dir() if target_dir is None else self.target_dir.parent / "classic"
+        self.classic_native_dir = get_classic_native_skins_dir() if target_dir is None else self.target_dir.parent / "classic-native"
         # "_state.json" keeps it out of the removed-files cleanup
         self.classic_state_file = self.classic_dir / '.classic_state.json'
+        self.classic_native_state_file = self.classic_native_dir / '.classic_native_state.json'
 
         # Version tracking
         self.version_file = self.target_dir / '.skin_version'
@@ -155,12 +161,14 @@ class RepoDownloader:
             return None
 
     def _resolve_local_path(self, repo_path: str) -> Optional[Path]:
-        """Map a repo-relative path (skins/..., classic/... or resources/...) to a local path."""
+        """Map a supported repository path to its local data directory."""
         from utils.core.paths import get_user_data_dir
         if repo_path.startswith('skins/'):
             base_dir, relative = self.target_dir, repo_path[len('skins/'):]
         elif repo_path.startswith('classic/'):
             base_dir, relative = self.classic_dir, repo_path[len('classic/'):]
+        elif repo_path.startswith('classic-native/'):
+            base_dir, relative = self.classic_native_dir, repo_path[len('classic-native/'):]
         elif repo_path.startswith('resources/'):
             base_dir, relative = get_user_data_dir() / "resources", repo_path[len('resources/'):]
         else:
@@ -179,6 +187,18 @@ class RepoDownloader:
             write_text_atomic(self.classic_state_file, json.dumps({"synced": True}))
         except OSError as e:
             log.warning(f"Failed to record the Rift Classic skin library state: {e}")
+
+    def _classic_native_library_synced(self) -> bool:
+        return self.classic_native_state_file.exists()
+
+    def _mark_classic_native_library_synced(self) -> None:
+        try:
+            write_text_atomic(
+                self.classic_native_state_file,
+                json.dumps({"synced": True}),
+            )
+        except OSError as e:
+            log.warning(f"Failed to record the native-carrier skin library state: {e}")
 
     def download_changed_files(self, changed_files: List[Dict]) -> bool:
         """Download changed files individually via raw.githubusercontent.com.
@@ -244,7 +264,12 @@ class RepoDownloader:
 
         # Clean up empty directories left by removals/renames
         from utils.core.paths import get_user_data_dir
-        roots = {self.target_dir, self.classic_dir, get_user_data_dir() / "resources"}
+        roots = {
+            self.target_dir,
+            self.classic_dir,
+            self.classic_native_dir,
+            get_user_data_dir() / "resources",
+        }
         for dir_path in sorted(dirs_to_check, reverse=True):
             try:
                 while dir_path not in roots and dir_path.exists() and not any(dir_path.iterdir()):
@@ -404,11 +429,13 @@ class RepoDownloader:
             # Convert ZIP path to relative path
             relative_path = file_info.filename.replace('LeagueSkins-main/', '')
 
-            # Remove 'skins/', 'classic/' or 'resources/' prefix to match local structure
+            # Remove the repository root prefix to match local structure
             if relative_path.startswith('skins/'):
                 relative_path = relative_path.replace('skins/', '', 1)
             elif relative_path.startswith('classic/'):
                 relative_path = relative_path.replace('classic/', '', 1)
+            elif relative_path.startswith('classic-native/'):
+                relative_path = relative_path.replace('classic-native/', '', 1)
             elif relative_path.startswith('resources/'):
                 relative_path = relative_path.replace('resources/', '', 1)
 
@@ -502,6 +529,12 @@ class RepoDownloader:
                         info for info in zip_ref.filelist
                         if info.filename.startswith('LeagueSkins-main/classic/') and not info.filename.endswith('/')
                     ]
+                classic_native_files = []
+                if extract_skins:
+                    classic_native_files = [
+                        info for info in zip_ref.filelist
+                        if info.filename.startswith('LeagueSkins-main/classic-native/') and not info.filename.endswith('/')
+                    ]
 
                 # Find all files in the resources/ directory (entire folder)
                 resources_files = []
@@ -527,18 +560,21 @@ class RepoDownloader:
                     log.warning("No resources folder found in repository ZIP, but resources extraction was requested")
                 
                 log.info(f"Found {zip_count} skin archive files, {png_count} preview .png files, {len(classic_files)} Rift Classic files, "
+                         f"{len(classic_native_files)} native-carrier Rift Classic files, "
                          f"and {resources_count} resource files in repository")
                 
                 # Extract all skins and resource files with byte-level progress tracking
                 extracted_zip_count = 0
                 extracted_png_count = 0
                 extracted_classic_count = 0
+                extracted_classic_native_count = 0
                 extracted_resources_count = 0
                 skipped_skin_count = 0
                 skipped_resources_count = 0
 
                 entries: List[Tuple[str, zipfile.ZipInfo]] = [("skin", info) for info in skins_files]
                 entries.extend(("classic", info) for info in classic_files)
+                entries.extend(("classic-native", info) for info in classic_native_files)
                 entries.extend(("resource", info) for info in resources_files)
 
                 def _info_size(info: zipfile.ZipInfo) -> int:
@@ -557,6 +593,7 @@ class RepoDownloader:
                 resolved_bases = {
                     "skin": self.target_dir.resolve(),
                     "classic": self.classic_dir.resolve(),
+                    "classic-native": self.classic_native_dir.resolve(),
                     "resource": mapping_target_dir.resolve(),
                 }
 
@@ -589,6 +626,8 @@ class RepoDownloader:
                                 relative_path = relative_path.replace('skins/', '', 1)
                         elif entry_type == "classic":
                             relative_path = relative_path.replace('classic/', '', 1)
+                        elif entry_type == "classic-native":
+                            relative_path = relative_path.replace('classic-native/', '', 1)
                         else:
                             # Extract entire resources folder structure, removing 'resources/' prefix
                             # so it becomes the resources folder
@@ -629,6 +668,8 @@ class RepoDownloader:
                                 extracted_png_count += 1
                         elif entry_type == "classic":
                             extracted_classic_count += 1
+                        elif entry_type == "classic-native":
+                            extracted_classic_native_count += 1
                         else:
                             extracted_resources_count += 1
 
@@ -657,6 +698,16 @@ class RepoDownloader:
                     deleted_classic_count = self._cleanup_removed_skin_files(classic_files, self.classic_dir)
                     if deleted_classic_count > 0:
                         log.info(f"Removed {deleted_classic_count} Rift Classic files that no longer exist in repository")
+
+                if classic_native_files:
+                    deleted_classic_native_count = self._cleanup_removed_skin_files(
+                        classic_native_files, self.classic_native_dir
+                    )
+                    if deleted_classic_native_count > 0:
+                        log.info(
+                            "Removed %s native-carrier Rift Classic files that no longer exist in repository",
+                            deleted_classic_native_count,
+                        )
                 
                 if extract_resources and resources_files:
                     if extract_skins and skins_files:
@@ -674,8 +725,11 @@ class RepoDownloader:
                     log.warning(f"{failed_count} repository files could not be extracted; they will be retried on the next start")
                 elif extract_skins:
                     self._mark_classic_library_synced()
+                    self._mark_classic_native_library_synced()
                 log.info(f"Extracted {extracted_zip_count} new skin archive files, {extracted_png_count} preview .png files, "
-                        f"{extracted_classic_count} Rift Classic files, and {extracted_resources_count} resource files "
+                        f"{extracted_classic_count} Rift Classic files, "
+                        f"{extracted_classic_native_count} native-carrier Rift Classic files, "
+                        f"and {extracted_resources_count} resource files "
                         f"(skipped {skipped_skin_count} existing skin files, {skipped_resources_count} existing resource files)")
 
                 total_mb = _format_size(total_bytes)
@@ -704,10 +758,14 @@ class RepoDownloader:
 
             local_sha = self.get_local_sha()
 
-            # classic/ was added to the repository after many installs synced, and
-            # incremental updates only carry later changes: get it with one full download
-            if local_sha and not force_update and not self._classic_library_synced():
-                log.info("Rift Classic skins missing - downloading the full skin repository once")
+            # Classic libraries were added after many installs synced, and incremental
+            # updates only carry later changes: get missing roots with one full download.
+            classic_roots_synced = (
+                self._classic_library_synced()
+                and self._classic_native_library_synced()
+            )
+            if local_sha and not force_update and not classic_roots_synced:
+                log.info("Rift Classic skin roots missing - downloading the full skin repository once")
                 return self.download_and_extract_skins(force_update=True, remote_sha=remote_sha)
 
             # No change

@@ -228,6 +228,13 @@ def get_classic_skins_dir() -> Path:
     return classic_dir
 
 
+def get_classic_native_skins_dir() -> Path:
+    """Get the native-carrier Rift Classic skins directory."""
+    native_dir = get_user_data_dir() / "classic-native"
+    native_dir.mkdir(parents=True, exist_ok=True)
+    return native_dir
+
+
 def get_state_dir() -> Path:
     """
     Get the state directory path for application state files.

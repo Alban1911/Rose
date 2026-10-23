@@ -233,13 +233,38 @@ class InjectionManager:
         # This prevents unnecessary suspension for base skins and owned skins
         pass
     
-    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
+    def has_classic_skin(
+        self,
+        skin_name: str,
+        champion_id: Optional[int],
+        chroma_id: Optional[int] = None,
+        native: bool = False,
+    ) -> bool:
+        """Return whether the matching Classic archive is installed."""
+        self._ensure_initialized()
+        return bool(
+            self.injector
+            and self.injector.has_classic_skin(
+                skin_name, champion_id, chroma_id, native=native
+            )
+        )
+
+    def has_classic_native_skin(
+        self,
+        skin_name: str,
+        champion_id: Optional[int],
+        chroma_id: Optional[int] = None,
+    ) -> bool:
+        return self.has_classic_skin(skin_name, champion_id, chroma_id, native=True)
+
+    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None, classic_native: bool = False) -> bool:
         """Immediately inject a specific skin (with optional chroma)
         
         Args:
             skin_name: Name of skin to inject
             stop_callback: Callback to check if injection should stop
             chroma_id: Optional chroma ID for chroma variant
+            classic_native: use the native-carrier Classic package family
         """
         # Check if this is a base skin (skin_0 or skin name ending with base/default indicators)
         # If skin_name starts with "skin_" and the ID is 0 or matches base skin pattern, inject mods only
@@ -285,9 +310,14 @@ class InjectionManager:
                 champion_id=champion_id,
                 extra_mods_callback=extra_mods_callback,
                 classic=classic,
+                classic_native=classic_native,
             )
 
-        success = self._run_injection(skin_name, inject)
+        success = self._run_injection(
+            skin_name,
+            inject,
+            classic_native=classic and classic_native,
+        )
         if success:
             self.last_skin_name = skin_name
         return success
@@ -310,7 +340,7 @@ class InjectionManager:
 
         return self._run_injection("party skins", inject)
 
-    def _run_injection(self, label: str, inject) -> bool:
+    def _run_injection(self, label: str, inject, classic_native: bool = False) -> bool:
         """Run one injection under the injection lock
 
         Args:
@@ -393,7 +423,9 @@ class InjectionManager:
                             party_manager, self.shared_state, self
                         )
                         if party_hook.is_enabled():
-                            extra_mods_callback = lambda inj: party_hook.prepare_party_mods(inj)
+                            extra_mods_callback = lambda inj: party_hook.prepare_party_mods(
+                                inj, classic_native=classic_native
+                            )
                     except Exception as e:
                         log.debug(f"[INJECT] Party injection hook not used: {e}")
 

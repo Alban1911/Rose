@@ -21,6 +21,11 @@ from utils.core.utilities import is_default_skin, is_selectable_owned
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 from injection.game.game_monitor import make_game_ended_callback
 from injection.loadingname.loading_name import build as build_loading_name
+from injection.classic import (
+    is_classic_champion_id,
+    is_classic_game_mode,
+    to_classic_champion_id,
+)
 
 log = get_logger()
 
@@ -165,6 +170,87 @@ class InjectionTrigger:
             return int(skin_id) // 1000 == int(champion_id)
         except (TypeError, ValueError):
             return False
+
+    def _automatic_classic_injection(
+        self,
+        skin_name: str,
+        champion_id: int,
+        chroma_id: Optional[int] = None,
+    ) -> tuple[Optional[int], bool]:
+        """Use the optional native-carrier policy, or keep upstream Skin0."""
+        classic_mode = (
+            is_classic_game_mode(getattr(self.state, "current_game_mode", None))
+            or is_classic_champion_id(champion_id)
+        )
+        if not classic_mode:
+            return int(champion_id) * 1000, False
+
+        effective_champion_id = int(
+            to_classic_champion_id(champion_id) or champion_id
+        )
+        requested_skin_id = effective_champion_id * 1000
+        try:
+            from injection.classic_carrier import (
+                cache_classic_default_skin_id,
+                classic_injection_plan,
+            )
+        except ImportError:
+            return requested_skin_id, False
+
+        carrier = cache_classic_default_skin_id(
+            self.lcu, self.state, effective_champion_id
+        )
+        if carrier is None:
+            log.warning(
+                "[CLASSIC:CARRIER] Injection aborted champion=%s "
+                "reason=carrier-unresolved",
+                champion_id,
+            )
+            return None, False
+
+        native_checker = getattr(
+            self.injection_manager, "has_classic_native_skin", None
+        )
+        legacy_checker = getattr(self.injection_manager, "has_classic_skin", None)
+        native_package_available = bool(
+            classic_mode
+            and callable(native_checker)
+            and native_checker(skin_name, effective_champion_id, chroma_id)
+        )
+        legacy_package_available = bool(
+            not callable(legacy_checker)
+            or legacy_checker(skin_name, effective_champion_id, chroma_id)
+        )
+        carrier, classic_native, fallback_reason = classic_injection_plan(
+            self.lcu,
+            self.state,
+            requested_skin_id,
+            native_package_available,
+            legacy_package_available,
+        )
+        package_family = "native" if classic_native else "legacy"
+        if fallback_reason:
+            message = (
+                "[CLASSIC:CARRIER] Injection aborted"
+                if carrier is None
+                else "[CLASSIC:CARRIER] Auto fallback"
+            )
+            log.warning(
+                "%s champion=%s carrier=%s package=%s reason=%s",
+                message,
+                champion_id,
+                carrier,
+                package_family,
+                fallback_reason,
+            )
+        elif classic_mode:
+            log.info(
+                "[CLASSIC:CARRIER] Auto selected champion=%s carrier=%s package=%s",
+                champion_id,
+                carrier,
+                package_family,
+            )
+        return carrier, classic_native
 
     def trigger_injection(self, name: str, ticker_id: int, cname: str = ""):
         """Trigger injection for a skin/chroma
@@ -927,8 +1013,13 @@ class InjectionTrigger:
         try:
             # Force base skin selection via LCU before injecting
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+            classic_native = False
             if champ_id:
-                base_skin_id = champ_id * 1000
+                base_skin_id, classic_native = self._automatic_classic_injection(
+                    name, champ_id
+                )
+                if base_skin_id is None:
+                    return
                 
                 # Read actual current selection from LCU session
                 actual_lcu_skin_id = None
@@ -945,7 +1036,6 @@ class InjectionTrigger:
                 except Exception as e:
                     log.debug(f"[INJECT] Failed to read actual LCU skin ID: {e}")
                 
-                # Only force base skin if current selection is not already base skin
                 if actual_lcu_skin_id is None or actual_lcu_skin_id != base_skin_id:
                     self._force_base_skin(base_skin_id)
             
@@ -963,11 +1053,15 @@ class InjectionTrigger:
                         log.warning(f"[INJECT] LCU not available, skipping injection")
                         return
                     
+                    injection_options = (
+                        {"classic_native": True} if classic_native else {}
+                    )
                     success = self.injection_manager.inject_skin_immediately(
                         name,
                         stop_callback=game_ended_callback,
                         champion_name=cname,
-                        champion_id=self.state.locked_champ_id
+                        champion_id=self.state.locked_champ_id,
+                        **injection_options,
                     )
                     
                     # Clear random state after injection
@@ -1113,7 +1207,7 @@ class InjectionTrigger:
         """Force base skin selection via LCU"""
         log.info(f"[INJECT] Forcing base skin (skinId={base_skin_id})")
 
-        # Temporarily skip base skin handling in client
+        # Do not change the carrier after this UI state transition begins.
         self.state.ui_skin_thread._broadcast_skip_base_skin()
 
         # Hide chroma border/wheel immediately
@@ -1288,7 +1382,6 @@ class InjectionTrigger:
                 or self.state.locked_champ_id
                 or self.state.hovered_champ_id
             )
-            
             # Clean mods directory first (before extracting base skin and custom mod)
             injector._clean_mods_dir()
             injector._clean_overlay_dir()
@@ -1719,4 +1812,3 @@ class InjectionTrigger:
             log.error(f"[INJECT] Error injecting custom mod: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
-
