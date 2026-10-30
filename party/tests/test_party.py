@@ -638,6 +638,105 @@ class InjectionHookTests(unittest.TestCase):
         self.assertTrue(injector._resolve_zip.call_args.kwargs["classic"])
 
 
+class CarrierSlotTests(unittest.TestCase):
+    """A skin we play as an owned skin of ours (injection.retarget) is moved there by friends too"""
+
+    def setUp(self):
+        from injection.retarget import carriers
+
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+        patcher = patch.object(carriers, "get_user_data_dir", return_value=self.root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # Dynasty Ahri (unowned) runs as Star Guardian Ahri (owned)
+        carriers.set_carrier(103001, 103014)
+
+    def my_slot(self, **state):
+        return SkinCollector(make_state(**state)).get_my_selection(1, "Me").carrier_slot
+
+    def test_an_unowned_skin_tells_friends_the_slot_it_runs_as(self):
+        self.assertEqual(self.my_slot(owned_skin_ids={103014}), 14)
+
+    def test_an_owned_skin_or_a_carrier_no_longer_owned_is_not_moved(self):
+        self.assertIsNone(self.my_slot(owned_skin_ids={103001, 103014}))
+        self.assertIsNone(self.my_slot(owned_skin_ids=set()))
+
+    def with_chromas(self, **state):
+        """State whose skin scraper knows Ahri's chromas: 103015 of Star Guardian, 103007 of Dynasty"""
+        cache = SimpleNamespace(champion_id=103, chroma_id_map={
+            103015: {"id": 103015, "skinId": 103014}, 103007: {"id": 103007, "skinId": 103001},
+        })
+        return {**state, "ui_skin_thread": SimpleNamespace(skin_scraper=SimpleNamespace(cache=cache))}
+
+    def test_an_unowned_chroma_of_an_owned_skin_uses_its_skins_carrier(self):
+        from injection.retarget import carriers
+
+        carriers.set_carrier(103014, 103007)
+        selection = SkinCollector(make_state(**self.with_chromas(
+            last_hovered_skin_id=103014, selected_chroma_id=103015, owned_skin_ids={103001, 103007, 103014},
+        ))).get_my_selection(1, "Me")
+        self.assertEqual((selection.chroma_id, selection.carrier_slot), (103015, 7))
+
+    def test_a_chroma_from_history_uses_its_skins_carrier(self):
+        from injection.retarget import carriers
+
+        carriers.set_carrier(103014, 103001)
+        self.assertEqual(self.my_slot(**self.with_chromas(
+            historic_mode_active=True, historic_skin_id=103015, owned_skin_ids={103001},
+        )), 1)
+
+    def test_an_owned_chroma_plays_as_itself(self):
+        from injection.retarget import carriers
+
+        carriers.set_carrier(103014, 103001)
+        self.assertIsNone(self.my_slot(**self.with_chromas(
+            last_hovered_skin_id=103014, selected_chroma_id=103015, owned_skin_ids={103001, 103014, 103015},
+        )))
+
+    def test_a_form_is_told_to_friends_as_the_chroma_it_is(self):
+        # Elementalist Lux's forms have ids of their own, far from the skin's
+        selection = SkinCollector(make_state(
+            locked_champ_id=99, last_hovered_skin_id=99007, selected_chroma_id=99991,
+        )).get_my_selection(1, "Me")
+        self.assertEqual(selection.chroma_id, 99991)
+
+    def test_the_slot_reaches_friends_through_the_relay_and_the_direct_protocol(self):
+        from party.protocol.message_types import SkinSelection
+
+        with patch("party.discovery.skin_collector.find_local_mod", return_value=None):
+            skins = SkinCollector(make_state()).collect_relay_skins(
+                [member(2, "A", 103, 103001, carrier_slot=14)], 1, {}, None, None)
+        self.assertEqual(skins[0].carrier_slot, 14)
+        selection = SkinSelection(2, "A", 103, 103001, carrier_slot=14)
+        self.assertEqual(SkinSelection.from_dict(selection.to_dict()).carrier_slot, 14)
+
+    def test_a_friends_skin_is_moved_onto_their_slot(self):
+        from injection.tests.test_retarget import SKIN0, builtin_stub, make_bin, raw_wad
+
+        game = self.root / "game"
+        (game / "DATA" / "FINAL" / "Champions").mkdir(parents=True)
+        (game / "DATA" / "FINAL" / "Champions" / "Ahri.wad.client").write_bytes(raw_wad({
+            "data/characters/ahri/skins/skin14.bin": make_bin([], [("Characters/Ahri/Skins/Skin14", [])]),
+        }))
+        mods_dir = self.root / "mods_dir"
+        (mods_dir / "party_2" / "WAD").mkdir(parents=True)
+        (mods_dir / "party_2" / "WAD" / "Ahri.wad.client").write_bytes(raw_wad({SKIN0: builtin_stub()}))
+        injector = SimpleNamespace(mods_dir=mods_dir, game_dir=game)
+
+        skin = PartySkinData(2, "B", 103, 103001, carrier_slot=1)
+        self.assertEqual(PartyInjectionHook._move_to_carrier(skin, injector, "party_2", False), "party_2_slot")
+        self.assertTrue((mods_dir / "party_2_slot" / "WAD" / "Ahri.wad.client").is_file())
+        # Rift Classic, or no carrier: the skin stays on the default skin
+        self.assertIsNone(PartyInjectionHook._move_to_carrier(skin, injector, "party_2", True))
+        self.assertIsNone(PartyInjectionHook._move_to_carrier(
+            PartySkinData(2, "B", 103, 103001), injector, "party_2", False))
+        # A slot the skin is built on is refused
+        self.assertIsNone(PartyInjectionHook._move_to_carrier(
+            PartySkinData(2, "B", 103, 103001, carrier_slot=14), injector, "party_2", False))
+
+
 class PartyOnlyInjectionTests(unittest.TestCase):
     def make_manager(self, party_manager):
         from injection.core.manager import InjectionManager

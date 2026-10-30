@@ -162,6 +162,9 @@ Rose/
 │   │   └── process_manager.py
 │   ├── loadingname/        # Skin name on the loading screen
 │   │   └── loading_name.py
+│   ├── retarget/           # Moves an injected skin onto a skin the player owns
+│   │   ├── retarget.py
+│   │   └── carriers.py
 │   └── tools/              # Injection tools (mod-tools.exe, the user's LTK patcher)
 │       ├── tools_manager.py
 │       └── patcher.py      # LTK patcher checks (missing files, end of life)
@@ -335,6 +338,7 @@ Rose/
         ├── ROSE-ChromaWheel/
         ├── ROSE-FormsWheel/
         ├── ROSE-CustomSkinSelector/
+        ├── ROSE-SkinCarrier/
         ├── ROSE-CustomWheel/
         ├── ROSE-SettingsPanel/
         ├── ROSE-RandomSkin/

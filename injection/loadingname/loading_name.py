@@ -21,6 +21,10 @@ those should keep the champion's name. They read the key the champion's own reco
 ("Characters/<Champion>/CharacterRecords/Root", field name), while the loading screen builds its key from the champion's
 internal name. So the mod also carries the champion's record pointing at a key of its own, of the same length, that
 holds the champion's name: RAW/data/characters/<champion>/<champion>.bin.
+
+A skin retargeted onto a skin the player owns (injection.retarget) runs as that skin n instead, and the screen asks for
+"game_character_skin_displayname_<Champion>_<n>": the skin's name is written there, and the champion's own text and
+record are left alone.
 """
 
 import json
@@ -36,7 +40,6 @@ log = get_logger()
 MOD_FOLDER = "ROSE-LoadingName"
 TABLE_PATH = Path("RAW") / "DATA" / "Menu" / "en_US" / "lol.stringtable"
 TABLE_HASH = 0x062D6ED714BFF7DF  # xxh64("data/menu/en_us/lol.stringtable"), fixed for every language
-RST_MASK = (1 << 38) - 1
 # The champion's record points here instead, for the chat and the name over its head. "rose" is as long as "game",
 # so the record's text keeps its length and the file keeps its layout.
 RECORD_KEY = "game_character_displayname_"
@@ -161,7 +164,8 @@ def _unzstd(chunk: bytes, size: int, single_frame: bool) -> Optional[bytes]:
 
 
 # --------------------------------------------------------------------------------------
-# RST v5: "RST", 5, u32 count, count x u64 (38-bit key hash | offset << 38), then the texts
+# RST v5: "RST", 5, u32 count, count x u64 (key hash | offset << bits), then the texts. The key hash takes 38 bits in
+# older tables and 39 in the game's current ones, which the table itself tells (_hash_bits).
 # --------------------------------------------------------------------------------------
 
 def _entries(table: bytes) -> Tuple[int, int]:
@@ -169,13 +173,27 @@ def _entries(table: bytes) -> Tuple[int, int]:
     return count, 8 + count * 8
 
 
+def _hash_bits(table: bytes) -> int:
+    """How many low bits of an entry are the key's hash: the fewest that leave every offset inside the text block."""
+    count, text_start = _entries(table)
+    if not count:
+        return 38
+    largest = max(struct.unpack_from(f"<{count}Q", table, 8))
+    for bits in (38, 39, 40):
+        if largest >> bits < len(table) - text_start:
+            return bits
+    return 38
+
+
 def _text_of(table: bytes, key_hash: int) -> Optional[str]:
     count, text_start = _entries(table)
+    bits = _hash_bits(table)
+    mask = (1 << bits) - 1
     for i in range(count):
         entry = struct.unpack_from("<Q", table, 8 + i * 8)[0]
-        if entry & RST_MASK != key_hash:
+        if entry & mask != key_hash & mask:
             continue
-        at = text_start + (entry >> 38)
+        at = text_start + (entry >> bits)
         end = table.index(b"\0", at)
         return table[at:end].decode("utf-8", "replace")
     return None
@@ -188,17 +206,19 @@ def _with_text(table: bytes, key_hash: int, text: str) -> bytes:
     every other offset where it was.
     """
     count, text_start = _entries(table)
+    bits = _hash_bits(table)
+    mask = (1 << bits) - 1
     entries = [struct.unpack_from("<Q", table, 8 + i * 8)[0] for i in range(count)]
     added = text.encode("utf-8") + b"\0"
-    entry = key_hash | ((len(table) - text_start) << 38)
+    entry = (key_hash & mask) | ((len(table) - text_start) << bits)
 
     for i, existing in enumerate(entries):
-        if existing & RST_MASK == key_hash:
+        if existing & mask == key_hash & mask:
             entries[i] = entry
             break
     else:
         entries.append(entry)
-        entries.sort(key=lambda e: e & RST_MASK)
+        entries.sort(key=lambda e: e & mask)
 
     out = bytearray(table[:4])
     out += struct.pack("<I", len(entries))
@@ -258,7 +278,8 @@ def _xxh3_64(data: bytes) -> int:
 
 
 def _key_hash(key: str) -> int:
-    return _xxh3_64(key.lower().encode("utf-8")) & RST_MASK
+    """The key's whole xxh3: a table keeps as many of its low bits as it uses (_hash_bits)."""
+    return _xxh3_64(key.lower().encode("utf-8"))
 
 
 # --------------------------------------------------------------------------------------
@@ -341,10 +362,11 @@ def parse_skin_id(skin_name: str, champion_id: Optional[int] = None) -> int:
     return 0
 
 
-def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Optional[str]:
+def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int, slot: int = 0) -> Optional[str]:
     """Writes the mod and returns its folder name, or None when there is nothing to show.
 
-    skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id.
+    skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id. slot is the skin
+    number the injected skin runs as: 0, or the owned skin it was retargeted onto.
     """
     try:
         if not skin_id or skin_id % 1000 == 0:
@@ -365,10 +387,14 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Opt
                 name = _text_of(table, _key_hash(f"game_character_skin_displayname_{alias}_{skin_id % 1000}"))
                 if not name:
                     continue
-                champion_key = _key_hash(f"{RECORD_KEY}{alias}")
-                champion_name = _text_of(table, champion_key)
-                if champion_name is None:
-                    continue
+                if slot:
+                    # the screen reads the owned skin's own key: nothing of the champion's changes
+                    champion_key, champion_name = _key_hash(f"game_character_skin_displayname_{alias}_{slot}"), None
+                else:
+                    champion_key = _key_hash(f"{RECORD_KEY}{alias}")
+                    champion_name = _text_of(table, champion_key)
+                    if champion_name is None:
+                        continue
                 target = Path(mods_dir) / MOD_FOLDER
                 (target / TABLE_PATH.parent).mkdir(parents=True, exist_ok=True)
                 (target / "META").mkdir(parents=True, exist_ok=True)
@@ -381,15 +407,16 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Opt
                 table = _with_text(table, champion_key, name)
 
                 # the chat and the name over the head keep the champion's name (see the module's note)
-                record = _champion_record(game_dir, mod_folder, alias)
-                own_record = _with_own_record_key(record, alias) if record else None
-                if own_record:
-                    table = _with_text(table, _key_hash(f"{RECORD_KEY_OWN}{alias}"), champion_name)
-                    record_file = target / "RAW" / _record_path(alias)
-                    record_file.parent.mkdir(parents=True, exist_ok=True)
-                    record_file.write_bytes(own_record)
-                else:
-                    log.debug(f"[LOADNAME] {alias}'s record not found, the chat shows the skin's name too")
+                if champion_name is not None:
+                    record = _champion_record(game_dir, mod_folder, alias)
+                    own_record = _with_own_record_key(record, alias) if record else None
+                    if own_record:
+                        table = _with_text(table, _key_hash(f"{RECORD_KEY_OWN}{alias}"), champion_name)
+                        record_file = target / "RAW" / _record_path(alias)
+                        record_file.parent.mkdir(parents=True, exist_ok=True)
+                        record_file.write_bytes(own_record)
+                    else:
+                        log.debug(f"[LOADNAME] {alias}'s record not found, the chat shows the skin's name too")
 
                 (target / TABLE_PATH).write_bytes(table)
                 log.info(f"[LOADNAME] the loading screen will show '{name}'")

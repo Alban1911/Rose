@@ -20,7 +20,7 @@ from utils.core.paths import get_injection_dir
 from utils.core.utilities import is_default_skin, is_selectable_owned
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
 from injection.game.game_monitor import make_game_ended_callback
-from injection.loadingname.loading_name import build as build_loading_name
+from injection.loadingname.loading_name import build as build_loading_name, parse_skin_id
 
 log = get_logger()
 
@@ -824,8 +824,10 @@ class InjectionTrigger:
 
             # Also check if base skin is owned but chroma is selected (for owned chromas)
             # (only a chroma of the hovered skin: a historic/random skin is a different skin)
+            # An unowned chroma of an owned skin can't be picked in the client: it is injected below
             elif (
                 ui_skin_id in owned_skin_ids
+                and effective_skin_id in owned_skin_ids
                 and ui_skin_id < effective_skin_id < ui_skin_id + 100
                 and not is_default
             ):
@@ -922,14 +924,51 @@ class InjectionTrigger:
                 except Exception as e:
                     log.warning(f"[INJECT] Failed to resume game after forcing owned skin: {e}")
     
+    def _plan_carrier(self, skin_id: Optional[int], source, champion_id: Optional[int]):
+        """The owned skin an injected skin runs as and the mod's bins retargeted onto it (injection.retarget), or
+        (None, None) for the champion's default skin.
+
+        source is the mod holding the skin's bins: the skin's archive or an extracted mod folder.
+        """
+        from injection.classic import is_classic_game_mode
+        from injection.retarget.carriers import plan_for_carrier, resolve_carrier
+
+        # Rift Classic plays Jade_<Champion> characters, whose default skin the Classic skins are built for
+        if not skin_id or not champion_id or is_classic_game_mode(getattr(self.state, "current_game_mode", None)):
+            return None, None
+        cache = getattr(self.skin_scraper, "cache", None)
+        carrier_id = resolve_carrier(
+            skin_id, getattr(self.state, "owned_skin_ids", None), getattr(cache, "chroma_id_map", None)
+        )
+        if not carrier_id or carrier_id // 1000 != int(champion_id):
+            return None, None
+        injector = self.injection_manager.injector if self.injection_manager else None
+        if injector is None:
+            return None, None
+        plan = plan_for_carrier(source, carrier_id, injector.game_dir)
+        if plan is None:
+            log.info(f"[CARRIER] Skin {skin_id} falls back to the default skin")
+            return None, None
+        log.info(f"[CARRIER] Skin {skin_id} runs as owned skin {carrier_id}")
+        return carrier_id, plan
+
     def _inject_unowned_skin(self, name: str, cname: str):
         """Inject unowned skin/chroma"""
         try:
-            # Force base skin selection via LCU before injecting
+            # Force the skin the injected one runs as via LCU before injecting: the default skin, or the owned skin
+            # picked for it (the injected skin is then retargeted onto that one)
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+            retarget = None
             if champ_id:
-                base_skin_id = champ_id * 1000
-                
+                carrier_id = None
+                if self.injection_manager:
+                    self.injection_manager._ensure_initialized()
+                    injector = self.injection_manager.injector
+                    if injector is not None:
+                        source = injector._resolve_zip(name, skin_name=name, champion_name=cname, champion_id=champ_id)
+                        carrier_id, retarget = self._plan_carrier(parse_skin_id(name, champ_id), source, champ_id)
+                base_skin_id = carrier_id or champ_id * 1000
+
                 # Read actual current selection from LCU session
                 actual_lcu_skin_id = None
                 try:
@@ -967,7 +1006,8 @@ class InjectionTrigger:
                         name,
                         stop_callback=game_ended_callback,
                         champion_name=cname,
-                        champion_id=self.state.locked_champ_id
+                        champion_id=self.state.locked_champ_id,
+                        retarget=retarget,
                     )
                     
                     # Clear random state after injection
@@ -1515,6 +1555,24 @@ class InjectionTrigger:
                         if hasattr(self.state, 'selected_other_mod'):
                             self.state.selected_other_mod = None
             
+            # The skin runs as the owned skin picked for it, if any: the bins of the carrier archive, or of a custom
+            # mod built for the default skin, are retargeted onto that one (injection.retarget)
+            carrier_id, retarget = None, None
+            try:
+                if carrier_mod_folder_name:
+                    carrier_id, retarget = self._plan_carrier(
+                        int(skin_id), injector.mods_dir / carrier_mod_folder_name, champion_id
+                    )
+                elif mod_folder_name and skin_id and champion_id and int(skin_id) == int(champion_id) * 1000:
+                    carrier_id, retarget = self._plan_carrier(
+                        int(skin_id), injector.mods_dir / mod_folder_name, champion_id
+                    )
+            except (TypeError, ValueError) as e:
+                log.debug(f"[CARRIER] skipped for custom mod: {e}")
+            if retarget:
+                mod_folder_names.append(retarget.write(injector.mods_dir))
+                mod_names_list.append(f"Skin slot ({carrier_id})")
+
             # A custom skin runs as the default one too, so the loading screen gets the skin's name here as it does for a
             # regular skin (SkinInjector.inject_skin). skin_id is the skin the mod targets; a chroma's mod targets its
             # base skin, which is the name the game has. It never fails the injection.
@@ -1522,7 +1580,8 @@ class InjectionTrigger:
             if skin_folder and skin_id:
                 try:
                     loading_name_mod = build_loading_name(
-                        injector.game_dir, injector.mods_dir, injector.mods_dir / skin_folder, int(skin_id)
+                        injector.game_dir, injector.mods_dir, injector.mods_dir / skin_folder, int(skin_id),
+                        retarget.target_number if retarget else 0,
                     )
                     if loading_name_mod:
                         mod_folder_names.append(loading_name_mod)
@@ -1554,10 +1613,9 @@ class InjectionTrigger:
             # Force base skin selection via LCU before injecting (only if injecting base skin ZIP)
             # For owned skins, user can select them normally - no need to force
             champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
-            if champion_id and base_skin_name:
-                # Injecting base skin ZIP for unowned skin - force base skin
-                base_skin_id = champion_id * 1000
-                self._force_base_skin(base_skin_id)
+            if champion_id and (base_skin_name or carrier_id):
+                # Injecting base skin ZIP for unowned skin - force base skin, or the owned skin it was retargeted onto
+                self._force_base_skin(carrier_id or champion_id * 1000)
             
             # Create callback to check if game ended
             game_ended_callback = make_game_ended_callback(self.state)

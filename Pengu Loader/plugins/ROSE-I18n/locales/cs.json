@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "K zapnutí automatického spouštění jsou potřeba práva správce.",
   "Administrator privileges are required to disable auto-start.": "K vypnutí automatického spouštění jsou potřeba práva správce.",
   "Failed to enable auto-start: {error}": "Automatické spouštění se nepodařilo zapnout: {error}",
-  "Failed to disable auto-start: {error}": "Automatické spouštění se nepodařilo vypnout: {error}"
+  "Failed to disable auto-start: {error}": "Automatické spouštění se nepodařilo vypnout: {error}",
+  "Play this skin as": "Hrát tento skin jako",
+  "Others in the game see the skin you own, you see this one.": "Ostatní ve hře vidí skin, který vlastníš, ty vidíš tento.",
+  "Plays as {name}": "Hraje se jako {name}",
+  "Choose the owned skin this skin plays as": "Vyber vlastněný skin, jako který se tento skin hraje",
+  "This skin can't carry the hovered one": "Tento skin nemůže nést vybraný skin"
 }

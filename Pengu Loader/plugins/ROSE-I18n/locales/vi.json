@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "Cần quyền quản trị viên để bật tự khởi động.",
   "Administrator privileges are required to disable auto-start.": "Cần quyền quản trị viên để tắt tự khởi động.",
   "Failed to enable auto-start: {error}": "Không bật được tự khởi động: {error}",
-  "Failed to disable auto-start: {error}": "Không tắt được tự khởi động: {error}"
+  "Failed to disable auto-start: {error}": "Không tắt được tự khởi động: {error}",
+  "Play this skin as": "Chơi trang phục này dưới dạng",
+  "Others in the game see the skin you own, you see this one.": "Người khác trong trận thấy trang phục bạn sở hữu, bạn thấy trang phục này.",
+  "Plays as {name}": "Chơi dưới dạng {name}",
+  "Choose the owned skin this skin plays as": "Chọn trang phục đã sở hữu để chơi trang phục này",
+  "This skin can't carry the hovered one": "Trang phục này không thể mang trang phục đã chọn"
 }

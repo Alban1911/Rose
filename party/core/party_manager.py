@@ -498,6 +498,7 @@ class PartyManager:
             champion_id=champion_id,
             skin_id=skin_id,
             chroma_id=_to_int(skin.get("chroma_id")),
+            carrier_slot=_to_int(skin.get("carrier_slot")),
         )
 
     # ─── Background tasks ────────────────────────────────────────────────
@@ -606,6 +607,9 @@ class PartyManager:
             "skin_id": selection.skin_id,
             "chroma_id": selection.chroma_id,
         }
+        if selection.carrier_slot:
+            # Friends move our skin onto the owned skin it runs as, as our own injection does
+            skin_state["carrier_slot"] = selection.carrier_slot
 
         # For custom mods, share content hashes instead of the files
         if selection.custom_mod_path:

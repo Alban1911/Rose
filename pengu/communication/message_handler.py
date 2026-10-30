@@ -74,6 +74,7 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
     "delete-category-mod",
     "rename-champion-mod",
     "rename-category-mod",
+    "request-skin-carrier",
 })
 
 
@@ -273,6 +274,10 @@ class MessageHandler:
             self._handle_request_category_mods({"category": self.mod_storage.CATEGORY_OTHERS})
         elif payload_type == "select-skin-mod":
             self._handle_select_skin_mod(payload)
+        elif payload_type == "request-skin-carrier":
+            self._handle_request_skin_carrier(payload)
+        elif payload_type == "select-skin-carrier":
+            self._handle_select_skin_carrier(payload)
         elif payload_type == "select-map":
             self._handle_select_map(payload)
         elif payload_type == "select-font":
@@ -1073,6 +1078,140 @@ class MessageHandler:
             "timestamp": int(time.time() * 1000),
         }
         self._send_response(json.dumps(response_payload))
+
+    def _carrier_context(self, skin_id: int, champion_id: int, chroma_id: Optional[int] = None):
+        """The skin a carrier is saved under, the skin or chroma asked about, the mod whose bins would be retargeted,
+        and whether that one is injected at all (an owned skin plays as itself, the default skin only with a custom
+        mod on it).
+
+        skin_id is the hovered skin and chroma_id the chroma or form picked in Rose's wheel: when it belongs to the
+        hovered skin, it is the one asked about. An unowned chroma is injected even when its skin is owned, from its
+        own archive.
+        """
+        from injection.retarget.carriers import carrier_key
+        from utils.core.utilities import is_selectable_owned
+
+        # Rose scrapes the locked champion's skins itself: this runs on the background worker, so it only reads them
+        cache = getattr(self.skin_scraper, "cache", None)
+        if getattr(cache, "champion_id", None) != champion_id:
+            cache = None
+        chroma_map = getattr(cache, "chroma_id_map", None)
+        owned = set(getattr(self.shared_state, "owned_skin_ids", None) or ())
+        key = carrier_key(skin_id, chroma_map)
+        if chroma_id and chroma_id != skin_id and carrier_key(chroma_id, chroma_map) == key:
+            skin_id = chroma_id
+
+        selected_mod = getattr(self.shared_state, "selected_custom_mod", None) or {}
+        try:
+            mod_on_skin = int(selected_mod.get("skin_id")) == key
+        except (TypeError, ValueError):
+            mod_on_skin = False
+
+        source = None
+        if self.injection_manager is not None and getattr(self.injection_manager, "injector", None) is None:
+            self.injection_manager._ensure_initialized()
+        injector = getattr(self.injection_manager, "injector", None)
+        if skin_id != key:
+            # a chroma or form: played as itself when owned, injected from its own archive otherwise
+            applicable = not is_selectable_owned(skin_id, owned, chroma_map)
+            if applicable and injector is not None:
+                source = injector._resolve_zip(
+                    f"skin_{key}", chroma_id=skin_id, skin_name=f"skin_{key}", champion_id=champion_id
+                )
+        elif key % 1000 == 0:
+            applicable = mod_on_skin
+            if mod_on_skin and selected_mod.get("mod_path"):
+                source = Path(selected_mod["mod_path"])
+        else:
+            applicable = not is_selectable_owned(key, owned, chroma_map)
+            if applicable and injector is not None:
+                source = injector._resolve_zip(f"skin_{key}", skin_name=f"skin_{key}", champion_id=champion_id)
+        return key, skin_id, applicable, source, cache, owned, chroma_map
+
+    def _handle_request_skin_carrier(self, payload: dict) -> None:
+        """Return the owned skins and chromas a skin can run as, and the one saved for it"""
+        from injection.retarget.carriers import carrier_options, get_carrier
+        from injection.retarget.retarget import ARCHIVE_SUFFIXES, RetargetError, plan_retarget
+
+        try:
+            skin_id = int(payload.get("skinId"))
+            champion_id = int(payload.get("championId") or skin_id // 1000)
+            chroma_id = int(payload["chromaId"]) if payload.get("chromaId") else None
+        except (TypeError, ValueError):
+            return
+
+        options, key, asked, applicable, saved = [], skin_id, skin_id, False, None
+        try:
+            key, asked, applicable, source, cache, owned, chroma_map = self._carrier_context(
+                skin_id, champion_id, chroma_id
+            )
+            saved = get_carrier(key)
+            if applicable:
+                game_dir = getattr(getattr(self.injection_manager, "injector", None), "game_dir", None)
+                # A .modpkg is only unpacked by the injection: its skin is checked then
+                checkable = source is not None and (source.is_dir() or source.suffix.lower() in ARCHIVE_SUFFIXES)
+
+                def check(carrier_id: int) -> Optional[str]:
+                    if not checkable:
+                        return None
+                    try:
+                        plan_retarget(source, carrier_id % 1000, game_dir)
+                        return None
+                    except RetargetError as e:
+                        return str(e)
+
+                options = carrier_options(getattr(cache, "skins", None) or [], owned, chroma_map, check)
+        except Exception as e:
+            log.warning(f"[SkinMonitor] Could not list the skin carriers of skin {skin_id}: {e}", exc_info=True)
+        log.info(
+            f"[CARRIER] Skin {asked} (hovered {skin_id}): "
+            + (f"{len(options)} owned skin(s) can carry it, saved carrier {saved}" if applicable else "not injected")
+        )
+
+        self._send_response(json.dumps({
+            "type": "skin-carrier-response",
+            "requestId": payload.get("requestId"),
+            "championId": champion_id,
+            "skinId": skin_id,
+            "chromaId": payload.get("chromaId"),
+            "askedSkinId": asked,
+            "carrierKey": key,
+            "applicable": applicable,
+            "carrierId": saved,
+            "options": options,
+            # the default skin's picture, for the row that clears the carrier
+            "baseTilePath": next(
+                (s.get("tilePath") for s in (getattr(cache, "skins", None) or []) if s.get("isBase")), None
+            ) if applicable else None,
+            "timestamp": int(time.time() * 1000),
+        }))
+
+    def _handle_select_skin_carrier(self, payload: dict) -> None:
+        """Save the owned skin a skin runs as (carrierId null for the default skin)"""
+        from injection.retarget.carriers import carrier_key, set_carrier
+
+        result = {
+            "type": "skin-carrier-selection-result",
+            "requestId": payload.get("requestId"),
+            "skinId": payload.get("skinId"),
+            "carrierId": payload.get("carrierId"),
+            "success": False,
+            "timestamp": int(time.time() * 1000),
+        }
+        try:
+            skin_id = int(payload.get("skinId"))
+            carrier_id = payload.get("carrierId")
+            carrier_id = int(carrier_id) if carrier_id is not None else None
+            cache = getattr(self.skin_scraper, "cache", None)
+            key = carrier_key(skin_id, getattr(cache, "chroma_id_map", None))
+            set_carrier(key, carrier_id)
+            result.update({"success": True, "carrierKey": key, "carrierId": carrier_id})
+        except (TypeError, ValueError) as e:
+            result["error"] = str(e)
+        except Exception as e:
+            log.warning(f"[SkinMonitor] Could not save the skin carrier: {e}", exc_info=True)
+            result["error"] = str(e)
+        self._send_response(json.dumps(result))
 
     def _lookup_champion_name(self, champion_id: object) -> Optional[str]:
         try:

@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "Для включения автозапуска нужны права администратора.",
   "Administrator privileges are required to disable auto-start.": "Для отключения автозапуска нужны права администратора.",
   "Failed to enable auto-start: {error}": "Не удалось включить автозапуск: {error}",
-  "Failed to disable auto-start: {error}": "Не удалось отключить автозапуск: {error}"
+  "Failed to disable auto-start: {error}": "Не удалось отключить автозапуск: {error}",
+  "Play this skin as": "Играть этим образом как",
+  "Others in the game see the skin you own, you see this one.": "Другие в игре видят ваш образ, а вы — этот.",
+  "Plays as {name}": "Играется как {name}",
+  "Choose the owned skin this skin plays as": "Выберите свой образ, которым будет играться этот",
+  "This skin can't carry the hovered one": "Этот образ не может нести выбранный"
 }

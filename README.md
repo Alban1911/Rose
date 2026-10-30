@@ -54,6 +54,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **ROSE-UI**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
 - **ROSE-SkinMonitor**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket. It also hosts the bridge the other plugins use to talk to Rose
 - **ROSE-CustomSkinSelector**: Lists the custom skin mods made for the hovered skin and applies the one you pick
+- **ROSE-SkinCarrier**: Picks one of your own skins or chromas for the hovered skin to play as
 - **ROSE-CustomWheel**: Custom mods panel for maps, fonts, announcers and other mods
 - **ROSE-ChromaWheel**: Enhanced chroma selection interface for choosing any chroma variant
 - **ROSE-FormsWheel**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
@@ -78,6 +79,7 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 - **Custom Mods**: Custom skins, maps, fonts and announcers (`.fantome`, `.zip` and `.modpkg`)
 - **Party Mode**: Friends running Rose 1.4.4 or newer see each other's skins and custom mods in game
 - **Loading Screen Name**: The loading screen shows the injected skin's name; the chat and the name over your champion keep the champion's
+- **Skin Carrier**: An injected skin, chroma or custom skin can play as a skin or chroma you own instead of the default skin: the others in the game see your skin, you see the injected one
 - **Multi-Language Support**: Works with any client language, with Rose's menus in 22 languages
 - **Open Source**: Fully open source and extensible
 - **Free**: If you bought this software, you got scammed 💀

@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "Sunt necesare drepturi de administrator pentru a activa pornirea automată.",
   "Administrator privileges are required to disable auto-start.": "Sunt necesare drepturi de administrator pentru a dezactiva pornirea automată.",
   "Failed to enable auto-start: {error}": "Pornirea automată nu a putut fi activată: {error}",
-  "Failed to disable auto-start: {error}": "Pornirea automată nu a putut fi dezactivată: {error}"
+  "Failed to disable auto-start: {error}": "Pornirea automată nu a putut fi dezactivată: {error}",
+  "Play this skin as": "Joacă acest skin ca",
+  "Others in the game see the skin you own, you see this one.": "Ceilalți din meci văd skinul pe care îl deții, tu îl vezi pe acesta.",
+  "Plays as {name}": "Jucat ca {name}",
+  "Choose the owned skin this skin plays as": "Alege skinul deținut ca care se joacă acest skin",
+  "This skin can't carry the hovered one": "Acest skin nu îl poate purta pe cel selectat"
 }

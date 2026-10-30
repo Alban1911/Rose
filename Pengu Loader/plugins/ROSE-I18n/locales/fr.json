@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "Les droits administrateur sont nécessaires pour activer le lancement au démarrage.",
   "Administrator privileges are required to disable auto-start.": "Les droits administrateur sont nécessaires pour désactiver le lancement au démarrage.",
   "Failed to enable auto-start: {error}": "Impossible d'activer le lancement au démarrage : {error}",
-  "Failed to disable auto-start: {error}": "Impossible de désactiver le lancement au démarrage : {error}"
+  "Failed to disable auto-start: {error}": "Impossible de désactiver le lancement au démarrage : {error}",
+  "Play this skin as": "Jouer ce skin en tant que",
+  "Others in the game see the skin you own, you see this one.": "Les autres joueurs voient le skin que vous possédez, vous voyez celui-ci.",
+  "Plays as {name}": "Joué en tant que {name}",
+  "Choose the owned skin this skin plays as": "Choisir le skin possédé sous lequel ce skin est joué",
+  "This skin can't carry the hovered one": "Ce skin ne peut pas porter celui sélectionné"
 }

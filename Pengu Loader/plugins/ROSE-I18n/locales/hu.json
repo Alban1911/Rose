@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "Az automatikus indítás bekapcsolásához rendszergazdai jogok szükségesek.",
   "Administrator privileges are required to disable auto-start.": "Az automatikus indítás kikapcsolásához rendszergazdai jogok szükségesek.",
   "Failed to enable auto-start: {error}": "Nem sikerült bekapcsolni az automatikus indítást: {error}",
-  "Failed to disable auto-start: {error}": "Nem sikerült kikapcsolni az automatikus indítást: {error}"
+  "Failed to disable auto-start: {error}": "Nem sikerült kikapcsolni az automatikus indítást: {error}",
+  "Play this skin as": "Ez a skin játszva mint",
+  "Others in the game see the skin you own, you see this one.": "A többiek a játékban a saját skinedet látják, te ezt.",
+  "Plays as {name}": "Így játszva: {name}",
+  "Choose the owned skin this skin plays as": "Válaszd ki a saját skint, amelyként ez a skin játszik",
+  "This skin can't carry the hovered one": "Ez a skin nem hordozhatja a kiválasztottat"
 }

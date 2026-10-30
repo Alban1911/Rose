@@ -84,6 +84,8 @@ class SkinSelection:
     skin_id: int
     chroma_id: Optional[int] = None
     custom_mod_path: Optional[str] = None
+    # The owned skin number the skin runs as (injection.retarget), None for the default skin
+    carrier_slot: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for message payload"""
@@ -99,6 +101,7 @@ class SkinSelection:
             skin_id=data["skin_id"],
             chroma_id=data.get("chroma_id"),
             custom_mod_path=data.get("custom_mod_path"),
+            carrier_slot=data.get("carrier_slot"),
         )
 
 

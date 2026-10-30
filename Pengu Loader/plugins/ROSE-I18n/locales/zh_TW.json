@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "需要系統管理員權限才能開啟開機自動啟動。",
   "Administrator privileges are required to disable auto-start.": "需要系統管理員權限才能關閉開機自動啟動。",
   "Failed to enable auto-start: {error}": "無法開啟開機自動啟動：{error}",
-  "Failed to disable auto-start: {error}": "無法關閉開機自動啟動：{error}"
+  "Failed to disable auto-start: {error}": "無法關閉開機自動啟動：{error}",
+  "Play this skin as": "將此造型作為以下造型使用",
+  "Others in the game see the skin you own, you see this one.": "對戰中其他人看到你擁有的造型，你看到這款造型。",
+  "Plays as {name}": "作為{name}使用",
+  "Choose the owned skin this skin plays as": "選擇此造型要借用的已擁有造型",
+  "This skin can't carry the hovered one": "此造型無法承載所選造型"
 }

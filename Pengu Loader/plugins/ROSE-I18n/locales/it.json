@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "Servono i privilegi di amministratore per attivare l'avvio automatico.",
   "Administrator privileges are required to disable auto-start.": "Servono i privilegi di amministratore per disattivare l'avvio automatico.",
   "Failed to enable auto-start: {error}": "Impossibile attivare l'avvio automatico: {error}",
-  "Failed to disable auto-start: {error}": "Impossibile disattivare l'avvio automatico: {error}"
+  "Failed to disable auto-start: {error}": "Impossibile disattivare l'avvio automatico: {error}",
+  "Play this skin as": "Gioca questa skin come",
+  "Others in the game see the skin you own, you see this one.": "Gli altri in partita vedono la skin che possiedi, tu vedi questa.",
+  "Plays as {name}": "Giocata come {name}",
+  "Choose the owned skin this skin plays as": "Scegli la skin posseduta con cui giocare questa skin",
+  "This skin can't carry the hovered one": "Questa skin non può ospitare quella selezionata"
 }

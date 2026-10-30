@@ -9,8 +9,9 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
 from state import SharedState
-from utils.core.historic import get_custom_mod_path, is_custom_mod_path
+from utils.core.historic import get_custom_mod_path, get_historic_target_for_champion, is_custom_mod_path
 from utils.core.logging import get_logger
+from utils.core.utilities import get_base_skin_id_for_chroma, is_selectable_owned
 
 from ..protocol.message_types import SkinSelection
 from ..network.peer_connection import PeerConnection
@@ -47,6 +48,7 @@ class PartySkinData:
     chroma_id: Optional[int] = None
     custom_mod_path: Optional[str] = None
     is_local: bool = False  # True if this is our own selection
+    carrier_slot: Optional[int] = None  # The owned skin number the skin runs as, None for the default skin
 
 
 class SkinCollector:
@@ -132,12 +134,16 @@ class SkinCollector:
         skin_id = None
         chroma_id = None
         custom_mod_path = None
+        # The skin a custom mod targets, which its carrier is saved under (as the injection reads it)
+        mod_target = None
+        chroma_map = self._chroma_map(champion_id)
 
         # Same priority as the injection: HistoricMode, random skin, then the hovered skin
         if getattr(state, "historic_mode_active", False):
             historic_skin_id = getattr(state, "historic_skin_id", None)
             if is_custom_mod_path(historic_skin_id):
                 custom_mod_path = get_custom_mod_path(historic_skin_id)
+                mod_target = _to_int(get_historic_target_for_champion(champion_id))
             else:
                 skin_id = _to_int(historic_skin_id)
 
@@ -148,7 +154,11 @@ class SkinCollector:
             skin_id = state.last_hovered_skin_id
             if not custom_mod_path and skin_id:
                 selected_chroma_id = getattr(state, "selected_chroma_id", None)
-                if selected_chroma_id and skin_id < selected_chroma_id < skin_id + 100:
+                # A chroma's id follows its skin's; a form's (Elementalist Lux...) only the chroma map knows
+                if selected_chroma_id and (
+                    skin_id < selected_chroma_id < skin_id + 100
+                    or get_base_skin_id_for_chroma(selected_chroma_id, chroma_map) == skin_id
+                ):
                     chroma_id = selected_chroma_id
 
             # The injection applies the selected mod whatever skin is hovered,
@@ -156,6 +166,7 @@ class SkinCollector:
             selected_custom_mod = getattr(state, "selected_custom_mod", None)
             if not custom_mod_path and _mod_champion_id(selected_custom_mod) == champion_id:
                 custom_mod_path = selected_custom_mod.get("relative_path")
+                mod_target = _to_int(selected_custom_mod.get("skin_id"))
 
         if not skin_id:
             if not custom_mod_path:
@@ -169,7 +180,45 @@ class SkinCollector:
             skin_id=skin_id,
             chroma_id=chroma_id,
             custom_mod_path=custom_mod_path,
+            carrier_slot=self._carrier_slot(
+                champion_id,
+                (mod_target or skin_id) if custom_mod_path else (chroma_id or skin_id),
+                bool(custom_mod_path),
+                chroma_map,
+            ),
         )
+
+    def _chroma_map(self, champion_id: int) -> Optional[dict]:
+        """The locked champion's chromas and forms (id -> its skin), from the skin scraper Rose keeps."""
+        scraper = getattr(getattr(self.state, "ui_skin_thread", None), "skin_scraper", None)
+        cache = getattr(scraper, "cache", None)
+        if getattr(cache, "champion_id", None) != champion_id:
+            return None
+        return getattr(cache, "chroma_id_map", None)
+
+    def _carrier_slot(
+        self, champion_id: int, played: int, custom_mod: bool, chroma_map: Optional[dict]
+    ) -> Optional[int]:
+        """The owned skin number our injected skin runs as (injection.retarget), so friends move it there too.
+
+        Read as the injection reads it: an unowned skin or chroma, or a custom mod on the default or an unowned
+        skin, runs on the carrier saved for its skin; an owned skin plays as itself. played is the skin or chroma
+        we play, or the skin our custom mod targets.
+        """
+        owned = set(getattr(self.state, "owned_skin_ids", None) or ())
+        if custom_mod:
+            injected = played % 1000 == 0 or not is_selectable_owned(played, owned, chroma_map)
+        else:
+            injected = played % 1000 != 0 and not is_selectable_owned(played, owned, chroma_map)
+        if not injected:
+            return None
+        try:
+            from injection.retarget.carriers import resolve_carrier
+            carrier = resolve_carrier(played, owned, chroma_map)
+        except Exception as e:
+            log.debug(f"[SKIN_COLLECT] Could not read our skin carrier: {e}")
+            return None
+        return carrier % 1000 if carrier and carrier // 1000 == champion_id else None
 
     def collect_all_skins(
         self,
@@ -203,6 +252,7 @@ class SkinCollector:
                     chroma_id=my_selection.chroma_id,
                     custom_mod_path=my_selection.custom_mod_path,
                     is_local=True,
+                    carrier_slot=my_selection.carrier_slot,
                 )
             )
 
@@ -235,6 +285,7 @@ class SkinCollector:
                         chroma_id=selection.chroma_id,
                         custom_mod_path=selection.custom_mod_path,
                         is_local=False,
+                        carrier_slot=selection.carrier_slot,
                     )
                 )
 
@@ -326,6 +377,7 @@ class SkinCollector:
                 chroma_id=_to_int(skin.get("chroma_id")),
                 custom_mod_path=custom_mod_path,
                 is_local=False,
+                carrier_slot=_to_int(skin.get("carrier_slot")),
             ))
 
         log.info(f"[SKIN_COLLECT] Collected {len(skins)} relay skin selections")

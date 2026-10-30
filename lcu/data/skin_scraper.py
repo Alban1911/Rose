@@ -121,7 +121,8 @@ class LCUSkinScraper:
                 'isBase': skin.get('isBase', False),
                 'chromas': len(raw_chromas),
                 'chromaDetails': chroma_details,
-                'num': skin.get('num', 0)
+                'num': skin.get('num', 0),
+                'tilePath': skin.get('tilePath'),
             }
             
             self.cache.skins.append(skin_data)

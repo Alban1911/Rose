@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "자동 시작을 켜려면 관리자 권한이 필요합니다.",
   "Administrator privileges are required to disable auto-start.": "자동 시작을 끄려면 관리자 권한이 필요합니다.",
   "Failed to enable auto-start: {error}": "자동 시작을 켜지 못했습니다: {error}",
-  "Failed to disable auto-start: {error}": "자동 시작을 끄지 못했습니다: {error}"
+  "Failed to disable auto-start: {error}": "자동 시작을 끄지 못했습니다: {error}",
+  "Play this skin as": "이 스킨을 다음으로 플레이",
+  "Others in the game see the skin you own, you see this one.": "다른 플레이어에게는 보유한 스킨이, 나에게는 이 스킨이 보입니다.",
+  "Plays as {name}": "{name}(으)로 플레이",
+  "Choose the owned skin this skin plays as": "이 스킨을 어떤 보유 스킨으로 플레이할지 선택",
+  "This skin can't carry the hovered one": "이 스킨에는 선택한 스킨을 적용할 수 없습니다"
 }

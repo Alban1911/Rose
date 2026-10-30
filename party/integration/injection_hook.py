@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from injection.classic import is_classic_game_mode
+from injection.retarget import RetargetError, plan_retarget
 from state import SharedState
 from utils.core.junction import is_junction, link_or_extract, safe_remove_entry
 from utils.core.logging import get_logger
@@ -110,6 +111,9 @@ class PartyInjectionHook:
                 )
                 if mod_name:
                     mod_folder_names.append(mod_name)
+                    slot_mod = self._move_to_carrier(skin_data, injector, mod_name, classic)
+                    if slot_mod:
+                        mod_folder_names.append(slot_mod)
             except Exception as e:
                 log.warning(
                     f"[PARTY_INJECT] Failed to prepare skin for {skin_data.summoner_name}: {e}"
@@ -176,6 +180,22 @@ class PartyInjectionHook:
             f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s skin: {source.name}"
         )
         return mod_folder_name
+
+    @staticmethod
+    def _move_to_carrier(skin_data: PartySkinData, injector, mod_folder_name: str, classic: bool) -> Optional[str]:
+        """The member's skin moved onto the owned skin they play it as (injection.retarget), as their own Rose does:
+        the folder of its renamed bins, or None when it stays on the default skin.
+
+        Rift Classic skins are built for Jade_<Champion>'s default skin, which the member's own Rose keeps.
+        """
+        if not skin_data.carrier_slot or classic:
+            return None
+        try:
+            plan = plan_retarget(injector.mods_dir / mod_folder_name, int(skin_data.carrier_slot), injector.game_dir)
+            return plan.write(injector.mods_dir, f"{mod_folder_name}_slot")
+        except RetargetError as e:
+            log.warning(f"[PARTY_INJECT] {skin_data.summoner_name}'s skin can't run as their skin: {e}")
+            return None
 
     @staticmethod
     def _resolve_skin_zip(skin_data: PartySkinData, injector, classic: bool = False) -> Optional[Path]:

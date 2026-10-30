@@ -167,6 +167,9 @@ hiddenimports = [
     'injection.tools.tools_manager',
     'injection.loadingname',
     'injection.loadingname.loading_name',
+    'injection.retarget',
+    'injection.retarget.retarget',
+    'injection.retarget.carriers',
     'lcu',
     'lcu.core',
     'lcu.core.client',
@@ -321,8 +324,8 @@ hiddenimports = [
     
     # Other dependencies
     'psutil',
-    'xxhash',  # .modpkg checksums
-    'zstandard',  # .modpkg compression
+    'xxhash',  # .modpkg and skin retargeting checksums
+    'zstandard',  # .modpkg and skin retargeting compression
     
     # Top-level modules
     'config',

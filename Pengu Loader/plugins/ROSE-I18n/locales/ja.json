@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "自動起動を有効にするには管理者権限が必要です。",
   "Administrator privileges are required to disable auto-start.": "自動起動を無効にするには管理者権限が必要です。",
   "Failed to enable auto-start: {error}": "自動起動を有効にできませんでした: {error}",
-  "Failed to disable auto-start: {error}": "自動起動を無効にできませんでした: {error}"
+  "Failed to disable auto-start: {error}": "自動起動を無効にできませんでした: {error}",
+  "Play this skin as": "このスキンを次としてプレイ",
+  "Others in the game see the skin you own, you see this one.": "他のプレイヤーには所持スキンが、あなたにはこのスキンが表示されます。",
+  "Plays as {name}": "{name}としてプレイ",
+  "Choose the owned skin this skin plays as": "このスキンをどの所持スキンとしてプレイするか選択",
+  "This skin can't carry the hovered one": "このスキンには選択中のスキンを載せられません"
 }

@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "يلزم امتلاك صلاحيات المسؤول لتفعيل التشغيل التلقائي.",
   "Administrator privileges are required to disable auto-start.": "يلزم امتلاك صلاحيات المسؤول لتعطيل التشغيل التلقائي.",
   "Failed to enable auto-start: {error}": "تعذّر تفعيل التشغيل التلقائي: {error}",
-  "Failed to disable auto-start: {error}": "تعذّر تعطيل التشغيل التلقائي: {error}"
+  "Failed to disable auto-start: {error}": "تعذّر تعطيل التشغيل التلقائي: {error}",
+  "Play this skin as": "العب بهذا المظهر على أنه",
+  "Others in the game see the skin you own, you see this one.": "يرى الآخرون في المباراة المظهر الذي تملكه، وترى أنت هذا المظهر.",
+  "Plays as {name}": "يُلعب على أنه {name}",
+  "Choose the owned skin this skin plays as": "اختر مظهرًا تملكه ليُلعب هذا المظهر على أنه",
+  "This skin can't carry the hovered one": "لا يمكن لهذا المظهر أن يحمل المظهر المحدد"
 }

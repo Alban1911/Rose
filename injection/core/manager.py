@@ -233,13 +233,14 @@ class InjectionManager:
         # This prevents unnecessary suspension for base skins and owned skins
         pass
     
-    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None) -> bool:
+    def inject_skin_immediately(self, skin_name: str, stop_callback=None, chroma_id: int = None, champion_name: str = None, champion_id: int = None, retarget=None) -> bool:
         """Immediately inject a specific skin (with optional chroma)
         
         Args:
             skin_name: Name of skin to inject
             stop_callback: Callback to check if injection should stop
             chroma_id: Optional chroma ID for chroma variant
+            retarget: Optional RetargetPlan moving the skin onto the owned skin it runs as
         """
         # Check if this is a base skin (skin_0 or skin name ending with base/default indicators)
         # If skin_name starts with "skin_" and the ID is 0 or matches base skin pattern, inject mods only
@@ -285,6 +286,7 @@ class InjectionManager:
                 champion_id=champion_id,
                 extra_mods_callback=extra_mods_callback,
                 classic=classic,
+                retarget=retarget,
             )
 
         success = self._run_injection(skin_name, inject)

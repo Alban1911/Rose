@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "Do włączenia autostartu wymagane są uprawnienia administratora.",
   "Administrator privileges are required to disable auto-start.": "Do wyłączenia autostartu wymagane są uprawnienia administratora.",
   "Failed to enable auto-start: {error}": "Nie udało się włączyć autostartu: {error}",
-  "Failed to disable auto-start: {error}": "Nie udało się wyłączyć autostartu: {error}"
+  "Failed to disable auto-start: {error}": "Nie udało się wyłączyć autostartu: {error}",
+  "Play this skin as": "Graj tą skórką jako",
+  "Others in the game see the skin you own, you see this one.": "Inni w grze widzą skórkę, którą posiadasz, a ty widzisz tę.",
+  "Plays as {name}": "Grana jako {name}",
+  "Choose the owned skin this skin plays as": "Wybierz posiadaną skórkę, jako którą grana jest ta skórka",
+  "This skin can't carry the hovered one": "Ta skórka nie może przenieść wybranej"
 }

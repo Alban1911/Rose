@@ -52,6 +52,13 @@ class ChromaWithoutSkinTests(unittest.TestCase):
         self.trigger._force_owned_skin.assert_called_once_with(SPIRIT_BLOSSOM_RUBY)
         self.trigger._inject_unowned_skin.assert_not_called()
 
+    def test_an_unowned_chroma_of_an_owned_skin_is_injected(self):
+        # The client refuses a chroma the player doesn't own, even with its skin owned
+        self.state.owned_skin_ids = {SPIRIT_BLOSSOM}
+        self.trigger.trigger_injection(f"chroma_{SPIRIT_BLOSSOM_RUBY}", ticker_id=1)
+        self.trigger._force_owned_skin.assert_not_called()
+        self.trigger._inject_unowned_skin.assert_called_once_with(f"chroma_{SPIRIT_BLOSSOM_RUBY}", "")
+
     def test_a_chroma_of_the_default_skin_needs_only_itself(self):
         self.assertTrue(is_selectable_owned(DEFAULT_SKIN_CHROMA, {DEFAULT_SKIN_CHROMA}, CHROMA_ID_MAP))
 

@@ -25,6 +25,7 @@ from ..mods.mod_manager import ModManager
 from ..overlay.overlay_manager import OverlayManager
 from ..overlay.process_manager import ProcessManager
 from ..loadingname.loading_name import build as build_loading_name, parse_skin_id
+from ..retarget import RetargetPlan
 
 log = get_logger()
 
@@ -162,6 +163,7 @@ class SkinInjector:
         champion_id: int = None,
         extra_mods_callback: Optional[Callable[["SkinInjector"], List[str]]] = None,
         classic: bool = False,
+        retarget: Optional[RetargetPlan] = None,
     ) -> bool:
         """Inject a single skin (with optional chroma and party mods)
         
@@ -173,6 +175,7 @@ class SkinInjector:
             chroma_id: Optional chroma ID to inject specific chroma variant
             extra_mods_callback: Optional callback(injector) -> list of extra mod folder names (e.g. party skins)
             classic: Rift Classic game: inject the stored Classic skin instead
+            retarget: The skin's bins renamed onto the owned skin it runs as (injection.retarget), or None for skin 0
         """
         injection_start_time = time.time()
         
@@ -227,11 +230,17 @@ class SkinInjector:
         # Create list of mods to inject (our skin + optional party/extra mods)
         mod_names = [mod_folder.name]
 
+        # Retargeted onto an owned skin, the skin runs as that one: its renamed bins are one more mod
+        slot = 0
+        if retarget is not None:
+            mod_names.append(retarget.write(self.mods_dir))
+            slot = retarget.target_number
+
         # An injected skin runs as the champion's default one, so the loading screen prints the champion's name. This
         # adds a mod that puts the skin's name there instead, built from the player's own game files (their language,
         # their patch). It never fails the injection: without it the screen simply reads as it did before.
         loading_name_mod = build_loading_name(
-            self.game_dir, self.mods_dir, mod_folder, parse_skin_id(skin_name, champion_id)
+            self.game_dir, self.mods_dir, mod_folder, parse_skin_id(skin_name, champion_id), slot
         )
         if loading_name_mod:
             mod_names.append(loading_name_mod)

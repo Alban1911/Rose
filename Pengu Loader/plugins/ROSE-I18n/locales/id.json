@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "Butuh hak administrator untuk mengaktifkan mulai otomatis.",
   "Administrator privileges are required to disable auto-start.": "Butuh hak administrator untuk menonaktifkan mulai otomatis.",
   "Failed to enable auto-start: {error}": "Gagal mengaktifkan mulai otomatis: {error}",
-  "Failed to disable auto-start: {error}": "Gagal menonaktifkan mulai otomatis: {error}"
+  "Failed to disable auto-start: {error}": "Gagal menonaktifkan mulai otomatis: {error}",
+  "Play this skin as": "Mainkan skin ini sebagai",
+  "Others in the game see the skin you own, you see this one.": "Pemain lain melihat skin yang kamu miliki, kamu melihat yang ini.",
+  "Plays as {name}": "Dimainkan sebagai {name}",
+  "Choose the owned skin this skin plays as": "Pilih skin milikmu yang menjadi tempat skin ini dimainkan",
+  "This skin can't carry the hovered one": "Skin ini tidak bisa membawa skin yang dipilih"
 }

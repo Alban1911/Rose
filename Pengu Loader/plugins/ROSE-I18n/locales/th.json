@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "ต้องใช้สิทธิ์ผู้ดูแลระบบเพื่อเปิดการเริ่มอัตโนมัติ",
   "Administrator privileges are required to disable auto-start.": "ต้องใช้สิทธิ์ผู้ดูแลระบบเพื่อปิดการเริ่มอัตโนมัติ",
   "Failed to enable auto-start: {error}": "เปิดการเริ่มอัตโนมัติไม่สำเร็จ: {error}",
-  "Failed to disable auto-start: {error}": "ปิดการเริ่มอัตโนมัติไม่สำเร็จ: {error}"
+  "Failed to disable auto-start: {error}": "ปิดการเริ่มอัตโนมัติไม่สำเร็จ: {error}",
+  "Play this skin as": "เล่นสกินนี้ในฐานะ",
+  "Others in the game see the skin you own, you see this one.": "ผู้เล่นอื่นจะเห็นสกินที่คุณมี ส่วนคุณจะเห็นสกินนี้",
+  "Plays as {name}": "เล่นในฐานะ {name}",
+  "Choose the owned skin this skin plays as": "เลือกสกินที่คุณมีเพื่อใช้เล่นสกินนี้",
+  "This skin can't carry the hovered one": "สกินนี้ไม่สามารถรองรับสกินที่เลือกได้"
 }

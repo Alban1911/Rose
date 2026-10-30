@@ -197,5 +197,10 @@
   "Administrator privileges are required to enable auto-start.": "需要管理员权限才能开启开机自启。",
   "Administrator privileges are required to disable auto-start.": "需要管理员权限才能关闭开机自启。",
   "Failed to enable auto-start: {error}": "无法开启开机自启：{error}",
-  "Failed to disable auto-start: {error}": "无法关闭开机自启：{error}"
+  "Failed to disable auto-start: {error}": "无法关闭开机自启：{error}",
+  "Play this skin as": "将此皮肤作为以下皮肤使用",
+  "Others in the game see the skin you own, you see this one.": "对局中其他人看到你拥有的皮肤，你看到这款皮肤。",
+  "Plays as {name}": "作为{name}使用",
+  "Choose the owned skin this skin plays as": "选择此皮肤要借用的已拥有皮肤",
+  "This skin can't carry the hovered one": "此皮肤无法承载所选皮肤"
 }
