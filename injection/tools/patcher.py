@@ -11,6 +11,7 @@ until League itself updates.
 """
 
 import hashlib
+import re
 import struct
 import time
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ LTK_PATCHER_DLL = "ltk_patcher_dll.dll"
 
 # Log line the DLL prints when the game build is newer than its EOL date
 _EOL_MESSAGE = b"end of life reached, please update: "
+_EOL_MARKER = b"CSLOL_EOL_TIMESTAMP="
 # How far before the message reference to look for the EOL comparison
 _EOL_SEARCH_WINDOW = 0x100
 
@@ -78,16 +80,26 @@ def describe_ltk_patcher_files(tools_dir: Path) -> str:
 def read_dll_eol(dll_path: Path) -> Optional[int]:
     """Return the EOL timestamp compiled into the LTK patcher DLL.
 
-    The DLL compares the game executable's PE build timestamp against a
-    constant (``cmp eax, imm32; jbe``) right before referencing the
-    "end of life reached" message. We locate that message, find the code that
-    loads it, and read the nearest preceding comparison constant.
+    Prefer the explicit timestamp metadata, which survives code generation
+    changes. Older DLLs use a comparison before the "end of life" message.
     """
     try:
         data = dll_path.read_bytes()
         sections = _parse_sections(data)
     except (OSError, ValueError, struct.error):
         return None
+
+    if _EOL_MARKER in data:
+        marker = re.search(_EOL_MARKER + rb"([0-9]{1,10})\0", data)
+        if marker is None or data.count(_EOL_MARKER) != 1:
+            return None
+        eol = int(marker.group(1))
+        if eol > 0xFFFFFFFF or not any(
+            raw <= marker.start() and marker.end() <= raw + size <= len(data)
+            for _, _, size, raw in sections
+        ):
+            return None
+        return eol
 
     msg_offset = data.find(_EOL_MESSAGE)
     if msg_offset < 0:

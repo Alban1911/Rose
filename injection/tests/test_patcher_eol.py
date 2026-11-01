@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from injection.tools.patcher import LtkPatcherStatus, read_game_build
+from injection.tools.patcher import LtkPatcherStatus, read_dll_eol, read_game_build
 
 EOL = 1_791_097_200  # 2026-10-04
 
@@ -16,6 +16,77 @@ def write_game(game_dir: Path, build: int, name: str = "League of Legends.exe") 
     header[0x80:0x84] = b"PE\0\0"
     struct.pack_into("<I", header, 0x88, build)
     (game_dir / name).write_bytes(bytes(header))
+
+
+def patcher_pe(payload: bytes, legacy_eol=None) -> bytes:
+    data = bytearray(0x400 + len(payload))
+    data[:2] = b"MZ"
+    struct.pack_into("<I", data, 0x3C, 0x80)
+    data[0x80:0x84] = b"PE\0\0"
+    struct.pack_into("<H", data, 0x86, 2)
+    for index, (name, rva, size, offset) in enumerate((
+        (b".text", 0x1000, 0x200, 0x200),
+        (b".rdata", 0x2000, len(payload), 0x400),
+    )):
+        entry = 0x98 + index * 40
+        data[entry:entry + len(name)] = name
+        struct.pack_into("<III", data, entry + 12, rva, size, offset)
+    data[0x400:] = payload
+    if legacy_eol is not None:
+        data[0x220:0x22B] = b"\x3D" + struct.pack("<I", legacy_eol) + b"\x0F\x86\0\0\0\0"
+        data[0x240:0x247] = b"\x48\x8D\x15" + struct.pack("<i", 0x2000 - 0x1047)
+    return bytes(data)
+
+
+class PatcherMetadataTests(unittest.TestCase):
+    def read(self, data):
+        with tempfile.TemporaryDirectory() as temp:
+            dll = Path(temp) / "ltk_patcher_dll.dll"
+            dll.write_bytes(data)
+            return read_dll_eol(dll)
+
+    def test_explicit_timestamp_does_not_need_the_old_comparison(self):
+        self.assertEqual(self.read(patcher_pe(b"CSLOL_EOL_TIMESTAMP=1794988800\0")), 1794988800)
+
+    def test_timestamp_keeps_the_pe_build_range(self):
+        for value in (0, 0xFFFFFFFF):
+            with self.subTest(value=value):
+                payload = f"CSLOL_EOL_TIMESTAMP={value}\0".encode("ascii")
+                self.assertEqual(self.read(patcher_pe(payload)), value)
+
+    def test_explicit_timestamp_takes_precedence_over_code_matching(self):
+        payload = b"end of life reached, please update: \0CSLOL_EOL_TIMESTAMP=1794988800\0"
+        self.assertEqual(self.read(patcher_pe(payload, EOL)), 1794988800)
+
+    def test_old_binaries_without_metadata_still_use_the_comparison(self):
+        self.assertEqual(self.read(patcher_pe(b"end of life reached, please update: \0", EOL)), EOL)
+
+    def test_malformed_or_ambiguous_metadata_is_refused(self):
+        for value in (b"", b"-1", b"123x", b"4294967296", b"12345678901"):
+            with self.subTest(value=value):
+                self.assertIsNone(self.read(patcher_pe(b"CSLOL_EOL_TIMESTAMP=" + value + b"\0")))
+        self.assertIsNone(self.read(patcher_pe(b"CSLOL_EOL_TIMESTAMP=1794988800")))
+        self.assertIsNone(self.read(patcher_pe(b"CSLOL_EOL_TIMESTAMP=1\0CSLOL_EOL_TIMESTAMP=2\0")))
+
+    def test_invalid_metadata_does_not_fall_back_to_an_unrelated_comparison(self):
+        payload = b"end of life reached, please update: \0CSLOL_EOL_TIMESTAMP=invalid\0"
+        self.assertIsNone(self.read(patcher_pe(payload, EOL)))
+
+    def test_metadata_still_requires_a_pe_section(self):
+        self.assertIsNone(self.read(b"CSLOL_EOL_TIMESTAMP=1794988800\0"))
+        self.assertIsNone(self.read(b"MZ"))
+        data = bytearray(patcher_pe(b""))
+        marker = b"CSLOL_EOL_TIMESTAMP=1794988800\0"
+        data[0x50:0x50 + len(marker)] = marker
+        self.assertIsNone(self.read(bytes(data)))
+
+    def test_metadata_must_be_inside_a_complete_section(self):
+        payload = b"CSLOL_EOL_TIMESTAMP=1794988800\0"
+        for size in (len(payload) - 1, len(payload) + 1):
+            with self.subTest(size=size):
+                data = bytearray(patcher_pe(payload))
+                struct.pack_into("<I", data, 0x98 + 40 + 16, size)
+                self.assertIsNone(self.read(bytes(data)))
 
 
 class PatcherEndOfLifeTests(unittest.TestCase):
