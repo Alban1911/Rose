@@ -53,13 +53,17 @@ def make_game_ended_callback(state) -> Callable[[], bool]:
 
     def game_ended_callback() -> bool:
         nonlocal has_been_in_progress
+        if getattr(state, "stop", False):
+            return True
         phase = state.phase
         if phase == "InProgress":
             has_been_in_progress = True
             return False
-        if phase in ("Reconnect", "GameStart"):
-            return False
-        return has_been_in_progress
+        # Missing LCU data during a crash/reconnect is not a completed match.
+        return has_been_in_progress and phase in {
+            "WaitingForStats", "PreEndOfGame", "EndOfGame",
+            "Lobby", "Matchmaking", "ReadyCheck", "ChampSelect",
+        }
 
     return game_ended_callback
 
