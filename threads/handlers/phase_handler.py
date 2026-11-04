@@ -47,6 +47,19 @@ class PhaseHandler:
         """Handle phase change"""
         from threads.handlers.champ_select_reset import note_phase_for_reset
         note_phase_for_reset(self.state, phase)
+        # Arena random champion: the champion can be revealed only once the game
+        # starts, so resolve it late and inject the historic skin (best effort).
+        try:
+            from threads.utilities import late_champion_resolver
+            late_champion_resolver.on_phase_change(
+                phase,
+                previous_phase,
+                state=self.state,
+                lcu=self.lcu,
+                injection_manager=self.injection_manager,
+            )
+        except Exception as e:
+            log.warning(f"[phase] Late champion resolver failed: {e}")
         log.info(f"[phase] Phase transition: {previous_phase} → {phase} (swiftplay={self.state.is_swiftplay_mode}, extracted={len(self.state.swiftplay_extracted_mods)}, queue={self.state.current_queue_id})")
         if phase == "Matchmaking":
             if self.state.is_swiftplay_mode:

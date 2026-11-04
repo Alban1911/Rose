@@ -117,6 +117,21 @@ class WebSocketEventHandler:
                     _on_champ_select_exit()
                 except Exception as e:
                     log.debug(f"[WS] Could not record the pending base skin timeout: {e}")
+
+            # Arena random champion: the WebSocket sees the phase sooner than the
+            # phase poller (which slows down in game), so start resolving here too.
+            if ph in ("GameStart", "InProgress"):
+                try:
+                    from threads.utilities import late_champion_resolver
+                    late_champion_resolver.on_phase_change(
+                        ph,
+                        prev_phase,
+                        state=self.state,
+                        lcu=self.lcu,
+                        injection_manager=self.injection_manager,
+                    )
+                except Exception as e:
+                    log.warning(f"[WS] Late champion resolver failed: {e}")
             
             if ph == "ChampSelect":
                 # Detect game mode FIRST to get accurate is_swiftplay_mode flag

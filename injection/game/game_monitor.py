@@ -39,6 +39,12 @@ from utils.core.issue_reporter import report_issue
 log = get_logger()
 _GAME_PROCESS_NAMES = frozenset(name.lower() for name in GAME_EXECUTABLE_NAMES)
 
+# A freshly started game can refuse handles for a moment while its anti-cheat
+# initializes, so a single AccessDenied is not fatal: retry briefly instead of
+# giving up (the game would keep loading and the overlay would arrive too late).
+SUSPEND_RETRY_ATTEMPTS = 10
+SUSPEND_RETRY_DELAY_S = 0.05
+
 
 def make_game_ended_callback(state) -> Callable[[], bool]:
     """Stop callback for an injection: True once the game it was made for is over.
@@ -135,6 +141,31 @@ class GameMonitor:
         except Exception as e:
             log.debug(f"[monitor] Unexpected error resuming process on {reason}: {e}")
 
+    def _suspend_process(self, game_proc) -> bool:
+        """Suspend the game, retrying a moment if it refuses the handle.
+
+        The process can deny PROCESS_SUSPEND_RESUME right after it starts
+        (anti-cheat start-up); retrying is what makes the difference between
+        freezing the game in time and letting it load before the overlay.
+        """
+        for attempt in range(SUSPEND_RETRY_ATTEMPTS):
+            try:
+                game_proc.suspend()
+                return True
+            except AccessDenied:
+                if attempt + 1 >= SUSPEND_RETRY_ATTEMPTS:
+                    log.error("[monitor] ACCESS DENIED - Cannot suspend game")
+                    log.error("[monitor] Try running Rose as Administrator")
+                    return False
+                time.sleep(SUSPEND_RETRY_DELAY_S)
+            except NoSuchProcess:
+                log.debug("[monitor] Game process ended before it could be suspended")
+                return False
+            except Exception as e:
+                log.error(f"[monitor] Failed to suspend game: {e}")
+                return False
+        return False
+
     def _acquire_game_process(self, game_proc) -> bool:
         """Publish a suspension, or release it if cancellation won the handoff.
 
@@ -145,7 +176,8 @@ class GameMonitor:
         with self._process_lock:
             acquire = self._monitor_active and not self._runoverlay_started
         if acquire and not already_stopped:
-            game_proc.suspend()
+            if not self._suspend_process(game_proc):
+                return False
         elif not already_stopped:
             return False
 
@@ -207,8 +239,9 @@ class GameMonitor:
                 # This prevents the game from starting before we can suspend it
                 # Do multiple rapid checks to catch the game as soon as it starts
                 log.debug("[monitor] Starting immediate game process checks...")
+                suspend_failed = False
                 for immediate_check in range(10):  # Check 10 times immediately (very fast)
-                    if not self._monitor_active:
+                    if not self._monitor_active or suspend_failed:
                         break
                     try:
                         for proc in psutil.process_iter(['name', 'pid']):
@@ -217,26 +250,19 @@ class GameMonitor:
                             if (proc.info.get('name') or '').lower() in _GAME_PROCESS_NAMES:
                                 try:
                                     game_proc = psutil.Process(proc.info['pid'])
-                                    try:
-                                        if not self._acquire_game_process(game_proc):
-                                            break
-                                        suspension_start_time = time.time()
-                                        auto_resume_timeout = self._get_auto_resume_timeout()
-                                        log_event(log, "Game suspended immediately", "", {
-                                            "PID": proc.info['pid'],
-                                            "Auto-resume": f"{auto_resume_timeout:.0f}s"
-                                        })
+                                    if not self._acquire_game_process(game_proc):
+                                        # Could not freeze it yet (the process may
+                                        # still be starting): leave the retries to
+                                        # the main loop instead of giving up.
+                                        suspend_failed = True
                                         break
-                                    except AccessDenied:
-                                        log.error("[monitor] ACCESS DENIED - Cannot suspend game")
-                                        log.error("[monitor] Try running Rose as Administrator")
-                                        self.stop()
-                                        break
-                                    except NoSuchProcess:
-                                        continue  # exited before we could suspend it
-                                    except Exception as e:
-                                        log.error(f"[monitor] Failed to suspend existing game: {e}")
-                                        self.stop()
+                                    suspension_start_time = time.time()
+                                    auto_resume_timeout = self._get_auto_resume_timeout()
+                                    log_event(log, "Game suspended immediately", "", {
+                                        "PID": proc.info['pid'],
+                                        "Auto-resume": f"{auto_resume_timeout:.0f}s"
+                                    })
+                                    break
                                 except (NoSuchProcess, AccessDenied):
                                     continue
                                 except Exception as e:
@@ -318,11 +344,9 @@ class GameMonitor:
                             try:
                                 game_proc = psutil.Process(proc.info['pid'])
                                 log_event(log, "Game process found", "", {"PID": proc.info['pid']})
-                                
+
                                 # Try to suspend immediately
-                                try:
-                                    if not self._acquire_game_process(game_proc):
-                                        break
+                                if self._acquire_game_process(game_proc):
                                     suspension_start_time = time.time()  # Start safety timer
                                     auto_resume_timeout = self._get_auto_resume_timeout()
                                     log_event(log, "Game suspended", "", {
@@ -330,17 +354,9 @@ class GameMonitor:
                                         "Auto-resume": f"{auto_resume_timeout:.0f}s"
                                     })
                                     break
-                                except AccessDenied:
-                                    log.error("[monitor] ACCESS DENIED - Cannot suspend game")
-                                    log.error("[monitor] Try running Rose as Administrator")
-                                    self.stop()
-                                    break
-                                except NoSuchProcess:
-                                    continue  # exited before we could suspend it
-                                except Exception as e:
-                                    log.error(f"[monitor] Failed to suspend: {e}")
-                                    self.stop()
-                                    break
+                                # Keep the monitor alive: the next sweep retries
+                                # while the game is still starting.
+                                break
                                 
                             except NoSuchProcess:
                                 continue
