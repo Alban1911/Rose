@@ -4,14 +4,14 @@
 Mod Package (.modpkg) Reader
 Reads LeagueToolkit's .modpkg format (format version 1, specified in
 docs/design/modpkg.md of LeagueToolkit/league-mod) and unpacks it into the mod
-folder layout mod-tools builds overlays from:
+folder layout Rose packs into a .fantome for LTK Manager:
 
     META/info.json                         written from the package metadata
     META/image.webp                        the package thumbnail, if any
     WAD/<name>.wad.client/<hash>.<ext>     one loose file per chunk
 
-Files are named by their path hash, the key the game and mod-tools use inside
-a WAD, so no path stored in a package ever becomes a file name. Only the base
+Files are named by their path hash, the key the game and a WAD use inside
+one, so no path stored in a package ever becomes a file name. Only the base
 layer is unpacked: other layers are optional content Rose cannot toggle.
 """
 
@@ -54,7 +54,7 @@ _ZSTD = 1
 _MAX_CHUNK_SIZE = 512 * 1024 * 1024
 _DECOMPRESS_STEP = 16 * 1024 * 1024
 
-# mod-tools only reads WAD folders named like the game's WAD files
+# The .fantome format only reads WAD folders named like the game's WAD files
 _WAD_FOLDER = re.compile(r"[a-z0-9_.-]+\.wad(\.client)?")
 _EXTENSION = re.compile(r"\.[a-z0-9_-]{1,16}")
 _HEX_NAME = re.compile(r"[0-9a-fA-F]{16}")
@@ -208,7 +208,7 @@ class ModPackage:
         return {}
 
     def _info_json(self) -> bytes:
-        """META/info.json as a .fantome carries it (mod-tools requires the file)"""
+        """META/info.json as a .fantome carries it (the mod name lives there)"""
         metadata = self.metadata()
         authors = metadata.get("authors")
         author_names = [
@@ -246,7 +246,7 @@ class ModPackage:
 
 
 def extract_modpkg(source: Union[str, Path], dest_dir: Union[str, Path]) -> None:
-    """Unpack a .modpkg into *dest_dir* as a mod folder mod-tools can use"""
+    """Unpack a .modpkg into *dest_dir* as a mod folder Rose can repack"""
     source = Path(source)
     dest_dir = Path(dest_dir)
     with ModPackage.open(source) as package:

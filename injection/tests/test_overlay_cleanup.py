@@ -9,9 +9,9 @@ from injection.overlay.overlay_manager import OverlayManager
 
 
 class OverlayCleanupTests(unittest.TestCase):
-    """The LTK patcher starts before the overlay is built and fails with "prefix
-    not configured" if its overlay directory is missing when it is configured:
-    cleaning must empty the directory, never delete it."""
+    """Both wipes empty a directory without deleting it: Rose creates the
+    mods directory before every injection, and an injection that runs while
+    Rose restarts must not trip over a missing one."""
 
     def setUp(self):
         temp_dir = tempfile.TemporaryDirectory()
@@ -21,6 +21,9 @@ class OverlayCleanupTests(unittest.TestCase):
         (self.overlay / "DATA" / "FINAL").mkdir(parents=True)
         (self.overlay / "DATA" / "FINAL" / "Zed.wad.client").write_bytes(b"wad")
         (self.overlay / "cslol-config.json").write_text("{}", encoding="utf-8")
+        self.mods = self.root / "mods"
+        (self.mods / "1001-EternalAspect" / "WAD").mkdir(parents=True)
+        (self.mods / "1001-EternalAspect" / "WAD" / "Leona.wad.client").write_bytes(b"wad")
 
         real_rmtree = shutil.rmtree
         self.removed = []
@@ -31,18 +34,18 @@ class OverlayCleanupTests(unittest.TestCase):
 
         self.enterContext(patch("shutil.rmtree", side_effect=spy))
 
-    def assert_emptied_not_removed(self):
-        self.assertTrue(self.overlay.is_dir())
-        self.assertEqual(list(self.overlay.iterdir()), [])
-        self.assertNotIn(self.overlay, self.removed)
+    def assert_emptied_not_removed(self, directory):
+        self.assertTrue(directory.is_dir())
+        self.assertEqual(list(directory.iterdir()), [])
+        self.assertNotIn(directory, self.removed)
 
     def test_cleaning_before_an_injection_keeps_the_directory(self):
-        ModManager(self.root / "mods").clean_overlay_dir()
-        self.assert_emptied_not_removed()
+        ModManager(self.mods).clean_overlay_dir()
+        self.assert_emptied_not_removed(self.overlay)
 
-    def test_wiping_after_a_game_keeps_the_directory(self):
-        OverlayManager._wipe_overlay_dir(self.overlay)
-        self.assert_emptied_not_removed()
+    def test_wiping_after_an_import_keeps_the_directory(self):
+        OverlayManager(self.root / "tools", self.mods, self.root)._wipe_mods_dir()
+        self.assert_emptied_not_removed(self.mods)
 
     def test_a_missing_directory_is_created(self):
         shutil.rmtree(self.overlay)

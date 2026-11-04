@@ -24,7 +24,7 @@ from ..mods.zip_resolver import ZipResolver
 from ..mods.mod_manager import ModManager
 from ..overlay.overlay_manager import OverlayManager
 from ..overlay.process_manager import ProcessManager
-from ..loadingname.loading_name import build as build_loading_name, parse_skin_id
+from ..loadingname.loading_name import build as build_loading_name, parent_skin_id, parse_skin_id
 
 log = get_logger()
 
@@ -145,12 +145,77 @@ class SkinInjector:
         return result
     
     def _mk_overlay_only(self, mod_names: List[str], timeout: int = 60) -> int:
-        """Create overlay using mkoverlay only (no runoverlay) - for testing"""
+        """Install the mods into LTK Manager without starting the patcher - for testing"""
         result = self.overlay_manager.mk_overlay_only(mod_names, timeout)
         # Sync timing data
         self.last_injection_timing = self.overlay_manager.last_injection_timing
         return result
     
+    def prepare_skin_mods(
+        self,
+        skin_name: str,
+        target_dir: Path,
+        chroma_id: int = None,
+        champion_name: str = None,
+        champion_id: int = None,
+        classic: bool = False,
+        report: bool = True,
+    ) -> Optional[List[str]]:
+        """Extract the skin (and its loading screen name mod) into *target_dir*.
+
+        Returns the mod folder names, or None when the skin is not on this PC
+        (report=False keeps that out of Troubleshooting: the staging during the
+        countdown leaves the reporting to the injection).
+        """
+        resolver, skins_dir = self.zip_resolver, self.zips_dir
+        if classic:
+            skin_name, chroma_id, champion_id = self._classic_library_ids(skin_name, chroma_id, champion_id)
+            resolver, skins_dir = self.classic_resolver, self.classic_dir
+
+        # Find the skin ZIP (with chroma support)
+        # Extract base skin name (remove skin ID if present) for chroma path construction
+        base_skin_name = skin_name
+        if skin_name and skin_name.split()[-1].isdigit():
+            base_skin_name = ' '.join(skin_name.split()[:-1])
+
+        zp = resolver.resolve_zip(skin_name, chroma_id, base_skin_name, champion_name, champion_id)
+        if not zp:
+            log.error(f"[INJECT] Skin '{skin_name}' not found in {skins_dir}")
+            if report:
+                report_issue(
+                    "SKIN_ZIP_NOT_FOUND",
+                    "error",
+                    "Injection failed: skin file not found on your PC."
+                    if not classic else "Injection failed: this skin has no Rift Classic version on your PC.",
+                    details={"skin": skin_name},
+                    hint="Download the skin first, or check your skins folder.",
+                )
+                avail_zip = list(skins_dir.rglob('*.zip'))
+                avail_fantome = list(skins_dir.rglob('*.fantome'))
+                avail = avail_zip + avail_fantome
+                if avail:
+                    log.info("[INJECT] Available skins (first 10):")
+                    for a in avail[:10]:
+                        log.info(f"  - {a.name}")
+            return None
+
+        log.debug(f"[INJECT] Using skin file: {zp}")
+        mod_manager = self.mod_manager if Path(target_dir) == self.mods_dir else ModManager(Path(target_dir))
+        mod_folder = mod_manager.extract_zip_to_mod(zp)
+        mod_names = [mod_folder.name]
+
+        # An injected skin runs as the champion's default one, so the loading screen prints the champion's name. This
+        # adds a mod that puts the skin's name there instead, built from the player's own game files (their language,
+        # their patch). It never fails the injection: without it the screen simply reads as it did before.
+        # A chroma shows its skin's name ("Arcana Aurora", not "Arcana Aurora (Rose Quartz)").
+        loading_name_mod = build_loading_name(
+            self.game_dir, Path(target_dir), mod_folder,
+            parent_skin_id(zp, parse_skin_id(skin_name, champion_id)),
+        )
+        if loading_name_mod:
+            mod_names.append(loading_name_mod)
+        return mod_names
+
     def inject_skin(
         self,
         skin_name: str,
@@ -175,66 +240,29 @@ class SkinInjector:
             classic: Rift Classic game: inject the stored Classic skin instead
         """
         injection_start_time = time.time()
-        
+
         # Game suspension is now handled entirely by the monitor in InjectionManager
         # No need for a separate GameMonitor thread
-        
-        resolver, skins_dir = self.zip_resolver, self.zips_dir
-        if classic:
-            skin_name, chroma_id, champion_id = self._classic_library_ids(skin_name, chroma_id, champion_id)
-            resolver, skins_dir = self.classic_resolver, self.classic_dir
 
-        # Find the skin ZIP (with chroma support)
-        # Extract base skin name (remove skin ID if present) for chroma path construction
-        base_skin_name = skin_name
-        if skin_name and skin_name.split()[-1].isdigit():
-            base_skin_name = ' '.join(skin_name.split()[:-1])
-        
-        zp = resolver.resolve_zip(skin_name, chroma_id, base_skin_name, champion_name, champion_id)
-        if not zp:
-            log.error(f"[INJECT] Skin '{skin_name}' not found in {skins_dir}")
-            report_issue(
-                "SKIN_ZIP_NOT_FOUND",
-                "error",
-                "Injection failed: skin file not found on your PC."
-                if not classic else "Injection failed: this skin has no Rift Classic version on your PC.",
-                details={"skin": skin_name},
-                hint="Download the skin first, or check your skins folder.",
-            )
-            avail_zip = list(skins_dir.rglob('*.zip'))
-            avail_fantome = list(skins_dir.rglob('*.fantome'))
-            avail = avail_zip + avail_fantome
-            if avail:
-                log.info("[INJECT] Available skins (first 10):")
-                for a in avail[:10]:
-                    log.info(f"  - {a.name}")
-            return False
-        
-        log.debug(f"[INJECT] Using skin file: {zp}")
-        
         # Clean mods and overlay directories, then extract new skin
         clean_start = time.time()
         self._clean_mods_dir()
         self._clean_overlay_dir()
         clean_duration = time.time() - clean_start
         log.debug(f"[INJECT] Directory cleanup took {clean_duration:.2f}s")
-        
+
         extract_start = time.time()
-        mod_folder = self._extract_zip_to_mod(zp)
+        prepared = self.prepare_skin_mods(
+            skin_name, self.mods_dir, chroma_id=chroma_id, champion_name=champion_name,
+            champion_id=champion_id, classic=classic,
+        )
+        if prepared is None:
+            return False
         extract_duration = time.time() - extract_start
         log.debug(f"[INJECT] ZIP extraction took {extract_duration:.2f}s")
-        
-        # Create list of mods to inject (our skin + optional party/extra mods)
-        mod_names = [mod_folder.name]
 
-        # An injected skin runs as the champion's default one, so the loading screen prints the champion's name. This
-        # adds a mod that puts the skin's name there instead, built from the player's own game files (their language,
-        # their patch). It never fails the injection: without it the screen simply reads as it did before.
-        loading_name_mod = build_loading_name(
-            self.game_dir, self.mods_dir, mod_folder, parse_skin_id(skin_name, champion_id)
-        )
-        if loading_name_mod:
-            mod_names.append(loading_name_mod)
+        # Create list of mods to inject (our skin + optional party/extra mods)
+        mod_names = list(prepared)
 
         if extra_mods_callback:
             try:
@@ -248,22 +276,22 @@ class SkinInjector:
         # Create and run overlay
         result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
         
-        # Get mkoverlay duration from stored timing data
-        mkoverlay_duration = self.last_injection_timing.get('mkoverlay_duration', 0.0) if self.last_injection_timing else 0.0
+        # Get the import duration from stored timing data
+        import_duration = self.last_injection_timing.get('import_duration', 0.0) if self.last_injection_timing else 0.0
         
         total_duration = time.time() - injection_start_time
-        runoverlay_duration = total_duration - clean_duration - extract_duration - mkoverlay_duration
+        session_duration = total_duration - clean_duration - extract_duration - import_duration
         
         # Log timing breakdown
         if result == 0:
-            log.info(f"[INJECT] Completed in {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s, runoverlay: {runoverlay_duration:.2f}s)")
+            log.info(f"[INJECT] Completed in {total_duration:.2f}s (import: {import_duration:.2f}s, patcher: {session_duration:.2f}s)")
         else:
-            log.warning(f"[INJECT] Failed - timeout or error after {total_duration:.2f}s (mkoverlay: {mkoverlay_duration:.2f}s)")
+            log.warning(f"[INJECT] Failed - timeout or error after {total_duration:.2f}s (import: {import_duration:.2f}s)")
             report_issue(
                 "INJECTION_FAILED",
                 "warning",
                 "Injection failed.",
-                details={"total_s": f"{total_duration:.2f}", "mkoverlay_s": f"{mkoverlay_duration:.2f}", "skin": skin_name},
+                details={"total_s": f"{total_duration:.2f}", "import_s": f"{import_duration:.2f}", "skin": skin_name},
                 hint="Check Rose logs for details, then retry.",
             )
         
@@ -308,7 +336,7 @@ class SkinInjector:
         return False
     
     def inject_skin_for_testing(self, skin_name: str) -> bool:
-        """Inject a skin for testing - stops overlay immediately after mkoverlay"""
+        """Inject a skin for testing - installs it without starting the patcher"""
         try:
             log.debug(f"[INJECT] Starting test injection for: {skin_name}")
             
@@ -333,15 +361,15 @@ class SkinInjector:
                 log.error(f"[INJECT] Failed to extract skin: {skin_name}")
                 return False
             
-            # Run mkoverlay only (no runoverlay)
+            # Run the install only (no patcher)
             result = self._mk_overlay_only([mod_folder.name])
             
-            # Get mkoverlay duration from stored timing data
-            mkoverlay_duration = self.last_injection_timing.get('mkoverlay_duration', 0.0) if self.last_injection_timing else 0.0
+            # Get the import duration from stored timing data
+            import_duration = self.last_injection_timing.get('import_duration', 0.0) if self.last_injection_timing else 0.0
             total_duration = time.time() - injection_start_time
             
             if result == 0:
-                log.info(f"[INJECT] Test injection completed in {total_duration:.2f}s (clean: {clean_duration:.2f}s, extract: {extract_duration:.2f}s, mkoverlay: {mkoverlay_duration:.2f}s)")
+                log.info(f"[INJECT] Test injection completed in {total_duration:.2f}s (clean: {clean_duration:.2f}s, extract: {extract_duration:.2f}s, import: {import_duration:.2f}s)")
                 return True
             else:
                 log.error(f"[INJECT] Test injection failed with code: {result}")
@@ -374,11 +402,11 @@ class SkinInjector:
         self.process_manager.stop_overlay_process()
     
     def kill_all_runoverlay_processes(self):
-        """Kill all runoverlay processes (for ChampSelect cleanup)"""
+        """Kill all LTK Manager processes (for ChampSelect cleanup)"""
         self.process_manager.kill_all_runoverlay_processes()
     
     def kill_all_modtools_processes(self):
-        """Kill all mod-tools.exe processes (for application shutdown)"""
+        """Kill all LTK Manager processes (for application shutdown)"""
         self.process_manager.kill_all_modtools_processes()
 
     def stop_injection_by_user(self):

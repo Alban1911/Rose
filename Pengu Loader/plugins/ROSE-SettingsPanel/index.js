@@ -61,9 +61,16 @@
     });
   }
 
+  // Injection threshold range (seconds), as Rose enforces it (config.py): a
+  // skin changed after the threshold is ignored, so the one staged before it
+  // is applied. Under a second, a late change could not make the game.
+  const THRESHOLD_MIN_S = 1.0;
+  const THRESHOLD_MAX_S = 2.0;
+  const THRESHOLD_DEFAULT_S = 1.0;
+
   let settingsPanel = null;
   let currentSettings = {
-    threshold: 0.5,
+    threshold: THRESHOLD_DEFAULT_S,
     monitorAutoResumeTimeout: 60,
     autostart: false,
     hideEmptyCategories: false,
@@ -1512,7 +1519,7 @@
 
   function handleSettingsData(payload) {
     currentSettings = {
-      threshold: payload.threshold || 0.5,
+      threshold: Math.max(THRESHOLD_MIN_S, Math.min(THRESHOLD_MAX_S, payload.threshold || THRESHOLD_DEFAULT_S)),
       monitorAutoResumeTimeout: payload.monitorAutoResumeTimeout || 60,
       autostart: payload.autostart || false,
       hideEmptyCategories: payload.hideEmptyCategories || false,
@@ -1581,9 +1588,9 @@
       const recs = (errors || [])
         .map((e) => e?.recommendedThresholdS)
         .filter((v) => typeof v === "number" && Number.isFinite(v));
-      if (recs.length) return _clamp(Math.max(...recs), 0.3, 2.0);
+      if (recs.length) return _clamp(Math.max(...recs), THRESHOLD_MIN_S, THRESHOLD_MAX_S);
       // Otherwise: stable heuristic based on the settings at the time diagnostics were fetched.
-      if (typeof snapThreshold === "number") return _clamp(snapThreshold + 0.25, 0.3, 2.0);
+      if (typeof snapThreshold === "number") return _clamp(snapThreshold + 0.25, THRESHOLD_MIN_S, THRESHOLD_MAX_S);
       return null;
     }
 
@@ -2289,7 +2296,7 @@
     const thresholdValue = document.createElement("span");
     thresholdValue.className = "settings-value";
     thresholdValue.id = "threshold-value";
-    thresholdValue.textContent = "0.50 s";
+    thresholdValue.textContent = `${THRESHOLD_DEFAULT_S.toFixed(2)} s`;
     thresholdLabel.appendChild(thresholdValue);
 
     // Create slider container with League of Legends style
@@ -2309,10 +2316,10 @@
     const thresholdSlider = document.createElement("input");
     thresholdSlider.type = "range";
     thresholdSlider.id = "threshold-slider";
-    // Minimum Injection Threshold: 300ms (0.30s)
-    thresholdSlider.min = "30";
-    thresholdSlider.max = "200";
-    thresholdSlider.value = "50";
+    // The slider counts hundredths of a second
+    thresholdSlider.min = String(Math.round(THRESHOLD_MIN_S * 100));
+    thresholdSlider.max = String(Math.round(THRESHOLD_MAX_S * 100));
+    thresholdSlider.value = String(Math.round(THRESHOLD_DEFAULT_S * 100));
     thresholdSlider.style.width = "100%";
     thresholdSlider.style.height = "100%";
     thresholdSlider.style.opacity = "0";
@@ -2341,10 +2348,10 @@
     thresholdTrack.style.height = "2px";
     thresholdTrack.style.background = "#1e2328";
 
-    // Calculate initial position for threshold slider (value 50, min 30, max 200)
-    const thresholdInitialValue = 50;
-    const thresholdMin = 30;
-    const thresholdMax = 200;
+    // Calculate initial position for threshold slider
+    const thresholdInitialValue = Math.round(THRESHOLD_DEFAULT_S * 100);
+    const thresholdMin = Math.round(THRESHOLD_MIN_S * 100);
+    const thresholdMax = Math.round(THRESHOLD_MAX_S * 100);
     const thresholdPercentage = ((thresholdInitialValue - thresholdMin) / (thresholdMax - thresholdMin)) * 100;
     const thresholdSliderWidth = 400;
     const thresholdButtonWidth = 30;
@@ -3331,8 +3338,8 @@
       const sliderValue = Math.round(currentSettings.threshold * 100);
       thresholdSlider.value = sliderValue;
       thresholdValue.textContent = `${currentSettings.threshold.toFixed(2)} s`;
-      const min = parseInt(thresholdSlider.min || "30", 10);
-      const max = parseInt(thresholdSlider.max || "200", 10);
+      const min = parseInt(thresholdSlider.min || String(Math.round(THRESHOLD_MIN_S * 100)), 10);
+      const max = parseInt(thresholdSlider.max || String(Math.round(THRESHOLD_MAX_S * 100)), 10);
       const percentage = ((sliderValue - min) / (max - min)) * 100;
       const maxPosition = 400 - 30; // 370px max
       const buttonPosition = (percentage / 100) * maxPosition;
@@ -3438,7 +3445,7 @@
 
     const threshold = thresholdSlider
       ? parseFloat(thresholdSlider.value) / 100
-      : 0.5;
+      : THRESHOLD_DEFAULT_S;
     const monitorAutoResumeTimeout = timeoutSlider
       ? parseInt(timeoutSlider.value)
       : 60;
@@ -3446,8 +3453,7 @@
     const hideEmptyCategories = hideEmptyCategoriesCheckbox ? hideEmptyCategoriesCheckbox.checked : false;
     const gamePath = pathInput ? pathInput.value.trim() : "";
 
-    // Clamp threshold between 0.30 and 2.0
-    const clampedThreshold = Math.max(0.3, Math.min(2.0, threshold));
+    const clampedThreshold = Math.max(THRESHOLD_MIN_S, Math.min(THRESHOLD_MAX_S, threshold));
     // Clamp timeout between 20 and 180
     const clampedTimeout = Math.max(20, Math.min(180, monitorAutoResumeTimeout));
 
@@ -5033,43 +5039,56 @@
           return {
             title: t('Not enough disk space for injection'),
             details: [
-              t('What it means: Rose could not create the overlay for the selected skin.'),
+              t('What it means: Rose could not install the mod for the selected skin.'),
               t('Fix: free up space on the drive containing Rose injection files, then retry. Map mods can require several GB.'),
             ],
           };
         }
 
-        if (code === 'LTK_PATCHER_EOL') {
+        if (code === 'LTF_MISSING') {
           return {
-            title: t('LTK patcher is outdated (end of life reached)'),
+            title: t('Rose bridge files are missing'),
             details: [
-              t('What it means: your ltk_patcher_dll.dll no longer supports the current game build, so skins cannot be injected.'),
-              t("Fix: update LTK Manager, copy its new ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder, then restart Rose."),
+              t('What it means: Rose needs ltk_launcher.exe and LeagueToolFlop.dll in its tools folder to drive LTK Manager.'),
+              t("Fix: reinstall Rose (the files are part of every install). If an antivirus removed them, restore the files or add Rose's folder to its exclusions, then restart Rose."),
             ],
           };
         }
 
-        if (code === 'LTK_PATCHER_MISSING') {
+        if (code === 'LTK_MANAGER_MISSING') {
           return {
-            title: t('LTK patcher files are missing'),
+            title: t('LTK Manager is not installed'),
             details: [
-              t('What it means: Rose needs ltk_patcher_host.exe and ltk_patcher_dll.dll to inject skins.'),
-              t("Fix: copy both files from your LTK Manager install into Rose's tools folder, then restart Rose."),
+              t('What it means: Rose applies skins through LTK Manager, which was not found on this PC.'),
+              t("Fix: install LTK Manager, or set ltkManagerPath in Rose's config.ini to its ltk-manager.exe, then restart Rose."),
             ],
           };
         }
 
-        if (code === 'LTK_PATCHER_FAILED') {
+        if (code === 'LTF_IMPORT_FAILED') {
           const detail = String(e?.detail || '').trim();
-          // Why it failed (ltk_failure_cause in overlay_manager.py): most
-          // failures have nothing to do with outdated patcher files
+          return {
+            title: t('The mod could not be installed into LTK Manager'),
+            details: [
+              detail ? t('What happened: {detail}', { detail }) : t('What happened: LTK Manager refused the mod import.'),
+              t('Fix: free up some disk space, then retry. If it keeps happening, report it with your Rose logs.'),
+              t('Details are in ltk_bridge.log and ltk_api.log in C:\\Users\\Public.'),
+            ],
+          };
+        }
+
+        if (code === 'LTF_FAILED') {
+          const detail = String(e?.detail || '').trim();
+          // Why it failed (ltk_failure_cause in overlay_manager.py): what to
+          // do depends on it
           const fixes = {
-            killed: () => t("Fix: another program closed the LTK patcher, most often an antivirus. Add Rose's folder to its exclusions, then retry."),
-            hook: () => t('Fix: the patcher could not attach to the game this time. Retry the next game.'),
+            start: () => t("Fix: Rose could not start the LTK patcher. Check that ltk_launcher.exe and LeagueToolFlop.dll are still in Rose's tools folder: an antivirus may have removed them."),
+            running: () => t('Fix: close LTK Manager (also from the system tray), then retry. Rose starts it with its bridge and closes it again after the game.'),
             late: () => t('Fix: the game started before the patcher was ready. Retry the next game.'),
-            rejected: () => t('Fix: the patcher rejected the overlay built for this game. Try another skin or turn off custom mods. If every skin fails, update your LTK patcher files.'),
-            start: () => t("Fix: Rose could not start ltk_patcher_host.exe. Check that it is still in Rose's tools folder: an antivirus may have removed it."),
-            crashed: () => t('Fix: the LTK patcher crashed. Retry the next game. If it crashes every game, update your LTK patcher files.'),
+            bridge: () => t('Fix: LTK Manager closed while the game was running. Retry the next game. If it happens every game, report it with your Rose logs.'),
+            import: () => t('Fix: free up some disk space, then retry.'),
+            killed: () => t("Fix: another program closed LTK Manager, most often an antivirus. Add Rose's folder to its exclusions, then retry."),
+            crashed: () => t('Fix: LTK Manager crashed. Retry the next game. If it crashes every game, report it with your Rose logs.'),
           };
           const fix = fixes[e?.cause];
           return {
@@ -5077,7 +5096,7 @@
             details: [
               detail ? t('What happened: {detail}', { detail }) : t('What happened: the LTK patcher reported an error.'),
               fix ? fix() : t('Fix: retry the next game. If it fails every game, report it with your Rose logs.'),
-              t('Full output is in rose_runoverlay_*.log in the Rose logs folder.'),
+              t('Details are in ltk_bridge.log, ltk_api.log and ltk_launcher.log in C:\\Users\\Public.'),
             ],
           };
         }

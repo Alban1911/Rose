@@ -5,7 +5,7 @@ Threshold Manager
 Handles injection threshold configuration and management
 """
 
-from config import get_config_float
+from config import INJECTION_THRESHOLD_DEFAULT_S, clamp_injection_threshold, get_config_float
 
 from utils.core.logging import get_logger
 
@@ -14,27 +14,29 @@ log = get_logger()
 
 class ThresholdManager:
     """Manages injection threshold configuration"""
-    
+
     def __init__(self, shared_state=None):
         """Initialize threshold manager
-        
+
         Args:
             shared_state: Optional shared state for propagating threshold changes
         """
         self.shared_state = shared_state
-        self.injection_threshold = get_config_float("General", "injection_threshold", 0.5)
+        self.injection_threshold = clamp_injection_threshold(
+            get_config_float("General", "injection_threshold", INJECTION_THRESHOLD_DEFAULT_S)
+        )
         self._last_threshold_value = self.injection_threshold
-    
+
     def refresh(self) -> float:
         """Reload injection threshold from config so tray changes apply immediately."""
         try:
-            new_value = get_config_float("General", "injection_threshold", 0.5)
+            new_value = get_config_float("General", "injection_threshold", INJECTION_THRESHOLD_DEFAULT_S)
         except Exception as exc:  # noqa: BLE001
             log.debug(f"[INJECT] Failed to refresh injection threshold: {exc}")
             return self.injection_threshold
 
-        # Allow 0 as a special case for no cooldown, but guard against negatives.
-        new_value = max(0.0, float(new_value))
+        # An older config can hold less than the minimum (0.3s used to be allowed)
+        new_value = clamp_injection_threshold(new_value)
 
         if abs(new_value - self._last_threshold_value) < 1e-6:
             return self.injection_threshold

@@ -30,10 +30,11 @@ _ALLOWED_CODES = {
     'AUTO_RESUME_TRIGGERED',  # Suggest increasing Monitor Auto-Resume Timeout
     'BASE_SKIN_FORCE_SLOW',   # Suggest increasing Injection Threshold
     'BASE_SKIN_VERIFY_FAILED',  # Base skin verification mismatch (often causes skin not to show)
-    'LOW_DISK_SPACE',         # Injection could not build an overlay with available disk space
-    'LTK_PATCHER_MISSING',    # User-provided LTK patcher files are missing
-    'LTK_PATCHER_EOL',        # LTK patcher DLL no longer supports the current game build
-    'LTK_PATCHER_FAILED',     # LTK patcher host/DLL reported an error
+    'LOW_DISK_SPACE',         # Injection could not install a mod with the available disk space
+    'LTF_MISSING',            # Rose's LTF bridge files (ltk_launcher.exe + LeagueToolFlop.dll) are missing
+    'LTK_MANAGER_MISSING',    # LTK Manager, which Rose drives through the bridge, is not installed
+    'LTF_FAILED',             # The LTF session (bridge or LTK patcher) reported an error
+    'LTF_IMPORT_FAILED',      # A mod could not be imported into LTK Manager's library
     'PENGU_ACTIVATION_FAILED',  # Pengu Loader could not be activated: Rose is missing from the client
 }
 

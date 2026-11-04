@@ -43,14 +43,17 @@ is intentionally not committed to the repository.
 In addition to Python 3.11+ and the Python dependencies above, install Visual
 Studio Build Tools with the .NET desktop build tools, WPF support, and the
 .NET Framework 4.7.2 targeting pack (for Pengu Loader), and the MSVC C++ build
-tools (for Rose's stand-in `cslol-dll.dll`, built from `native/cslol_stub/`).
+tools with the C++20 workload (for the LTF bridge, built from `native/ltf/`).
 Install Inno Setup 6 only if you also want to build the Windows installer.
 
 ```powershell
 # Build Pengu Loader only
 python scripts/build_pengu_loader.py
 
-# Build Rose (rebuilds Pengu Loader and the cslol-dll.dll stand-in)
+# Build the LTF bridge only (ltk_launcher.exe + LeagueToolFlop.dll)
+python scripts/build_ltf.py
+
+# Build Rose (rebuilds Pengu Loader and the LTF bridge)
 python scripts/build_pyinstaller.py
 
 # Build Rose and the Windows installer (installer/Rose_Setup_<version>.exe)
@@ -60,8 +63,10 @@ python scripts/build_all.py
 python scripts/create_update_package.py
 ```
 
-To test Rose itself, you also need the LTK patcher (`ltk_patcher_host.exe`
-and `ltk_patcher_dll.dll` from an LTK Manager install) in `injection/tools/`.
+To test Rose itself, you also need LTK Manager installed: Rose finds it on its
+own (`ltkManagerPath` in `config.ini` wins, then a running instance, then the
+known install locations) and starts it through the bridge built into
+`injection/tools/`.
 
 `scripts/build_pyinstaller.py` is the canonical Rose package build entry point; it
 compiles the loader before invoking PyInstaller. Use it or `scripts/build_all.py`
@@ -155,16 +160,17 @@ Rose/
 │   │   └── base_skin_tracker.py
 │   ├── mods/               # Mod management
 │   │   ├── mod_manager.py
+│   │   ├── fantome.py      # Packs a mod folder as the .fantome LTK imports
 │   │   ├── storage.py      # Custom mods storage
 │   │   └── zip_resolver.py
-│   ├── overlay/            # Overlay process management
-│   │   ├── overlay_manager.py
+│   ├── overlay/            # Overlay session management
+│   │   ├── overlay_manager.py  # LTF session: install mods, run the LTK patcher
 │   │   └── process_manager.py
 │   ├── loadingname/        # Skin name on the loading screen
 │   │   └── loading_name.py
-│   └── tools/              # Injection tools (mod-tools.exe, the user's LTK patcher)
-│       ├── tools_manager.py
-│       └── patcher.py      # LTK patcher checks (missing files, end of life)
+│   └── tools/              # The LTF bridge (built from native/ltf/)
+│       ├── tools_manager.py    # Finds the bridge binaries and LTK Manager
+│       └── bridge.py           # TCP client for the bridge API
 │
 ├── lcu/                    # League Client API integration
 │   ├── core/               # Core LCU client components
@@ -322,8 +328,8 @@ Rose/
 │       ├── analytics_client.py  # HTTP client for analytics and presence pings
 │       └── analytics_thread.py  # Background thread for startup/heartbeat/close pings
 │
-├── scripts/                # Build scripts (loader, stand-in DLL, PyInstaller, installer, update package)
-├── native/cslol_stub/      # Source of Rose's stand-in cslol-dll.dll
+├── scripts/                # Build scripts (loader, LTF bridge, PyInstaller, installer, update package)
+├── native/ltf/             # LeagueToolFlop source Rose builds its bridge from (vendored)
 ├── vendor/PenguLoader-1.1.6/  # Pengu Loader source, built with Rose
 │
 └── Pengu Loader/           # Runtime loader files and plugins

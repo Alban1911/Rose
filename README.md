@@ -86,13 +86,31 @@ Rose includes a suite of JavaScript plugins that extend the League Client UI:
 
 - **Windows 10/11**
 - **League of Legends** installed
-- **LTK patcher** - You must provide it yourself (see below)
+- **LTK Manager** - the app Rose applies skins through; Rose finds it on its own (see below)
 
-### LTK Patcher Requirement
+### LTK Manager Requirement
 
-Due to DMCA restrictions, Rose cannot distribute the LTK patcher. Get its two files, `ltk_patcher_host.exe` and `ltk_patcher_dll.dll`, from an LTK Manager install.
+Rose applies skins through LTK Manager, which it drives over the bridge it
+builds from `native/ltf/` (`ltk_launcher.exe` + `LeagueToolFlop.dll`). Install
+LTK Manager once and Rose finds it: a path set as `ltkManagerPath` in
+`config.ini` wins, then a running instance, then the known install locations.
 
-On first launch, Rose asks for these files and opens its tools folder, where they go. The patcher stops working with game builds released after its end-of-life date: Rose then tells you to update LTK Manager and replace both files.
+If Rose can't find LTK Manager, it says so at startup: install it, or click
+**Set up path** and select its `ltk-manager.exe` (Rose saves it as
+`ltkManagerPath` and starts). You never have to open LTK Manager yourself:
+Rose starts it in the background during champ select and closes it after the
+game. A running LTK Manager is left alone: Rose only closes the instance it
+started itself. The bridge can only load into an LTK Manager Rose starts, so if
+yours is already open when a game starts, Rose skips the injection and asks you
+in Troubleshooting to close it (also from the system tray).
+
+For each game Rose turns off the mods you enabled in LTK Manager, so only the
+selected skin is patched in, and turns them back on afterwards. LTK Manager's
+patcher only applies to a game started after it began scanning, so Rose
+installs the skin you select while the champ select countdown runs. The skin
+selected at the injection threshold (1 to 2 seconds before the countdown ends,
+in Settings) is the one applied: a change after it is ignored, so you keep that
+skin instead of getting the default one.
 
 ## Installation
 
@@ -112,7 +130,8 @@ to download or commit a prebuilt `Pengu Loader.exe`.
 - Python 3.11 or newer
 - Visual Studio Build Tools with the .NET desktop build tools, WPF support,
   and the .NET Framework 4.7.2 targeting pack (for Pengu Loader), and the
-  MSVC C++ build tools (for Rose's stand-in `cslol-dll.dll`)
+  MSVC C++ build tools with the C++20 workload (for the LTF bridge in
+  `native/ltf/`)
 - Inno Setup 6 if you also want to create the installer
 
 Clone the repository and enter its directory:
@@ -134,7 +153,7 @@ Build the loader by itself, if needed:
 python scripts/build_pengu_loader.py
 ```
 
-Build Rose (rebuilds the loader and the `cslol-dll.dll` stand-in):
+Build Rose (rebuilds the loader and the LTF bridge):
 
 ```powershell
 python scripts/build_pyinstaller.py

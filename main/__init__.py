@@ -42,48 +42,56 @@ def _get_tools_dir() -> Path:
         return Path(__file__).parent.parent / "injection" / "tools"
 
 
+LTK_MANAGER_DOWNLOAD_URL = "https://github.com/LeagueToolkit/ltk-manager/releases"
+
+
 def _dll_dialog_text(reason: str, detail: str = ""):
-    """Return (title, status_title, status_body, steps) for an LTK patcher problem."""
-    source = "Get both files from LTK Manager."
-    if reason == "expired":
+    """Return (title, status_title, status_body, steps, action) for an injection
+    runtime problem; *action* is the label of the button that fixes it."""
+    if reason == "no_manager":
         return (
-            "Rose - Patcher Outdated",
-            "The LTK patcher has reached its end of life",
-            f"The ltk_patcher_dll.dll in Rose's tools folder does not support game builds released after {detail}, and League has updated since.",
-            f"1. Update LTK Manager, then get both files from it.\n"
-            "2. Open Rose's tools folder.\n"
-            "3. Replace both files, then restart Rose.",
-        )
-    if reason == "invalid":
-        return (
-            "Rose - Broken Patcher",
-            "One Rose component needs replacing",
-            "The ltk_patcher_dll.dll in Rose's tools folder is not a recognized LTK patcher DLL.",
-            f"1. {source}\n"
-            "2. Open Rose's tools folder.\n"
-            "3. Replace both files, then restart Rose.",
+            "Rose - LTK Manager Missing",
+            "Rose can't find LTK Manager",
+            "Rose applies skins through LTK Manager. It only has to be installed: Rose "
+            "opens it in the background during champ select and closes it after the game, "
+            "so you never have to open it yourself.",
+            f"1. Install LTK Manager ({LTK_MANAGER_DOWNLOAD_URL}), then restart Rose.\n"
+            "2. Already installed in another folder? Click Set up path and select its "
+            "ltk-manager.exe: Rose remembers it and starts right away.",
+            "Set up path",
         )
     return (
-        "Rose - Missing Patcher",
+        "Rose - Missing Component",
         "One Rose component is missing",
-        f"Rose needs {detail or 'the LTK patcher'} in its tools folder before it can start.",
-        f"1. {source}\n"
-        "2. Open Rose's tools folder.\n"
-        "3. Place both files there, then restart Rose.",
+        f"Rose needs {detail or 'its bridge files'} in its tools folder before it can start.",
+        "1. Reinstall Rose: these files are part of every install.\n"
+        "2. If an antivirus removed them, restore the files or add Rose's folder to its exclusions.\n"
+        "3. Restart Rose.",
+        "Open tools folder",
     )
 
 
-def _show_native_dll_dialog(tools_dir, reason="missing", detail=""):
-    """Show the DLL error with the native Windows Task Dialog API."""
+def _with_links(text: str) -> str:
+    """The text with its web addresses as Task Dialog hyperlinks."""
+    import re
+
+    return re.sub(r"(https?://[^\s)]+)", r'<a href="\1">\1</a>', text)
+
+
+def _show_native_dll_dialog(reason="missing", detail=""):
+    """Show the DLL error with the native Windows Task Dialog API.
+
+    Returns "fix" (the button that fixes it), "close", or None when the
+    Task Dialog is not available.
+    """
     if sys.platform != "win32":
         return None
 
     import ctypes
     from ctypes import wintypes
-    import subprocess
     import webbrowser
 
-    title, status_title, status_body, steps = _dll_dialog_text(reason, detail)
+    title, status_title, status_body, steps, action = _dll_dialog_text(reason, detail)
 
     class TaskDialogButton(ctypes.Structure):
         _pack_ = 1
@@ -124,13 +132,11 @@ def _show_native_dll_dialog(tools_dir, reason="missing", detail=""):
     button_open = 1001
     button_close = 1002
     buttons = (TaskDialogButton * 2)(
-        TaskDialogButton(button_open, "Open tools folder"),
+        TaskDialogButton(button_open, action),
         TaskDialogButton(button_close, "Close Rose"),
     )
-    content = (
-        f"{status_body}\n\nHow to fix it:\n{steps}"
-    )
-    footer = "Please do not request or share this file in Discord. Rose cannot distribute it because of licensing restrictions."
+    content = _with_links(f"{status_body}\n\nHow to fix it:\n{steps}")
+    footer = _with_links("Need help? Join the Rose Discord: https://discord.gg/roseskins")
     assets_dirs = []
     if hasattr(sys, "_MEIPASS"):
         assets_dirs.append(Path(sys._MEIPASS) / "assets")
@@ -247,88 +253,163 @@ def _show_native_dll_dialog(tools_dir, reason="missing", detail=""):
 
     if result != 0:
         return None
-    if selected_button.value == button_open:
-        try:
-            subprocess.run(["explorer", str(tools_dir)], check=False)
-        except Exception as exc:
-            log.warning(f"[DLL] Could not open the tools folder: {exc}")
-    return False
+    return "fix" if selected_button.value == button_open else "close"
 
 
-def _show_dll_dialog(tools_dir, reason="missing", detail="") -> bool:
-    """Show a native recovery dialog before the main app starts."""
-    import subprocess
-    import webbrowser
+def _show_fallback_dll_dialog(reason="missing", detail="") -> str:
+    """The same choice as a MessageBox, when the Task Dialog is unavailable.
 
-    native_result = _show_native_dll_dialog(tools_dir, reason, detail)
-    if native_result is not None:
-        return native_result
-
-    # Keep the recovery UI native-only if TaskDialogIndirect is unavailable.
-    # This is intentionally a Windows MessageBox rather than a Tk fallback.
+    Intentionally a Windows MessageBox rather than a Tk fallback.
+    """
     import ctypes
-    tools_dir.mkdir(parents=True, exist_ok=True)
-    title, status_title, status_body, steps = _dll_dialog_text(reason, detail)
+
+    title, status_title, status_body, steps, action = _dll_dialog_text(reason, detail)
     message = (
         f"{status_title}\n\n{status_body}\n\nHow to fix it:\n{steps}\n\n"
-        "Please do not request or share this file in Discord.\n"
         "Discord: https://discord.gg/roseskins\n\n"
-        "Press OK to open the tools folder, or Cancel to close Rose."
+        f"Press OK to {action.lower()}, or Cancel to close Rose."
     )
     response = ctypes.windll.user32.MessageBoxW(
         0, message, title, 0x00000001 | 0x00000030 | 0x00040000
     )
-    if response == 1:
+    return "fix" if response == 1 else "close"
+
+
+def _pick_ltk_manager() -> Optional[Path]:
+    """Ask for LTK Manager's executable with the Windows file picker (None if cancelled)."""
+    import ctypes
+    import os
+    from ctypes import wintypes
+
+    class OpenFileName(ctypes.Structure):
+        _fields_ = [
+            ("lStructSize", wintypes.DWORD),
+            ("hwndOwner", wintypes.HWND),
+            ("hInstance", wintypes.HINSTANCE),
+            ("lpstrFilter", wintypes.LPCWSTR),
+            ("lpstrCustomFilter", wintypes.LPWSTR),
+            ("nMaxCustFilter", wintypes.DWORD),
+            ("nFilterIndex", wintypes.DWORD),
+            ("lpstrFile", wintypes.LPWSTR),
+            ("nMaxFile", wintypes.DWORD),
+            ("lpstrFileTitle", wintypes.LPWSTR),
+            ("nMaxFileTitle", wintypes.DWORD),
+            ("lpstrInitialDir", wintypes.LPCWSTR),
+            ("lpstrTitle", wintypes.LPCWSTR),
+            ("Flags", wintypes.DWORD),
+            ("nFileOffset", wintypes.WORD),
+            ("nFileExtension", wintypes.WORD),
+            ("lpstrDefExt", wintypes.LPCWSTR),
+            ("lCustData", wintypes.LPARAM),
+            ("lpfnHook", ctypes.c_void_p),
+            ("lpTemplateName", wintypes.LPCWSTR),
+            ("pvReserved", ctypes.c_void_p),
+            ("dwReserved", wintypes.DWORD),
+            ("FlagsEx", wintypes.DWORD),
+        ]
+
+    # Pairs of label and pattern, each ending in a NUL, the list in a second one
+    file_filter = ctypes.create_unicode_buffer(
+        "LTK Manager (ltk-manager.exe)\0ltk-manager.exe;LTK Manager.exe\0Programs (*.exe)\0*.exe\0\0"
+    )
+    file_buffer = ctypes.create_unicode_buffer(1024)
+    initial_dir = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles") or ""
+    dialog = OpenFileName(
+        lStructSize=ctypes.sizeof(OpenFileName),
+        lpstrFilter=ctypes.cast(file_filter, wintypes.LPCWSTR),
+        nFilterIndex=1,
+        lpstrFile=ctypes.cast(file_buffer, wintypes.LPWSTR),
+        nMaxFile=len(file_buffer),
+        lpstrInitialDir=initial_dir or None,
+        lpstrTitle="Select LTK Manager (ltk-manager.exe)",
+        # OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER | OFN_DONTADDTORECENT
+        Flags=0x1000 | 0x0800 | 0x0008 | 0x00080000 | 0x02000000,
+    )
+    try:
+        picked = ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(dialog))
+    except (AttributeError, OSError, ctypes.ArgumentError) as exc:
+        log.warning(f"[DLL] Could not open the file picker: {exc}")
+        return None
+    return Path(file_buffer.value) if picked and file_buffer.value else None
+
+
+def _set_up_ltk_manager_path(tools_dir) -> Optional[bool]:
+    """Let the user point Rose at LTK Manager and save it as ltkManagerPath.
+
+    True once Rose finds LTK Manager there, None when the user cancelled or
+    picked something else (the dialog shows again).
+    """
+    import ctypes
+
+    from config import set_config_option
+    from injection.tools.tools_manager import LTK_MANAGER_EXECUTABLES, ToolsManager
+
+    picked = _pick_ltk_manager()
+    if picked is None:
+        return None
+    message_flags = 0x00000030 | 0x00040000  # MB_ICONWARNING | MB_TOPMOST
+    if picked.name.lower() not in {name.lower() for name in LTK_MANAGER_EXECUTABLES}:
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            f"{picked.name} is not LTK Manager.\n\nSelect ltk-manager.exe in the folder LTK Manager "
+            "is installed in.",
+            "Rose - LTK Manager Missing",
+            message_flags,
+        )
+        return None
+    set_config_option("General", "ltkManagerPath", str(picked))
+    if ToolsManager(tools_dir).detect_ltk_manager() is None:
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "Rose could not save the path in its config.ini.\n\nCheck that Rose can write to "
+            "%LOCALAPPDATA%\\Rose, then try again.",
+            "Rose - LTK Manager Missing",
+            message_flags,
+        )
+        return None
+    log.info(f"[DLL] LTK Manager set up at {picked}")
+    return True
+
+
+def _show_dll_dialog(tools_dir, reason="missing", detail="") -> bool:
+    """Show a native recovery dialog before the main app starts.
+
+    Returns whether Rose can start (LTK Manager was set up from the dialog).
+    """
+    import subprocess
+
+    while True:
+        choice = _show_native_dll_dialog(reason, detail)
+        if choice is None:
+            choice = _show_fallback_dll_dialog(reason, detail)
+        if choice != "fix":
+            return False
+        if reason == "no_manager":
+            if _set_up_ltk_manager_path(tools_dir):
+                return True
+            continue  # cancelled or not LTK Manager: back to the dialog
         try:
+            tools_dir.mkdir(parents=True, exist_ok=True)
             subprocess.run(["explorer", str(tools_dir)], check=False)
         except Exception as exc:
             log.warning(f"[DLL] Could not open the tools folder: {exc}")
-    return False
-
-
-def _sync_cslol_stub(tools_dir: Path) -> None:
-    """Replace cslol-dll.dll with Rose's stand-in when they differ.
-
-    Updaters before this change skip cslol-dll.dll, so an update leaves the
-    user's own copy in place. The stand-in ships again as cslol-dll.stub,
-    which they do copy.
-    """
-    stub = tools_dir / "cslol-dll.stub"
-    target = tools_dir / "cslol-dll.dll"
-    try:
-        if not stub.is_file():
-            return
-        if target.is_file() and target.read_bytes() == stub.read_bytes():
-            return
-        import shutil
-        shutil.copyfile(stub, target)
-    except OSError:
-        pass  # The tools check reports a missing DLL when injection needs it
+        return False
 
 
 def _check_dll_present() -> bool:
-    """Check that the user-provided LTK patcher is present and supports the installed game."""
+    """Check that Rose's LTF bridge is present and LTK Manager is installed."""
     import sys
     if sys.platform != "win32":
         return True  # Only relevant on Windows
 
-    from datetime import datetime
-    from config import get_config_option
-    from injection.tools.patcher import check_ltk_patcher
+    from injection.tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
 
     tools_dir = _get_tools_dir()
-    _sync_cslol_stub(tools_dir)
-    status = check_ltk_patcher(tools_dir)
-    if status.missing:
-        return _show_dll_dialog(tools_dir, reason="missing", detail=" and ".join(status.missing))
-    if status.eol is None:
-        return _show_dll_dialog(tools_dir, reason="invalid")
-    # The DLL keeps working past its end of life until League updates, so only
-    # block when the game Rose last found is a build it refuses
-    league_path = get_config_option("General", "leaguePath")
-    if status.expired_for(Path(league_path) if league_path else None):
-        eol = datetime.fromtimestamp(status.eol).strftime("%Y-%m-%d %H:%M")
-        return _show_dll_dialog(tools_dir, reason="expired", detail=eol)
+    missing = [name for name in (LTF_LAUNCHER, LTF_BRIDGE_DLL) if not (tools_dir / name).exists()]
+    if missing:
+        return _show_dll_dialog(tools_dir, reason="missing", detail=" and ".join(missing))
+    if ToolsManager(tools_dir).detect_ltk_manager() is None:
+        return _show_dll_dialog(tools_dir, reason="no_manager")
     return True
 
 

@@ -222,6 +222,24 @@ FALLBACK_LOADOUT_MS_DEFAULT = 0             # Fallback countdown duration (ms)
 
 # Skin injection timing
 SKIN_THRESHOLD_MS_DEFAULT = 300             # Time before loadout ends to write skin (ms)
+# The injection threshold: how long before the countdown ends the selected skin
+# is taken for the injection. A skin changed after it is ignored, so the one
+# picked before it (already staged in LTK Manager) is the one applied: with
+# less than a second, a late change could not be installed before the game.
+INJECTION_THRESHOLD_MIN_S = 1.0
+INJECTION_THRESHOLD_MAX_S = 2.0
+INJECTION_THRESHOLD_DEFAULT_S = 1.0
+
+
+def clamp_injection_threshold(value) -> float:
+    """The injection threshold *value* (seconds) within its allowed range."""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return INJECTION_THRESHOLD_DEFAULT_S
+    if seconds != seconds:  # NaN
+        return INJECTION_THRESHOLD_DEFAULT_S
+    return max(INJECTION_THRESHOLD_MIN_S, min(INJECTION_THRESHOLD_MAX_S, seconds))
 BASE_SKIN_VERIFICATION_WAIT_S = 0.15        # Seconds to wait for LCU to process base skin change
 PERSISTENT_MONITOR_START_SECONDS = 1        # Seconds remaining when persistent game monitor starts
 PERSISTENT_MONITOR_CHECK_INTERVAL_S = 0.05  # Seconds between game process checks
@@ -233,7 +251,6 @@ GAME_RESUME_VERIFICATION_WAIT_S = 0.1       # Seconds to wait after resume for s
 GAME_RESUME_MAX_ATTEMPTS = 3                # Max attempts to resume game (handles multiple suspensions)
 
 # Game delay strategies
-ENABLE_MKOVERLAY_PRIORITY_BOOST = True   # Boost short-lived mkoverlay process priority during injection setup
 ENABLE_GAME_SUSPENSION = True            # Suspend game process during injection (RISKY - may trigger anti-cheat)
 
 
@@ -277,7 +294,6 @@ LOG_SEPARATOR_WIDTH = 80                 # Width of separator lines in logs (e.g
 # Process termination timeouts (seconds)
 PROCESS_TERMINATE_TIMEOUT_S = 5         # Timeout for process.wait() after terminate/kill
 PROCESS_TERMINATE_WAIT_S = 0.3          # Short timeout for process wait after terminate() before kill()
-PROCESS_ENUM_TIMEOUT_S = 2.0            # Timeout for process enumeration when finding runoverlay
 THREAD_JOIN_TIMEOUT_S = 2               # Timeout for thread.join() on shutdown (increased from 1.0s)
 THREAD_FORCE_EXIT_TIMEOUT_S = 4         # Total timeout before forcing app exit
 INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock

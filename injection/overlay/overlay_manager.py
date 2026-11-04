@@ -2,22 +2,40 @@
 # -*- coding: utf-8 -*-
 """
 Overlay Manager
-Handles overlay creation and execution using CSLOL tools
+Drives LTK Manager through the LeagueToolFlop (LTF) bridge.
+
+Rose builds the LTF bridge from native/ltf/ (ltk_launcher.exe +
+LeagueToolFlop.dll). The launcher starts LTK Manager hidden with the DLL
+injected, and the DLL serves a TCP API (injection/tools/bridge.py) that
+imports Rose's mod folders into LTK Manager's library and starts LTK
+Manager's own patcher. The patcher builds the overlay and starts scanning;
+Rose then resumes the game, watches for the end of it, stops the patcher,
+removes the mods it installed and turns the user's own mods back on.
+
+The patcher only overlays a game the client creates after its scan started,
+and any library change restarts the scan. The client creates the game about a
+second after the injection begins, so the selected skin is staged during the
+countdown (stage_mods): the injection then finds the same mods installed and
+the scan already running.
 
 Security Notes:
-    - subprocess calls use only internal paths (tools_dir, mods_dir, game_dir)
-    - No user-controlled input is passed directly to subprocess commands
-    - All paths are constructed from trusted internal configuration
-    - Commands only execute mod-tools.exe from the verified tools directory
+    - subprocess calls use only internal paths (tools_dir, mods_dir) and the
+      LTK Manager path from config/known install locations
+    - Commands only execute ltk_launcher.exe from the verified tools directory
+    - Mod names are folder names Rose itself extracted into mods_dir
 """
 
+import json
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Callable
+from typing import Callable, Dict, List, Optional
 
 # Import psutil with fallback for development environments
 try:
@@ -27,99 +45,1489 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     psutil = None
 
-from utils.core.logging import get_logger, log_action, log_success, log_event
+from utils.core.logging import get_logger, log_event
 from utils.core.issue_reporter import report_issue
-from ..tools.patcher import check_ltk_patcher, describe_ltk_patcher_files
+from ..tools.bridge import (
+    BridgeCommandError,
+    BridgeUnavailable,
+    LtkBridge,
+    find_bridge,
+)
+from ..tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
+from ..mods.fantome import fantome_display_name, write_fantome_zip
+from ..mods.fingerprint import mod_fingerprint
+from .process_manager import LTK_MANAGER_PROCESSES
 from config import (
     GAME_EXECUTABLE_NAMES,
-    PROCESS_TERMINATE_TIMEOUT_S,
     PROCESS_MONITOR_SLEEP_S,
-    ENABLE_MKOVERLAY_PRIORITY_BOOST,
 )
 
 log = get_logger()
 
-# mkoverlay needs free space for the generated WAD overlay in addition to the
-# extracted mod files. A gigabyte is a conservative lower bound for a normal
-# skin, while the extracted mod size catches larger map/voiceover mods.
+# The patcher status is polled while the game runs (one tick per sleep)
+PATCHER_STATUS_POLL_TICKS = 4
+# After start_patcher, the game stays suspended until the patcher has built
+# the overlay and is scanning: resumed earlier, the game can load its files
+# before the patcher hooks it. The game monitor resumes it at 60s anyway.
+PATCHER_READY_TIMEOUT_S = 45.0
+PATCHER_READY_POLL_S = 0.25
+# A patcher still idle this long after start_patcher answered did not start
+PATCHER_IDLE_GRACE_S = 3.0
+# Unanswered status polls in a row (CDP busy, a slow eval) before the session
+# counts as broken: one failed poll is not the end of a game
+STATUS_FAILURE_LIMIT = 5
+
+# The DLL caps a request line at 64 MB and base64 adds a third, so only an
+# archive up to this size can be sent inline when LTK Manager cannot read it
+BYTES_IMPORT_LIMIT = 40 * 1024 * 1024
+
+LAUNCHER_TIMEOUT_S = 60
+BRIDGE_START_TIMEOUT_S = 30
+# ltk_launcher.exe exit codes (native/ltf/LeagueToolFlop-inj.cpp)
+LAUNCHER_EXIT_ALREADY_RUNNING = 5
+LAUNCHER_EXIT_NO_LIVE_INSTANCE = 6
+
+# LTK Manager needs free space in its own library for the imported mods: a
+# gigabyte is a conservative lower bound for a normal skin, while the extracted
+# mod size catches larger map/voiceover mods.
 MIN_FREE_SPACE_BYTES = 1 * 1024 * 1024 * 1024
 DISK_SPACE_HEADROOM_BYTES = 512 * 1024 * 1024
-DISK_SPACE_ERROR_MARKERS = (
-    'not enough space',
-    'not enough disk space',
-    'insufficient disk space',
-    'disk full',
-    'no space left',
-    'error 112',
-    'errno 28',
-)
 
-# LTK patcher host settings (see ltk-manager patcher/host/protocol.rs).
-# Flag 4 = CSLOL_HOOK_OPT_OUT_AH_V1: Rose replaces skin0 with the selected
-# skin, which the DLL's base-skin check rejects and then disables the whole
-# overlay; opting out downgrades that to a warning (same as LTK Manager's
-# "enforce skinhack scan" setting turned off). Log level 0x10 = Info.
-LTK_PATCHER_FLAGS = 4
-LTK_PATCHER_LOG_LEVEL = 0x10
-# Printed by the DLL when the game build is newer than its end-of-life date
-END_OF_LIFE_MESSAGE = "end of life reached"
-LATE_JOIN_MESSAGE = "joined too late"
-# Session error Rose records when the DLL reports a late join
-LATE_JOIN_ERROR = "the game started before the patcher, overlay not applied"
 # Exit code of a process another program terminated (DBG_TERMINATE_PROCESS),
 # most often an antivirus
 KILLED_EXIT_CODE = 0x40010004
 
+# The patcher's verdict when the game loaded its files before the DLL hooked it
+LATE_JOIN_MESSAGE = "joined too late"
+# The DLL's host verification refusing the overlay (docs/ltf-vrf-host-verification.md):
+# the code names the check that failed, the bracket after it what it saw
+OVERLAY_REFUSED_MESSAGE = "host verification failed"
+OVERLAY_REFUSED_CODE = re.compile(r"\[(vrf\d{8})\]\s*\(([^)]*)\)?", re.IGNORECASE)
+# What LTK Manager's log says about the patcher's start (its lines begin with
+# a UTC time): how long the overlay took to build, and when the host began to
+# scan. The patcher only overlays a game created after that moment.
+_LTK_LOG_TIME = r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z"
+SCAN_STARTED_LINE = re.compile(r"^" + _LTK_LOG_TIME + r"[^\n]*session started: scanning for game", re.MULTILINE)
+OVERLAY_BUILT_LINE = re.compile(r"Overlay build complete:[^\n]*? in ([\d.]+)(ms|s)\b")
+ALREADY_OPEN_REASON = "LTK Manager is already open without Rose's bridge"
+# Every LTF report's hint ends with it (Troubleshooting recognizes the reports by it)
+LTF_LOGS_HINT = "Details are in C:\\Users\\Public\\ltk_bridge.log, ltk_api.log and ltk_launcher.log."
+
 
 def ltk_failure_cause(reason: str) -> str:
-    """Why the patcher failed, from the reason Rose reported: what to do about
-    it depends on it (Troubleshooting shows a hint for each)"""
-    if "SetWindowsHookEx" in reason:
-        return "hook"
-    if reason == LATE_JOIN_ERROR:
+    """Why the LTF session failed, from the reason Rose reported: what to do
+    about it depends on it (Troubleshooting shows a hint for each)"""
+    lowered = reason.lower()
+    if "import" in lowered:
+        return "import"
+    if "already open" in lowered:
+        return "running"
+    if LATE_JOIN_MESSAGE in lowered:
         return "late"
-    if "disabling overlay" in reason:
-        return "rejected"
-    if reason.startswith("could not start"):
+    if OVERLAY_REFUSED_MESSAGE in lowered or "refused the overlay" in lowered:
+        return "refused"
+    if lowered.startswith("could not start"):
         return "start"
-    exit_code = re.match(r"exited with code (-?\d+)", reason)
+    if "bridge" in lowered:
+        return "bridge"
+    exit_code = re.search(r"exited with code (-?\d+)", reason)
     if exit_code:
         code = int(exit_code.group(1)) & 0xFFFFFFFF
         if code == KILLED_EXIT_CODE:
             return "killed"
-        # NTSTATUS errors (access violation...): the patcher itself crashed
+        # NTSTATUS errors (access violation...): LTK Manager itself crashed
         if code >= 0xC0000000:
             return "crashed"
     return "unknown"
 
-# WAD v3 header: magic + version (4), RSA signature (256), checksum (8)
-WAD_HEADER_SIZE = 268
+
+class LtkLogTail:
+    """What LTK Manager writes to its own log from the moment this was made.
+
+    The patcher's verdict on the game ("dll attached", "joined too late, not
+    overlaying") only shows there: the status the bridge reads does not carry it.
+    """
+
+    LOG_PATTERN = "ltk-manager*.log"
+
+    def __init__(self, directory: Optional[Path]):
+        self.directory = directory
+        self.path = self._newest()
+        self.offset = self._size(self.path)
+
+    @staticmethod
+    def log_dir() -> Optional[Path]:
+        """LTK Manager's log folder: in the roaming app data of the desktop
+        user it runs as (an elevated Rose may run as another account)."""
+        import os
+
+        candidates = []
+        try:
+            from utils.core.paths import get_user_data_dir
+
+            candidates.append(get_user_data_dir().parent.parent / "Roaming" / "dev.leaguetoolkit.manager" / "logs")
+        except Exception:
+            pass
+        roaming = os.environ.get("APPDATA")
+        if roaming:
+            candidates.append(Path(roaming) / "dev.leaguetoolkit.manager" / "logs")
+        for candidate in candidates:
+            if candidate.is_dir():
+                return candidate
+        return None
+
+    @staticmethod
+    def _size(path: Optional[Path]) -> int:
+        try:
+            return path.stat().st_size if path else 0
+        except OSError:
+            return 0
+
+    def _newest(self) -> Optional[Path]:
+        if self.directory is None:
+            return None
+        try:
+            logs = list(self.directory.glob(self.LOG_PATTERN))
+            return max(logs, key=lambda log_path: log_path.stat().st_mtime) if logs else None
+        except OSError:
+            return None
+
+    def read(self) -> str:
+        """The text written since the last read."""
+        newest = self._newest()
+        if newest is None:
+            return ""
+        if newest != self.path:
+            self.path, self.offset = newest, 0  # a new day's file
+        if self._size(self.path) < self.offset:
+            self.offset = 0  # rewritten
+        try:
+            with open(self.path, "rb") as handle:
+                handle.seek(self.offset)
+                data = handle.read()
+        except OSError:
+            return ""
+        self.offset += len(data)
+        return data.decode("utf-8", "replace")
+
+
+def _ltk_log_time(stamp: str) -> Optional[float]:
+    """The epoch time of an LTK Manager log line's UTC stamp (2026-11-04T18:08:17.201030)."""
+    whole, _, fraction = stamp.partition(".")
+    try:
+        moment = datetime.strptime(whole, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return moment.timestamp() + (float(f"0.{fraction}") if fraction.isdigit() else 0.0)
+
+
+def _unreadable_archive(error: Exception) -> bool:
+    """Whether an import failed because LTK Manager could not read the file."""
+    text = str(error).lower()
+    return any(marker in text for marker in ("not found:", "cannot read file:", "failed to read file:"))
 
 
 class OverlayManager:
-    """Manages overlay creation and execution"""
-    
+    """Manages the LTF session: install mods, run LTK Manager's patcher"""
+
     def __init__(self, tools_dir: Path, mods_dir: Path, game_dir: Optional[Path], process_manager=None):
         self.tools_dir = tools_dir
         self.mods_dir = mods_dir
         self.game_dir = game_dir
         self.process_manager = process_manager
         self.last_injection_timing = None
-        # Patcher started with the game monitor, before the mods are prepared
-        self._early_patcher: Optional[dict] = None
-        self._early_patcher_lock = threading.Lock()
-    
+        # Session connected (or launched) with the game monitor, before the
+        # mods are prepared; mk_run_overlay takes it over
+        self._early_session: Optional[dict] = None
+        # Guards _early_session and _early_discard only: never held while
+        # LTK Manager starts, so a discard never waits on a launch
+        self._session_lock = threading.Lock()
+        # One launch/connect at a time: two launchers would fight over LTK Manager
+        self._connect_lock = threading.Lock()
+        # Set by discard_early_patcher: an early connect in flight drops its session
+        self._early_discard = False
+        self._state_file_lock = threading.Lock()
+        # Held while LTK Manager's library is changed (staging during the
+        # countdown, the injection's own install): one change at a time
+        self._stage_lock = threading.Lock()
+        # Staging is open from the countdown's start until the injection or a
+        # discard: a late stage must not touch the injection's session
+        self._staging_open = False
+
     @property
     def current_overlay_process(self):
         """Get current overlay process from process manager"""
         return self.process_manager.current_overlay_process if self.process_manager else None
-    
+
     @current_overlay_process.setter
     def current_overlay_process(self, value):
         """Set current overlay process on process manager"""
         if self.process_manager:
             self.process_manager.current_overlay_process = value
 
+    # -- persisted state ----------------------------------------------------
+    @property
+    def _installed_state_path(self) -> Path:
+        """What a session changed in LTK Manager (the mods it installed, the
+        user's mods it turned off, the manager it started), so a crashed
+        session is undone by the next one"""
+        return self.mods_dir.parent / "ltf_installed.json"
+
+    def _read_state(self) -> dict:
+        try:
+            document = json.loads(self._installed_state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            document = {}
+        if not isinstance(document, dict):
+            document = {}
+        if not any(key in document for key in ("installed", "disabled", "manager")):
+            # The first layout held the installed ids alone
+            document = {"installed": {k: v for k, v in document.items() if isinstance(v, str)}}
+        installed = document.get("installed")
+        disabled = document.get("disabled")
+        manager = document.get("manager")
+        return {
+            "installed": dict(installed) if isinstance(installed, dict) else {},
+            "disabled": [str(mod_id) for mod_id in disabled] if isinstance(disabled, list) else [],
+            "manager": manager if isinstance(manager, dict) else None,
+        }
+
+    def _update_state(self, change: Callable[[dict], None]) -> None:
+        """Apply *change* to the state file (read, change, write)."""
+        with self._state_file_lock:
+            state = self._read_state()
+            change(state)
+            try:
+                self._installed_state_path.write_text(
+                    json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            except OSError as e:
+                log.debug(f"[INJECT] Could not write the LTF session state: {e}")
+
+    def _track_installed(self, session: dict, mod_id: str, folder: str, fingerprint: Optional[str] = None) -> None:
+        session["installed"][mod_id] = folder
+        if fingerprint:
+            session["fingerprints"][mod_id] = fingerprint
+        self._update_state(lambda state: state["installed"].__setitem__(mod_id, folder))
+
+    def _track_disabled(self, session: dict, mod_id: str) -> None:
+        session["disabled"].append(mod_id)
+
+        def add(state):
+            if mod_id not in state["disabled"]:
+                state["disabled"].append(mod_id)
+
+        self._update_state(add)
+
+    def _untrack(self, removed=(), restored=()) -> None:
+        """Forget the mods Rose removed and the user's mods it turned back on."""
+        removed, restored = set(removed), set(restored)
+        if not removed and not restored:
+            return
+
+        def drop(state):
+            state["installed"] = {k: v for k, v in state["installed"].items() if k not in removed}
+            state["disabled"] = [mod_id for mod_id in state["disabled"] if mod_id not in restored]
+
+        self._update_state(drop)
+
+    def _cleanup_stale_installs(self, bridge: LtkBridge) -> None:
+        """Undo what an earlier session left in LTK Manager (Rose crashed or
+        was closed before its cleanup ran): remove its mods, turn the user's
+        back on. What cannot be undone now stays recorded for the next try."""
+        state = self._read_state()
+        installed, disabled = state["installed"], state["disabled"]
+        if not installed and not disabled:
+            return
+        try:
+            library = {str(entry.get("id")): entry for entry in bridge.library() if entry.get("id")}
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.debug(f"[INJECT] Could not read LTK Manager's library to clean up an earlier session: {e}")
+            return
+        try:
+            bridge.stop_patcher()  # library edits wait for a running patcher
+        except (BridgeUnavailable, BridgeCommandError):
+            pass
+
+        removed, restored = [], []
+        for mod_id, folder in installed.items():
+            if mod_id not in library:
+                removed.append(mod_id)  # already gone
+                continue
+            try:
+                bridge.uninstall(mod_id)
+                removed.append(mod_id)
+                log.debug(f"[INJECT] Removed {folder} left behind by an earlier session")
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not remove the leftover {folder} ({mod_id}): {e}")
+        for mod_id in disabled:
+            entry = library.get(mod_id)
+            if entry is None or entry.get("enabled"):
+                restored.append(mod_id)
+                continue
+            try:
+                bridge.toggle(mod_id, True)
+                restored.append(mod_id)
+                log.debug(f"[INJECT] Turned {self._entry_name(entry)} back on (an earlier session turned it off)")
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not turn {mod_id} back on: {e}")
+        self._untrack(removed, restored)
+
+    # -- the LTK Manager Rose started -----------------------------------------
+    @staticmethod
+    def _process_created(pid: Optional[int]) -> Optional[float]:
+        if not pid or not PSUTIL_AVAILABLE:
+            return None
+        try:
+            return psutil.Process(pid).create_time()
+        except (psutil.Error, OSError):
+            return None
+
+    def _register_manager(self, pid: Optional[int]) -> None:
+        """Remember the LTK Manager Rose started: it is the only one Rose closes."""
+        if not pid:
+            return
+        created = self._process_created(pid)
+        if self.process_manager:
+            self.process_manager.ltk_manager_process = (pid, created)
+        self._update_state(lambda state: state.__setitem__("manager", {"pid": pid, "created": created}))
+
+    def _is_rose_manager(self, pid: Optional[int]) -> bool:
+        """Whether the LTK Manager with *pid* is one Rose started (this run or before)."""
+        manager = self._read_state()["manager"]
+        if not pid or not manager or manager.get("pid") != pid:
+            return False
+        created, recorded = self._process_created(pid), manager.get("created")
+        return created is None or recorded is None or abs(created - float(recorded)) <= 1.0
+
+    def _terminate_manager(self, pid: Optional[int], grace_s: float = 0.0) -> None:
+        """Terminate the LTK Manager *pid* Rose started, if it still runs
+        after *grace_s* (the time a requested exit gets to finish)."""
+        if not pid or not PSUTIL_AVAILABLE:
+            return
+        try:
+            proc = psutil.Process(pid)
+            if (proc.name() or "").lower() not in LTK_MANAGER_PROCESSES:
+                return
+            if grace_s > 0:
+                try:
+                    proc.wait(timeout=grace_s)
+                    return
+                except psutil.TimeoutExpired:
+                    pass
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except psutil.TimeoutExpired:
+                proc.kill()
+            log.info(f"[INJECT] Closed the LTK Manager Rose started (PID {pid})")
+        except (psutil.Error, OSError) as e:
+            log.debug(f"[INJECT] Could not close LTK Manager (PID {pid}): {e}")
+
+    def _close_stale_rose_manager(self) -> None:
+        """Close an LTK Manager Rose started whose bridge no longer answers."""
+        manager = self._read_state()["manager"]
+        if not manager:
+            return
+        pid = manager.get("pid")
+        if self._is_rose_manager(pid) and self._process_created(pid) is not None:
+            log.info(f"[INJECT] The LTK Manager Rose started (PID {pid}) lost its bridge - closing it")
+            self._terminate_manager(pid)
+        self._update_state(lambda state: state.__setitem__("manager", None))
+
+    @staticmethod
+    def _ltk_manager_running() -> bool:
+        """Whether any LTK Manager is running."""
+        if not PSUTIL_AVAILABLE:
+            return False
+        try:
+            for proc in psutil.process_iter(['name']):
+                if (proc.info.get('name') or '').lower() in LTK_MANAGER_PROCESSES:
+                    return True
+        except (psutil.Error, OSError) as e:
+            log.debug(f"[INJECT] Could not look for LTK Manager: {e}")
+        return False
+
+    # -- session lifecycle --------------------------------------------------
+    def _new_session(self, bridge: LtkBridge, launched: bool) -> dict:
+        return {
+            "bridge": bridge,
+            "launched": launched,
+            "installed": {},  # library id -> mod folder name
+            "fingerprints": {},  # library id -> content digest of the folder it came from
+            "disabled": [],  # the user's mods turned off for the session
+            "patcher_running": False,
+            "ltk_log": None,  # LtkLogTail from the patcher's start
+            # Read from LTK Manager's log since the patcher's (last) start
+            "overlay_build_s": None,
+            "scan_started_at": None,  # epoch time the host began to scan
+            "ltk_attached": False,
+            "ltk_late": False,
+            "ltk_refused": None,  # (check code, what it saw)
+            "staged_after_s": None,  # pick -> patcher start, for the staged mods
+            # The library as _install_mods last read it, for _disable_other_mods
+            "library_snapshot": None,
+            "attach_logged": False,
+            "stopper": None,
+            "state": None,
+            "error": None,
+            "done": False,
+            "ended": False,
+            "game_seen": False,
+            "status_failures": 0,
+            "late_join_reported": False,
+            "refused_reported": False,
+            "early_stop_logged": False,
+            "lock": threading.Lock(),
+        }
+
+    def _start_ltf_session(self, report: bool = True, cancelled: Optional[Callable[[], bool]] = None) -> Optional[dict]:
+        """Connect to the bridge inside LTK Manager, starting it through the
+        LTF launcher when nothing is running yet.
+
+        Returns the session, or None when a required component is missing
+        (report=False keeps that out of Troubleshooting: the injection that
+        would use this session reports it itself). *cancelled* ends the wait
+        for a starting LTK Manager early.
+        """
+        tools_manager = ToolsManager(self.tools_dir)
+
+        launcher = tools_manager.detect_ltf_launcher()
+        if launcher is None:
+            log.error(f"[INJECT] Missing LTF bridge in {self.tools_dir}: {LTF_LAUNCHER} + {LTF_BRIDGE_DLL}")
+            if report:
+                report_issue(
+                    "LTF_MISSING",
+                    "error",
+                    "Injection failed: Rose's LTF bridge files are missing.",
+                    details={"missing": f"{LTF_LAUNCHER} + {LTF_BRIDGE_DLL}"},
+                    hint="Reinstall Rose, or restore ltk_launcher.exe and LeagueToolFlop.dll "
+                         "from your antivirus quarantine, then restart Rose.",
+                )
+            return None
+
+        manager = tools_manager.detect_ltk_manager()
+        if manager is None:
+            log.error("[INJECT] LTK Manager is not installed")
+            if report:
+                report_issue(
+                    "LTK_MANAGER_MISSING",
+                    "error",
+                    "Injection failed: LTK Manager is not installed.",
+                    hint="Install LTK Manager, or set ltkManagerPath in config.ini to its "
+                         "ltk-manager.exe, then retry.",
+                )
+            return None
+
+        bridge, launched = self._connect_bridge(launcher, manager, report, cancelled)
+        if bridge is None:
+            return None
+
+        session = self._new_session(bridge, launched)
+        self._cleanup_stale_installs(bridge)
+        shutil.rmtree(self._staging_root(), ignore_errors=True)
+        return session
+
+    def _connect_bridge(self, launcher: Path, manager: Path, report: bool,
+                        cancelled: Optional[Callable[[], bool]] = None):
+        """The bridge and whether Rose started LTK Manager for it."""
+        found = find_bridge()
+        if found is not None:
+            port, hello = found
+            pid = hello.get("pid")
+            launched = self._is_rose_manager(pid)
+            if launched:
+                self._register_manager(pid)
+            log.info(
+                f"[INJECT] Reusing the running LTK Manager (bridge on port {port}"
+                f"{', started by Rose' if launched else ''})"
+            )
+            return LtkBridge(port, pid=pid), launched
+
+        # The bridge only loads into an LTK Manager the launcher starts, and
+        # an LTK Manager Rose did not start is the user's: it stays open
+        self._close_stale_rose_manager()
+        if self._ltk_manager_running():
+            log.warning("[INJECT] LTK Manager is already open without Rose's bridge - leaving it alone")
+            self._report_ltf_failure(ALREADY_OPEN_REASON, report)
+            return None, False
+
+        log.info(f"[INJECT] Starting LTK Manager through {launcher.name}")
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        try:
+            result = subprocess.run(
+                [str(launcher), "--exe", str(manager), "--quiet"],
+                cwd=str(launcher.parent),
+                creationflags=creationflags,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=LAUNCHER_TIMEOUT_S,
+            )
+        except Exception as e:
+            self._report_ltf_failure(f"could not start the LTF launcher ({e})", report)
+            return None, False
+        if result.returncode == LAUNCHER_EXIT_ALREADY_RUNNING:
+            log.warning("[INJECT] LTK Manager opened before the launcher could start it - leaving it alone")
+            self._report_ltf_failure(ALREADY_OPEN_REASON, report)
+            return None, False
+        if result.returncode != 0:
+            self._report_ltf_failure(
+                f"could not start the LTF launcher (exit code {result.returncode})", report
+            )
+            return None, False
+
+        match = re.search(r"LTK_MANAGER_PID=(\d+)", result.stdout or "")
+        pid = int(match.group(1)) if match else None
+        try:
+            bridge = LtkBridge.wait_for_bridge(
+                timeout=BRIDGE_START_TIMEOUT_S, expected_pid=pid, cancelled=cancelled
+            )
+        except BridgeUnavailable as e:
+            if cancelled is not None and cancelled():
+                log.debug("[INJECT] Stopped waiting for the LTF bridge: the session is no longer wanted")
+            else:
+                self._report_ltf_failure(f"the LTF bridge is unreachable ({e})", report)
+            # Started hidden by Rose: it would linger out of sight
+            self._terminate_manager(pid)
+            return None, False
+        self._register_manager(bridge.pid or pid)
+        return bridge, True
+
+    def start_patcher_early(self) -> None:
+        """Bring LTK Manager and its bridge up now, before the mods are prepared.
+
+        Starting LTK Manager takes seconds, and preparing the mods (extraction,
+        loading screen name, party skins) more on a slow PC, while the client
+        launches the game: the bridge is brought up early. mk_run_overlay
+        takes this session over; it reports missing components itself.
+        """
+        if self.game_dir is None:
+            return
+        with self._session_lock:
+            self._early_discard = False  # a session is wanted (again)
+        if not self._connect_lock.acquire(blocking=False):
+            return  # the connect in flight brings it up
+        try:
+            with self._session_lock:
+                session = self._early_session
+            if session is not None:
+                if self._check_bridge(session):
+                    return
+                # Rose stopped it after the last game: connect again for this one
+                with self._session_lock:
+                    if self._early_session is session:
+                        self._early_session = None
+                self._end_session(session)
+
+            session = self._start_ltf_session(report=False, cancelled=lambda: self._early_discard)
+            if session is None:
+                return
+            with self._session_lock:
+                keep = not self._early_discard
+                if keep:
+                    self._early_session = session
+            if not keep:
+                log.debug("[INJECT] The early LTF session is no longer wanted - stopping it")
+                self._end_session(session)
+        finally:
+            self._connect_lock.release()
+
+    def _acquire_session(self) -> Optional[dict]:
+        """The early session if its bridge is still up, else a new one.
+
+        Waits for an early connect in flight rather than start a second
+        LTK Manager next to it.
+        """
+        with self._connect_lock:
+            with self._session_lock:
+                session, self._early_session = self._early_session, None
+            if session is not None:
+                if self._check_bridge(session):
+                    return session
+                self._end_session(session)
+            return self._start_ltf_session(report=True, cancelled=self._stopped_by_rose)
+
+    def discard_early_patcher(self) -> None:
+        """Stop an LTF session whose injection never built its overlay.
+
+        Returns at once while LTK Manager is still starting: that connect
+        drops its session when it completes.
+        """
+        with self._session_lock:
+            session, self._early_session = self._early_session, None
+            self._early_discard = True
+            self._staging_open = False
+        if session:
+            log.debug("[INJECT] Stopping the LTF session started for an injection that did not happen")
+            self._end_session(session)
+
+    def _end_session(self, session: dict) -> None:
+        """Stop the patcher, remove Rose's mods, turn the user's back on, and
+        close LTK Manager if Rose started it (a running one is the user's).
+
+        Safe to call more than once: Rose's cleanup and the session loop can
+        both get here.
+        """
+        with session["lock"]:
+            if session["ended"]:
+                return
+            session["ended"] = True
+
+        if self.process_manager and session.get("stopper") is not None:
+            self.process_manager.clear_session_stopper(session["stopper"])
+
+        bridge = session["bridge"]
+        if not bridge.alive():
+            # Nothing answers to undo anything: the state file keeps it for
+            # the next session
+            log.info("[INJECT] The LTF bridge is gone - Rose's mods are removed at the next session")
+            if session["launched"]:
+                self._terminate_manager(bridge.pid)
+        else:
+            try:
+                bridge.stop_patcher()
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not stop the LTK patcher: {e}")
+
+            removed = []
+            for mod_id, folder in session["installed"].items():
+                try:
+                    bridge.uninstall(mod_id)
+                    removed.append(mod_id)
+                    log.debug(f"[INJECT] Removed {folder} from LTK Manager")
+                except (BridgeUnavailable, BridgeCommandError) as e:
+                    log.debug(f"[INJECT] Could not remove {folder} from LTK Manager: {e}")
+            restored = []
+            for mod_id in session["disabled"]:
+                try:
+                    bridge.toggle(mod_id, True)
+                    restored.append(mod_id)
+                except (BridgeUnavailable, BridgeCommandError) as e:
+                    log.debug(f"[INJECT] Could not turn {mod_id} back on in LTK Manager: {e}")
+            self._untrack(removed, restored)
+
+            if session["launched"]:
+                bridge.kill()
+                # Gone before the next session looks for a running LTK Manager
+                self._terminate_manager(bridge.pid, grace_s=3.0)
+
+        if self.process_manager:
+            self.process_manager.current_overlay_process = None
+
+    def _check_bridge(self, session: dict) -> bool:
+        """Whether the bridge inside LTK Manager still answers."""
+        bridge = session.get("bridge")
+        if bridge is None or session.get("ended"):
+            return False
+        return bridge.alive()
+
+    def _stopped_by_rose(self) -> bool:
+        """Whether Rose (or the user) asked to stop the current session."""
+        if not self.process_manager:
+            return False
+        return bool(self.process_manager.stopped_by_user or self.process_manager.stopped_by_rose)
+
+    def _session_stopped(self, session: dict) -> bool:
+        """Whether the session was stopped (by Rose, the user, or its end)."""
+        return bool(session["ended"]) or self._stopped_by_rose()
+
+    # -- mod installation ---------------------------------------------------
+    @staticmethod
+    def _entry_name(entry: dict) -> str:
+        return str(entry.get("displayName") or entry.get("name") or entry.get("id"))
+
+    @staticmethod
+    def _entry_matches(entry: dict, folder: Path, display_name: str) -> bool:
+        names = {
+            str(entry.get("displayName") or "").lower(),
+            str(entry.get("name") or "").lower(),
+        }
+        return bool(names & {display_name.lower(), folder.name.lower()})
+
+    @classmethod
+    def _created_entries(cls, library: list, before_ids: set, folder: Path, display_name: str) -> list:
+        """The entries an import created: new ids only, never one the user
+        already had (it would be removed with Rose's). Name matches first;
+        a lone new entry otherwise."""
+        new_entries = [e for e in library if e.get("id") and str(e.get("id")) not in before_ids]
+        named = [e for e in new_entries if cls._entry_matches(e, folder, display_name)]
+        if named:
+            return named
+        return new_entries if len(new_entries) == 1 else []
+
+    def _installed_entry(self, bridge: LtkBridge, response: dict, before_ids: set,
+                         folder: Path, display_name: str) -> Optional[dict]:
+        """The library entry a just-finished import created.
+
+        LTK Manager answers an install with the entry it created: when that
+        answer names a new id and says whether it is enabled, the library is
+        not read again (each read is a round trip through LTK Manager).
+        """
+        nested = response.get("response")
+        value = nested.get("value") if isinstance(nested, dict) else None
+        if (isinstance(value, dict) and value.get("id") and "enabled" in value
+                and str(value.get("id")) not in before_ids):
+            return dict(value)
+        library = bridge.library()
+        new_entries = [e for e in library if e.get("id") and str(e.get("id")) not in before_ids]
+        if isinstance(value, dict) and value.get("id"):
+            for entry in new_entries:
+                if str(entry.get("id")) == str(value.get("id")):
+                    return entry
+        created = self._created_entries(library, before_ids, folder, display_name)
+        return created[-1] if created else None
+
+    def _track_late_install(self, session: dict, before_ids: set, folder: Path, display_name: str) -> None:
+        """Record whatever an import that reported a failure still installed
+        (its answer lost or too late): it is Rose's to remove."""
+        try:
+            library = session["bridge"].library()
+        except (BridgeUnavailable, BridgeCommandError):
+            return
+        for entry in self._created_entries(library, before_ids, folder, display_name):
+            log.warning(f"[INJECT] {display_name} was installed although the import failed - Rose removes it after the session")
+            self._track_installed(session, str(entry.get("id")), folder.name)
+
+    def _staging_root(self) -> Path:
+        """Where archives wait for LTK Manager to import them.
+
+        Not tempfile: Python 3.13 makes its folders private to the elevated
+        Rose, and LTK Manager restarts itself unelevated, so it could not read
+        them. Rose's data folder belongs to the desktop user, who runs it.
+        """
+        return self.mods_dir.parent / "ltf_staging"
+
+    def _import_archive(self, session: dict, archive: Path, folder: Path, display_name: str,
+                        fingerprint: Optional[str] = None, before_ids: Optional[set] = None) -> dict:
+        """Import *archive* into LTK Manager's library and return its entry.
+
+        *before_ids* are the library's ids before this import (read here when
+        not given): an id among them is never taken for the import's.
+        """
+        bridge = session["bridge"]
+        if before_ids is None:
+            before_ids = {str(entry.get("id")) for entry in bridge.library() if entry.get("id")}
+        try:
+            try:
+                response = bridge.import_fantome(str(archive), name=display_name)
+            except BridgeCommandError as e:
+                if not _unreadable_archive(e) or archive.stat().st_size > BYTES_IMPORT_LIMIT:
+                    raise
+                # Refused before anything was installed: sending it again is safe
+                log.info(f"[INJECT] LTK Manager cannot read {archive.name} ({e}) - sending its bytes instead")
+                response = bridge.import_fantome_bytes(archive.read_bytes(), name=archive.name)
+        except (BridgeUnavailable, BridgeCommandError):
+            self._track_late_install(session, before_ids, folder, display_name)
+            raise
+        entry = self._installed_entry(bridge, response, before_ids, folder, display_name)
+        if entry is None:
+            raise BridgeCommandError(f"{display_name} is not in the library after the import")
+        self._track_installed(session, str(entry.get("id")), folder.name, fingerprint)
+        return entry
+
+    def _remove_unwanted(self, session: dict, mod_ids: List[str]) -> bool:
+        """Remove Rose's mods that are no longer selected (staged for another skin)."""
+        bridge = session["bridge"]
+        removed, ok = [], True
+        for mod_id in mod_ids:
+            folder = session["installed"].get(mod_id)
+            try:
+                bridge.uninstall(mod_id)
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                # Left enabled it would apply too: at least turn it off
+                try:
+                    bridge.toggle(mod_id, False)
+                    log.warning(f"[INJECT] Could not remove {folder} from LTK Manager ({e}) - turned it off instead")
+                except (BridgeUnavailable, BridgeCommandError) as toggle_error:
+                    log.error(f"[INJECT] Could not remove {folder} from LTK Manager: {toggle_error}")
+                    ok = False
+                session["fingerprints"].pop(mod_id, None)
+                continue
+            removed.append(mod_id)
+            session["installed"].pop(mod_id, None)
+            session["fingerprints"].pop(mod_id, None)
+            log.debug(f"[INJECT] Removed {folder} from LTK Manager (no longer selected)")
+        self._untrack(removed)
+        return ok
+
+    def _install_mods(self, session: dict, mod_names: List[str], folder_dir: Optional[Path] = None,
+                      report: bool = True, stopped: Optional[Callable[[], bool]] = None,
+                      archives: Optional[Dict[str, Path]] = None) -> bool:
+        """Make Rose's mods in LTK Manager's library exactly the folders
+        *mod_names* (in *folder_dir*, mods_dir by default).
+
+        A mod already installed from the same content (staged during the
+        countdown, see stage_mods) is kept as it is: an unchanged library keeps
+        the patcher's scan running. Any other change stops the patcher first,
+        as LTK Manager itself would to rebuild the overlay.
+
+        Each import installs a new copy, so the id it creates is recorded in
+        the state file right away: _end_session removes them again, and a
+        crashed session is cleaned up by the next one. report=False keeps
+        failures out of Troubleshooting (the staging leaves that to the
+        injection); *stopped* tells when to give up. *archives* are folders
+        already packed (pack_mods), imported as they are.
+        """
+        bridge = session["bridge"]
+        folder_dir = Path(folder_dir) if folder_dir else self.mods_dir
+        if stopped is None:
+            stopped = lambda: self._session_stopped(session)
+        session["library_snapshot"] = None
+
+        wanted = []
+        for name in mod_names:
+            folder = folder_dir / name
+            if not folder.is_dir():
+                log.error(f"[INJECT] Mod folder not found: {folder}")
+                continue
+            try:
+                wanted.append((name, folder, mod_fingerprint(folder)))
+            except OSError as e:
+                log.error(f"[INJECT] Could not read the mod folder {folder}: {e}")
+        if not wanted:
+            log.error("[INJECT] No mods could be installed into LTK Manager")
+            if report and not stopped():
+                report_issue(
+                    "LTF_IMPORT_FAILED",
+                    "error",
+                    "Injection failed: no mods could be installed into LTK Manager.",
+                    details={"mods": "/".join(mod_names)},
+                    hint=f"Retry; if it keeps happening, report it with rose_*.log. {LTF_LOGS_HINT}",
+                )
+            return False
+
+        kept, to_import = set(), []
+        for name, folder, fingerprint in wanted:
+            match = next(
+                (mod_id for mod_id, known in session["fingerprints"].items()
+                 if known == fingerprint and mod_id not in kept),
+                None,
+            )
+            if match is None:
+                to_import.append((name, folder, fingerprint))
+            else:
+                kept.add(match)
+        unwanted = [mod_id for mod_id in session["installed"] if mod_id not in kept]
+        if not to_import and not unwanted:
+            return True  # the library already holds exactly these mods
+
+        if session["patcher_running"]:
+            log.warning(
+                "[INJECT] The mods differ from the ones staged during the countdown - restarting the "
+                "LTK patcher (it only overlays a game the client starts after that)"
+            )
+            self._stop_patcher(session)
+        if unwanted and not self._remove_unwanted(session, unwanted):
+            return False
+
+        staging = self._staging_root() / uuid.uuid4().hex
+        # One read of the library for all the imports (and _disable_other_mods
+        # after them): each read is a round trip through LTK Manager
+        library: Optional[list] = None
+        try:
+            for name, folder, fingerprint in to_import:
+                if stopped():
+                    log.info("[INJECT] Stopped while the mods were being installed")
+                    return False
+                display_name = fantome_display_name(folder)
+                try:
+                    if library is None:
+                        library = bridge.library()
+                    archive = (archives or {}).get(name)
+                    if archive is None or not Path(archive).is_file():
+                        staging.mkdir(parents=True, exist_ok=True)
+                        archive = staging / f"{name}.fantome"
+                        write_fantome_zip(folder, archive)
+                    before_ids = {str(e.get("id")) for e in library if e.get("id")}
+                    entry = self._import_archive(session, Path(archive), folder, display_name, fingerprint,
+                                                 before_ids=before_ids)
+                    library.append(entry)
+                    if not entry.get("enabled"):
+                        bridge.toggle(str(entry.get("id")), True)
+                    log.info(f"[INJECT] Installed {display_name} into LTK Manager")
+                except (OSError, BridgeUnavailable, BridgeCommandError) as e:
+                    log.error(f"[INJECT] Could not install {display_name}: {e}")
+                    if report and not stopped():
+                        if not self._report_low_disk_space_failure(mod_names):
+                            report_issue(
+                                "LTF_IMPORT_FAILED",
+                                "error",
+                                f"Injection failed: could not install {display_name} ({e}).",
+                                details={"mod": folder.name, "error": str(e)},
+                                hint=f"Free some disk space, then retry. {LTF_LOGS_HINT}",
+                            )
+                    return False
+            session["library_snapshot"] = library
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        return True
+
+    def pack_mods(self, folder_dir: Path, mod_names: List[str]) -> Dict[str, Path]:
+        """Pack the mod folders into the archives LTK Manager imports, ahead of the install.
+
+        The countdown's stager packs while the selection settles, so its
+        install only has to import (stage_mods(archives=...)). Each archive
+        lands next to its folder (<folder_dir>/<name>.fantome); a folder that
+        cannot be packed is left out and packed by the install instead.
+        """
+        archives: Dict[str, Path] = {}
+        for name in mod_names:
+            folder = Path(folder_dir) / name
+            archive = Path(folder_dir) / f"{name}.fantome"
+            try:
+                write_fantome_zip(folder, archive)
+                archives[name] = archive
+            except OSError as e:
+                log.debug(f"[STAGE] Could not pack {name} ahead of the install: {e}")
+        return archives
+
+    def _start_patcher(self, session: dict, report: bool = True) -> bool:
+        """Start LTK Manager's patcher (it builds the overlay, then scans for the game)."""
+        tail = LtkLogTail(LtkLogTail.log_dir())  # LTK's own log from this start on
+        try:
+            session["bridge"].start_patcher()
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.error(f"[INJECT] Could not start the LTK patcher: {e}")
+            if report and not self._session_stopped(session):
+                self._report_ltf_failure(f"could not start the LTK patcher ({e})")
+            return False
+        session["patcher_running"] = True
+        session["patcher_started_at"] = time.monotonic()
+        session["ltk_log"] = tail
+        # This start builds its own overlay and scan
+        session["overlay_build_s"] = None
+        session["scan_started_at"] = None
+        session["staged_after_s"] = None
+        return True
+
+    def _stop_patcher(self, session: dict) -> None:
+        try:
+            session["bridge"].stop_patcher()
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.debug(f"[INJECT] Could not stop the LTK patcher: {e}")
+        session["patcher_running"] = False
+
+    # -- staging during the loadout countdown ---------------------------------
+    def open_staging(self) -> None:
+        """Let stage_mods prepare LTK Manager for this champ select."""
+        with self._session_lock:
+            self._staging_open = True
+            self._early_discard = False
+
+    def close_staging(self) -> None:
+        """No more staging: the injection (or a discard) owns the session now."""
+        with self._session_lock:
+            self._staging_open = False
+
+    def _staging_session(self) -> Optional[dict]:
+        """The early session, connected (or LTK Manager started) if it is not up."""
+        with self._connect_lock:
+            with self._session_lock:
+                session = self._early_session
+            if session is not None and self._check_bridge(session):
+                return session
+            if session is not None:
+                with self._session_lock:
+                    if self._early_session is session:
+                        self._early_session = None
+                self._end_session(session)
+            session = self._start_ltf_session(
+                report=False, cancelled=lambda: self._early_discard or not self._staging_open
+            )
+            if session is None:
+                return None
+            with self._session_lock:
+                keep = self._staging_open and not self._early_discard
+                if keep:
+                    self._early_session = session
+            if not keep:
+                self._end_session(session)
+                return None
+            return session
+
+    def stage_mods(self, folder_dir: Path, mod_names: List[str],
+                   still_wanted: Callable[[], bool] = lambda: True,
+                   archives: Optional[Dict[str, Path]] = None,
+                   selected_at: Optional[float] = None) -> bool:
+        """Install these mods and start LTK Manager's patcher during the countdown.
+
+        The patcher only overlays a game the client creates after its scan
+        started, and the client creates the game about a second after the
+        injection begins: too soon to install the mods and start the patcher
+        then. Staged here, the injection finds the same mods installed
+        (mod_fingerprint) and leaves the library alone, so the scan keeps
+        running. *archives* are the folders already packed (pack_mods);
+        *selected_at* (time.monotonic()) is when the player picked them.
+        Returns whether the mods are staged.
+        """
+        def stopped() -> bool:
+            return not still_wanted()
+
+        with self._stage_lock:
+            # Once the injection closed staging nothing new starts; an install
+            # already running goes on while it is still wanted (the injection
+            # waits for this lock and takes it over when it is its own skin)
+            if not self._staging_open or stopped() or self.game_dir is None:
+                return False
+            session = self._staging_session()
+            if session is None or stopped():
+                return False
+            if not self._install_mods(session, mod_names, folder_dir, report=False,
+                                      stopped=lambda: session["ended"] or stopped(), archives=archives):
+                return False
+            if session["ended"] or stopped():
+                return False
+            self._disable_other_mods(session)
+            restarted = not session["patcher_running"]
+            if restarted and not self._start_patcher(session, report=False):
+                return False
+            if not restarted:
+                log.info(f"[STAGE] {', '.join(mod_names)} already staged - the LTK patcher keeps its scan")
+                return True
+            after = ""
+            if selected_at is not None:
+                elapsed = time.monotonic() - selected_at
+                session["staged_after_s"] = elapsed
+                after = f" {elapsed:.1f}s after the pick"
+            log.info(
+                f"[STAGE] Staged {', '.join(mod_names)}{after} - LTK Manager builds the overlay, "
+                "then scans for the game (it only overlays a game created after that)"
+            )
+            return True
+
+    def _disable_other_mods(self, session: dict) -> None:
+        """Turn off the user's own enabled mods for this session.
+
+        LTK Manager's patcher applies every enabled mod, and the overlay must
+        hold Rose's alone (as mod-tools' did). Each one is recorded before it
+        is turned off, so a crash still turns it back on next session.
+        """
+        bridge = session["bridge"]
+        # What _install_mods just read (with its imports added) is still the library
+        library, session["library_snapshot"] = session.get("library_snapshot"), None
+        try:
+            if library is None:
+                library = bridge.library()
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.warning(f"[INJECT] Could not read LTK Manager's library - its other enabled mods may apply too: {e}")
+            return
+        for entry in library:
+            mod_id = str(entry.get("id") or "")
+            if not mod_id or mod_id in session["installed"] or not entry.get("enabled"):
+                continue
+            self._track_disabled(session, mod_id)
+            try:
+                bridge.toggle(mod_id, False)
+                log.info(f"[INJECT] Turned off {self._entry_name(entry)} in LTK Manager for this game")
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.warning(f"[INJECT] Could not turn off {self._entry_name(entry)} - it may apply too: {e}")
+
+    # -- injection ----------------------------------------------------------
+    def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
+        """Install the mods and run LTK Manager's patcher until the game ends
+
+        Args:
+            mod_names: List of mod folders (in mods_dir) to inject
+            timeout: Unused (kept for backward compatibility) - the session runs until explicitly stopped
+            stop_callback: Optional callback to check if game ended
+            injection_manager: Optional injection manager for game resume
+        """
+        if self.game_dir is None:
+            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
+            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
+            return 127
+
+        if self.process_manager:
+            # A stop from the previous session must not count against this
+            # one; a stop from now on does, even while LTK Manager starts
+            self.process_manager.stopped_by_user = False
+            self.process_manager.stopped_by_rose = False
+
+        # The countdown's staging ends here (an in-flight one finishes first:
+        # its mods are likely the ones this injection wants)
+        self.close_staging()
+        with self._stage_lock:
+            session = self._acquire_session()
+            if session is None:
+                return 0 if self._stopped_by_rose() else 1
+            if self._session_stopped(session):
+                log.info("[INJECT] Injection stopped while LTK Manager was starting")
+                self._end_session(session)
+                return 0
+
+            install_start = time.time()
+            installed = self._install_mods(session, mod_names)
+            self.last_injection_timing = {
+                "import_duration": time.time() - install_start,
+                "timestamp": time.time(),
+            }
+            if not installed:
+                stopped = self._session_stopped(session)
+                self._end_session(session)
+                return 0 if stopped else 1
+
+            # The extracted files were packed into LTK Manager's own archives
+            self._wipe_mods_dir()
+            if self._session_stopped(session):
+                self._end_session(session)
+                return 0
+            self._disable_other_mods(session)
+
+            if self.process_manager:
+                # Rose's cleanup (user stop, lobby change, shutdown) ends the
+                # session gracefully instead of killing the manager outright
+                session["stopper"] = lambda: self._end_session(session)
+                self.process_manager.set_session_stopper(session["stopper"])
+            if session["patcher_running"]:
+                self._read_ltk_log(session)
+                log.info(f"[INJECT] The staged mods are the ones to inject - {self._patcher_progress(session)}")
+            elif not self._start_patcher(session):
+                self._end_session(session)
+                return 1
+
+        if not self._wait_for_patcher(session):
+            failed = bool(session["error"]) and not self._stopped_by_rose()
+            if failed:
+                log.error(f"[INJECT] LTK patcher failed: {session['error']}")
+                self._report_ltf_failure(session["error"])
+            self._end_session(session)
+            return 1 if failed else 0
+
+        log_event(log, "Mods installed - resuming game for the LTK patcher", "❄️")
+        return self._run_session(session, stop_callback, injection_manager)
+
+    def _wait_for_patcher(self, session: dict) -> bool:
+        """Wait until the patcher has built the overlay and is scanning.
+
+        False when it failed (session["error"]) or the session was stopped.
+        A patcher still building at the timeout gets the game anyway: the
+        game monitor would resume it soon.
+        """
+        start = time.monotonic()
+        deadline = start + PATCHER_READY_TIMEOUT_S
+        while time.monotonic() < deadline:
+            if self._session_stopped(session):
+                return False
+            value = self._read_patcher_status(session)
+            if session["error"]:
+                return False
+            if value is not None:
+                phase = str(value.get("phase") or "").lower()
+                session["state"] = phase or ("running" if value.get("running") else "idle")
+                if phase in ("failed", "error"):
+                    session["error"] = f"the LTK patcher is {phase}"
+                    return False
+                if value.get("running") and phase not in ("building", "idle"):
+                    log.info(
+                        f"[INJECT] LTK patcher ready (phase={phase or 'running'}) "
+                        f"after {time.monotonic() - start:.1f}s"
+                    )
+                    return True
+                if (not value.get("running") and phase in ("", "idle")
+                        and time.monotonic() - start >= PATCHER_IDLE_GRACE_S):
+                    session["error"] = "the LTK patcher stopped before it was ready"
+                    return False
+            time.sleep(PATCHER_READY_POLL_S)
+        log.warning(
+            f"[INJECT] The LTK patcher is not ready after {PATCHER_READY_TIMEOUT_S:.0f}s "
+            f"(phase={session['state'] or 'unknown'}) - resuming the game anyway"
+        )
+        return True
+
+    def _run_session(self, session: dict, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
+        """Resume the game and serve the overlay until the game exits."""
+        try:
+            # The patcher cannot find a frozen game; it hooks it right after resume
+            if injection_manager:
+                log.info("[INJECT] Overlay ready - resuming game for the LTK patcher")
+                injection_manager.resume_game()
+
+            ticks = 0
+            while True:
+                if session["ended"]:
+                    break
+                if stop_callback and stop_callback():
+                    # The client can close during a match (CN/WeGame), which looks
+                    # like the end of the game: serve the overlay until the game exits
+                    game = self._running_game()
+                    if game is not None:
+                        log.info("[INJECT] The game is still running - keeping the LTK patcher until it exits")
+                        self._wait_for_game_exit(game, session)
+                        if session["ended"] or session["error"]:
+                            break  # the session itself stopped: handled below
+                        if not stop_callback():
+                            continue  # the game came back (reconnect)
+                    log.info("[INJECT] Game ended, stopping LTK patcher")
+                    break
+                if session["ended"]:
+                    continue  # Rose stopped the session while the callback ran
+                if not self._check_bridge(session):
+                    session["error"] = "the LTF bridge went away during the game"
+                    log.error("[INJECT] The LTF bridge went away - LTK Manager closed")
+                    break
+                ticks += 1
+                if ticks % PATCHER_STATUS_POLL_TICKS == 0:
+                    self._poll_patcher_status(session)
+                    if session["error"] or session["done"]:
+                        break
+                time.sleep(PROCESS_MONITOR_SLEEP_S)
+
+            if session["error"] and not self._stopped_by_rose():
+                log.error(f"[INJECT] LTK patcher failed: {session['error']}")
+        except Exception as e:
+            log.error(f"[INJECT] LTF session error: {e}")
+            if not session["error"]:
+                session["error"] = str(e)
+        finally:
+            stopped = self._stopped_by_rose()
+            self._end_session(session)
+
+        if stopped:
+            log.info("[INJECT] LTK patcher stopped by Rose")
+            return 0
+        if session["error"]:
+            self._report_ltf_failure(session["error"])
+            return 1
+        log.debug("[INJECT] LTF session completed successfully")
+        return 0
+
+    def _read_patcher_status(self, session: dict) -> Optional[dict]:
+        """The patcher status value ({running, phase, session, ...}), or None.
+
+        The status answers {ok, response: {ok, value}}. A missing answer (CDP
+        busy with another command, a slow eval) is retried on the next poll;
+        only STATUS_FAILURE_LIMIT of them in a row fail the session.
+        """
+        bridge = session["bridge"]
+        try:
+            response = bridge.patcher_status()
+        except BridgeUnavailable as e:
+            if not bridge.alive():
+                session["error"] = "the LTF bridge went away during the game"
+                return None
+            failure = str(e)
+        else:
+            payload = response.get("response")
+            if response.get("ok") is False or not isinstance(payload, dict) or payload.get("ok") is False:
+                source = payload if isinstance(payload, dict) and payload.get("ok") is False else response
+                failure = str(source.get("error") or source.get("message") or "no answer")
+            elif isinstance(payload.get("value"), dict):
+                session["status_failures"] = 0
+                return payload["value"]
+            else:
+                failure = "the status had no value"
+        session["status_failures"] += 1
+        log.debug(f"[INJECT] LTK patcher status unavailable ({failure})")
+        if session["status_failures"] >= STATUS_FAILURE_LIMIT:
+            session["error"] = f"the LTK patcher stopped answering ({failure})"
+        return None
+
+    @staticmethod
+    def _note_ltk_text(session: dict, text: str) -> None:
+        """Record what LTK Manager's log (or its patcher status) says: the
+        overlay's build time, the scan's start, and the DLL's verdict."""
+        if not text:
+            return
+        lowered = text.lower()
+        if "dll attached" in lowered:
+            session["ltk_attached"] = True
+        if LATE_JOIN_MESSAGE in lowered:
+            session["ltk_late"] = True
+        refused = OVERLAY_REFUSED_CODE.search(text)
+        if refused and session.get("ltk_refused") is None:
+            session["ltk_refused"] = (refused.group(1).upper(), (refused.group(2) or "").strip())
+        if session.get("overlay_build_s") is None:
+            built = OVERLAY_BUILT_LINE.search(text)
+            if built:
+                amount = float(built.group(1))
+                session["overlay_build_s"] = amount / 1000.0 if built.group(2) == "ms" else amount
+        if session.get("scan_started_at") is None:
+            scanning = SCAN_STARTED_LINE.search(text)
+            if scanning:
+                session["scan_started_at"] = _ltk_log_time(scanning.group(1))
+
+    def _read_ltk_log(self, session: dict) -> None:
+        """Read what LTK Manager logged since the last read (see _note_ltk_text)."""
+        tail = session.get("ltk_log")
+        if tail is not None:
+            self._note_ltk_text(session, tail.read())
+
+    @staticmethod
+    def _patcher_progress(session: dict) -> str:
+        """Where the started patcher is, from LTK Manager's log: still building
+        the overlay, or scanning (since when)."""
+        started = time.monotonic() - session.get("patcher_started_at", time.monotonic())
+        tail = session.get("ltk_log")
+        if tail is None or tail.directory is None:
+            return f"the LTK patcher was started {started:.1f}s ago"
+        build = session.get("overlay_build_s")
+        built = f" (overlay built in {build:.1f}s)" if build is not None else ""
+        scan = session.get("scan_started_at")
+        if scan is not None:
+            return f"the LTK patcher has been scanning for {max(0.0, time.time() - scan):.1f}s{built}"
+        if build is not None:
+            return f"the LTK patcher was started {started:.1f}s ago and is not scanning yet{built}"
+        return f"the LTK patcher was started {started:.1f}s ago and is still building the overlay"
+
+    def _late_join_detail(self, session: dict) -> str:
+        """Why the patcher came too late, from what Rose saw: when its scan
+        started against when the client created the game, and what took the
+        time before it ("" when nothing is known)."""
+        parts = []
+        scan = session.get("scan_started_at")
+        game = self._running_game() if scan is not None else None
+        created = None
+        if game is not None:
+            try:
+                created = game.create_time()
+            except (psutil.Error, OSError, AttributeError):
+                created = None
+        if scan is not None and created is not None:
+            gap = scan - created
+            if gap >= 0:
+                parts.append(f"its scan started {gap:.1f}s after the client created the game")
+            else:
+                parts.append(f"its scan started {-gap:.1f}s before the client created the game")
+        build = session.get("overlay_build_s")
+        if build is not None:
+            parts.append(f"LTK Manager took {build:.1f}s to build the overlay")
+        staged = session.get("staged_after_s")
+        if staged is not None:
+            parts.append(f"Rose started it {staged:.1f}s after the skin was picked")
+        return "; ".join(parts)
+
+    def _check_patcher_verdict(self, session: dict, value: Optional[dict] = None) -> None:
+        """Log the patcher reaching the game, and report it joining too late
+        (the DLL then stays inert: the game runs without the overlay)."""
+        if value is not None:
+            try:
+                self._note_ltk_text(session, json.dumps(value))
+            except (TypeError, ValueError):
+                pass
+        self._read_ltk_log(session)
+        if session["ltk_attached"] and not session["attach_logged"]:
+            session["attach_logged"] = True
+            log.info("[INJECT] The LTK patcher attached to the game")
+        if session["ltk_late"] and not session["late_join_reported"]:
+            session["late_join_reported"] = True
+            detail = self._late_join_detail(session)
+            log.error(
+                "[INJECT] The LTK patcher joined the game too late - the overlay is not applied this game"
+                + (f" ({detail})" if detail else "")
+            )
+            if not self._stopped_by_rose():
+                self._report_ltf_failure(
+                    "the game started before the LTK patcher was scanning (joined too late"
+                    + (f": {detail})" if detail else ")")
+                )
+        refused = session["ltk_refused"]
+        if refused and not session["refused_reported"]:
+            session["refused_reported"] = True
+            check, seen = refused
+            described = f"{check} ({seen})" if seen else check
+            log.error(f"[INJECT] The LTK patcher refused the overlay: host verification failed {described}")
+            if not self._stopped_by_rose():
+                self._report_ltf_failure(
+                    f"LTK Manager's patcher refused the overlay (host verification failed: {described})"
+                )
+
+    def _poll_patcher_status(self, session: dict) -> None:
+        """Record what the LTK patcher reports while the game runs.
+
+        A patcher that only stops early is logged, not failed: whether it
+        completed cannot be told apart from it giving up, and the bridge
+        aliveness already catches the crash case. A stopped patcher ends the
+        session only once the game it served has exited: before the game
+        appears, the session waits for it (or for Rose to end it).
+        """
+        value = self._read_patcher_status(session)
+        if value is None:
+            return
+        phase = str(value.get("phase") or "").lower()
+        session["state"] = phase or ("running" if value.get("running") else "idle")
+        self._check_patcher_verdict(session, value)
+        if phase in ("failed", "error"):
+            session["error"] = f"the LTK patcher is {phase}"
+            return
+        game = self._running_game()
+        if game is not None:
+            session["game_seen"] = True
+        if value.get("running"):
+            return
+        if game is None:
+            if session["game_seen"]:
+                session["done"] = True  # the game is over; the loop ends on it
+        elif not session["early_stop_logged"]:
+            session["early_stop_logged"] = True
+            log.warning(
+                f"[INJECT] The LTK patcher stopped on its own (phase={phase or 'unknown'}) "
+                "while the game was running"
+            )
+
+    @staticmethod
+    def _running_game():
+        """The game's process, if a game is running (either executable name)."""
+        if not PSUTIL_AVAILABLE:
+            return None
+        names = {name.lower() for name in GAME_EXECUTABLE_NAMES}
+        try:
+            for proc in psutil.process_iter(['name']):
+                if (proc.info.get('name') or '').lower() in names:
+                    return proc
+        except (psutil.Error, OSError) as e:
+            log.debug(f"[INJECT] Could not look for the game process: {e}")
+        return None
+
+    def _wait_for_game_exit(self, game, session: dict) -> None:
+        """Wait on the game process itself; stop early if the bridge dies."""
+        while not session["ended"] and not session["error"]:
+            try:
+                game.wait(timeout=1.0)
+                return
+            except psutil.TimeoutExpired:
+                self._check_patcher_verdict(session)
+                if not self._check_bridge(session):
+                    session["error"] = "the LTF bridge went away during the game"
+                    return
+            except psutil.Error:
+                return
+
+    def mk_overlay_only(self, mod_names: List[str], timeout: int = 60) -> int:
+        """Install the mods into LTK Manager without starting its patcher - for testing"""
+        if self.game_dir is None:
+            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
+            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
+            return 127
+
+        if self.process_manager:
+            self.process_manager.stopped_by_user = False
+            self.process_manager.stopped_by_rose = False
+
+        session = self._acquire_session()
+        if session is None:
+            return 1
+
+        install_start = time.time()
+        installed = self._install_mods(session, mod_names)
+        self.last_injection_timing = {
+            "import_duration": time.time() - install_start,
+            "timestamp": time.time(),
+        }
+        if not installed:
+            self._end_session(session)
+            return 1
+
+        # Leave the mods installed without starting the patcher; the next
+        # session removes them through the state file
+        if self.process_manager:
+            session["stopper"] = lambda: self._end_session(session)
+            self.process_manager.set_session_stopper(session["stopper"])
+        log.info("[INJECT] Mods installed in LTK Manager (patcher not started)")
+        return 0
+
+    # -- reporting ----------------------------------------------------------
     @staticmethod
     def _directory_size(directory: Path) -> int:
         '''Return the best-effort size of files below *directory*.'''
@@ -145,19 +1553,8 @@ class OverlayManager:
             value /= 1024
         return f'{value:.1f} TB'
 
-    def _report_low_disk_space_failure(
-        self,
-        output_lines: Optional[List[str]] = None,
-        mod_names: Optional[List[str]] = None,
-        result_code: Optional[int] = None,
-    ) -> bool:
-        '''Report a failed overlay when its output drive is out of space.'''
-        output = ' '.join(output_lines or ()).lower()
-        tool_reported_disk_error = (
-            any(marker in output for marker in DISK_SPACE_ERROR_MARKERS)
-            or result_code in (28, 112)
-        )
-
+    def _report_low_disk_space_failure(self, mod_names: Optional[List[str]] = None) -> bool:
+        '''Report a failed import when its output drive is out of space.'''
         free_bytes = None
         required_bytes = max(MIN_FREE_SPACE_BYTES, DISK_SPACE_HEADROOM_BYTES)
         try:
@@ -171,11 +1568,10 @@ class OverlayManager:
         except (OSError, ValueError) as exc:
             log.debug(f'[INJECT] Could not inspect free disk space after injection failure: {exc}')
 
-        low_disk_space = free_bytes is not None and free_bytes < required_bytes
-        if not low_disk_space and not tool_reported_disk_error:
+        if free_bytes is None or free_bytes >= required_bytes:
             return False
 
-        free_text = self._format_bytes(free_bytes) if free_bytes is not None else 'an unknown amount'
+        free_text = self._format_bytes(free_bytes)
         required_text = self._format_bytes(required_bytes)
         log.error(
             '[INJECT] Injection failed because disk space is too low '
@@ -184,7 +1580,7 @@ class OverlayManager:
         report_issue(
             'LOW_DISK_SPACE',
             'error',
-            f'Injection failed: not enough disk space for the overlay ({free_text} free).',
+            f'Injection failed: not enough disk space to install the mod ({free_text} free).',
             details={
                 'free_bytes': free_bytes,
                 'required_bytes': required_bytes,
@@ -196,674 +1592,59 @@ class OverlayManager:
         return True
 
     @staticmethod
-    def _running_game():
-        """The game's process, if a game is running (either executable name)."""
-        if not PSUTIL_AVAILABLE:
-            return None
-        names = {name.lower() for name in GAME_EXECUTABLE_NAMES}
-        try:
-            for proc in psutil.process_iter(['name']):
-                if (proc.info.get('name') or '').lower() in names:
-                    return proc
-        except (psutil.Error, OSError) as e:
-            log.debug(f"[INJECT] Could not look for the game process: {e}")
-        return None
-
-    @staticmethod
-    def _wait_for_game_exit(game, patcher, session: dict) -> None:
-        """Wait on the game process itself; stop early if the patcher dies."""
-        while patcher.poll() is None and session["state"] != "failed":
-            try:
-                game.wait(timeout=1.0)
-                return
-            except psutil.TimeoutExpired:
-                continue
-            except psutil.Error:
-                return
-    
-    def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
-        """Create and run overlay
-        
-        Args:
-            mod_names: List of mod names to inject
-            timeout: Unused (kept for backward compatibility) - overlay runs until explicitly killed
-            stop_callback: Optional callback to check if game ended
-            injection_manager: Optional injection manager for game resume
-        """
-        if self.game_dir is None:
-            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
-            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
-            return 127
-        
-        from ..tools.tools_manager import ToolsManager
-        tools_manager = ToolsManager(self.tools_dir)
-        tools = tools_manager.detect_tools()
-        exe = tools.get("modtools")
-        if not exe or not exe.exists():
-            log.error(f"[INJECTOR] Missing mod-tools.exe in {self.tools_dir}")
-            return 127
-        
-        # Use overlay directory (should already be clean from _clean_overlay_dir)
-        overlay_dir = self.mods_dir.parent / "overlay"
-        overlay_dir.mkdir(parents=True, exist_ok=True)
-        
-        ltk_host = tools_manager.detect_ltk_patcher()
-        if not ltk_host:
-            log.error("[INJECT] LTK patcher not found (ltk_patcher_host.exe + ltk_patcher_dll.dll)")
-            report_issue(
-                "LTK_PATCHER_MISSING",
-                "error",
-                "Injection failed: the LTK patcher is missing.",
-                hint="Copy ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder.",
-            )
-            return 1
-
-        # League may have updated past the DLL's end of life since Rose started
-        patcher = check_ltk_patcher(ltk_host.parent)
-        if patcher.expired_for(self.game_dir):
-            eol = time.strftime("%Y-%m-%d %H:%M", time.localtime(patcher.eol))
-            log.error(f"[INJECT] LTK patcher does not support game builds after {eol}")
-            self._report_ltk_patcher_eol(eol)
-            return 1
-
-        # The DLL only overlays games launched after the scan started, so the
-        # host must already be scanning when the game starts
-        if self.process_manager:
-            self.process_manager.stopped_by_user = False
-        patcher_session = self._take_early_patcher() or self._start_ltk_patcher(ltk_host, overlay_dir)
-        if not patcher_session:
-            return 1
-
-        names_str = "/".join(mod_names)
-        gpath = str(self.game_dir)
-
-        # Create overlay (this is the actual injection work)
-        # Based on CSLOL source: flags.contains("--ignoreConflict") in main_mod_tools.cpp:332
-        # Documentation: mod-tools.md shows --ignoreConflict flag (camelCase, no --opts: prefix)
-        cmd = [
-            str(exe), "mkoverlay", str(self.mods_dir), str(overlay_dir),
-            f"--game:{gpath}", f"--mods:{names_str}", "--noTFT",
-            "--ignoreConflict"
-        ]
-        
-        log.debug(f"[INJECT] Creating overlay: {' '.join(cmd)}")
-        mkoverlay_start = time.time()
-        output_lines = []
-        error_lines = []
-        try:
-            # Hide console window on Windows
-            import sys
-            creationflags = 0
-            if sys.platform == "win32":
-                creationflags = subprocess.CREATE_NO_WINDOW
-            
-            # Capture both stdout and stderr - CSLOL uses logi() which may write to stdout
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, text=True, bufsize=1)
-            
-            # Boost process priority to maximize CPU contention if enabled
-            if ENABLE_MKOVERLAY_PRIORITY_BOOST and PSUTIL_AVAILABLE:
-                try:
-                    p = psutil.Process(proc.pid)
-                    p.nice(psutil.HIGH_PRIORITY_CLASS)
-                    log.debug(f"[INJECT] Boosted mkoverlay process priority (PID={proc.pid})")
-                except Exception as e:
-                    log.debug(f"[INJECT] Could not boost process priority: {e}")
-            
-            # Wait for process to complete with timeout
-            # Read both stdout and stderr in separate threads to see what mkoverlay is doing
-            def read_output(pipe, lines_list, prefix):
-                try:
-                    for line in pipe:
-                        if line:
-                            stripped = line.strip()
-                            if stripped:
-                                lines_list.append(stripped)
-                except Exception as e:
-                    log.debug(f"[INJECT] Error reading {prefix}: {e}")
-            
-            stdout_thread = threading.Thread(target=read_output, args=(proc.stdout, output_lines, "stdout"), daemon=True)
-            stderr_thread = threading.Thread(target=read_output, args=(proc.stderr, error_lines, "stderr"), daemon=True)
-            stdout_thread.start()
-            stderr_thread.start()
-            
-            try:
-                proc.wait(timeout=timeout)
-                # Give threads a moment to finish reading
-                stdout_thread.join(timeout=1.0)
-                stderr_thread.join(timeout=1.0)
-                if output_lines or error_lines:
-                    log.debug(f"[INJECT] mkoverlay completed - {len(output_lines)} stdout, {len(error_lines)} stderr lines")
-            except subprocess.TimeoutExpired:
-                # Process timed out - log what we have so far
-                all_lines = output_lines + error_lines
-                if all_lines:
-                    log.warning(f"[INJECT] mkoverlay timeout - last output: {'; '.join(all_lines[-10:])}")  # Last 10 lines
-                else:
-                    log.warning("[INJECT] mkoverlay timeout - no output captured")
-                proc.kill()
-                proc.wait()
-                raise
-            mkoverlay_duration = time.time() - mkoverlay_start
-            
-            if proc.returncode != 0:
-                self._report_low_disk_space_failure(
-                    output_lines + error_lines,
-                    mod_names,
-                    result_code=proc.returncode,
-                )
-                log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})")
-                self._abort_ltk_patcher(patcher_session)
-                return proc.returncode
-            else:
-                log_success(log, f"mkoverlay completed in {mkoverlay_duration:.2f}s", "⚡")
-                # Store timing data for external access
-                self.last_injection_timing = {
-                    'mkoverlay_duration': mkoverlay_duration,
-                    'timestamp': time.time()
-                }
-
-                self._restore_wad_headers(overlay_dir, Path(gpath))
-
-                # Wipe extracted skin files now that mkoverlay is done with them
-                self._wipe_mods_dir()
-
-                # Hide overlay files so they can't be easily browsed
-                self._hide_directory(overlay_dir)
-
-                # DON'T resume game yet - keep it frozen until runoverlay starts
-                log_event(log, "mkoverlay done - keeping game frozen until the overlay is served", "❄️")
-                
-        except subprocess.TimeoutExpired:
-            log.error("[INJECT] mkoverlay timeout - monitor will auto-resume if needed")
-            report_issue(
-                "MKOVERLAY_TIMEOUT",
-                "error",
-                "Injection timed out while preparing the overlay (took too long).",
-                details={"timeout_s": timeout},
-                hint="Try increasing Monitor Auto-Resume Timeout and/or using smaller mods.",
-            )
-            self._report_low_disk_space_failure(output_lines + error_lines, mod_names)
-            self._abort_ltk_patcher(patcher_session)
-            return 124
-        except Exception as e:
-            log.error(f"[INJECT] mkoverlay error: {e} - monitor will auto-resume if needed")
-            report_issue(
-                "MKOVERLAY_ERROR",
-                "error",
-                "Injection failed while preparing the overlay.",
-                details={"error": str(e)},
-                hint="Check Rose logs for details, then retry.",
-            )
-            self._report_low_disk_space_failure(output_lines + error_lines, mod_names)
-            self._abort_ltk_patcher(patcher_session)
-            return 1
-
-        return self._run_ltk_patcher(patcher_session, overlay_dir, stop_callback, injection_manager)
-
-    def start_patcher_early(self) -> None:
-        """Start the LTK patcher now, before the mods are prepared.
-
-        The DLL only overlays games launched after the host started scanning,
-        and preparing the mods (extraction, loading screen name, party skins)
-        can take seconds on a slow PC while the client launches the game.
-        mk_run_overlay takes this session over; it reports missing or expired
-        patchers itself.
-        """
-        with self._early_patcher_lock:
-            if self.game_dir is None:
-                return
-            if self._early_patcher is not None:
-                if self._early_patcher["proc"].poll() is None:
-                    return
-                # Rose stopped it after the last game: scan again for this one
-                self._abort_ltk_patcher(self._early_patcher)
-                self._early_patcher = None
-            from ..tools.tools_manager import ToolsManager
-            ltk_host = ToolsManager(self.tools_dir).detect_ltk_patcher()
-            if not ltk_host or check_ltk_patcher(ltk_host.parent).expired_for(self.game_dir):
-                return
-            overlay_dir = self.mods_dir.parent / "overlay"
-            overlay_dir.mkdir(parents=True, exist_ok=True)
-            if self.process_manager:
-                self.process_manager.stopped_by_user = False
-            self._early_patcher = self._start_ltk_patcher(ltk_host, overlay_dir)
-
-    def _take_early_patcher(self) -> Optional[dict]:
-        """The patcher started by start_patcher_early, if it is still running."""
-        with self._early_patcher_lock:
-            patcher_session, self._early_patcher = self._early_patcher, None
-        if patcher_session and patcher_session["proc"].poll() is None:
-            return patcher_session
-        if patcher_session:
-            self._abort_ltk_patcher(patcher_session)
-        return None
-
-    def discard_early_patcher(self) -> None:
-        """Stop an early patcher whose injection never built its overlay."""
-        with self._early_patcher_lock:
-            patcher_session, self._early_patcher = self._early_patcher, None
-        if patcher_session:
-            log.debug("[INJECT] Stopping the LTK patcher started for an injection that did not happen")
-            self._abort_ltk_patcher(patcher_session)
-
-    def _start_ltk_patcher(self, host_exe: Path, overlay_dir: Path) -> Optional[dict]:
-        """Start the LTK patcher host and begin scanning for the game.
-
-        The host speaks a line protocol: config/start commands on stdin and
-        "status <ts> <state> <msg>" / "error <ts> <msg>" events on stdout.
-        It stays alive between sessions, so we stop it once the game exits.
-        """
-        import sys
-        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        prefix = str(overlay_dir).rstrip("\\/") + "\\"
-        commands = [
-            f"config loglevel {LTK_PATCHER_LOG_LEVEL}",
-            f"config flags {LTK_PATCHER_FLAGS}",
-            f"config prefix {prefix}",
-            "start scan",
-        ]
-
-        runoverlay_log = self._open_runoverlay_log()
-        session = {"state": None, "error": None, "eol": False}
-
-        def read_events(pipe):
-            try:
-                for line in pipe:
-                    line = line.rstrip("\r\n")
-                    if not line:
-                        continue
-                    if runoverlay_log:
-                        runoverlay_log.write(line + "\n")
-                        runoverlay_log.flush()
-                    parts = line.split(" ", 3)
-                    if parts[0] == "status" and len(parts) >= 3:
-                        session["state"] = parts[2]
-                        message = parts[3] if len(parts) > 3 else ""
-                        log.info(f"[INJECT] LTK patcher: {parts[2]} {message}".rstrip())
-                        if parts[2] == "failed":
-                            session["error"] = message or "injection failed"
-                    elif parts[0] == "error":
-                        session["error"] = line
-                        log.error(f"[INJECT] LTK patcher error: {line}")
-                    elif parts[0] == "dll" and END_OF_LIFE_MESSAGE in line:
-                        # The DLL refuses game builds newer than its end-of-life date
-                        session["error"] = line
-                        session["eol"] = True
-                        log.error("[INJECT] LTK patcher DLL reached its end of life for this game build")
-                    elif parts[0] == "dll" and LATE_JOIN_MESSAGE in line:
-                        # The game was launched before the host started scanning
-                        session["error"] = LATE_JOIN_ERROR
-                        log.error("[INJECT] LTK patcher DLL joined the game too late - overlay not applied")
-                    elif parts[0] == "dll" and " ERROR " in line:
-                        # e.g. "overlay verification failed, disabling overlay"
-                        message = line.split(" ERROR ", 1)[1]
-                        log.error(f"[INJECT] LTK patcher DLL: {message}")
-                        if "disabling overlay" in message:
-                            session["error"] = message
-            except Exception as e:
-                log.debug(f"[INJECT] Error reading LTK patcher output: {e}")
-
-        log.debug(f"[INJECT] Starting LTK patcher: {host_exe}")
-        log.info(f"[INJECT] LTK patcher files: {describe_ltk_patcher_files(host_exe.parent)}")
-        try:
-            proc = subprocess.Popen(
-                [str(host_exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                cwd=str(host_exe.parent), creationflags=creationflags,
-                text=True, encoding="utf-8", errors="replace", bufsize=1,
-            )
-        except Exception as e:
-            log.error(f"[INJECT] Could not start LTK patcher: {e}")
-            self._report_ltk_patcher_failure(f"could not start ({e})")
-            if runoverlay_log:
-                runoverlay_log.close()
-            return None
-
-        reader = threading.Thread(target=read_events, args=(proc.stdout,), daemon=True)
-        reader.start()
-        patcher_session = {"proc": proc, "session": session, "reader": reader, "log": runoverlay_log}
-        try:
-            for command in commands:
-                proc.stdin.write(command + "\n")
-            proc.stdin.flush()
-        except Exception as e:
-            log.error(f"[INJECT] Could not configure LTK patcher: {e}")
-            self._abort_ltk_patcher(patcher_session)
-            self._report_ltk_patcher_failure(f"could not start ({e})")
-            return None
-
-        if self.process_manager:
-            self.process_manager.current_overlay_process = proc
-        return patcher_session
-
-    def _abort_ltk_patcher(self, patcher_session: dict):
-        """Stop a patcher whose injection failed before the overlay was served."""
-        self._stop_ltk_patcher(patcher_session["proc"])
-        if self.process_manager:
-            self.process_manager.current_overlay_process = None
-        if patcher_session["log"]:
-            patcher_session["log"].close()
-
-    def _run_ltk_patcher(self, patcher_session: dict, overlay_dir: Path,
-                         stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
-        """Resume the game and serve the overlay until the game exits."""
-        proc = patcher_session["proc"]
-        session = patcher_session["session"]
-        reader = patcher_session["reader"]
-        runoverlay_log = patcher_session["log"]
-        try:
-            # The host cannot find a frozen game; it hooks it right after resume
-            if injection_manager:
-                log.info("[INJECT] Overlay ready - resuming game for the LTK patcher")
-                injection_manager.resume_game()
-            resumed_at = time.monotonic()
-
-            # "exited" only means this game process closed; the host goes back to
-            # scanning so a reconnect is hooked again, so wait for the game to end
-            game_ended = False
-            while proc.poll() is None:
-                if session["state"] == "failed":
-                    break
-                if stop_callback and stop_callback():
-                    # The client can close during a match (CN/WeGame), which looks
-                    # like the end of the game: serve the overlay until the game exits
-                    game = self._running_game()
-                    if game is not None:
-                        log.info("[INJECT] The game is still running - keeping the LTK patcher until it exits")
-                        self._wait_for_game_exit(game, proc, session)
-                        if proc.poll() is not None or session["state"] == "failed":
-                            continue  # the patcher itself stopped: handled below as usual
-                        if not stop_callback():
-                            continue  # the game came back (reconnect)
-                    log.info("[INJECT] Game ended, stopping LTK patcher")
-                    game_ended = True
-                    break
-                time.sleep(PROCESS_MONITOR_SLEEP_S)
-
-            self._stop_ltk_patcher(proc)
-            reader.join(timeout=1.0)
-
-            if self.process_manager and self.process_manager.stopped_by_user:
-                log.info("[INJECT] LTK patcher stopped by the user")
-                return 0
-            if session["eol"]:
-                self._log_runoverlay_tail(runoverlay_log)
-                self._report_ltk_patcher_eol()
-                return 1
-            if session["error"]:
-                log.error(f"[INJECT] LTK patcher failed: {session['error']}")
-                self._log_patcher_context(session, resumed_at)
-                self._log_runoverlay_tail(runoverlay_log)
-                self._report_ltk_patcher_failure(session["error"])
-                return 1
-            if not game_ended and proc.returncode not in (0, None):
-                if getattr(proc, "stopped_by_rose", False):
-                    # Rose's own cleanup killed it (end of game, lobby, shutdown)
-                    log.info(f"[INJECT] LTK patcher stopped by Rose (exit code {proc.returncode})")
-                    return 0
-                log.error(f"[INJECT] LTK patcher exited with return code: {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})")
-                self._log_patcher_context(session, resumed_at)
-                self._log_runoverlay_tail(runoverlay_log)
-                self._report_ltk_patcher_failure(
-                    f"exited with code {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})"
-                )
-                return proc.returncode
-            log.debug("[INJECT] LTK patcher session completed successfully")
-            return 0
-        except Exception as e:
-            log.error(f"[INJECT] LTK patcher error: {e}")
-            self._stop_ltk_patcher(proc)
-            self._report_ltk_patcher_failure(str(e))
-            return 1
-        finally:
-            if self.process_manager:
-                self.process_manager.current_overlay_process = None
-            self._wipe_overlay_dir(overlay_dir)
-            if runoverlay_log:
-                runoverlay_log.close()
-
-    @staticmethod
-    def _report_ltk_patcher_eol(eol: str = ""):
-        """Show an expired LTK patcher DLL in Troubleshooting."""
-        since = f" on {eol}" if eol else ""
-        report_issue(
-            "LTK_PATCHER_EOL",
-            "error",
-            f"Injection failed: LTK patcher reached its end of life{since}.",
-            hint="Update LTK Manager, copy its new ltk_patcher_host.exe and ltk_patcher_dll.dll into Rose's tools folder, then restart Rose.",
-        )
-
-    def _log_patcher_context(self, session: dict, resumed_at: float):
-        """Log what the patcher and the game were doing when the injection failed.
-
-        Diagnostics only: it must never change how the failure is reported.
-        """
-        try:
-            game = self._running_game()
-            game_state = f"running (PID {getattr(game, 'pid', '?')})" if game is not None else "not running"
-            log.error(
-                f"[INJECT] LTK patcher context: last state={session.get('state')}, "
-                f"{time.monotonic() - resumed_at:.1f}s after the game was resumed, game {game_state}"
-            )
-        except Exception as e:
-            log.debug(f"[INJECT] Could not log the LTK patcher context: {e}")
-
-    @staticmethod
     def _ltk_failure_hint(reason: str) -> str:
-        """What the user can do about a patcher failure, by the cause it reported."""
-        logs = "Details are in rose_runoverlay_*.log."
-        report = "report it with rose_*.log and rose_runoverlay_*.log"
+        """What the user can do about a session failure, by the cause it reported."""
+        logs = LTF_LOGS_HINT
+        report = "report it with rose_*.log and those logs"
         cause = ltk_failure_cause(reason)
-        if cause == "hook":
-            return ("The patcher could not attach to the game this time. Retry the next game; "
-                    f"if it fails every game, {report}. {logs}")
-        if cause == "late":
-            return f"The game started before the patcher was ready. Retry the next game. {logs}"
-        if cause == "rejected":
-            return ("The patcher rejected the overlay built for this game. Try another skin or turn off custom mods; "
-                    f"if every skin fails, update your LTK patcher files. {logs}")
         if cause == "start":
-            return ("Rose could not start ltk_patcher_host.exe. Check that it is still in Rose's tools folder: "
-                    f"an antivirus may have removed it. {logs}")
+            return ("Rose could not start the LTK patcher. Check that ltk_launcher.exe and LeagueToolFlop.dll "
+                    f"are still in Rose's tools folder: an antivirus may have removed them. {logs}")
+        if cause == "running":
+            return ("Close LTK Manager (also from the system tray), then retry: Rose starts it with its "
+                    f"bridge and closes it again after the game. {logs}")
+        if cause == "late":
+            return ("The game started before the patcher was scanning: the skin changed in the last seconds "
+                    "of the countdown and LTK Manager needed longer to build its overlay (a skin that also "
+                    "changes a map file takes seconds), or LTK Manager was slow to start. Pick the skin a few "
+                    f"seconds earlier, or retry the next game. {logs}")
+        if cause == "refused":
+            return ("LTK Manager's patcher refused to apply the overlay. Update Rose (its launcher starts LTK "
+                    f"Manager the way the patcher expects); if it still happens, {report}. {logs}")
+        if cause == "bridge":
+            return (f"LTK Manager closed while the game was running. Retry the next game; "
+                    f"if it happens every game, {report}. {logs}")
+        if cause == "import":
+            return f"Rose could not install the mod into LTK Manager. Free some disk space, then retry. {logs}"
         if cause == "killed":
-            return ("Another program closed the LTK patcher, most often an antivirus. "
+            return ("Another program closed LTK Manager, most often an antivirus. "
                     f"Add Rose's folder to its exclusions, then retry. {logs}")
         if cause == "crashed":
-            return ("The LTK patcher crashed. Retry the next game; if it crashes every game, "
-                    f"update your LTK patcher files and {report}. {logs}")
+            return (f"LTK Manager crashed. Retry the next game; if it crashes every game, {report}. {logs}")
         return f"Retry the next game. If it fails every game, {report}. {logs}"
 
     @classmethod
-    def _report_ltk_patcher_failure(cls, reason: str):
-        """Show an LTK patcher failure in Troubleshooting."""
+    def _report_ltf_failure(cls, reason: str, report: bool = True):
+        """Show an LTF session failure in Troubleshooting."""
+        if not report:
+            log.debug(f"[INJECT] LTF session failure (not reported): {reason}")
+            return
         report_issue(
-            "LTK_PATCHER_FAILED",
+            "LTF_FAILED",
             "error",
-            f"Injection failed: LTK patcher error: {reason}",
+            f"Injection failed: {reason}",
+            details={"reason": reason, "cause": ltk_failure_cause(reason)},
             hint=cls._ltk_failure_hint(reason),
         )
 
-    @staticmethod
-    def _restore_wad_headers(overlay_dir: Path, game_dir: Path):
-        """Copy the game's WAD signature + checksum into each overlay WAD.
-
-        mkoverlay writes its own signature and a zero checksum. Since 16.19 the
-        game rejects such WADs as corrupt ("WadFile mount failed") and flags the
-        install for repair. LTK Manager keeps the original header when it
-        rebases a WAD, so we do the same.
-        """
-        restored = 0
-        for wad in overlay_dir.rglob("*.wad.client"):
-            original = game_dir / wad.relative_to(overlay_dir)
-            try:
-                with open(original, "rb") as f:
-                    header = f.read(WAD_HEADER_SIZE)
-                if len(header) != WAD_HEADER_SIZE or header[:2] != b"RW":
-                    continue
-                with open(wad, "r+b") as f:
-                    if f.read(4) != header[:4]:
-                        log.warning(f"[INJECT] WAD version mismatch, header not restored: {wad.name}")
-                        continue
-                    f.seek(4)
-                    f.write(header[4:])
-                restored += 1
-            except OSError as e:
-                log.warning(f"[INJECT] Could not restore WAD header for {wad.name}: {e}")
-        log.debug(f"[INJECT] Restored original headers on {restored} overlay WAD(s)")
-
-    @staticmethod
-    def _stop_ltk_patcher(proc):
-        """Ask the LTK patcher host to stop, force-killing it after a grace period."""
-        if proc.poll() is not None:
-            return
-        try:
-            proc.stdin.write("stop\n")
-            proc.stdin.flush()
-            proc.stdin.close()
-        except Exception:
-            pass
-        try:
-            proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT_S)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-
-    @staticmethod
-    def _open_runoverlay_log():
-        """Open a log file for runoverlay output, or None if it cannot be created."""
-        try:
-            from utils.core.paths import get_user_data_dir
-            logs_dir = get_user_data_dir() / "logs"
-            logs_dir.mkdir(parents=True, exist_ok=True)
-            timestamp = time.strftime("%d-%m-%Y_%H-%M-%S")
-            return open(logs_dir / f"rose_runoverlay_{timestamp}.log", "w+", encoding="utf-8", errors="replace")
-        except Exception as e:
-            log.debug(f"[INJECT] Could not create runoverlay log: {e}")
-            return None
-
-    @staticmethod
-    def _log_runoverlay_tail(runoverlay_log, max_lines: int = 20):
-        """Log the last lines of runoverlay output after a failure."""
-        if not runoverlay_log:
-            return
-        try:
-            runoverlay_log.flush()
-            runoverlay_log.seek(0)
-            lines = [line.strip() for line in runoverlay_log.read().splitlines() if line.strip()]
-            if lines:
-                log.error(f"[INJECT] runoverlay output (last {min(len(lines), max_lines)} lines):")
-                for line in lines[-max_lines:]:
-                    log.error(f"[INJECT]   {line}")
-            else:
-                log.error("[INJECT] runoverlay produced no output")
-            log.error(f"[INJECT] Full runoverlay log: {runoverlay_log.name}")
-        except Exception as e:
-            log.debug(f"[INJECT] Could not read runoverlay log: {e}")
-
-    @staticmethod
-    def _wipe_overlay_dir(overlay_dir: Path):
-        """Delete overlay WAD files after runoverlay finishes (the directory
-        stays: the next game's patcher may already be configured with it)"""
-        try:
-            from ..mods.mod_manager import empty_directory
-            empty_directory(overlay_dir)
-            log.debug("[INJECT] Wiped overlay directory after game ended")
-        except Exception as e:
-            log.debug(f"[INJECT] Could not wipe overlay directory: {e}")
-
     def _wipe_mods_dir(self):
-        """Delete extracted skin files immediately after mkoverlay consumes them"""
+        """Delete extracted mod files once they are in LTK Manager's library"""
         try:
-            import shutil
             for p in self.mods_dir.iterdir():
                 if p.is_dir():
                     shutil.rmtree(p, ignore_errors=True)
                 else:
                     p.unlink(missing_ok=True)
-            log.debug("[INJECT] Wiped mods directory after mkoverlay")
+            log.debug("[INJECT] Wiped mods directory after the import")
         except Exception as e:
             log.debug(f"[INJECT] Could not wipe mods directory: {e}")
-
-    @staticmethod
-    def _hide_directory(path: Path):
-        """Set hidden + system attributes on a directory and its contents (Windows only)"""
-        import sys
-        if sys.platform != "win32":
-            return
-        try:
-            import ctypes
-            FILE_ATTRIBUTE_HIDDEN = 0x02
-            FILE_ATTRIBUTE_SYSTEM = 0x04
-            attrs = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM
-            # Hide the directory itself
-            ctypes.windll.kernel32.SetFileAttributesW(str(path), attrs)
-            # Hide all contents recursively
-            for item in path.rglob('*'):
-                ctypes.windll.kernel32.SetFileAttributesW(str(item), attrs)
-            log.debug(f"[INJECT] Hidden overlay directory: {path}")
-        except Exception as e:
-            log.debug(f"[INJECT] Could not hide overlay directory: {e}")
-
-    def mk_overlay_only(self, mod_names: List[str], timeout: int = 60) -> int:
-        """Create overlay using mkoverlay only (no runoverlay) - for testing"""
-        if self.game_dir is None:
-            log.error("[INJECTOR] Cannot create overlay - League game directory not found")
-            log.error("[INJECTOR] Please ensure League Client is running or manually set the path in config.ini")
-            return 127
-        
-        try:
-            # Build mkoverlay command
-            # Based on CSLOL source: flags.contains("--ignoreConflict") in main_mod_tools.cpp:332
-            cmd = [
-                str(self.tools_dir / "mod-tools.exe"),
-                "mkoverlay",
-                str(self.mods_dir),
-                str(self.mods_dir.parent / "overlay"),
-                f"--game:{self.game_dir}",
-                f"--mods:{'/'.join(mod_names)}",
-                "--noTFT",
-                "--ignoreConflict"
-            ]
-            
-            log.debug(f"[INJECT] Creating overlay (mkoverlay only): {' '.join(cmd)}")
-            mkoverlay_start = time.time()
-            
-            # Set creation flags for Windows
-            import sys
-            creationflags = 0
-            if sys.platform == "win32":
-                creationflags = subprocess.CREATE_NO_WINDOW
-            
-            try:
-                # Don't capture stdout to avoid pipe buffer deadlock - send to devnull instead
-                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
-                proc.wait(timeout=timeout)
-                mkoverlay_duration = time.time() - mkoverlay_start
-                
-                if proc.returncode != 0:
-                    self._report_low_disk_space_failure(
-                        mod_names=mod_names,
-                        result_code=proc.returncode,
-                    )
-                    log.error(f"[INJECT] mkoverlay failed with return code: {proc.returncode} (0x{proc.returncode & 0xFFFFFFFF:08X})")
-                    return proc.returncode
-                else:
-                    log.debug(f"[INJECT] mkoverlay completed in {mkoverlay_duration:.2f}s")
-                    self.last_injection_timing = {
-                        'mkoverlay_duration': mkoverlay_duration,
-                        'timestamp': time.time()
-                    }
-                    return 0
-                    
-            except subprocess.TimeoutExpired:
-                log.error(f"[INJECT] mkoverlay timed out after {timeout}s")
-                proc.kill()
-                self._report_low_disk_space_failure(mod_names=mod_names)
-                return -1
-            except Exception as e:
-                self._report_low_disk_space_failure(mod_names=mod_names)
-                log.error(f"[INJECT] mkoverlay failed with exception: {e}")
-                return -1
-                
-        except Exception as e:
-            log.error(f"[INJECT] Failed to create mkoverlay command: {e}")
-            return -1

@@ -166,31 +166,16 @@ class InjectionTrigger:
         except (TypeError, ValueError):
             return False
 
-    def trigger_injection(self, name: str, ticker_id: int, cname: str = ""):
-        """Trigger injection for a skin/chroma
-        
-        Args:
-            name: Injection name (e.g., "skin_1234" or "chroma_5678")
-            ticker_id: Ticker ID for logging
-            cname: Champion name (optional)
-        """
-        if not name:
-            log.error("=" * LOG_SEPARATOR_WIDTH)
-            log.error(f"INJECTION FAILED - NO SKIN ID AVAILABLE")
-            log.error(f"   Loadout Timer: #{ticker_id}")
-            log.error("=" * LOG_SEPARATOR_WIDTH)
-            return
-        
-        # Check if custom mod is selected for this skin (before logging)
-        ui_skin_id = self.state.last_hovered_skin_id
-        locked_champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+    def _effective_skin(self, name: str, log_chroma: bool = True):
+        """(effective skin id, UI skin id, historic active, random active) for *name*.
 
-        # Determine effective skin/chroma ID based on active modes
-        # Priority:
-        # 1. Historic mode (if active and numeric skin/chroma ID)
-        # 2. Random mode (if active and set)
-        # 3. Selected chroma on top of UI hovered skin
-        # 4. Fallback: Parse from resolved injection name
+        The effective skin/chroma, by priority:
+        1. Historic mode (if active and numeric skin/chroma ID)
+        2. Random mode (if active and set)
+        3. Selected chroma on top of UI hovered skin
+        4. Fallback: Parse from resolved injection name
+        """
+        ui_skin_id = self.state.last_hovered_skin_id
         historic_active = getattr(self.state, 'historic_mode_active', False)
         historic_skin_id = getattr(self.state, 'historic_skin_id', None)
         random_active = getattr(self.state, 'random_mode_active', False)
@@ -217,7 +202,8 @@ class InjectionTrigger:
             if selected_chroma_id and ui_skin_id:
                 if selected_chroma_id > ui_skin_id and selected_chroma_id < ui_skin_id + 100:
                     effective_skin_id = selected_chroma_id
-                    log.debug(f"[INJECT] Using selected chroma ID {selected_chroma_id} instead of base skin {ui_skin_id}")
+                    if log_chroma:
+                        log.debug(f"[INJECT] Using selected chroma ID {selected_chroma_id} instead of base skin {ui_skin_id}")
 
         if effective_skin_id is None and name:
             try:
@@ -228,6 +214,72 @@ class InjectionTrigger:
 
         if ui_skin_id is None:
             ui_skin_id = effective_skin_id
+        return effective_skin_id, ui_skin_id, historic_active, random_active
+
+    def _has_saved_mods(self, champion_id) -> bool:
+        """Whether the injection would add mods saved from earlier games (a
+        custom skin mod for this champion, a map/font/announcer/other mod)."""
+        try:
+            from utils.core.historic import get_historic_skin_for_champion, is_custom_mod_path
+            saved = get_historic_skin_for_champion(champion_id) if champion_id else None
+            if saved and is_custom_mod_path(saved):
+                return True
+        except Exception as e:
+            log.debug(f"[STAGE] Could not read the saved custom mod: {e}")
+            return True
+        try:
+            from utils.core.mod_historic import load_mod_historic
+            return any(bool(value) for value in load_mod_historic().values())
+        except Exception as e:
+            log.debug(f"[STAGE] Could not read the saved mods: {e}")
+            return True
+
+    def staging_target(self, name: str) -> bool:
+        """Whether the injection for *name* would install the skin alone (with
+        its loading screen name): what the countdown can stage beforehand.
+
+        Mirrors the paths of trigger_injection without their side effects.
+        A custom mod, a map/font/announcer/other mod or friends' skins take
+        other paths that add mods; the default skin injects nothing.
+        """
+        if not name or not self.injection_manager:
+            return False
+        effective_skin_id, ui_skin_id, historic_active, random_active = self._effective_skin(name, log_chroma=False)
+        champion_id = self.state.locked_champ_id or self.state.hovered_champ_id
+        skin_to_validate = effective_skin_id if (historic_active or random_active) else ui_skin_id
+        if effective_skin_id is None or not self._skin_matches_champion(skin_to_validate, champion_id):
+            return False
+        if is_default_skin(effective_skin_id) and not historic_active and not random_active:
+            return False
+        if getattr(self.state, 'selected_custom_mod', None):
+            return False
+        for attr in ('selected_map_mod', 'selected_font_mod', 'selected_announcer_mod',
+                     'selected_other_mods', 'selected_other_mod'):
+            if getattr(self.state, attr, None):
+                return False
+        if self._has_saved_mods(champion_id) or self._has_party_skins():
+            return False
+        return True
+
+    def trigger_injection(self, name: str, ticker_id: int, cname: str = ""):
+        """Trigger injection for a skin/chroma
+        
+        Args:
+            name: Injection name (e.g., "skin_1234" or "chroma_5678")
+            ticker_id: Ticker ID for logging
+            cname: Champion name (optional)
+        """
+        if not name:
+            log.error("=" * LOG_SEPARATOR_WIDTH)
+            log.error(f"INJECTION FAILED - NO SKIN ID AVAILABLE")
+            log.error(f"   Loadout Timer: #{ticker_id}")
+            log.error("=" * LOG_SEPARATOR_WIDTH)
+            return
+        
+        # Check if custom mod is selected for this skin (before logging)
+        locked_champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
+        selected_chroma_id = getattr(self.state, 'selected_chroma_id', None)
+        effective_skin_id, ui_skin_id, historic_active, random_active = self._effective_skin(name)
 
         skin_to_validate = effective_skin_id if (historic_active or random_active) else ui_skin_id
         if not self._skin_matches_champion(skin_to_validate, locked_champ_id):

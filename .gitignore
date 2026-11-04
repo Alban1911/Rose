@@ -107,8 +107,14 @@ injection/tools/.hashes_state.json
 
 chroma_issue.txt
 CLAUDE.md
+# Built from native/ltf by scripts/build_ltf.py
+injection/tools/ltk_launcher.exe
+injection/tools/LeagueToolFlop.dll
+# Left over from the old pipeline (Rose uses LTF now)
 injection/tools/ltk_patcher_host.exe
 injection/tools/ltk_patcher_dll.dll
+injection/tools/cslol-dll.dll
+injection/tools/cslol-dll.stub
 Pengu Loader/pengu.log
 *.log.old
 
@@ -136,5 +142,3 @@ relay-worker/.wrangler/
 
 # Local test suites
 /test/
-injection/tools/cslol-dll.dll
-injection/tools/cslol-dll.stub

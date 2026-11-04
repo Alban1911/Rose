@@ -32,15 +32,14 @@ else:
 import os
 
 # Binary files (executables and DLLs) - these go in binaries, not datas
-# NOTE: the LTK patcher (ltk_patcher_host.exe + ltk_patcher_dll.dll) is NOT included - users provide their own
+# The LTF bridge, built from native/ltf by scripts/build_ltf.py
 injection_binaries = [
-    'injection/tools/mod-tools.exe',
-    'injection/tools/cslol-dll.dll',  # Rose's stand-in, built from native/cslol_stub
+    'injection/tools/ltk_launcher.exe',
+    'injection/tools/LeagueToolFlop.dll',
 ]
 # Data files (text files, etc.)
 injection_data_files = [
     'injection/tools/hashes.game.txt',
-    'injection/tools/cslol-dll.stub',  # Copy of the stand-in; the pre-1.2.15 updater skips cslol-dll.dll
 ]
 # Verify and add injection binaries
 binaries = []
@@ -391,11 +390,6 @@ excludes = [
     'relay_server',
 ]
 
-# Filter out user-provided patcher binaries (not redistributed with Rose)
-def filter_binaries(binaries_list):
-    return [(name, path, typ) for name, path, typ in binaries_list
-            if 'ltk_patcher' not in name.lower()]
-
 a = Analysis(
     ['main.py'],
     pathex=[str(Path.cwd())],  # Add current directory to Python path
@@ -411,9 +405,6 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
-
-# Remove user-provided patcher binaries if PyInstaller auto-detected them
-a.binaries = filter_binaries(a.binaries)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

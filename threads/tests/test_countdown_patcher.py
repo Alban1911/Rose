@@ -59,6 +59,38 @@ class CountdownPatcherTests(unittest.TestCase):
         self.ticker.injection_trigger.trigger_injection.assert_called()
         self.manager.discard_early_patcher.assert_called_once()
 
+    def test_a_pick_is_staged_with_the_time_left_before_the_threshold(self):
+        self.ticker.injection_trigger.trigger_injection.side_effect = self._inject
+        self.state.loadout_left0_ms = 400
+        self.state.skin_write_ms = 300
+        self.state.last_hovered_skin_id = SPIRIT_BLOSSOM
+        self.ticker.run()
+
+        threshold_in_s = self.manager.stage_skin.call_args.kwargs['threshold_in_s']
+        self.assertGreater(threshold_in_s, 0.0)
+        self.assertLessEqual(threshold_in_s, 0.1)
+
+    def test_a_skin_changed_after_the_threshold_is_ignored(self):
+        self.state.loadout_left0_ms = 400
+        self.state.skin_write_ms = 300
+        self.state.last_hovered_skin_id = SPIRIT_BLOSSOM
+
+        def inject_then_change(*_):
+            self.state.last_hover_written = True
+            self.state.last_hovered_skin_id = CASSIOPEIA_BASE + 20  # picked right after
+
+        self.ticker.injection_trigger.trigger_injection.side_effect = inject_then_change
+        self.ticker.run()
+
+        self.ticker.injection_trigger.trigger_injection.assert_called_once()
+        self.assertEqual(self.ticker.injection_trigger.trigger_injection.call_args[0][0], 'skin_1001')
+        ignored = [
+            call for call in loadout_ticker.log.info.call_args_list
+            if 'changed after the injection threshold' in call[0][0]
+        ]
+        self.assertEqual(len(ignored), 1)
+        self.assertIn('skin_1001 is applied', ignored[0][0][0])
+
     def test_a_countdown_taken_over_leaves_it_to_the_new_one(self):
         def take_over(*_):
             self.state.current_ticker = TICKER_ID + 1

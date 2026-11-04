@@ -82,8 +82,10 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
         # Listing processes takes seconds on Windows: keep it off the startup path
         create_daemon_thread(resume_orphaned_game, "OrphanedGameCheck").start()
         if injection_threshold is not None:
+            from config import clamp_injection_threshold
+            injection_threshold = clamp_injection_threshold(injection_threshold)
             log.info(f"Launcher override: setting injection threshold to {injection_threshold:.2f}s")
-            injection_manager.injection_threshold = max(0.0, injection_threshold)
+            injection_manager.injection_threshold = injection_threshold
         log.info("Injection manager initialized")
         # Don't initialize injection system yet - wait for WebSocket to be active
         # This will be called in main/__init__.py after WebSocket is ready

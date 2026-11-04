@@ -211,16 +211,24 @@ class OverlayLifetimeTests(unittest.TestCase):
         from injection.overlay import overlay_manager
         from injection.overlay.overlay_manager import OverlayManager
         self.module = overlay_manager
-        self.manager = OverlayManager(Path('tools'), Path('mods'), Path('game'))
-        self.patcher = SimpleNamespace(returncode=None)
-        self.patcher.poll = lambda: self.patcher.returncode
-        self.session = {'proc': self.patcher, 'session': {'state': None, 'error': None, 'eol': False},
-                        'reader': Mock(), 'log': None}
-        stop = self.enterContext(patch.object(self.manager, '_stop_ltk_patcher'))
-        stop.side_effect = lambda proc: proc.returncode is None and setattr(proc, 'returncode', 0)
-        self.stop = stop
-        self.enterContext(patch.object(self.manager, '_wipe_overlay_dir'))
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.manager = OverlayManager(root / 'tools', root / 'mods', root / 'game')
+        self.bridge = SimpleNamespace(
+            is_alive=True,
+            stop_patcher=Mock(return_value={'ok': True}),
+            kill=Mock(return_value={'ok': True}),
+            uninstall=Mock(return_value={'ok': True}),
+            patcher_status=Mock(return_value={'ok': True, 'response': {
+                'ok': True,
+                'value': {'running': True, 'phase': 'patching', 'session': {}, 'changesAfterGame': False},
+            }}),
+            alive=lambda: self.bridge.is_alive,
+        )
+        self.session = self.manager._new_session(self.bridge, launched=False)
         self.enterContext(patch.object(overlay_manager.time, 'sleep'))
+        self.enterContext(patch.object(overlay_manager, 'PATCHER_STATUS_POLL_TICKS', 1))
         self.report = self.enterContext(patch.object(overlay_manager, 'report_issue'))
 
     def game(self, timeouts=0, on_wait=None):
@@ -235,33 +243,31 @@ class OverlayLifetimeTests(unittest.TestCase):
                 raise self.module.psutil.TimeoutExpired(timeout)
         return SimpleNamespace(wait=Mock(side_effect=wait))
 
-    def run_patcher(self, stop_callback):
-        return self.manager._run_ltk_patcher(self.session, Path('overlay'), stop_callback)
+    def run_patcher(self, stop_callback, game=None):
+        with patch.object(self.manager, '_running_game', return_value=game):
+            return self.manager._run_session(self.session, stop_callback)
 
     def test_client_gone_keeps_patcher_until_the_game_exits(self):
         game = self.game(timeouts=2)
-        with patch.object(self.manager, '_running_game', return_value=game):
-            self.assertEqual(self.run_patcher(lambda: True), 0)
+        self.assertEqual(self.run_patcher(lambda: True, game=game), 0)
         self.assertEqual(game.wait.call_count, 3)
-        self.stop.assert_called_once()
+        self.bridge.stop_patcher.assert_called_once()
 
     def test_game_over_stops_patcher(self):
-        with patch.object(self.manager, '_running_game', return_value=None):
-            self.assertEqual(self.run_patcher(lambda: True), 0)
-        self.stop.assert_called_once()
+        self.assertEqual(self.run_patcher(lambda: True, game=None), 0)
+        self.bridge.stop_patcher.assert_called_once()
         self.report.assert_not_called()
 
     def test_reconnect_after_the_game_exits_keeps_patcher(self):
         phases = iter([True, False, True])
         running = iter([self.game(), None])
         with patch.object(self.manager, '_running_game', side_effect=lambda: next(running)):
-            self.assertEqual(self.run_patcher(lambda: next(phases)), 0)
-        self.stop.assert_called_once()
+            self.assertEqual(self.manager._run_session(self.session, lambda: next(phases)), 0)
+        self.bridge.stop_patcher.assert_called_once()
 
     def test_patcher_dying_while_waiting_is_still_reported(self):
-        game = self.game(timeouts=5, on_wait=lambda: setattr(self.patcher, 'returncode', 3))
-        with patch.object(self.manager, '_running_game', return_value=game):
-            self.assertEqual(self.run_patcher(lambda: True), 3)
+        game = self.game(timeouts=5, on_wait=lambda: setattr(self.bridge, 'is_alive', False))
+        self.assertEqual(self.run_patcher(lambda: True, game=game), 1)
         self.report.assert_called_once()
 
     def test_game_detection_accepts_both_names(self):

@@ -13,8 +13,8 @@ installed, writes the skin's text over the champion's, and leaves the copy in th
 language and the patch are therefore always the player's own, and nothing has to be downloaded or shipped.
 
 The mod is a loose file, RAW/DATA/Menu/en_US/lol.stringtable (the folder is en_US in every language: the language is
-in the name of the game's wad, not in the path inside it). mod-tools resolves that path by its hash and packs it into
-every Global.<locale>.wad.client the player has, so the table is copied from the language the client runs the game in.
+in the name of the game's wad, not in the path inside it). The mod folder goes into the .fantome as it is, so the
+table is read under that path from the language the client runs the game in.
 
 The champion's text is also what the chat ("Player (Champion): ...") and the name over the champion's head print, and
 those should keep the champion's name. They read the key the champion's own record names
@@ -68,9 +68,8 @@ def _client_locale(game_dir: Path) -> Optional[str]:
 def _language_wad(game_dir: Path) -> Optional[Path]:
     """The language wad the game reads, or None when it can't be told.
 
-    mod-tools packs the mod's one table into every Global wad the game has, so the table has to come from the game's
-    own language. Copied from the first wad by name instead, a TW install that also had Global.en_US played its whole
-    match in English (#353).
+    The mod carries one table, so it has to come from the game's own language. Copied from the first wad by name
+    instead, a TW install that also had Global.en_US played its whole match in English (#353).
     """
     wads = _language_wads(game_dir)
     locale = _client_locale(game_dir)
@@ -339,6 +338,25 @@ def parse_skin_id(skin_name: str, champion_id: Optional[int] = None) -> int:
             continue
         return value
     return 0
+
+
+def parent_skin_id(archive: Path, skin_id: int) -> int:
+    """The skin a chroma belongs to, so the loading screen shows the skin's name, not the chroma's.
+
+    Rose stores a chroma under its skin: <champion>/<skin>/<chroma>/<chroma>.fantome (a skin is
+    <champion>/<skin>/<skin>.fantome). Any other place (a form found by name...) keeps *skin_id*.
+    """
+    try:
+        holder = Path(archive).parent
+        skin_dir, champion_dir = holder.parent, holder.parent.parent
+        if not (holder.name.isdigit() and skin_dir.name.isdigit() and champion_dir.name.isdigit()):
+            return skin_id
+        chroma, skin, champion = int(holder.name), int(skin_dir.name), int(champion_dir.name)
+        if skin // 1000 == champion and chroma // 1000 == champion and skin != chroma:
+            return skin
+    except (TypeError, ValueError):
+        pass
+    return skin_id
 
 
 def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Optional[str]:

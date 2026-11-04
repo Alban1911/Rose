@@ -163,8 +163,9 @@ def get_stats() -> dict:
     p90 = times[p90_idx]
     max_ms = times[-1]
 
-    # Recommended = p90 + 30% buffer, floored at 300ms (slider min), capped at 2000ms
-    recommended = int(min(2000, max(300, p90 * 1.3)))
+    # Recommended = p90 + 30% buffer, within the injection threshold's range
+    from config import INJECTION_THRESHOLD_MAX_S, INJECTION_THRESHOLD_MIN_S
+    recommended = int(min(INJECTION_THRESHOLD_MAX_S * 1000, max(INJECTION_THRESHOLD_MIN_S * 1000, p90 * 1.3)))
 
     return {
         "total_samples": len(samples),

@@ -78,12 +78,12 @@ def build_pengu_loader():
     return True
 
 
-def build_cslol_stub():
-    """Build the stand-in cslol-dll.dll that mod-tools.exe needs to start."""
-    script = ROOT / "scripts" / "build_cslol_stub.py"
+def build_ltf():
+    """Build the LTF bridge (ltk_launcher.exe + LeagueToolFlop.dll)."""
+    script = ROOT / "scripts" / "build_ltf.py"
     result = subprocess.run([sys.executable, str(script)], check=False, cwd=ROOT)
     if result.returncode != 0:
-        print(f"[ERROR] cslol-dll stub build failed with exit code {result.returncode}")
+        print(f"[ERROR] LTF bridge build failed with exit code {result.returncode}")
         return False
 
     return True
@@ -153,7 +153,7 @@ def main():
     if "--skip-pengu-loader" not in sys.argv[1:] and not build_pengu_loader():
         sys.exit(1)
 
-    if not build_cslol_stub():
+    if not build_ltf():
         sys.exit(1)
     
     if not build_with_pyinstaller():

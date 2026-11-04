@@ -30,6 +30,24 @@ class LoadingNameTests(unittest.TestCase):
         self.assertEqual(loading_name.parse_skin_id('Shockblade Zed 238001', 238), 238001)
         self.assertEqual(loading_name.parse_skin_id('Shockblade_Zed_238001'), 238001)
 
+    def test_a_chroma_takes_its_skins_name(self):
+        chroma = Path('skins') / '893' / '893011' / '893016' / '893016.fantome'
+
+        self.assertEqual(loading_name.parent_skin_id(chroma, 893016), 893011)
+
+    def test_a_skin_keeps_its_own_name(self):
+        skin = Path('skins') / '893' / '893011' / '893011.fantome'
+
+        self.assertEqual(loading_name.parent_skin_id(skin, 893011), 893011)
+
+    def test_a_file_stored_anywhere_else_keeps_the_id_it_was_given(self):
+        for elsewhere in (
+            Path('skins') / '99' / 'Lux Elementalist Air.fantome',  # a form, found by name
+            Path('mods') / '893016.fantome',
+            Path('skins') / '893' / '238001' / '893016' / '893016.fantome',  # another champion's skin
+        ):
+            self.assertEqual(loading_name.parent_skin_id(elsewhere, 893016), 893016)
+
     def test_a_number_in_the_skins_own_name_is_not_taken_for_an_id(self):
         self.assertEqual(loading_name.parse_skin_id('Worlds 2016 Zed', 238), 0)
         self.assertEqual(loading_name.parse_skin_id('Worlds 2016 Zed 238010', 238), 238010)
