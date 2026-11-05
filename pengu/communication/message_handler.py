@@ -1931,6 +1931,7 @@ class MessageHandler:
                 "success": deleted,
                 "championId": champion_id,
                 "modName": mod_name,
+                "relativePath": relative_path,
             }
             if not deleted:
                 response_payload["error"] = "Mod not found"

@@ -209,6 +209,27 @@
     return selectedCategoryIds[key];
   }
 
+  function modIdOf(item) {
+    return item?.id || item?.name || "";
+  }
+
+  // A selection whose mod is no longer listed (deleted from the mod manager
+  // or the disk) is dropped, so a removed mod never shows as selected.
+  function pruneSingleSelection(selectedId, list) {
+    if (!selectedId) return selectedId;
+    const target = normalizePathLike(selectedId);
+    return list.some((item) => normalizePathLike(modIdOf(item)) === target) ? selectedId : null;
+  }
+
+  function pruneCategorySelection(categoryId, list) {
+    const selected = getSelectedIdsForCategory(categoryId);
+    const present = new Set(list.map((item) => normalizePathLike(modIdOf(item))));
+    const kept = selected.filter((id) => present.has(normalizePathLike(id)));
+    if (kept.length !== selected.length) {
+      selected.splice(0, selected.length, ...kept);
+    }
+  }
+
   function clearAllCategorySelections() {
     for (const t of OTHER_CATEGORY_TABS) {
       selectedCategoryIds[t.id] = [];
@@ -2533,6 +2554,7 @@
 
     const mapsList = Array.isArray(detail.maps) ? detail.maps : [];
     lastMapsList = mapsList;
+    selectedMapId = pruneSingleSelection(selectedMapId, mapsList);
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
@@ -2587,6 +2609,7 @@
 
     const fontsList = Array.isArray(detail.fonts) ? detail.fonts : [];
     lastFontsList = fontsList;
+    selectedFontId = pruneSingleSelection(selectedFontId, fontsList);
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
@@ -2638,6 +2661,7 @@
 
     const announcersList = Array.isArray(detail.announcers) ? detail.announcers : [];
     lastAnnouncersList = announcersList;
+    selectedAnnouncerId = pruneSingleSelection(selectedAnnouncerId, announcersList);
 
     // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
@@ -2689,6 +2713,7 @@
 
     const othersList = Array.isArray(detail.others) ? detail.others : [];
     lastCategoryModsById["others"] = othersList;
+    pruneCategorySelection("others", othersList);
 
     // Check for historic mod(s) and auto-select them
     // historicMod can be a string (legacy) or an array (new format)
@@ -2766,6 +2791,7 @@
 
     const modsList = Array.isArray(detail.mods) ? detail.mods : [];
     lastCategoryModsById[category] = modsList;
+    pruneCategorySelection(category, modsList);
 
     // Apply historic selections for this specific category.
     const historicMod = detail.historicMod;
@@ -2809,6 +2835,65 @@
         }
       }
     }
+  }
+
+  // The mod manager deleted a mod: drop it from the selection right away
+  // (the backend already cleared its own), then refresh that list.
+  function handleCategoryModDeleted(data) {
+    if (!data || !data.success) return;
+    const category = String(data.category || "").trim();
+    if (!category || !data.modName) return;
+    const target = normalizePathLike(`${category}/${data.modName}`);
+    const isDeleted = (id) => Boolean(id) && normalizePathLike(id) === target;
+
+    if (category === "maps") {
+      if (isDeleted(selectedMapId)) selectedMapId = null;
+      requestMaps();
+    } else if (category === "fonts") {
+      if (isDeleted(selectedFontId)) selectedFontId = null;
+      requestFonts();
+    } else if (category === "announcers") {
+      if (isDeleted(selectedAnnouncerId)) selectedAnnouncerId = null;
+      requestAnnouncers();
+    } else if (OTHER_CATEGORY_TABS.some((t) => t.id === category)) {
+      const selected = getSelectedIdsForCategory(category);
+      for (const id of selected.filter(isDeleted)) {
+        emittedHistoricSelectionKeys.delete(`${category}:${id}`);
+      }
+      const kept = selected.filter((id) => !isDeleted(id));
+      selected.splice(0, selected.length, ...kept);
+      requestCategoryMods(category);
+    } else {
+      return;
+    }
+
+    refreshSummaryValues();
+    refreshButtonBadgeFromSelections();
+  }
+
+  function handleChampionModDeleted(data) {
+    if (!data || !data.success) return;
+    const deletedPath = normalizePathLike(data.relativePath);
+    if (deletedPath) {
+      currentSkinMods = (currentSkinMods || []).filter((mod) => (
+        normalizePathLike(mod?.relativePath) !== deletedPath
+      ));
+      if (selectedModId && normalizePathLike(selectedModId) === deletedPath) {
+        selectedModId = null;
+        selectedModSkinId = null;
+        if (panel && panel._modList) {
+          panel._modList.querySelectorAll("li.selected-row").forEach((li) => {
+            li.classList.remove("selected-row");
+          });
+          updateNoneRow(panel._modList, true);
+        }
+      }
+    }
+    refreshSummaryValues();
+    refreshButtonBadgeFromSelections();
+    // Refresh the hovered skin's list (bypassing the repeat-request throttle)
+    lastSkinModsRequestKey = null;
+    requestModsForCurrentSkin();
   }
 
   function handleChampionLocked(event) {
@@ -2895,6 +2980,8 @@
       bridge.subscribe("announcers-response", (data) => handleAnnouncersResponse({ detail: data }));
       bridge.subscribe("category-mods-response", (data) => handleCategoryModsResponse({ detail: data }));
       bridge.subscribe("others-response", (data) => handleOthersResponse({ detail: data }));
+      bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
+      bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
       bridge.subscribe("champion-locked", (data) => handleChampionLocked({ detail: data }));
       bridge.subscribe("custom-mod-state", (data) => {
         if (!data) return;
