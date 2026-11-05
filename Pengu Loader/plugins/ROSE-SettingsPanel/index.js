@@ -5071,6 +5071,17 @@
           };
         }
 
+        if (code === 'LEAGUE_ELEVATED' && e?.cause === 'setting') {
+          const detail = String(e?.detail || '').trim();
+          return {
+            title: t('League is set to run as administrator'),
+            details: [
+              t("What it means: LTK Manager refuses to apply skins while a League or Riot program is set to run as administrator in Windows' compatibility settings: {detail}", { detail }),
+              t('Fix: untick "Run this program as an administrator" in the Compatibility tab of the Properties of each program listed (for one marked "all users", under "Change settings for all users"), then restart League. For a program that no longer exists, delete its entry under AppCompatFlags\\Layers with regedit.'),
+            ],
+          };
+        }
+
         if (code === 'LEAGUE_ELEVATED') {
           return {
             title: t('League runs as administrator'),

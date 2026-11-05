@@ -8,6 +8,8 @@ from utils.system.windows_account import (
     HINTS,
     LEAGUE_HINT,
     LEAGUE_MESSAGE,
+    LEAGUE_SETTING_HINT,
+    LEAGUE_SETTING_MESSAGE,
     MESSAGES,
     ShellAccount,
     check_league_client,
@@ -58,15 +60,24 @@ class WindowsAccountTests(unittest.TestCase):
 
 
 class LeagueClientTests(unittest.TestCase):
-    """A League client started as administrator gets no skin and no error from
-    LTK Manager: Rose says so when it connects to the client (#431)"""
+    """League set to run as administrator, or a client started so, gets no
+    skin: Rose says so when it connects to the client (#430, #431)"""
 
     REGULAR_SHELL = ShellAccount(elevated=False, builtin_administrator=False, uac_disabled=False)
 
-    def check(self, elevated, shell=REGULAR_SHELL):
-        with patch.object(windows_account, "process_elevated", return_value=elevated),                 patch.object(windows_account, "shell_account", return_value=shell),                 patch("utils.core.issue_reporter.report_issue") as report,                 patch("utils.core.issue_reporter.remove_issues") as remove:
+    def check(self, elevated, shell=REGULAR_SHELL, entries=()):
+        with patch.object(windows_account, "process_elevated", return_value=elevated), \
+                patch.object(windows_account, "shell_account", return_value=shell), \
+                patch.object(windows_account, "league_run_as_admin_entries", return_value=list(entries)), \
+                patch("utils.core.issue_reporter.report_issue") as report, \
+                patch("utils.core.issue_reporter.remove_issues") as remove:
             result = check_league_client(1234)
         return result, report, remove
+
+    @staticmethod
+    def removed(remove, line):
+        """Whether one of the remove_issues calls drops this report line."""
+        return any(call.args[0](f"Nov 05 06:40 | {line}", "") for call in remove.call_args_list)
 
     def test_an_elevated_client_is_reported(self):
         result, report, remove = self.check(True)
@@ -75,16 +86,33 @@ class LeagueClientTests(unittest.TestCase):
         code, severity, message = report.call_args.args
         self.assertEqual((code, message), ("LEAGUE_ELEVATED", LEAGUE_MESSAGE))
         self.assertEqual(report.call_args.kwargs["hint"], LEAGUE_HINT)
-        remove.assert_not_called()
+        self.assertFalse(self.removed(remove, LEAGUE_MESSAGE))
+        self.assertTrue(self.removed(remove, LEAGUE_SETTING_MESSAGE + " (C:\\old\\LeagueClient.exe)."))
 
-    def test_a_client_started_normally_clears_the_warning(self):
+    def test_a_client_started_normally_clears_the_warnings(self):
         result, report, remove = self.check(False)
 
         self.assertFalse(result)
         report.assert_not_called()
-        (should_remove,) = remove.call_args.args
-        self.assertTrue(should_remove(f"Nov 05 06:40 | {LEAGUE_MESSAGE}", f"Fix: {LEAGUE_HINT}"))
-        self.assertFalse(should_remove(f"Nov 05 06:40 | {MESSAGES['uac']}", f"Fix: {HINTS['uac']}"))
+        self.assertTrue(self.removed(remove, LEAGUE_MESSAGE))
+        self.assertTrue(self.removed(remove, LEAGUE_SETTING_MESSAGE + " (C:\\old\\LeagueClient.exe)."))
+        self.assertFalse(self.removed(remove, MESSAGES["uac"]))
+
+    def test_programs_set_to_run_as_administrator_are_named(self):
+        entries = [
+            ("HKCU", r"C:\Riot Games\League of Legends\LeagueClient.exe"),
+            ("HKLM", r"D:\Old\Riot Client\RiotClientServices.exe"),
+        ]
+        result, report, _ = self.check(False, entries=entries)
+
+        self.assertTrue(result)
+        code, _, message = report.call_args.args
+        self.assertEqual(code, "LEAGUE_ELEVATED")
+        self.assertEqual(message, (
+            f"{LEAGUE_SETTING_MESSAGE} (C:\\Riot Games\\League of Legends\\LeagueClient.exe, "
+            "D:\\Old\\Riot Client\\RiotClientServices.exe [all users])."
+        ))
+        self.assertEqual(report.call_args.kwargs["hint"], LEAGUE_SETTING_HINT)
 
     def test_an_elevated_shell_is_left_to_the_startup_check(self):
         elevated_shell = ShellAccount(elevated=True, builtin_administrator=False, uac_disabled=True)
@@ -97,16 +125,60 @@ class LeagueClientTests(unittest.TestCase):
 
         self.assertIsNone(result)
         report.assert_not_called()
-        remove.assert_not_called()
+        self.assertFalse(self.removed(remove, LEAGUE_MESSAGE))
 
-    def test_troubleshooting_tells_it_from_the_windows_account(self):
-        (summary,) = summarize((LEAGUE_MESSAGE, LEAGUE_HINT))
-        self.assertEqual(summary["code"], "LEAGUE_ELEVATED")
+    def test_troubleshooting_tells_both_from_the_windows_account(self):
+        (running,) = summarize((LEAGUE_MESSAGE, LEAGUE_HINT))
+        self.assertEqual((running["code"], running["cause"]), ("LEAGUE_ELEVATED", "running"))
+
+        message = f"{LEAGUE_SETTING_MESSAGE} (C:\\Riot\\LeagueClient.exe, D:\\Riot\\RiotClientServices.exe [all users])."
+        (setting,) = summarize((message, LEAGUE_SETTING_HINT))
+        self.assertEqual((setting["code"], setting["cause"]), ("LEAGUE_ELEVATED", "setting"))
+        self.assertEqual(setting["detail"], "C:\\Riot\\LeagueClient.exe, D:\\Riot\\RiotClientServices.exe [all users]")
+
+    def test_only_league_and_riot_programs_set_to_run_as_administrator_count(self):
+        """The rule LTK Manager applies: a League* or Riot* file name, a RUNASADMIN layer"""
+        import winreg
+
+        values = {
+            winreg.HKEY_CURRENT_USER: [
+                (r"C:\Riot Games\League of Legends\LeagueClient.exe", "~ RUNASADMIN"),
+                (r"C:\Riot Games\League of Legends\Game\League of Legends.exe", "~ HIGHDPIAWARE"),
+                (r"C:\Games\Steam\steam.exe", "~ RUNASADMIN"),
+            ],
+            winreg.HKEY_LOCAL_MACHINE: [(r"D:\Old\Riot Client\RiotClientServices.exe", "$ runasadmin WIN8RTM")],
+        }
+
+        class Key:
+            def __init__(self, root):
+                self.values = values[root]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def enum_value(key, index):
+            if index >= len(key.values):
+                raise OSError("no more data")
+            name, data = key.values[index]
+            return name, data, winreg.REG_SZ
+
+        with patch.object(winreg, "OpenKey", side_effect=lambda root, *args: Key(root)), \
+                patch.object(winreg, "EnumValue", side_effect=enum_value):
+            entries = windows_account.league_run_as_admin_entries()
+
+        self.assertEqual(entries, [
+            ("HKCU", r"C:\Riot Games\League of Legends\LeagueClient.exe"),
+            ("HKLM", r"D:\Old\Riot Client\RiotClientServices.exe"),
+        ])
 
     @unittest.skipUnless(sys.platform == "win32", "Windows only")
-    def test_this_process_can_be_read(self):
+    def test_this_process_and_the_compatibility_settings_can_be_read(self):
         import os
         self.assertIsInstance(windows_account.process_elevated(os.getpid()), bool)
+        self.assertIsInstance(windows_account.league_run_as_admin_entries(), list)
 
 
 if __name__ == "__main__":

@@ -891,6 +891,15 @@ class MessageHandler:
                     return {
                         'code': 'LEAGUE_ELEVATED',
                         'text': 'League runs as administrator -> start it normally',
+                        'cause': 'running',
+                    }
+                if "can't apply skins" in ml and 'league is set to run as administrator' in ml:
+                    programs = msg.split('(', 1)[1].rsplit(')', 1)[0].strip() if '(' in msg else ''
+                    return {
+                        'code': 'LEAGUE_ELEVATED',
+                        'text': 'League set to run as administrator -> turn it off',
+                        'cause': 'setting',
+                        'detail': programs,
                     }
 
                 # Category: Windows runs every program as administrator (startup

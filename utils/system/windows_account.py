@@ -14,10 +14,11 @@ says nothing: the shell's integrity level is what tells.
 from __future__ import annotations
 
 import ctypes
+import re
 import sys
 from ctypes import wintypes
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from utils.core.logging import get_logger
 
@@ -207,12 +208,77 @@ LEAGUE_HINT = (
 )
 
 
+# Windows' compatibility settings ("Run this program as an administrator"):
+# one value per program, named by its path, in the user's hive and in the
+# machine's ("Change settings for all users")
+COMPAT_LAYERS_KEY = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+# LTK Manager refuses every patcher start while any program whose file name
+# starts with these has a RUNASADMIN layer, wherever it is (also a copy from an
+# older install): ltk-manager-runtime diagnostics/compat_flags.rs (#430)
+RUN_AS_ADMIN_PREFIXES = ("League", "Riot")
+LEAGUE_SETTING_MESSAGE = "LTK Manager can't apply skins: League is set to run as administrator"
+LEAGUE_SETTING_HINT = (
+    "Untick \"Run this program as an administrator\" in the Compatibility tab of the Properties of each "
+    "program listed (for one marked \"all users\", under \"Change settings for all users\"), then restart "
+    "League. For a program that no longer exists, delete its value under "
+    f"HKEY_CURRENT_USER (or HKEY_LOCAL_MACHINE for \"all users\")\\{COMPAT_LAYERS_KEY} with regedit."
+)
+
+
+def league_run_as_admin_entries() -> List[Tuple[str, str]]:
+    """(hive, program path) of every League/Riot program set to run as
+    administrator, as LTK Manager reads them."""
+    if sys.platform != "win32":
+        return []
+    import winreg
+    entries = []
+    for root, hive in ((winreg.HKEY_CURRENT_USER, "HKCU"), (winreg.HKEY_LOCAL_MACHINE, "HKLM")):
+        try:
+            key = winreg.OpenKey(root, COMPAT_LAYERS_KEY, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+        except OSError:
+            continue
+        with key:
+            index = 0
+            while True:
+                try:
+                    name, value, _ = winreg.EnumValue(key, index)
+                except OSError:
+                    break
+                index += 1
+                program = re.split(r"[\\/]", name)[-1]
+                if program.startswith(RUN_AS_ADMIN_PREFIXES) and "RUNASADMIN" in str(value).upper():
+                    entries.append((hive, name))
+    return entries
+
+
+def _check_league_settings() -> bool:
+    """Warn when League/Riot programs are set to run as administrator, naming
+    them; clear the warning once none is. Returns whether any is."""
+    from utils.core.issue_reporter import remove_issues, report_issue
+    try:
+        entries = league_run_as_admin_entries()
+    except Exception as e:  # a diagnostic must never stop Rose
+        log.debug(f"[ACCOUNT] Could not read the compatibility settings: {e}")
+        return False
+    if not entries:
+        remove_issues(lambda line, fix: LEAGUE_SETTING_MESSAGE in line)
+        return False
+    programs = ", ".join(path + (" [all users]" if hive == "HKLM" else "") for hive, path in entries)
+    message = f"{LEAGUE_SETTING_MESSAGE} ({programs})."
+    log.warning(f"[ACCOUNT] {message}")
+    report_issue(LEAGUE_REPORT_CODE, "error", message, details={"programs": programs}, hint=LEAGUE_SETTING_HINT)
+    return True
+
+
 def check_league_client(pid: int) -> Optional[bool]:
-    """Warn (log and Troubleshooting) when the League client runs as
-    administrator although Windows does not run every program so: LTK Manager
-    patches unelevated and can't reach the game it starts. The warning goes
-    away once the client runs normally again. Returns whether it is elevated
-    (None when that can't be told)."""
+    """Warn (log and Troubleshooting) when League is set to run as
+    administrator (LTK Manager refuses to patch then), or when the League
+    client runs as administrator although Windows does not run every program
+    so (LTK Manager's patcher, unelevated, can't reach the game it starts).
+    Each warning goes away once it no longer applies. Returns whether League
+    runs or is set to run as administrator (None when that can't be told)."""
+    if _check_league_settings():
+        return True  # it also elevates the client: the setting is what to fix
     elevated = process_elevated(pid)
     if elevated is None:
         return None
