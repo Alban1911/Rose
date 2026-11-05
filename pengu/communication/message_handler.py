@@ -885,6 +885,16 @@ class MessageHandler:
                         result["trackerSamples"] = tracker_samples
                     return result
 
+                # Category: LTK Manager's built-in mods hold every champion's
+                # archive (before the LTF category: it names LTK Manager too)
+                if "built-in mods put every champion" in ml:
+                    builtins = msg.split('(', 1)[1].rsplit(')', 1)[0].strip() if '(' in msg else ''
+                    return {
+                        'code': 'LTK_HEAVY_BUILTINS',
+                        'text': 'LTK Manager built-in mods slow every game -> turn them off',
+                        'detail': builtins,
+                    }
+
                 # Category: the League client runs as administrator (checked on
                 # each client connection; before the Windows account category)
                 if "can't apply skins" in ml and 'league client runs as administrator' in ml:

@@ -5092,6 +5092,17 @@
           };
         }
 
+        if (code === 'LTK_HEAVY_BUILTINS') {
+          const detail = String(e?.detail || '').trim();
+          return {
+            title: t("LTK Manager's built-in mods slow down every game"),
+            details: [
+              t("What it means: {detail} put every champion's archive (about 16 GB) into LTK Manager's overlay, so each build takes minutes and the game starts before the patcher.", { detail }),
+              t("Fix: quit Rose, open LTK Manager from the Start menu > Settings > Built-in mods, set Base skins to Off (or Modded champions) and limit Character inking to chosen champions, then close LTK Manager (also from the system tray) and start Rose again."),
+            ],
+          };
+        }
+
         if (code === 'LTK_MANAGER_MISSING') {
           return {
             title: t('LTK Manager is not installed'),

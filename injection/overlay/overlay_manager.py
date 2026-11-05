@@ -211,6 +211,31 @@ def _cdp_unreachable_reason() -> str:
     return CDP_UNREACHABLE_REASON
 
 
+# LTK Manager's built-in mods that put every champion's archive (~16 GB) into
+# its overlay (settings.json "builtinMods"): each build then takes minutes, so
+# the game starts long before the patcher scans, and games crashed with it (#441)
+HEAVY_BUILTINS_MESSAGE = "LTK Manager's built-in mods put every champion's archive into the overlay"
+HEAVY_BUILTINS_HINT = (
+    "Quit Rose, open LTK Manager from the Start menu > Settings > Built-in mods, set Base skins to Off "
+    "(or Modded champions) and limit Character inking to chosen champions, then close LTK Manager "
+    "(also from the system tray) and start Rose again."
+)
+
+
+def heavy_builtin_mods(settings: dict) -> List[str]:
+    """The built-in mods of LTK Manager's settings that hold every champion's archive."""
+    builtins = settings.get("builtinMods") if isinstance(settings, dict) else None
+    if not isinstance(builtins, dict):
+        return []
+    found = []
+    if builtins.get("baseSkins") == "allChampions":
+        found.append("Base skins: Every champion")
+    inking = builtins.get("characterInking")
+    if isinstance(inking, dict) and inking.get("enabled") and inking.get("scope", "all") == "all":
+        found.append("Character inking: every champion")
+    return found
+
+
 class LtkLogTail:
     """What LTK Manager writes to its own log from the moment this was made.
 
@@ -599,9 +624,36 @@ class OverlayManager:
             return None
 
         session = self._new_session(bridge, launched)
+        self._check_ltk_builtins()
         self._cleanup_stale_installs(bridge)
         shutil.rmtree(self._staging_root(), ignore_errors=True)
         return session
+
+    @staticmethod
+    def _check_ltk_builtins() -> None:
+        """Warn (log and Troubleshooting) when LTK Manager's settings turn on a
+        built-in mod that puts every champion's archive into the overlay."""
+        logs = LtkLogTail.log_dir()
+        if logs is None:
+            return
+        try:
+            settings = json.loads((logs.parent / "settings.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            log.debug(f"[INJECT] Could not read LTK Manager's settings: {e}")
+            return
+        heavy = heavy_builtin_mods(settings)
+        if not heavy:
+            return
+        names = ", ".join(heavy)
+        log.warning(f"[INJECT] {HEAVY_BUILTINS_MESSAGE} ({names}): each overlay build takes minutes")
+        report_issue(
+            "LTK_HEAVY_BUILTINS",
+            "warning",
+            f"{HEAVY_BUILTINS_MESSAGE} ({names}).",
+            details={"builtins": names},
+            hint=HEAVY_BUILTINS_HINT,
+            dedupe_window_s=600.0,
+        )
 
     @staticmethod
     def _wait_for_cdp(bridge, cancelled: Optional[Callable[[], bool]] = None) -> None:

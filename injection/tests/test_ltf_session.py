@@ -946,6 +946,35 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
 
         self.assertEqual(self.reported_codes(), [])
 
+    def test_built_in_mods_holding_every_champion_are_reported(self):
+        """#441: LTK Manager's "Base skins: Every champion" put 176 archives
+        (16 GB) in the overlay: a 258s build, and the game started first"""
+        (self.ltk_logs.parent / "settings.json").write_text(json.dumps({
+            "builtinMods": {"baseSkins": "allChampions", "characterInking": {"enabled": True}},
+        }), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        (call,) = [c for c in self.report_issue.call_args_list if c.args[0] == "LTK_HEAVY_BUILTINS"]
+        self.assertIn("Base skins: Every champion", call.args[2])
+        self.assertIn("Character inking: every champion", call.args[2])
+
+    def test_light_built_in_mods_are_left_alone(self):
+        for builtins in ({}, {"baseSkins": "moddedChampions"}, {"baseSkins": "off"},
+                         {"characterInking": {"enabled": True, "scope": "chosen"}},
+                         {"characterInking": {"enabled": False, "scope": "all"}}):
+            with self.subTest(builtins=builtins):
+                self.assertEqual(overlay_manager.heavy_builtin_mods({"builtinMods": builtins}), [])
+        self.assertEqual(overlay_manager.heavy_builtin_mods({}), [])
+        self.assertEqual(overlay_manager.heavy_builtin_mods("not a dict"), [])
+
+    def test_unreadable_ltk_settings_report_nothing(self):
+        (self.ltk_logs.parent / "settings.json").write_text("{not json", encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertNotIn("LTK_HEAVY_BUILTINS", self.reported_codes())
+
     def test_a_browser_that_never_answers_is_still_reported(self):
         mod = self.make_mod()
 
