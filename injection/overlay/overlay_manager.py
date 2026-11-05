@@ -156,6 +156,10 @@ def ltk_failure_cause(reason: str) -> str:
         return "league_admin"
     if "manager_elevated" in lowered or "ltk manager is running as administrator" in lowered:
         return "manager_admin"
+    # LTK Manager's own patcher missing from its folder (an antivirus took
+    # it): reinstalling LTK Manager is the fix, not Rose's files
+    if "ltk_patcher_host.exe not found" in lowered:
+        return "host_missing"
     if OVERLAY_DISABLED_MESSAGE in lowered:
         return "disabled"
     if "corruptarchive" in lowered:
@@ -1767,6 +1771,10 @@ class OverlayManager:
             return ("LTK Manager runs as administrator, and it does not patch League then. Turn User Account "
                     "Control back on, or use a regular Windows account (not the built-in Administrator), then "
                     f"restart the PC. {logs}")
+        if cause == "host_missing":
+            return ("LTK Manager's own patcher (ltk_patcher_host.exe) is missing from its folder, most often "
+                    "removed by an antivirus. Reinstall LTK Manager, then add its folder (C:\\Program Files\\LTK "
+                    f"Manager) to your antivirus exclusions. {logs}")
         if cause == "disabled":
             return ("LTK Manager's integrity check turned the overlay off because of a mod: the reason names its "
                     "WAD. LTK Manager refuses a custom skin made of another skin's files: use another custom skin "

@@ -960,6 +960,14 @@ class FailureCauseTests(unittest.TestCase):
             overlay_manager.CDP_UNREACHABLE_REASON + "; Windows runs every program as administrator on this account"
         ), "cdp")
 
+    def test_ltk_managers_missing_patcher_is_not_blamed_on_roses_files(self):
+        """#431: LTK Manager's own ltk_patcher_host.exe was gone (an antivirus),
+        and the hint sent the user to check Rose's launcher files"""
+        reason = ("could not start the LTK patcher (start_patcher failed: UNKNOWN: ltk_patcher_host.exe not "
+                  "found. Tried:\n - C:\\Program Files\\LTK Manager\\ltk_patcher_host.exe)")
+        self.assertEqual(ltk_failure_cause(reason), "host_missing")
+        self.assertIn("Reinstall LTK Manager", OverlayManager._ltk_failure_hint(reason))
+
     def test_ltk_manager_verdicts_on_the_game(self):
         self.assertEqual(ltk_failure_cause(
             "LTK Manager disabled the overlay (wad data/final/champions/zed.wad.client: base-skin check: skin0 "
