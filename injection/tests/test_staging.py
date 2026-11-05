@@ -231,6 +231,22 @@ class OverlayStagingTests(LtfSessionTestCase):
         self.assertEqual(self.reported_codes(), ["LTF_FAILED"])
         self.assertEqual(self.reported_causes(), ["cdp"])
 
+    def test_an_account_running_everything_as_administrator_is_named_in_it(self):
+        from utils.system.windows_account import ShellAccount
+        mod = self.make_mod()
+
+        def no_cdp(bridge_self):
+            raise overlay_manager.BridgeCommandError("list failed: CDP unavailable or timed out")
+
+        elevated = ShellAccount(elevated=True, builtin_administrator=False, uac_disabled=True)
+        with patch.object(FakeBridge, "library", no_cdp),                 patch("utils.system.windows_account.shell_account", return_value=elevated):
+            self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        reason = next(call.kwargs["details"]["reason"] for call in self.report_issue.call_args_list
+                      if call.args[0] == "LTF_FAILED")
+        self.assertIn("as administrator", reason)
+        self.assertEqual(self.reported_causes(), ["cdp"])
+
     def test_mods_packed_ahead_are_imported_as_they_are(self):
         mod = self.make_mod(where=self.stage_dir)
         archives = self.overlay.pack_mods(self.stage_dir, [mod])

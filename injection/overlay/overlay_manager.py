@@ -163,6 +163,20 @@ def _cdp_unreachable(error: BaseException) -> bool:
     return CDP_FAILURE_MARKER in str(error).lower()
 
 
+def _cdp_unreachable_reason() -> str:
+    """CDP_UNREACHABLE_REASON, with its usual cause when this account has it:
+    both PCs where the browser never answered ran every program as
+    administrator (#425 built-in Administrator, #426 UAC turned off)."""
+    try:
+        from utils.system.windows_account import shell_account
+        account = shell_account()
+    except Exception:  # a diagnostic must never fail the report
+        account = None
+    if account is not None and account.elevated:
+        return f"{CDP_UNREACHABLE_REASON}; Windows runs every program as administrator on this account"
+    return CDP_UNREACHABLE_REASON
+
+
 class LtkLogTail:
     """What LTK Manager writes to its own log from the moment this was made.
 
@@ -974,7 +988,7 @@ class OverlayManager:
                     log.error(f"[INJECT] Could not install {display_name}: {e}")
                     if report and not stopped():
                         if _cdp_unreachable(e):
-                            self._report_ltf_failure(CDP_UNREACHABLE_REASON)
+                            self._report_ltf_failure(_cdp_unreachable_reason())
                         elif not self._report_low_disk_space_failure(mod_names):
                             report_issue(
                                 "LTF_IMPORT_FAILED",
@@ -1033,7 +1047,7 @@ class OverlayManager:
             log.error(f"[INJECT] Could not start the LTK patcher: {e}")
             if report and not self._session_stopped(session):
                 self._report_ltf_failure(
-                    CDP_UNREACHABLE_REASON if _cdp_unreachable(e) else f"could not start the LTK patcher ({e})"
+                    _cdp_unreachable_reason() if _cdp_unreachable(e) else f"could not start the LTK patcher ({e})"
                 )
             return False
         session["patcher_running"] = True
