@@ -2482,7 +2482,8 @@ class MessageHandler:
             return
         
         other_id = payload.get("otherId")
-        other_data = payload.get("otherData", {})
+        # The category's "None" entry deselects each mod with otherData null
+        other_data = payload.get("otherData") or {}
         action = payload.get("action", "select")  # "select" or "deselect"
         
         # Initialize selected_other_mods as list if it doesn't exist
@@ -2492,10 +2493,14 @@ class MessageHandler:
         # Handle deselection
         if action == "deselect" or other_id is None:
             if other_id:
-                # Remove specific mod from list
+                # Remove specific mod from list (its relative path is otherData's id, else otherId)
+                def _rel(value) -> str:
+                    return str(value or "").replace("\\", "/").lstrip("/").lower()
+
+                target = _rel(other_data.get("id") or other_id)
                 self.shared_state.selected_other_mods = [
-                    mod for mod in self.shared_state.selected_other_mods 
-                    if mod.get("relative_path") != other_data.get("id")
+                    mod for mod in (self.shared_state.selected_other_mods or [])
+                    if mod and _rel(mod.get("relative_path")) != target
                 ]
                 log.info(f"[SkinMonitor] Other mod deselected: {other_id}")
             else:
