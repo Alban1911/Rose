@@ -133,6 +133,129 @@ static int PickFreePort()
     return port;
 }
 
+// WebView2 150+ ignores WEBVIEW2_* environment overrides in an elevated
+// application. Use its documented HKLM override for this executable only,
+// restoring the prior value as soon as the browser has opened its endpoint.
+class ScopedCdpPolicy {
+    HKEY key_ = NULL;
+    HKEY root_;
+    const wchar_t* path_;
+    std::wstring app_;
+    DWORD oldType_ = REG_NONE;
+    std::vector<BYTE> old_, installed_;
+    bool existed_ = false, active_ = false;
+    static constexpr const wchar_t* defaultPath_ =
+        L"Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
+public:
+    explicit ScopedCdpPolicy(HKEY root = HKEY_LOCAL_MACHINE, const wchar_t* path = defaultPath_)
+        : root_(root), path_(path) {}
+    ScopedCdpPolicy(const ScopedCdpPolicy&) = delete;
+    ScopedCdpPolicy& operator=(const ScopedCdpPolicy&) = delete;
+    ~ScopedCdpPolicy() { Restore(); if (key_) RegCloseKey(key_); }
+
+    bool Install(const wchar_t* exe, const wchar_t* arguments)
+    {
+        const wchar_t* base = wcsrchr(exe, L'\\');
+        app_ = base ? base + 1 : exe;
+        LSTATUS status = RegCreateKeyExW(root_, path_, 0, NULL, 0,
+            KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key_, NULL);
+        if (status != ERROR_SUCCESS) { SetLastError(status); return false; }
+        DWORD bytes = 0;
+        status = RegQueryValueExW(key_, app_.c_str(), NULL, &oldType_, NULL, &bytes);
+        if (status == ERROR_SUCCESS) {
+            existed_ = true;
+            old_.resize(bytes);
+            status = RegQueryValueExW(key_, app_.c_str(), NULL, &oldType_, old_.data(), &bytes);
+            if (status != ERROR_SUCCESS) { SetLastError(status); return false; }
+            old_.resize(bytes);
+        }
+        else if (status != ERROR_FILE_NOT_FOUND) { SetLastError(status); return false; }
+        std::wstring combined;
+        if (existed_ && oldType_ == REG_SZ && old_.size() % sizeof(wchar_t) == 0) {
+            for (size_t i = 0; i < old_.size() / sizeof(wchar_t); ++i) {
+                wchar_t value;
+                memcpy(&value, old_.data() + i * sizeof(value), sizeof(value));
+                if (!value) break;
+                combined.push_back(value);
+            }
+            if (!combined.empty()) combined += L" ";
+        }
+        combined += arguments;
+        installed_.resize((combined.size() + 1) * sizeof(wchar_t));
+        memcpy(installed_.data(), combined.c_str(), installed_.size());
+        status = RegSetValueExW(key_, app_.c_str(), 0, REG_SZ, installed_.data(), (DWORD)installed_.size());
+        if (status != ERROR_SUCCESS) { SetLastError(status); return false; }
+        active_ = true;
+        Log("[cdp] temporary WebView2 arguments set for %ls", app_.c_str());
+        return true;
+    }
+
+    bool Restore()
+    {
+        if (!active_) return true;
+        DWORD type = 0, bytes = 0;
+        LSTATUS status = RegQueryValueExW(key_, app_.c_str(), NULL, &type, NULL, &bytes);
+        std::vector<BYTE> current(bytes);
+        if (status == ERROR_SUCCESS)
+            status = RegQueryValueExW(key_, app_.c_str(), NULL, &type, current.data(), &bytes);
+        if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND) {
+            Log("[err] reading WebView2 arguments before restoration failed (err=%lu)", (DWORD)status);
+            return false;
+        }
+        if (status == ERROR_FILE_NOT_FOUND || type != REG_SZ || current != installed_) {
+            // Do not overwrite a policy somebody else changed while we launched.
+            Log("[warn] WebView2 arguments changed externally; leaving the current value alone");
+            active_ = false;
+            return true;
+        }
+        status = existed_
+            ? RegSetValueExW(key_, app_.c_str(), 0, oldType_, old_.data(), (DWORD)old_.size())
+            : RegDeleteValueW(key_, app_.c_str());
+        if (status != ERROR_SUCCESS) {
+            Log("[err] restoring WebView2 arguments failed (err=%lu)", (DWORD)status);
+            return false;
+        }
+        active_ = false;
+        RegCloseKey(key_);
+        key_ = NULL;
+        // Leave the shared key itself alone: other apps may have added values.
+        Log("[cdp] restored the previous WebView2 arguments for %ls", app_.c_str());
+        return true;
+    }
+};
+
+static bool WaitForCdp(int port, HANDLE manager)
+{
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return false;
+    ULONGLONG start = GetTickCount64();
+    bool ready = false;
+    while (GetTickCount64() - start < 30000 && WaitForSingleObject(manager, 0) == WAIT_TIMEOUT) {
+        SOCKET socket_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (socket_ == INVALID_SOCKET) break;
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = htons((u_short)port);
+        inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+        if (connect(socket_, (sockaddr*)&address, sizeof(address)) == 0) {
+            DWORD timeout = 1000;
+            setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
+            setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, (char*)&timeout, sizeof(timeout));
+            const char request[] = "GET /json/version HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+            send(socket_, request, sizeof(request) - 1, 0);
+            char response[256] = {};
+            int length = recv(socket_, response, sizeof(response) - 1, 0);
+            ready = length > 0 && (strncmp(response, "HTTP/1.1 200", 12) == 0 ||
+                                  strncmp(response, "HTTP/1.0 200", 12) == 0);
+        }
+        closesocket(socket_);
+        if (ready) break;
+        Sleep(100);
+    }
+    WSACleanup();
+    return ready;
+}
+
 static bool IsElevated()
 {
     HANDLE token = NULL;
@@ -145,9 +268,47 @@ static bool IsElevated()
     return elevated;
 }
 
-// The desktop user's unelevated token, taken from the shell (explorer).
-// LTK Manager refuses to patch while elevated, and an elevated Rose starts
-// this launcher elevated.
+// Read the actual integrity level, independently of LTK's elevation check.
+// A successful hook installation alone does not prove the DLL can enter the game.
+static DWORD IntegrityLevel(HANDLE process)
+{
+    HANDLE token = NULL;
+    if (!OpenProcessToken(process, TOKEN_QUERY, &token)) return 0;
+    DWORD bytes = 0;
+    GetTokenInformation(token, TokenIntegrityLevel, NULL, 0, &bytes);
+    std::vector<BYTE> data(bytes);
+    DWORD level = 0;
+    if (bytes && GetTokenInformation(token, TokenIntegrityLevel, data.data(), bytes, &bytes)) {
+        PSID sid = ((TOKEN_MANDATORY_LABEL*)data.data())->Label.Sid;
+        if (IsValidSid(sid)) {
+            BYTE count = *GetSidSubAuthorityCount(sid);
+            if (count) level = *GetSidSubAuthority(sid, count - 1);
+        }
+    }
+    CloseHandle(token);
+    return level;
+}
+
+// An explicit primary token is necessary here: CreateProcessW with an Explorer
+// parent inherits Explorer's medium-integrity token, even from an elevated Rose.
+static bool SpawnWithCurrentToken(const wchar_t* exePath, wchar_t* cmdLine,
+                                 const wchar_t* workDir, STARTUPINFOEXW* six,
+                                 bool shellParent, DWORD flags, PROCESS_INFORMATION* pi)
+{
+    HANDLE token = NULL;
+    if (!OpenProcessToken(GetCurrentProcess(),
+        TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY, &token)) return false;
+    six->StartupInfo.cb = shellParent ? sizeof(*six) : sizeof(STARTUPINFOW);
+    BOOL ok = CreateProcessAsUserW(token, exePath, cmdLine, NULL, NULL, FALSE,
+        flags | (shellParent ? EXTENDED_STARTUPINFO_PRESENT : 0), NULL,
+        workDir, &six->StartupInfo, pi);
+    DWORD error = ok ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(token);
+    SetLastError(error);
+    return ok != 0;
+}
+
+// The desktop user's unelevated token for the legacy --unelevated path.
 static HANDLE ShellUserToken()
 {
     // CreateProcessWithTokenW wants it (held, but off, in an elevated token)
@@ -477,6 +638,9 @@ int wmain(int argc, wchar_t** argv)
     // --quiet: no message boxes (Rose runs the launcher hidden, so a dialog
     // would block it until a timeout)
     bool    quiet = false;
+    // Opt in to the original desktop-token path. By default an elevated Rose
+    // keeps its own token so LTK can hook games in the same integrity context.
+    bool    unelevated = false;
     // Internal: this copy was started with the desktop user's token by an
     // elevated launcher, which then reads the manager pid from --pid-file
     bool    asUserChild = false;
@@ -484,6 +648,9 @@ int wmain(int argc, wchar_t** argv)
     for (int i = 1; i < argc; ++i) {
         if (!wcscmp(argv[i], L"--no-hide")) {
             noHide = true;
+        }
+        else if (!wcscmp(argv[i], L"--unelevated")) {
+            unelevated = true;
         }
         else if (!wcscmp(argv[i], L"--as-user-child")) {
             asUserChild = true;
@@ -585,11 +752,8 @@ int wmain(int argc, wchar_t** argv)
         Log("[warn] no explorer.exe (pid=%lu) to parent LTK Manager to", shellPid);
     }
 
-    // Started any other way, LTK Manager restarts itself as a child of the
-    // shell (--shell-relaunched marks that restart): the new process has the
-    // shell's environment, so WebView2 never gets the debugging port, and it
-    // runs before the bridge can be injected. Started unelevated with the
-    // flag, it stays the process started here, suspended until injected.
+    // Keep LTK from relaunching through the shell and losing the bridge's
+    // environment. The process remains suspended until the bridge is injected.
     wchar_t cmdLine[MAX_PATH + 256];
     swprintf_s(cmdLine, L"\"%s\" --shell-relaunched", exePath);
     bool started = false;
@@ -620,7 +784,37 @@ int wmain(int argc, wchar_t** argv)
     };
 
     DWORD helperPid = 0;
-    if (IsElevated()) {
+    bool preserveElevation = IsElevated() && !unelevated;
+    ScopedCdpPolicy cdpPolicy;
+    DWORD launcherIntegrity = IntegrityLevel(GetCurrentProcess());
+    Log("[security] launcher integrity=%lu, preserve elevation=%s", launcherIntegrity,
+        preserveElevation ? "yes" : "no");
+    if (preserveElevation) {
+        if (launcherIntegrity == 0)
+            return Fail(quiet, kExitSpawnFailed, L"Could not read Rose's administrator integrity level.");
+        if (!cdpPolicy.Install(exePath, browserArgs)) {
+            Log("[err] could not configure elevated WebView2 (err=%lu)", GetLastError());
+            return Fail(quiet, kExitSpawnFailed,
+                L"Could not configure WebView2 for the administrator LTK session. See ltk_launcher.log.");
+        }
+        EnablePrivilege(L"SeIncreaseQuotaPrivilege");
+        EnablePrivilege(L"SeAssignPrimaryTokenPrivilege");
+        started = SpawnWithCurrentToken(exePath, cmdLine, workDir[0] ? workDir : NULL,
+            &six, shellParent, flags, &pi);
+        if (!started) {
+            DWORD error = GetLastError();
+            if (six.lpAttributeList) {
+                DeleteProcThreadAttributeList(six.lpAttributeList);
+                HeapFree(GetProcessHeap(), 0, six.lpAttributeList);
+            }
+            if (shellProc) CloseHandle(shellProc);
+            Log("[err] could not preserve the administrator token (err=%lu)", error);
+            return Fail(quiet, kExitSpawnFailed,
+                L"Could not start LTK Manager with Rose's administrator token. See ltk_launcher.log.");
+        }
+        Log("[launch] started with the launcher's administrator token");
+    }
+    else if (IsElevated()) {
         HANDLE token = ShellUserToken();
         if (token) {
             std::wstring env = EnvironmentFor(token, vars);
@@ -682,6 +876,15 @@ int wmain(int argc, wchar_t** argv)
         six.lpAttributeList = NULL;
     }
     if (shellProc) CloseHandle(shellProc);
+    DWORD managerIntegrity = IntegrityLevel(pi.hProcess);
+    Log("[security] manager pid=%lu integrity=%lu", pi.dwProcessId, managerIntegrity);
+    if (preserveElevation && (managerIntegrity == 0 || managerIntegrity < launcherIntegrity)) {
+        Log("[err] manager lost the launcher's integrity level - terminating the spawned instance");
+        TerminateProcess(pi.hProcess, kExitSpawnFailed);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return Fail(quiet, kExitSpawnFailed, L"LTK Manager did not keep Rose's administrator permissions.");
+    }
     DWORD parentPid = ParentPidOf(pi.dwProcessId);
     Log("[launch] spawned pid = %lu (suspended), parent pid = %lu (%s)", pi.dwProcessId, parentPid,
         !shellParent ? "no shell parent" : (parentPid == shellPid ? "explorer.exe" : "not explorer.exe"));
@@ -694,6 +897,21 @@ int wmain(int argc, wchar_t** argv)
     }
 
     ResumeThread(pi.hThread);
+
+    if (preserveElevation) {
+        bool ready = WaitForCdp(cdpPort, pi.hProcess);
+        bool restored = cdpPolicy.Restore();
+        if (!ready || !restored) {
+            Log("[err] elevated WebView2 endpoint ready=%s, policy restored=%s",
+                ready ? "yes" : "no", restored ? "yes" : "no");
+            TerminateProcess(pi.hProcess, kExitSpawnFailed);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            return Fail(quiet, kExitSpawnFailed,
+                L"The administrator LTK session did not finish initializing WebView2. See ltk_launcher.log.");
+        }
+        Log("[cdp] administrator WebView2 endpoint is ready on 127.0.0.1:%d", cdpPort);
+    }
 
     // A restart through the shell shows as the spawned process exiting and
     // a new one taking over: the bridge then goes into that one. Without a
@@ -725,6 +943,14 @@ int wmain(int argc, wchar_t** argv)
         return kExitNoLiveInstance;
     }
     if (livePid != pi.dwProcessId) {
+        // A relaunch must not silently undo the permissions we preserved above.
+        HANDLE live = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, livePid);
+        DWORD liveIntegrity = live ? IntegrityLevel(live) : 0;
+        if (live) CloseHandle(live);
+        Log("[security] relaunched manager pid=%lu integrity=%lu", livePid, liveIntegrity);
+        if (preserveElevation && liveIntegrity < launcherIntegrity)
+            return Fail(quiet, kExitNoLiveInstance,
+                L"LTK Manager restarted without Rose's administrator permissions. See ltk_launcher.log.");
         Log("[re-inject] injecting into live ltk-manager.exe pid=%lu", livePid);
         if (!InjectDll(livePid, dllPath)) return kExitInjectFailed;
     }

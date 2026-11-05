@@ -87,6 +87,9 @@ foreach ($suite in $suites) { python -m unittest discover -s $suite -t . }
 pip install ruff
 python -m ruff check . --select E9,F63,F7,F82
 
+# Native launcher token/policy tests (requires the MSVC x64 build tools)
+python scripts/test_ltf_launcher.py
+
 # Plugin syntax (needs Node.js): a broken plugin otherwise just fails to load in the client
 git ls-files 'Pengu Loader/plugins/*.js' | ForEach-Object { node --check $_ }
 ```

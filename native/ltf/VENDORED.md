@@ -37,9 +37,21 @@ An update must carry these over (Rose's Python side depends on them):
   (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`): the patcher DLL verifies the chain
   that started it and refuses the overlay otherwise
   (docs/ltf-vrf-host-verification.md). `CreateProcessWithTokenW` refuses that
-  attribute, so an elevated launcher starts an unelevated copy of itself
+  attribute. By default an elevated launcher now uses its own primary token
+  with `CreateProcessAsUserW`, retaining the shell parent and the administrator
+  integrity level. It logs and checks the child's integrity before injecting;
+  a process that loses that level is reported as a launch failure. WebView2
+  150+ ignores environment arguments in elevated apps, so the launcher sets
+  its documented HKLM AdditionalBrowserArguments override for this executable
+  only, then restores the previous value after the loopback CDP endpoint is
+  ready (also on startup failures). It never writes the wildcard override.
+  Ordinary launches stay ordinary. `--unelevated` opts in to the former desktop-token
+  behavior: the launcher starts an unelevated copy of itself
   (`--as-user-child`) that spawns, injects and resumes the manager, and relays
   its pid through `--pid-file`.
+  Restoration runs on normal success and failure returns. Force-killing the
+  launcher or losing power during this startup window can leave the executable's
+  override behind; deleting that executable-specific value restores the default.
 - **DLL**: UTF-8 paths are opened with the wide file APIs. Only LTK Manager's
   own CDP page is used (no fallback to another program's page). Every command
   but `hello`/`ping` needs the token the DLL publishes in
