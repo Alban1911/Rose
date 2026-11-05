@@ -88,6 +88,11 @@ BRIDGE_START_TIMEOUT_S = 30
 # staging gave up on its first try (#431). How long to wait for it, and how
 # often to ask
 CDP_READY_TIMEOUT_S = 20.0
+# LTK Manager stops its patcher only once the overlay build in progress is done
+# (62s with map mods in #437): a start in between is refused as ALREADY_RUNNING.
+# How long to wait for the stopping patcher before giving up
+PATCHER_ALREADY_RUNNING = "ALREADY_RUNNING"
+PATCHER_STOP_WAIT_S = 120.0
 CDP_READY_POLL_S = 0.5
 # ltk_launcher.exe exit codes (native/ltf/LeagueToolFlop-inj.cpp)
 LAUNCHER_EXIT_ALREADY_RUNNING = 5
@@ -1170,7 +1175,14 @@ class OverlayManager:
         """Start LTK Manager's patcher (it builds the overlay, then scans for the game)."""
         tail = LtkLogTail(LtkLogTail.log_dir())  # LTK's own log from this start on
         try:
-            session["bridge"].start_patcher()
+            try:
+                session["bridge"].start_patcher()
+            except BridgeCommandError as e:
+                # The last patcher has not exited yet: it finishes its overlay
+                # build first. Wait for it, then start this one (#437)
+                if PATCHER_ALREADY_RUNNING not in str(e).upper() or not self._wait_patcher_stopped(session):
+                    raise
+                session["bridge"].start_patcher()
         except (BridgeUnavailable, BridgeCommandError) as e:
             log.error(f"[INJECT] Could not start the LTK patcher: {e}")
             if report and not self._session_stopped(session):
@@ -1187,6 +1199,32 @@ class OverlayManager:
         session["staged_after_s"] = None
         session["ltk_error"] = None
         return True
+
+    def _wait_patcher_stopped(self, session: dict) -> bool:
+        """Stop LTK Manager's patcher and wait until it exited, up to
+        PATCHER_STOP_WAIT_S: a stop takes effect once the overlay build in
+        progress is done. Whether it exited."""
+        bridge = session["bridge"]
+        log.info("[INJECT] The last LTK patcher is still finishing its overlay build - waiting for it to stop")
+        try:
+            bridge.stop_patcher()
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.debug(f"[INJECT] Stop of the last LTK patcher: {e}")
+        started = time.monotonic()
+        while time.monotonic() - started < PATCHER_STOP_WAIT_S:
+            if self._session_stopped(session):
+                return False
+            try:
+                payload = bridge.patcher_status().get("response")
+            except BridgeUnavailable:
+                payload = None
+            value = payload.get("value") if isinstance(payload, dict) else None
+            if isinstance(value, dict) and not value.get("running"):
+                log.info(f"[INJECT] The last LTK patcher stopped after {time.monotonic() - started:.1f}s")
+                return True
+            time.sleep(PATCHER_READY_POLL_S)
+        log.warning(f"[INJECT] The last LTK patcher did not stop within {PATCHER_STOP_WAIT_S:.0f}s")
+        return False
 
     def _stop_patcher(self, session: dict) -> None:
         try:

@@ -169,6 +169,7 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(overlay_manager, "PATCHER_IDLE_GRACE_S", 0.05),
             patch.object(overlay_manager, "CDP_READY_POLL_S", 0.01),
             patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 0.05),
+            patch.object(overlay_manager, "PATCHER_STOP_WAIT_S", 0.5),
             # Never this PC's own LTK Manager log
             patch.object(overlay_manager.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
         ):
@@ -897,6 +898,47 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.assertIn("WAD Mount Failure (CorruptArchive", reason)
         self.assertIn("incidents\\2026-11-05T10-04-52.json", reason)
 
+
+    def test_a_start_while_the_last_patcher_still_builds_waits_for_it(self):
+        """#437: LTK Manager stops a patcher only after the overlay build it is
+        in (62s with map mods); the restart in between was refused as
+        ALREADY_RUNNING and the injection gave up"""
+        session = self._session()
+        starts = {"count": 0}
+
+        def start_patcher(bridge_self):
+            bridge_self.calls.append(("start_patcher",))
+            starts["count"] += 1
+            if starts["count"] == 1:
+                raise overlay_manager.BridgeCommandError(
+                    "start_patcher failed: PATCHER ALREADY_RUNNING: The patcher is already running"
+                )
+            return {"ok": True, "response": {"ok": True, "value": None}}
+
+        FakeBridge.patcher_statuses = [status(running=True, phase="building"),
+                                       status(running=True, phase="building"),
+                                       status(running=False, phase="idle")]
+        with patch.object(FakeBridge, "start_patcher", start_patcher):
+            self.assertTrue(self.overlay._start_patcher(session))
+
+        names = self.bridge.command_names()
+        self.assertEqual(names.count("start_patcher"), 2)
+        self.assertLess(names.index("stop_patcher"), len(names) - 1 - names[::-1].index("start_patcher"))
+        self.assertEqual(self.reported_codes(), [])
+
+    def test_a_patcher_that_never_stops_still_fails_the_start(self):
+        session = self._session()
+
+        def start_patcher(bridge_self):
+            raise overlay_manager.BridgeCommandError(
+                "start_patcher failed: PATCHER ALREADY_RUNNING: The patcher is already running"
+            )
+
+        FakeBridge.patcher_statuses = [status(running=True, phase="building")]
+        with patch.object(FakeBridge, "start_patcher", start_patcher):
+            self.assertFalse(self.overlay._start_patcher(session))
+
+        self.assertEqual(self.reported_codes(), ["LTF_FAILED"])
 
     def test_the_session_waits_for_ltk_managers_browser(self):
         """#431: the bridge answers seconds before LTK Manager's browser does;
