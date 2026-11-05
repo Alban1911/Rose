@@ -109,6 +109,12 @@ LATE_JOIN_MESSAGE = "joined too late"
 # the code names the check that failed, the bracket after it what it saw
 OVERLAY_REFUSED_MESSAGE = "host verification failed"
 OVERLAY_REFUSED_CODE = re.compile(r"\[(vrf\d{8})\]\s*\(([^)]*)\)?", re.IGNORECASE)
+# A check in that chain naming a WinVerifyTrust result: Windows could not verify
+# the Authenticode signature of LTK Manager's own files (0x80096010
+# TRUST_E_BAD_DIGEST: a file modified or damaged after signing; 0x800B01xx: a
+# certificate Windows does not trust). Reinstalling LTK Manager fixes it (#442)
+OVERLAY_SIGNATURE_CODE = re.compile(r"\[vrf\d{8}\]\s*\((800960[0-9a-f]{2}|800b0[0-9a-f]{3})\)", re.IGNORECASE)
+SIGNATURE_FAILURE_MESSAGE = "Windows could not verify the signature of LTK Manager's files"
 # The DLL's integrity scan turning the overlay off in the game: a mod's WAD
 # failed a check, which the rest of the line names (a custom skin made of
 # another skin's files: "base-skin check: skin0 is another skin: ...")
@@ -175,6 +181,8 @@ def ltk_failure_cause(reason: str) -> str:
         return "running"
     if LATE_JOIN_MESSAGE in lowered:
         return "late"
+    if SIGNATURE_FAILURE_MESSAGE.lower() in lowered:
+        return "signature"
     if OVERLAY_REFUSED_MESSAGE in lowered or "refused the overlay" in lowered:
         return "refused"
     if lowered.startswith("could not start"):
@@ -559,6 +567,7 @@ class OverlayManager:
             "ltk_attached": False,
             "ltk_late": False,
             "ltk_refused": None,  # (check code, what it saw)
+            "ltk_signature": None,  # the WinVerifyTrust result in that refusal, as 0x...
             "ltk_disabled": None,  # why the DLL's integrity scan turned the overlay off
             "ltk_incident": None,  # (title, id, verdict) LTK Manager recorded after the game
             "ltk_error": None,  # LTK Manager's first patcher ERROR line
@@ -1524,6 +1533,9 @@ class OverlayManager:
         refused = OVERLAY_REFUSED_CODE.search(text)
         if refused and session.get("ltk_refused") is None:
             session["ltk_refused"] = (refused.group(1).upper(), (refused.group(2) or "").strip())
+        signature = OVERLAY_SIGNATURE_CODE.search(text)
+        if signature and session.get("ltk_signature") is None:
+            session["ltk_signature"] = "0x" + signature.group(1).upper()
         disabled = OVERLAY_DISABLED_LINE.search(text)
         if disabled and session.get("ltk_disabled") is None:
             session["ltk_disabled"] = disabled.group(1).strip()[:LTK_ERROR_MAX_CHARS]
@@ -1629,9 +1641,13 @@ class OverlayManager:
             check, seen = refused
             described = f"{check} ({seen})" if seen else check
             log.error(f"[INJECT] The LTK patcher refused the overlay: host verification failed {described}")
+            signature = session.get("ltk_signature")
+            if signature:
+                log.error(f"[INJECT] {SIGNATURE_FAILURE_MESSAGE} ({signature}): reinstall LTK Manager")
             if not self._stopped_by_rose():
                 self._report_ltf_failure(
-                    f"LTK Manager's patcher refused the overlay (host verification failed: {described})"
+                    f"LTK Manager's patcher refused the overlay (host verification failed: {described}"
+                    + (f"; {SIGNATURE_FAILURE_MESSAGE}, {signature})" if signature else ")")
                 )
         # LTK Manager's own verdicts on the game: the overlay turned off by its
         # integrity scan, an incident after the game. Rose's injection
@@ -1852,6 +1868,10 @@ class OverlayManager:
                     "of the countdown and LTK Manager needed longer to build its overlay (a skin that also "
                     "changes a map file takes seconds), or LTK Manager was slow to start. Pick the skin a few "
                     f"seconds earlier, or retry the next game. {logs}")
+        if cause == "signature":
+            return ("LTK Manager's patcher checks the digital signature of LTK Manager's own files, and Windows "
+                    "could not verify it: a file was modified or damaged. Reinstall LTK Manager from its official "
+                    f"release (github.com/LeagueToolkit/ltk-manager/releases), then retry. {logs}")
         if cause == "refused":
             return ("LTK Manager's patcher refused to apply the overlay. Update Rose (its launcher starts LTK "
                     f"Manager the way the patcher expects); if it still happens, {report}. {logs}")

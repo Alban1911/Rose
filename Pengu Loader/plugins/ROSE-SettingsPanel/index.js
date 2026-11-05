@@ -5141,6 +5141,7 @@
             crashed: () => t('Fix: LTK Manager crashed. Retry the next game. If it crashes every game, report it with your Rose logs.'),
             cdp: () => t(CDP_FIX),
             league_admin: () => t('Fix: League is set to run as administrator, and LTK Manager does not patch it then. Right-click League of Legends.exe and LeagueClient.exe (in the League of Legends folder) > Properties > Compatibility, untick "Run this program as an administrator" (also under "Change settings for all users"), then restart League.'),
+            signature: () => t("Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry."),
             host_missing: () => t("Fix: LTK Manager's own patcher (ltk_patcher_host.exe) is missing from its folder, most often removed by an antivirus. Reinstall LTK Manager, then add its folder (C:\\Program Files\\LTK Manager) to your antivirus exclusions."),
             disabled: () => t("Fix: LTK Manager's integrity check turned the overlay off because of a mod (named above). LTK Manager refuses a custom skin made of another skin's files: use another custom skin or the official one."),
             corrupt: () => t("Fix: League could not read a file of the overlay, most often a mod made for an older patch. Turn your mods off, then back on one at a time to find it. LTK Manager's incident file (named above) lists the mods it suspects."),
