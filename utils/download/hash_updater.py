@@ -3,6 +3,11 @@
 """
 Game Hash File Updater
 Checks for updates to CommunityDragon game hash files and downloads/combines them
+
+A file is checked with a HEAD request on raw.githubusercontent.com: its ETag
+changes with its content. Raw requests are not GitHub API calls, so they do not
+spend the 60 calls an hour GitHub allows without a login (the commit lookups
+this used before took 9 calls per start, 18 when the files changed).
 """
 
 import json
@@ -15,8 +20,6 @@ from config import APP_USER_AGENT, get_config_file_path
 log = get_logger()
 updater_log = get_named_logger("updater", prefix="log_updater")
 
-# GitHub API endpoints
-GITHUB_API_BASE = "https://api.github.com/repos/CommunityDragon/Data"
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com/CommunityDragon/Data/master"
 HASHES_DIR = "hashes/lol"
 HASH_FILES = [f"hashes.game.txt.{i}" for i in range(9)]
@@ -54,113 +57,75 @@ def save_state(state: Dict):
         log.warning(f"Failed to save hash updater state: {e}")
 
 
-def check_file_commits(file_path: str, session: requests.Session) -> Optional[Dict]:
-    """Check the latest commit for a specific file
-    
-    Returns:
-        Dict with 'sha' and 'date' keys, or None on error
-    """
-    try:
-        # Get commits for the specific file
-        url = f"{GITHUB_API_BASE}/commits"
-        params = {
-            'path': file_path,
-            'sha': 'master',
-            'per_page': 1
-        }
-        response = session.get(url, params=params, timeout=10)
-        
-        if response.status_code == 404:
-            log.debug(f"File {file_path} not found in repository")
-            return None
-        
-        response.raise_for_status()
-        commits = response.json()
-        
-        if not commits:
-            log.debug(f"No commits found for {file_path}")
-            return None
-        
-        latest_commit = commits[0]
-        return {
-            'sha': latest_commit['sha'],
-            'date': latest_commit['commit']['committer']['date']
-        }
-    except requests.HTTPError as e:
-        if e.response and e.response.status_code in (403, 429):
-            log.warning(f"GitHub API rate limit exceeded while checking {file_path}")
-            return {'rate_limited': True}
-        else:
-            log.error(f"Failed to check commits for {file_path}: {e}")
-            return None
-    except requests.RequestException as e:
-        log.error(f"Failed to check commits for {file_path}: {e}")
-        return None
+def _file_url(hash_file: str) -> str:
+    return f"{GITHUB_RAW_BASE}/{HASHES_DIR}/{hash_file}"
 
 
-def check_for_updates() -> bool:
+def remote_etags(session: requests.Session) -> Optional[Dict[str, str]]:
+    """Each hash file's ETag on raw.githubusercontent.com (HEAD requests), or
+    None when one could not be read."""
+    etags = {}
+    for hash_file in HASH_FILES:
+        try:
+            response = session.head(_file_url(hash_file), timeout=15, allow_redirects=True)
+        except requests.RequestException as e:
+            log.warning(f"Could not check {hash_file}: {e}")
+            return None
+        etag = response.headers.get("ETag")
+        if response.status_code != 200 or not etag:
+            log.warning(f"Could not check {hash_file} (HTTP {response.status_code})")
+            return None
+        etags[hash_file] = etag
+    return etags
+
+
+def check_for_updates(target_exists: bool = True) -> bool:
     """Check if hash files have been updated on GitHub
-    
+
+    Args:
+        target_exists: whether the combined file is on disk. A state saved by an
+            older Rose (commit SHAs, no ETags) is then taken as current: its
+            ETags are recorded instead of downloading everything again.
+
     Returns:
         True if updates are available, False otherwise
     """
     session = requests.Session()
-    session.headers.update({
-        'User-Agent': APP_USER_AGENT,
-        'Accept': 'application/vnd.github.v3+json'
-    })
-    
+    session.headers.update({'User-Agent': APP_USER_AGENT})
+
+    remote = remote_etags(session)
+    if remote is None:
+        return False
+
     local_state = load_state()
-    local_file_shas = local_state.get('files', {})
-    
-    any_updated = False
-    any_checked = False
-    rate_limited = False
-    
-    for hash_file in HASH_FILES:
-        file_path = f"{HASHES_DIR}/{hash_file}"
-        commits = check_file_commits(file_path, session)
-        
-        if commits is None:
-            continue
-        
-        if commits.get('rate_limited'):
-            rate_limited = True
-            continue
-        
-        any_checked = True
-        local_sha = local_file_shas.get(hash_file, {}).get('sha')
-        if not local_sha:
-            log.info(f"No local state for {hash_file}, hash files will be downloaded")
-            return True
-        
-        if commits['sha'] != local_sha:
-            log.info(f"{hash_file} updated: {local_sha[:8]} -> {commits['sha'][:8]}")
-            any_updated = True
-    
-    if rate_limited:
-        log.warning("Rate limited on some files, cannot fully check for updates")
-        return False
-    
-    if not any_checked:
-        log.warning("Failed to check commits for any hash files")
-        return False
-    
-    if any_updated:
+    local_etags = local_state.get('etags') or {}
+    if not local_etags:
+        if target_exists and local_state.get('files'):
+            log.info("Recording the hash files' ETags (checked on raw.githubusercontent.com from now on)")
+            save_state({'etags': remote})
+            return False
+        log.info("No local state for the hash files, they will be downloaded")
         return True
-    
+
+    changed = [name for name in HASH_FILES if remote.get(name) != local_etags.get(name)]
+    if changed:
+        log.info(f"Hash files updated: {', '.join(changed)}")
+        return True
+
     log.debug("Hash files are up to date")
     return False
 
 
-def download_file(url: str, session: requests.Session, status_callback: Optional[Callable[[str], None]] = None) -> Optional[bytes]:
+def download_file(url: str, session: requests.Session, status_callback: Optional[Callable[[str], None]] = None,
+                  etags: Optional[Dict[str, str]] = None) -> Optional[bytes]:
     """Download a file from URL
     
     Args:
         url: URL to download from
         session: Requests session to use
         status_callback: Optional callback for status updates
-    
+        etags: Optional dict receiving the file's ETag under its name
+
     Returns:
         File contents as bytes, or None on error
     """
@@ -168,10 +133,12 @@ def download_file(url: str, session: requests.Session, status_callback: Optional
         filename = url.split('/')[-1]
         if status_callback:
             status_callback(f"Downloading {filename}...")
-        
+
         response = session.get(url, timeout=30, stream=True)
         response.raise_for_status()
-        
+        if etags is not None and response.headers.get('ETag'):
+            etags[filename] = response.headers['ETag']
+
         # Get total size if available
         total_size = int(response.headers.get('content-length', 0))
         downloaded = 0
@@ -262,7 +229,7 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
     target_exists = (_tools_dir / TARGET_FILE).exists()
 
     # Check if updates are available
-    if not check_for_updates():
+    if not check_for_updates(target_exists=target_exists):
         if target_exists:
             updater_log.info("Game hashes are valid (no update needed)")
             if status_callback:
@@ -280,20 +247,18 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
         status_callback("Updating game hashes…")
     
     session = requests.Session()
-    session.headers.update({
-        'User-Agent': APP_USER_AGENT,
-        'Accept': 'application/vnd.github.v3+json'
-    })
-    
+    session.headers.update({'User-Agent': APP_USER_AGENT})
+
     # Download all hash files
     contents = []
+    etags: Dict[str, str] = {}
     for hash_file in HASH_FILES:
-        url = f"{GITHUB_RAW_BASE}/{HASHES_DIR}/{hash_file}"
+        url = _file_url(hash_file)
         log.info(f"Downloading {hash_file}...")
         updater_log.info(f"Downloading {hash_file}...")
         if status_callback:
             status_callback(f"Downloading {hash_file}...")
-        content = download_file(url, session, status_callback)
+        content = download_file(url, session, status_callback, etags)
         if content is None:
             log.error(f"Failed to download {hash_file}")
             updater_log.error(f"Failed to download {hash_file}")
@@ -356,26 +321,10 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
             status_callback(f"Failed to write {TARGET_FILE}")
         return False
     
-    # Update state with new commit SHAs
-    session_state = requests.Session()
-    session_state.headers.update({
-        'User-Agent': APP_USER_AGENT,
-        'Accept': 'application/vnd.github.v3+json'
-    })
-    
-    new_state = {'files': {}}
-    for hash_file in HASH_FILES:
-        file_path = f"{HASHES_DIR}/{hash_file}"
-        commits = check_file_commits(file_path, session_state)
-        if commits and not commits.get('rate_limited'):
-            new_state['files'][hash_file] = {
-                'sha': commits['sha'],
-                'date': commits['date']
-            }
-    
-    if new_state['files']:
-        save_state(new_state)
-    
+    # Record what was downloaded: the next start compares these ETags
+    if len(etags) == len(HASH_FILES):
+        save_state({'etags': etags})
+
     updater_log.info("Game hashes updated successfully")
     if status_callback:
         status_callback("Game hashes updated successfully")

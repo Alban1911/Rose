@@ -256,13 +256,13 @@ def download_skins_on_startup(
     injection_manager=None,
     progress_callback: Optional[ProgressCallback] = None,
 ) -> bool:
-    """Download skins using repository ZIP download (most efficient method)"""
+    """Sync the skin library from LeagueSkins' manifest (only the files that differ are downloaded)"""
     try:
         # Note: Tray status is now managed by AppStatus class in main.py
         # This function just downloads and returns success/failure
         
         from utils.download.repo_downloader import download_skins_from_repo
-        log.info("Downloading skins from repository ZIP...")
+        log.info("Syncing the skin library...")
         result = download_skins_from_repo(
             target_dir,
             force_update,
