@@ -862,7 +862,21 @@
     }
 
     scanSkinSelection();
-    if (panel && panel.parentNode && panelButtonRef) closePanel();
+    if (panel && panel.parentNode && panelButtonRef) {
+      const button = panelButtonRef;
+      const skinItem = panelSkinItemRef;
+      closePanel();
+      if (button.isConnected && skinItem && skinItem.isConnected) {
+        togglePanel(button, skinItem);
+      }
+    }
+  }
+
+  function handleModImageUpdated(data) {
+    if (!data?.success || Number(data.championId) !== getCurrentSkinContext().championId) return;
+    lastSkinModsRequestKey = null;
+    lastSkinModsRequestAt = 0;
+    requestModsForCurrentSkin();
   }
 
   function handleSkinState(event) {
@@ -894,6 +908,7 @@
 
     if (bridge) {
       bridge.subscribe("skin-mods-response", (data) => handleModsResponse({ detail: data }));
+      bridge.subscribe("champion-mod-image-updated", handleModImageUpdated);
       bridge.subscribe("custom-mod-selection-result", (data) => handleSelectionResult({ detail: data }));
       bridge.subscribe("chroma-state", handleChromaStateUpdate);
       bridge.subscribe("phase-change", handlePhaseChange);
