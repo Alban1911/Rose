@@ -122,17 +122,19 @@ class InjectionManager:
                         self._initialized = False
     
     def start_patcher_in_background(self):
-        """Bring LTK Manager and its bridge up when the loadout countdown begins.
+        """Bring LTK Manager and its bridge up before the loadout countdown.
 
         Starting LTK Manager takes seconds, and its patcher must already scan
         when the client creates the game: the countdown stages the selected
         skin on this session (stage_plan). In the background: starting it must
         not hold up the countdown.
         """
-        if not self._initialized or self.injector is None:
+        if not self._initialized or self.injector is None or getattr(self.shared_state, "stop", False):
             return
 
         def start():
+            if getattr(self.shared_state, "stop", False):
+                return
             try:
                 self.injector.overlay_manager.start_patcher_early()
             except Exception as e:
@@ -730,6 +732,8 @@ class InjectionManager:
                 try:
                     self._ensure_initialized()
                     log.info("[INJECT] Background initialization completed - injection system ready")
+                    # Practice Tool's countdown can be shorter than LTK Manager's startup.
+                    self.start_patcher_in_background()
                 except Exception as e:
                     log.error(f"[INJECT] Background initialization failed: {e}")
             
@@ -784,6 +788,8 @@ class InjectionManager:
                 # Clear flag when done
                 with self._cleanup_lock:
                     self._cleanup_in_progress = False
+                if getattr(self.shared_state, "phase", None) == "Lobby":
+                    self.start_patcher_in_background()
         
         cleanup = threading.Thread(target=cleanup_thread, daemon=True, name="CleanupThread")
         cleanup.start()
@@ -805,6 +811,7 @@ class InjectionManager:
             return  # Nothing to kill if not initialized
         
         try:
+            self.discard_early_patcher()
             self.injector.kill_all_modtools_processes()
         except Exception as e:
             log.warning(f"[INJECT] Failed to kill LTK Manager processes: {e}")
