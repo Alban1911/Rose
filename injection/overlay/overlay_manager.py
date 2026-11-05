@@ -103,6 +103,15 @@ LATE_JOIN_MESSAGE = "joined too late"
 # the code names the check that failed, the bracket after it what it saw
 OVERLAY_REFUSED_MESSAGE = "host verification failed"
 OVERLAY_REFUSED_CODE = re.compile(r"\[(vrf\d{8})\]\s*\(([^)]*)\)?", re.IGNORECASE)
+# The DLL's integrity scan turning the overlay off in the game: a mod's WAD
+# failed a check, which the rest of the line names (a custom skin made of
+# another skin's files: "base-skin check: skin0 is another skin: ...")
+OVERLAY_DISABLED_LINE = re.compile(r"overlay verification failed, disabling overlay:\s*([^\r\n\"]+)", re.IGNORECASE)
+OVERLAY_DISABLED_MESSAGE = "disabled the overlay"
+# LTK Manager's diagnosis of a game that went wrong (a WAD League could not
+# mount, a crash...), kept as <id>.json in its incidents folder
+INCIDENT_LINE = re.compile(r"Incident recorded:\s*([^\r\n]*?)\s+id=(\S+)\s+verdict=(\w+)")
+LTK_INCIDENTS_DIR = "%APPDATA%\\dev.leaguetoolkit.manager\\incidents"
 # What LTK Manager's log says about the patcher's start (its lines begin with
 # a UTC time): how long the overlay took to build, and when the host began to
 # scan. The patcher only overlays a game created after that moment.
@@ -141,6 +150,12 @@ def ltk_failure_cause(reason: str) -> str:
         return "league_admin"
     if "manager_elevated" in lowered or "ltk manager is running as administrator" in lowered:
         return "manager_admin"
+    if OVERLAY_DISABLED_MESSAGE in lowered:
+        return "disabled"
+    if "corruptarchive" in lowered:
+        return "corrupt"
+    if "recorded an incident" in lowered:
+        return "incident"
     if "import" in lowered:
         return "import"
     if "already open" in lowered:
@@ -506,6 +521,8 @@ class OverlayManager:
             "ltk_attached": False,
             "ltk_late": False,
             "ltk_refused": None,  # (check code, what it saw)
+            "ltk_disabled": None,  # why the DLL's integrity scan turned the overlay off
+            "ltk_incident": None,  # (title, id, verdict) LTK Manager recorded after the game
             "ltk_error": None,  # LTK Manager's first patcher ERROR line
             "staged_after_s": None,  # pick -> patcher start, for the staged mods
             # The library as _install_mods last read it, for _disable_other_mods
@@ -520,6 +537,8 @@ class OverlayManager:
             "status_failures": 0,
             "late_join_reported": False,
             "refused_reported": False,
+            "disabled_reported": False,
+            "incident_reported": False,
             "early_stop_logged": False,
             "lock": threading.Lock(),
         }
@@ -1324,6 +1343,7 @@ class OverlayManager:
                         if not stop_callback():
                             continue  # the game came back (reconnect)
                     log.info("[INJECT] Game ended, stopping LTK patcher")
+                    self._check_patcher_verdict(session)  # LTK Manager's verdict on the game
                     break
                 if session["ended"]:
                     continue  # Rose stopped the session while the callback ran
@@ -1410,6 +1430,12 @@ class OverlayManager:
         refused = OVERLAY_REFUSED_CODE.search(text)
         if refused and session.get("ltk_refused") is None:
             session["ltk_refused"] = (refused.group(1).upper(), (refused.group(2) or "").strip())
+        disabled = OVERLAY_DISABLED_LINE.search(text)
+        if disabled and session.get("ltk_disabled") is None:
+            session["ltk_disabled"] = disabled.group(1).strip()[:LTK_ERROR_MAX_CHARS]
+        incident = INCIDENT_LINE.search(text)
+        if incident and session.get("ltk_incident") is None:
+            session["ltk_incident"] = (incident.group(1).strip(), incident.group(2), incident.group(3))
         if session.get("overlay_build_s") is None:
             built = OVERLAY_BUILT_LINE.search(text)
             if built:
@@ -1513,6 +1539,22 @@ class OverlayManager:
                 self._report_ltf_failure(
                     f"LTK Manager's patcher refused the overlay (host verification failed: {described})"
                 )
+        # LTK Manager's own verdicts on the game: the overlay turned off by its
+        # integrity scan, an incident after the game. Rose's injection
+        # "completes" either way: without these, nothing told the user (#432)
+        disabled = session.get("ltk_disabled")
+        if disabled and not session.get("disabled_reported"):
+            session["disabled_reported"] = True
+            log.error(f"[INJECT] LTK Manager's integrity check disabled the overlay this game: {disabled}")
+            self._report_ltf_failure(f"LTK Manager {OVERLAY_DISABLED_MESSAGE} ({disabled})")
+        incident = session.get("ltk_incident")
+        if incident and not session.get("incident_reported"):
+            session["incident_reported"] = True
+            title, incident_id, verdict = incident
+            where = f"{LTK_INCIDENTS_DIR}\\{incident_id}.json"
+            log.error(f"[INJECT] LTK Manager recorded an incident: {title} ({verdict}), see {where}")
+            if not disabled:  # its incident only repeats the disabled overlay
+                self._report_ltf_failure(f"LTK Manager recorded an incident after the game: {title} ({verdict}; {where})")
 
     def _poll_patcher_status(self, session: dict) -> None:
         """Record what the LTK patcher reports while the game runs.
@@ -1691,6 +1733,16 @@ class OverlayManager:
             return ("LTK Manager runs as administrator, and it does not patch League then. Turn User Account "
                     "Control back on, or use a regular Windows account (not the built-in Administrator), then "
                     f"restart the PC. {logs}")
+        if cause == "disabled":
+            return ("LTK Manager's integrity check turned the overlay off because of a mod: the reason names its "
+                    "WAD. LTK Manager refuses a custom skin made of another skin's files: use another custom skin "
+                    f"or the official one. {logs}")
+        if cause == "corrupt":
+            return ("League could not read a file of the overlay, most often a mod made for an older patch. Turn "
+                    "your mods off, then back on one at a time to find it; LTK Manager's incident file names the "
+                    f"WAD and the mods that wrote it. {logs}")
+        if cause == "incident":
+            return (f"LTK Manager's incident file says what went wrong in the game and which mods it suspects. {logs}")
         if cause == "start":
             return ("Rose could not start the LTK patcher. Check that ltk_launcher.exe and LeagueToolFlop.dll "
                     f"are still in Rose's tools folder: an antivirus may have removed them. {logs}")

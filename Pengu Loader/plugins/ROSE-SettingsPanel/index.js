@@ -5130,6 +5130,9 @@
             crashed: () => t('Fix: LTK Manager crashed. Retry the next game. If it crashes every game, report it with your Rose logs.'),
             cdp: () => t(CDP_FIX),
             league_admin: () => t('Fix: League is set to run as administrator, and LTK Manager does not patch it then. Right-click League of Legends.exe and LeagueClient.exe (in the League of Legends folder) > Properties > Compatibility, untick "Run this program as an administrator" (also under "Change settings for all users"), then restart League.'),
+            disabled: () => t("Fix: LTK Manager's integrity check turned the overlay off because of a mod (named above). LTK Manager refuses a custom skin made of another skin's files: use another custom skin or the official one."),
+            corrupt: () => t("Fix: League could not read a file of the overlay, most often a mod made for an older patch. Turn your mods off, then back on one at a time to find it. LTK Manager's incident file (named above) lists the mods it suspects."),
+            incident: () => t("Fix: LTK Manager's incident file (named above) says what went wrong in the game and which mods it suspects."),
             manager_admin: () => t('Fix: LTK Manager runs as administrator, and it does not patch League then. Turn User Account Control back on, or use a regular Windows account (not the built-in Administrator), then restart the PC.'),
           };
           const fix = fixes[e?.cause];

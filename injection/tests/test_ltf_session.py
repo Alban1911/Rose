@@ -870,6 +870,32 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.assertIsNone(session["error"])
 
 
+    def test_an_overlay_disabled_by_the_integrity_check_is_reported_once(self):
+        """#432: LTK Manager turned the overlay off for a custom skin made of
+        another skin's files, while Rose logged the injection as completed"""
+        session = self._session()
+        FakeBridge.patcher_statuses = [status(session={"log": '2026-11-05T07:07:34.554873Z  INFO ltk_manager_runtime::patcher::injector: [ltk-dll pid=19852 tid=9656 ERROR] ltk_patcher_dll::verify: overlay verification failed, disabling overlay: wad data/final/champions/zed.wad.client: base-skin check: skin0 is another skin: SkinAudioProperties.BankUnits.Name names zedSkin<n>' + "\n" + '2026-11-05T07:07:35.337701Z  INFO ltk_manager_core::patching::pipeline: Incident recorded: Skinhack Detection id=2026-11-05T10-07-32 verdict=SkinhackDetected'})]
+
+        self.overlay._poll_patcher_status(session)
+        self.overlay._poll_patcher_status(session)
+
+        self.assertEqual(self.reported_causes(), ["disabled"])  # its incident only repeats it
+        (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertIn("zed.wad.client: base-skin check: skin0 is another skin", reason)
+
+    def test_an_incident_after_the_game_is_reported(self):
+        """#432: League could not mount a WAD of the overlay and closed"""
+        session = self._session()
+        FakeBridge.patcher_statuses = [status(session={"log": '2026-11-05T07:04:55.164706Z  INFO ltk_manager_core::patching::pipeline: Incident recorded: WAD Mount Failure id=2026-11-05T10-04-52 verdict=CorruptArchive'})]
+
+        self.overlay._poll_patcher_status(session)
+
+        self.assertEqual(self.reported_causes(), ["corrupt"])
+        (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertIn("WAD Mount Failure (CorruptArchive", reason)
+        self.assertIn("incidents\\2026-11-05T10-04-52.json", reason)
+
+
 class FailureCauseTests(unittest.TestCase):
     def test_start_failures(self):
         self.assertEqual(ltk_failure_cause("could not start the LTF launcher (exit code 3)"), "start")
@@ -893,6 +919,25 @@ class FailureCauseTests(unittest.TestCase):
         self.assertEqual(ltk_failure_cause(
             overlay_manager.CDP_UNREACHABLE_REASON + "; Windows runs every program as administrator on this account"
         ), "cdp")
+
+    def test_ltk_manager_verdicts_on_the_game(self):
+        self.assertEqual(ltk_failure_cause(
+            "LTK Manager disabled the overlay (wad data/final/champions/zed.wad.client: base-skin check: skin0 "
+            "skeleton is one of zed's other skins' meshes)"
+        ), "disabled")
+        self.assertEqual(ltk_failure_cause(
+            "LTK Manager recorded an incident after the game: WAD Mount Failure (CorruptArchive; "
+            "%APPDATA%\\dev.leaguetoolkit.manager\\incidents\\2026-11-05T10-04-52.json)"
+        ), "corrupt")
+        self.assertEqual(ltk_failure_cause(
+            "LTK Manager recorded an incident after the game: Game Crash (Crash; x.json)"
+        ), "incident")
+        for cause in ("disabled", "corrupt", "incident"):
+            self.assertIn("incident" if cause != "disabled" else "custom skin",
+                          OverlayManager._ltk_failure_hint(
+                              {"disabled": "LTK Manager disabled the overlay (x)",
+                               "corrupt": "recorded an incident after the game: x (CorruptArchive; y)",
+                               "incident": "LTK Manager recorded an incident after the game: x (Crash; y)"}[cause]))
 
     def test_bridge_and_import_failures(self):
         self.assertEqual(ltk_failure_cause("the LTF bridge went away during the game"), "bridge")
