@@ -48,3 +48,15 @@ An update must carry these over (Rose's Python side depends on them):
   file names are sanitized and always get an archive extension. `import`
   hands LTK Manager the archive unchanged: the processor is removed, and an
   archive sent as bytes is only written to a staging file for it.
+  It also redirects the host's window-show calls: LTK Manager's frontend
+  reveals its window (`show_main_window`) once the page has mounted, and
+  hiding it on the 100 ms `HideThread` poll left it on screen for 60-80 ms -
+  the flash at startup. Diverting `ShowWindow` alone was not enough: tao
+  applies the VISIBLE window flag as a style change (`SetWindowLongW`) and
+  presents it with `SetWindowPos(SWP_FRAMECHANGED)`, without asking
+  `SetWindowPos` to show it. So `ShowWindow`/`ShowWindowAsync`,
+  `SetWindowPos` (`SWP_SHOWWINDOW` dropped), `SetWindowPlacement`
+  (`showCmd` forced to `SW_HIDE`) and the style setters
+  (`SetWindowLongPtrW/A`, `SetWindowLongW/A`: `WS_VISIBLE` dropped) are all
+  redirected. Owned windows (dialogs, menus) keep their show; the poll stays
+  as the fallback.

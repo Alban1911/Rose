@@ -689,6 +689,171 @@ static mj::JVal TauriInvoke(const std::string& command, const mj::JVal& args, DW
     return mj::parse(raw);
 }
 
+// LTK Manager creates its window hidden and its frontend shows it once the page
+// has mounted (Tauri's show_main_window, unless the user starts in the tray).
+// Hiding it after the fact leaves it on screen for up to one poll interval -
+// the flash seen when LTK Manager starts. So the process's own window-show
+// calls are diverted here: its frame is never presented at all, and HideThread
+// stays as the net for a window that is already visible (or not imported).
+static BOOL (WINAPI* g_realShowWindow)(HWND, int) = nullptr;
+static BOOL (WINAPI* g_realShowWindowAsync)(HWND, int) = nullptr;
+static BOOL (WINAPI* g_realSetWindowPos)(HWND, HWND, int, int, int, int, UINT) = nullptr;
+static BOOL (WINAPI* g_realSetWindowPlacement)(HWND, const WINDOWPLACEMENT*) = nullptr;
+static LONG_PTR (WINAPI* g_realSetWindowLongPtrW)(HWND, int, LONG_PTR) = nullptr;
+static LONG_PTR (WINAPI* g_realSetWindowLongPtrA)(HWND, int, LONG_PTR) = nullptr;
+static LONG (WINAPI* g_realSetWindowLongW)(HWND, int, LONG) = nullptr;
+static LONG (WINAPI* g_realSetWindowLongA)(HWND, int, LONG) = nullptr;
+static volatile LONG g_showSuppressed = 0;
+
+// The window HideThread would hide: this process's, no owner (a dialog or a
+// menu belongs to the app and keeps its show)
+static bool IsOwnTopLevelWindow(HWND hwnd) {
+    if (hwnd == nullptr || !IsWindow(hwnd)) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid != GetCurrentProcessId()) return false;
+    return GetWindow(hwnd, GW_OWNER) == nullptr && GetParent(hwnd) == nullptr;
+}
+
+static void NoteSuppressedShow() {
+    if (InterlockedExchange(&g_showSuppressed, 1) == 0)
+        ApiLog("[Hide] suppressed a show of the LTK Manager window");
+}
+
+static BOOL WINAPI ShowWindowHidden(HWND hwnd, int cmd) {
+    if (cmd != SW_HIDE && IsOwnTopLevelWindow(hwnd)) {
+        NoteSuppressedShow();
+        return g_realShowWindow(hwnd, SW_HIDE);
+    }
+    return g_realShowWindow(hwnd, cmd);
+}
+
+static BOOL WINAPI ShowWindowAsyncHidden(HWND hwnd, int cmd) {
+    if (cmd != SW_HIDE && IsOwnTopLevelWindow(hwnd)) {
+        NoteSuppressedShow();
+        return g_realShowWindowAsync(hwnd, SW_HIDE);
+    }
+    return g_realShowWindowAsync(hwnd, cmd);
+}
+
+// tao shows a window through more than ShowWindow: dropping SWP_SHOWWINDOW
+// keeps the same move/resize call from presenting it
+static BOOL WINAPI SetWindowPosHidden(HWND hwnd, HWND after, int x, int y, int cx, int cy, UINT flags) {
+    if ((flags & SWP_SHOWWINDOW) != 0 && IsOwnTopLevelWindow(hwnd)) {
+        NoteSuppressedShow();
+        flags &= ~SWP_SHOWWINDOW;
+    }
+    return g_realSetWindowPos(hwnd, after, x, y, cx, cy, flags);
+}
+
+// The window-state plugin restores a placement, whose showCmd would present
+// the window as well
+static BOOL WINAPI SetWindowPlacementHidden(HWND hwnd, const WINDOWPLACEMENT* placement) {
+    if (placement != nullptr && placement->showCmd != SW_HIDE && IsOwnTopLevelWindow(hwnd)) {
+        WINDOWPLACEMENT hidden = *placement;
+        hidden.showCmd = SW_HIDE;
+        NoteSuppressedShow();
+        return g_realSetWindowPlacement(hwnd, &hidden);
+    }
+    return g_realSetWindowPlacement(hwnd, placement);
+}
+
+// tao applies a window flag (VISIBLE among them) as a style change followed by
+// SetWindowPos(SWP_FRAMECHANGED), which presents the window without ever
+// asking SetWindowPos to show it: drop WS_VISIBLE from the style instead
+static LONG_PTR WINAPI SetWindowLongPtrHiddenW(HWND hwnd, int index, LONG_PTR value) {
+    if (index == GWL_STYLE && (value & WS_VISIBLE) != 0 && IsOwnTopLevelWindow(hwnd)) {
+        NoteSuppressedShow();
+        value &= ~static_cast<LONG_PTR>(WS_VISIBLE);
+    }
+    return g_realSetWindowLongPtrW(hwnd, index, value);
+}
+
+static LONG_PTR WINAPI SetWindowLongPtrHiddenA(HWND hwnd, int index, LONG_PTR value) {
+    if (index == GWL_STYLE && (value & WS_VISIBLE) != 0 && IsOwnTopLevelWindow(hwnd)) {
+        NoteSuppressedShow();
+        value &= ~static_cast<LONG_PTR>(WS_VISIBLE);
+    }
+    return g_realSetWindowLongPtrA(hwnd, index, value);
+}
+
+// 32-bit setters: a style fits in a LONG, so tao applies the window flags
+// through these even on x64
+static LONG WINAPI SetWindowLongHiddenW(HWND hwnd, int index, LONG value) {
+    if (index == GWL_STYLE && (value & WS_VISIBLE) != 0 && IsOwnTopLevelWindow(hwnd)) {
+        NoteSuppressedShow();
+        value &= ~WS_VISIBLE;
+    }
+    return g_realSetWindowLongW(hwnd, index, value);
+}
+
+static LONG WINAPI SetWindowLongHiddenA(HWND hwnd, int index, LONG value) {
+    if (index == GWL_STYLE && (value & WS_VISIBLE) != 0 && IsOwnTopLevelWindow(hwnd)) {
+        NoteSuppressedShow();
+        value &= ~WS_VISIBLE;
+    }
+    return g_realSetWindowLongA(hwnd, index, value);
+}
+
+// Replace every import slot of ltk-manager.exe that resolves to *api*.
+static int PatchImport(HMODULE module, const char* api, PROC detour, PROC* real) {
+    PROC target = GetProcAddress(module, api);
+    if (target == nullptr) return 0;
+    *real = target;
+
+    auto* base = reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return 0;
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return 0;
+    const IMAGE_DATA_DIRECTORY& dir =
+        nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (dir.VirtualAddress == 0 || dir.Size == 0) return 0;
+
+    int patched = 0;
+    auto* desc = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress);
+    for (; desc->Name != 0; ++desc) {
+        auto* slot = reinterpret_cast<IMAGE_THUNK_DATA*>(base + desc->FirstThunk);
+        for (; slot->u1.Function != 0; ++slot) {
+            if (reinterpret_cast<void*>(slot->u1.Function) != reinterpret_cast<void*>(target))
+                continue;
+            DWORD old = 0;
+            if (!VirtualProtect(&slot->u1.Function, sizeof(slot->u1.Function), PAGE_READWRITE, &old))
+                continue;
+            slot->u1.Function = reinterpret_cast<ULONGLONG>(detour);
+            VirtualProtect(&slot->u1.Function, sizeof(slot->u1.Function), old, &old);
+            ++patched;
+        }
+    }
+    return patched;
+}
+
+// The exe is ltk-manager.exe itself (the launcher injects this before the CRT
+// runs), so these imports are the window-show paths its frontend can take.
+static bool PatchWindowShowImports() {
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (!user32) return false;
+    int patched = 0;
+    patched += PatchImport(user32, "ShowWindow", (PROC)&ShowWindowHidden, (PROC*)&g_realShowWindow);
+    patched += PatchImport(user32, "ShowWindowAsync", (PROC)&ShowWindowAsyncHidden, (PROC*)&g_realShowWindowAsync);
+    patched += PatchImport(user32, "SetWindowPos", (PROC)&SetWindowPosHidden, (PROC*)&g_realSetWindowPos);
+    patched += PatchImport(user32, "SetWindowPlacement", (PROC)&SetWindowPlacementHidden,
+                           (PROC*)&g_realSetWindowPlacement);
+    patched += PatchImport(user32, "SetWindowLongPtrW", (PROC)&SetWindowLongPtrHiddenW,
+                           (PROC*)&g_realSetWindowLongPtrW);
+    patched += PatchImport(user32, "SetWindowLongPtrA", (PROC)&SetWindowLongPtrHiddenA,
+                           (PROC*)&g_realSetWindowLongPtrA);
+    patched += PatchImport(user32, "SetWindowLongW", (PROC)&SetWindowLongHiddenW,
+                           (PROC*)&g_realSetWindowLongW);
+    patched += PatchImport(user32, "SetWindowLongA", (PROC)&SetWindowLongHiddenA,
+                           (PROC*)&g_realSetWindowLongA);
+    if (patched > 0)
+        ApiLog("[Hide] %d window-show import(s) patched - the LTK Manager window stays hidden", patched);
+    else
+        ApiLog("[Hide] no window-show import found in this build - falling back to the polling hide");
+    return patched > 0;
+}
+
 static BOOL CALLBACK HideOneWindowInternal(HWND hwnd, LPARAM lp) {
     DWORD pid = (DWORD)lp; DWORD wpid = 0;
     GetWindowThreadProcessId(hwnd, &wpid);
@@ -1251,6 +1416,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
         BOOL hide = (GetEnvironmentVariableW(L"LTK_NO_HIDE", noHide, 8) == 0) &&
             (GetEnvironmentVariableW(L"CELESTIAL_NO_HIDE", noHide, 8) == 0);
         if (hide) {
+            // Before the window exists: a show that arrives before the first
+            // poll's hide is the flash this prevents
+            PatchWindowShowImports();
             HANDLE th = CreateThread(NULL, 0, HideThread, NULL, 0, NULL);
             if (th) CloseHandle(th);
         }
