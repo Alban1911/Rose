@@ -4749,14 +4749,18 @@
     document.body.appendChild(overlay);
   }
 
-  function showModImportDone() {
+  function showModImportDone(payload) {
     const overlay = document.getElementById("rose-mod-import-loading");
     if (!overlay || overlay.classList.contains("is-done")) return;
 
     overlay.classList.add("is-done");
     overlay.querySelector(".rose-mod-import-spinner").outerHTML =
       '<svg class="rose-mod-import-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"></circle><path d="M15 27l7 7 15-15"></path></svg>';
-    overlay.querySelector(".rose-mod-import-title").textContent = t("Mod added");
+    const importedCount = payload.imported ? payload.imported.length : 1;
+    const title = payload.partial
+      ? "Some mods added"
+      : importedCount > 1 ? "Mods added" : t("Mod added");
+    overlay.querySelector(".rose-mod-import-title").textContent = title;
     modImportTimer = setTimeout(hideModImportLoading, MOD_IMPORT_DONE_MS);
   }
 
@@ -4768,10 +4772,10 @@
   }
 
   function handleFolderOpenedResponse(payload) {
-    if (payload.success) {
+    if (payload.success || payload.partial) {
       const loadingLeft = MOD_IMPORT_MIN_LOADING_MS - (Date.now() - modImportShownAt);
       clearTimeout(modImportTimer);
-      modImportTimer = setTimeout(showModImportDone, Math.max(0, loadingLeft));
+      modImportTimer = setTimeout(() => showModImportDone(payload), Math.max(0, loadingLeft));
       requestManageCategories();
     } else {
       hideModImportLoading();
@@ -4782,7 +4786,17 @@
       log("error", `Failed to import mod: ${escapeHtml(payload.error)}`);
       // Could show an error message to user here
     } else {
-      log("info", `Imported mod: ${payload.modName || payload.path || "success"}`);
+      const importedCount = payload.imported ? payload.imported.length : 0;
+      if (importedCount > 1 || payload.partial) {
+        log("info", `Imported ${importedCount} mod(s)${payload.partial ? "; some failed" : ""}`);
+      } else {
+        log("info", `Imported mod: ${payload.modName || payload.path || "success"}`);
+      }
+    }
+    if (payload.importErrors && payload.importErrors.length) {
+      payload.importErrors.forEach((item) => {
+        log("error", `Failed to import ${escapeHtml(item.fileName)}: ${escapeHtml(item.error)}`);
+      });
     }
   }
 
