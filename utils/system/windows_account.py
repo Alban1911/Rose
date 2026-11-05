@@ -96,35 +96,58 @@ def _uac_disabled() -> bool:
         return False
 
 
+def _process_token_rids(pid: int) -> Optional[tuple]:
+    """(integrity level RID, user RID) of a process's token, or None when it
+    can't be read. _declare_signatures() must have run."""
+    kernel32, advapi32 = ctypes.windll.kernel32, ctypes.windll.advapi32
+    process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not process:
+        return None
+    try:
+        token = wintypes.HANDLE()
+        if not advapi32.OpenProcessToken(process, TOKEN_QUERY, ctypes.byref(token)):
+            return None
+        try:
+            integrity = _token_sid_last_rid(token, TOKEN_INTEGRITY_LEVEL_CLASS)
+            user_rid = _token_sid_last_rid(token, TOKEN_USER_CLASS)
+        finally:
+            kernel32.CloseHandle(token)
+    finally:
+        kernel32.CloseHandle(process)
+    return None if integrity is None else (integrity, user_rid)
+
+
+def process_elevated(pid: int) -> Optional[bool]:
+    """Whether a process runs as administrator (high integrity), or None when
+    its token can't be read."""
+    if sys.platform != "win32" or not pid:
+        return None
+    try:
+        _declare_signatures()
+        rids = _process_token_rids(int(pid))
+    except Exception as e:  # a diagnostic must never stop Rose
+        log.debug(f"[ACCOUNT] Could not read the token of process {pid}: {e}")
+        return None
+    return None if rids is None else rids[0] >= SECURITY_MANDATORY_HIGH_RID
+
+
 def shell_account() -> Optional[ShellAccount]:
     """What the Windows shell runs as, or None when it can't be told (no
     shell window, not Windows, an API failure)."""
     if sys.platform != "win32":
         return None
     try:
-        user32, kernel32, advapi32 = ctypes.windll.user32, ctypes.windll.kernel32, ctypes.windll.advapi32
+        user32 = ctypes.windll.user32
         _declare_signatures()
         hwnd = user32.GetShellWindow()
         if not hwnd:
             return None
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
-        if not process:
+        rids = _process_token_rids(pid.value)
+        if rids is None:
             return None
-        try:
-            token = wintypes.HANDLE()
-            if not advapi32.OpenProcessToken(process, TOKEN_QUERY, ctypes.byref(token)):
-                return None
-            try:
-                integrity = _token_sid_last_rid(token, TOKEN_INTEGRITY_LEVEL_CLASS)
-                user_rid = _token_sid_last_rid(token, TOKEN_USER_CLASS)
-            finally:
-                kernel32.CloseHandle(token)
-        finally:
-            kernel32.CloseHandle(process)
-        if integrity is None:
-            return None
+        integrity, user_rid = rids
         return ShellAccount(
             elevated=integrity >= SECURITY_MANDATORY_HIGH_RID,
             builtin_administrator=user_rid == BUILTIN_ADMINISTRATOR_RID,
@@ -169,3 +192,37 @@ def check_windows_account() -> Optional[ShellAccount]:
         hint=HINTS[account.reason],
     )
     return account
+
+
+# League started with "Run as administrator" (or from an elevated Riot Client):
+# LTK Manager's own check only reads the compatibility settings, so its
+# patcher starts, never attaches to the game, and no error shows (#431)
+LEAGUE_REPORT_CODE = "LEAGUE_ELEVATED"
+LEAGUE_MESSAGE = "LTK Manager can't apply skins: the League client runs as administrator."
+LEAGUE_HINT = (
+    "Close League and the Riot Client completely (also from the system tray), then start the Riot Client "
+    "normally, not with \"Run as administrator\". If it still starts as administrator, untick \"Run this "
+    "program as an administrator\" in the Compatibility tab of the Properties of RiotClientServices.exe, "
+    "LeagueClient.exe and League of Legends.exe (also under \"Change settings for all users\")."
+)
+
+
+def check_league_client(pid: int) -> Optional[bool]:
+    """Warn (log and Troubleshooting) when the League client runs as
+    administrator although Windows does not run every program so: LTK Manager
+    patches unelevated and can't reach the game it starts. The warning goes
+    away once the client runs normally again. Returns whether it is elevated
+    (None when that can't be told)."""
+    elevated = process_elevated(pid)
+    if elevated is None:
+        return None
+    from utils.core.issue_reporter import remove_issues, report_issue
+    if not elevated:
+        remove_issues(lambda line, fix: LEAGUE_MESSAGE in line)
+        return False
+    shell = shell_account()
+    if shell is not None and shell.elevated:
+        return True  # every program runs as administrator: the startup check says so
+    log.warning(f"[ACCOUNT] {LEAGUE_MESSAGE} (pid {pid})")
+    report_issue(LEAGUE_REPORT_CODE, "error", LEAGUE_MESSAGE, details={"pid": pid}, hint=LEAGUE_HINT)
+    return True

@@ -5071,6 +5071,16 @@
           };
         }
 
+        if (code === 'LEAGUE_ELEVATED') {
+          return {
+            title: t('League runs as administrator'),
+            details: [
+              t('What it means: the League client was started as administrator, and LTK Manager cannot apply skins to it then.'),
+              t('Fix: close League and the Riot Client completely (also from the system tray), then start the Riot Client normally, not with "Run as administrator". If it still starts as administrator, untick "Run this program as an administrator" in the Compatibility tab of the Properties of RiotClientServices.exe, LeagueClient.exe and League of Legends.exe (also under "Change settings for all users").'),
+            ],
+          };
+        }
+
         if (code === 'LTK_MANAGER_MISSING') {
           return {
             title: t('LTK Manager is not installed'),

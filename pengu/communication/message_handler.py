@@ -885,6 +885,14 @@ class MessageHandler:
                         result["trackerSamples"] = tracker_samples
                     return result
 
+                # Category: the League client runs as administrator (checked on
+                # each client connection; before the Windows account category)
+                if "can't apply skins" in ml and 'league client runs as administrator' in ml:
+                    return {
+                        'code': 'LEAGUE_ELEVATED',
+                        'text': 'League runs as administrator -> start it normally',
+                    }
+
                 # Category: Windows runs every program as administrator (startup
                 # check; before the LTF category, whose markers it also names)
                 if "can't apply skins" in ml and 'as administrator' in ml:

@@ -30,6 +30,7 @@ _ALLOWED_CODES = {
     'AUTO_RESUME_TRIGGERED',  # Suggest increasing Monitor Auto-Resume Timeout
     'BASE_SKIN_FORCE_SLOW',   # Suggest increasing Injection Threshold
     'BASE_SKIN_VERIFY_FAILED',  # Base skin verification mismatch (often causes skin not to show)
+    'LEAGUE_ELEVATED',        # The League client runs as administrator: LTK Manager's patcher can't reach it
     'LOW_DISK_SPACE',         # Injection could not install a mod with the available disk space
     'LTF_MISSING',            # Rose's LTF bridge files (ltk_launcher.exe + LeagueToolFlop.dll) are missing
     'LTK_MANAGER_MISSING',    # LTK Manager, which Rose drives through the bridge, is not installed

@@ -103,9 +103,20 @@ class LCUConnection:
             self.session.headers.update({"Content-Type": "application/json"})
             self.ok = True
             log_section(log, "LCU Connected", "", {"Port": self.port, "Status": "Ready", "Source": source})
+            self._check_client_elevation(lockfile_data.pid)
         except Exception as e:
             self._disable(f"LCU unavailable: {e}")
     
+    @staticmethod
+    def _check_client_elevation(pid: int) -> None:
+        """LTK Manager can't patch a League client started as administrator:
+        say so now rather than after a game without the skin (#431)."""
+        try:
+            from utils.system.windows_account import check_league_client
+            check_league_client(pid)
+        except Exception as e:  # a diagnostic must never break the connection
+            log.debug(f"[LCU] Could not check the client's elevation: {e}")
+
     def _disable(self, reason: str):
         """Disable LCU connection"""
         if self.ok: 
