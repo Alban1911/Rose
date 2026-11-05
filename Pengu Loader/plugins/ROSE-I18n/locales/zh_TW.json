@@ -78,7 +78,6 @@
   "Injection threshold is the time window during which the app considers your last hovered skin as the one to inject.\n\nFor example, if your injection threshold is set to 1 second, whichever skin you were hovering 1 second before champ select ends will be the one injected.\n\nIf your PC or connection is on the slower side, you may need to fine-tune this value.": "注入門檻是一段時間範圍，應用程式會把你在這段時間內最後停留的造型視為要注入的造型。\n\n例如，如果注入門檻設為 1 秒，在英雄選擇結束前 1 秒你滑鼠停留的造型就會被注入。\n\n如果你的電腦或網路比較慢，可能需要微調這個數值。",
   "Injection threshold info": "注入門檻說明",
   "Monitor Auto-Resume Timeout (seconds):": "自動繼續逾時（秒）：",
-  "Auto-resume is a safety feature.\n\nIf the injection process takes longer than the value you set, the app will automatically cancel the injection and let the game start normally.\n\nThis prevents the injection from looping and blocking the game from launching.\n\nIf you use a lot of custom mods, you may need to adjust this value.": "自動繼續是一項安全功能。\n\n如果注入時間超過你設定的數值，應用程式會自動取消注入，讓遊戲正常啟動。\n\n這樣可以避免注入陷入迴圈而阻擋遊戲啟動。\n\n如果你使用很多自訂模組，可能需要調整這個數值。",
   "Auto-resume info": "自動繼續說明",
   "Start with Windows": "開機時啟動",
   "Hide empty categories": "隱藏空白分類",
@@ -143,8 +142,6 @@
   "Base skin forcing took too long (skin may not appear)": "強制切換預設造型耗時過久（造型可能不會顯示）",
   "What it means: the client didn't confirm the base skin change in time.": "代表意思：用戶端沒有及時確認預設造型的變更。",
   "What it means: forcing the base skin took too long, so the selected skin may not show.": "代表意思：強制切換預設造型耗時過久，因此所選造型可能不會顯示。",
-  "Injection exceeded the timeout (process was stopped)": "注入逾時（程序已停止）",
-  "What it means: injection took longer than the allowed time, so ROSE stopped the process.": "代表意思：注入耗時超過允許時間，因此 ROSE 停止了該程序。",
   "Fix: you're already at the maximum Monitor Auto-Resume Timeout. This usually means the injection is extremely slow. Try lighter mods, close heavy apps, move League/mods to an SSD, and consider adding antivirus exclusions for the League and Rose folders. Then retry.": "解決方法：自動繼續逾時已經是最大值。這通常表示注入非常慢。請試試較輕量的模組、關閉耗資源的應用程式、將英雄聯盟和模組移到 SSD，並考慮在防毒軟體中為英雄聯盟和 Rose 資料夾加入排除項目，然後再試一次。",
   "Fix: increase \"Monitor Auto-Resume Timeout (seconds)\" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, try again.": "解決方法：提高「自動繼續逾時（秒）」並點擊儲存。如果警告仍在，請再次提高並重新儲存。警告消失後，請再試一次。",
   "Not enough disk space for injection": "磁碟空間不足，無法注入",
@@ -206,5 +203,8 @@
   "LTK Manager's built-in mods slow down every game": "LTK Manager 的內建模組拖慢了每一場遊戲",
   "What it means: {detail} put every champion's archive (about 16 GB) into LTK Manager's overlay, so each build takes minutes and the game starts before the patcher.": "含義：{detail} 會把每位英雄的封存檔（約 16 GB）放進 LTK Manager 的覆蓋層，因此每次建置都要幾分鐘，遊戲會在修補程式之前開始。",
   "Fix: quit Rose, open LTK Manager from the Start menu > Settings > Built-in mods, set Base skins to Off (or Modded champions) and limit Character inking to chosen champions, then close LTK Manager (also from the system tray) and start Rose again.": "解決方法：結束 Rose，從開始功能表開啟 LTK Manager > 設定 > 內建模組，將「基礎造型」設為關閉（或「已修改的英雄」），並將角色描邊限制為所選英雄，然後完全關閉 LTK Manager（包括系統匣中的），再重新啟動 Rose。",
-  "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "解決方法：Windows 無法驗證 LTK Manager 檔案的數位簽章：其中某個檔案已被修改或損毀，其修補程式拒絕執行。請從官方發行頁（github.com/LeagueToolkit/ltk-manager/releases）重新安裝 LTK Manager，然後再試一次。"
+  "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "解決方法：Windows 無法驗證 LTK Manager 檔案的數位簽章：其中某個檔案已被修改或損毀，其修補程式拒絕執行。請從官方發行頁（github.com/LeagueToolkit/ltk-manager/releases）重新安裝 LTK Manager，然後再試一次。",
+  "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "LTK Manager 準備造型期間，Rose 可以暫停遊戲的時長。\n\n如果 LTK Manager 在遊戲開始前尚未就緒，Rose 會凍結遊戲，並在 LTK Manager 就緒後重新啟動遊戲並讓你重新連線。超過此時長後，遊戲將不帶造型開始。\n\n如果你使用大型模組，可能需要設定更高的值。",
+  "LTK Manager was not ready in time": "LTK Manager 未能及時就緒",
+  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "含義：LTK Manager 未在自動恢復逾時內就緒，因此 Rose 讓遊戲在沒有造型的情況下繼續進行。"
 }

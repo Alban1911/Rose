@@ -23,7 +23,6 @@ from utils.core.issue_reporter import report_issue
 from .injector import SkinInjector
 from .stage_plan import PARTY_SKINS_LABEL, StagePlan, describe, prepare_plan, skin_plan
 from ..classic import is_classic_game_mode
-from ..game.game_monitor import GameMonitor
 from ..config.threshold_manager import ThresholdManager
 
 log = get_logger()
@@ -58,9 +57,6 @@ class InjectionManager:
         self.threshold_manager = ThresholdManager(shared_state)
         self.injection_threshold = self.threshold_manager.injection_threshold
         
-        # Initialize game monitor with callback for auto-resume timeout
-        self.game_monitor = GameMonitor(self._get_monitor_auto_resume_timeout)
-
         # Staging during the countdown (stage_plan): the latest selection
         # wins. A preparer extracts and packs it at once, an installer puts it
         # in LTK Manager once it has rested STAGE_SETTLE_S
@@ -80,16 +76,6 @@ class InjectionManager:
         # (wanted, generation) the installer is putting in LTK Manager
         self._stage_installing = None
 
-    def _get_monitor_auto_resume_timeout(self) -> float:
-        """Get monitor auto-resume timeout from config."""
-        try:
-            from config import get_config_float
-            timeout = get_config_float("General", "monitor_auto_resume_timeout", 60.0)
-            return max(1.0, min(180.0, float(timeout)))  # Clamp between 1 and 180
-        except Exception as exc:  # noqa: BLE001
-            log.debug(f"[INJECT] Failed to get monitor auto-resume timeout: {exc}")
-            return 60.0  # Default fallback
-    
     def _refresh_injection_threshold(self) -> None:
         """Reload injection threshold from config so tray changes apply immediately."""
         self.injection_threshold = self.threshold_manager.refresh()
@@ -387,38 +373,6 @@ class InjectionManager:
             return None
         return bool(staged)
 
-    def _start_monitor(self):
-        """Start game monitor - watches for game and suspends it"""
-        self.game_monitor.start()
-        # LTK Manager takes seconds to start: bring it up now if the countdown
-        # did not already, in the background so the mods are prepared
-        # meanwhile (the injection waits for that connect, not a second one)
-        self.start_patcher_in_background()
-    
-    def _stop_monitor(self):
-        """Stop the game monitor"""
-        self.game_monitor.stop()
-        self.cancel_staging()
-        if self.injector:
-            self.injector.overlay_manager.discard_early_patcher()
-    
-    def _get_suspended_game_process(self):
-        """Get the currently suspended game process (if any)"""
-        return self.game_monitor.get_suspended_game_process()
-    
-    def resume_game(self):
-        """Resume the suspended game (called when runoverlay starts)"""
-        self.game_monitor.resume_game()
-    
-    def resume_if_suspended(self):
-        """Resume game if monitor suspended it (for when injection is skipped)"""
-        self.game_monitor.resume_if_suspended()
-    
-    @property
-    def _monitor_active(self) -> bool:
-        """Check if monitor is active"""
-        return self.game_monitor.is_active
-    
     def on_champion_locked(self, champion_name: str, champion_id: int = None, owned_skin_ids: set = None):
         """Called when a champion is locked"""
         if not champion_name:
@@ -475,23 +429,21 @@ class InjectionManager:
                 except Exception as e:
                     log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
             
-            # Start monitor now (only when injection actually happens)
-            if not self._monitor_active:
-                log.info("[INJECT] Starting game monitor for injection")
-                self._start_monitor()
+            # LTK Manager takes seconds to start: bring it up now if the
+            # countdown did not already (the injection waits for that connect)
+            self.start_patcher_in_background()
 
             success = self.injector.inject_skin(
                 skin_name,
                 stop_callback=None,
-                injection_manager=self
             )
 
             if success:
                 self.last_skin_name = skin_name
                 self.last_injection_time = current_time
             
-            # Stop monitor after injection completes
-            self._stop_monitor()
+            # The injection took the countdown's session over: staging ends
+            self.discard_early_patcher()
     
     def _check_and_inject_mods_only(self):
         """Mods-only injection is disabled because the installed mods directory was removed."""
@@ -545,11 +497,9 @@ class InjectionManager:
         classic = is_classic_game_mode(getattr(self.shared_state, "current_game_mode", None))
 
         def inject(extra_mods_callback):
-            # Pass the manager instance so injector can call resume_game()
             return self.injector.inject_skin(
                 skin_name,
                 stop_callback=stop_callback,
-                injection_manager=self,
                 chroma_id=chroma_id,
                 champion_name=champion_name,
                 champion_id=champion_id,
@@ -575,7 +525,6 @@ class InjectionManager:
             return self.injector.inject_extra_mods(
                 extra_mods_callback,
                 stop_callback=stop_callback,
-                injection_manager=self,
             )
 
         return self._run_injection(PARTY_SKINS_LABEL, inject)
@@ -648,12 +597,9 @@ class InjectionManager:
                 except Exception as e:
                     log.debug(f"[INJECT] Failed to disconnect UIA: {e}")
             
-            # Start monitor now (only when injection actually happens)
-            # Monitor runs in background and will suspend game if/when it finds it
-            # Injection proceeds immediately - suspension is optional and helps prevent file locks
-            if not self._monitor_active:
-                log.info("[INJECT] Starting game monitor for injection")
-                self._start_monitor()
+            # LTK Manager takes seconds to start: bring it up now if the
+            # countdown did not already (the injection waits for that connect)
+            self.start_patcher_in_background()
             
             # Build optional callback to add party member skins to injection
             extra_mods_callback = None
@@ -680,9 +626,8 @@ class InjectionManager:
             self.injection_lock.release()
             log.debug(f"[INJECT] Injection completed - lock released")
             
-            # Stop monitor after injection completes (this will resume game if still suspended)
-            # Note: Monitor may have already stopped if game ended, but that's fine
-            self._stop_monitor()
+            # The injection took the countdown's session over: staging ends
+            self.discard_early_patcher()
     
     def inject_skin_for_testing(self, skin_name: str) -> bool:
         """Inject a skin for testing purposes - stops overlay immediately after mkoverlay"""
@@ -755,8 +700,8 @@ class InjectionManager:
         if not self._initialized:
             return  # Nothing to kill if not initialized
         
-        # Stop game monitor when exiting champ select
-        self._stop_monitor()
+        # Leaving champ select: the countdown's staging ends
+        self.discard_early_patcher()
         
         # Prevent duplicate cleanup calls from running simultaneously
         if self._cleanup_in_progress:
@@ -792,7 +737,7 @@ class InjectionManager:
         """Stop the patcher so the game can start without mods"""
         if not self._initialized:
             return
-        self._stop_monitor()
+        self.discard_early_patcher()
         try:
             self.injector.stop_injection_by_user()
             log.info("[INJECT] Injection stopped by the user")

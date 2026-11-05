@@ -6,7 +6,7 @@ from unittest.mock import patch
 import psutil
 
 from injection.game import game_monitor
-from injection.game.game_monitor import GameMonitor, resume_orphaned_game
+from injection.game.game_monitor import resume_orphaned_game
 
 
 class SuspendedGameTests(unittest.TestCase):
@@ -45,26 +45,6 @@ class SuspendedGameTests(unittest.TestCase):
     def test_startup_leaves_a_running_game_alone(self):
         self.game.resume()
         self.assertEqual(resume_orphaned_game(), 0)
-
-    def test_stop_resumes_the_game_after_the_monitor_deactivated_itself(self):
-        monitor = GameMonitor(lambda: 60.0)
-        monitor._suspended_game_process = self.game
-        monitor._monitor_active = False  # the loop exits on its own once the patcher starts
-        monitor.stop()
-        self.assertNotEqual(self.game.status(), psutil.STATUS_STOPPED)
-
-    def test_the_monitor_no_longer_freezes_the_game(self):
-        """LTK Manager's patcher cannot hook a frozen game: a missed game is
-        restarted (kill + reconnect) instead of held"""
-        self.game.resume()
-        monitor = GameMonitor(lambda: 60.0)
-
-        monitor.start()
-        self.addCleanup(monitor.stop)
-
-        self.assertFalse(monitor.is_active)
-        self.assertIsNone(monitor.get_suspended_game_process())
-        self.assertNotEqual(self.game.status(), psutil.STATUS_STOPPED)
 
 
 if __name__ == '__main__':

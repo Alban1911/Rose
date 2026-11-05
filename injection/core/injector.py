@@ -137,9 +137,9 @@ class SkinInjector:
         """Extract ZIP to mod directory"""
         return self.mod_manager.extract_zip_to_mod(zp)
     
-    def _mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback=None, injection_manager=None) -> int:
+    def _mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback=None) -> int:
         """Create and run overlay"""
-        result = self.overlay_manager.mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
+        result = self.overlay_manager.mk_run_overlay(mod_names, timeout, stop_callback)
         # Sync timing data
         self.last_injection_timing = self.overlay_manager.last_injection_timing
         return result
@@ -221,7 +221,6 @@ class SkinInjector:
         skin_name: str,
         timeout: int = 120,
         stop_callback=None,
-        injection_manager=None,
         chroma_id: int = None,
         champion_name: str = None,
         champion_id: int = None,
@@ -234,15 +233,12 @@ class SkinInjector:
             skin_name: Name of skin to inject
             timeout: Timeout for injection process
             stop_callback: Callback to check if injection should stop
-            injection_manager: InjectionManager instance to call resume_game()
             chroma_id: Optional chroma ID to inject specific chroma variant
             extra_mods_callback: Optional callback(injector) -> list of extra mod folder names (e.g. party skins)
             classic: Rift Classic game: inject the stored Classic skin instead
         """
         injection_start_time = time.time()
 
-        # Game suspension is now handled entirely by the monitor in InjectionManager
-        # No need for a separate GameMonitor thread
 
         # Clean mods and overlay directories, then extract new skin
         clean_start = time.time()
@@ -274,7 +270,7 @@ class SkinInjector:
                 log.warning(f"[INJECT] Extra mods callback failed: {e}")
 
         # Create and run overlay
-        result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
+        result = self._mk_run_overlay(mod_names, timeout, stop_callback)
         
         # Get the import duration from stored timing data
         import_duration = self.last_injection_timing.get('import_duration', 0.0) if self.last_injection_timing else 0.0
@@ -302,7 +298,6 @@ class SkinInjector:
         extra_mods_callback: Callable[["SkinInjector"], List[str]],
         timeout: int = 120,
         stop_callback=None,
-        injection_manager=None,
     ) -> bool:
         """Inject only extra mods (e.g. party members' skins), without a skin of our own
 
@@ -310,7 +305,6 @@ class SkinInjector:
             extra_mods_callback: callback(injector) -> list of mod folder names it prepared
             timeout: Timeout for injection process
             stop_callback: Callback to check if injection should stop
-            injection_manager: InjectionManager instance to call resume_game()
         """
         self._clean_mods_dir()
         self._clean_overlay_dir()
@@ -325,12 +319,12 @@ class SkinInjector:
             return False
 
         log.info(f"[INJECT] Injecting {len(mod_names)} party/extra mod(s): {', '.join(mod_names)}")
-        result = self._mk_run_overlay(mod_names, timeout, stop_callback, injection_manager)
+        result = self._mk_run_overlay(mod_names, timeout, stop_callback)
         if result != 0:
             log.warning(f"[INJECT] Party/extra mods injection failed with code {result}")
         return result == 0
 
-    def inject_mods_only(self, timeout: int = 60, stop_callback=None, injection_manager=None) -> bool:
+    def inject_mods_only(self, timeout: int = 60, stop_callback=None) -> bool:
         """Disabled: installed mods folder removed"""
         log.warning("[INJECT] Mods-only injection is disabled (installed mods folder removed)")
         return False

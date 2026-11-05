@@ -24,12 +24,13 @@ def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_mana
     """Perform application cleanup"""
     log_section(log, "Cleanup", "")
 
-    # A suspension outlives Rose: resume first, or closing during injection freezes the game for good
-    if injection_manager:
-        try:
-            injection_manager.resume_if_suspended()
-        except Exception as e:
-            log.warning(f"Error resuming suspended game during cleanup: {e}")
+    # A game held for the patcher outlives Rose: resume it first, or quitting
+    # Rose during the hold freezes the game for good
+    try:
+        from injection.game.game_monitor import resume_orphaned_game
+        resume_orphaned_game()
+    except Exception as e:
+        log.warning(f"Error resuming a held game during cleanup: {e}")
 
     try:
         pengu_loader.deactivate_on_exit()

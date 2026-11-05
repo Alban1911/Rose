@@ -2,11 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 Game management package
-Handles game detection and monitoring
+Handles game detection, the game's end and its restart for the patcher
 """
 
-from .game_monitor import GameMonitor
 from .game_detector import GameDetector
 
-__all__ = ['GameMonitor', 'GameDetector']
+__all__ = ['GameDetector']
 

@@ -8,18 +8,14 @@ from threads.handlers.injection_trigger import InjectionTrigger
 
 
 class CustomModInjectionCase(unittest.TestCase):
-    """A custom mod injection with its game monitor and injector mocked"""
+    """A custom mod injection with its manager and injector mocked"""
 
     def setUp(self):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         self.root = Path(temp_dir.name)
 
-        self.monitor_active = False
         self.manager = MagicMock()
-        type(self.manager)._monitor_active = property(lambda _: self.monitor_active)
-        self.manager._start_monitor.side_effect = lambda: setattr(self, "monitor_active", True)
-        self.manager._stop_monitor.side_effect = lambda: setattr(self, "monitor_active", False)
         self.injector = self.manager.injector
         self.injector.mods_dir = self.root / "mods"
         self.injector.overlay_manager.mk_run_overlay.return_value = 0
@@ -49,35 +45,35 @@ class CustomModInjectionCase(unittest.TestCase):
 
     def inject(self, custom_mod, **kwargs):
         self.trigger._inject_custom_mod(custom_mod, **kwargs)
-        self.manager._start_monitor.assert_called_once()
-        self.assertFalse(self.monitor_active, "the game monitor is still running")
+        self.manager.start_patcher_in_background.assert_called_once()
+        self.manager.discard_early_patcher.assert_called_once()
 
 
-class CustomModInjectionMonitorTests(CustomModInjectionCase):
-    """The game monitor suspends the game while mods are prepared, so every
-    way out of a custom mod injection stops it and lets the game run"""
+class CustomModInjectionStagingTests(CustomModInjectionCase):
+    """LTK Manager is brought up while the mods are prepared, and every way
+    out of a custom mod injection ends the countdown's staging"""
 
-    def test_a_missing_carrier_archive_stops_the_monitor(self):
+    def test_a_missing_carrier_archive_ends_the_staging(self):
         self.injector._resolve_zip.return_value = None
         self.inject(self.custom_mod(self.root / "Mod"), base_skin_name="skin_103001")
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
-    def test_a_missing_mod_source_stops_the_monitor(self):
+    def test_a_missing_mod_source_ends_the_staging(self):
         self.inject(self.custom_mod(self.root / "deleted"))
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
-    def test_nothing_to_inject_stops_the_monitor(self):
+    def test_nothing_to_inject_ends_the_staging(self):
         self.inject({"mod_folder_name": None, "mod_path": None, "skin_id": 103001})
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
-    def test_an_error_stops_the_monitor(self):
+    def test_an_error_ends_the_staging(self):
         mod_source = self.root / "Mod"
         mod_source.mkdir()
         with patch("threads.handlers.injection_trigger.link_or_extract", side_effect=OSError("locked")):
             self.inject(self.custom_mod(mod_source))
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
-    def test_a_completed_injection_stops_the_monitor(self):
+    def test_a_completed_injection_ends_the_staging(self):
         mod_source = self.root / "Mod"
         mod_source.mkdir()
 

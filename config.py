@@ -241,17 +241,6 @@ def clamp_injection_threshold(value) -> float:
         return INJECTION_THRESHOLD_DEFAULT_S
     return max(INJECTION_THRESHOLD_MIN_S, min(INJECTION_THRESHOLD_MAX_S, seconds))
 BASE_SKIN_VERIFICATION_WAIT_S = 0.15        # Seconds to wait for LCU to process base skin change
-PERSISTENT_MONITOR_START_SECONDS = 1        # Seconds remaining when persistent game monitor starts
-PERSISTENT_MONITOR_CHECK_INTERVAL_S = 0.05  # Seconds between game process checks
-PERSISTENT_MONITOR_IDLE_INTERVAL_S = 0.1    # Seconds to wait when game already suspended
-PERSISTENT_MONITOR_WAIT_TIMEOUT_S = 20.0    # Max seconds to wait for persistent monitor to suspend game
-PERSISTENT_MONITOR_WAIT_INTERVAL_S = 0.1    # Seconds between checks while waiting for suspension
-PERSISTENT_MONITOR_AUTO_RESUME_S = 20.0     # Auto-resume game after this many seconds if still suspended (safety)
-GAME_RESUME_VERIFICATION_WAIT_S = 0.1       # Seconds to wait after resume for status verification
-GAME_RESUME_MAX_ATTEMPTS = 3                # Max attempts to resume game (handles multiple suspensions)
-
-# Game delay strategies
-ENABLE_GAME_SUSPENSION = True            # Suspend game process during injection (RISKY - may trigger anti-cheat)
 
 
 # =============================================================================

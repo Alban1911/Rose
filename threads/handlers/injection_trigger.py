@@ -974,7 +974,6 @@ class InjectionTrigger:
                 else:
                     log.info(f"[INJECT] skipping injection for default skin (skinId={effective_skin_id}) - no mods selected")
                     if self.injection_manager:
-                        self.injection_manager.resume_if_suspended()
                         self.injection_manager.discard_early_patcher()
                 champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
                 if champ_id:
@@ -1088,13 +1087,6 @@ class InjectionTrigger:
             
             except Exception as e:
                 log.warning(f"[INJECT] Error forcing owned skin/chroma: {e}")
-            
-            # Resume game if suspended
-            if self.injection_manager:
-                try:
-                    self.injection_manager.resume_if_suspended()
-                except Exception as e:
-                    log.warning(f"[INJECT] Failed to resume game after forcing owned skin: {e}")
     
     def _inject_unowned_skin(self, name: str, cname: str):
         """Inject unowned skin/chroma"""
@@ -1418,18 +1410,15 @@ class InjectionTrigger:
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
     
     def _inject_custom_mod(self, custom_mod: dict, base_skin_name: Optional[str] = None, champion_name: str = ""):
-        """Inject custom mod, then stop the game monitor however the injection ends.
-
-        The monitor suspends the game while mods are prepared. An injection that
-        gives up early (missing carrier archive or mod source, nothing to inject,
-        an error) must still stop it, or the game stays frozen until the
-        monitor's auto-resume timeout.
+        """Inject custom mod, then end the countdown's staging however the
+        injection ends: one that gives up early (missing carrier archive or
+        mod source, nothing to inject, an error) included.
         """
         try:
             self._run_custom_mod_injection(custom_mod, base_skin_name, champion_name)
         finally:
             if self.injection_manager:
-                self.injection_manager._stop_monitor()
+                self.injection_manager.discard_early_patcher()
 
     def _run_custom_mod_injection(self, custom_mod: dict, base_skin_name: Optional[str] = None, champion_name: str = ""):
         """Inject custom mod from mods storage (mod should already be extracted)
@@ -1467,13 +1456,10 @@ class InjectionTrigger:
             injector._clean_mods_dir()
             injector._clean_overlay_dir()
 
-            # Start game monitor early so it can suspend the game while mods are
-            # extracted/linked.  Large mods (e.g. 3 GB voiceover packs) may need
-            # several seconds on first extraction to cache, and the game can
-            # transition to InProgress in the meantime.
-            if self.injection_manager and not self.injection_manager._monitor_active:
-                log.info("[INJECT] Starting game monitor for custom mod injection (early start)")
-                self.injection_manager._start_monitor()
+            # LTK Manager takes seconds to start: bring it up now, while the
+            # mods are extracted/linked (large mods can take seconds)
+            if self.injection_manager:
+                self.injection_manager.start_patcher_in_background()
 
             # Collect all mods to inject (base skin + custom skin mod + map + font + announcer + other)
             mod_folder_names = []
@@ -1746,7 +1732,6 @@ class InjectionTrigger:
                 mod_folder_names,
                 timeout=120,
                 stop_callback=game_ended_callback,
-                injection_manager=self.injection_manager
             )
             
             # Clean up missing mods from historic after overlay starts

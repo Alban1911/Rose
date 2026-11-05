@@ -10,7 +10,6 @@ from .core.manager import InjectionManager
 from .core.injector import SkinInjector
 
 # Re-export subpackage classes for convenience
-from .game.game_monitor import GameMonitor
 from .game.game_detector import GameDetector
 from .config.config_manager import ConfigManager
 from .config.threshold_manager import ThresholdManager
@@ -23,7 +22,6 @@ from .tools.tools_manager import ToolsManager
 __all__ = [
     'InjectionManager',
     'SkinInjector',
-    'GameMonitor',
     'GameDetector',
     'ConfigManager',
     'ThresholdManager',

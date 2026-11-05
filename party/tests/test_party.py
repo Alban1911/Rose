@@ -649,8 +649,8 @@ class PartyOnlyInjectionTests(unittest.TestCase):
         manager.injector.inject_extra_mods.return_value = True
         manager.refresh_injection_threshold = Mock(return_value=0.0)
         manager.injection_threshold = 0.0
-        manager._start_monitor = Mock()
-        manager._stop_monitor = Mock()
+        manager.start_patcher_in_background = Mock()
+        manager.discard_early_patcher = Mock()
         return manager
 
     def test_party_skins_are_injected_without_our_skin(self):
@@ -663,7 +663,8 @@ class PartyOnlyInjectionTests(unittest.TestCase):
             callback = manager.injector.inject_extra_mods.call_args.args[0]
             self.assertEqual(callback(manager.injector), ["party_2"])
             prepare.assert_called_once()
-        manager._stop_monitor.assert_called_once()
+        manager.start_patcher_in_background.assert_called_once()
+        manager.discard_early_patcher.assert_called_once()
 
     def test_nothing_happens_without_party(self):
         manager = self.make_manager(None)

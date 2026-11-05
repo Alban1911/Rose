@@ -78,7 +78,6 @@
   "Injection threshold is the time window during which the app considers your last hovered skin as the one to inject.\n\nFor example, if your injection threshold is set to 1 second, whichever skin you were hovering 1 second before champ select ends will be the one injected.\n\nIf your PC or connection is on the slower side, you may need to fine-tune this value.": "インジェクションしきい値とは、最後にカーソルを合わせたスキンをインジェクトするスキンとして扱う時間の範囲です。\n\nたとえば、しきい値が1秒の場合、チャンピオン選択が終わる1秒前にカーソルを合わせていたスキンがインジェクトされます。\n\nPCや回線が遅めの場合は、この値を調整する必要があるかもしれません。",
   "Injection threshold info": "インジェクションしきい値について",
   "Monitor Auto-Resume Timeout (seconds):": "自動再開のタイムアウト(秒):",
-  "Auto-resume is a safety feature.\n\nIf the injection process takes longer than the value you set, the app will automatically cancel the injection and let the game start normally.\n\nThis prevents the injection from looping and blocking the game from launching.\n\nIf you use a lot of custom mods, you may need to adjust this value.": "自動再開は安全機能です。\n\nインジェクションが設定した値より長くかかった場合、アプリは自動的にインジェクションを中止し、ゲームを通常どおり開始させます。\n\nこれにより、インジェクションがループしてゲームの起動を妨げることを防ぎます。\n\nカスタムMODを多く使う場合は、この値を調整する必要があるかもしれません。",
   "Auto-resume info": "自動再開について",
   "Start with Windows": "Windowsと同時に起動",
   "Hide empty categories": "空のカテゴリーを非表示",
@@ -143,8 +142,6 @@
   "Base skin forcing took too long (skin may not appear)": "ベーススキンの強制に時間がかかりすぎました(スキンが表示されない可能性があります)",
   "What it means: the client didn't confirm the base skin change in time.": "意味: クライアントがベーススキンの変更を時間内に確定しませんでした。",
   "What it means: forcing the base skin took too long, so the selected skin may not show.": "意味: ベーススキンの強制に時間がかかりすぎたため、選択したスキンが表示されない可能性があります。",
-  "Injection exceeded the timeout (process was stopped)": "インジェクションがタイムアウトしました(処理は停止されました)",
-  "What it means: injection took longer than the allowed time, so ROSE stopped the process.": "意味: インジェクションが許容時間を超えたため、ROSEが処理を停止しました。",
   "Fix: you're already at the maximum Monitor Auto-Resume Timeout. This usually means the injection is extremely slow. Try lighter mods, close heavy apps, move League/mods to an SSD, and consider adding antivirus exclusions for the League and Rose folders. Then retry.": "対処法: 自動再開のタイムアウトはすでに最大です。通常、インジェクションが非常に遅いことを意味します。軽いMODを試す、重いアプリを閉じる、LeagueとMODをSSDに移す、LeagueとRoseのフォルダーをウイルス対策の除外に追加する、などを検討してから再試行してください。",
   "Fix: increase \"Monitor Auto-Resume Timeout (seconds)\" and click Save. If the warning is still there, increase it again and Save again. Once the warning is gone, try again.": "対処法: 「自動再開のタイムアウト(秒)」を上げて保存をクリックしてください。警告が消えない場合は、さらに上げて再度保存してください。警告が消えたら、もう一度お試しください。",
   "Not enough disk space for injection": "インジェクションに必要なディスク容量が足りません",
@@ -206,5 +203,8 @@
   "LTK Manager's built-in mods slow down every game": "LTK Manager の組み込み MOD がすべての試合を遅くしています",
   "What it means: {detail} put every champion's archive (about 16 GB) into LTK Manager's overlay, so each build takes minutes and the game starts before the patcher.": "意味: {detail} によって全チャンピオンのアーカイブ (約 16 GB) が LTK Manager のオーバーレイに入るため、毎回の構築に数分かかり、パッチャーより先に試合が始まります。",
   "Fix: quit Rose, open LTK Manager from the Start menu > Settings > Built-in mods, set Base skins to Off (or Modded champions) and limit Character inking to chosen champions, then close LTK Manager (also from the system tray) and start Rose again.": "解決策: Rose を終了し、スタート メニューから LTK Manager を開いて [設定] > [組み込み MOD] で「ベーススキン」をオフ (または「MOD 適用チャンピオン」) にし、キャラクターの輪郭線を選んだチャンピオンだけに限定してください。その後 LTK Manager を (システム トレイからも) 終了し、Rose を起動し直してください。",
-  "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "解決策: Windows が LTK Manager のファイルのデジタル署名を検証できませんでした。いずれかのファイルが変更または破損しているため、パッチャーが動作を拒否しています。公式リリース (github.com/LeagueToolkit/ltk-manager/releases) から LTK Manager を再インストールしてから、もう一度お試しください。"
+  "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "解決策: Windows が LTK Manager のファイルのデジタル署名を検証できませんでした。いずれかのファイルが変更または破損しているため、パッチャーが動作を拒否しています。公式リリース (github.com/LeagueToolkit/ltk-manager/releases) から LTK Manager を再インストールしてから、もう一度お試しください。",
+  "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "LTK Manager がスキンを準備している間、Rose がゲームを保留できる時間です。\n\nゲーム開始までに LTK Manager の準備ができていない場合、Rose はゲームを一時停止し、LTK Manager の準備ができ次第ゲームを再起動して再接続します。この時間を過ぎると、ゲームはスキンなしで開始されます。\n\n重い MOD を使う場合は、より大きな値が必要になることがあります。",
+  "LTK Manager was not ready in time": "LTK Manager の準備が間に合いませんでした",
+  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "意味: 自動再開タイムアウト内に LTK Manager の準備ができなかったため、Rose はスキンなしでゲームを続行させました。"
 }

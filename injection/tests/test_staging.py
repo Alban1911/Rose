@@ -93,15 +93,13 @@ class OverlayStagingTests(LtfSessionTestCase):
         self.stage()
         before = list(self.bridge.calls)
         mod = self.make_mod()  # the same skin, extracted again by the injection
-        injection_manager = MagicMock()
 
-        result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True, injection_manager=injection_manager)
+        result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 0)
         during = [call[0] for call in self.bridge.calls[len(before):]]
         self.assertNotIn("import", during)
         self.assertNotIn("start_patcher", during)
-        injection_manager.resume_game.assert_called_once()
         self.assertEqual(self.bridge.library_entries, [])  # removed after the game
         self.assertEqual(self.reported_codes(), [])
 
@@ -115,7 +113,7 @@ class OverlayStagingTests(LtfSessionTestCase):
         self.make_mod()  # the injection extracts the skin and links the map again
         link_or_extract(cache / "Rift", self.mods / "Rift", cache_dir=cache)
 
-        result = self.overlay.mk_run_overlay([skin, "Rift"], stop_callback=lambda: True, injection_manager=MagicMock())
+        result = self.overlay.mk_run_overlay([skin, "Rift"], stop_callback=lambda: True)
 
         self.assertEqual(result, 0)
         during = [call[0] for call in self.bridge.calls[len(before):]]
@@ -350,7 +348,7 @@ class LtkLogReadingTests(LtfSessionTestCase):
             return answer
 
         with patch.object(FakeBridge, "start_patcher", start_then_fail):
-            result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True, injection_manager=MagicMock())
+            result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
         reason = next(call.kwargs["details"]["reason"] for call in self.report_issue.call_args_list

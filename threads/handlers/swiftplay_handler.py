@@ -640,17 +640,14 @@ class SwiftplayHandler:
 
                 log.info(f"[phase] Running overlay injection for {len(extracted_mods)} mod(s): {', '.join(extracted_mods)}")
 
-                # Start game monitor to prevent game from starting before overlay is ready
-                if not self.injection_manager._monitor_active:
-                    log.info("[phase] Starting game monitor for Swiftplay overlay injection")
-                    self.injection_manager._start_monitor()
+                # LTK Manager takes seconds to start: bring it up if not already
+                self.injection_manager.start_patcher_in_background()
 
                 try:
                     result = self.injection_manager.injector._mk_run_overlay(
                         extracted_mods,
                         timeout=60,
                         stop_callback=make_game_ended_callback(self.state),
-                        injection_manager=self.injection_manager
                     )
 
                     if result == 0:
@@ -664,11 +661,8 @@ class SwiftplayHandler:
                     import traceback
                     log.debug(f"[phase] Traceback: {traceback.format_exc()}")
                 finally:
-                    # Only the success path releases the game on its own, from
-                    # overlay_manager when runoverlay starts. On every other exit
-                    # the game stays suspended until the auto-resume timeout, and
-                    # the player enters the match frozen and without the skin.
-                    self.injection_manager._stop_monitor()
+                    # The injection took the countdown's session over: staging ends
+                    self.injection_manager.discard_early_patcher()
 
             except Exception as e:
                 log.warning(f"[phase] Error running Swiftplay overlay: {e}")

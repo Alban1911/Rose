@@ -67,9 +67,9 @@ log = get_logger()
 
 # The patcher status is polled while the game runs (one tick per sleep)
 PATCHER_STATUS_POLL_TICKS = 4
-# After start_patcher, the game stays suspended until the patcher has built
-# the overlay and is scanning: resumed earlier, the game can load its files
-# before the patcher hooks it. The game monitor resumes it at 60s anyway.
+# After start_patcher, how long the injection waits for the patcher to build
+# the overlay and scan. A game the client creates before the scan is missed:
+# it is restarted (within the Monitor Auto-Resume Timeout) or reported.
 PATCHER_READY_TIMEOUT_S = 45.0
 # The patcher only overlays a game the client created after its scan started,
 # and it cannot hook a frozen game: a game it missed is killed and the client
@@ -77,7 +77,34 @@ PATCHER_READY_TIMEOUT_S = 45.0
 # many times a session, so a relaunch the patcher misses too cannot loop
 RESTART_MISSED_GAME = True
 RECONNECT_MAX = 1
+# The Monitor Auto-Resume Timeout setting: how long after the client created
+# the game Rose may still restart it for the patcher. Past it the player is in
+# the match: the game is left running without the overlay, and Troubleshooting
+# suggests a longer timeout
+RESTART_WINDOW_DEFAULT_S = 60.0
+RESTART_WINDOW_MIN_S = 1.0
+RESTART_WINDOW_MAX_S = 180.0
+RESTART_SKIPPED_MESSAGE = "Rose did not restart the game for the LTK patcher"
+
+
+def restart_window_s() -> float:
+    """The Monitor Auto-Resume Timeout (General/monitor_auto_resume_timeout)."""
+    try:
+        from config import get_config_float
+        value = float(get_config_float("General", "monitor_auto_resume_timeout", RESTART_WINDOW_DEFAULT_S))
+    except Exception as e:  # noqa: BLE001
+        log.debug(f"[INJECT] Could not read the Monitor Auto-Resume Timeout: {e}")
+        return RESTART_WINDOW_DEFAULT_S
+    if value != value:  # NaN
+        return RESTART_WINDOW_DEFAULT_S
+    return max(RESTART_WINDOW_MIN_S, min(RESTART_WINDOW_MAX_S, value))
 PATCHER_READY_POLL_S = 0.25
+# While the patcher builds, a thread watches for the game and suspends it as
+# soon as the client creates it: the game guards its process (access denied)
+# within a second of its start, too late for the patcher wait's own polling
+HOLD_WATCH = True
+HOLD_WATCH_POLL_S = 0.05  # what the old game monitor used
+HOLD_WATCH_HELD_POLL_S = 0.1
 # A patcher still idle this long after start_patcher answered did not start
 PATCHER_IDLE_GRACE_S = 3.0
 # Unanswered status polls in a row (CDP busy, a slow eval) before the session
@@ -351,8 +378,9 @@ class OverlayManager:
         self.game_dir = game_dir
         self.process_manager = process_manager
         self.last_injection_timing = None
-        # Session connected (or launched) with the game monitor, before the
-        # mods are prepared; mk_run_overlay takes it over
+        # Session connected (or launched) at the countdown or when the
+        # injection starts, before the mods are prepared; mk_run_overlay
+        # takes it over
         self._early_session: Optional[dict] = None
         # Guards _early_session and _early_discard only: never held while
         # LTK Manager starts, so a discard never waits on a launch
@@ -597,6 +625,13 @@ class OverlayManager:
             "late_join_reported": False,
             "reconnects": 0,  # games killed and reconnected to (RECONNECT_MAX)
             "restarted_at": None,  # epoch time of the last such restart
+            # A game held (suspended) while the patcher builds (_hold_watch)
+            "hold_lock": threading.Lock(),
+            "hold_thread": None,
+            "hold_done": False,  # the patcher is ready (or gave up): hold no more
+            "hold_failed": False,
+            "held_game": None,
+            "held_at": None,  # time.monotonic() of the hold
             "refused_reported": False,
             "disabled_reported": False,
             "incident_reported": False,
@@ -853,6 +888,9 @@ class OverlayManager:
             if session["ended"]:
                 return
             session["ended"] = True
+        # Never leave a held game frozen
+        session["hold_done"] = True
+        self._resume_held_game(session)
 
         if self.process_manager and session.get("stopper") is not None:
             self.process_manager.clear_session_stopper(session["stopper"])
@@ -1207,6 +1245,9 @@ class OverlayManager:
         session["scan_started_at"] = None
         session["staged_after_s"] = None
         session["ltk_error"] = None
+        # A game the client creates while this build runs is held at once
+        session["hold_done"] = False
+        self._start_hold_watch(session)
         return True
 
     def _wait_patcher_stopped(self, session: dict) -> bool:
@@ -1358,14 +1399,13 @@ class OverlayManager:
                 log.warning(f"[INJECT] Could not turn off {self._entry_name(entry)} - it may apply too: {e}")
 
     # -- injection ----------------------------------------------------------
-    def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
+    def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None) -> int:
         """Install the mods and run LTK Manager's patcher until the game ends
 
         Args:
             mod_names: List of mod folders (in mods_dir) to inject
             timeout: Unused (kept for backward compatibility) - the session runs until explicitly stopped
             stop_callback: Optional callback to check if game ended
-            injection_manager: Optional injection manager for game resume
         """
         if self.game_dir is None:
             log.error("[INJECTOR] Cannot create overlay - League game directory not found")
@@ -1428,11 +1468,15 @@ class OverlayManager:
             self._end_session(session)
             return 1 if failed else 0
 
-        log_event(log, "Mods installed - the LTK patcher is ready", "")
-        self._restart_early_game(session, injection_manager)
-        return self._run_session(session, stop_callback, injection_manager)
+        if session.get("restart_skipped"):
+            # The Monitor Auto-Resume Timeout resumed the held game: the patcher still builds
+            log_event(log, "Mods installed - the game resumed before the LTK patcher was ready", "")
+        else:
+            log_event(log, "Mods installed - the LTK patcher is ready", "")
+        self._restart_early_game(session)
+        return self._run_session(session, stop_callback)
 
-    def _restart_early_game(self, session: dict, injection_manager=None) -> None:
+    def _restart_early_game(self, session: dict) -> None:
         """A game the client created before the patcher's scan started cannot
         get the overlay: restart it now rather than let it load first."""
         self._read_ltk_log(session)
@@ -1449,28 +1493,48 @@ class OverlayManager:
         log.warning(
             f"[INJECT] The client created the game {scan - created:.1f}s before the LTK patcher was scanning"
         )
-        self._restart_missed_game(session, game, injection_manager)
+        self._restart_missed_game(session, game)
 
-    def _restart_missed_game(self, session: dict, game, injection_manager=None) -> Optional[bool]:
+    def _restart_missed_game(self, session: dict, game) -> Optional[bool]:
         """Kill a game the patcher missed and reconnect to the match: the
         client launches it again while the patcher scans. None when not
         attempted (turned off, already done this session, no game), else
-        whether the client reconnected."""
+        whether the client reconnected (False also when the game was past the
+        restart window: that was reported instead)."""
+        if session.get("restart_skipped"):
+            return False
         if not RESTART_MISSED_GAME or game is None or session.get("reconnects", 0) >= RECONNECT_MAX:
             return None
         if self._session_stopped(session):
             return None
+        try:
+            age = time.time() - float(game.create_time())
+        except (psutil.Error, OSError, AttributeError, TypeError, ValueError):
+            age = None
+        window = restart_window_s()
+        if age is not None and age > window:
+            # The player is in the match by now: leave the game alone
+            session["restart_skipped"] = True
+            session["late_join_reported"] = True  # this report replaces the late join's
+            log.warning(
+                f"[INJECT] Not restarting the game: the LTK patcher was ready after {age:.0f}s, "
+                f"past the Monitor Auto-Resume Timeout ({window:.0f}s)"
+            )
+            report_issue(
+                "AUTO_RESUME_TRIGGERED",
+                "warning",
+                f"{RESTART_SKIPPED_MESSAGE}: it was ready after {age:.0f}s, "
+                f"past the Monitor Auto-Resume Timeout ({window:.0f}s).",
+                details={"auto_resume_timeout_s": f"{window:.0f}", "elapsed_s": f"{age:.1f}"},
+                hint="Settings → Monitor Auto-Resume Timeout → increase it, so Rose can still restart the game "
+                     "once LTK Manager is ready.",
+            )
+            return False
         session["reconnects"] = session.get("reconnects", 0) + 1
         log.warning("[INJECT] Restarting the game for the LTK patcher: closing it, then reconnecting to the match")
         if not kill_game(game):
             return None
         session["restarted_at"] = time.time()
-        if injection_manager is not None:
-            # The killed game was frozen: the monitor lets go of it
-            try:
-                injection_manager.resume_game()
-            except Exception as e:
-                log.debug(f"[INJECT] Could not release the game monitor: {e}")
         if not reconnect_to_game(stopped=lambda: self._session_stopped(session)):
             log.error("[INJECT] The game was closed, but the client did not reconnect - use Reconnect in the client")
             if not self._stopped_by_rose():
@@ -1490,49 +1554,248 @@ class OverlayManager:
     def _wait_for_patcher(self, session: dict) -> bool:
         """Wait until the patcher has built the overlay and is scanning.
 
+        A game the client creates meanwhile cannot get the overlay. It is held
+        (suspended: no window yet, and the client stays in the match instead
+        of showing its reconnect screen) while the patcher builds. Once the
+        patcher scans, it is closed and the client reconnects at once, so the
+        player only sees the reconnect screen for a moment (the patcher cannot
+        hook a game that was frozen, hence the restart). The Monitor
+        Auto-Resume Timeout caps the hold: past it the game is resumed without
+        the overlay.
+
         False when it failed (session["error"]) or the session was stopped.
-        A patcher still building at the timeout gets the game anyway: the
-        game monitor would resume it soon.
+        A patcher still building at the timeout keeps the session. A held game
+        is never left frozen.
         """
         start = time.monotonic()
         deadline = start + PATCHER_READY_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if self._session_stopped(session):
-                return False
-            value = self._read_patcher_status(session)
-            if session["error"]:
-                return False
-            if value is not None:
-                phase = str(value.get("phase") or "").lower()
-                session["state"] = phase or ("running" if value.get("running") else "idle")
-                if phase in ("failed", "error"):
-                    session["error"] = self._with_ltk_error(session, f"the LTK patcher is {phase}")
-                    return False
-                if value.get("running") and phase not in ("building", "idle"):
-                    log.info(
-                        f"[INJECT] LTK patcher ready (phase={phase or 'running'}) "
-                        f"after {time.monotonic() - start:.1f}s"
-                    )
+        try:
+            while True:
+                now = time.monotonic()
+                held_at = session.get("held_at")
+                if held_at is None and now >= deadline:
+                    break
+                if held_at is not None and now - held_at >= restart_window_s():
+                    self._resume_held_game(session, waited=now - held_at)
                     return True
-                if (not value.get("running") and phase in ("", "idle")
-                        and time.monotonic() - start >= PATCHER_IDLE_GRACE_S):
-                    session["error"] = self._with_ltk_error(session, "the LTK patcher stopped before it was ready")
+                if self._session_stopped(session):
                     return False
-            time.sleep(PATCHER_READY_POLL_S)
+                value = self._read_patcher_status(session)
+                if session["error"]:
+                    return False
+                if value is not None:
+                    phase = str(value.get("phase") or "").lower()
+                    session["state"] = phase or ("running" if value.get("running") else "idle")
+                    if phase in ("failed", "error"):
+                        session["error"] = self._with_ltk_error(session, f"the LTK patcher is {phase}")
+                        return False
+                    if value.get("running") and phase not in ("building", "idle"):
+                        log.info(
+                            f"[INJECT] LTK patcher ready (phase={phase or 'running'}) "
+                            f"after {time.monotonic() - start:.1f}s"
+                        )
+                        session["hold_done"] = True
+                        held = session.get("held_game")
+                        if held is not None:
+                            if self._created_under_scan(session, held):
+                                self._resume_held_game(session)  # held a moment only
+                            else:
+                                held_at = session.get("held_at") or time.monotonic()
+                                self._restart_held_game(session, waited=time.monotonic() - held_at)
+                        return True
+                    if (not value.get("running") and phase in ("", "idle")
+                            and time.monotonic() - start >= PATCHER_IDLE_GRACE_S):
+                        session["error"] = self._with_ltk_error(session, "the LTK patcher stopped before it was ready")
+                        return False
+                self._hold_early_game(session)
+                time.sleep(PATCHER_READY_POLL_S)
+        finally:
+            # Failed, stopped, or an exception: the game plays on (without the overlay)
+            session["hold_done"] = True
+            self._resume_held_game(session)
         log.warning(
             f"[INJECT] The LTK patcher is not ready after {PATCHER_READY_TIMEOUT_S:.0f}s "
             f"(phase={session['state'] or 'unknown'}) - resuming the game anyway"
         )
         return True
 
-    def _run_session(self, session: dict, stop_callback: Optional[Callable] = None, injection_manager=None) -> int:
-        """Resume the game and serve the overlay until the game exits."""
+    @staticmethod
+    def _game_alive(game) -> bool:
         try:
-            # The patcher cannot find a frozen game; it hooks it right after resume
-            if injection_manager:
-                log.debug("[INJECT] Overlay ready - releasing the game monitor")
-                injection_manager.resume_game()
+            return bool(game.is_running())
+        except (psutil.Error, OSError, AttributeError):
+            return False
 
+    def _start_hold_watch(self, session: dict) -> None:
+        """Watch for the game while the patcher builds (one thread a session)."""
+        if not HOLD_WATCH or not RESTART_MISSED_GAME:
+            return
+        thread = session.get("hold_thread")
+        if thread is not None and thread.is_alive():
+            return
+        thread = threading.Thread(target=self._hold_watch, args=(session,), daemon=True, name="GameHold")
+        session["hold_thread"] = thread
+        thread.start()
+
+    def _hold_watch(self, session: dict) -> None:
+        """Suspend the game the moment the client creates it, until the
+        patcher is ready (the wait restarts it then) or the Monitor
+        Auto-Resume Timeout (resumed without the overlay)."""
+        try:
+            while not session["ended"] and not session.get("hold_done") and not self._session_stopped(session):
+                self._hold_early_game(session)
+                held_at = session.get("held_at")
+                if held_at is not None:
+                    waited = time.monotonic() - held_at
+                    if waited >= restart_window_s():
+                        self._resume_held_game(session, waited=waited)
+                        return
+                    time.sleep(HOLD_WATCH_HELD_POLL_S)
+                elif session.get("hold_failed"):
+                    return
+                else:
+                    time.sleep(HOLD_WATCH_POLL_S)
+        except Exception as e:  # never leave the game frozen over a bug
+            log.warning(f"[INJECT] The game hold stopped: {e}")
+            self._resume_held_game(session)
+            return
+        if not session.get("hold_done"):
+            self._resume_held_game(session)  # stopped: the wait no longer owns it
+
+    @staticmethod
+    def _game_alive(game) -> bool:
+        try:
+            return bool(game.is_running())
+        except (psutil.Error, OSError, AttributeError):
+            return False
+
+    def _created_under_scan(self, session: dict, game) -> bool:
+        """Whether the game was created after the patcher's scan started."""
+        self._read_ltk_log(session)
+        scan = session.get("scan_started_at")
+        if scan is None:
+            return False
+        try:
+            return float(game.create_time()) >= scan
+        except (psutil.Error, OSError, AttributeError, TypeError, ValueError):
+            return False
+
+    def _hold_early_game(self, session: dict) -> None:
+        """Suspend a game the client created while the patcher still builds
+        the overlay (it would be missed), until the patcher scans. A held game
+        that died (the client relaunched the match) is replaced by the new one."""
+        if not RESTART_MISSED_GAME or session.get("hold_failed") or session.get("hold_done"):
+            return
+        if self._session_stopped(session):
+            return
+        lock = session.setdefault("hold_lock", threading.Lock())
+        with lock:
+            if session.get("hold_done"):
+                return
+            held = session.get("held_game")
+            if held is not None and self._game_alive(held):
+                return
+            if held is None and session.get("reconnects", 0) >= RECONNECT_MAX:
+                return
+            game = self._running_game()
+            if game is None:
+                return
+            try:
+                game.suspend()
+            except (psutil.Error, OSError) as e:
+                session["hold_failed"] = True
+                log.warning(
+                    f"[INJECT] Could not hold the game while the LTK patcher builds the overlay "
+                    f"({type(e).__name__}: {e})"
+                )
+                return
+            if held is None:
+                session["held_at"] = time.monotonic()
+            session["held_game"] = game
+        if held is None:
+            log.warning(
+                "[INJECT] The client created the game while the LTK patcher was still building the overlay - "
+                "holding it until the patcher scans, then restarting it"
+            )
+        else:
+            log.warning("[INJECT] The client relaunched the game while the LTK patcher was still building - holding it")
+
+    def _take_held_game(self, session: dict):
+        lock = session.setdefault("hold_lock", threading.Lock())
+        with lock:
+            game = session.get("held_game")
+            session["held_game"] = None
+            session["held_at"] = None
+        return game
+
+    def _resume_held_game(self, session: dict, waited: Optional[float] = None) -> None:
+        """Let a held game play on without the overlay: the Monitor
+        Auto-Resume Timeout ran out (waited), or the session failed or stopped."""
+        game = self._take_held_game(session)
+        if game is None:
+            return
+        if waited is not None:
+            window = restart_window_s()
+            session["hold_done"] = True
+            # Nothing to restart once the patcher is ready: the player is in the match
+            session["restart_skipped"] = True
+            session["late_join_reported"] = True  # this report replaces the late join's
+            log.warning(
+                f"[INJECT] The LTK patcher is still building after {waited:.0f}s, past the Monitor Auto-Resume "
+                f"Timeout ({window:.0f}s) - resuming the game without the overlay"
+            )
+            report_issue(
+                "AUTO_RESUME_TRIGGERED",
+                "warning",
+                f"{RESTART_SKIPPED_MESSAGE}: it was still building the overlay after {waited:.0f}s, past the "
+                f"Monitor Auto-Resume Timeout ({window:.0f}s), so Rose resumed the game without it.",
+                details={"auto_resume_timeout_s": f"{window:.0f}", "elapsed_s": f"{waited:.1f}"},
+                hint="Settings → Monitor Auto-Resume Timeout → increase it, so Rose can hold the game until "
+                     "LTK Manager is ready.",
+            )
+        try:
+            game.resume()
+            log.info("[INJECT] Resumed the held game")
+        except (psutil.Error, OSError) as e:
+            log.debug(f"[INJECT] Could not resume the held game: {e}")
+
+    def _restart_held_game(self, session: dict, waited: float) -> bool:
+        """The patcher scans: close the held game and reconnect to the match,
+        so the client launches it again under the scan."""
+        game = self._take_held_game(session)
+        if game is None:
+            return False
+        session["reconnects"] = session.get("reconnects", 0) + 1
+        log.info(
+            f"[INJECT] The LTK patcher scans after holding the game {waited:.1f}s - "
+            "closing it, then reconnecting to the match"
+        )
+        if not kill_game(game):
+            try:
+                game.resume()
+            except (psutil.Error, OSError, AttributeError):
+                pass
+            return False
+        session["restarted_at"] = time.time()
+        if not reconnect_to_game(stopped=lambda: self._session_stopped(session)):
+            log.error("[INJECT] The game was closed, but the client did not reconnect - use Reconnect in the client")
+            if not self._stopped_by_rose():
+                self._report_ltf_failure(
+                    "Rose restarted the game so the LTK patcher could apply the overlay, but the client did not "
+                    "reconnect to the match (use Reconnect in the client)"
+                )
+            return False
+        # The relaunched game reports to the patcher anew
+        session["ltk_attached"] = False
+        session["attach_logged"] = False
+        session["ltk_late"] = False
+        session["late_join_reported"] = False
+        log.info("[INJECT] Reconnected: the game starts again while the LTK patcher scans")
+        return True
+
+    def _run_session(self, session: dict, stop_callback: Optional[Callable] = None) -> int:
+        """Serve the overlay until the game exits."""
+        try:
             ticks = 0
             while True:
                 if session["ended"]:
