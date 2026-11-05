@@ -27,7 +27,7 @@ import json
 import re
 import struct
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from utils.core.logging import get_logger
 
@@ -127,6 +127,61 @@ def _champion_record(game_dir: Path, mod_folder: Path, alias: str) -> Optional[b
                 return loose.read_bytes()
     installed = Path(game_dir) / "DATA" / "FINAL" / "Champions" / f"{alias}.wad.client"
     return _read_entry(installed, path_hash) if installed.is_file() else None
+
+
+def _table_hashes(wad_name: str) -> set:
+    """The path hashes the language table can have in a wad: the en_US path every language uses, and the wad's own
+    language's (Global.ko_KR.wad.client -> data/menu/ko_kr/lol.stringtable)."""
+    hashes = {TABLE_HASH}
+    parts = wad_name.lower().split(".")
+    if len(parts) >= 4 and parts[0] == "global":
+        hashes.add(_xxh64(f"data/menu/{parts[1]}/lol.stringtable".encode("utf-8")))
+    return hashes
+
+
+def _wad_holds(wad: Path, hashes: set) -> Optional[bool]:
+    """Whether a packed wad has an entry for one of these path hashes, or None when it can't be read."""
+    try:
+        with open(wad, "rb") as handle:
+            header = handle.read(272)
+            if len(header) < 272 or header[:2] != b"RW" or header[2] != 3:
+                return None
+            count = struct.unpack_from("<I", header, 268)[0]
+            toc = handle.read(count * 32)
+    except OSError:
+        return None
+    if len(toc) < count * 32:
+        return None
+    return any(struct.unpack_from("<Q", toc, i * 32)[0] in hashes for i in range(count))
+
+
+def ships_language_table(mod_folder: Path) -> bool:
+    """Whether a mod carries its own lol.stringtable (a whole Global.<language>.wad.client, as some font mods are).
+
+    LTK Manager keeps the table of one mod only, by priority. When that mod's wins, the champion's record that this
+    mod points at its own key still applies, and the name over the champion's head and the chat print that key
+    instead of the champion's name (#420).
+    """
+    folder = Path(mod_folder)
+    raw = folder / "RAW"
+    if raw.is_dir() and any(path.name.lower() == "lol.stringtable" for path in raw.rglob("*")):
+        return True
+    wad_dir = folder / "WAD"
+    if not wad_dir.is_dir():
+        return False
+    for wad in wad_dir.iterdir():
+        name = wad.name.lower()
+        if not (name.startswith("global") and name.endswith(".wad.client")):
+            continue
+        hashes = _table_hashes(wad.name)
+        if wad.is_dir():
+            names = {f"{h:016x}" for h in hashes}
+            for path in wad.rglob("*"):
+                if path.name.lower() == "lol.stringtable" or path.name.lower().split(".")[0] in names:
+                    return True
+        elif _wad_holds(wad, hashes) is not False:
+            return True  # holds it, or a packed language wad that can't be read: most likely a whole copy
+    return False
 
 
 def _with_own_record_key(record: bytes, alias: str) -> Optional[bytes]:
@@ -359,14 +414,22 @@ def parent_skin_id(archive: Path, skin_id: int) -> int:
     return skin_id
 
 
-def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int) -> Optional[str]:
+def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
+          other_mods: Sequence[Path] = ()) -> Optional[str]:
     """Writes the mod and returns its folder name, or None when there is nothing to show.
 
-    skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id.
+    skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id. *other_mods* are
+    the folders of the other mods installed with it: when one carries its own language table, nothing is built (see
+    ships_language_table).
     """
     try:
         if not skin_id or skin_id % 1000 == 0:
             return None
+        for other in other_mods:
+            if ships_language_table(other):
+                log.info(f"[LOADNAME] {Path(other).name} carries its own text table: the loading screen keeps the "
+                         "champion's name")
+                return None
         aliases = champion_aliases(mod_folder)
         if not aliases:
             log.debug("[LOADNAME] the skin carries no champion wad, skipped")

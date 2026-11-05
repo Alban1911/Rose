@@ -7,9 +7,8 @@ from unittest.mock import MagicMock, patch
 from threads.handlers.injection_trigger import InjectionTrigger
 
 
-class CustomModInjectionMonitorTests(unittest.TestCase):
-    """The game monitor suspends the game while mods are prepared, so every
-    way out of a custom mod injection stops it and lets the game run"""
+class CustomModInjectionCase(unittest.TestCase):
+    """A custom mod injection with its game monitor and injector mocked"""
 
     def setUp(self):
         temp_dir = tempfile.TemporaryDirectory()
@@ -53,6 +52,11 @@ class CustomModInjectionMonitorTests(unittest.TestCase):
         self.manager._start_monitor.assert_called_once()
         self.assertFalse(self.monitor_active, "the game monitor is still running")
 
+
+class CustomModInjectionMonitorTests(CustomModInjectionCase):
+    """The game monitor suspends the game while mods are prepared, so every
+    way out of a custom mod injection stops it and lets the game run"""
+
     def test_a_missing_carrier_archive_stops_the_monitor(self):
         self.injector._resolve_zip.return_value = None
         self.inject(self.custom_mod(self.root / "Mod"), base_skin_name="skin_103001")
@@ -86,6 +90,59 @@ class CustomModInjectionMonitorTests(unittest.TestCase):
                 patch("utils.core.historic.write_historic_target"):
             self.inject(self.custom_mod(mod_source))
         self.injector.overlay_manager.mk_run_overlay.assert_called_once()
+
+
+class CustomModBaseSkinTests(CustomModInjectionCase):
+    """The default skin a carrier replaces is forced before the mods are
+    extracted, while the champ select still accepts it (issue #422)"""
+
+    def setUp(self):
+        super().setUp()
+        self.events = []
+        archive = self.root / "103001.fantome"
+        archive.write_bytes(b"skin")
+        self.injector._resolve_zip.return_value = archive
+
+        def extract(zp):
+            self.events.append("extract carrier")
+            folder = self.root / "mods" / "103001"
+            folder.mkdir(parents=True, exist_ok=True)
+            return folder
+
+        self.injector._extract_zip_to_mod.side_effect = extract
+        self.trigger._force_base_skin.side_effect = lambda skin_id: self.events.append(f"force {skin_id}")
+        self.trigger.state.selected_font_mod = {
+            "mod_name": "Font", "mod_folder_name": "Font", "mod_path": str(self.root / "Font"),
+        }
+        (self.root / "Font").mkdir()
+
+    def link(self, source, dest, cache_dir=None):
+        self.events.append(f"link {Path(source).name}")
+        dest.mkdir(parents=True, exist_ok=True)
+
+    def test_the_default_skin_is_forced_before_any_mod_is_extracted(self):
+        with patch("threads.handlers.injection_trigger.link_or_extract", side_effect=self.link), \
+                patch("utils.core.mod_historic.write_historic_mod"), \
+                patch("utils.core.historic.write_historic_entry"):
+            self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103},
+                        base_skin_name="skin_103001")
+
+        self.assertEqual(self.events, ["force 103000", "extract carrier", "link Font"])
+        self.injector.overlay_manager.mk_run_overlay.assert_called_once()
+
+    def test_a_missing_carrier_forces_nothing(self):
+        self.injector._resolve_zip.return_value = None
+        self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103},
+                    base_skin_name="skin_103001")
+
+        self.trigger._force_base_skin.assert_not_called()
+
+    def test_an_owned_skin_is_not_forced(self):
+        with patch("threads.handlers.injection_trigger.link_or_extract", side_effect=self.link), \
+                patch("utils.core.mod_historic.write_historic_mod"):
+            self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103})
+
+        self.trigger._force_base_skin.assert_not_called()
 
 
 if __name__ == "__main__":

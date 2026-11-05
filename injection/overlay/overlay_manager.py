@@ -109,6 +109,16 @@ OVERLAY_REFUSED_CODE = re.compile(r"\[(vrf\d{8})\]\s*\(([^)]*)\)?", re.IGNORECAS
 _LTK_LOG_TIME = r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z"
 SCAN_STARTED_LINE = re.compile(r"^" + _LTK_LOG_TIME + r"[^\n]*session started: scanning for game", re.MULTILINE)
 OVERLAY_BUILT_LINE = re.compile(r"Overlay build complete:[^\n]*? in ([\d.]+)(ms|s)\b")
+# LTK Manager's own reason when its patcher gives up: an ERROR line of its
+# patcher or overlay builder ("No patcher DLL is available" when the DLL it
+# downloads on the first start could not be fetched, "Overlay build failed",
+# "Start patcher failed" for League set to run as administrator...)
+LTK_PATCHER_ERROR_LINE = re.compile(
+    r"^" + _LTK_LOG_TIME + r"\s+ERROR\s+[\w:]*(?:patch|overlay)[\w:]*:\s*([^\r\n]+)",
+    re.MULTILINE | re.IGNORECASE,
+)
+# The longest LTK Manager error kept for a report
+LTK_ERROR_MAX_CHARS = 300
 ALREADY_OPEN_REASON = "LTK Manager is already open without Rose's bridge"
 # Every LTF report's hint ends with it (Troubleshooting recognizes the reports by it)
 LTF_LOGS_HINT = "Details are in C:\\Users\\Public\\ltk_bridge.log, ltk_api.log and ltk_launcher.log."
@@ -464,6 +474,7 @@ class OverlayManager:
             "ltk_attached": False,
             "ltk_late": False,
             "ltk_refused": None,  # (check code, what it saw)
+            "ltk_error": None,  # LTK Manager's first patcher ERROR line
             "staged_after_s": None,  # pick -> patcher start, for the staged mods
             # The library as _install_mods last read it, for _disable_other_mods
             "library_snapshot": None,
@@ -970,18 +981,34 @@ class OverlayManager:
         The countdown's stager packs while the selection settles, so its
         install only has to import (stage_mods(archives=...)). Each archive
         lands next to its folder (<folder_dir>/<name>.fantome); a folder that
-        cannot be packed is left out and packed by the install instead.
+        cannot be packed is left out and packed by the install instead. So is
+        a mod an earlier pick already staged (a saved map or voiceover mod,
+        the same for every skin): the install keeps it as it is.
         """
+        staged = self._staged_fingerprints()
         archives: Dict[str, Path] = {}
         for name in mod_names:
             folder = Path(folder_dir) / name
             archive = Path(folder_dir) / f"{name}.fantome"
             try:
+                if staged and mod_fingerprint(folder) in staged:
+                    continue
                 write_fantome_zip(folder, archive)
                 archives[name] = archive
             except OSError as e:
                 log.debug(f"[STAGE] Could not pack {name} ahead of the install: {e}")
         return archives
+
+    def _staged_fingerprints(self) -> set:
+        """The content digests of the mods staged in the early session's LTK Manager."""
+        with self._session_lock:
+            session = self._early_session
+        if session is None:
+            return set()
+        try:
+            return set(list(session["fingerprints"].values()))
+        except RuntimeError:  # an install changed them meanwhile
+            return set()
 
     def _start_patcher(self, session: dict, report: bool = True) -> bool:
         """Start LTK Manager's patcher (it builds the overlay, then scans for the game)."""
@@ -1000,6 +1027,7 @@ class OverlayManager:
         session["overlay_build_s"] = None
         session["scan_started_at"] = None
         session["staged_after_s"] = None
+        session["ltk_error"] = None
         return True
 
     def _stop_patcher(self, session: dict) -> None:
@@ -1217,7 +1245,7 @@ class OverlayManager:
                 phase = str(value.get("phase") or "").lower()
                 session["state"] = phase or ("running" if value.get("running") else "idle")
                 if phase in ("failed", "error"):
-                    session["error"] = f"the LTK patcher is {phase}"
+                    session["error"] = self._with_ltk_error(session, f"the LTK patcher is {phase}")
                     return False
                 if value.get("running") and phase not in ("building", "idle"):
                     log.info(
@@ -1227,7 +1255,7 @@ class OverlayManager:
                     return True
                 if (not value.get("running") and phase in ("", "idle")
                         and time.monotonic() - start >= PATCHER_IDLE_GRACE_S):
-                    session["error"] = "the LTK patcher stopped before it was ready"
+                    session["error"] = self._with_ltk_error(session, "the LTK patcher stopped before it was ready")
                     return False
             time.sleep(PATCHER_READY_POLL_S)
         log.warning(
@@ -1327,9 +1355,17 @@ class OverlayManager:
     @staticmethod
     def _note_ltk_text(session: dict, text: str) -> None:
         """Record what LTK Manager's log (or its patcher status) says: the
-        overlay's build time, the scan's start, and the DLL's verdict."""
+        overlay's build time, the scan's start, the DLL's verdict, and why
+        the patcher gave up."""
         if not text:
             return
+        if session.get("ltk_error") is None:
+            failed = LTK_PATCHER_ERROR_LINE.search(text)
+            if failed:
+                message = failed.group(2).strip()
+                if len(message) > LTK_ERROR_MAX_CHARS:
+                    message = message[:LTK_ERROR_MAX_CHARS - 3].rstrip() + "..."
+                session["ltk_error"] = message
         lowered = text.lower()
         if "dll attached" in lowered:
             session["ltk_attached"] = True
@@ -1354,11 +1390,20 @@ class OverlayManager:
         if tail is not None:
             self._note_ltk_text(session, tail.read())
 
+    def _with_ltk_error(self, session: dict, reason: str) -> str:
+        """*reason* with LTK Manager's own error, when its log has one."""
+        self._read_ltk_log(session)
+        if session.get("ltk_error"):
+            return f"{reason} (LTK Manager: {session['ltk_error']})"
+        return reason
+
     @staticmethod
     def _patcher_progress(session: dict) -> str:
         """Where the started patcher is, from LTK Manager's log: still building
         the overlay, or scanning (since when)."""
         started = time.monotonic() - session.get("patcher_started_at", time.monotonic())
+        if session.get("ltk_error"):
+            return f"the LTK patcher was started {started:.1f}s ago and failed (LTK Manager: {session['ltk_error']})"
         tail = session.get("ltk_log")
         if tail is None or tail.directory is None:
             return f"the LTK patcher was started {started:.1f}s ago"

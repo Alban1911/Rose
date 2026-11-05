@@ -66,9 +66,54 @@ class CountdownPatcherTests(unittest.TestCase):
         self.state.last_hovered_skin_id = SPIRIT_BLOSSOM
         self.ticker.run()
 
-        threshold_in_s = self.manager.stage_skin.call_args.kwargs['threshold_in_s']
+        threshold_in_s = self.manager.stage_plan.call_args.kwargs['threshold_in_s']
         self.assertGreater(threshold_in_s, 0.0)
         self.assertLessEqual(threshold_in_s, 0.1)
+
+    def test_the_injections_plan_is_staged(self):
+        self.ticker.injection_trigger.trigger_injection.side_effect = self._inject
+        self.state.loadout_left0_ms = 400
+        self.state.skin_write_ms = 300
+        self.ticker.injection_trigger.staging_plan.return_value = "the plan"
+        self.ticker.run()
+
+        self.ticker.injection_trigger.staging_plan.assert_called_with('skin_1001', '')
+        self.assertEqual(self.manager.stage_plan.call_args.args, ("the plan",))
+
+    def test_nothing_is_staged_when_the_injection_installs_nothing(self):
+        self.ticker.injection_trigger.trigger_injection.side_effect = self._inject
+        self.state.loadout_left0_ms = 400
+        self.state.skin_write_ms = 300
+        self.ticker.injection_trigger.staging_plan.return_value = None
+        self.ticker.run()
+
+        self.manager.stage_plan.assert_not_called()
+
+    def test_a_mod_selected_during_the_countdown_stages_again(self):
+        self.ticker.injection_trigger.trigger_injection.side_effect = self._inject
+        self.state.loadout_left0_ms = 500
+        self.state.skin_write_ms = 300
+
+        def select_a_map(*_):
+            self.state.selected_map_mod = {"mod_path": "C:/mods/maps/Rift.fantome", "mod_folder_name": "Rift"}
+            return "plan"
+
+        self.ticker.injection_trigger.staging_plan.side_effect = select_a_map
+        self.ticker.run()
+
+        self.assertEqual(self.manager.stage_plan.call_count, 2)
+
+    def test_friends_skins_arriving_during_the_countdown_stage_again(self):
+        self.ticker.injection_trigger.trigger_injection.side_effect = self._inject
+        self.state.loadout_left0_ms = 500
+        self.state.skin_write_ms = 300
+        friends = iter([(), ("friend's skin",)])
+        self.ticker.injection_trigger.planned_party_skins.side_effect = lambda: next(friends, ("friend's skin",))
+        self.ticker.injection_trigger.staging_plan.return_value = "plan"
+        with patch.object(loadout_ticker, 'PARTY_POLL_S', 0.0):
+            self.ticker.run()
+
+        self.assertEqual(self.manager.stage_plan.call_count, 2)
 
     def test_a_skin_changed_after_the_threshold_is_ignored(self):
         self.state.loadout_left0_ms = 400

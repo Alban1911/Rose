@@ -3,17 +3,30 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from injection.core import manager as manager_module
+from injection.core import stage_plan as stage_plan_module
 from injection.core.manager import InjectionManager
+from injection.core.stage_plan import (
+    PARTY_SKINS_LABEL,
+    CarrierStep,
+    LoadingNameStep,
+    ModStep,
+    PartyStep,
+    StagePlan,
+    prepare_plan,
+    skin_plan,
+)
 from injection.mods.fingerprint import mod_fingerprint
 from injection.overlay import overlay_manager
 from injection.overlay.overlay_manager import LtkLogTail
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase, status
 from threads.handlers.injection_trigger import InjectionTrigger
+from utils.core.junction import link_or_extract
 
 
 class FingerprintTests(unittest.TestCase):
@@ -91,6 +104,24 @@ class OverlayStagingTests(LtfSessionTestCase):
         injection_manager.resume_game.assert_called_once()
         self.assertEqual(self.bridge.library_entries, [])  # removed after the game
         self.assertEqual(self.reported_codes(), [])
+
+    def test_an_injection_reuses_staged_mods_linked_from_the_cache(self):
+        cache = self.root / "injection" / ".extract_cache"
+        self.make_mod("Rift", "Rift", where=cache, wad=b"map")
+        skin = self.make_mod(where=self.stage_dir)
+        link_or_extract(cache / "Rift", self.stage_dir / "Rift", cache_dir=cache)
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin, "Rift"]))
+        before = list(self.bridge.calls)
+        self.make_mod()  # the injection extracts the skin and links the map again
+        link_or_extract(cache / "Rift", self.mods / "Rift", cache_dir=cache)
+
+        result = self.overlay.mk_run_overlay([skin, "Rift"], stop_callback=lambda: True, injection_manager=MagicMock())
+
+        self.assertEqual(result, 0)
+        during = [call[0] for call in self.bridge.calls[len(before):]]
+        self.assertNotIn("import", during)
+        self.assertNotIn("start_patcher", during)
+        self.assertEqual((cache / "Rift" / "WAD" / "Aatrox.wad.client").read_bytes(), b"map")
 
     def test_an_injection_of_other_mods_swaps_them_and_restarts_the_patcher(self):
         self.stage(wad=b"staged skin")
@@ -198,6 +229,21 @@ class OverlayStagingTests(LtfSessionTestCase):
         imported = [call[1] for call in self.bridge.calls if call[0] == "import"]
         self.assertEqual(imported, [str(self.stage_dir / f"{mod}.fantome")])
 
+    def test_a_mod_staged_for_an_earlier_pick_is_not_packed_again(self):
+        skin = self.make_mod(where=self.stage_dir)
+        rift = self.make_mod("Rift", "Rift", where=self.stage_dir, wad=b"map")
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin, rift]))
+        next_pick = self.root / "injection" / "stage-next"
+        other = self.make_mod("1002-Other", "Other Leona", where=next_pick, wad=b"other")
+        self.make_mod("Rift", "Rift", where=next_pick, wad=b"map")
+
+        archives = self.overlay.pack_mods(next_pick, [other, rift])
+
+        self.assertEqual(archives, {other: next_pick / f"{other}.fantome"})
+        self.assertTrue(self.overlay.stage_mods(next_pick, [other, rift], archives=archives))
+        imported = [call[1] for call in self.bridge.calls if call[0] == "import"]
+        self.assertEqual(imported[2:], [str(next_pick / f"{other}.fantome")])  # the map stays as it is
+
     def test_a_missing_packed_archive_is_packed_by_the_install(self):
         mod = self.make_mod(where=self.stage_dir)
 
@@ -244,6 +290,55 @@ class LtkLogReadingTests(LtfSessionTestCase):
 
         self.assertAlmostEqual(session["overlay_build_s"], 4.2749041)
         self.assertAlmostEqual(session["scan_started_at"], self.SCAN_STARTED, places=4)
+
+    NO_PATCHER_DLL = (
+        "2026-11-05T02:54:37.120000Z ERROR ltk_manager::services::telemetry: upload failed\n"
+        "2026-11-05T02:54:41.250000Z ERROR ltk_manager_core::patching::thread: Could not prepare the patcher host "
+        "error=Patcher(DllUnavailable { reason: Network })\r\n"
+        "2026-11-05T02:54:41.260000Z ERROR ltk_manager_core::patching::thread: Overlay build failed error=later\n"
+    )
+
+    def test_the_patchers_own_error_is_read(self):
+        session = self.started_session()
+        self.write_log(self.NO_PATCHER_DLL)
+
+        self.overlay._read_ltk_log(session)
+
+        self.assertEqual(
+            session["ltk_error"],
+            "Could not prepare the patcher host error=Patcher(DllUnavailable { reason: Network })",
+        )
+
+    def test_a_patcher_that_gave_up_reports_ltk_managers_reason(self):
+        mod = self.make_mod()
+        FakeBridge.patcher_statuses = [status(running=False, phase="idle")]
+        original = FakeBridge.start_patcher
+
+        def start_then_fail(bridge_self):
+            answer = original(bridge_self)
+            self.write_log(self.NO_PATCHER_DLL)  # LTK Manager gives up right after the start
+            return answer
+
+        with patch.object(FakeBridge, "start_patcher", start_then_fail):
+            result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True, injection_manager=MagicMock())
+
+        self.assertEqual(result, 1)
+        reason = next(call.kwargs["details"]["reason"] for call in self.report_issue.call_args_list
+                      if call.args[0] == "LTF_FAILED")
+        self.assertEqual(
+            reason,
+            "the LTK patcher stopped before it was ready "
+            "(LTK Manager: Could not prepare the patcher host error=Patcher(DllUnavailable { reason: Network }))",
+        )
+
+    def test_a_restart_forgets_the_last_error(self):
+        session = self.started_session()
+        self.write_log(self.NO_PATCHER_DLL)
+        self.overlay._read_ltk_log(session)
+
+        self.assertTrue(self.overlay._start_patcher(session))
+
+        self.assertIsNone(session["ltk_error"])
 
     def test_a_build_in_milliseconds_is_read(self):
         session = self.started_session()
@@ -420,6 +515,15 @@ class StageWorkerTests(unittest.TestCase):
         self.assertTrue(self.done.wait(2))
         time.sleep(0.2)
         self.assertEqual(self.staged, ["skin_1003"])
+
+    def test_a_plan_with_mods_is_staged_whole(self):
+        plan = StagePlan("skin_1001", (CarrierStep("skin_1001", "Leona", 1), ModStep("Rift", "C:/mods/maps/Rift")))
+        with patch.object(manager_module, "prepare_plan", return_value=["1001", "Rift"]) as prepare:
+            self.manager.stage_plan(plan)
+            self.assertTrue(self.done.wait(2))
+
+        self.assertEqual(prepare.call_args.args[1], plan)
+        self.assertEqual(self.manager.injector.overlay_manager.stage_mods.call_args.args[1], ["1001", "Rift"])
 
     def test_the_same_selection_is_staged_once(self):
         self.manager.stage_skin("skin_1001", champion_id=1)
@@ -612,10 +716,38 @@ class StageWorkerTests(unittest.TestCase):
         self.assertEqual(self.staged, ["skin_1001", "skin_1001"])
 
 
-class StagingTargetTests(unittest.TestCase):
-    """The countdown stages only what the injection would install alone"""
+class FakeModStorage:
+    """The mods storage, with the files of the listed mods in *root*"""
+
+    CATEGORY_MAPS = "maps"
+    CATEGORY_FONTS = "fonts"
+    CATEGORY_ANNOUNCERS = "announcers"
+    CATEGORY_UI = "ui"
+    CATEGORY_VOICEOVER = "voiceover"
+    CATEGORY_LOADING_SCREEN = "loading_screen"
+    CATEGORY_VFX = "vfx"
+    CATEGORY_SFX = "sfx"
+    CATEGORY_OTHERS = "others"
+
+    def __init__(self, root, entries=()):
+        self.mods_root = Path(root)
+        self.entries = list(entries)
+
+    def list_mods_for_category(self, category):
+        return [entry for entry in self.entries if entry["id"].split("/", 1)[0] == category]
+
+    def list_mods_for_champion(self, champion_id):
+        return []
+
+
+class StagingPlanTests(unittest.TestCase):
+    """The countdown stages what the injection installs: the skin, the
+    custom and saved mods, friends' skins"""
 
     def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.mods_root = Path(temp_dir.name)
         self.state = SimpleNamespace(
             last_hovered_skin_id=1001,
             locked_champ_id=1,
@@ -633,44 +765,225 @@ class StagingTargetTests(unittest.TestCase):
             selected_other_mod=None,
             party_manager=None,
             owned_skin_ids=set(),
+            selected_skin_id=None,
         )
         self.trigger = InjectionTrigger(MagicMock(), self.state, MagicMock(), None)
+        self.storage = FakeModStorage(self.mods_root)
+        self.saved = {}
         for patcher in (
             patch("utils.core.historic.get_historic_skin_for_champion", return_value=None),
-            patch("utils.core.mod_historic.load_mod_historic", return_value={}),
+            patch("utils.core.mod_historic.load_mod_historic", side_effect=lambda: dict(self.saved)),
+            patch("injection.mods.storage.ModStorageService", side_effect=lambda: self.storage),
+            patch("threads.handlers.injection_trigger.get_injection_dir", return_value=self.mods_root / "injection"),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_an_unowned_skin_is_staged(self):
-        self.assertTrue(self.trigger.staging_target("skin_1001"))
+    def save_map(self, exists=True):
+        """A map mod saved from an earlier game (mod_historic.json)"""
+        path = self.mods_root / "maps" / "Rift.fantome"
+        if exists:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"map")
+        self.storage.entries.append({"id": "maps/Rift.fantome", "name": "Rift", "path": "maps/Rift.fantome"})
+        self.saved["map"] = "maps/Rift.fantome"
+        return path
+
+    def custom_mod(self, **extra):
+        return {
+            "skin_id": 1001,
+            "champion_id": 1,
+            "mod_name": "My mod",
+            "mod_path": str(self.mods_root / "skins" / "1000" / "My mod.fantome"),
+            "mod_folder_name": "My mod",
+            **extra,
+        }
+
+    def test_an_unowned_skin_is_staged_alone(self):
+        self.assertEqual(self.trigger.staging_plan("skin_1001", "Leona"), skin_plan("skin_1001", "Leona", 1, False))
 
     def test_the_default_skin_is_not(self):
         self.state.last_hovered_skin_id = 1000
 
-        self.assertFalse(self.trigger.staging_target("skin_1000"))
+        self.assertIsNone(self.trigger.staging_plan("skin_1000"))
 
     def test_another_champions_skin_is_not(self):
         self.state.last_hovered_skin_id = 2001
 
-        self.assertFalse(self.trigger.staging_target("skin_2001"))
+        self.assertIsNone(self.trigger.staging_plan("skin_2001"))
 
-    def test_a_custom_mod_is_not(self):
-        self.state.selected_custom_mod = {"mod_name": "My mod"}
+    def test_a_custom_mod_is_staged_with_its_skin_as_carrier(self):
+        self.state.selected_custom_mod = self.custom_mod()
 
-        self.assertFalse(self.trigger.staging_target("skin_1001"))
+        plan = self.trigger.staging_plan("skin_1001", "Leona")
 
-    def test_a_selected_or_saved_map_mod_is_not(self):
-        self.state.selected_map_mod = {"mod_name": "Map"}
-        self.assertFalse(self.trigger.staging_target("skin_1001"))
+        self.assertEqual(plan, StagePlan("skin_1001", (
+            CarrierStep("skin_1001", "Leona", 1),
+            ModStep("My mod", self.state.selected_custom_mod["mod_path"], required=True),
+            LoadingNameStep(1001),
+        )))
 
-        self.state.selected_map_mod = None
-        with patch("utils.core.mod_historic.load_mod_historic", return_value={"map": "maps/Summoner Rift.fantome"}):
-            self.assertFalse(self.trigger.staging_target("skin_1001"))
+    def test_a_custom_mod_on_an_owned_skin_has_no_carrier(self):
+        self.state.owned_skin_ids = {1001}
+        self.state.selected_custom_mod = self.custom_mod()
 
-    def test_friends_skins_are_not(self):
-        with patch.object(InjectionTrigger, "_has_party_skins", return_value=True):
-            self.assertFalse(self.trigger.staging_target("skin_1001"))
+        plan = self.trigger.staging_plan("skin_1001", "Leona")
+
+        self.assertEqual(plan.steps, (
+            ModStep("My mod", self.state.selected_custom_mod["mod_path"], required=True),
+            LoadingNameStep(1001),
+        ))
+
+    def test_a_custom_mod_the_injection_cannot_extract_is_not_staged(self):
+        self.state.selected_custom_mod = self.custom_mod(mod_path=None)
+
+        self.assertIsNone(self.trigger.staging_plan("skin_1001", "Leona"))
+
+    def test_a_saved_map_mod_is_staged_with_the_skin_as_carrier(self):
+        path = self.save_map()
+
+        plan = self.trigger.staging_plan("skin_1001", "Leona")
+
+        self.assertEqual(plan, StagePlan("skin_1001", (
+            CarrierStep("skin_1001", "Leona", 1),
+            ModStep("Rift", str(path)),
+            LoadingNameStep(1001),
+        )))
+        self.assertIsNone(self.state.selected_map_mod)  # staging selects nothing
+
+    def test_a_selected_map_mod_on_the_default_skin_is_staged_alone(self):
+        self.state.last_hovered_skin_id = 1000
+        self.state.selected_map_mod = {"mod_name": "Rift", "mod_path": "C:/mods/maps/Rift", "mod_folder_name": "Rift"}
+
+        plan = self.trigger.staging_plan("skin_1000", "Leona")
+
+        self.assertEqual(plan.steps, (ModStep("Rift", "C:/mods/maps/Rift"), LoadingNameStep(1000)))
+
+    def test_a_saved_mod_whose_file_is_gone_is_left_out(self):
+        self.save_map(exists=False)
+
+        self.assertEqual(self.trigger.staging_plan("skin_1001", "Leona"), skin_plan("skin_1001", "Leona", 1, False))
+
+    def test_friends_skins_come_after_the_skin(self):
+        friend = PartyStep(7, "Friend", 2, 2001, None, None, False)
+        with patch.object(InjectionTrigger, "planned_party_skins", return_value=(friend,)):
+            plan = self.trigger.staging_plan("skin_1001", "Leona")
+
+        self.assertEqual(plan, skin_plan("skin_1001", "Leona", 1, False, (friend,)))
+
+    def test_friends_skins_are_staged_alone_on_the_default_skin(self):
+        self.state.last_hovered_skin_id = 1000
+        friend = PartyStep(7, "Friend", 2, 2001, None, None, False)
+        with patch.object(InjectionTrigger, "planned_party_skins", return_value=(friend,)):
+            plan = self.trigger.staging_plan("skin_1000", "Leona")
+
+        self.assertEqual(plan, StagePlan(PARTY_SKINS_LABEL, (friend,)))
+
+    def test_the_injection_of_saved_mods_selects_what_was_staged(self):
+        path = self.save_map()
+        self.trigger.injection_manager.injector.mods_dir = self.mods_root / "injection" / "mods"
+        self.trigger._inject_custom_mod = MagicMock()
+        plan = self.trigger.staging_plan("skin_1001", "Leona")
+
+        with patch("threads.handlers.injection_trigger.link_or_extract"):
+            self.trigger.trigger_injection("skin_1001", ticker_id=1, cname="Leona")
+
+        self.assertEqual(self.state.selected_map_mod["mod_path"], str(path))
+        _, kwargs = self.trigger._inject_custom_mod.call_args
+        self.assertEqual(kwargs["base_skin_name"], "skin_1001")
+        self.trigger.injection_manager.cancel_staging.assert_called_with(keep=plan.label)
+
+
+class PreparePlanTests(unittest.TestCase):
+    """The stager prepares the plan's mods as the injection prepares them"""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+        self.target = self.root / "stage" / "1"
+        self.target.mkdir(parents=True)
+        self.injector = MagicMock()
+        self.injector.game_dir = self.root / "game"
+        cache = patch.object(stage_plan_module, "get_injection_dir", return_value=self.root / "injection")
+        cache.start()
+        self.addCleanup(cache.stop)
+
+    def mod_folder(self, name, data=b"mod"):
+        folder = self.root / "mods" / name
+        (folder / "WAD").mkdir(parents=True)
+        (folder / "WAD" / "Map11.wad.client").write_bytes(data)
+        return folder
+
+    def skin_archive(self, name="1001"):
+        archive = self.root / "skins" / f"{name}.fantome"
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("META/info.json", '{"Name": "Skin"}')
+            zf.writestr("WAD/Leona.wad.client", b"skin")
+        return archive
+
+    def test_a_skin_is_prepared_like_the_injection_does(self):
+        self.injector.prepare_skin_mods.return_value = ["1001", "ROSE-LoadingName"]
+
+        names = prepare_plan(self.injector, skin_plan("skin_1001", "Leona", 1, True), self.target)
+
+        self.assertEqual(names, ["1001", "ROSE-LoadingName"])
+        self.injector.prepare_skin_mods.assert_called_once_with(
+            "skin_1001", self.target, champion_name="Leona", champion_id=1, classic=True, report=False,
+        )
+
+    def test_a_carrier_a_custom_mod_and_a_map_are_prepared_in_order(self):
+        self.injector._resolve_zip.return_value = self.skin_archive()
+        custom = self.mod_folder("My mod", b"custom")
+        rift = self.mod_folder("Rift", b"rift")
+        plan = StagePlan("skin_1001", (
+            CarrierStep("skin_1001", "Leona", 1),
+            ModStep("My mod", str(custom), required=True),
+            ModStep("Gone", str(self.root / "mods" / "Gone.fantome")),
+            ModStep("Rift", str(rift)),
+            LoadingNameStep(1001),
+        ))
+
+        with patch.object(stage_plan_module, "build_loading_name", return_value="ROSE-LoadingName") as loading_name:
+            names = prepare_plan(self.injector, plan, self.target)
+
+        self.assertEqual(names, ["1001", "My mod", "Rift", "ROSE-LoadingName"])
+        self.assertEqual((self.target / "Rift" / "WAD" / "Map11.wad.client").read_bytes(), b"rift")
+        self.assertEqual(mod_fingerprint(self.target / "Rift"), mod_fingerprint(rift))
+        loading_name.assert_called_once_with(
+            self.injector.game_dir, self.target, self.target / "My mod", 1001,
+            other_mods=[self.target / "1001", self.target / "Rift"],  # a map or font may carry the text table
+        )
+
+    def test_the_loading_name_of_saved_mods_comes_from_the_carrier(self):
+        self.injector._resolve_zip.return_value = self.skin_archive()
+        plan = StagePlan("skin_1001", (CarrierStep("skin_1001", "Leona", 1), LoadingNameStep(1001)))
+
+        with patch.object(stage_plan_module, "build_loading_name", return_value=None) as loading_name:
+            names = prepare_plan(self.injector, plan, self.target)
+
+        self.assertEqual(names, ["1001"])
+        loading_name.assert_called_once_with(self.injector.game_dir, self.target, self.target / "1001", 1001, other_mods=[])
+
+    def test_nothing_is_staged_without_the_custom_mod_or_the_carrier(self):
+        missing_mod = StagePlan("skin_1001", (ModStep("My mod", str(self.root / "gone"), required=True),))
+        self.injector._resolve_zip.return_value = None
+        missing_carrier = StagePlan("skin_1001", (CarrierStep("skin_1001", "Leona", 1), ModStep("Rift", str(self.mod_folder("Rift")))))
+
+        self.assertIsNone(prepare_plan(self.injector, missing_mod, self.target))
+        self.assertIsNone(prepare_plan(self.injector, missing_carrier, self.target))
+
+    def test_friends_skins_are_prepared_in_the_stage_folder(self):
+        friend = PartyStep(7, "Friend", 2, 2001, 2003, None, False)
+
+        with patch("party.integration.injection_hook.prepare_peer_skin", return_value="party_7") as prepare:
+            names = prepare_plan(self.injector, StagePlan(PARTY_SKINS_LABEL, (friend,)), self.target)
+
+        self.assertEqual(names, ["party_7"])
+        skin_data = prepare.call_args.args[0]
+        self.assertEqual((skin_data.summoner_id, skin_data.skin_id, skin_data.chroma_id), (7, 2001, 2003))
+        self.assertEqual(prepare.call_args.kwargs["mods_dir"], self.target)
 
 
 if __name__ == "__main__":

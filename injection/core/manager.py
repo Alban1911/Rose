@@ -21,6 +21,7 @@ from utils.core.logging import get_logger, log_action, log_success
 from utils.core.issue_reporter import report_issue
 
 from .injector import SkinInjector
+from .stage_plan import PARTY_SKINS_LABEL, StagePlan, describe, prepare_plan, skin_plan
 from ..classic import is_classic_game_mode
 from ..game.game_monitor import GameMonitor
 from ..config.threshold_manager import ThresholdManager
@@ -60,11 +61,11 @@ class InjectionManager:
         # Initialize game monitor with callback for auto-resume timeout
         self.game_monitor = GameMonitor(self._get_monitor_auto_resume_timeout)
 
-        # Staging during the countdown (stage_skin): the latest selection
+        # Staging during the countdown (stage_plan): the latest selection
         # wins. A preparer extracts and packs it at once, an installer puts it
         # in LTK Manager once it has rested STAGE_SETTLE_S
         self._stage_cond = threading.Condition()
-        self._stage_wanted = None  # (skin_name, champion_name, champion_id, classic)
+        self._stage_wanted: Optional[StagePlan] = None
         self._stage_wanted_at = 0.0
         # Whether the wanted pick waits STAGE_SETTLE_S before its install: not
         # when it could not rest that long before the injection threshold
@@ -125,7 +126,7 @@ class InjectionManager:
 
         Starting LTK Manager takes seconds, and its patcher must already scan
         when the client creates the game: the countdown stages the selected
-        skin on this session (stage_skin). In the background: starting it must
+        skin on this session (stage_plan). In the background: starting it must
         not hold up the countdown.
         """
         if not self._initialized or self.injector is None:
@@ -188,7 +189,7 @@ class InjectionManager:
             return generation == self._stage_generation and self._stage_wanted == wanted
 
     def begin_staging(self):
-        """A loadout countdown began: let stage_skin prepare LTK Manager for it."""
+        """A loadout countdown began: let stage_plan prepare LTK Manager for it."""
         if not self._initialized or self.injector is None:
             return
         with self._stage_cond:
@@ -206,22 +207,29 @@ class InjectionManager:
 
     def stage_skin(self, skin_name: str, champion_name: str = None, champion_id: int = None,
                    threshold_in_s: Optional[float] = None):
+        """Stage this skin alone (see stage_plan)."""
+        if not skin_name:
+            return
+        classic = is_classic_game_mode(getattr(self.shared_state, "current_game_mode", None))
+        self.stage_plan(skin_plan(skin_name, champion_name, champion_id, classic), threshold_in_s)
+
+    def stage_plan(self, plan: StagePlan, threshold_in_s: Optional[float] = None):
         """Stage in LTK Manager what the injection will install for this selection.
 
         LTK Manager's patcher only overlays a game the client creates after
         its scan started, and the client creates the game about a second
-        after the injection begins. So while the countdown runs, the selected
-        skin is installed and the patcher started (see
+        after the injection begins. So while the countdown runs, the mods of
+        the *plan* (the skin, the custom and saved mods, friends' skins: see
+        injection.core.stage_plan) are installed and the patcher started (see
         OverlayManager.stage_mods); the injection then finds them in place.
         In the background: prepared at once, installed once the selection
         has rested STAGE_SETTLE_S. *threshold_in_s* is the time left before
         the injection threshold: a pick that cannot rest that long is
         installed at once, as the injection would install it anyway.
         """
-        if not self._initialized or self.injector is None or not skin_name:
+        if not self._initialized or self.injector is None or not plan or not plan.steps:
             return
-        classic = is_classic_game_mode(getattr(self.shared_state, "current_game_mode", None))
-        wanted = (skin_name, champion_name or None, champion_id, classic)
+        wanted = plan
         with self._stage_cond:
             if wanted == self._stage_wanted:
                 return
@@ -290,18 +298,15 @@ class InjectionManager:
                     stale = (wanted, generation, prepared)
             self._discard_prepared(stale)
 
-    def _prepare_stage(self, wanted, generation):
-        """Extract the pick (and its loading screen name) into a folder of its
-        own and pack it: (stage_dir, mod_names, archives), or None when there
-        is nothing to stage for it."""
-        skin_name, champion_name, champion_id, classic = wanted
+    def _prepare_stage(self, wanted: StagePlan, generation):
+        """Extract the plan's mods (the skin, its loading screen name, the
+        other mods) into a folder of its own and pack them:
+        (stage_dir, mod_names, archives), or None when there is nothing to
+        stage for it."""
         stage_dir = self._stage_root() / uuid.uuid4().hex
         try:
             stage_dir.mkdir(parents=True, exist_ok=True)
-            mod_names = self.injector.prepare_skin_mods(
-                skin_name, stage_dir, champion_name=champion_name, champion_id=champion_id,
-                classic=classic, report=False,
-            )
+            mod_names = prepare_plan(self.injector, wanted, stage_dir)
             if not mod_names:
                 shutil.rmtree(stage_dir, ignore_errors=True)
                 return None
@@ -310,7 +315,7 @@ class InjectionManager:
                 archives = self.injector.overlay_manager.pack_mods(stage_dir, mod_names)
             return stage_dir, mod_names, archives
         except Exception as e:
-            log.warning(f"[STAGE] Could not prepare {skin_name}: {e}")
+            log.warning(f"[STAGE] Could not prepare {wanted.label}: {e}")
             shutil.rmtree(stage_dir, ignore_errors=True)
             return None
 
@@ -358,7 +363,7 @@ class InjectionManager:
     def _install_prepared(self, wanted, generation, selected_at, prepared) -> Optional[bool]:
         """Stage the prepared pick: True when staged, False when it failed,
         None when it was given up because the player moved on."""
-        skin_name = wanted[0]
+        skin_name = wanted.label
         stage_dir, mod_names, archives = prepared
         moved_on = []
 
@@ -371,7 +376,7 @@ class InjectionManager:
         if not still_wanted():
             return None
         try:
-            log.info(f"[STAGE] Staging {skin_name} in LTK Manager")
+            log.info(f"[STAGE] Staging {skin_name}{describe(wanted)} in LTK Manager")
             staged = self.injector.overlay_manager.stage_mods(
                 stage_dir, mod_names, still_wanted, archives=archives, selected_at=selected_at
             )
@@ -573,7 +578,7 @@ class InjectionManager:
                 injection_manager=self,
             )
 
-        return self._run_injection("party skins", inject)
+        return self._run_injection(PARTY_SKINS_LABEL, inject)
 
     def _run_injection(self, label: str, inject) -> bool:
         """Run one injection under the injection lock

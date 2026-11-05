@@ -19,6 +19,10 @@ from .skin_name_resolver import SkinNameResolver
 
 log = get_logger()
 
+# How often the countdown looks at friends' skins: they reach Rose over the
+# relay while it runs, and a change stages them again
+PARTY_POLL_S = 0.25
+
 
 class LoadoutTicker(threading.Thread):
     """High-frequency loadout countdown ticker"""
@@ -47,6 +51,9 @@ class LoadoutTicker(threading.Thread):
         # Initialize handlers
         self.injection_trigger = InjectionTrigger(lcu, state, injection_manager, skin_scraper)
         self.skin_name_resolver = SkinNameResolver(state, skin_scraper)
+        # Friends' skins as last looked at (_party_key)
+        self._party_skins = ()
+        self._party_polled_at = None
 
     def run(self):
         """Main ticker loop"""
@@ -92,19 +99,53 @@ class LoadoutTicker(threading.Thread):
             bool(getattr(state, 'selected_custom_mod', None)),
         )
 
+    @staticmethod
+    def _mod_key(mod):
+        """What identifies a selected mod (a dict from the Custom Mods UI or
+        the saved ones), or None."""
+        if not isinstance(mod, dict):
+            return None
+        return (mod.get("mod_path"), mod.get("mod_folder_name"), mod.get("skin_id"))
+
+    def _party_key(self) -> tuple:
+        """Friends' skins, looked at every PARTY_POLL_S."""
+        now = time.monotonic()
+        if self._party_polled_at is None or now - self._party_polled_at >= PARTY_POLL_S:
+            self._party_polled_at = now
+            try:
+                self._party_skins = tuple(self.injection_trigger.planned_party_skins())
+            except Exception as e:
+                log.debug(f"[loadout] Could not look at friends' skins: {e}")
+        return self._party_skins
+
+    def _staging_key(self) -> tuple:
+        """What the staged mods depend on: the selection, the custom and other
+        mods selected, friends' skins. Staging runs when it changes."""
+        state = self.state
+        other_mods = getattr(state, 'selected_other_mods', None) or []
+        return (
+            self._selection(),
+            self._mod_key(getattr(state, 'selected_custom_mod', None)),
+            self._mod_key(getattr(state, 'selected_map_mod', None)),
+            self._mod_key(getattr(state, 'selected_font_mod', None)),
+            self._mod_key(getattr(state, 'selected_announcer_mod', None)),
+            tuple(self._mod_key(mod) for mod in other_mods),
+            self._mod_key(getattr(state, 'selected_other_mod', None)),
+            self._party_key(),
+        )
+
     def _stage_selection(self, threshold_in_s: float) -> None:
-        """Stage the selected skin, when the injection would install it alone.
+        """Stage what the injection will install for the selection: the skin,
+        the custom and saved mods, friends' skins (InjectionTrigger.staging_plan).
 
         *threshold_in_s* is the time left before the injection threshold.
         """
         name = self.skin_name_resolver.resolve_injection_name()
-        if name and self.injection_trigger.staging_target(name):
-            self.injection_manager.stage_skin(
-                name,
-                champion_name=self._champion_name(),
-                champion_id=self.state.locked_champ_id or self.state.hovered_champ_id,
-                threshold_in_s=threshold_in_s,
-            )
+        if not name:
+            return
+        plan = self.injection_trigger.staging_plan(name, self._champion_name())
+        if plan:
+            self.injection_manager.stage_plan(plan, threshold_in_s=threshold_in_s)
 
     def _countdown(self):
         # Exit immediately if another ticker has taken control
@@ -113,7 +154,7 @@ class LoadoutTicker(threading.Thread):
 
         # LTK Manager's patcher only overlays a game the client creates after
         # its scan started: bring LTK Manager up now, and stage the selected
-        # skin while the countdown runs (see InjectionManager.stage_skin)
+        # skin while the countdown runs (see InjectionManager.stage_plan)
         if self.injection_manager:
             self.injection_manager.begin_staging()
             self.injection_manager.start_patcher_in_background()
@@ -192,12 +233,13 @@ class LoadoutTicker(threading.Thread):
             # Before it, stage the selection in LTK Manager each time it changes.
             # Compared on every tick (a tuple of the state's fields): a pick
             # reaches the stager within a tick, and only a change stages
+            # (friends' skins are looked at every PARTY_POLL_S)
             if (
                 self.injection_manager
                 and remain_ms > thresh
                 and not self.state.last_hover_written
             ):
-                selection = self._selection()
+                selection = self._staging_key()
                 if selection != staged_selection:
                     staged_selection = selection
                     try:

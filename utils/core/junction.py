@@ -9,13 +9,26 @@ Falls back to shutil.copytree when junctions are unavailable.
 import os
 import shutil
 import stat
+import threading
 from pathlib import Path
-from typing import Union
+from typing import Dict, Union
 
 from utils.core.logging import get_logger
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES, extract_mod_archive
 
 log = get_logger()
+
+# One extraction at a time per cached folder: the loadout countdown stages a
+# mod while the injection may already link the same one, and a second
+# extraction would remove the folder the first one is still writing
+_cache_locks: Dict[str, threading.Lock] = {}
+_cache_locks_guard = threading.Lock()
+
+
+def _cache_lock(cached: Path) -> threading.Lock:
+    key = os.path.normcase(os.path.abspath(cached))
+    with _cache_locks_guard:
+        return _cache_locks.setdefault(key, threading.Lock())
 
 
 # ---------------------------------------------------------------------------
@@ -127,30 +140,32 @@ def _get_or_extract_to_cache(
     except OSError:
         source_mtime = ""
 
-    needs_extract = True
-    if cached.is_dir() and stamp.exists():
-        try:
-            stored_mtime = stamp.read_text().strip()
-            if stored_mtime == source_mtime:
-                needs_extract = False
-                log.debug(f"[JUNCTION] Cache hit for {folder_name}")
-        except OSError:
-            pass
+    # A caller arriving while another extracts waits, then finds the cache
+    with _cache_lock(cached):
+        needs_extract = True
+        if cached.is_dir() and stamp.exists():
+            try:
+                stored_mtime = stamp.read_text().strip()
+                if stored_mtime == source_mtime:
+                    needs_extract = False
+                    log.debug(f"[JUNCTION] Cache hit for {folder_name}")
+            except OSError:
+                pass
 
-    if needs_extract:
-        # Remove stale cache
-        if cached.exists() or is_junction(cached):
-            safe_remove_entry(cached)
-        cached.mkdir(parents=True, exist_ok=True)
+        if needs_extract:
+            # Remove stale cache
+            if cached.exists() or is_junction(cached):
+                safe_remove_entry(cached)
+            cached.mkdir(parents=True, exist_ok=True)
 
-        log.info(f"[JUNCTION] Extracting {zip_path.name} to cache: {cached}")
-        extract_mod_archive(zip_path, cached)
+            log.info(f"[JUNCTION] Extracting {zip_path.name} to cache: {cached}")
+            extract_mod_archive(zip_path, cached)
 
-        # Write mtime stamp
-        try:
-            stamp.write_text(source_mtime)
-        except OSError:
-            pass
+            # Write mtime stamp
+            try:
+                stamp.write_text(source_mtime)
+            except OSError:
+                pass
 
     return cached
 

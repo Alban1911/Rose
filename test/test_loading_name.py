@@ -106,6 +106,60 @@ class LoadingNameTests(unittest.TestCase):
         meta = json.loads((mods / name / 'META' / 'info.json').read_text(encoding='utf-8'))
         self.assertEqual(meta['Description'], 'Shockblade Zed')
 
+    def _zed_game(self):
+        game = self.root / 'game'
+        wad_dir = game / 'DATA' / 'FINAL' / 'Localized'
+        wad_dir.mkdir(parents=True)
+        (wad_dir / 'Global.en_US.wad.client').write_bytes(make_wad(make_table({
+            'game_character_displayname_Zed': 'Zed',
+            'game_character_skin_displayname_Zed_1': 'Shockblade Zed',
+        })))
+        mod = self.root / 'mod'
+        (mod / 'WAD').mkdir(parents=True)
+        (mod / 'WAD' / 'Zed.wad.client').touch()
+        mods = self.root / 'mods'
+        mods.mkdir()
+        return game, mods, mod
+
+    def _other_mod(self, name):
+        other = self.root / 'mods' / name
+        (other / 'WAD').mkdir(parents=True)
+        return other
+
+    def test_nothing_is_built_next_to_a_mod_that_carries_the_language_table(self):
+        # LTK Manager keeps one mod's table: with that one, the champion's name would print as its key (#420)
+        game, mods, mod = self._zed_game()
+        font = self._other_mod('Font')
+        (font / 'WAD' / 'Global.en_US.wad.client').write_bytes(make_wad(b'RSTtable'))
+
+        self.assertIsNone(loading_name.build(game, mods, mod, 238001, other_mods=[font]))
+        self.assertFalse((mods / loading_name.MOD_FOLDER).exists())
+
+    def test_a_language_table_in_a_wad_folder_or_raw_counts_too(self):
+        loose = self._other_mod('Loose')
+        table = loose / 'WAD' / 'Global.ko_KR.wad.client' / 'data' / 'menu' / 'ko_kr'
+        table.mkdir(parents=True)
+        (table / 'lol.stringtable').write_bytes(b'RST')
+        hashed = self._other_mod('Hashed')
+        (hashed / 'WAD' / 'Global.en_US.wad.client').mkdir()
+        (hashed / 'WAD' / 'Global.en_US.wad.client' / f'{loading_name.TABLE_HASH:016x}.stringtable').write_bytes(b'RST')
+        raw = self.root / 'mods' / 'Raw' / 'RAW' / 'DATA' / 'Menu' / 'en_US'
+        raw.mkdir(parents=True)
+        (raw / 'lol.stringtable').write_bytes(b'RST')
+
+        for mod in (loose, hashed, self.root / 'mods' / 'Raw'):
+            self.assertTrue(loading_name.ships_language_table(mod), mod.name)
+
+    def test_other_mods_without_the_table_change_nothing(self):
+        game, mods, mod = self._zed_game()
+        font = self._other_mod('Font')
+        (font / 'WAD' / 'Global.en_US.wad.client').write_bytes(make_wad(b'font', path_hash=0x1234))
+        announcer = self._other_mod('Announcer')
+        (announcer / 'WAD' / 'Map11.en_US.wad.client').write_bytes(b'not read')
+
+        self.assertEqual(
+            loading_name.build(game, mods, mod, 238001, other_mods=[font, announcer]), loading_name.MOD_FOLDER)
+
     def _game_with_languages(self, names, locale=None):
         """A game folder with these language wads, each naming the skin in its own language."""
         game = self.root / 'League of Legends' / 'Game'
