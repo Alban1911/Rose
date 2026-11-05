@@ -6,6 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from injection.tools import bridge
+
+REAL_TOKEN_CANDIDATES = bridge.token_candidates  # before TokenTestCase patches it
 from injection.tools.bridge import (
     BridgeCommandError,
     BridgeUnavailable,
@@ -79,6 +81,10 @@ class TokenTestCase(unittest.TestCase):
         token_patch = patch.object(bridge, "read_token", side_effect=lambda: self.token)
         token_patch.start()
         self.addCleanup(token_patch.stop)
+        # Never this PC's own published tokens
+        candidates_patch = patch.object(bridge, "token_candidates", return_value=[])
+        candidates_patch.start()
+        self.addCleanup(candidates_patch.stop)
 
 
 class BridgeRequestTests(TokenTestCase):
@@ -130,6 +136,52 @@ class BridgeRequestTests(TokenTestCase):
 
         self.assertTrue(answer["ok"])
         self.assertEqual([r["token"] for r in server.requests], ["old", "new"])
+
+    def test_every_published_token_is_tried_when_the_first_is_stale(self):
+        """#443: a stale token.txt was read first while the running bridge had
+        published its token elsewhere: every command was refused"""
+        server = FakeBridgeServer(
+            lambda request: {"ok": True} if request.get("token") == "live"
+            else {"ok": False, "error": "unauthorized: missing or wrong token"}
+        )
+        self.addCleanup(server.close)
+
+        with patch.object(bridge, "read_token", return_value="stale"), \
+                patch.object(bridge, "token_candidates",
+                             return_value=[("a\\token.txt", "stale"), ("HKCU\\Software\\LTKBridge", "live")]):
+            client = LtkBridge(server.port)
+            first = client.request({"cmd": "status"})
+            second = client.request({"cmd": "status"})
+
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+        self.assertEqual([r["token"] for r in server.requests], ["stale", "live", "live"])
+
+    def test_no_working_token_returns_the_refusal(self):
+        server = FakeBridgeServer(lambda request: {"ok": False, "error": "unauthorized: missing or wrong token"})
+        self.addCleanup(server.close)
+
+        with patch.object(bridge, "read_token", return_value="a"), \
+                patch.object(bridge, "token_candidates", return_value=[("x", "a"), ("y", "b")]):
+            answer = LtkBridge(server.port).request({"cmd": "status"})
+
+        self.assertFalse(answer["ok"])
+        self.assertEqual([r["token"] for r in server.requests], ["a", "b"])
+
+    def test_published_tokens_are_listed_once_each(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            (Path(first) / "token.txt").write_text("stale\n", encoding="ascii")
+            (Path(second) / "token.txt").write_text("live\n", encoding="ascii")
+            dirs = [Path(first), Path(second), Path(first) / "missing"]
+            with patch.object(bridge, "_bridge_dirs", return_value=dirs):
+                found = REAL_TOKEN_CANDIDATES()  # the class patches the module's copy
+
+        tokens = [token for _, token in found]
+        self.assertEqual(tokens[:2], ["stale", "live"])  # files first, in their order
+        self.assertEqual(len(tokens), len(set(tokens)))
 
     def test_a_command_without_an_answer_is_not_sent_again(self):
         # An import whose answer is lost may still have run: sending it

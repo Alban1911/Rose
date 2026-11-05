@@ -176,13 +176,21 @@ def _port_from_file(path) -> Optional[int]:
         return None
 
 
-def read_token() -> Optional[str]:
-    """The API token the running bridge published, if Rose can read it."""
+def token_candidates() -> List[Tuple[str, str]]:
+    """(where, token) of every published token Rose can read, without
+    duplicates: the token files, then the registry. A stale copy can sit in
+    one place while the running bridge wrote another (#443)."""
+    found: List[Tuple[str, str]] = []
+
+    def add(where: str, token: Optional[str]) -> None:
+        token = (token or "").strip()
+        if token and all(token != known for _, known in found):
+            found.append((where, token))
+
     for directory in _bridge_dirs():
         try:
-            token = (directory / "token.txt").read_text(encoding="ascii", errors="ignore").strip()
-            if token:
-                return token
+            add(str(directory / "token.txt"),
+                (directory / "token.txt").read_text(encoding="ascii", errors="ignore"))
         except OSError:
             continue
     try:
@@ -190,11 +198,23 @@ def read_token() -> Optional[str]:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH)
         try:
             value, _ = winreg.QueryValueEx(key, REG_TOKEN)
-            return str(value).strip() or None
+            add(f"HKCU\\{REG_PATH}", str(value))
         finally:
             winreg.CloseKey(key)
     except Exception:
-        return None
+        pass
+    return found
+
+
+def read_token() -> Optional[str]:
+    """The API token the running bridge published, if Rose can read it."""
+    found = token_candidates()
+    return found[0][1] if found else None
+
+
+def _unauthorized(response: Dict[str, Any]) -> bool:
+    """Whether the bridge refused a command over its token."""
+    return response.get("ok") is False and str(response.get("error") or "").startswith("unauthorized")
 
 
 def find_bridge(expected_pid: Optional[int] = None) -> Optional[Tuple[int, dict]]:
@@ -340,12 +360,26 @@ class LtkBridge:
         if self._token is None:
             self._token = read_token()
         response = self._send({**payload, "token": self._token or ""}, timeout)
-        if response.get("ok") is False and str(response.get("error") or "").startswith("unauthorized"):
-            # Refused before it ran: the bridge restarted with a new token
-            fresh = read_token()
-            if fresh and fresh != self._token:
-                self._token = fresh
-                response = self._send({**payload, "token": fresh}, timeout)
+        if not _unauthorized(response):
+            return response
+        # Refused before it ran: the bridge restarted with a new token, or the
+        # copy Rose read first is a stale one while the bridge wrote another
+        tried = {self._token}
+        candidates = [("the token files", read_token())] + token_candidates()
+        for where, candidate in candidates:
+            if not candidate or candidate in tried:
+                continue
+            tried.add(candidate)
+            retry = self._send({**payload, "token": candidate}, timeout)
+            if not _unauthorized(retry):
+                log.info(f"[BRIDGE] The bridge accepted the token published in {where}")
+                self._token = candidate
+                return retry
+            response = retry
+        log.warning(
+            f"[BRIDGE] The bridge refused every published token ({len(tried - {None})} tried, "
+            f"{len(candidates) - 1} published copies found)"
+        )
         return response
 
     def _ok(self, payload: Dict[str, Any], timeout: float = DEFAULT_TIMEOUT_S) -> Dict[str, Any]:
