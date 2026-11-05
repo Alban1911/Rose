@@ -27,7 +27,7 @@ import json
 import re
 import struct
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from utils.core.logging import get_logger
 
@@ -414,26 +414,55 @@ def parent_skin_id(archive: Path, skin_id: int) -> int:
     return skin_id
 
 
+def _uses_string_overrides(game_dir: Path) -> Optional[bool]:
+    """How LTK Manager lets this game's text change: True through string overrides, False through the mod's own
+    table, None when neither reaches the game.
+
+    The table sits at data/menu/en_us/lol.stringtable in every language's wad, and LTK Manager rejects a mod's
+    data/menu/<language>/lol.stringtable for every language installed (only string overrides may change those).
+    It applies string overrides to data/menu/<client language>/lol.stringtable. So an en_US client takes them, a
+    client in another language takes the mod's table, unless an en_US wad is installed too: then the table is
+    rejected and the overrides find no table of their language. Without the client's language, LTK Manager takes
+    en_us, and so does this.
+    """
+    locale = (_client_locale(Path(game_dir)) or "en_us").lower()
+    has_en_us = any(wad.name.lower() == "global.en_us.wad.client" for wad in _language_wads(Path(game_dir)))
+    if not has_en_us:
+        return False
+    return True if locale == "en_us" else None
+
+
 def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
           other_mods: Sequence[Path] = ()) -> Optional[str]:
     """Writes the mod and returns its folder name, or None when there is nothing to show.
 
     skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id. *other_mods* are
-    the folders of the other mods installed with it: when one carries its own language table, nothing is built (see
-    ships_language_table).
+    the folders of the other mods installed with it: when one carries its own language table, the mod's own table
+    would compete with it, and nothing is built (see ships_language_table).
+
+    The texts reach the game as string overrides in META/info.json on an en_US client, as the mod's own table
+    otherwise (see _uses_string_overrides). The champion's record is only pointed at a key of the mod's own when
+    that key will have a text: else the name over the head would print the key (#420).
     """
     try:
         if not skin_id or skin_id % 1000 == 0:
             return None
-        for other in other_mods:
-            if ships_language_table(other):
-                log.info(f"[LOADNAME] {Path(other).name} carries its own text table: the loading screen keeps the "
-                         "champion's name")
-                return None
         aliases = champion_aliases(mod_folder)
         if not aliases:
             log.debug("[LOADNAME] the skin carries no champion wad, skipped")
             return None
+
+        overrides = _uses_string_overrides(Path(game_dir))
+        if overrides is None:
+            log.info("[LOADNAME] this install has an English text table next to the client's language: "
+                     "the loading screen keeps the champion's name")
+            return None
+        if not overrides:
+            for other in other_mods:
+                if ships_language_table(other):
+                    log.info(f"[LOADNAME] {Path(other).name} carries its own text table: the loading screen keeps "
+                             "the champion's name")
+                    return None
 
         wad = _language_wad(Path(game_dir))
         if not wad:
@@ -451,29 +480,39 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
                 if champion_name is None:
                     continue
                 target = Path(mods_dir) / MOD_FOLDER
-                (target / TABLE_PATH.parent).mkdir(parents=True, exist_ok=True)
                 (target / "META").mkdir(parents=True, exist_ok=True)
-                (target / "META" / "info.json").write_text(json.dumps({
-                    "Author": "Rose",
-                    "Description": name,
-                    "Name": "Loading screen name",
-                    "Version": "1.0.0",
-                }), encoding="utf-8")
-                table = _with_text(table, champion_key, name)
+                texts = {f"{RECORD_KEY}{alias}": name}
 
                 # the chat and the name over the head keep the champion's name (see the module's note)
                 record = _champion_record(game_dir, mod_folder, alias)
                 own_record = _with_own_record_key(record, alias) if record else None
                 if own_record:
-                    table = _with_text(table, _key_hash(f"{RECORD_KEY_OWN}{alias}"), champion_name)
+                    texts[f"{RECORD_KEY_OWN}{alias}"] = champion_name
                     record_file = target / "RAW" / _record_path(alias)
                     record_file.parent.mkdir(parents=True, exist_ok=True)
                     record_file.write_bytes(own_record)
                 else:
                     log.debug(f"[LOADNAME] {alias}'s record not found, the chat shows the skin's name too")
 
-                (target / TABLE_PATH).write_bytes(table)
-                log.info(f"[LOADNAME] the loading screen will show '{name}'")
+                info = {
+                    "Author": "Rose",
+                    "Description": name,
+                    "Name": "Loading screen name",
+                    "Version": "1.0.0",
+                }
+                if overrides:
+                    # LTK Manager applies them to the en_US table, the one an en_US client reads
+                    info["Layers"] = {
+                        "base": {"Name": "base", "Priority": 0, "StringOverrides": {"en_us": texts}},
+                    }
+                else:
+                    for key, text in texts.items():
+                        table = _with_text(table, _key_hash(key), text)
+                    (target / TABLE_PATH.parent).mkdir(parents=True, exist_ok=True)
+                    (target / TABLE_PATH).write_bytes(table)
+                (target / "META" / "info.json").write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
+                log.info(f"[LOADNAME] the loading screen will show '{name}'"
+                         + (" (string overrides)" if overrides else ""))
                 return MOD_FOLDER
         log.debug(f"[LOADNAME] the game has no name for skin {skin_id}, skipped")
         return None

@@ -82,6 +82,7 @@ class LoadingNameTests(unittest.TestCase):
                          'Lâmina do Trovão')
 
     def test_the_mod_is_one_loose_file_plus_its_meta(self):
+        # A French game: its table goes in the mod (an en_US one takes string overrides)
         game = self.root / 'game'
         wad_dir = game / 'DATA' / 'FINAL' / 'Localized'
         wad_dir.mkdir(parents=True)
@@ -89,7 +90,7 @@ class LoadingNameTests(unittest.TestCase):
             'game_character_displayname_Zed': 'Zed',
             'game_character_skin_displayname_Zed_1': 'Shockblade Zed',
         })
-        (wad_dir / 'Global.en_US.wad.client').write_bytes(make_wad(table))
+        (wad_dir / 'Global.fr_FR.wad.client').write_bytes(make_wad(table))
 
         mod = self.root / 'mod'
         (mod / 'WAD').mkdir(parents=True)
@@ -106,11 +107,11 @@ class LoadingNameTests(unittest.TestCase):
         meta = json.loads((mods / name / 'META' / 'info.json').read_text(encoding='utf-8'))
         self.assertEqual(meta['Description'], 'Shockblade Zed')
 
-    def _zed_game(self):
+    def _zed_game(self, language='fr_FR'):
         game = self.root / 'game'
         wad_dir = game / 'DATA' / 'FINAL' / 'Localized'
         wad_dir.mkdir(parents=True)
-        (wad_dir / 'Global.en_US.wad.client').write_bytes(make_wad(make_table({
+        (wad_dir / f'Global.{language}.wad.client').write_bytes(make_wad(make_table({
             'game_character_displayname_Zed': 'Zed',
             'game_character_skin_displayname_Zed_1': 'Shockblade Zed',
         })))
@@ -190,9 +191,9 @@ class LoadingNameTests(unittest.TestCase):
         return game, mods, mod
 
     def test_the_table_comes_from_the_clients_language(self):
-        """#353: en_US sorts first, and its table turned a Chinese match English"""
+        """#353: the first wad by name turned a Chinese match into another language"""
         game, mods, mod = self._game_with_languages(
-            {'en_US': 'Shockblade Zed', 'zh_TW': '電刃 劫'}, locale='zh_TW')
+            {'ko_KR': '전격 칼날 제드', 'zh_TW': '電刃 劫'}, locale='zh_TW')
         name = loading_name.build(game, mods, mod, 238001)
         table = (mods / name / loading_name.TABLE_PATH).read_bytes()
         self.assertEqual(loading_name._text_of(table, loading_name._key_hash('game_character_displayname_Zed')),
@@ -228,10 +229,68 @@ class LoadingNameTests(unittest.TestCase):
         self.assertIn(struct.pack('<H', len(key)) + b'rose_character_displayname_Zed', patched)
         self.assertIsNone(loading_name._with_own_record_key(b'nothing here', 'Zed'))
 
+    def _game_with_zed_record(self, language):
+        game = self.root / 'game'
+        (game / 'DATA' / 'FINAL' / 'Localized').mkdir(parents=True)
+        (game / 'DATA' / 'FINAL' / 'Localized' / f'Global.{language}.wad.client').write_bytes(make_wad(make_table({
+            'game_character_displayname_Zed': 'Zed',
+            'game_character_skin_displayname_Zed_1': 'Shockblade Zed',
+        })))
+        key = b'game_character_displayname_Zed'
+        record = struct.pack('<H', len(key)) + key
+        (game / 'DATA' / 'FINAL' / 'Champions').mkdir(parents=True)
+        (game / 'DATA' / 'FINAL' / 'Champions' / 'Zed.wad.client').write_bytes(
+            make_wad(record, loading_name._xxh64(b'data/characters/zed/zed.bin')))
+        mod = self.root / 'mod'
+        (mod / 'WAD').mkdir(parents=True)
+        (mod / 'WAD' / 'Zed.wad.client').touch()
+        mods = self.root / 'mods'
+        mods.mkdir()
+        return game, mods, mod
+
+    def test_an_en_us_game_gets_string_overrides_not_a_table(self):
+        # LTK Manager rejects a mod's en_US lol.stringtable on an install that has one (#420)
+        game, mods, mod = self._game_with_zed_record('en_US')
+
+        name = loading_name.build(game, mods, mod, 238001)
+
+        self.assertEqual(name, loading_name.MOD_FOLDER)
+        self.assertFalse((mods / name / loading_name.TABLE_PATH).exists())
+        meta = json.loads((mods / name / 'META' / 'info.json').read_text(encoding='utf-8'))
+        self.assertEqual(meta['Layers']['base']['StringOverrides'], {'en_us': {
+            'game_character_displayname_Zed': 'Shockblade Zed',
+            'rose_character_displayname_Zed': 'Zed',
+        }})
+        written = (mods / name / 'RAW' / 'data' / 'characters' / 'zed' / 'zed.bin').read_bytes()
+        self.assertIn(b'rose_character_displayname_Zed', written)
+
+    def test_an_english_table_next_to_the_clients_language_builds_nothing(self):
+        # The mod's table is rejected and the overrides find no table of the client's language:
+        # pointed at a key of its own, the name over the head would print that key
+        game, mods, mod = self._game_with_languages(
+            {'en_US': 'Shockblade Zed', 'zh_TW': '電刃 劫'}, locale='zh_TW')
+
+        self.assertIsNone(loading_name.build(game, mods, mod, 238001))
+        self.assertFalse((mods / loading_name.MOD_FOLDER).exists())
+
+    def test_without_the_clients_language_an_en_us_game_takes_overrides(self):
+        # LTK Manager targets en_us when it cannot read the client's language either
+        game, mods, mod = self._game_with_zed_record('en_US')
+        self.assertTrue(loading_name._uses_string_overrides(game))
+        self.assertIsNone(loading_name._client_locale(game))
+
+    def test_another_mods_table_does_not_stop_string_overrides(self):
+        game, mods, mod = self._game_with_zed_record('en_US')
+        font = self.root / 'mods' / 'Font'
+        (font / 'WAD').mkdir(parents=True)
+        (font / 'WAD' / 'Global.en_US.wad.client').write_bytes(make_wad(b'RSTtable'))
+
+        self.assertEqual(loading_name.build(game, mods, mod, 238001, other_mods=[font]), loading_name.MOD_FOLDER)
+
     def test_the_chat_keeps_the_champions_name(self):
         game = self.root / 'game'
         (game / 'DATA' / 'FINAL' / 'Localized').mkdir(parents=True)
-        (game / 'DATA' / 'FINAL' / 'Localized' / 'Global.en_US.wad.client').write_bytes(make_wad(make_table({
+        (game / 'DATA' / 'FINAL' / 'Localized' / 'Global.fr_FR.wad.client').write_bytes(make_wad(make_table({
             'game_character_displayname_Zed': 'Zed',
             'game_character_skin_displayname_Zed_1': 'Shockblade Zed',
         })))
