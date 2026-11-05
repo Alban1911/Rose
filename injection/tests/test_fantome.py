@@ -49,6 +49,22 @@ class FantomeZipTests(unittest.TestCase):
         self.assertEqual(metadata["version"], "1.2.3")
         self.assertEqual(metadata["description"], "a test mod")
 
+    def test_packed_wads_are_stored_and_the_rest_deflated(self):
+        # LTK Manager's own rule: its chunks are compressed already, and a stored WAD reads in place (#425)
+        (self.folder / "WAD" / "Leona.wad.client").write_bytes(b"wad" * 100)
+        (self.folder / "WAD_chroma").mkdir()
+        (self.folder / "WAD_chroma" / "Leona.wad").write_bytes(b"wad" * 100)
+        (self.folder / "WAD" / "Map11.wad.client" / "data").mkdir(parents=True)
+        (self.folder / "WAD" / "Map11.wad.client" / "data" / "loose.bin").write_bytes(b"bin" * 100)
+        archive = write_fantome_zip(self.folder, self.root / "out.fantome")
+
+        with zipfile.ZipFile(archive) as zf:
+            methods = {info.filename: info.compress_type for info in zf.infolist()}
+        self.assertEqual(methods["WAD/Leona.wad.client"], zipfile.ZIP_STORED)
+        self.assertEqual(methods["WAD_chroma/Leona.wad"], zipfile.ZIP_STORED)
+        self.assertEqual(methods["WAD/Map11.wad.client/data/loose.bin"], zipfile.ZIP_DEFLATED)
+        self.assertEqual(methods["META/info.json"], zipfile.ZIP_DEFLATED)
+
     def test_an_existing_metadata_json_is_kept(self):
         (self.folder / "metadata.json").write_text(
             json.dumps({"name": "Kept Name", "author": "Someone"}), encoding="utf-8"

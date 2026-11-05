@@ -17,6 +17,7 @@ Manager prefers.
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -34,6 +35,17 @@ _COMPRESSION = zipfile.ZIP_DEFLATED
 # level (0.20s at 1, for 4.1 MB instead of 3.3 MB): packing is on the way
 # from a skin pick to the patcher's scan
 _COMPRESS_LEVEL = 1
+# A packed WAD (a .wad.client directly under WAD/ or WAD_<layer>/) is stored,
+# not deflated: LTK Manager's own fantome writer does the same, since a reader
+# seeks into a stored entry and has to inflate a deflated one whole. Its chunks
+# are already compressed, so deflating saved 4% for 12x the time (a 3 GB
+# voiceover pack took minutes to pack, every game: #425)
+_PACKED_WAD = re.compile(r"^(?:WAD|WAD_[A-Za-z0-9_-]+)/[^/]+\.wad(?:\.client|\.mobile)?$", re.IGNORECASE)
+
+
+def _compression_for(relative: str) -> int:
+    """How an entry is compressed: stored for a packed WAD, deflated otherwise."""
+    return zipfile.ZIP_STORED if _PACKED_WAD.match(relative) else _COMPRESSION
 
 
 def read_info(mod_folder: Path) -> dict:
@@ -86,7 +98,7 @@ def write_fantome_zip(mod_folder: Path, dest: Path) -> Path:
             relative = path.relative_to(mod_folder).as_posix()
             if relative == _METADATA_PATH.as_posix():
                 continue  # replaced by the normalized copy below
-            archive.write(path, relative)
+            archive.write(path, relative, compress_type=_compression_for(relative))
         archive.writestr(
             _METADATA_PATH.as_posix(),
             json.dumps(fantome_metadata(mod_folder), ensure_ascii=False, indent=2),
