@@ -135,6 +135,12 @@ def ltk_failure_cause(reason: str) -> str:
     # Before "import" and "bridge": a failed install or command names them too
     if CDP_FAILURE_MARKER in lowered or "built-in browser" in lowered:
         return "cdp"
+    # LTK Manager refuses to patch across an elevation boundary (ADR-0074):
+    # League set to run as administrator, or LTK Manager itself elevated
+    if "league_elevated" in lowered or "league is set to run as administrator" in lowered:
+        return "league_admin"
+    if "manager_elevated" in lowered or "ltk manager is running as administrator" in lowered:
+        return "manager_admin"
     if "import" in lowered:
         return "import"
     if "already open" in lowered:
@@ -1676,6 +1682,15 @@ class OverlayManager:
             return ("Rose drives LTK Manager through the debugging port of its built-in browser, which did not "
                     "answer. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not "
                     f"the built-in Administrator) and check that your antivirus does not block LTK Manager. {logs}")
+        if cause == "league_admin":
+            return ("League is set to run as administrator, and LTK Manager does not patch it then. Right-click "
+                    "League of Legends.exe and LeagueClient.exe (in the League of Legends folder) > Properties > "
+                    'Compatibility, untick "Run this program as an administrator" (also under "Change settings '
+                    f'for all users"), then restart League. {logs}')
+        if cause == "manager_admin":
+            return ("LTK Manager runs as administrator, and it does not patch League then. Turn User Account "
+                    "Control back on, or use a regular Windows account (not the built-in Administrator), then "
+                    f"restart the PC. {logs}")
         if cause == "start":
             return ("Rose could not start the LTK patcher. Check that ltk_launcher.exe and LeagueToolFlop.dll "
                     f"are still in Rose's tools folder: an antivirus may have removed them. {logs}")

@@ -240,12 +240,53 @@ def discover_port(expected_pid: Optional[int] = None) -> Optional[int]:
     return found[0] if found else None
 
 
+# LTK Manager's IPC errors carry no sentence (its frontend writes them): a
+# patcher refusal is {code: "PATCHER", error: {kind: ...}}. LTK's own wording
+# for each kind (ltk-manager-runtime patcher/error.rs)
+LTK_PATCHER_MESSAGES = {
+    "BUSY": "Stop the patcher before modifying mods",
+    "ALREADY_RUNNING": "The patcher is already running",
+    "NOT_RUNNING": "The patcher is not running",
+    "UNSUPPORTED_PLATFORM": "The patcher is not yet available on this platform",
+    "LEAGUE_ELEVATED": "League is set to run as administrator. Turn that off, then start the patcher again",
+    "MANAGER_ELEVATED": (
+        "LTK Manager is running as administrator. Reopen it normally, or turn on User Account Control "
+        "if it is off, to start the patcher"
+    ),
+    "DLL_UNAVAILABLE": "no patcher DLL is available",
+}
+
+
+def _ltk_error_text(error: Dict[str, Any]) -> str:
+    """An LTK Manager error ({code, ...its fields}) as one line: its code, then
+    what it says (a bare "PATCHER" told nobody why the patcher refused, #430)."""
+    code = str(error["code"])
+    inner = error.get("error")
+    if isinstance(inner, dict) and inner.get("kind"):
+        kind = str(inner["kind"])
+        text = LTK_PATCHER_MESSAGES.get(kind) or str(inner.get("message") or "")
+        reason = inner.get("reason")  # DLL_UNAVAILABLE: why the DLL could not be delivered
+        if reason:
+            text = f"{text}: {reason if isinstance(reason, str) else json.dumps(reason)}"
+        if inner.get("stage"):  # INJECTION_FAILED: the host never came up, or the game was not patched
+            kind = f"{kind} ({inner['stage']})"
+        return f"{code} {kind}: {text}" if text else f"{code} {kind}"
+    detail = error.get("message") or error.get("detail")
+    if detail:
+        return f"{code}: {detail}"
+    rest = {key: value for key, value in error.items() if key != "code"}
+    return f"{code} {json.dumps(rest)[:200]}" if rest else code
+
+
 def _error_text(response: Dict[str, Any]) -> str:
     """The reason a command failed, from wherever the DLL or LTK put it."""
     nested = response.get("response")
     for candidate in (response.get("error"), nested.get("error") if isinstance(nested, dict) else None):
         if isinstance(candidate, dict):
-            candidate = candidate.get("message") or candidate.get("code") or json.dumps(candidate)
+            if candidate.get("code"):
+                candidate = _ltk_error_text(candidate)
+            else:
+                candidate = candidate.get("message") or json.dumps(candidate)
         if candidate:
             return str(candidate)
     return json.dumps(response)[:300]

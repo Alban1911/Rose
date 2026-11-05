@@ -875,6 +875,25 @@ class FailureCauseTests(unittest.TestCase):
         self.assertEqual(ltk_failure_cause("could not start the LTF launcher (exit code 3)"), "start")
         self.assertEqual(ltk_failure_cause("could not start the LTK patcher (denied)"), "start")
 
+    def test_patcher_refusals_over_administrator_rights(self):
+        """#430: LTK refuses to patch League set to run as administrator, or
+        from an elevated LTK Manager; neither is a missing launcher file"""
+        league = ("could not start the LTK patcher (start_patcher failed: PATCHER LEAGUE_ELEVATED: League is set "
+                  "to run as administrator. Turn that off, then start the patcher again)")
+        manager = ("could not start the LTK patcher (start_patcher failed: PATCHER MANAGER_ELEVATED: LTK Manager is "
+                   "running as administrator. Reopen it normally, or turn on User Account Control if it is off, to "
+                   "start the patcher)")
+        self.assertEqual(ltk_failure_cause(league), "league_admin")
+        self.assertEqual(ltk_failure_cause(manager), "manager_admin")
+        # LTK's own log line for it, without the kind
+        self.assertEqual(ltk_failure_cause("Start patcher failed: League is set to run as administrator"), "league_admin")
+        self.assertIn("Run this program as an administrator", OverlayManager._ltk_failure_hint(league))
+        self.assertIn("User Account Control", OverlayManager._ltk_failure_hint(manager))
+        # The CDP reason names administrator rights too, but stays a CDP failure
+        self.assertEqual(ltk_failure_cause(
+            overlay_manager.CDP_UNREACHABLE_REASON + "; Windows runs every program as administrator on this account"
+        ), "cdp")
+
     def test_bridge_and_import_failures(self):
         self.assertEqual(ltk_failure_cause("the LTF bridge went away during the game"), "bridge")
         self.assertEqual(ltk_failure_cause("the LTF bridge is unreachable (timeout)"), "bridge")

@@ -282,6 +282,36 @@ class CommandShapeTests(TokenTestCase):
 
         self.assertIn("patcher busy", str(caught.exception))
 
+    def test_a_patcher_refusal_names_its_kind_and_ltk_wording(self):
+        """LTK's patcher errors carry a kind, not a message: "PATCHER" alone
+        told nobody that League was set to run as administrator (#430)"""
+        refusals = {
+            "LEAGUE_ELEVATED": ({"kind": "LEAGUE_ELEVATED"}, "League is set to run as administrator"),
+            "MANAGER_ELEVATED": ({"kind": "MANAGER_ELEVATED"}, "LTK Manager is running as administrator"),
+            "DLL_UNAVAILABLE": ({"kind": "DLL_UNAVAILABLE", "reason": "NETWORK"}, "no patcher DLL is available: NETWORK"),
+            "INJECTION_FAILED (HOST)": (
+                {"kind": "INJECTION_FAILED", "stage": "HOST", "message": "host stdout closed"}, "host stdout closed"
+            ),
+        }
+        for kind, (error, wording) in refusals.items():
+            with self.subTest(kind=kind):
+                server = FakeBridgeServer(lambda request, error=error: {
+                    "ok": False, "response": {"ok": False, "error": {"code": "PATCHER", "error": error}},
+                })
+                self.addCleanup(server.close)
+
+                with self.assertRaises(BridgeCommandError) as caught:
+                    LtkBridge(server.port).start_patcher()
+
+                self.assertIn(f"PATCHER {kind}: ", str(caught.exception))
+                self.assertIn(wording, str(caught.exception))
+
+    def test_other_ltk_errors_keep_their_fields(self):
+        self.assertEqual(bridge._error_text({"ok": False, "error": {"code": "IO", "detail": "disk full"}}), "IO: disk full")
+        self.assertEqual(bridge._error_text({"ok": False, "error": {"code": "MOD_NOT_FOUND", "id": "x"}}),
+                         'MOD_NOT_FOUND {"id": "x"}')
+        self.assertEqual(bridge._error_text({"ok": False, "error": "cdp unavailable"}), "cdp unavailable")
+
     def test_patcher_commands(self):
         self.bridge.start_patcher()
         self.bridge.stop_patcher()

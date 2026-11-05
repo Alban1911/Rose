@@ -5108,6 +5108,8 @@
             killed: () => t("Fix: another program closed LTK Manager, most often an antivirus. Add Rose's folder to its exclusions, then retry."),
             crashed: () => t('Fix: LTK Manager crashed. Retry the next game. If it crashes every game, report it with your Rose logs.'),
             cdp: () => t(CDP_FIX),
+            league_admin: () => t('Fix: League is set to run as administrator, and LTK Manager does not patch it then. Right-click League of Legends.exe and LeagueClient.exe (in the League of Legends folder) > Properties > Compatibility, untick "Run this program as an administrator" (also under "Change settings for all users"), then restart League.'),
+            manager_admin: () => t('Fix: LTK Manager runs as administrator, and it does not patch League then. Turn User Account Control back on, or use a regular Windows account (not the built-in Administrator), then restart the PC.'),
           };
           const fix = fixes[e?.cause];
           return {
