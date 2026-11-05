@@ -112,9 +112,38 @@ def _record_path(alias: str) -> str:
     return f"data/characters/{alias}/{alias}.bin".lower()
 
 
-def _champion_record(game_dir: Path, mod_folder: Path, alias: str) -> Optional[bytes]:
-    """The champion's own bin: the skin's copy when it carries one, the game's otherwise."""
-    game_path = _record_path(alias)
+# The champion's other characters whose record prints the champion's name too (their name field is
+# game_character_displayname_<Champion>): its forms, and objects that carry its name. Each gets the same key of the
+# mod's own, or a transformed champion shows the skin's name over its head and in the chat (#427). Read from the
+# game's champion wads (patch 16.22): a record names its key, but a wad only holds hashed paths, so the paths are
+# listed here.
+FORM_RECORDS = {
+    "cassiopeia": ("cassiopeia_death",),
+    "elise": ("elisespider",),
+    "fiddlesticks": ("fiddlestickseffigy",),
+    "fizz": ("fizzbait", "fizzshark", "jade_fizzbait", "jade_fizzshark"),
+    "kogmaw": ("jade_kogmawdead", "kogmawdead"),
+    "locke": ("locketotem",),
+    "lux": ("luxair", "luxdark", "luxfire", "luxice", "luxmagma", "luxmystic", "luxnature", "luxstorm", "luxwater"),
+    "monkeyking": ("monkeykingflying",),
+    "nasus": ("jade_nasusult", "nasusult"),
+    "nidalee": ("jade_nidaleecougar", "nidaleecougar"),
+    "orianna": ("oriannaball", "oriannanoball"),
+    "quinn": ("quinnvalor",),
+    "rammus": ("jade_rammusdbc", "jade_rammuspb", "rammusdbc", "rammuspb"),
+    "shyvana": ("jade_shyvanadragon", "shyvanadragon"),
+    "sona": ("sonadjgenre01", "sonadjgenre02", "sonadjgenre03"),
+    "swain": ("jade_swaindemonform", "swaindemonform"),
+    "syndra": ("syndraorbs", "syndrasphere"),
+    "zed": ("zedshadow",),
+    "zoe": ("zoeorbs",),
+}
+
+
+def _champion_record(game_dir: Path, mod_folder: Path, alias: str, character: Optional[str] = None) -> Optional[bytes]:
+    """The bin of one of the champion's characters (the champion's own by default): the skin's copy when it carries
+    one, the game's otherwise."""
+    game_path = _record_path(character or alias)
     path_hash = _xxh64(game_path.encode("utf-8"))
     carried = Path(mod_folder) / "WAD" / f"{alias}.wad.client"
     if carried.is_file():
@@ -483,14 +512,20 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
                 (target / "META").mkdir(parents=True, exist_ok=True)
                 texts = {f"{RECORD_KEY}{alias}": name}
 
-                # the chat and the name over the head keep the champion's name (see the module's note)
-                record = _champion_record(game_dir, mod_folder, alias)
-                own_record = _with_own_record_key(record, alias) if record else None
-                if own_record:
-                    texts[f"{RECORD_KEY_OWN}{alias}"] = champion_name
-                    record_file = target / "RAW" / _record_path(alias)
+                # the chat and the name over the head keep the champion's name (see the module's note), in its forms
+                # too (FORM_RECORDS)
+                repointed = 0
+                for character in (alias.lower(),) + FORM_RECORDS.get(alias.lower(), ()):
+                    record = _champion_record(game_dir, mod_folder, alias, character)
+                    own_record = _with_own_record_key(record, alias) if record else None
+                    if not own_record:
+                        continue
+                    record_file = target / "RAW" / _record_path(character)
                     record_file.parent.mkdir(parents=True, exist_ok=True)
                     record_file.write_bytes(own_record)
+                    repointed += 1
+                if repointed:
+                    texts[f"{RECORD_KEY_OWN}{alias}"] = champion_name
                 else:
                     log.debug(f"[LOADNAME] {alias}'s record not found, the chat shows the skin's name too")
 

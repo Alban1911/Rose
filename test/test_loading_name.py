@@ -287,6 +287,22 @@ class LoadingNameTests(unittest.TestCase):
 
         self.assertEqual(loading_name.build(game, mods, mod, 238001, other_mods=[font]), loading_name.MOD_FOLDER)
 
+    def test_a_transformed_champion_keeps_its_name_too(self):
+        # Elise's spider and Nidalee's cougar read the champion's name key from records of their own (#427)
+        game, mods, mod = self._game_with_zed_record('fr_FR')
+        key = b'game_character_displayname_Zed'
+        record = struct.pack('<H', len(key)) + key
+        (game / 'DATA' / 'FINAL' / 'Champions' / 'Zed.wad.client').write_bytes(make_wad_entries({
+            loading_name._xxh64(b'data/characters/zed/zed.bin'): record,
+            loading_name._xxh64(b'data/characters/zedshadow/zedshadow.bin'): b'	' + record,
+        }))
+
+        name = loading_name.build(game, mods, mod, 238001)
+
+        shadow = (mods / name / 'RAW' / 'data' / 'characters' / 'zedshadow' / 'zedshadow.bin').read_bytes()
+        self.assertEqual(shadow, b'	' + struct.pack('<H', len(key)) + b'rose_character_displayname_Zed')
+        self.assertTrue((mods / name / 'RAW' / 'data' / 'characters' / 'zed' / 'zed.bin').exists())
+
     def test_the_chat_keeps_the_champions_name(self):
         game = self.root / 'game'
         (game / 'DATA' / 'FINAL' / 'Localized').mkdir(parents=True)
@@ -314,6 +330,18 @@ class LoadingNameTests(unittest.TestCase):
                          'Zed')
         written = (mods / name / 'RAW' / 'data' / 'characters' / 'zed' / 'zed.bin').read_bytes()
         self.assertEqual(written, struct.pack('<H', len(key)) + b'rose_character_displayname_Zed')
+
+
+def make_wad_entries(entries):
+    """A wad v3 holding these uncompressed entries ({path hash: data})."""
+    header = bytearray(b'RW') + bytearray(256) + struct.pack('<Q', 0) + struct.pack('<I', len(entries))
+    offset = len(header) + 32 * len(entries)
+    toc, body = bytearray(), bytearray()
+    for path_hash, data in entries.items():
+        toc += struct.pack('<QIII', path_hash, offset + len(body), len(data), len(data))
+        toc += bytes([0, 0]) + struct.pack('<H', 0) + struct.pack('<Q', 0)
+        body += data
+    return bytes(header + toc + body)
 
 
 def make_wad(data, path_hash=loading_name.TABLE_HASH):
