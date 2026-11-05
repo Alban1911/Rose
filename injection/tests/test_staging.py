@@ -469,6 +469,30 @@ class LtkLogTests(LtfSessionTestCase):
         self.assertEqual(result, 0)
         self.assertEqual(self.reported_causes(), ["refused"])
 
+    def test_a_refusal_over_ltk_managers_own_signature_names_it(self):
+        """#442: the chain's inner check was WinVerifyTrust's 0x80096010 on
+        ltk-manager.exe: a damaged LTK Manager, fixed by reinstalling it"""
+        mod = self.make_mod()
+        polls = {"count": 0}
+
+        def stop():
+            polls["count"] += 1
+            if polls["count"] == 2:
+                self.write_log(
+                    "[ltk-host] injected: dll attached\n"
+                    "[ltk-dll pid=21108 tid=20400 ERROR] ltk_patcher_dll::verify: host verification failed, "
+                    "refusing overlay: [VRF00000009] (3168) -> [VRF00000001] (80096010)\n"
+                )
+            return polls["count"] > 4
+
+        self.overlay.mk_run_overlay([mod], stop_callback=stop)
+
+        self.assertEqual(self.reported_causes(), ["signature"])
+        (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertIn("VRF00000009 (3168)", reason)
+        self.assertIn("0x80096010", reason)
+        self.assertIn("Reinstall LTK Manager", overlay_manager.OverlayManager._ltk_failure_hint(reason))
+
     def test_an_attached_patcher_is_not_reported(self):
         mod = self.make_mod()
         polls = {"count": 0}
