@@ -39,6 +39,14 @@ from utils.core.issue_reporter import report_issue
 log = get_logger()
 _GAME_PROCESS_NAMES = frozenset(name.lower() for name in GAME_EXECUTABLE_NAMES)
 
+# Whether the monitor freezes the game until the injection is ready. LTK
+# Manager's patcher cannot hook a frozen game, and it never overlays a game the
+# client created before its scan, however long the game is held: a game it
+# missed is restarted instead (kill + reconnect, see injection/game/reconnect.py).
+# The game is left running; resume_orphaned_game still frees one an older Rose
+# left frozen.
+SUSPEND_GAME = False
+
 
 def make_game_ended_callback(state) -> Callable[[], bool]:
     """Stop callback for an injection: True once the game it was made for is over.
@@ -172,6 +180,9 @@ class GameMonitor:
         """Start game monitor - watches for game and suspends it"""
         # Stop any existing monitor first
         self.stop()
+        if not SUSPEND_GAME:
+            log.debug("[monitor] The game is not frozen (LTK Manager's patcher cannot hook a frozen game)")
+            return
 
         # stop() only lowers the flag; the previous thread may still be inside
         # a sleep or a process sweep. Raising the flag again here would revive

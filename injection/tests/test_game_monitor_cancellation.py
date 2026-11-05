@@ -7,6 +7,13 @@ from injection.game import game_monitor
 
 
 class MonitorCancellationTests(unittest.TestCase):
+    """The freeze's own mechanism, kept behind game_monitor.SUSPEND_GAME"""
+
+    def setUp(self):
+        freeze = patch.object(game_monitor, "SUSPEND_GAME", True)
+        freeze.start()
+        self.addCleanup(freeze.stop)
+
     def run_cancellation(self, path, action, stage, stopped=False):
         entered, proceed = threading.Event(), threading.Event()
         suspended = [stopped]

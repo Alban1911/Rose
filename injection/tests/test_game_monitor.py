@@ -53,6 +53,19 @@ class SuspendedGameTests(unittest.TestCase):
         monitor.stop()
         self.assertNotEqual(self.game.status(), psutil.STATUS_STOPPED)
 
+    def test_the_monitor_no_longer_freezes_the_game(self):
+        """LTK Manager's patcher cannot hook a frozen game: a missed game is
+        restarted (kill + reconnect) instead of held"""
+        self.game.resume()
+        monitor = GameMonitor(lambda: 60.0)
+
+        monitor.start()
+        self.addCleanup(monitor.stop)
+
+        self.assertFalse(monitor.is_active)
+        self.assertIsNone(monitor.get_suspended_game_process())
+        self.assertNotEqual(self.game.status(), psutil.STATUS_STOPPED)
+
 
 if __name__ == '__main__':
     unittest.main()

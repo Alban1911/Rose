@@ -170,6 +170,8 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(overlay_manager, "CDP_READY_POLL_S", 0.01),
             patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 0.05),
             patch.object(overlay_manager, "PATCHER_STOP_WAIT_S", 0.5),
+            # Never this PC's game or client: RestartMissedGameTests turn it on with fakes
+            patch.object(overlay_manager, "RESTART_MISSED_GAME", False),
             # Never this PC's own LTK Manager log
             patch.object(overlay_manager.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
         ):
@@ -1028,6 +1030,101 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
             self.assertEqual(self.overlay.mk_run_overlay([mod], stop_callback=lambda: True), 1)
 
         self.assertEqual(self.reported_causes(), ["cdp"])
+
+
+class RestartMissedGameTests(LtfSessionTestCase):
+    """The patcher cannot hook a frozen game nor one created before its scan:
+    such a game is killed and the client reconnects to the match, launching
+    it again while the patcher scans (instead of a lost game)"""
+
+    LATE = status(session={"verdict": "The DLL joined too late and stayed inert"})
+
+    def setUp(self):
+        super().setUp()
+        self.killed = []
+        self.reconnects = []
+        self.reconnect_result = True
+        for target, value in (
+            ("RESTART_MISSED_GAME", True),
+            ("kill_game", lambda game: self.killed.append(game) or True),
+            ("reconnect_to_game", lambda stopped=None: self.reconnects.append(stopped) or self.reconnect_result),
+        ):
+            patcher = patch.object(overlay_manager, target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.game = MagicMock()
+        game_patch = patch.object(OverlayManager, "_running_game", return_value=self.game)
+        game_patch.start()
+        self.addCleanup(game_patch.stop)
+
+    def _session(self):
+        self.overlay.start_patcher_early()
+        return self.overlay._new_session(self.bridge, False)
+
+    def test_a_late_join_restarts_the_game_instead_of_losing_it(self):
+        session = self._session()
+        FakeBridge.patcher_statuses = [self.LATE]
+
+        self.overlay._poll_patcher_status(session)
+        self.overlay._poll_patcher_status(session)  # the status still names the killed game
+
+        self.assertEqual(self.killed, [self.game])
+        self.assertEqual(len(self.reconnects), 1)
+        self.assertEqual(self.reported_causes(), [])
+        self.assertFalse(session["ltk_late"])
+        self.assertEqual(session["reconnects"], 1)
+
+    def test_the_relaunched_game_missed_too_is_reported(self):
+        session = self._session()
+        FakeBridge.patcher_statuses = [self.LATE]
+        self.overlay._poll_patcher_status(session)
+
+        # LTK Manager's log tells the relaunched game was missed as well
+        self.overlay._note_ltk_text(session, "ltk_patcher_dll::entry: joined too late, not overlaying")
+        self.overlay._check_patcher_verdict(session)
+
+        self.assertEqual(len(self.killed), 1)  # once a session
+        self.assertEqual(self.reported_causes(), ["late"])
+
+    def test_a_client_that_does_not_reconnect_is_reported_once(self):
+        self.reconnect_result = False
+        session = self._session()
+        FakeBridge.patcher_statuses = [self.LATE]
+
+        self.overlay._poll_patcher_status(session)
+        self.overlay._poll_patcher_status(session)
+
+        reasons = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("did not reconnect", reasons[0])
+
+    def test_a_game_created_before_the_scan_is_restarted_before_it_loads(self):
+        session = self._session()
+        session["scan_started_at"] = 1000.0
+        self.game.create_time.return_value = 990.0
+        injection_manager = MagicMock()
+
+        self.overlay._restart_early_game(session, injection_manager)
+
+        self.assertEqual(self.killed, [self.game])
+        injection_manager.resume_game.assert_called_once()  # the monitor lets go of the frozen game
+
+    def test_a_game_created_under_the_scan_is_left_alone(self):
+        session = self._session()
+        session["scan_started_at"] = 1000.0
+        self.game.create_time.return_value = 1005.0
+
+        self.overlay._restart_early_game(session, MagicMock())
+
+        self.assertEqual(self.killed, [])
+
+    def test_an_unknown_scan_start_leaves_it_to_the_late_join_verdict(self):
+        session = self._session()
+        self.game.create_time.return_value = 990.0
+
+        self.overlay._restart_early_game(session, MagicMock())
+
+        self.assertEqual(self.killed, [])
 
 
 class FailureCauseTests(unittest.TestCase):

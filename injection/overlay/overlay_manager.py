@@ -45,6 +45,7 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     psutil = None
 
+from injection.game.reconnect import kill_game, reconnect_to_game
 from utils.core.logging import get_logger, log_event
 from utils.core.issue_reporter import report_issue
 from ..tools.bridge import (
@@ -70,6 +71,12 @@ PATCHER_STATUS_POLL_TICKS = 4
 # the overlay and is scanning: resumed earlier, the game can load its files
 # before the patcher hooks it. The game monitor resumes it at 60s anyway.
 PATCHER_READY_TIMEOUT_S = 45.0
+# The patcher only overlays a game the client created after its scan started,
+# and it cannot hook a frozen game: a game it missed is killed and the client
+# reconnects to the match, launching it again under the scan. At most this
+# many times a session, so a relaunch the patcher misses too cannot loop
+RESTART_MISSED_GAME = True
+RECONNECT_MAX = 1
 PATCHER_READY_POLL_S = 0.25
 # A patcher still idle this long after start_patcher answered did not start
 PATCHER_IDLE_GRACE_S = 3.0
@@ -588,6 +595,8 @@ class OverlayManager:
             "game_seen": False,
             "status_failures": 0,
             "late_join_reported": False,
+            "reconnects": 0,  # games killed and reconnected to (RECONNECT_MAX)
+            "restarted_at": None,  # epoch time of the last such restart
             "refused_reported": False,
             "disabled_reported": False,
             "incident_reported": False,
@@ -1419,8 +1428,64 @@ class OverlayManager:
             self._end_session(session)
             return 1 if failed else 0
 
-        log_event(log, "Mods installed - resuming game for the LTK patcher", "❄️")
+        log_event(log, "Mods installed - the LTK patcher is ready", "")
+        self._restart_early_game(session, injection_manager)
         return self._run_session(session, stop_callback, injection_manager)
+
+    def _restart_early_game(self, session: dict, injection_manager=None) -> None:
+        """A game the client created before the patcher's scan started cannot
+        get the overlay: restart it now rather than let it load first."""
+        self._read_ltk_log(session)
+        scan = session.get("scan_started_at")
+        game = self._running_game()
+        if scan is None or game is None:
+            return
+        try:
+            created = game.create_time()
+        except (psutil.Error, OSError, AttributeError):
+            return
+        if created >= scan:
+            return
+        log.warning(
+            f"[INJECT] The client created the game {scan - created:.1f}s before the LTK patcher was scanning"
+        )
+        self._restart_missed_game(session, game, injection_manager)
+
+    def _restart_missed_game(self, session: dict, game, injection_manager=None) -> Optional[bool]:
+        """Kill a game the patcher missed and reconnect to the match: the
+        client launches it again while the patcher scans. None when not
+        attempted (turned off, already done this session, no game), else
+        whether the client reconnected."""
+        if not RESTART_MISSED_GAME or game is None or session.get("reconnects", 0) >= RECONNECT_MAX:
+            return None
+        if self._session_stopped(session):
+            return None
+        session["reconnects"] = session.get("reconnects", 0) + 1
+        log.warning("[INJECT] Restarting the game for the LTK patcher: closing it, then reconnecting to the match")
+        if not kill_game(game):
+            return None
+        session["restarted_at"] = time.time()
+        if injection_manager is not None:
+            # The killed game was frozen: the monitor lets go of it
+            try:
+                injection_manager.resume_game()
+            except Exception as e:
+                log.debug(f"[INJECT] Could not release the game monitor: {e}")
+        if not reconnect_to_game(stopped=lambda: self._session_stopped(session)):
+            log.error("[INJECT] The game was closed, but the client did not reconnect - use Reconnect in the client")
+            if not self._stopped_by_rose():
+                self._report_ltf_failure(
+                    "Rose restarted the game so the LTK patcher could apply the overlay, but the client did not "
+                    "reconnect to the match (use Reconnect in the client)"
+                )
+            return False
+        # The relaunched game reports to the patcher anew
+        session["ltk_attached"] = False
+        session["attach_logged"] = False
+        session["ltk_late"] = False
+        session["late_join_reported"] = False
+        log.info("[INJECT] Reconnected: the game starts again while the LTK patcher scans")
+        return True
 
     def _wait_for_patcher(self, session: dict) -> bool:
         """Wait until the patcher has built the overlay and is scanning.
@@ -1465,7 +1530,7 @@ class OverlayManager:
         try:
             # The patcher cannot find a frozen game; it hooks it right after resume
             if injection_manager:
-                log.info("[INJECT] Overlay ready - resuming game for the LTK patcher")
+                log.debug("[INJECT] Overlay ready - releasing the game monitor")
                 injection_manager.resume_game()
 
             ticks = 0
@@ -1652,7 +1717,9 @@ class OverlayManager:
     def _check_patcher_verdict(self, session: dict, value: Optional[dict] = None) -> None:
         """Log the patcher reaching the game, and report it joining too late
         (the DLL then stays inert: the game runs without the overlay)."""
-        if value is not None:
+        # After a restart the status may still carry the killed game's
+        # verdict: only LTK Manager's log (new lines) speaks for the new game
+        if value is not None and session.get("restarted_at") is None:
             try:
                 self._note_ltk_text(session, json.dumps(value))
             except (TypeError, ValueError):
@@ -1662,6 +1729,13 @@ class OverlayManager:
             session["attach_logged"] = True
             log.info("[INJECT] The LTK patcher attached to the game")
         if session["ltk_late"] and not session["late_join_reported"]:
+            log.warning("[INJECT] The LTK patcher joined the game too late")
+            restarted = self._restart_missed_game(session, self._running_game())
+        else:
+            restarted = True  # nothing to report
+        if restarted is False:
+            session["late_join_reported"] = True  # the failed reconnect was reported
+        elif restarted is None and session["ltk_late"] and not session["late_join_reported"]:
             session["late_join_reported"] = True
             detail = self._late_join_detail(session)
             log.error(
