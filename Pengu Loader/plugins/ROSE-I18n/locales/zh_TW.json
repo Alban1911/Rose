@@ -185,5 +185,10 @@
   "Administrator privileges are required to disable auto-start.": "需要系統管理員權限才能關閉開機自動啟動。",
   "Failed to enable auto-start: {error}": "無法開啟開機自動啟動：{error}",
   "Failed to disable auto-start: {error}": "無法關閉開機自動啟動：{error}",
-  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "解決方法：Rose 無法連線到 LTK Manager 的內建瀏覽器。請重新啟動電腦後再試一次。如果仍然發生，請使用一般 Windows 帳戶（不要使用內建的 Administrator 帳戶），並確認防毒軟體沒有封鎖 LTK Manager。"
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "解決方法：Rose 無法連線到 LTK Manager 的內建瀏覽器。請重新啟動電腦後再試一次。如果仍然發生，請使用一般 Windows 帳戶（不要使用內建的 Administrator 帳戶），並確認防毒軟體沒有封鎖 LTK Manager。",
+  "Windows runs every program as administrator": "Windows 以系統管理員身分執行所有程式",
+  "What it means: LTK Manager refuses to apply skins when it runs as administrator, and Windows runs every program as administrator on this account.": "這代表：LTK Manager 以系統管理員身分執行時會拒絕套用造型，而在此帳戶上 Windows 會以系統管理員身分執行所有程式。",
+  "Fix: this is Windows' built-in Administrator account (some custom Windows builds set it up). Use Rose, League and LTK Manager from a regular Windows account (Settings > Accounts > Other users > Add account).": "解決方法：這是 Windows 內建的 Administrator 帳戶（某些修改版 Windows 會這樣設定）。請在一般 Windows 帳戶中使用 Rose、英雄聯盟和 LTK Manager（設定 > 帳戶 > 其他使用者 > 新增帳戶）。",
+  "Fix: turn User Account Control back on (search Windows for \"Change User Account Control settings\" and move the slider above \"Never notify\"), then restart the PC.": "解決方法：重新開啟使用者帳戶控制（在 Windows 中搜尋「變更使用者帳戶控制設定」，將滑桿移到「不要通知」以上），然後重新啟動電腦。",
+  "Fix: use a regular Windows account, with User Account Control on.": "解決方法：使用已開啟使用者帳戶控制的一般 Windows 帳戶。"
 }

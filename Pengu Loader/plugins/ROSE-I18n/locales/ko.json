@@ -185,5 +185,10 @@
   "Administrator privileges are required to disable auto-start.": "자동 시작을 끄려면 관리자 권한이 필요합니다.",
   "Failed to enable auto-start: {error}": "자동 시작을 켜지 못했습니다: {error}",
   "Failed to disable auto-start: {error}": "자동 시작을 끄지 못했습니다: {error}",
-  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "해결 방법: Rose가 LTK Manager의 내장 브라우저에 연결하지 못했습니다. PC를 다시 시작한 후 다시 시도하세요. 계속 발생하면 일반 Windows 계정(기본 제공 Administrator 계정이 아닌)을 사용하고, 백신 프로그램이 LTK Manager를 차단하지 않는지 확인하세요."
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "해결 방법: Rose가 LTK Manager의 내장 브라우저에 연결하지 못했습니다. PC를 다시 시작한 후 다시 시도하세요. 계속 발생하면 일반 Windows 계정(기본 제공 Administrator 계정이 아닌)을 사용하고, 백신 프로그램이 LTK Manager를 차단하지 않는지 확인하세요.",
+  "Windows runs every program as administrator": "Windows가 모든 프로그램을 관리자 권한으로 실행합니다",
+  "What it means: LTK Manager refuses to apply skins when it runs as administrator, and Windows runs every program as administrator on this account.": "의미: LTK Manager는 관리자 권한으로 실행되면 스킨 적용을 거부하며, 이 계정에서는 Windows가 모든 프로그램을 관리자 권한으로 실행합니다.",
+  "Fix: this is Windows' built-in Administrator account (some custom Windows builds set it up). Use Rose, League and LTK Manager from a regular Windows account (Settings > Accounts > Other users > Add account).": "해결 방법: 이 계정은 Windows 기본 제공 Administrator 계정입니다(일부 사용자 지정 Windows 빌드가 이렇게 설정합니다). 일반 Windows 계정에서 Rose, League, LTK Manager를 사용하세요(설정 > 계정 > 다른 사용자 > 계정 추가).",
+  "Fix: turn User Account Control back on (search Windows for \"Change User Account Control settings\" and move the slider above \"Never notify\"), then restart the PC.": "해결 방법: 사용자 계정 컨트롤을 다시 켜세요(Windows에서 \"사용자 계정 컨트롤 설정 변경\"을 검색해 슬라이더를 \"알리지 않음\"보다 위로 올립니다). 그런 다음 PC를 다시 시작하세요.",
+  "Fix: use a regular Windows account, with User Account Control on.": "해결 방법: 사용자 계정 컨트롤이 켜진 일반 Windows 계정을 사용하세요."
 }

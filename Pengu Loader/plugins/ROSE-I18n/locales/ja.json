@@ -185,5 +185,10 @@
   "Administrator privileges are required to disable auto-start.": "自動起動を無効にするには管理者権限が必要です。",
   "Failed to enable auto-start: {error}": "自動起動を有効にできませんでした: {error}",
   "Failed to disable auto-start: {error}": "自動起動を無効にできませんでした: {error}",
-  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "解決策: Rose が LTK Manager の内蔵ブラウザーに接続できませんでした。PC を再起動してから、もう一度お試しください。それでも続く場合は、通常の Windows アカウント (組み込みの Administrator アカウント以外) を使い、ウイルス対策ソフトが LTK Manager をブロックしていないか確認してください。"
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "解決策: Rose が LTK Manager の内蔵ブラウザーに接続できませんでした。PC を再起動してから、もう一度お試しください。それでも続く場合は、通常の Windows アカウント (組み込みの Administrator アカウント以外) を使い、ウイルス対策ソフトが LTK Manager をブロックしていないか確認してください。",
+  "Windows runs every program as administrator": "Windows がすべてのプログラムを管理者として実行しています",
+  "What it means: LTK Manager refuses to apply skins when it runs as administrator, and Windows runs every program as administrator on this account.": "意味: LTK Manager は管理者として実行されているとスキンを適用しません。このアカウントでは Windows がすべてのプログラムを管理者として実行します。",
+  "Fix: this is Windows' built-in Administrator account (some custom Windows builds set it up). Use Rose, League and LTK Manager from a regular Windows account (Settings > Accounts > Other users > Add account).": "解決策: これは Windows の組み込み Administrator アカウントです (一部のカスタム版 Windows が設定します)。Rose、League、LTK Manager は通常の Windows アカウントから使ってください (設定 > アカウント > 他のユーザー > アカウントの追加)。",
+  "Fix: turn User Account Control back on (search Windows for \"Change User Account Control settings\" and move the slider above \"Never notify\"), then restart the PC.": "解決策: ユーザー アカウント制御をもう一度オンにしてください (Windows で「ユーザー アカウント制御設定の変更」を検索し、スライダーを「通知しない」より上に動かします)。その後 PC を再起動してください。",
+  "Fix: use a regular Windows account, with User Account Control on.": "解決策: ユーザー アカウント制御を有効にした通常の Windows アカウントを使ってください。"
 }

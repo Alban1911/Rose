@@ -15,6 +15,7 @@ from injection.game.game_monitor import resume_orphaned_game
 from injection.mods.storage import ModStorageService
 from utils.core.logging import get_logger, log_success
 from utils.system.admin_utils import ensure_admin_rights
+from utils.system.windows_account import check_windows_account
 from utils.threading.thread_manager import create_daemon_thread
 from config import APP_VERSION, set_config_option
 
@@ -32,6 +33,10 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
     
     # Check for admin rights FIRST (required for injection to work)
     ensure_admin_rights()
+
+    # LTK Manager runs with the Windows shell's rights and refuses to patch as
+    # administrator: say so now rather than after a game without the skin
+    check_windows_account()
 
     # Ensure mods directory layout exists early (and clean unknown root categories)
     try:

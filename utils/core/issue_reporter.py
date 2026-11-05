@@ -36,6 +36,7 @@ _ALLOWED_CODES = {
     'LTF_FAILED',             # The LTF session (bridge or LTK patcher) reported an error
     'LTF_IMPORT_FAILED',      # A mod could not be imported into LTK Manager's library
     'PENGU_ACTIVATION_FAILED',  # Pengu Loader could not be activated: Rose is missing from the client
+    'WINDOWS_ADMIN_SHELL',    # Windows runs every program as administrator: LTK Manager refuses to patch
 }
 
 

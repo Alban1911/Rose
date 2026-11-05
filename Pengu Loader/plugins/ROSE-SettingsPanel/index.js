@@ -5055,6 +5055,22 @@
           };
         }
 
+        if (code === 'WINDOWS_ADMIN_SHELL') {
+          // Why Windows runs everything as administrator (windows_account.py)
+          const fixes = {
+            builtin: () => t("Fix: this is Windows' built-in Administrator account (some custom Windows builds set it up). Use Rose, League and LTK Manager from a regular Windows account (Settings > Accounts > Other users > Add account)."),
+            uac: () => t('Fix: turn User Account Control back on (search Windows for "Change User Account Control settings" and move the slider above "Never notify"), then restart the PC.'),
+          };
+          const fix = fixes[e?.cause];
+          return {
+            title: t('Windows runs every program as administrator'),
+            details: [
+              t('What it means: LTK Manager refuses to apply skins when it runs as administrator, and Windows runs every program as administrator on this account.'),
+              fix ? fix() : t('Fix: use a regular Windows account, with User Account Control on.'),
+            ],
+          };
+        }
+
         if (code === 'LTK_MANAGER_MISSING') {
           return {
             title: t('LTK Manager is not installed'),

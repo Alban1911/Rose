@@ -885,6 +885,21 @@ class MessageHandler:
                         result["trackerSamples"] = tracker_samples
                     return result
 
+                # Category: Windows runs every program as administrator (startup
+                # check; before the LTF category, whose markers it also names)
+                if "can't apply skins" in ml and 'as administrator' in ml:
+                    if 'built-in administrator' in ml:
+                        cause = 'builtin'
+                    elif 'user account control is turned off' in ml:
+                        cause = 'uac'
+                    else:
+                        cause = 'other'
+                    return {
+                        'code': 'WINDOWS_ADMIN_SHELL',
+                        'text': 'Windows runs programs as administrator -> use a regular account',
+                        'cause': cause,
+                    }
+
                 # Category: Low disk space during overlay creation
                 if 'not enough disk space' in ml or ('disk space' in ml and 'injection failed' in ml):
                     return {
