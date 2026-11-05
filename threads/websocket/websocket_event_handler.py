@@ -20,6 +20,10 @@ from injection.config.base_skin_tracker import (
 
 log = get_logger()
 
+# Phases champion select leads to when its game starts: LTK Manager, brought
+# up when champion select began, then serves the game
+GAME_STARTING_PHASES = frozenset({"FINALIZATION", "GameStart", "InProgress", "Reconnect"})
+
 
 class WebSocketEventHandler:
     """Handles routing and processing of WebSocket API events"""
@@ -117,6 +121,13 @@ class WebSocketEventHandler:
                     _on_champ_select_exit()
                 except Exception as e:
                     log.debug(f"[WS] Could not record the pending base skin timeout: {e}")
+                # Champion select ended without a game (a dodge): LTK Manager,
+                # brought up when it began, is not needed any more
+                if ph not in GAME_STARTING_PHASES and self.injection_manager:
+                    try:
+                        self.injection_manager.discard_early_patcher()
+                    except Exception as e:
+                        log.debug(f"[WS] Could not stop the early LTK patcher: {e}")
             
             if ph == "ChampSelect":
                 # Detect game mode FIRST to get accurate is_swiftplay_mode flag
@@ -143,6 +154,7 @@ class WebSocketEventHandler:
                         ).start()
                 else:
                     self._handle_champ_select_entry()
+                    self._start_ltk_manager()
             
             elif ph == "FINALIZATION":
                 log_event(log, "Entering FINALIZATION phase", "")
@@ -154,6 +166,19 @@ class WebSocketEventHandler:
                 # Exit → reset locks/timer
                 self._handle_phase_exit()
     
+    def _start_ltk_manager(self):
+        """Bring LTK Manager up as champion select begins. Its patcher must
+        already scan when the client creates the game, and LTK Manager took
+        7-14s from its launch to that scan (#431): more than Practice Tool's
+        countdown, which is when Rose used to bring it up. The countdown
+        still stages the skin; it now finds LTK Manager ready."""
+        if not self.injection_manager:
+            return
+        try:
+            self.injection_manager.start_patcher_in_background()
+        except Exception as e:
+            log.debug(f"[WS] Could not bring LTK Manager up for champion select: {e}")
+
     def _handle_champ_select_entry(self):
         """Handle entering ChampSelect phase"""
         from threads.handlers.champ_select_reset import perform_champ_select_reset
