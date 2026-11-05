@@ -923,6 +923,29 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.assertEqual(self.reported_codes(), [])
         self.assertIn("import", [call[0] for call in self.bridge.calls])
 
+    def test_a_page_without_tauri_yet_is_waited_for_too(self):
+        """#441: the page answered before Tauri's IPC was set up"""
+        mod = self.make_mod()
+        answers = iter([False, True])
+        real_library = FakeBridge.library
+
+        def library(bridge_self):
+            if not next(answers, True):
+                raise overlay_manager.BridgeCommandError(
+                    'list failed: {"ok": false, "raw": {"ok": false, '
+                    '"error": "Cannot read properties of undefined (reading \'invoke\')"}}'
+                )
+            return real_library(bridge_self)
+
+        self.overlay.open_staging()
+        no_bridge, run = self.launched()
+        with no_bridge, run, patch.object(FakeBridge, "library", library), \
+                patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 5.0):
+            self.overlay.start_patcher_early()
+            self.assertTrue(self.overlay.stage_mods(self.mods, [mod]))
+
+        self.assertEqual(self.reported_codes(), [])
+
     def test_a_browser_that_never_answers_is_still_reported(self):
         mod = self.make_mod()
 

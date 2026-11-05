@@ -138,6 +138,9 @@ ALREADY_OPEN_REASON = "LTK Manager is already open without Rose's bridge"
 # The bridge drives LTK Manager through the remote debugging port (CDP) of its
 # WebView2 window; when that port never answers, every command fails with this
 CDP_FAILURE_MARKER = "cdp unavailable"
+# LTK Manager's page loaded, its Tauri IPC not yet: the browser answers but
+# window.__TAURI_INTERNALS__ is still undefined (#441)
+TAURI_NOT_READY_MARKER = "reading 'invoke'"
 CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in browser (CDP unavailable or timed out)"
 # Every LTF report's hint ends with it (Troubleshooting recognizes the reports by it)
 LTF_LOGS_HINT = "Details are in C:\\Users\\Public\\ltk_bridge.log, ltk_api.log and ltk_launcher.log."
@@ -610,7 +613,8 @@ class OverlayManager:
             try:
                 bridge.library()
             except BridgeCommandError as e:
-                if not _cdp_unreachable(e):
+                # Not up yet: no browser, or its page without Tauri's IPC
+                if not _cdp_unreachable(e) and TAURI_NOT_READY_MARKER not in str(e).lower():
                     return  # another failure: the commands that need the library report it
             except BridgeUnavailable:
                 return
