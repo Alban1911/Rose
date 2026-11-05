@@ -167,6 +167,8 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(overlay_manager, "PATCHER_STATUS_POLL_TICKS", 1),
             patch.object(overlay_manager, "PATCHER_READY_POLL_S", 0.01),
             patch.object(overlay_manager, "PATCHER_IDLE_GRACE_S", 0.05),
+            patch.object(overlay_manager, "CDP_READY_POLL_S", 0.01),
+            patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 0.05),
             # Never this PC's own LTK Manager log
             patch.object(overlay_manager.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
         ):
@@ -894,6 +896,44 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
         self.assertIn("WAD Mount Failure (CorruptArchive", reason)
         self.assertIn("incidents\\2026-11-05T10-04-52.json", reason)
+
+
+    def test_the_session_waits_for_ltk_managers_browser(self):
+        """#431: the bridge answers seconds before LTK Manager's browser does;
+        the countdown's staging tried at once, failed with "CDP unavailable"
+        and the skin was only installed when the game had started"""
+        mod = self.make_mod()
+        answers = iter([False, False, True])
+        real_library = FakeBridge.library
+
+        def library(bridge_self):
+            if not next(answers, True):
+                raise overlay_manager.BridgeCommandError(
+                    'list failed: {"ok": false, "raw": {"ok": false, "error": "CDP unavailable or timed out"}}'
+                )
+            return real_library(bridge_self)
+
+        self.overlay.open_staging()
+        no_bridge, run = self.launched()  # a freshly started LTK Manager
+        with no_bridge, run, patch.object(FakeBridge, "library", library), \
+                patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 5.0):
+            self.overlay.start_patcher_early()
+            self.assertTrue(self.overlay.stage_mods(self.mods, [mod]))
+
+        self.assertEqual(self.reported_codes(), [])
+        self.assertIn("import", [call[0] for call in self.bridge.calls])
+
+    def test_a_browser_that_never_answers_is_still_reported(self):
+        mod = self.make_mod()
+
+        def no_cdp(bridge_self):
+            raise overlay_manager.BridgeCommandError("list failed: CDP unavailable or timed out")
+
+        no_bridge, run = self.launched()
+        with no_bridge, run, patch.object(FakeBridge, "library", no_cdp):
+            self.assertEqual(self.overlay.mk_run_overlay([mod], stop_callback=lambda: True), 1)
+
+        self.assertEqual(self.reported_causes(), ["cdp"])
 
 
 class FailureCauseTests(unittest.TestCase):

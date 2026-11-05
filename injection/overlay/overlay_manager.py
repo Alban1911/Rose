@@ -83,6 +83,12 @@ BYTES_IMPORT_LIMIT = 40 * 1024 * 1024
 
 LAUNCHER_TIMEOUT_S = 60
 BRIDGE_START_TIMEOUT_S = 30
+# LTK Manager's built-in browser (CDP) answers seconds after its bridge does:
+# a command sent in between fails with "CDP unavailable", and the countdown's
+# staging gave up on its first try (#431). How long to wait for it, and how
+# often to ask
+CDP_READY_TIMEOUT_S = 20.0
+CDP_READY_POLL_S = 0.5
 # ltk_launcher.exe exit codes (native/ltf/LeagueToolFlop-inj.cpp)
 LAUNCHER_EXIT_ALREADY_RUNNING = 5
 LAUNCHER_EXIT_NO_LIVE_INSTANCE = 6
@@ -590,6 +596,32 @@ class OverlayManager:
         shutil.rmtree(self._staging_root(), ignore_errors=True)
         return session
 
+    @staticmethod
+    def _wait_for_cdp(bridge, cancelled: Optional[Callable[[], bool]] = None) -> None:
+        """Wait until LTK Manager's built-in browser answers the bridge, up to
+        CDP_READY_TIMEOUT_S: it comes up seconds after the bridge itself. One
+        that never answers is left to the commands that need it to report."""
+        started = time.monotonic()
+        while True:
+            try:
+                bridge.library()
+            except BridgeCommandError as e:
+                if not _cdp_unreachable(e):
+                    return  # another failure: the commands that need the library report it
+            except BridgeUnavailable:
+                return
+            else:
+                waited = time.monotonic() - started
+                if waited >= CDP_READY_POLL_S:
+                    log.info(f"[INJECT] LTK Manager's built-in browser answered after {waited:.1f}s")
+                return
+            if time.monotonic() - started >= CDP_READY_TIMEOUT_S or (cancelled is not None and cancelled()):
+                log.warning(
+                    f"[INJECT] LTK Manager's built-in browser did not answer within {CDP_READY_TIMEOUT_S:.0f}s"
+                )
+                return
+            time.sleep(CDP_READY_POLL_S)
+
     def _connect_bridge(self, launcher: Path, manager: Path, report: bool,
                         cancelled: Optional[Callable[[], bool]] = None):
         """The bridge and whether Rose started LTK Manager for it."""
@@ -655,6 +687,8 @@ class OverlayManager:
             self._terminate_manager(pid)
             return None, False
         self._register_manager(bridge.pid or pid)
+        # Its bridge is up; its browser, which every command goes through, follows
+        self._wait_for_cdp(bridge, cancelled)
         return bridge, True
 
     def start_patcher_early(self) -> None:
