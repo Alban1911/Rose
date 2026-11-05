@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "自動起動を有効にするには管理者権限が必要です。",
   "Administrator privileges are required to disable auto-start.": "自動起動を無効にするには管理者権限が必要です。",
   "Failed to enable auto-start: {error}": "自動起動を有効にできませんでした: {error}",
-  "Failed to disable auto-start: {error}": "自動起動を無効にできませんでした: {error}"
+  "Failed to disable auto-start: {error}": "自動起動を無効にできませんでした: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "解決策: Rose が LTK Manager の内蔵ブラウザーに接続できませんでした。PC を再起動してから、もう一度お試しください。それでも続く場合は、通常の Windows アカウント (組み込みの Administrator アカウント以外) を使い、ウイルス対策ソフトが LTK Manager をブロックしていないか確認してください。"
 }

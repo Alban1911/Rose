@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "ต้องใช้สิทธิ์ผู้ดูแลระบบเพื่อเปิดการเริ่มอัตโนมัติ",
   "Administrator privileges are required to disable auto-start.": "ต้องใช้สิทธิ์ผู้ดูแลระบบเพื่อปิดการเริ่มอัตโนมัติ",
   "Failed to enable auto-start: {error}": "เปิดการเริ่มอัตโนมัติไม่สำเร็จ: {error}",
-  "Failed to disable auto-start: {error}": "ปิดการเริ่มอัตโนมัติไม่สำเร็จ: {error}"
+  "Failed to disable auto-start: {error}": "ปิดการเริ่มอัตโนมัติไม่สำเร็จ: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "วิธีแก้: Rose เชื่อมต่อกับเบราว์เซอร์ในตัวของ LTK Manager ไม่ได้ รีสตาร์ทพีซีแล้วลองอีกครั้ง หากยังเกิดขึ้นอีก ให้ใช้บัญชี Windows ปกติ (ไม่ใช่บัญชี Administrator ในตัว) และตรวจสอบว่าโปรแกรมป้องกันไวรัสไม่ได้บล็อก LTK Manager"
 }

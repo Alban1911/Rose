@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "需要系統管理員權限才能開啟開機自動啟動。",
   "Administrator privileges are required to disable auto-start.": "需要系統管理員權限才能關閉開機自動啟動。",
   "Failed to enable auto-start: {error}": "無法開啟開機自動啟動：{error}",
-  "Failed to disable auto-start: {error}": "無法關閉開機自動啟動：{error}"
+  "Failed to disable auto-start: {error}": "無法關閉開機自動啟動：{error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "解決方法：Rose 無法連線到 LTK Manager 的內建瀏覽器。請重新啟動電腦後再試一次。如果仍然發生，請使用一般 Windows 帳戶（不要使用內建的 Administrator 帳戶），並確認防毒軟體沒有封鎖 LTK Manager。"
 }

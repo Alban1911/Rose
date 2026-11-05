@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "자동 시작을 켜려면 관리자 권한이 필요합니다.",
   "Administrator privileges are required to disable auto-start.": "자동 시작을 끄려면 관리자 권한이 필요합니다.",
   "Failed to enable auto-start: {error}": "자동 시작을 켜지 못했습니다: {error}",
-  "Failed to disable auto-start: {error}": "자동 시작을 끄지 못했습니다: {error}"
+  "Failed to disable auto-start: {error}": "자동 시작을 끄지 못했습니다: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "해결 방법: Rose가 LTK Manager의 내장 브라우저에 연결하지 못했습니다. PC를 다시 시작한 후 다시 시도하세요. 계속 발생하면 일반 Windows 계정(기본 제공 Administrator 계정이 아닌)을 사용하고, 백신 프로그램이 LTK Manager를 차단하지 않는지 확인하세요."
 }

@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "Az automatikus indítás bekapcsolásához rendszergazdai jogok szükségesek.",
   "Administrator privileges are required to disable auto-start.": "Az automatikus indítás kikapcsolásához rendszergazdai jogok szükségesek.",
   "Failed to enable auto-start: {error}": "Nem sikerült bekapcsolni az automatikus indítást: {error}",
-  "Failed to disable auto-start: {error}": "Nem sikerült kikapcsolni az automatikus indítást: {error}"
+  "Failed to disable auto-start: {error}": "Nem sikerült kikapcsolni az automatikus indítást: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "Megoldás: a Rose nem érte el az LTK Manager beépített böngészőjét. Indítsd újra a számítógépet, majd próbáld újra. Ha továbbra is előfordul, használj egy normál Windows-fiókot (ne a beépített Rendszergazda fiókot), és ellenőrizd, hogy a vírusirtó nem blokkolja-e az LTK Managert."
 }

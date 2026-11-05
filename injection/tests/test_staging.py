@@ -217,6 +217,20 @@ class OverlayStagingTests(LtfSessionTestCase):
 
         self.assertEqual(self.reported_codes(), [])
 
+    def test_an_install_ltk_managers_browser_does_not_answer_says_so(self):
+        mod = self.make_mod()
+
+        def no_cdp(bridge_self):
+            raise overlay_manager.BridgeCommandError(
+                'list failed: {"ok": false, "raw": {"ok": false, "error": "CDP unavailable or timed out"}}'
+            )
+
+        with patch.object(FakeBridge, "library", no_cdp):
+            self.assertEqual(self.overlay.mk_run_overlay([mod], stop_callback=lambda: True), 1)
+
+        self.assertEqual(self.reported_codes(), ["LTF_FAILED"])
+        self.assertEqual(self.reported_causes(), ["cdp"])
+
     def test_mods_packed_ahead_are_imported_as_they_are(self):
         mod = self.make_mod(where=self.stage_dir)
         archives = self.overlay.pack_mods(self.stage_dir, [mod])

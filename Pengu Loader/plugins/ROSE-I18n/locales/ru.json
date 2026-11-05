@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "Для включения автозапуска нужны права администратора.",
   "Administrator privileges are required to disable auto-start.": "Для отключения автозапуска нужны права администратора.",
   "Failed to enable auto-start: {error}": "Не удалось включить автозапуск: {error}",
-  "Failed to disable auto-start: {error}": "Не удалось отключить автозапуск: {error}"
+  "Failed to disable auto-start: {error}": "Не удалось отключить автозапуск: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "Решение: Rose не удалось подключиться к встроенному браузеру LTK Manager. Перезагрузите ПК и попробуйте снова. Если это повторяется, используйте обычную учётную запись Windows (не встроенную учётную запись «Администратор») и проверьте, что антивирус не блокирует LTK Manager."
 }

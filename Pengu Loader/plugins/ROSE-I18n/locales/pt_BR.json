@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "É preciso ter privilégios de administrador para ativar a inicialização automática.",
   "Administrator privileges are required to disable auto-start.": "É preciso ter privilégios de administrador para desativar a inicialização automática.",
   "Failed to enable auto-start: {error}": "Falha ao ativar a inicialização automática: {error}",
-  "Failed to disable auto-start: {error}": "Falha ao desativar a inicialização automática: {error}"
+  "Failed to disable auto-start: {error}": "Falha ao desativar a inicialização automática: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "Solução: o Rose não conseguiu acessar o navegador integrado do LTK Manager. Reinicie o PC e tente de novo. Se continuar acontecendo, use uma conta normal do Windows (não a conta Administrador integrada) e verifique se o seu antivírus não bloqueia o LTK Manager."
 }

@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "Butuh hak administrator untuk mengaktifkan mulai otomatis.",
   "Administrator privileges are required to disable auto-start.": "Butuh hak administrator untuk menonaktifkan mulai otomatis.",
   "Failed to enable auto-start: {error}": "Gagal mengaktifkan mulai otomatis: {error}",
-  "Failed to disable auto-start: {error}": "Gagal menonaktifkan mulai otomatis: {error}"
+  "Failed to disable auto-start: {error}": "Gagal menonaktifkan mulai otomatis: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "Solusi: Rose tidak dapat menjangkau browser bawaan LTK Manager. Mulai ulang PC Anda, lalu coba lagi. Jika terus terjadi, gunakan akun Windows biasa (bukan akun Administrator bawaan) dan pastikan antivirus Anda tidak memblokir LTK Manager."
 }

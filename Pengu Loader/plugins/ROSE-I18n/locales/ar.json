@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "يلزم امتلاك صلاحيات المسؤول لتفعيل التشغيل التلقائي.",
   "Administrator privileges are required to disable auto-start.": "يلزم امتلاك صلاحيات المسؤول لتعطيل التشغيل التلقائي.",
   "Failed to enable auto-start: {error}": "تعذّر تفعيل التشغيل التلقائي: {error}",
-  "Failed to disable auto-start: {error}": "تعذّر تعطيل التشغيل التلقائي: {error}"
+  "Failed to disable auto-start: {error}": "تعذّر تعطيل التشغيل التلقائي: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "الحل: لم يتمكن Rose من الوصول إلى المتصفح المدمج في LTK Manager. أعد تشغيل جهازك ثم حاول مرة أخرى. إذا استمرت المشكلة، فاستخدم حساب Windows عاديًا (وليس حساب المسؤول المدمج) وتأكد من أن برنامج مكافحة الفيروسات لا يحظر LTK Manager."
 }

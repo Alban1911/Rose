@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "Les droits administrateur sont nécessaires pour activer le lancement au démarrage.",
   "Administrator privileges are required to disable auto-start.": "Les droits administrateur sont nécessaires pour désactiver le lancement au démarrage.",
   "Failed to enable auto-start: {error}": "Impossible d'activer le lancement au démarrage : {error}",
-  "Failed to disable auto-start: {error}": "Impossible de désactiver le lancement au démarrage : {error}"
+  "Failed to disable auto-start: {error}": "Impossible de désactiver le lancement au démarrage : {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "Solution : Rose n'a pas pu joindre le navigateur intégré de LTK Manager. Redémarrez votre PC, puis réessayez. Si ça continue, utilisez un compte Windows normal (pas le compte Administrateur intégré) et vérifiez que votre antivirus ne bloque pas LTK Manager."
 }

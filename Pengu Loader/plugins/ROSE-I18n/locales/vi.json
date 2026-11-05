@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "Cần quyền quản trị viên để bật tự khởi động.",
   "Administrator privileges are required to disable auto-start.": "Cần quyền quản trị viên để tắt tự khởi động.",
   "Failed to enable auto-start: {error}": "Không bật được tự khởi động: {error}",
-  "Failed to disable auto-start: {error}": "Không tắt được tự khởi động: {error}"
+  "Failed to disable auto-start: {error}": "Không tắt được tự khởi động: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "Cách khắc phục: Rose không thể kết nối với trình duyệt tích hợp của LTK Manager. Hãy khởi động lại máy tính rồi thử lại. Nếu vẫn xảy ra, hãy dùng một tài khoản Windows thông thường (không phải tài khoản Administrator tích hợp) và kiểm tra xem phần mềm diệt virus có chặn LTK Manager không."
 }

@@ -5077,6 +5077,8 @@
           };
         }
 
+        // Kept in one place: it is also the key of its translations (ROSE-I18n)
+        const CDP_FIX = "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.";
         if (code === 'LTF_FAILED') {
           const detail = String(e?.detail || '').trim();
           // Why it failed (ltk_failure_cause in overlay_manager.py): what to
@@ -5089,6 +5091,7 @@
             import: () => t('Fix: free up some disk space, then retry.'),
             killed: () => t("Fix: another program closed LTK Manager, most often an antivirus. Add Rose's folder to its exclusions, then retry."),
             crashed: () => t('Fix: LTK Manager crashed. Retry the next game. If it crashes every game, report it with your Rose logs.'),
+            cdp: () => t(CDP_FIX),
           };
           const fix = fixes[e?.cause];
           return {

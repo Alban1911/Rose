@@ -120,6 +120,10 @@ LTK_PATCHER_ERROR_LINE = re.compile(
 # The longest LTK Manager error kept for a report
 LTK_ERROR_MAX_CHARS = 300
 ALREADY_OPEN_REASON = "LTK Manager is already open without Rose's bridge"
+# The bridge drives LTK Manager through the remote debugging port (CDP) of its
+# WebView2 window; when that port never answers, every command fails with this
+CDP_FAILURE_MARKER = "cdp unavailable"
+CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in browser (CDP unavailable or timed out)"
 # Every LTF report's hint ends with it (Troubleshooting recognizes the reports by it)
 LTF_LOGS_HINT = "Details are in C:\\Users\\Public\\ltk_bridge.log, ltk_api.log and ltk_launcher.log."
 
@@ -128,6 +132,9 @@ def ltk_failure_cause(reason: str) -> str:
     """Why the LTF session failed, from the reason Rose reported: what to do
     about it depends on it (Troubleshooting shows a hint for each)"""
     lowered = reason.lower()
+    # Before "import" and "bridge": a failed install or command names them too
+    if CDP_FAILURE_MARKER in lowered or "built-in browser" in lowered:
+        return "cdp"
     if "import" in lowered:
         return "import"
     if "already open" in lowered:
@@ -149,6 +156,11 @@ def ltk_failure_cause(reason: str) -> str:
         if code >= 0xC0000000:
             return "crashed"
     return "unknown"
+
+
+def _cdp_unreachable(error: BaseException) -> bool:
+    """Whether a bridge command failed because LTK Manager's browser did not answer."""
+    return CDP_FAILURE_MARKER in str(error).lower()
 
 
 class LtkLogTail:
@@ -961,7 +973,9 @@ class OverlayManager:
                 except (OSError, BridgeUnavailable, BridgeCommandError) as e:
                     log.error(f"[INJECT] Could not install {display_name}: {e}")
                     if report and not stopped():
-                        if not self._report_low_disk_space_failure(mod_names):
+                        if _cdp_unreachable(e):
+                            self._report_ltf_failure(CDP_UNREACHABLE_REASON)
+                        elif not self._report_low_disk_space_failure(mod_names):
                             report_issue(
                                 "LTF_IMPORT_FAILED",
                                 "error",
@@ -1018,7 +1032,9 @@ class OverlayManager:
         except (BridgeUnavailable, BridgeCommandError) as e:
             log.error(f"[INJECT] Could not start the LTK patcher: {e}")
             if report and not self._session_stopped(session):
-                self._report_ltf_failure(f"could not start the LTK patcher ({e})")
+                self._report_ltf_failure(
+                    CDP_UNREACHABLE_REASON if _cdp_unreachable(e) else f"could not start the LTK patcher ({e})"
+                )
             return False
         session["patcher_running"] = True
         session["patcher_started_at"] = time.monotonic()
@@ -1642,6 +1658,10 @@ class OverlayManager:
         logs = LTF_LOGS_HINT
         report = "report it with rose_*.log and those logs"
         cause = ltk_failure_cause(reason)
+        if cause == "cdp":
+            return ("Rose drives LTK Manager through the debugging port of its built-in browser, which did not "
+                    "answer. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not "
+                    f"the built-in Administrator) and check that your antivirus does not block LTK Manager. {logs}")
         if cause == "start":
             return ("Rose could not start the LTK patcher. Check that ltk_launcher.exe and LeagueToolFlop.dll "
                     f"are still in Rose's tools folder: an antivirus may have removed them. {logs}")

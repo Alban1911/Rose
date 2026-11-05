@@ -909,7 +909,9 @@ class MessageHandler:
                     if 'ltk manager is not installed' in ml:
                         return {'code': 'LTK_MANAGER_MISSING', 'text': 'LTK Manager missing -> install it'}
                     detail = msg.split('Injection failed:', 1)[-1].strip()
-                    if is_import_failure:
+                    # An install that failed because LTK Manager's browser did not
+                    # answer is not an import problem (older reports name it so)
+                    if is_import_failure and ltk_failure_cause(detail) != 'cdp':
                         return {
                             'code': 'LTF_IMPORT_FAILED',
                             'text': 'Mod import failed',

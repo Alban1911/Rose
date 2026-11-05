@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "Sunt necesare drepturi de administrator pentru a activa pornirea automată.",
   "Administrator privileges are required to disable auto-start.": "Sunt necesare drepturi de administrator pentru a dezactiva pornirea automată.",
   "Failed to enable auto-start: {error}": "Pornirea automată nu a putut fi activată: {error}",
-  "Failed to disable auto-start: {error}": "Pornirea automată nu a putut fi dezactivată: {error}"
+  "Failed to disable auto-start: {error}": "Pornirea automată nu a putut fi dezactivată: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "Soluție: Rose nu a putut accesa browserul integrat al LTK Manager. Repornește PC-ul, apoi încearcă din nou. Dacă problema continuă, folosește un cont Windows obișnuit (nu contul Administrator integrat) și verifică dacă antivirusul nu blochează LTK Manager."
 }

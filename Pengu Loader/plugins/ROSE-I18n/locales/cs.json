@@ -184,5 +184,6 @@
   "Administrator privileges are required to enable auto-start.": "K zapnutí automatického spouštění jsou potřeba práva správce.",
   "Administrator privileges are required to disable auto-start.": "K vypnutí automatického spouštění jsou potřeba práva správce.",
   "Failed to enable auto-start: {error}": "Automatické spouštění se nepodařilo zapnout: {error}",
-  "Failed to disable auto-start: {error}": "Automatické spouštění se nepodařilo vypnout: {error}"
+  "Failed to disable auto-start: {error}": "Automatické spouštění se nepodařilo vypnout: {error}",
+  "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.": "Řešení: Rose se nepodařilo spojit s vestavěným prohlížečem LTK Manageru. Restartujte počítač a zkuste to znovu. Pokud se to opakuje, použijte běžný účet Windows (ne vestavěný účet Administrator) a ověřte, že antivirus neblokuje LTK Manager."
 }
