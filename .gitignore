@@ -143,5 +143,4 @@ relay-worker/.wrangler/
 
 # Local test suites
 /test/
-.agent/
 run_rose.bat
