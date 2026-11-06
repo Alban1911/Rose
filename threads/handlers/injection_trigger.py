@@ -191,6 +191,7 @@ class InjectionTrigger:
         historic_skin_id = getattr(self.state, 'historic_skin_id', None)
         random_active = getattr(self.state, 'random_mode_active', False)
         random_skin_id = getattr(self.state, 'random_skin_id', None)
+        random_chroma_id = getattr(self.state, 'random_chroma_id', None)
         selected_chroma_id = getattr(self.state, 'selected_chroma_id', None)
         if random_active and random_chroma_id:
             selected_chroma_id = random_chroma_id
