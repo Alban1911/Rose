@@ -12,7 +12,9 @@ class ChampionModImageTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        # Resolved, as storage resolves its paths: a temp folder named in 8.3 form
+        # (C:\Users\RUNNER~1 on GitHub's runners) would otherwise compare unequal
+        self.root = Path(temporary.name).resolve()
         self.service = ModStorageService(self.root / "mods")
         self.mod_folder = self.service.get_champion_dir(1) / "Example"
         self.mod_folder.mkdir(parents=True)
