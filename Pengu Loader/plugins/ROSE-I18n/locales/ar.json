@@ -206,5 +206,10 @@
   "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "الحل: لم يتمكن Windows من التحقق من التوقيع الرقمي لملفات LTK Manager: تم تعديل أحدها أو تلفه، ويرفض برنامج التصحيح الخاص به العمل. أعد تثبيت LTK Manager من إصداره الرسمي (github.com/LeagueToolkit/ltk-manager/releases)، ثم حاول مرة أخرى.",
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "المدة التي يمكن لـ Rose خلالها إيقاف اللعبة مؤقتًا بينما يجهّز LTK Manager السكن الخاص بك.\n\nإذا لم يكن LTK Manager جاهزًا قبل بدء اللعبة، يجمّد Rose اللعبة، ثم يعيد تشغيلها ويعيد توصيلك بمجرد أن يصبح LTK Manager جاهزًا. بعد هذه المدة، تبدأ اللعبة بدون السكن.\n\nإذا كنت تستخدم مودات ثقيلة، فقد تحتاج إلى قيمة أعلى.",
   "LTK Manager was not ready in time": "لم يكن LTK Manager جاهزًا في الوقت المناسب",
-  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "ما يعنيه ذلك: لم يكن LTK Manager جاهزًا خلال مهلة الاستئناف التلقائي، لذا ترك Rose اللعبة تستمر بدون السكن."
+  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "ما يعنيه ذلك: لم يكن LTK Manager جاهزًا خلال مهلة الاستئناف التلقائي، لذا ترك Rose اللعبة تستمر بدون السكن.",
+  "Failed to import {name}: {error}": "???? ??????? {name}: {error}",
+  "Import failed": "??? ?????????",
+  "Mods added": "??? ????? ?????????",
+  "Some mods added": "??? ????? ??? ?????????",
+  "{count} mod files selected": "?? ????? {count} ?? ????? ???????"
 }
