@@ -4113,7 +4113,7 @@
     return { dialog, listContainer };
   }
 
-  function renderModRow(listContainer, mod, onDelete, onRename) {
+  function renderModRow(listContainer, mod, onDelete, onRename, onImage) {
     const row = document.createElement("div");
     row.className = "mod-manage-row";
     row.style.display = "flex";
@@ -4171,6 +4171,18 @@
         promptRenameMod(displayLabel, (newName) => onRename(renameButton, row, newName));
       });
       actions.appendChild(renameButton);
+    }
+
+    if (onImage && mod.imageEditable) {
+      const imageButton = document.createElement("button");
+      imageButton.type = "button";
+      imageButton.className = "mod-rename-button";
+      imageButton.textContent = t(mod.thumbnailUrl ? "Change image" : "Add image");
+      imageButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onImage(imageButton, row);
+      });
+      actions.appendChild(imageButton);
     }
 
     const deleteButton = document.createElement("button");
@@ -4355,7 +4367,12 @@
       seen.add(dedupeKey);
       renderModRow(
         listContainer,
-        { name: mod.modName, displayName: mod.displayName, thumbnailUrl: mod.thumbnailUrl },
+        {
+          name: mod.modName,
+          displayName: mod.displayName,
+          thumbnailUrl: mod.thumbnailUrl,
+          imageEditable: mod.imageEditable,
+        },
         (deleteButton, row) => {
           deleteButton.disabled = true;
           deleteButton.textContent = t("Deleting...");
@@ -4376,9 +4393,39 @@
             relativePath: mod.relativePath,
             newName: newName,
           });
+        },
+        (imageButton) => {
+          imageButton.disabled = true;
+          imageButton.textContent = t("Saving...");
+          if (bridge) bridge.send({
+            type: "set-champion-mod-image",
+            championId: window.__roseManageChampionId,
+            relativePath: mod.relativePath,
+          });
         }
       );
     });
+  }
+
+  function handleChampionModImageUpdated(payload) {
+    if (!payload.success) {
+      if (!payload.cancelled) {
+        log("error", "Failed to update skin mod image: " + (payload.error || "unknown error"));
+      }
+    } else {
+      log("info", `Skin mod image updated: ${payload.relativePath}`);
+      requestManageCategories();
+    }
+    if (
+      document.getElementById("champion-mods-manage-dialog") &&
+      Number(payload.championId) === Number(window.__roseManageChampionId) &&
+      bridge
+    ) {
+      bridge.send({
+        type: "request-manage-champion-mods",
+        championId: payload.championId,
+      });
+    }
   }
 
   function handleChampionModDeleted(payload) {
@@ -5492,6 +5539,7 @@
       bridge.subscribe("manage-categories-response", handleManageCategoriesResponse);
       bridge.subscribe("manage-champion-mods-response", handleManageSkinModsResponse);
       bridge.subscribe("manage-category-mods-response", handleManageCategoryModsResponse);
+      bridge.subscribe("champion-mod-image-updated", handleChampionModImageUpdated);
       bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
       bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
       bridge.subscribe("champion-mod-renamed", handleChampionModRenamed);

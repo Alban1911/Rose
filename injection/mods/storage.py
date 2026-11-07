@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from utils.core.junction import safe_remove_entry
+from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import (
@@ -60,6 +61,7 @@ class ModStorageService:
     # the temporary directory name can push deeply nested WAD paths over the
     # legacy MAX_PATH limit before the import is renamed into place.
     IMPORT_TEMP_PREFIX = ".rose-import-"
+    MAX_MOD_IMAGE_BYTES = 5 * 1024 * 1024
     TARGET_METADATA = "rose_mod_targets.json"
     LEGACY_TARGET_METADATA = "rose_wad_targets.json"
     CATEGORY_METADATA = "rose_category_mods.json"
@@ -300,8 +302,10 @@ class ModStorageService:
             files = []
 
         for file_path in files:
+            relative_path = file_path.relative_to(mod_path).as_posix()
+            if relative_path.casefold() == "meta/image.png":
+                continue
             try:
-                relative_path = file_path.relative_to(mod_path).as_posix()
                 file_hash = hashlib.sha256()
                 with file_path.open("rb") as stream:
                     for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -736,6 +740,68 @@ class ModStorageService:
             self._champion_listing_cache.pop(champion_id_int, None)
             return True
 
+    def set_champion_mod_image(
+        self,
+        champion_id: int | str,
+        relative_path: str,
+        image_data: bytes | Path,
+    ) -> Path:
+        """Atomically add or replace a skin mod's META/image.png."""
+        champion_id_int = self._to_int(champion_id)
+        if champion_id_int is None or champion_id_int <= 0:
+            raise ValueError(f"Invalid champion ID: {champion_id}")
+        if not isinstance(relative_path, str) or self._is_unsafe_mod_identity(relative_path):
+            raise ValueError("Invalid skin mod path")
+        if isinstance(image_data, Path):
+            try:
+                image_size = image_data.stat().st_size
+                if image_size <= 0 or image_size > self.MAX_MOD_IMAGE_BYTES:
+                    raise ValueError("The image must be between 1 byte and 5 MB")
+                with image_data.open("rb") as stream:
+                    image_data = stream.read(self.MAX_MOD_IMAGE_BYTES + 1)
+            except OSError as exc:
+                raise ValueError(f"Could not read the selected image: {exc}") from exc
+        if not isinstance(image_data, bytes) or not image_data:
+            raise ValueError("A PNG image is required")
+        if len(image_data) > self.MAX_MOD_IMAGE_BYTES:
+            raise ValueError("The image must be 5 MB or smaller")
+        if not image_data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("The selected file is not a PNG image")
+
+        with self._storage_lock:
+            target = self._resolve_mod_path(self.skins_dir, relative_path)
+            if (
+                target is None
+                or not target.is_dir()
+                or target.parent.parent.resolve() != self.skins_dir.resolve()
+                or target.name in {
+                    self.TARGET_METADATA,
+                    self.LEGACY_TARGET_METADATA,
+                    self.CATEGORY_METADATA,
+                }
+            ):
+                raise ValueError("Skin mod folder was not found")
+            stored_skin_id = self._to_int(target.parent.name)
+            if stored_skin_id is None or (
+                stored_skin_id != champion_id_int * 1000
+                and get_champion_id_from_skin_id(stored_skin_id) != champion_id_int
+            ):
+                raise ValueError("Skin mod does not belong to the selected champion")
+
+            meta_dir = target / "META"
+            meta_dir.mkdir(exist_ok=True)
+            resolved_meta = meta_dir.resolve()
+            resolved_target = target.resolve()
+            if resolved_meta.parent != resolved_target:
+                raise ValueError("Skin mod META folder must stay inside the mod folder")
+
+            image_path = meta_dir / "image.png"
+            with atomic_write(image_path, "wb", durable=False) as handle:
+                handle.write(image_data)
+
+            self._champion_listing_cache.pop(champion_id_int, None)
+            return image_path
+
     def delete_category_mod(self, category: str, mod_name: str) -> bool:
         """Delete one previously imported mod from a category folder."""
         if category not in self.MOD_CATEGORIES:
@@ -1087,5 +1153,3 @@ class ModStorageService:
         except Exception as exc:
             log.debug(f"[ModStorage] Unable to read descriptor {description_file}: {exc}")
             return None
-
-
