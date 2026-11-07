@@ -19,6 +19,11 @@ from utils.core.logging import get_logger
 
 log = get_logger()
 
+# schtasks writes its messages in the console (OEM) code page, not the ANSI one
+# text=True decodes with: on a Turkish Windows "bulamıyor" is 0x8d in cp857,
+# undefined in cp1254, and the decode killed subprocess's reader thread (#478)
+SCHTASKS_OUTPUT = {"capture_output": True, "text": True, "encoding": "oem", "errors": "replace"}
+
 
 def is_admin():
     """Check if the current process has administrator privileges"""
@@ -92,10 +97,11 @@ def is_registered_for_autostart():
         bool: True if registered, False otherwise
     """
     try:
+        # Only the exit code answers: the output is not read at all
         result = subprocess.run(
             ['schtasks', '/Query', '/TN', 'Rose'],
-            capture_output=True,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
         return result.returncode == 0
@@ -141,11 +147,10 @@ def register_autostart():
         
         result = subprocess.run(
             cmd,
-            capture_output=True,
-            text=True,
+            **SCHTASKS_OUTPUT,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
-        
+
         if result.returncode == 0:
             return True, "Successfully registered for auto-start with admin rights"
         else:
@@ -180,11 +185,10 @@ def unregister_autostart():
         
         result = subprocess.run(
             cmd,
-            capture_output=True,
-            text=True,
+            **SCHTASKS_OUTPUT,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
-        
+
         if result.returncode == 0:
             return True, "Successfully unregistered from auto-start"
         else:
