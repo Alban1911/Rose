@@ -212,5 +212,7 @@
   "Import failed": "??e aktarma ba?ar?s?z",
   "Mods added": "Modlar eklendi",
   "Some mods added": "Baz? modlar eklendi",
-  "{count} mod files selected": "{count} mod dosyas? se?ildi"
+  "{count} mod files selected": "{count} mod dosyas? se?ildi",
+  "Add image": "G?rsel ekle",
+  "Change image": "G?rseli de?i?tir"
 }

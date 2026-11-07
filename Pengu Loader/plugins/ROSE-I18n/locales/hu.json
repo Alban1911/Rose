@@ -212,5 +212,7 @@
   "Import failed": "Az import?l?s nem siker?lt",
   "Mods added": "Modok hozz?adva",
   "Some mods added": "N?h?ny mod hozz?adva",
-  "{count} mod files selected": "{count} modf?jl kiv?lasztva"
+  "{count} mod files selected": "{count} modf?jl kiv?lasztva",
+  "Add image": "K?p hozz?ad?sa",
+  "Change image": "K?p m?dos?t?sa"
 }

@@ -212,5 +212,7 @@
   "Import failed": "Import se nezda?il",
   "Mods added": "Mody byly p?id?ny",
   "Some mods added": "N?kter? mody byly p?id?ny",
-  "{count} mod files selected": "Vybr?no soubor? s mody: {count}"
+  "{count} mod files selected": "Vybr?no soubor? s mody: {count}",
+  "Add image": "P?idat obr?zek",
+  "Change image": "Zm?nit obr?zek"
 }

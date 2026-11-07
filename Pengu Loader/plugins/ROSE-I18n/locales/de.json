@@ -212,5 +212,7 @@
   "Import failed": "Import fehlgeschlagen",
   "Mods added": "Mods hinzugef?gt",
   "Some mods added": "Einige Mods hinzugef?gt",
-  "{count} mod files selected": "{count} Mod-Dateien ausgew?hlt"
+  "{count} mod files selected": "{count} Mod-Dateien ausgew?hlt",
+  "Add image": "Bild hinzuf?gen",
+  "Change image": "Bild ?ndern"
 }

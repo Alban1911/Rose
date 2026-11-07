@@ -212,5 +212,7 @@
   "Import failed": "Nh?p kh?ng th?nh c?ng",
   "Mods added": "?? th?m c?c mod",
   "Some mods added": "?? th?m m?t s? mod",
-  "{count} mod files selected": "?? ch?n {count} t?p mod"
+  "{count} mod files selected": "?? ch?n {count} t?p mod",
+  "Add image": "Th?m ?nh",
+  "Change image": "??i ?nh"
 }

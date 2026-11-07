@@ -6,6 +6,8 @@ Routes and handles different WebSocket message types
 """
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import os
@@ -70,6 +72,7 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
     "request-manage-categories",
     "request-manage-champion-mods",
     "request-manage-category-mods",
+    "set-champion-mod-image",
     "delete-champion-mod",
     "delete-category-mod",
     "rename-champion-mod",
@@ -84,6 +87,20 @@ def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
         if thumbnail_path.is_file():
             return thumbnail_path
     return None
+
+
+def _mod_thumbnail_details(
+    mod_folder: Path,
+    mods_root: Path,
+    port: int,
+) -> tuple[Optional[str], Optional[str]]:
+    thumbnail_path = _mod_thumbnail(mod_folder)
+    if thumbnail_path is None:
+        return None, None
+    relative_path = str(thumbnail_path.relative_to(mods_root)).replace("\\", "/")
+    quoted_path = quote(relative_path, safe="/")
+    version = thumbnail_path.stat().st_mtime_ns
+    return relative_path, f"http://127.0.0.1:{port}/mod-asset/{quoted_path}?v={version}"
 
 
 def _choose_mod_files() -> list[Path]:
@@ -113,6 +130,35 @@ def _choose_mod_files() -> list[Path]:
     except Exception as exc:  # noqa: BLE001
         log.error("[SkinMonitor] Could not open the mod file picker: %s", exc)
         return None
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+
+def _choose_mod_image_file() -> Optional[Path]:
+    """Show a native file picker for a skin mod preview image."""
+    root = None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
+        selected = filedialog.askopenfilename(
+            title="Select a PNG image for the skin mod",
+            filetypes=[("PNG images", "*.png")],
+        )
+        return Path(selected) if selected else None
+    except Exception as exc:  # noqa: BLE001
+        log.error("[ManageMods] Could not open the skin mod image picker: %s", exc)
+        raise RuntimeError(f"Could not open image picker: {exc}") from exc
     finally:
         if root is not None:
             try:
@@ -319,6 +365,8 @@ class MessageHandler:
             self._handle_delete_category_mod(payload)
         elif payload_type == "rename-champion-mod":
             self._handle_rename_champion_mod(payload)
+        elif payload_type == "set-champion-mod-image":
+            self._handle_set_champion_mod_image(payload)
         elif payload_type == "rename-category-mod":
             self._handle_rename_category_mod(payload)
         elif payload_type == "dismiss-historic":
@@ -1074,13 +1122,11 @@ class MessageHandler:
             thumbnail_url = None
             try:
                 if entry.path.is_dir():
-                    thumbnail_path = _mod_thumbnail(entry.path)
-                    if thumbnail_path is not None:
-                        thumbnail_relative_path = str(
-                            thumbnail_path.relative_to(self.mod_storage.mods_root)
-                        ).replace("\\", "/")
-                        quoted_path = quote(thumbnail_relative_path, safe="/")
-                        thumbnail_url = f"http://127.0.0.1:{self.port}/mod-asset/{quoted_path}"
+                    thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
+                        entry.path,
+                        self.mod_storage.mods_root,
+                        self.port,
+                    )
             except Exception as e:
                 log.debug('[SkinMonitor] Could not build mod thumbnail URL: %s', e)
 
@@ -1096,6 +1142,7 @@ class MessageHandler:
                     "relativePath": str(relative_path).replace("\\", "/"),
                     "thumbnailRelativePath": thumbnail_relative_path,
                     "thumbnailUrl": thumbnail_url,
+                    "imageEditable": entry.path.is_dir(),
                 }
             )
 
@@ -1172,13 +1219,11 @@ class MessageHandler:
             thumbnail_url = None
             try:
                 if entry.path.is_dir():
-                    thumbnail_path = _mod_thumbnail(entry.path)
-                    if thumbnail_path is not None:
-                        thumbnail_relative_path = str(
-                            thumbnail_path.relative_to(self.mod_storage.mods_root)
-                        ).replace("\\", "/")
-                        quoted_path = quote(thumbnail_relative_path, safe="/")
-                        thumbnail_url = f"http://127.0.0.1:{self.port}/mod-asset/{quoted_path}"
+                    thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
+                        entry.path,
+                        self.mod_storage.mods_root,
+                        self.port,
+                    )
             except Exception as e:
                 log.debug(f"[SkinMonitor] No thumbnail for mod {entry.path}: {e}")
             mods_payload.append(
@@ -1192,6 +1237,7 @@ class MessageHandler:
                     "relativePath": str(relative_path).replace("\\", "/"),
                     "thumbnailRelativePath": thumbnail_relative_path,
                     "thumbnailUrl": thumbnail_url,
+                    "imageEditable": entry.path.is_dir(),
                 }
             )
         return mods_payload
@@ -2123,6 +2169,61 @@ class MessageHandler:
                 "success": False,
                 "championId": champion_id,
                 "modName": mod_name,
+                "error": str(exc),
+            }))
+
+    def _handle_set_champion_mod_image(self, payload: dict) -> None:
+        """Add or replace a skin mod preview image and refresh its cache URL."""
+        champion_id = payload.get("championId")
+        relative_path = payload.get("relativePath")
+        try:
+            if not self.mod_storage:
+                raise RuntimeError("Mod storage is not available")
+            if not champion_id or not isinstance(relative_path, str):
+                raise ValueError("Champion ID and mod path are required")
+
+            selected_image = _choose_mod_image_file()
+            if selected_image is None:
+                self._send_response(json.dumps({
+                    "type": "champion-mod-image-updated",
+                    "success": False,
+                    "cancelled": True,
+                    "championId": champion_id,
+                }))
+                return
+
+            from PIL import Image
+
+            try:
+                image_context = Image.open(selected_image)
+            except (OSError, ValueError) as exc:
+                raise ValueError("The selected file is not a valid PNG image") from exc
+            with image_context as image:
+                if image.format != "PNG":
+                    raise ValueError("The selected file is not a PNG image")
+                if image.width > 4096 or image.height > 4096:
+                    raise ValueError("Image dimensions must be 4096 by 4096 pixels or smaller")
+                image.verify()
+
+            image_path = self.mod_storage.set_champion_mod_image(
+                champion_id,
+                relative_path,
+                selected_image,
+            )
+            log.info("[ManageMods] Updated skin mod image: %s", image_path)
+            self._send_response(json.dumps({
+                "type": "champion-mod-image-updated",
+                "success": True,
+                "championId": champion_id,
+                "relativePath": relative_path,
+            }))
+        except Exception as exc:
+            log.error("[ManageMods] Failed to update skin mod image: %s", exc)
+            self._send_response(json.dumps({
+                "type": "champion-mod-image-updated",
+                "success": False,
+                "championId": champion_id,
+                "relativePath": relative_path,
                 "error": str(exc),
             }))
 

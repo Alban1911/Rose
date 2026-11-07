@@ -212,5 +212,7 @@
   "Import failed": "Importul a e?uat",
   "Mods added": "Moduri ad?ugate",
   "Some mods added": "Unele moduri au fost ad?ugate",
-  "{count} mod files selected": "{count} fi?iere de mod selectate"
+  "{count} mod files selected": "{count} fi?iere de mod selectate",
+  "Add image": "Adaug? imagine",
+  "Change image": "Schimb? imaginea"
 }

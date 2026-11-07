@@ -212,5 +212,7 @@
   "Import failed": "Impor gagal",
   "Mods added": "Mod ditambahkan",
   "Some mods added": "Beberapa mod ditambahkan",
-  "{count} mod files selected": "{count} file mod dipilih"
+  "{count} mod files selected": "{count} file mod dipilih",
+  "Add image": "Tambahkan gambar",
+  "Change image": "Ubah gambar"
 }
