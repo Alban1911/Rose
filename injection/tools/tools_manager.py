@@ -37,6 +37,49 @@ def ltk_manager_install_dirs() -> list[Path]:
     return dirs
 
 
+def file_version(path: Path) -> Optional[str]:
+    """The file version Windows shows for *path* ("1.33.0"), None when it has none.
+
+    Rose may drive an LTK Manager other than the current install (an old copy
+    named in config.ini); its version in the log tells a fix LTK Manager has
+    had for a while from a new problem (#479).
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        version = ctypes.WinDLL("version")
+    except (OSError, AttributeError):
+        return None
+    name = str(path)
+    size = version.GetFileVersionInfoSizeW(name, None)
+    if not size:
+        return None
+    data = ctypes.create_string_buffer(size)
+    if not version.GetFileVersionInfoW(name, 0, size, data):
+        return None
+    fixed = ctypes.c_void_p()
+    length = wintypes.UINT()
+    if not version.VerQueryValueW(data, "\\", ctypes.byref(fixed), ctypes.byref(length)) or length.value < 52:
+        return None
+    # VS_FIXEDFILEINFO: signature, struct version, then the file version's
+    # most and least significant DWORDs
+    words = ctypes.cast(fixed, ctypes.POINTER(wintypes.DWORD * 4)).contents
+    if words[0] != 0xFEEF04BD:
+        return None
+    major, minor = words[2] >> 16, words[2] & 0xFFFF
+    patch, build = words[3] >> 16, words[3] & 0xFFFF
+    return f"{major}.{minor}.{patch}" + (f".{build}" if build else "")
+
+
+def _with_version(path: Path) -> str:
+    try:
+        found = file_version(path)
+    except Exception:  # noqa: BLE001 - a log detail must never stop the injection
+        found = None
+    return f"{path} (v{found})" if found else str(path)
+
+
 class ToolsManager:
     """Manages injection runtime detection and validation"""
 
@@ -88,7 +131,7 @@ class ToolsManager:
             for name in LTK_MANAGER_EXECUTABLES:
                 candidate = directory / name
                 if candidate.exists():
-                    log.info(f"[INJECT] LTK Manager found at {candidate}")
+                    log.info(f"[INJECT] LTK Manager found at {_with_version(candidate)}")
                     return candidate
         return None
 
@@ -102,7 +145,7 @@ class ToolsManager:
             return None
         candidate = Path(configured)
         if candidate.is_file():
-            log.info(f"[INJECT] LTK Manager taken from config.ini: {candidate}")
+            log.info(f"[INJECT] LTK Manager taken from config.ini: {_with_version(candidate)}")
             return candidate
         log.warning(f"[INJECT] ltkManagerPath in config.ini does not exist: {configured}")
 
@@ -117,7 +160,9 @@ class ToolsManager:
             try:
                 for proc in psutil.process_iter(["name"]):
                     if (proc.info.get("name") or "").lower() == name.lower():
-                        return Path(proc.exe())
+                        running = Path(proc.exe())
+                        log.info(f"[INJECT] LTK Manager running from {_with_version(running)}")
+                        return running
             except (psutil.Error, OSError):
                 continue
         return None
