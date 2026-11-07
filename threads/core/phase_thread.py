@@ -101,6 +101,8 @@ class PhaseThread(threading.Thread):
                 continue
 
             self._null_phase_streak = 0
+            # Restore the shared phase even when reconnecting to the same phase.
+            self.state.phase = ph
             phase_changed = (ph != self.last_phase)
 
             if ph == "Lobby":
@@ -119,10 +121,6 @@ class PhaseThread(threading.Thread):
                 # Log phase transition
                 if ph is not None and self.log_transitions and ph in self.INTERESTING:
                     log_status(log, "Phase", ph, "")
-
-                # Update phase
-                if ph is not None:
-                    self.state.phase = ph
 
                 # Handle phase change
                 self.phase_handler.handle_phase_change(ph, self.last_phase)
