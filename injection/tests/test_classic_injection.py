@@ -106,6 +106,17 @@ class ClassicInjectionTests(unittest.TestCase):
         self.assertTrue(self.injector.inject_skin('skin_1001', champion_id=1, extra_mods_callback=self.party))
         self.assertEqual(self._injected(), (['1001', 'party_42'], 'regular'))
 
+    def test_a_regular_skin_gets_its_own_sound_banks(self):
+        with patch.object(injector_module.skin_audio, 'repair', return_value=[]) as repair:
+            self.assertTrue(self.injector.inject_skin('skin_1001', champion_id=1))
+        game_dir, mod_folder, skin_ids = repair.call_args.args
+        self.assertEqual((game_dir, mod_folder.name, tuple(skin_ids)), (self.injector.game_dir, '1001', (1001, 1001)))
+
+    def test_a_classic_skins_sound_banks_are_left_as_they_are(self):
+        with patch.object(injector_module.skin_audio, 'repair') as repair:
+            self.assertTrue(self.injector.inject_skin('skin_60001001', champion_id=60001, classic=True))
+        repair.assert_not_called()
+
     def test_skin_without_a_classic_version_is_reported(self):
         self.assertFalse(self.injector.inject_skin('skin_60001005', champion_id=60001, classic=True))
         self.run_overlay.assert_not_called()

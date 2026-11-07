@@ -82,24 +82,27 @@ def _language_wad(game_dir: Path) -> Optional[Path]:
 
 
 def _read_entry(wad: Path, path_hash: int) -> Optional[bytes]:
-    """One entry of a wad, decompressed."""
-    data = wad.read_bytes()
-    if len(data) < 272 or data[:2] != b"RW" or data[2] != 3:
-        log.warning(f"[LOADNAME] {wad.name}: not a wad v3")
-        return None
-    count = struct.unpack_from("<I", data, 268)[0]
-    for i in range(count):
-        at = 272 + i * 32
-        entry_hash, offset, packed, size = struct.unpack_from("<QIII", data, at)
-        if entry_hash != path_hash:
-            continue
-        kind = data[at + 20] & 0xF
-        if kind == 0:
-            return data[offset:offset + size]
-        if kind in (3, 4):
-            return _unzstd(data[offset:offset + packed], size, single_frame=kind == 3)
-        log.warning(f"[LOADNAME] {wad.name}: entry {path_hash:016x} is stored as type {kind}")
-        return None
+    """One entry of a wad, decompressed. Only its table and that entry are read (a champion's wad is 100+ MB)."""
+    with open(wad, "rb") as handle:
+        header = handle.read(272)
+        if len(header) < 272 or header[:2] != b"RW" or header[2] != 3:
+            log.warning(f"[LOADNAME] {wad.name}: not a wad v3")
+            return None
+        count = struct.unpack_from("<I", header, 268)[0]
+        toc = handle.read(count * 32)
+        for i in range(len(toc) // 32):
+            at = i * 32
+            entry_hash, offset, packed, size = struct.unpack_from("<QIII", toc, at)
+            if entry_hash != path_hash:
+                continue
+            kind = toc[at + 20] & 0xF
+            handle.seek(offset)
+            if kind == 0:
+                return handle.read(size)
+            if kind in (3, 4):
+                return _unzstd(handle.read(packed), size, single_frame=kind == 3)
+            log.warning(f"[LOADNAME] {wad.name}: entry {path_hash:016x} is stored as type {kind}")
+            return None
     return None
 
 
