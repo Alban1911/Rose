@@ -101,9 +101,13 @@ class PhaseThread(threading.Thread):
                 continue
 
             self._null_phase_streak = 0
-            # Restore the shared phase even when reconnecting to the same phase.
-            self.state.phase = ph
             phase_changed = (ph != self.last_phase)
+            if not phase_changed and self.state.phase is None:
+                # Back after an outage (the client restarting) in the phase it
+                # left: nothing changes, but the shared phase was cleared (#413).
+                # Only then: in champ select the countdown keeps "FINALIZATION"
+                # there while the client still reads ChampSelect
+                self.state.phase = ph
 
             if ph == "Lobby":
                 self.lobby_processor.process_lobby_state(force=phase_changed)
@@ -121,6 +125,10 @@ class PhaseThread(threading.Thread):
                 # Log phase transition
                 if ph is not None and self.log_transitions and ph in self.INTERESTING:
                     log_status(log, "Phase", ph, "")
+
+                # Update phase
+                if ph is not None:
+                    self.state.phase = ph
 
                 # Handle phase change
                 self.phase_handler.handle_phase_change(ph, self.last_phase)

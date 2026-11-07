@@ -12,6 +12,7 @@ the patcher never overlays a game created before its scan, nor hooks a
 frozen one.
 """
 
+import time
 from typing import Callable
 
 # Import psutil with fallback for development environments
@@ -33,9 +34,14 @@ from utils.core.logging import get_logger
 
 log = get_logger()
 _GAME_PROCESS_NAMES = frozenset(name.lower() for name in GAME_EXECUTABLE_NAMES)
+# How long a match outlives a client that is gone: restarting the client and
+# reconnecting to the game takes well under it. Past it the client was closed
+# for good or reopened on its home screen, and the session ends (a game still
+# running is served until it exits, see OverlayManager._run_session)
+CLIENT_OUTAGE_GRACE_S = 180.0
 
 
-def make_game_ended_callback(state) -> Callable[[], bool]:
+def make_game_ended_callback(state, clock: Callable[[], float] = time.monotonic) -> Callable[[], bool]:
     """Stop callback for an injection: True once the game it was made for is over.
 
     The LTK patcher keeps running through reconnects, so every injection must
@@ -43,22 +49,31 @@ def make_game_ended_callback(state) -> Callable[[], bool]:
 
     Args:
         state: Shared application state (its phase is polled)
+        clock: monotonic seconds, for the client outage's deadline
     """
     has_been_in_progress = False
+    outage_since = None
 
     def game_ended_callback() -> bool:
-        nonlocal has_been_in_progress
+        nonlocal has_been_in_progress, outage_since
         if getattr(state, "stop", False):
             return True
         phase = state.phase
         if phase == "InProgress":
             has_been_in_progress = True
+            outage_since = None
             return False
-        # Missing LCU data during a crash/reconnect is not a completed match.
-        return has_been_in_progress and phase in {
-            "WaitingForStats", "PreEndOfGame", "EndOfGame",
-            "Lobby", "Matchmaking", "ReadyCheck", "ChampSelect",
-        }
+        if not has_been_in_progress:
+            return False
+        if phase is None:
+            # No phase: the client is gone (or on its home screen). It can close
+            # and come back to Reconnect the match, which needs the patcher still
+            # running (#413), so the match outlives it for a while, not forever
+            if outage_since is None:
+                outage_since = clock()
+            return clock() - outage_since >= CLIENT_OUTAGE_GRACE_S
+        outage_since = None
+        return phase not in ("Reconnect", "GameStart")
 
     return game_ended_callback
 
