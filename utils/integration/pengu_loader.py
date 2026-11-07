@@ -856,6 +856,11 @@ def ensure_active_for_client() -> None:
         activate_on_start(get_config_option('General', 'clientPath'))
 
 
+def is_client_restart_pending(pid: int) -> bool:
+    """A client waiting for Rose's restart must not be diagnosed as a failed load."""
+    return pid in _restart_pending
+
+
 def retry_deferred_restart() -> None:
     """The client reached a safe phase: restart it if Rose's loader still waits
     for that (the client wasn't ready yet, or a champ select was on)."""
