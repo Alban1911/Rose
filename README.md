@@ -9,6 +9,9 @@
 
 </div>
 
+> [!CAUTION]
+> The `roseskin.xyz` website is **UNRELATED** to this project and does not represent this project. **THE DOWNLOAD ON THAT SITE CONTAINS MALWARE**. If you downloaded anything from `roseskin.xyz`, reinstall your PC. The only official download is the [GitHub releases page](https://github.com/Alban1911/Rose/releases/latest).
+
 ---
 
 ## Overview
