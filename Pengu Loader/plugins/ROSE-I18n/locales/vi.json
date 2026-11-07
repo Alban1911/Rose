@@ -207,6 +207,6 @@
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "Thời gian Rose có thể giữ trận đấu trong khi LTK Manager chuẩn bị skin của bạn.\n\nNếu LTK Manager chưa sẵn sàng trước khi trận đấu bắt đầu, Rose sẽ đóng băng trò chơi, rồi khởi động lại và kết nối lại cho bạn ngay khi LTK Manager sẵn sàng. Quá thời gian này, trận đấu sẽ bắt đầu mà không có skin.\n\nNếu bạn dùng mod nặng, bạn có thể cần giá trị cao hơn.",
   "LTK Manager was not ready in time": "LTK Manager không sẵn sàng kịp lúc",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Ý nghĩa: LTK Manager không sẵn sàng trong thời gian tự động tiếp tục, nên Rose để trận đấu tiếp diễn mà không có skin.",
-  "Add image": "Th?m ?nh",
-  "Change image": "??i ?nh"
+  "Add image": "Thêm ảnh",
+  "Change image": "Đổi ảnh"
 }
