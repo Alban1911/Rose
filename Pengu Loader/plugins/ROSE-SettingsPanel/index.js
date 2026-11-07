@@ -5431,6 +5431,7 @@
             disabled: () => t("Fix: LTK Manager's integrity check turned the overlay off because of a mod (named above). LTK Manager refuses a custom skin made of another skin's files: use another custom skin or the official one."),
             corrupt: () => t("Fix: League could not read a file of the overlay, most often a mod made for an older patch. Turn your mods off, then back on one at a time to find it. LTK Manager's incident file (named above) lists the mods it suspects."),
             incident: () => t("Fix: LTK Manager's incident file (named above) says what went wrong in the game and which mods it suspects."),
+            not_attached: () => t("Fix: LTK Manager's patcher found the game but could not get into it, so the game ran without skins. Check that League and the Riot Client are not set to run as administrator and that your antivirus does not block LTK Manager, then retry."),
             manager_admin: () => t('Fix: LTK Manager runs as administrator, and it does not patch League then. Turn User Account Control back on, or use a regular Windows account (not the built-in Administrator), then restart the PC.'),
           };
           const fix = fixes[e?.cause];

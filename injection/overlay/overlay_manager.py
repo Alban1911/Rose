@@ -30,6 +30,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -87,6 +88,33 @@ RESTART_WINDOW_MAX_S = 180.0
 RESTART_SKIPPED_MESSAGE = "Rose did not restart the game for the LTK patcher"
 
 
+def _log_sizes(paths) -> Dict[Path, int]:
+    """Each log's size now, so _new_log_lines reads only what follows."""
+    sizes = {}
+    for path in paths:
+        try:
+            sizes[path] = path.stat().st_size
+        except OSError:
+            sizes[path] = 0
+    return sizes
+
+
+def _new_log_lines(sizes: Dict[Path, int]) -> List[str]:
+    """The non-empty lines appended to each log since *sizes* were taken (a
+    log that shrank, deleted and written again, is read from its start)."""
+    lines: List[str] = []
+    for path, start in sizes.items():
+        try:
+            with open(path, "rb") as handle:
+                end = handle.seek(0, 2)
+                handle.seek(start if start <= end else 0)
+                data = handle.read()
+        except OSError:
+            continue
+        lines.extend(line.strip() for line in data.decode("utf-8", "replace").splitlines() if line.strip())
+    return lines
+
+
 def restart_window_s() -> float:
     """The Monitor Auto-Resume Timeout (General/monitor_auto_resume_timeout)."""
     try:
@@ -116,6 +144,17 @@ STATUS_FAILURE_LIMIT = 5
 BYTES_IMPORT_LIMIT = 40 * 1024 * 1024
 
 LAUNCHER_TIMEOUT_S = 60
+# ltk_launcher.exe logs how it started LTK Manager, and why it fell back when
+# it could not make explorer.exe its parent; the helper it may start logs to
+# its user's temp folder when it cannot write C:\Users\Public. Rose copies a
+# start's lines into its own log, so a report has them (#478)
+LAUNCHER_LOG_PATHS = (
+    Path(r"C:\Users\Public\ltk_launcher.log"),
+    Path(tempfile.gettempdir()) / "ltk_launcher.log",
+)
+# The parent Windows recorded for the LTK Manager the launcher spawned
+LAUNCHER_PARENT_LINE = re.compile(r"parent pid = \d+ \(([^)]*)\)")
+LAUNCHER_SHELL_PARENT = "explorer.exe"
 BRIDGE_START_TIMEOUT_S = 30
 # LTK Manager's built-in browser (CDP) answers seconds after its bridge does:
 # a command sent in between fails with "CDP unavailable", and the countdown's
@@ -158,6 +197,11 @@ SIGNATURE_FAILURE_MESSAGE = "Windows could not verify the signature of LTK Manag
 # failed a check, which the rest of the line names (a custom skin made of
 # another skin's files: "base-skin check: skin0 is another skin: ...")
 OVERLAY_DISABLED_LINE = re.compile(r"overlay verification failed, disabling overlay:\s*([^\r\n\"]+)", re.IGNORECASE)
+# LTK's host found the game but its DLL never loaded into it: the game runs
+# without the overlay, and the incident LTK Manager files for it can be titled
+# "Unexplained Game Exit", which does not say so (#475)
+DLL_NOT_ATTACHED_LINE = re.compile(r"DLL never attached after \d+\s*s", re.IGNORECASE)
+NOT_ATTACHED_MESSAGE = "LTK Manager's patcher never got into the game"
 OVERLAY_DISABLED_MESSAGE = "disabled the overlay"
 # LTK Manager's diagnosis of a game that went wrong (a WAD League could not
 # mount, a crash...), kept as <id>.json in its incidents folder
@@ -213,6 +257,8 @@ def ltk_failure_cause(reason: str) -> str:
         return "host_missing"
     if OVERLAY_DISABLED_MESSAGE in lowered:
         return "disabled"
+    if NOT_ATTACHED_MESSAGE.lower() in lowered:
+        return "not_attached"
     if "corruptarchive" in lowered:
         return "corrupt"
     if "recorded an incident" in lowered:
@@ -404,6 +450,9 @@ class OverlayManager:
         # Staging is open from the countdown's start until the injection or a
         # discard: a late stage must not touch the injection's session
         self._staging_open = False
+        # The parent ltk_launcher.exe last gave the LTK Manager it started, as
+        # its log names it ("explorer.exe" when the patcher's check accepts it)
+        self._launcher_parent: Optional[str] = None
 
     @property
     def current_overlay_process(self):
@@ -618,6 +667,7 @@ class OverlayManager:
             "ltk_signature": None,  # the WinVerifyTrust result in that refusal, as 0x...
             "ltk_disabled": None,  # why the DLL's integrity scan turned the overlay off
             "ltk_incident": None,  # (title, id, verdict) LTK Manager recorded after the game
+            "ltk_not_attached": None,  # LTK's host giving up on getting its DLL into the game
             "ltk_error": None,  # LTK Manager's first patcher ERROR line
             "staged_after_s": None,  # pick -> patcher start, for the staged mods
             # The library as _install_mods last read it, for _disable_other_mods
@@ -643,6 +693,7 @@ class OverlayManager:
             "refused_reported": False,
             "disabled_reported": False,
             "incident_reported": False,
+            "not_attached_reported": False,
             "early_stop_logged": False,
             "lock": threading.Lock(),
         }
@@ -748,6 +799,24 @@ class OverlayManager:
                 return
             time.sleep(CDP_READY_POLL_S)
 
+    def _log_launcher_run(self, sizes: Dict[Path, int]) -> None:
+        """Copy what ltk_launcher.exe (and its helper) logged for this start
+        into Rose's log, and keep the parent it gave LTK Manager."""
+        parent = None
+        for line in _new_log_lines(sizes):
+            if line.startswith("=========="):
+                continue
+            if line.startswith(("[warn]", "[err]")):
+                log.warning(f"[INJECT] ltk_launcher: {line}")
+            elif line.startswith("[launch]"):
+                log.info(f"[INJECT] ltk_launcher: {line}")
+            else:
+                log.debug(f"[INJECT] ltk_launcher: {line}")
+            found = LAUNCHER_PARENT_LINE.search(line)
+            if found:
+                parent = found.group(1).strip()
+        self._launcher_parent = parent
+
     def _connect_bridge(self, launcher: Path, manager: Path, report: bool,
                         cancelled: Optional[Callable[[], bool]] = None):
         """The bridge and whether Rose started LTK Manager for it."""
@@ -774,6 +843,7 @@ class OverlayManager:
 
         log.info(f"[INJECT] Starting LTK Manager through {launcher.name}")
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        launcher_logs = _log_sizes(LAUNCHER_LOG_PATHS)
         try:
             result = subprocess.run(
                 [str(launcher), "--exe", str(manager), "--quiet"],
@@ -786,8 +856,10 @@ class OverlayManager:
                 timeout=LAUNCHER_TIMEOUT_S,
             )
         except Exception as e:
+            self._log_launcher_run(launcher_logs)
             self._report_ltf_failure(f"could not start the LTF launcher ({e})", report)
             return None, False
+        self._log_launcher_run(launcher_logs)
         if result.returncode == LAUNCHER_EXIT_ALREADY_RUNNING:
             log.warning("[INJECT] LTK Manager opened before the launcher could start it - leaving it alone")
             self._report_ltf_failure(ALREADY_OPEN_REASON, report)
@@ -1915,6 +1987,9 @@ class OverlayManager:
         disabled = OVERLAY_DISABLED_LINE.search(text)
         if disabled and session.get("ltk_disabled") is None:
             session["ltk_disabled"] = disabled.group(1).strip()[:LTK_ERROR_MAX_CHARS]
+        not_attached = DLL_NOT_ATTACHED_LINE.search(text)
+        if not_attached and session.get("ltk_not_attached") is None:
+            session["ltk_not_attached"] = not_attached.group(0)
         incident = INCIDENT_LINE.search(text)
         if incident and session.get("ltk_incident") is None:
             session["ltk_incident"] = (incident.group(1).strip(), incident.group(2), incident.group(3))
@@ -2029,11 +2104,28 @@ class OverlayManager:
             signature = session.get("ltk_signature")
             if signature:
                 log.error(f"[INJECT] {SIGNATURE_FAILURE_MESSAGE} ({signature}): reinstall LTK Manager")
-            if not self._stopped_by_rose():
-                self._report_ltf_failure(
-                    f"LTK Manager's patcher refused the overlay (host verification failed: {described}"
-                    + (f"; {SIGNATURE_FAILURE_MESSAGE}, {signature})" if signature else ")")
+            # The check wants LTK Manager started under explorer.exe: when the
+            # launcher could not do that, its lines in this log say why (#478)
+            parent = self._launcher_parent
+            unparented = parent is not None and parent != LAUNCHER_SHELL_PARENT
+            if unparented:
+                log.error(
+                    f"[INJECT] LTK Manager was not started under explorer.exe ({parent}), which the patcher's "
+                    "check refuses - the ltk_launcher lines above say why"
                 )
+            if not self._stopped_by_rose():
+                details = [f"host verification failed: {described}"]
+                if signature:
+                    details.append(f"{SIGNATURE_FAILURE_MESSAGE}, {signature}")
+                if unparented:
+                    details.append(f"LTK Manager's parent was not explorer.exe ({parent})")
+                self._report_ltf_failure(f"LTK Manager's patcher refused the overlay ({'; '.join(details)})")
+        not_attached = session.get("ltk_not_attached")
+        if not_attached and not session.get("ltk_attached") and not session.get("not_attached_reported"):
+            session["not_attached_reported"] = True
+            log.error(f"[INJECT] {NOT_ATTACHED_MESSAGE} ({not_attached}) - it runs without the overlay")
+            if not self._stopped_by_rose():
+                self._report_ltf_failure(f"{NOT_ATTACHED_MESSAGE} ({not_attached})")
         # LTK Manager's own verdicts on the game: the overlay turned off by its
         # integrity scan, an incident after the game. Rose's injection
         # "completes" either way: without these, nothing told the user (#432)
@@ -2048,7 +2140,8 @@ class OverlayManager:
             title, incident_id, verdict = incident
             where = f"{LTK_INCIDENTS_DIR}\\{incident_id}.json"
             log.error(f"[INJECT] LTK Manager recorded an incident: {title} ({verdict}), see {where}")
-            if not disabled:  # its incident only repeats the disabled overlay
+            # Its incident only repeats a disabled overlay or a DLL that never got in
+            if not disabled and not session.get("not_attached_reported"):
                 self._report_ltf_failure(f"LTK Manager recorded an incident after the game: {title} ({verdict}; {where})")
 
     def _poll_patcher_status(self, session: dict) -> None:
@@ -2260,6 +2353,11 @@ class OverlayManager:
         if cause == "refused":
             return ("LTK Manager's patcher refused to apply the overlay. Update Rose (its launcher starts LTK "
                     f"Manager the way the patcher expects); if it still happens, {report}. {logs}")
+        if cause == "not_attached":
+            return ("LTK Manager's patcher found the game but could not get into it, so the game ran without the "
+                    "overlay. Check that League and the Riot Client are not set to run as administrator and that "
+                    f"your antivirus does not block LTK Manager, then retry; if it happens every game, {report}. "
+                    f"{logs}")
         if cause == "bridge":
             return (f"LTK Manager closed while the game was running. Retry the next game; "
                     f"if it happens every game, {report}. {logs}")

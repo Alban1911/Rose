@@ -174,6 +174,9 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(overlay_manager, "RESTART_MISSED_GAME", False),
             # Never this PC's own LTK Manager log
             patch.object(overlay_manager.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
+            # Nor its ltk_launcher.log
+            patch.object(overlay_manager, "LAUNCHER_LOG_PATHS",
+                         (self.root / "Public" / "ltk_launcher.log", self.root / "Temp" / "ltk_launcher.log")),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -439,6 +442,33 @@ class InjectionSessionTests(LtfSessionTestCase):
 
         self.assertEqual(result, 1)
         self.assertEqual(self.reported_causes(), ["running"])
+
+    def test_the_launchers_own_log_of_a_start_goes_into_roses_log(self):
+        """#478: why the launcher could not make explorer.exe LTK Manager's
+        parent was only in ltk_launcher.log, which the user could not find"""
+        public_log, temp_log = overlay_manager.LAUNCHER_LOG_PATHS
+        public_log.parent.mkdir()
+        public_log.write_text("[launch] an earlier start, parent pid = 1 (explorer.exe)\r\n", encoding="utf-8")
+
+        def launch(*args, **kwargs):
+            with open(public_log, "a", encoding="utf-8") as handle:
+                handle.write("========== ltk_launcher ==========\r\n"
+                             "[warn] spawn with explorer.exe as the parent failed (err=87) - starting it as a child\r\n"
+                             "[launch] spawned pid = 4242 (suspended), parent pid = 99 (not explorer.exe)\r\n")
+            return MagicMock(returncode=0, stdout="LTK_MANAGER_PID=4242\n")
+
+        mod = self.make_mod()
+        with patch.object(overlay_manager, "find_bridge", return_value=None), \
+                patch.object(overlay_manager.subprocess, "run", side_effect=launch), \
+                self.assertLogs(overlay_manager.log.name, level="DEBUG") as logs:
+            self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        launcher_lines = [line for line in logs.output if "ltk_launcher:" in line]
+        self.assertEqual(len(launcher_lines), 2)  # this start's lines only, without its banner
+        self.assertIn("WARNING", launcher_lines[0])
+        self.assertIn("starting it as a child", launcher_lines[0])
+        self.assertEqual(self.overlay._launcher_parent, "not explorer.exe")
+        self.assertFalse(temp_log.exists())
 
     def test_a_failed_launcher_reports_start_failure(self):
         mod = self.make_mod()
@@ -873,6 +903,67 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.assertEqual(self.reported_causes(), ["disabled"])  # its incident only repeats it
         (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
         self.assertIn("zed.wad.client: base-skin check: skin0 is another skin", reason)
+
+    # What LTK Manager logged for #475: its host found the game, the DLL never
+    # loaded, and the incident it filed is titled "Unexplained Game Exit"
+    NOT_ATTACHED_LOG = (
+        "2026-11-07T16:12:27.302329Z  WARN ltk_manager_runtime::patcher::host::persistent: [ltk-host stderr]   "
+        "60.000000000s ERROR ltk_patcher_host::worker: failed: DLL never attached after 60s -- if the game is "
+        "elevated, run the host elevated\n"
+        "2026-11-07T16:12:35.791000Z  INFO ltk_manager_core::patching::pipeline: Incident recorded: Unexplained "
+        "Game Exit id=2026-11-08T00-10-46 verdict=EndedWithoutReason"
+    )
+
+    def test_a_dll_that_never_got_into_the_game_is_reported_once(self):
+        """#475: Troubleshooting only showed the incident's "Unexplained Game
+        Exit", not that the patcher never got into the game"""
+        session = self._session()
+        FakeBridge.patcher_statuses = [status(session={"log": self.NOT_ATTACHED_LOG})]
+
+        self.overlay._poll_patcher_status(session)
+        self.overlay._poll_patcher_status(session)
+
+        self.assertEqual(self.reported_causes(), ["not_attached"])  # its incident only repeats it
+        (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertIn("never got into the game (DLL never attached after 60s)", reason)
+
+    def test_a_dll_that_got_into_the_relaunched_game_is_not_reported(self):
+        session = self._session()
+        FakeBridge.patcher_statuses = [status(session={"log": self.NOT_ATTACHED_LOG.split("\n")[0] + "\n"
+                                                       "2026-11-07T16:13:01.000000Z  INFO x: [ltk-host stderr] "
+                                                       "INFO ltk_patcher_host::worker: dll attached pid=9616"})]
+
+        self.overlay._poll_patcher_status(session)
+
+        self.assertEqual(self.reported_causes(), [])
+
+    def test_a_refusal_names_a_manager_not_started_under_explorer(self):
+        """#478: LTK Manager's log showed parent ltk_launcher.exe; the reason
+        the launcher fell back was only in ltk_launcher.log"""
+        session = self._session()
+        self.overlay._launcher_parent = "not explorer.exe"
+        FakeBridge.patcher_statuses = [status(session={"log": (
+            "2026-11-07T20:56:40.028528Z  INFO ltk_manager_runtime::patcher::injector: [ltk-dll pid=19048 "
+            "tid=14596 ERROR] ltk_patcher_dll::verify: host verification failed, refusing overlay: "
+            "[VRF00000007] (18776)")})]
+
+        self.overlay._poll_patcher_status(session)
+
+        self.assertEqual(self.reported_causes(), ["refused"])
+        (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertIn("LTK Manager's patcher refused the overlay (host verification failed: VRF00000007 (18776); "
+                      "LTK Manager's parent was not explorer.exe (not explorer.exe))", reason)
+
+    def test_a_refusal_with_a_manager_under_explorer_names_no_parent(self):
+        session = self._session()
+        self.overlay._launcher_parent = "explorer.exe"
+        FakeBridge.patcher_statuses = [status(session={"log": "ERROR] ltk_patcher_dll::verify: host verification "
+                                                              "failed, refusing overlay: [VRF00000008] (1, x)"})]
+
+        self.overlay._poll_patcher_status(session)
+
+        (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertNotIn("parent", reason)
 
     def test_an_incident_after_the_game_is_reported(self):
         """#432: League could not mount a WAD of the overlay and closed"""
@@ -1463,6 +1554,13 @@ class FailureCauseTests(unittest.TestCase):
                               {"disabled": "LTK Manager disabled the overlay (x)",
                                "corrupt": "recorded an incident after the game: x (CorruptArchive; y)",
                                "incident": "LTK Manager recorded an incident after the game: x (Crash; y)"}[cause]))
+
+    def test_a_dll_that_never_got_into_the_game(self):
+        reason = "LTK Manager's patcher never got into the game (DLL never attached after 60s)"
+        self.assertEqual(ltk_failure_cause(reason), "not_attached")
+        hint = OverlayManager._ltk_failure_hint(reason)
+        self.assertIn("run as administrator", hint)
+        self.assertIn("antivirus", hint)
 
     def test_bridge_and_import_failures(self):
         self.assertEqual(ltk_failure_cause("the LTF bridge went away during the game"), "bridge")
