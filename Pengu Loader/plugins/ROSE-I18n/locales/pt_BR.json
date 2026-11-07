@@ -208,17 +208,17 @@
   "LTK Manager was not ready in time": "O LTK Manager não ficou pronto a tempo",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "O que significa: o LTK Manager não ficou pronto dentro do tempo de retomada automática, então o Rose deixou a partida seguir sem a skin.",
   "Fix: LTK Manager is too old for Rose: it does not know the commands Rose sends it. Update LTK Manager (or reinstall it from github.com/LeagueToolkit/ltk-manager/releases), then retry.": "Solução: o LTK Manager é antigo demais para o Rose: ele não conhece os comandos que o Rose envia. Atualize o LTK Manager (ou reinstale-o a partir de github.com/LeagueToolkit/ltk-manager/releases) e tente novamente.",
-  "Failed to import {name}: {error}": "Falha ao importar {name}: {error}",
-  "Import failed": "Falha na importa??o",
+  "Failed to import {name}: {error}": "Não foi possível importar {name}: {error}",
+  "Import failed": "Falha na importação",
   "Mods added": "Mods adicionados",
   "Some mods added": "Alguns mods foram adicionados",
-  "{count} mod files selected": "{count} arquivos de mod selecionados",
+  "{count} mod files selected": "{count} arquivos de mods selecionados",
   "Add image": "Adicionar imagem",
   "Change image": "Alterar imagem",
   "Delete selected ({count})": "Excluir selecionados ({count})",
-  "Delete the selected mod? This cannot be undone.": "Excluir o mod selecionado? Esta a??o n?o pode ser desfeita.",
-  "Delete {count} selected mods? This cannot be undone.": "Excluir {count} mods selecionados? Esta a??o n?o pode ser desfeita.",
+  "Delete the selected mod? This cannot be undone.": "Excluir o mod selecionado? Isso não pode ser desfeito.",
+  "Delete {count} selected mods? This cannot be undone.": "Excluir {count} mods selecionados? Isso não pode ser desfeito.",
   "Select all": "Selecionar tudo",
   "Select all mods": "Selecionar todos os mods",
-  "Select mod {name}": "Selecionar mod {name}"
+  "Select mod {name}": "Selecionar o mod {name}"
 }

@@ -131,7 +131,7 @@ def _choose_mod_files() -> list[Path]:
         return [Path(selected) for selected in selected_files]
     except Exception as exc:  # noqa: BLE001
         log.error("[SkinMonitor] Could not open the mod file picker: %s", exc)
-        return None
+        return []
     finally:
         if root is not None:
             try:
