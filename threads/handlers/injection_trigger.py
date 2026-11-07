@@ -622,9 +622,13 @@ class InjectionTrigger:
         random_skin_name = getattr(self.state, 'random_skin_name', None)
         random_chroma_id = getattr(self.state, 'random_chroma_id', None)
         display_skin_name = name
-        if random_mode_active and random_skin_id:
-            ui_skin_id = random_skin_id
-            name = f"skin_{random_skin_id}"
+        if random_mode_active and (random_skin_id or random_chroma_id):
+            if random_chroma_id:
+                ui_skin_id = random_skin_id or self.state.last_hovered_skin_id
+                name = f"chroma_{random_chroma_id}"
+            else:
+                ui_skin_id = random_skin_id
+                name = f"skin_{random_skin_id}"
             if random_skin_name:
                 display_skin_name = random_skin_name
             log.info(f"[INJECT] Random mode active - using random skin ID: {ui_skin_id}, name: '{name}', display: '{display_skin_name}', chroma: {random_chroma_id}")
@@ -1166,7 +1170,9 @@ class InjectionTrigger:
                         # Persist historic entry
                         try:
                             injected_id = None
-                            if isinstance(name, str) and '_' in name:
+                            if chroma_id:
+                                injected_id = chroma_id
+                            elif isinstance(name, str) and '_' in name:
                                 parts = name.split('_', 1)
                                 if len(parts) == 2 and parts[1].isdigit():
                                     injected_id = int(parts[1])
