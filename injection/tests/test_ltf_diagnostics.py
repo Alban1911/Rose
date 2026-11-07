@@ -36,6 +36,17 @@ class LtfDiagnosticsTests(unittest.TestCase):
         self.assertEqual(summary["code"], "LTF_FAILED")
         self.assertEqual(summary["cause"], "late")
 
+    def test_a_session_failure_saved_with_the_older_hint_is_still_one(self):
+        # Before ltk_bridge.log, which nothing wrote, left the hint
+        (summary,) = summarize((
+            "Injection failed: the game started before the patcher was scanning (joined too late)",
+            "The game started before the patcher was ready. Retry the next game. Details are in "
+            "C:\\Users\\Public\\ltk_bridge.log, ltk_api.log and ltk_launcher.log.",
+        ))
+
+        self.assertEqual(summary["code"], "LTF_FAILED")
+        self.assertEqual(summary["cause"], "late")
+
     def test_an_open_ltk_manager_gets_its_own_cause(self):
         (summary,) = summarize((
             "Injection failed: LTK Manager is already open without Rose's bridge",

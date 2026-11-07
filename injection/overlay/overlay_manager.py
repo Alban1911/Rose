@@ -191,7 +191,7 @@ CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in b
 # plugin:library|get_installed_mods not allowed by ACL")
 LTK_ACL_REFUSAL = "not allowed by acl"
 # Every LTF report's hint ends with it (Troubleshooting recognizes the reports by it)
-LTF_LOGS_HINT = "Details are in C:\\Users\\Public\\ltk_bridge.log, ltk_api.log and ltk_launcher.log."
+LTF_LOGS_HINT = "Details are in C:\\Users\\Public\\ltk_api.log and ltk_launcher.log."
 
 
 def ltk_failure_cause(reason: str) -> str:
