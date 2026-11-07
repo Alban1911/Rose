@@ -228,6 +228,10 @@ OVERLAY_DISABLED_LINE = re.compile(r"overlay verification failed, disabling over
 # "Unexplained Game Exit", which does not say so (#475)
 DLL_NOT_ATTACHED_LINE = re.compile(r"DLL never attached after \d+\s*s", re.IGNORECASE)
 NOT_ATTACHED_MESSAGE = "LTK Manager's patcher never got into the game"
+# A mod LTK Manager cannot read (its metadata empty or damaged): its library
+# leaves it out, so Rose never saw it to turn off, but an enabled one still
+# fails every overlay build with "Serialization(... expected value ...)" (#479)
+BROKEN_ENTRY_LINE = re.compile(r"Skipping broken mod entry ([0-9a-fA-F]{8}-[0-9a-fA-F-]{27})")
 # LTK Manager checks each mod new to its library ("Automatically check mods"),
 # and Rose installs the picked skin anew for each game. That check takes
 # seconds; on a slow drive it took 4 to 6 minutes, reading the disk while the
@@ -697,6 +701,9 @@ class OverlayManager:
             "disabled": [],  # the user's mods turned off for the session
             "patcher_running": False,
             "ltk_log": None,  # LtkLogTail from the patcher's start
+            "library_log": None,  # LtkLogTail from the session's start (broken library entries)
+            "broken_entries": set(),  # their ids, as LTK Manager's log named them
+            "broken_off": set(),  # those Rose turned off
             # Read from LTK Manager's log since the patcher's (last) start
             "overlay_build_s": None,
             "scan_started_at": None,  # epoch time the host began to scan
@@ -782,6 +789,8 @@ class OverlayManager:
             return None
 
         session = self._new_session(bridge, launched)
+        # Before any library read: LTK Manager logs the entries it cannot read then
+        session["library_log"] = LtkLogTail(LtkLogTail.log_dir())
         # Before any install: an install is what sets a check off
         self._turn_off_health_check(bridge)
         self._check_ltk_builtins()
@@ -1547,6 +1556,32 @@ class OverlayManager:
                 log.info(f"[INJECT] Turned off {self._entry_name(entry)} in LTK Manager for this game")
             except (BridgeUnavailable, BridgeCommandError) as e:
                 log.warning(f"[INJECT] Could not turn off {self._entry_name(entry)} - it may apply too: {e}")
+        self._disable_broken_entries(session, library)
+
+    def _disable_broken_entries(self, session: dict, library: List[dict]) -> None:
+        """Turn off the mods LTK Manager cannot read (#479).
+
+        Its library leaves them out, so the loop above never sees them, but
+        an enabled one fails every overlay build. They stay off after the
+        game: LTK Manager cannot apply them anyway, and turning one back on
+        would break the next build again.
+        """
+        tail = session.get("library_log")
+        if tail is not None:
+            session["broken_entries"].update(BROKEN_ENTRY_LINE.findall(tail.read()))
+        listed = {str(entry.get("id") or "") for entry in library}
+        done = session["broken_off"]
+        for mod_id in sorted(session["broken_entries"] - listed - set(session["installed"]) - done):
+            done.add(mod_id)  # LTK Manager names it at every library read: once is enough
+            try:
+                session["bridge"].toggle(mod_id, False)
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.warning(f"[INJECT] Could not turn off LTK Manager's unreadable mod {mod_id}: {e}")
+                continue
+            log.warning(
+                f"[INJECT] Turned off LTK Manager's unreadable mod {mod_id} (its files are damaged): "
+                "an enabled one fails every overlay build"
+            )
 
     # -- injection ----------------------------------------------------------
     def mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback: Optional[Callable] = None) -> int:

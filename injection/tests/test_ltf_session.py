@@ -30,6 +30,9 @@ class FakeBridge:
     full_install_answer = False
     # The health_check_off answer; None: a bridge older than the command
     health_check_answer = {"ok": True, "changed": False}
+    # Library entries LTK Manager cannot read, logged to broken_log at each read
+    broken_ids = []
+    broken_log = None
 
     def __init__(self, port=None, pid=None):
         self.port = port
@@ -48,6 +51,8 @@ class FakeBridge:
         cls.initial_library = []
         cls.full_install_answer = False
         cls.health_check_answer = {"ok": True, "changed": False}
+        cls.broken_ids = []
+        cls.broken_log = None
 
     @classmethod
     def wait_for_bridge(cls, timeout=30.0, expected_pid=None, cancelled=None):
@@ -70,6 +75,12 @@ class FakeBridge:
         self.library_reads += 1
         if self.library_fails:
             raise BridgeCommandError("list failed: CDP busy (another eval in progress)")
+        # LTK Manager logs, at each read, the entries it cannot read and leaves out
+        if FakeBridge.broken_log is not None:
+            with open(FakeBridge.broken_log, "a", encoding="utf-8") as handle:
+                for mod_id in FakeBridge.broken_ids:
+                    handle.write("2026-11-07T23:20:47.381184Z  WARN ltk_manager_library::mods::library: Skipping "
+                                 f"broken mod entry {mod_id}: Serialization error: expected value at line 1 column 1\n")
         return [dict(entry) for entry in self.library_entries]
 
     def _install(self, file_name, name):
@@ -509,6 +520,22 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertIn("health_check_off", names)
         self.assertLess(names.index("health_check_off"), names.index("import"))
         self.assertTrue(any("Turned off LTK Manager's automatic mod check" in line for line in logs.output))
+
+    def test_mods_ltk_manager_cannot_read_are_turned_off_for_good(self):
+        """#479: an enabled library entry with an empty metadata file failed
+        every overlay build; LTK Manager's library leaves it out, so Rose
+        never turned it off"""
+        broken = "0bb265aa-2b0c-44ff-9cfd-91935223a297"
+        FakeBridge.broken_ids = [broken]
+        FakeBridge.broken_log = self.ltk_logs / "ltk-manager.2026-11-07.log"
+        mod = self.make_mod()
+
+        self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        toggles = [call for call in self.bridge.calls if call[0] == "toggle" and call[1] == broken]
+        self.assertEqual(toggles, [("toggle", broken, False)])  # once, and never back on
+        names = self.bridge.command_names()
+        self.assertLess(names.index("toggle"), names.index("start_patcher"))
 
     def test_a_bridge_without_the_command_still_injects(self):
         FakeBridge.health_check_answer = None  # an LTF bridge older than it
