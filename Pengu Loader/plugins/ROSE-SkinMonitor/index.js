@@ -26,6 +26,12 @@ const DISCOVERY_START_PORT = 50000;
 const DISCOVERY_END_PORT = 50099;
 
 async function loadBridgePort() {
+  const subclient = window.__roseSubclient;
+  if (subclient) {
+    BRIDGE_PORT = subclient.bridgePort || 0;
+    BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
+    return BRIDGE_PORT > 0;
+  }
   try {
     // First, check localStorage for cached port
     const cachedPort = localStorage.getItem(BRIDGE_PORT_STORAGE_KEY);

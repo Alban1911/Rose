@@ -56,6 +56,7 @@ ENV/
 .claude/settings.local.json
 
 # Local / temp
+.rose-dev/
 vibeship-ai-fix-prompt-383e53c2-917d-4722-b35e-0f17148c8af5.txt
 temp_fix.txt
 build_local_sign.ps1

@@ -19,6 +19,7 @@ from config import (
 )
 from utils.core.logging import get_logger, log_action, log_success
 from utils.core.issue_reporter import report_issue
+from utils.core.subclient import is_subclient
 
 from .injector import SkinInjector
 from .stage_plan import PARTY_SKINS_LABEL, StagePlan, describe, prepare_plan, skin_plan
@@ -86,7 +87,8 @@ class InjectionManager:
         return self.injection_threshold
     
     def _ensure_initialized(self):
-        """Initialize the injector lazily when first needed"""
+        if is_subclient():
+            return
         if not self._initialized:
             with self.injection_lock:
                 if not self._initialized:  # Double-check inside lock

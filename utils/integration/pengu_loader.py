@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover - psutil is part of requirements, but gu
 from config import get_config_file_path, read_config_file, write_config_file
 from utils.core.logging import get_logger
 from utils.core.paths import get_app_dir, get_state_dir, get_user_data_dir
+from utils.core.subclient import is_subclient
 
 log = get_logger("pengu_loader")
 
@@ -855,6 +856,8 @@ def _external_pengu_with_rose_plugins() -> Optional[Path]:
 def ensure_active_for_client() -> None:
     """The client just started: enable Rose's loader if none is active any more
     (a standalone Pengu disabled while Rose runs). Runs on that event, no polling."""
+    if is_subclient():
+        return
     with _operation_lock:
         if _external_pengu_with_rose_plugins() is not None:
             return
@@ -900,6 +903,8 @@ def retry_deferred_restart() -> None:
 
 def activate_on_start(league_path: Optional[str] = None) -> bool:
     global _restart_pending
+    if is_subclient():
+        return True
     with _operation_lock:
         external = _external_pengu_with_rose_plugins()
         if external is not None:

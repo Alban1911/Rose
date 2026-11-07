@@ -85,7 +85,7 @@ class ConnectionTests(unittest.TestCase):
     def test_empty_lockfile_uses_process(self):
         connection = LCUConnection()
         self.assertTrue(connection.ok)
-        self.assertEqual(connection.websocket_credentials(), (12345, 'a'))
+        self.assertEqual(connection.websocket_credentials(), (12345, 'a', 'https'))
 
     def test_missing_lockfile_uses_process(self):
         self.lf.return_value = None
@@ -108,7 +108,7 @@ class ConnectionTests(unittest.TestCase):
         connection = LCUConnection()
         self.proc.return_value = lockfile.Lockfile('LeagueClientUx', 43, 23456, 'b', 'https')
         connection.refresh_if_needed(force=True)
-        self.assertEqual(connection.websocket_credentials(), (23456, 'b'))
+        self.assertEqual(connection.websocket_credentials(), (23456, 'b', 'https'))
         self.assertEqual(connection.session.auth, ('riot', 'b'))
 
     def test_process_exit_disables_connection(self):

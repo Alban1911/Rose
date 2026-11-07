@@ -13,6 +13,7 @@ from typing import Optional
 import psutil
 
 from utils.core.logging import get_logger
+from utils.core.subclient import is_subclient
 
 log = get_logger()
 
@@ -55,6 +56,9 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
         if env_path.is_file():
             return str(env_path)
     
+    if is_subclient():
+        return None
+
     # Check common installation paths
     if os.name == "nt":
         common_paths = [
@@ -128,6 +132,8 @@ def find_process_credentials() -> Optional[Lockfile]:
     Only the main client / UX processes are eligible. Never log their command
     lines or authentication tokens and never persist these credentials.
     """
+    if is_subclient():
+        return None
     try:
         for proc in psutil.process_iter(attrs=["name"]):
             try:

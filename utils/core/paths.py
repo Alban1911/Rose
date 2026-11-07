@@ -135,6 +135,12 @@ def _get_localappdata_for_user(profile_path: str) -> Optional[Path]:
     return None
 
 
+def data_dir_override() -> Optional[Path]:
+    """The data folder a launcher gave this Rose (ROSE_DATA_DIR), if any."""
+    override = os.environ.get("ROSE_DATA_DIR")
+    return Path(override).resolve() if override else None
+
+
 def get_user_data_dir() -> Path:
     """
     Get the user data directory where the application can write files.
@@ -151,6 +157,11 @@ def get_user_data_dir() -> Path:
     global _cached_user_data_dir
 
     if _cached_user_data_dir is not None:
+        return _cached_user_data_dir
+
+    override = data_dir_override()
+    if override is not None:
+        _cached_user_data_dir = override
         return _cached_user_data_dir
 
     if os.name == "nt":  # Windows

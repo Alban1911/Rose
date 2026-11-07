@@ -31,6 +31,7 @@ except ImportError:
 
 from config import GAME_EXECUTABLE_NAMES
 from utils.core.logging import get_logger
+from utils.core.subclient import is_subclient
 
 log = get_logger()
 _GAME_PROCESS_NAMES = frozenset(name.lower() for name in GAME_EXECUTABLE_NAMES)
@@ -85,7 +86,7 @@ def resume_orphaned_game() -> int:
     Without it the game stays frozen until the user kills it.
     Returns how many game processes were resumed.
     """
-    if not PSUTIL_AVAILABLE:
+    if not PSUTIL_AVAILABLE or is_subclient():
         return 0
     resumed = 0
     try:

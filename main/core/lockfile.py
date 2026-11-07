@@ -6,13 +6,14 @@ Lock file management for single instance enforcement
 
 import atexit
 import ctypes
+import hashlib
 import os
 import sys
 import time
 from pathlib import Path
 
 from utils.core.logging import get_logger
-from utils.core.paths import get_state_dir
+from utils.core.paths import data_dir_override, get_state_dir
 from config import SINGLE_INSTANCE_MUTEX_NAME, LOCK_FILE_NAME
 
 from .state import get_app_state
@@ -162,6 +163,15 @@ def create_lock_file() -> bool:
         return False
 
 
+def single_instance_mutex_name() -> str:
+    """One mutex per data folder: Roses with their own folders run side by side."""
+    override = data_dir_override()
+    if override is None:
+        return SINGLE_INSTANCE_MUTEX_NAME
+    digest = hashlib.sha256(os.path.normcase(str(override)).encode("utf-8")).hexdigest()[:16]
+    return f"{SINGLE_INSTANCE_MUTEX_NAME}-{digest}"
+
+
 def create_single_instance_mutex() -> bool:
     """Create a Windows named mutex (kernel-managed) to enforce single instance."""
     if sys.platform != "win32":
@@ -170,7 +180,7 @@ def create_single_instance_mutex() -> bool:
     app_state = get_app_state()
 
     try:
-        handle = ctypes.windll.kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX_NAME)
+        handle = ctypes.windll.kernel32.CreateMutexW(None, False, single_instance_mutex_name())
         if not handle:
             log.error("CreateMutexW failed; falling back to lock file.")
             return True  # allow fallback path to decide

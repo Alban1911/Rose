@@ -64,6 +64,12 @@
 
   // Load bridge port with file-based discovery and localStorage caching
   async function loadBridgePort() {
+    const subclient = window.__roseSubclient;
+    if (subclient) {
+      BRIDGE_PORT = subclient.bridgePort || 0;
+      BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
+      return BRIDGE_PORT > 0;
+    }
     try {
       const cachedPort = localStorage.getItem(BRIDGE_PORT_STORAGE_KEY);
       if (cachedPort) {

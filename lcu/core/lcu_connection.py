@@ -31,6 +31,7 @@ class LCUConnection:
         self.ok = False
         self.port = None
         self.pw = None
+        self.protocol = "https"
         self.base = None
         self.session = self._prepare_session()
         self._explicit_lockfile = lockfile_path
@@ -91,7 +92,8 @@ class LCUConnection:
                 return
 
             self.port, self.pw = new_credentials
-            self.base = f"https://127.0.0.1:{self.port}"
+            self.protocol = "http" if lockfile_data.protocol == "http" else "https"
+            self.base = f"{self.protocol}://127.0.0.1:{self.port}"
             self.session = self._prepare_session()
             # Security Note: SSL verification is intentionally disabled for LCU connection.
             # The League Client uses self-signed certificates on localhost (127.0.0.1).
@@ -143,4 +145,4 @@ class LCUConnection:
         with self._lock:
             if not self.ok or not self.port or not self.pw:
                 return None
-            return self.port, self.pw
+            return self.port, self.pw, self.protocol

@@ -97,9 +97,9 @@ class WebSocketConnection:
                     break
                 continue
 
-            port, password = credentials
-            url = f"wss://127.0.0.1:{port}/"
-            origin = f"https://127.0.0.1:{port}"
+            port, password, protocol = credentials
+            url = f"{'ws' if protocol == 'http' else 'wss'}://127.0.0.1:{port}/"
+            origin = f"{protocol}://127.0.0.1:{port}"
             token = base64.b64encode(f"riot:{password}".encode("utf-8")).decode("ascii")
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ctx.check_hostname = False

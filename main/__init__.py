@@ -434,6 +434,7 @@ from .core.cleanup import perform_cleanup
 from .runtime.loop import run_main_loop
 
 import utils.integration.pengu_loader as pengu_loader
+from utils.core.subclient import is_subclient
 from state import AppStatus
 from utils.core.logging import get_logger, log_success
 from utils.core.issue_reporter import report_issue
@@ -523,6 +524,8 @@ def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = Tr
                         If False, skip Pengu activation (done at startup, or a
                         reconnection after account swap).
     """
+    if is_subclient():
+        return
     log.info("Detecting League paths...")
 
     # Detect paths using GameDetector (only once)
@@ -837,7 +840,7 @@ def main() -> None:
             except Exception as err:  # noqa: BLE001
                 print(f"[Launcher] Launcher encountered an error: {err}")
 
-    if not _check_dll_present():
+    if not is_subclient() and not _check_dll_present():
         sys.exit(1)
 
     run_league_unlock(args=args)
