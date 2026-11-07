@@ -86,8 +86,8 @@ def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
     return None
 
 
-def _choose_mod_file() -> Optional[Path]:
-    """Show a native file picker for a user-selected mod archive."""
+def _choose_mod_files() -> list[Path]:
+    """Show a native file picker for one or more user-selected mod archives."""
     root = None
     try:
         import tkinter as tk
@@ -99,8 +99,8 @@ def _choose_mod_file() -> Optional[Path]:
             root.attributes("-topmost", True)
         except Exception:
             pass
-        selected = filedialog.askopenfilename(
-            title="Select a Rose mod file",
+        selected_files = filedialog.askopenfilenames(
+            title="Select Rose mod files",
             filetypes=[
                 ("Rose mods", "*.fantome *.zip *.modpkg"),
                 ("Fantome mods", "*.fantome"),
@@ -109,7 +109,7 @@ def _choose_mod_file() -> Optional[Path]:
                 ("All files", "*.*"),
             ],
         )
-        return Path(selected) if selected else None
+        return [Path(selected) for selected in selected_files]
     except Exception as exc:  # noqa: BLE001
         log.error("[SkinMonitor] Could not open the mod file picker: %s", exc)
         return None
@@ -2899,12 +2899,15 @@ class MessageHandler:
                 self.websocket_server.broadcast(message), self.websocket_server.loop
             )
     
-    def _send_mod_import_started(self, mod_file: Path) -> None:
-        """Tell the plugins a picked mod is being imported; the folder-opened-response ends it"""
-        self._send_response(json.dumps({
+    def _send_mod_import_started(self, mod_files: list[Path]) -> None:
+        """Tell the plugins selected mods are being imported."""
+        payload = {
             "type": "mod-import-started",
-            "fileName": mod_file.name,
-        }))
+            "fileCount": len(mod_files),
+        }
+        if len(mod_files) == 1:
+            payload["fileName"] = mod_files[0].name
+        self._send_response(json.dumps(payload))
 
     def _send_settings_save_success(self) -> None:
         """Send settings save success response"""
@@ -2954,15 +2957,15 @@ class MessageHandler:
             log.debug(f"[SkinMonitor] Error during folder cleanup: {e}")
     
     def _handle_add_custom_mods_category_selected(self, payload: dict) -> None:
-        """Open a file picker and import one mod into the selected category."""
+        """Open a file picker and import selected mods into the selected category."""
         category = payload.get("category")
         try:
             if category not in self.mod_storage.MOD_CATEGORIES:
                 log.warning(f"[SkinMonitor] Invalid category: {category}")
                 return
 
-            selected_mod_file = _choose_mod_file()
-            if selected_mod_file is None:
+            selected_mod_files = _choose_mod_files()
+            if not selected_mod_files:
                 self._send_response(json.dumps({
                     "type": "folder-opened-response",
                     "success": False,
@@ -2971,22 +2974,48 @@ class MessageHandler:
                 }))
                 return
 
-            self._send_mod_import_started(selected_mod_file)
-            mod_folder, mod_name = self.mod_storage.import_category_mod_file(
-                category,
-                selected_mod_file,
-            )
-            log.info(
-                f"[SkinMonitor] Imported {category} mod {mod_name} to {mod_folder}"
-            )
-            
+            self._send_mod_import_started(selected_mod_files)
+            imported = []
+            errors = []
+            for mod_file in selected_mod_files:
+                try:
+                    mod_folder, mod_name = self.mod_storage.import_category_mod_file(
+                        category,
+                        mod_file,
+                    )
+                    imported.append({
+                        "fileName": mod_file.name,
+                        "path": str(mod_folder),
+                        "modName": mod_name,
+                    })
+                    log.info(
+                        f"[SkinMonitor] Imported {category} mod {mod_name} to {mod_folder}"
+                    )
+                except Exception as exc:
+                    log.error(
+                        f"[SkinMonitor] Failed to import {category} mod {mod_file.name}: {exc}"
+                    )
+                    errors.append({"fileName": mod_file.name, "error": str(exc)})
+
             response_payload = {
                 "type": "folder-opened-response",
-                "success": True,
+                "success": bool(imported) and not errors,
+                "partial": bool(imported) and bool(errors),
                 "category": category,
-                "path": str(mod_folder),
-                "modName": mod_name,
+                "imported": imported,
+                "importErrors": errors,
             }
+            if imported:
+                response_payload.update({
+                    "path": imported[0]["path"],
+                    "modName": imported[0]["modName"],
+                })
+            if errors and not imported:
+                response_payload["error"] = (
+                    errors[0]["error"]
+                    if len(selected_mod_files) == 1
+                    else "Failed to import all selected mods"
+                )
             self._send_response(json.dumps(response_payload))
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to import {category} mod: {e}")
@@ -3271,8 +3300,8 @@ class MessageHandler:
                     self._send_response(json.dumps(response_payload))
                     return
 
-                selected_mod_file = _choose_mod_file()
-                if selected_mod_file is None:
+                selected_mod_files = _choose_mod_files()
+                if not selected_mod_files:
                     self._send_response(json.dumps({
                         "type": "folder-opened-response",
                         "success": False,
@@ -3281,27 +3310,53 @@ class MessageHandler:
                     }))
                     return
 
-                self._send_mod_import_started(selected_mod_file)
-                mod_folder, target_manifest, mod_name = self.mod_storage.import_mod_file(
-                    champion_id,
-                    selected_mod_file,
-                    skin_ids,
-                )
-                
-                log.info(
-                    f"[SkinMonitor] Imported mod for champion "
-                    f"{champion_id}, mod {mod_name}, targets {skin_ids}"
-                )
-                
+                self._send_mod_import_started(selected_mod_files)
+                imported = []
+                errors = []
+                for mod_file in selected_mod_files:
+                    try:
+                        mod_folder, target_manifest, mod_name = self.mod_storage.import_mod_file(
+                            champion_id,
+                            mod_file,
+                            skin_ids,
+                        )
+                        imported.append({
+                            "fileName": mod_file.name,
+                            "path": str(mod_folder),
+                            "modName": mod_name,
+                            "targetManifest": str(target_manifest),
+                        })
+                        log.info(
+                            f"[SkinMonitor] Imported mod for champion "
+                            f"{champion_id}, mod {mod_name}, targets {skin_ids}"
+                        )
+                    except Exception as exc:
+                        log.error(
+                            f"[SkinMonitor] Failed to import skin mod {mod_file.name}: {exc}"
+                        )
+                        errors.append({"fileName": mod_file.name, "error": str(exc)})
+
                 response_payload = {
                     "type": "folder-opened-response",
-                    "success": True,
-                    "path": str(mod_folder),
+                    "success": bool(imported) and not errors,
+                    "partial": bool(imported) and bool(errors),
+                    "imported": imported,
+                    "importErrors": errors,
                     "championFolder": str(self.mod_storage.get_champion_dir(champion_id)),
-                    "modName": mod_name,
                     "skinIds": skin_ids,
-                    "targetManifest": str(target_manifest),
                 }
+                if imported:
+                    response_payload.update({
+                        "path": imported[0]["path"],
+                        "modName": imported[0]["modName"],
+                        "targetManifest": imported[0]["targetManifest"],
+                    })
+                if errors and not imported:
+                    response_payload["error"] = (
+                        errors[0]["error"]
+                        if len(selected_mod_files) == 1
+                        else "Failed to import all selected mods"
+                    )
                 self._send_response(json.dumps(response_payload))
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle skin selection: {e}")
