@@ -207,10 +207,10 @@
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "Как долго Rose может удерживать игру, пока LTK Manager готовит ваш скин.\n\nЕсли LTK Manager не готов к началу игры, Rose замораживает игру, а когда LTK Manager будет готов, перезапускает её и переподключает вас. По истечении этого времени игра запускается без скина.\n\nЕсли вы используете тяжёлые моды, может понадобиться большее значение.",
   "LTK Manager was not ready in time": "LTK Manager не был готов вовремя",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Что это значит: LTK Manager не был готов в пределах времени автовозобновления, поэтому Rose позволил игре продолжиться без скина.",
-  "Delete selected ({count})": "??????? ????????? ({count})",
-  "Delete the selected mod? This cannot be undone.": "??????? ????????? ???? ??? ???????? ?????? ????????.",
-  "Delete {count} selected mods? This cannot be undone.": "??????? ????????? ???? ({count})? ??? ???????? ?????? ????????.",
-  "Select all": "??????? ???",
-  "Select all mods": "??????? ??? ????",
-  "Select mod {name}": "??????? ??? {name}"
+  "Delete selected ({count})": "Удалить выбранное ({count})",
+  "Delete the selected mod? This cannot be undone.": "Удалить выбранный мод? Это действие нельзя отменить.",
+  "Delete {count} selected mods? This cannot be undone.": "Удалить выбранные моды ({count})? Это действие нельзя отменить.",
+  "Select all": "Выбрать всё",
+  "Select all mods": "Выбрать все моды",
+  "Select mod {name}": "Выбрать мод {name}"
 }

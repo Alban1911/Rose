@@ -207,10 +207,10 @@
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "ระยะเวลาที่ Rose สามารถพักเกมไว้ได้ ขณะที่ LTK Manager กำลังเตรียมสกินของคุณ\n\nหาก LTK Manager ยังไม่พร้อมก่อนเกมเริ่ม Rose จะหยุดเกมไว้ชั่วคราว แล้วรีสตาร์ทเกมและเชื่อมต่อคุณใหม่ทันทีที่ LTK Manager พร้อม หากเกินเวลานี้ เกมจะเริ่มโดยไม่มีสกิน\n\nหากคุณใช้ม็อดที่หนัก คุณอาจต้องใช้ค่าที่สูงขึ้น",
   "LTK Manager was not ready in time": "LTK Manager พร้อมไม่ทันเวลา",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "ความหมาย: LTK Manager ไม่พร้อมภายในเวลาที่กำหนดสำหรับการเล่นต่ออัตโนมัติ Rose จึงปล่อยให้เกมดำเนินต่อโดยไม่มีสกิน",
-  "Delete selected ({count})": "???????????????? ({count})",
-  "Delete the selected mod? This cannot be undone.": "?????????????????????? ??????????????????",
-  "Delete {count} selected mods? This cannot be undone.": "?????????????? {count} ?????????????? ??????????????????",
-  "Select all": "????????????",
-  "Select all mods": "????????????????",
-  "Select mod {name}": "????????? {name}"
+  "Delete selected ({count})": "ลบรายการที่เลือก ({count})",
+  "Delete the selected mod? This cannot be undone.": "ลบม็อดที่เลือกหรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้",
+  "Delete {count} selected mods? This cannot be undone.": "ลบม็อดที่เลือก {count} รายการหรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้",
+  "Select all": "เลือกทั้งหมด",
+  "Select all mods": "เลือกม็อดทั้งหมด",
+  "Select mod {name}": "เลือกม็อด {name}"
 }

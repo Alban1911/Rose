@@ -207,10 +207,10 @@
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "Combien de temps Rose peut retenir la partie pendant que LTK Manager prépare votre skin.\n\nSi LTK Manager n'est pas prêt avant le début de la partie, Rose fige le jeu, puis le relance et vous reconnecte dès que LTK Manager est prêt. Passé ce délai, la partie démarre sans le skin.\n\nSi vous utilisez des mods lourds, il vous faudra peut-être une valeur plus élevée.",
   "LTK Manager was not ready in time": "LTK Manager n'était pas prêt à temps",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Ce que cela signifie : LTK Manager n'était pas prêt dans le délai de reprise automatique, donc Rose a laissé la partie continuer sans le skin.",
-  "Delete selected ({count})": "Supprimer la s?lection ({count})",
-  "Delete the selected mod? This cannot be undone.": "Supprimer le mod s?lectionn? ? Cette action est irr?versible.",
-  "Delete {count} selected mods? This cannot be undone.": "Supprimer les {count} mods s?lectionn?s ? Cette action est irr?versible.",
-  "Select all": "Tout s?lectionner",
-  "Select all mods": "S?lectionner tous les mods",
-  "Select mod {name}": "S?lectionner le mod {name}"
+  "Delete selected ({count})": "Supprimer la sélection ({count})",
+  "Delete the selected mod? This cannot be undone.": "Supprimer le mod sélectionné ? Cette action est irréversible.",
+  "Delete {count} selected mods? This cannot be undone.": "Supprimer les {count} mods sélectionnés ? Cette action est irréversible.",
+  "Select all": "Tout sélectionner",
+  "Select all mods": "Sélectionner tous les mods",
+  "Select mod {name}": "Sélectionner le mod {name}"
 }

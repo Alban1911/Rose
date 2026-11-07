@@ -207,10 +207,10 @@
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "LTK Manager 准备皮肤期间，Rose 可以暂停游戏的时长。\n\n如果 LTK Manager 在游戏开始前尚未就绪，Rose 会冻结游戏，并在 LTK Manager 就绪后重启游戏并让你重新连接。超过此时长后，游戏将不带皮肤开始。\n\n如果你使用大型模组，可能需要设置更高的值。",
   "LTK Manager was not ready in time": "LTK Manager 未能及时就绪",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "含义：LTK Manager 未在自动恢复超时内就绪，因此 Rose 让游戏在没有皮肤的情况下继续进行。",
-  "Delete selected ({count})": "??????{count}?",
-  "Delete the selected mod? This cannot be undone.": "??????????????????",
-  "Delete {count} selected mods? This cannot be undone.": "??????? {count} ?????????????",
-  "Select all": "??",
-  "Select all mods": "??????",
-  "Select mod {name}": "???? {name}"
+  "Delete selected ({count})": "删除所选项（{count}）",
+  "Delete the selected mod? This cannot be undone.": "确定删除所选模组吗？此操作无法撤销。",
+  "Delete {count} selected mods? This cannot be undone.": "确定删除所选的 {count} 个模组吗？此操作无法撤销。",
+  "Select all": "全选",
+  "Select all mods": "选择所有模组",
+  "Select mod {name}": "选择模组 {name}"
 }

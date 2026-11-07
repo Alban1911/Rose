@@ -208,8 +208,8 @@
   "LTK Manager was not ready in time": "LTK Manager non era pronto in tempo",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Cosa significa: LTK Manager non era pronto entro il timeout di ripresa automatica, quindi Rose ha lasciato proseguire la partita senza la skin.",
   "Delete selected ({count})": "Elimina selezionati ({count})",
-  "Delete the selected mod? This cannot be undone.": "Eliminare la mod selezionata? L?azione ? irreversibile.",
-  "Delete {count} selected mods? This cannot be undone.": "Eliminare {count} mod selezionate? L?azione ? irreversibile.",
+  "Delete the selected mod? This cannot be undone.": "Eliminare la mod selezionata? L’operazione non può essere annullata.",
+  "Delete {count} selected mods? This cannot be undone.": "Eliminare le {count} mod selezionate? L’operazione non può essere annullata.",
   "Select all": "Seleziona tutto",
   "Select all mods": "Seleziona tutte le mod",
   "Select mod {name}": "Seleziona la mod {name}"
