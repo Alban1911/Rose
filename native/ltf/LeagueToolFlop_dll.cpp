@@ -37,7 +37,6 @@ namespace fs = std::filesystem;
 
 static const char* kCredit = "made by lol123love for educational purposes and bcz love loves LTK :p BIG FLOP!";
 
-static const char* kHookLog = "C:\\Users\\Public\\ltk_bridge.log";
 static const char* kApiLog = "C:\\Users\\Public\\ltk_api.log";
 static const int   kApiPortStart = 46321;
 static const int   kApiPortEnd = 46340;
@@ -1393,7 +1392,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         if (InterlockedCompareExchange(&g_dllAttached, 1, 0) != 0) return TRUE;
         DisableThreadLibraryCalls(hModule);
-        LogInit(kHookLog); LogInit(kApiLog);
+        LogInit(kApiLog);
 
         srand((unsigned)GetTickCount64() ^ (unsigned)GetCurrentProcessId());
         InitializeCriticalSection(&g_cdpLock);

@@ -1006,7 +1006,7 @@ class MessageHandler:
                 )
                 is_ltf_report = (
                     is_import_failure
-                    or 'ltk_bridge.log' in fl
+                    or 'ltk_api.log' in fl
                     or 'ltf' in ml or 'ltk patcher' in ml or 'ltk manager' in ml
                 )
                 if is_ltf_report:
