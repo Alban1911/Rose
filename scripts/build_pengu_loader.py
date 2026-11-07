@@ -16,10 +16,29 @@ BUILD_OUTPUT = ROOT / "build" / "pengu-loader"
 RUNTIME_DIR = ROOT / "Pengu Loader"
 
 
+def _dotnet_sdk_msbuild() -> list[str] | None:
+    """`dotnet msbuild`, when a .NET SDK is installed (a runtime alone has no MSBuild)."""
+    dotnet = shutil.which("dotnet")
+    if not dotnet:
+        return None
+    try:
+        sdks = subprocess.run([dotnet, "--list-sdks"], capture_output=True, text=True, check=False, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return [dotnet, "msbuild"] if sdks.returncode == 0 and sdks.stdout.strip() else None
+
+
 def _find_msbuild() -> list[str] | None:
     configured = os.environ.get("MSBUILD_EXE")
     if configured and Path(configured).exists():
         return [configured]
+
+    # loader.csproj is an SDK-style project: the .NET SDK's own MSBuild resolves
+    # Microsoft.NET.Sdk, while a Visual Studio MSBuild installed without the
+    # ".NET SDK" component fails with MSB4236
+    dotnet = _dotnet_sdk_msbuild()
+    if dotnet:
+        return dotnet
 
     msbuild = shutil.which("msbuild")
     if msbuild:
@@ -47,10 +66,6 @@ def _find_msbuild() -> list[str] | None:
             if candidate and Path(candidate).exists():
                 return [candidate]
 
-    dotnet = shutil.which("dotnet")
-    if dotnet:
-        return [dotnet, "msbuild"]
-
     return None
 
 
@@ -73,7 +88,7 @@ def build_loader() -> int:
     msbuild = _find_msbuild()
     if not msbuild:
         print("[ERROR] MSBuild was not found.")
-        print("        Install the Visual Studio .NET desktop build tools, or set MSBUILD_EXE.")
+        print("        Install the .NET SDK (or Visual Studio's .NET desktop build tools), or set MSBUILD_EXE.")
         return 1
 
     if BUILD_OUTPUT.exists():
