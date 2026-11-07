@@ -782,10 +782,31 @@ class OverlayManager:
             return None
 
         session = self._new_session(bridge, launched)
+        # Before any install: an install is what sets a check off
+        self._turn_off_health_check(bridge)
         self._check_ltk_builtins()
         self._cleanup_stale_installs(bridge)
         shutil.rmtree(self._staging_root(), ignore_errors=True)
         return session
+
+    @staticmethod
+    def _turn_off_health_check(bridge) -> None:
+        """Turn off LTK Manager's "Automatically check mods": it checks each
+        mod new to its library, and Rose installs the picked skin anew for each
+        game, so it checked every game; on a hard drive that took minutes while
+        the game sat on its loading screen (#481). The check means nothing for
+        Rose's skins, and the user can still run it by hand in LTK Manager."""
+        try:
+            response = bridge.health_check_off()
+        except (BridgeCommandError, BridgeUnavailable) as e:
+            # An LTF bridge older than the command, or a page not answering yet
+            log.debug(f"[INJECT] Could not turn off LTK Manager's automatic mod check: {e}")
+            return
+        if response.get("changed"):
+            log.info(
+                "[INJECT] Turned off LTK Manager's automatic mod check (Settings > Library > Automatically "
+                "check mods): it checked Rose's skin anew every game"
+            )
 
     @staticmethod
     def _check_ltk_builtins() -> None:

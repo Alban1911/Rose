@@ -444,6 +444,12 @@ class LtkBridge:
     def uninstall(self, target: str) -> Dict[str, Any]:
         return self._ok({"cmd": "uninstall", "target": target})
 
+    # -- settings ----------------------------------------------------------
+    def health_check_off(self) -> Dict[str, Any]:
+        """Turn off LTK Manager's "Automatically check mods" setting
+        ("changed" in the answer says whether it was on)."""
+        return self._ok({"cmd": "health_check_off"})
+
     # -- patcher -----------------------------------------------------------
     def start_patcher(self) -> Dict[str, Any]:
         return self._ok({"cmd": "start_patcher"})

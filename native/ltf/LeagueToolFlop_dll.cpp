@@ -664,12 +664,9 @@ static std::string CdpEvaluate(const std::string& jsExpr, DWORD timeoutMs = kCdp
     return {};
 }
 
-static mj::JVal TauriInvoke(const std::string& command, const mj::JVal& args, DWORD timeoutMs = kCdpEvalBudgetMs) {
-    std::string js =
-        "(async () => { try { const r = await window.__TAURI_INTERNALS__.invoke("
-        + mj::JVal::str(command).dump() + ", " + args.dump() +
-        "); return r; } catch (e) { return { ok: false, error: (e && e.message) ? e.message : String(e) }; } })()";
-
+// Evaluates *js* (an expression yielding a JSON-able value) in LTK Manager's
+// page, one evaluation at a time
+static mj::JVal CdpEvaluateJson(const std::string& js, DWORD timeoutMs = kCdpEvalBudgetMs) {
     BOOL entered = FALSE;
     for (int i = 0; i < 100 && !entered; ++i) {
         entered = TryEnterCriticalSection(&g_cdpLock);
@@ -695,6 +692,52 @@ static mj::JVal TauriInvoke(const std::string& command, const mj::JVal& args, DW
         return err;
     }
     return mj::parse(raw);
+}
+
+static mj::JVal TauriInvoke(const std::string& command, const mj::JVal& args, DWORD timeoutMs = kCdpEvalBudgetMs) {
+    std::string js =
+        "(async () => { try { const r = await window.__TAURI_INTERNALS__.invoke("
+        + mj::JVal::str(command).dump() + ", " + args.dump() +
+        "); return r; } catch (e) { return { ok: false, error: (e && e.message) ? e.message : String(e) }; } })()";
+    return CdpEvaluateJson(js, timeoutMs);
+}
+
+// LTK Manager checks every mod new to its library ("Automatically check mods",
+// autoHealthCheckEnabled), and Rose installs the picked skin anew for each
+// game: a check every game, minutes long on a hard drive, while the game loads
+// (Rose#481). Turns the setting off as LTK Manager's settings page does: the
+// whole settings read, the one field changed, saved back
+static mj::JVal CmdHealthCheckOff() {
+    const char* js = R"JS(
+(async () => {
+    try {
+        const invoke = window.__TAURI_INTERNALS__.invoke;
+        const got = await invoke('plugin:settings|get_settings');
+        if (!got || got.ok === false) {
+            return { ok: false, error: 'get_settings failed: ' + JSON.stringify(got && got.error) };
+        }
+        const settings = got.value !== undefined ? got.value : got;
+        if (!settings || typeof settings !== 'object') return { ok: false, error: 'get_settings returned no settings' };
+        if (settings.autoHealthCheckEnabled === false) return { ok: true, changed: false };
+        settings.autoHealthCheckEnabled = false;
+        const saved = await invoke('plugin:settings|save_settings', { settings });
+        if (saved && saved.ok === false) {
+            return { ok: false, error: 'save_settings failed: ' + JSON.stringify(saved.error) };
+        }
+        return { ok: true, changed: true };
+    } catch (e) {
+        return { ok: false, error: (e && e.message) ? e.message : String(e) };
+    }
+})()
+)JS";
+    mj::JVal r = CdpEvaluateJson(js);
+    if (r.t != mj::JVal::OBJ) {
+        mj::JVal err = mj::JVal::obj_();
+        err.set("ok", mj::JVal::boo(false));
+        err.set("error", mj::JVal::str("unexpected answer from LTK Manager's page"));
+        return err;
+    }
+    return r;
 }
 
 // LTK Manager creates its window hidden and its frontend shows it once the page
@@ -1306,6 +1349,7 @@ static std::string HandleCommand(const std::string& line) {
     if (c == "uninstall")      return CmdUninstall(req.get("target") ? req.get("target")->asStr() : "").dump();
     if (c == "health")         return CmdHealth(req.get("modId") ? req.get("modId")->asStr() : "").dump();
     if (c == "spoof_health")   return CmdSpoofHealth().dump();
+    if (c == "health_check_off") return CmdHealthCheckOff().dump();
     if (c == "start_patcher")  return CmdStartPatcher().dump();
     if (c == "stop_patcher")   return CmdStopPatcher().dump();
     if (c == "patcher_status") return CmdPatcherStatus().dump();

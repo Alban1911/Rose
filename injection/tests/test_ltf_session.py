@@ -28,6 +28,8 @@ class FakeBridge:
     # Answer an install with the whole entry it created (id, names, enabled),
     # not its id alone
     full_install_answer = False
+    # The health_check_off answer; None: a bridge older than the command
+    health_check_answer = {"ok": True, "changed": False}
 
     def __init__(self, port=None, pid=None):
         self.port = port
@@ -45,6 +47,7 @@ class FakeBridge:
         cls.patcher_statuses = []
         cls.initial_library = []
         cls.full_install_answer = False
+        cls.health_check_answer = {"ok": True, "changed": False}
 
     @classmethod
     def wait_for_bridge(cls, timeout=30.0, expected_pid=None, cancelled=None):
@@ -103,6 +106,12 @@ class FakeBridge:
             raise BridgeCommandError(f"unknown mod {target}")
         self.library_entries = remaining
         return {"ok": True}
+
+    def health_check_off(self):
+        self.calls.append(("health_check_off",))
+        if FakeBridge.health_check_answer is None:
+            raise BridgeCommandError("unknown: health_check_off")
+        return FakeBridge.health_check_answer
 
     def start_patcher(self):
         self.calls.append(("start_patcher",))
@@ -486,6 +495,29 @@ class InjectionSessionTests(LtfSessionTestCase):
         log_dir = self.root / "logs" / "ltk"
         self.assertEqual(command[command.index("--log-dir") + 1], str(log_dir))
         self.assertTrue(log_dir.is_dir())
+
+    def test_ltk_managers_automatic_mod_check_is_turned_off_before_any_install(self):
+        """#481: LTK Manager checked Rose's skin anew every game, for minutes
+        on a hard drive while the game loaded"""
+        FakeBridge.health_check_answer = {"ok": True, "changed": True}
+        mod = self.make_mod()
+
+        with self.assertLogs(overlay_manager.log.name, level="INFO") as logs:
+            self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        names = self.bridge.command_names()
+        self.assertIn("health_check_off", names)
+        self.assertLess(names.index("health_check_off"), names.index("import"))
+        self.assertTrue(any("Turned off LTK Manager's automatic mod check" in line for line in logs.output))
+
+    def test_a_bridge_without_the_command_still_injects(self):
+        FakeBridge.health_check_answer = None  # an LTF bridge older than it
+        mod = self.make_mod()
+
+        result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        self.assertEqual(result, 0)
+        self.assertIn("import", self.bridge.command_names())
 
     def test_a_large_launcher_log_is_kept_as_old(self):
         rose_log = overlay_manager.launcher_log_paths()[0]
