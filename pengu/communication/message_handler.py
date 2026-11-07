@@ -71,7 +71,9 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
     "request-manage-champion-mods",
     "request-manage-category-mods",
     "delete-champion-mod",
+    "delete-champion-mods",
     "delete-category-mod",
+    "delete-category-mods",
     "rename-champion-mod",
     "rename-category-mod",
 })
@@ -315,8 +317,12 @@ class MessageHandler:
             self._handle_dismiss_custom_mod(payload)
         elif payload_type == "delete-champion-mod":
             self._handle_delete_champion_mod(payload)
+        elif payload_type == "delete-champion-mods":
+            self._handle_delete_champion_mods(payload)
         elif payload_type == "delete-category-mod":
             self._handle_delete_category_mod(payload)
+        elif payload_type == "delete-category-mods":
+            self._handle_delete_category_mods(payload)
         elif payload_type == "rename-champion-mod":
             self._handle_rename_champion_mod(payload)
         elif payload_type == "rename-category-mod":
@@ -1946,6 +1952,68 @@ class MessageHandler:
                 "error": str(exc),
             }))
 
+    def _handle_delete_champion_mods(self, payload: dict) -> None:
+        """Delete selected skin mods and report each result in one response."""
+        champion_id = payload.get("championId")
+        mods = payload.get("mods")
+        if not self.mod_storage:
+            error = "Mod storage is not available"
+            results = []
+        elif not isinstance(mods, list) or not mods:
+            error = "At least one skin mod is required"
+            results = []
+        else:
+            error = None
+            results = []
+            for mod in mods:
+                if not isinstance(mod, dict):
+                    results.append({"success": False, "error": "Invalid mod entry"})
+                    continue
+                mod_name = mod.get("modName")
+                relative_path = mod.get("relativePath")
+                try:
+                    deleted = self.mod_storage.delete_champion_mod(
+                        champion_id,
+                        mod_name=mod_name,
+                        relative_path=relative_path,
+                    )
+                    if deleted:
+                        self._clear_active_selection_if_matches(champion_id, relative_path)
+                        results.append({
+                            "success": True,
+                            "modName": mod_name,
+                            "relativePath": relative_path,
+                        })
+                    else:
+                        results.append({
+                            "success": False,
+                            "modName": mod_name,
+                            "relativePath": relative_path,
+                            "error": "Mod not found",
+                        })
+                except Exception as exc:
+                    log.error("[DeleteMod] Failed to delete champion mod %s: %s", mod_name, exc)
+                    results.append({
+                        "success": False,
+                        "modName": mod_name,
+                        "relativePath": relative_path,
+                        "error": str(exc),
+                    })
+
+        deleted_count = sum(result.get("success", False) for result in results)
+        failures = len(results) - deleted_count
+        response = {
+            "type": "champion-mods-bulk-deleted",
+            "championId": champion_id,
+            "success": failures == 0 and error is None,
+            "partial": deleted_count > 0 and failures > 0,
+            "deletedCount": deleted_count,
+            "results": results,
+        }
+        if error:
+            response["error"] = error
+        self._send_response(json.dumps(response))
+
     def _clear_category_selection_if_matches(self, category: object, mod_name: object) -> None:
         """Clear live selection and mod historic if they point at the deleted category mod."""
         if not category or not mod_name:
@@ -2040,6 +2108,62 @@ class MessageHandler:
                 "modName": mod_name,
                 "error": str(exc),
             }))
+
+    def _handle_delete_category_mods(self, payload: dict) -> None:
+        """Delete selected category mods and report each result in one response."""
+        category = payload.get("category")
+        mods = payload.get("mods")
+        if not self.mod_storage:
+            error = "Mod storage is not available"
+            results = []
+        elif not isinstance(mods, list) or not mods:
+            error = "At least one category mod is required"
+            results = []
+        else:
+            error = None
+            results = []
+            for mod in mods:
+                if not isinstance(mod, dict):
+                    results.append({"success": False, "error": "Invalid mod entry"})
+                    continue
+                mod_name = mod.get("modName")
+                try:
+                    deleted = self.mod_storage.delete_category_mod(category, mod_name)
+                    if deleted:
+                        self._clear_category_selection_if_matches(category, mod_name)
+                        results.append({"success": True, "modName": mod_name})
+                    else:
+                        results.append({
+                            "success": False,
+                            "modName": mod_name,
+                            "error": "Mod not found",
+                        })
+                except Exception as exc:
+                    log.error(
+                        "[DeleteMod] Failed to delete category mod %s/%s: %s",
+                        category,
+                        mod_name,
+                        exc,
+                    )
+                    results.append({
+                        "success": False,
+                        "modName": mod_name,
+                        "error": str(exc),
+                    })
+
+        deleted_count = sum(result.get("success", False) for result in results)
+        failures = len(results) - deleted_count
+        response = {
+            "type": "category-mods-bulk-deleted",
+            "category": category,
+            "success": failures == 0 and error is None,
+            "partial": deleted_count > 0 and failures > 0,
+            "deletedCount": deleted_count,
+            "results": results,
+        }
+        if error:
+            response["error"] = error
+        self._send_response(json.dumps(response))
 
     def _sync_selected_custom_mod_display_name(
         self,

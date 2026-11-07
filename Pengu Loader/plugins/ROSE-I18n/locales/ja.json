@@ -206,5 +206,11 @@
   "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "解決策: Windows が LTK Manager のファイルのデジタル署名を検証できませんでした。いずれかのファイルが変更または破損しているため、パッチャーが動作を拒否しています。公式リリース (github.com/LeagueToolkit/ltk-manager/releases) から LTK Manager を再インストールしてから、もう一度お試しください。",
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "LTK Manager がスキンを準備している間、Rose がゲームを保留できる時間です。\n\nゲーム開始までに LTK Manager の準備ができていない場合、Rose はゲームを一時停止し、LTK Manager の準備ができ次第ゲームを再起動して再接続します。この時間を過ぎると、ゲームはスキンなしで開始されます。\n\n重い MOD を使う場合は、より大きな値が必要になることがあります。",
   "LTK Manager was not ready in time": "LTK Manager の準備が間に合いませんでした",
-  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "意味: 自動再開タイムアウト内に LTK Manager の準備ができなかったため、Rose はスキンなしでゲームを続行させました。"
+  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "意味: 自動再開タイムアウト内に LTK Manager の準備ができなかったため、Rose はスキンなしでゲームを続行させました。",
+  "Delete selected ({count})": "????????{count}?",
+  "Delete the selected mod? This cannot be undone.": "????MOD?????????????????????",
+  "Delete {count} selected mods? This cannot be undone.": "????{count}??MOD?????????????????????",
+  "Select all": "?????",
+  "Select all mods": "????MOD???",
+  "Select mod {name}": "MOD?{name}????"
 }

@@ -206,5 +206,11 @@
   "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "Řešení: Windows nemohl ověřit digitální podpis souborů LTK Manageru: jeden byl upraven nebo poškozen a jeho patcher odmítá běžet. Přeinstalujte LTK Manager z oficiálního vydání (github.com/LeagueToolkit/ltk-manager/releases) a zkuste to znovu.",
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "Jak dlouho smí Rose podržet hru, zatímco LTK Manager připravuje tvůj skin.\n\nKdyž LTK Manager není připraven před začátkem hry, Rose hru zmrazí, a jakmile je LTK Manager připraven, restartuje ji a znovu tě připojí. Po uplynutí této doby hra začne bez skinu.\n\nPokud používáš náročné mody, možná budeš potřebovat vyšší hodnotu.",
   "LTK Manager was not ready in time": "LTK Manager nebyl připraven včas",
-  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Co to znamená: LTK Manager nebyl připraven během časového limitu automatického obnovení, takže Rose nechal hru pokračovat bez skinu."
+  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Co to znamená: LTK Manager nebyl připraven během časového limitu automatického obnovení, takže Rose nechal hru pokračovat bez skinu.",
+  "Delete selected ({count})": "Smazat vybran? ({count})",
+  "Delete the selected mod? This cannot be undone.": "Smazat vybran? mod? Tuto akci nelze vr?tit.",
+  "Delete {count} selected mods? This cannot be undone.": "Smazat {count} vybran?ch mod?? Tuto akci nelze vr?tit.",
+  "Select all": "Vybrat v?e",
+  "Select all mods": "Vybrat v?echny mody",
+  "Select mod {name}": "Vybrat mod {name}"
 }
