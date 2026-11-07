@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from PIL import Image
@@ -67,6 +68,42 @@ class ChampionModImageHandlerTests(unittest.TestCase):
             })
         self.assertTrue(self.sent[-1]["cancelled"])
         self.handler.mod_storage.set_champion_mod_image.assert_not_called()
+
+    def test_manage_rows_mark_only_folders_as_image_editable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            mod_folder = root / "skins" / "1000" / "folder"
+            mod_folder.mkdir(parents=True)
+            archive = root / "skins" / "1000" / "archive.fantome"
+            archive.write_bytes(b"archive")
+            handler = MessageHandler.__new__(MessageHandler)
+            handler.mod_storage = SimpleNamespace(mods_root=root)
+            handler.port = 50000
+            entries = [
+                SimpleNamespace(
+                    path=mod_folder,
+                    mod_name="folder",
+                    display_name=None,
+                    skin_id=1001,
+                    target_skin_ids={1001},
+                    description="",
+                    updated_at=0,
+                ),
+                SimpleNamespace(
+                    path=archive,
+                    mod_name="archive",
+                    display_name=None,
+                    skin_id=1001,
+                    target_skin_ids={1001},
+                    description="",
+                    updated_at=0,
+                ),
+            ]
+
+            payload = handler._serialize_manage_champion_mods(entries)
+
+        self.assertTrue(payload[0]["imageEditable"])
+        self.assertFalse(payload[1]["imageEditable"])
 
 
 class ModThumbnailCacheTests(unittest.TestCase):

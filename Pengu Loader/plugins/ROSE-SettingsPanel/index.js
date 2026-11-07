@@ -4173,7 +4173,7 @@
       actions.appendChild(renameButton);
     }
 
-    if (onImage) {
+    if (onImage && mod.imageEditable) {
       const imageButton = document.createElement("button");
       imageButton.type = "button";
       imageButton.className = "mod-rename-button";
@@ -4367,7 +4367,12 @@
       seen.add(dedupeKey);
       renderModRow(
         listContainer,
-        { name: mod.modName, displayName: mod.displayName, thumbnailUrl: mod.thumbnailUrl },
+        {
+          name: mod.modName,
+          displayName: mod.displayName,
+          thumbnailUrl: mod.thumbnailUrl,
+          imageEditable: mod.imageEditable,
+        },
         (deleteButton, row) => {
           deleteButton.disabled = true;
           deleteButton.textContent = t("Deleting...");

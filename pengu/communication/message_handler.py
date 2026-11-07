@@ -8,7 +8,6 @@ Routes and handles different WebSocket message types
 import asyncio
 import base64
 import binascii
-from io import BytesIO
 import json
 import logging
 import os
@@ -1143,6 +1142,7 @@ class MessageHandler:
                     "relativePath": str(relative_path).replace("\\", "/"),
                     "thumbnailRelativePath": thumbnail_relative_path,
                     "thumbnailUrl": thumbnail_url,
+                    "imageEditable": entry.path.is_dir(),
                 }
             )
 
@@ -1237,6 +1237,7 @@ class MessageHandler:
                     "relativePath": str(relative_path).replace("\\", "/"),
                     "thumbnailRelativePath": thumbnail_relative_path,
                     "thumbnailUrl": thumbnail_url,
+                    "imageEditable": entry.path.is_dir(),
                 }
             )
         return mods_payload
@@ -2193,15 +2194,11 @@ class MessageHandler:
 
             from PIL import Image
 
-            image_size = selected_image.stat().st_size
-            if image_size <= 0 or image_size > self.mod_storage.MAX_MOD_IMAGE_BYTES:
-                raise ValueError("The image must be between 1 byte and 5 MB")
-            image_data = selected_image.read_bytes()
-            if len(image_data) > self.mod_storage.MAX_MOD_IMAGE_BYTES:
-                raise ValueError("The image must be 5 MB or smaller")
-            if not image_data.startswith(b"\x89PNG\r\n\x1a\n"):
-                raise ValueError("The selected file is not a PNG image")
-            with Image.open(BytesIO(image_data)) as image:
+            try:
+                image_context = Image.open(selected_image)
+            except (OSError, ValueError) as exc:
+                raise ValueError("The selected file is not a valid PNG image") from exc
+            with image_context as image:
                 if image.format != "PNG":
                     raise ValueError("The selected file is not a PNG image")
                 if image.width > 4096 or image.height > 4096:
@@ -2211,7 +2208,7 @@ class MessageHandler:
             image_path = self.mod_storage.set_champion_mod_image(
                 champion_id,
                 relative_path,
-                image_data,
+                selected_image,
             )
             log.info("[ManageMods] Updated skin mod image: %s", image_path)
             self._send_response(json.dumps({

@@ -23,7 +23,7 @@ log = get_logger()
 _METADATA_FILES = {"rose_mod_targets.json"}
 
 # path -> ((mtime_ns, size), content_hash, legacy_hash)
-_hash_cache: Dict[str, Tuple[Tuple[int, int], Optional[str], Optional[str]]] = {}
+_hash_cache: Dict[str, Tuple[Tuple[int, ...], Optional[str], Optional[str]]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -49,13 +49,20 @@ def _hash_stream(stream) -> bytes:
     return digest.digest()
 
 
+def _is_preview_image(relative_path: str) -> bool:
+    return relative_path.replace("\\", "/").casefold() == "meta/image.png"
+
+
 def _folder_content_hash(folder: Path) -> Optional[str]:
     entries = []
     for file_path in folder.rglob("*"):
         if not file_path.is_file():
             continue
+        relative_path = file_path.relative_to(folder).as_posix()
+        if _is_preview_image(relative_path):
+            continue
         with file_path.open("rb") as stream:
-            entries.append((file_path.relative_to(folder).as_posix(), _hash_stream(stream)))
+            entries.append((relative_path, _hash_stream(stream)))
     return _content_digest(entries) if entries else None
 
 
@@ -65,14 +72,19 @@ def _archive_content_hash(archive_path: Path) -> Optional[str]:
         # Hash the files the package unpacks to, as the imported folder holds them
         with ModPackage.open(archive_path) as package:
             for relative_path, content in package.iter_files():
+                if _is_preview_image(relative_path):
+                    continue
                 entries.append((relative_path, hashlib.sha256(content).digest()))
         return _content_digest(entries) if entries else None
     with zipfile.ZipFile(archive_path, "r") as archive:
         for info in archive.infolist():
             if info.is_dir():
                 continue
+            relative_path = info.filename.replace("\\", "/").lstrip("/")
+            if _is_preview_image(relative_path):
+                continue
             with archive.open(info) as stream:
-                entries.append((info.filename.replace("\\", "/").lstrip("/"), _hash_stream(stream)))
+                entries.append((relative_path, _hash_stream(stream)))
     return _content_digest(entries) if entries else None
 
 
@@ -94,7 +106,16 @@ def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
         return None, None
 
     key = str(mod_path)
-    stamp = (stat.st_mtime_ns, stat.st_size)
+    if mod_path.is_dir():
+        image_path = mod_path / "META" / "image.png"
+        try:
+            image_stat = image_path.stat()
+            image_stamp = (image_stat.st_mtime_ns, image_stat.st_size)
+        except OSError:
+            image_stamp = (0, 0)
+        stamp = (stat.st_mtime_ns, stat.st_size, *image_stamp)
+    else:
+        stamp = (stat.st_mtime_ns, stat.st_size)
     with _cache_lock:
         cached = _hash_cache.get(key)
     if cached and cached[0] == stamp:

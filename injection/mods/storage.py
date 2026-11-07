@@ -302,8 +302,10 @@ class ModStorageService:
             files = []
 
         for file_path in files:
+            relative_path = file_path.relative_to(mod_path).as_posix()
+            if relative_path.casefold() == "meta/image.png":
+                continue
             try:
-                relative_path = file_path.relative_to(mod_path).as_posix()
                 file_hash = hashlib.sha256()
                 with file_path.open("rb") as stream:
                     for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -742,7 +744,7 @@ class ModStorageService:
         self,
         champion_id: int | str,
         relative_path: str,
-        image_data: bytes,
+        image_data: bytes | Path,
     ) -> Path:
         """Atomically add or replace a skin mod's META/image.png."""
         champion_id_int = self._to_int(champion_id)
@@ -750,6 +752,15 @@ class ModStorageService:
             raise ValueError(f"Invalid champion ID: {champion_id}")
         if not isinstance(relative_path, str) or self._is_unsafe_mod_identity(relative_path):
             raise ValueError("Invalid skin mod path")
+        if isinstance(image_data, Path):
+            try:
+                image_size = image_data.stat().st_size
+                if image_size <= 0 or image_size > self.MAX_MOD_IMAGE_BYTES:
+                    raise ValueError("The image must be between 1 byte and 5 MB")
+                with image_data.open("rb") as stream:
+                    image_data = stream.read(self.MAX_MOD_IMAGE_BYTES + 1)
+            except OSError as exc:
+                raise ValueError(f"Could not read the selected image: {exc}") from exc
         if not isinstance(image_data, bytes) or not image_data:
             raise ValueError("A PNG image is required")
         if len(image_data) > self.MAX_MOD_IMAGE_BYTES:

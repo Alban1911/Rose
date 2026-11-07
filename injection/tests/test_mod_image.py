@@ -28,6 +28,19 @@ class ChampionModImageTests(unittest.TestCase):
         self.service.set_champion_mod_image(1, self.relative_path, second_image)
         self.assertEqual(image_path.read_bytes(), second_image)
 
+    def test_selected_image_file_is_size_checked_and_saved(self):
+        source = self.root / "selected.png"
+        image_data = PNG_HEADER + b"preview"
+        source.write_bytes(image_data)
+
+        image_path = self.service.set_champion_mod_image(
+            1,
+            self.relative_path,
+            source,
+        )
+
+        self.assertEqual(image_path.read_bytes(), image_data)
+
     def test_image_path_must_stay_inside_the_selected_champion_mod(self):
         with self.assertRaisesRegex(ValueError, "Invalid skin mod path"):
             self.service.set_champion_mod_image(1, "skins/1000/../1001/Other", PNG_HEADER)
@@ -48,6 +61,19 @@ class ChampionModImageTests(unittest.TestCase):
                 PNG_HEADER + b"x" * self.service.MAX_MOD_IMAGE_BYTES,
             )
         self.assertFalse((self.mod_folder / "META").exists())
+
+    def test_preview_image_is_excluded_from_the_folder_target_hash(self):
+        wad = self.mod_folder / "WAD"
+        wad.mkdir()
+        (wad / "Ahri.wad.client").write_bytes(b"skin data")
+        before, _ = self.service._hash_mod_folder(self.mod_folder)
+        image = self.mod_folder / "META" / "image.png"
+        image.parent.mkdir()
+        image.write_bytes(PNG_HEADER + b"preview")
+
+        after, _ = self.service._hash_mod_folder(self.mod_folder)
+
+        self.assertEqual(after, before)
 
 
 if __name__ == "__main__":

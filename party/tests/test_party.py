@@ -1,4 +1,5 @@
 import asyncio
+import os
 import tempfile
 import time
 import unittest
@@ -127,6 +128,33 @@ class CustomModsTests(unittest.TestCase):
         )
         # Another champion's folder is never searched
         self.assertIsNone(custom_mods.find_local_mod(11, content_hash=content_hash))
+
+    def test_preview_image_does_not_change_party_hash_and_replacement_refreshes_cache(self):
+        folder = self.root / "shared mod"
+        self._write_mod_files(folder)
+        archive = self.root / "same mod.zip"
+        with zipfile.ZipFile(archive, "w") as packed:
+            for file_path in folder.rglob("*"):
+                if file_path.is_file():
+                    packed.write(file_path, file_path.relative_to(folder).as_posix())
+        archive_hash, _ = custom_mods.mod_hashes(archive)
+        folder_hash, _ = custom_mods.mod_hashes(folder)
+        self.assertEqual(folder_hash, archive_hash)
+
+        image = folder / "META" / "image.png"
+        image.write_bytes(b"first preview")
+        os.utime(image, ns=(1_000_000_000, 1_000_000_000))
+        first_hash, _ = custom_mods.mod_hashes(folder)
+        first_stamp = custom_mods._hash_cache[str(folder)][0]
+        self.assertEqual(first_hash, archive_hash)
+
+        image.write_bytes(b"replacement preview")
+        os.utime(image, ns=(2_000_000_000, 2_000_000_000))
+        replacement_hash, _ = custom_mods.mod_hashes(folder)
+        replacement_stamp = custom_mods._hash_cache[str(folder)][0]
+
+        self.assertEqual(replacement_hash, archive_hash)
+        self.assertNotEqual(replacement_stamp, first_stamp)
 
 
 class SkinCollectorSelectionTests(unittest.TestCase):
