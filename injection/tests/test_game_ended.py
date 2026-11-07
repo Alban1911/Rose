@@ -31,6 +31,29 @@ class GameEndedCallbackTests(unittest.TestCase):
         # A dodge: the lobby cleanup stops the patcher instead
         self.assertEqual(self._run(['ChampSelect', 'Lobby']), [False, False])
 
+    def test_client_outage_during_reconnect_keeps_the_match(self):
+        self.assertEqual(
+            self._run(['InProgress',None, None, 'None', 'Reconnect',
+                       'GameStart', 'InProgress', 'WaitingForStats']),
+            [False, False, False, False, False, False, False, True],
+        )
+
+    def test_only_confirmed_end_phases_stop_the_patcher(self):
+        for phase in ('WaitingForStats', 'PreEndOfGame', 'EndOfGame',
+                      'Lobby', 'Matchmaking', 'ReadyCheck', 'ChampSelect'):
+            with self.subTest(phase=phase):
+                self.assertEqual(self._run(['InProgress', None, phase]),
+                [False, False, True])
+
+    def test_closing_rose_stops_waiting_for_reconnect(self):
+        state = SimpleNamespace(phase='InProgress', stop=False)
+        callback = make_game_ended_callback(state)
+        self.assertFalse(callback())
+        state.phase = None
+        self.assertFalse(callback())
+        state.stop = True
+        self.assertTrue(callback())
+
     def test_each_injection_tracks_its_own_game(self):
         state = SimpleNamespace(phase='InProgress')
         first = make_game_ended_callback(state)
