@@ -130,7 +130,12 @@ class SkinNameResolver:
         random_skin_name = getattr(self.state, 'random_skin_name', None)
         if random_mode_active and random_skin_name:
             random_skin_id = getattr(self.state, 'random_skin_id', None)
-            if random_skin_id:
+            random_chroma_id = getattr(self.state, 'random_chroma_id', None)
+            if random_chroma_id:
+                name = f"chroma_{random_chroma_id}"
+                log.info(f"[RANDOM] Injecting random chroma: {random_skin_name} (ID: {random_chroma_id})")
+                return name
+            elif random_skin_id:
                 if self.skin_scraper and self.skin_scraper.cache and random_skin_id in self.skin_scraper.cache.chroma_id_map:
                     name = f"chroma_{random_skin_id}"
                     log.info(f"[RANDOM] Injecting random chroma: {random_skin_name} (ID: {random_skin_id})")
