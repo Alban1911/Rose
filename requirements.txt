@@ -4,6 +4,9 @@
 # Security: All dependencies pinned to specific versions to prevent supply chain attacks
 psutil==5.9.8
 requests==2.31.0
+# SOCKS support for requests: without it, a SOCKS system proxy fails every
+# skin download with "Missing dependencies for SOCKS support" (#454)
+PySocks==1.7.1
 urllib3==2.0.7
 websocket-client==1.7.0
 websockets==12.0

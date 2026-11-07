@@ -296,6 +296,9 @@ hiddenimports = [
     # Networking
     'requests',
     'urllib3',
+    # A SOCKS system proxy (#454): requests loads it through urllib3's contrib
+    'socks',
+    'urllib3.contrib.socks',
     'websocket',
     'websockets',
 
