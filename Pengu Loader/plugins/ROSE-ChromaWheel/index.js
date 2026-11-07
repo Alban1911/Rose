@@ -31,6 +31,19 @@
   let pythonChromaState = null; // { selectedChromaId, chromaColor, chromaColors, currentSkinId }
   let championLocked = false; // Track if a champion is locked 
   let currentPhase = null; // Track the last observed phase so startup replays do not look like a new session
+  let classicModeActive = false;
+
+  function isClassicSkinState(state) {
+    const championId = Number(state?.championId);
+    return championId >= 60000 && championId < 61000;
+  }
+
+  function isClassicUiOwned(state = skinMonitorState) {
+    if (window.__roseClassicFeatureOwners?.chroma !== true) return false;
+    return classicModeActive ||
+      isClassicSkinState(state) ||
+      window.__roseClassicWheelApi?.state?.().active === true;
+  }
 
   /**
    * Escape HTML special characters to prevent XSS (CWE-79)
@@ -816,10 +829,21 @@
       const phase = data.phase;
       const gameMode = data.gameMode;
       const mapId = data.mapId;
+      classicModeActive =
+        Number(mapId) === 453 ||
+        Number(data.queueId) === 3260 ||
+        String(gameMode || "").toUpperCase() === "JADE";
       // Late startup can replay "ChampSelect" after skin-state is already current.
       // Keep the last seen phase so we only reset on real phase transitions.
       const previousPhase = currentPhase;
       currentPhase = phase;
+
+      if (isClassicUiOwned()) {
+        resetFrontendSessionState("classic-chroma-handoff");
+        stopObserver();
+        isAramFromPython = false;
+        return;
+      }
 
       if (phase === "ChampSelect") {
         // Only reset on a real transition into a new Champ Select session.
@@ -1896,6 +1920,10 @@
   }
 
   function handleChampionLocked(data) {
+    if (isClassicUiOwned()) {
+      championLocked = false;
+      return;
+    }
     const wasLocked = championLocked;
     championLocked = data.locked === true;
 
@@ -2089,6 +2117,11 @@
   }
 
   function scanSkinSelection() {
+    if (isClassicUiOwned()) {
+      document.querySelectorAll(BUTTON_SELECTOR).forEach((button) => button.remove());
+      document.getElementById(PANEL_ID)?.remove();
+      return;
+    }
     const skinItems = document.querySelectorAll(".skin-selection-item");
     const thumbnailWrappers = document.querySelectorAll(".thumbnail-wrapper");
 
@@ -3845,7 +3878,7 @@
       return;
     }
 
-    if (window.__roseSkinState) {
+    if (window.__roseSkinState && !isClassicUiOwned(window.__roseSkinState)) {
       skinMonitorState = window.__roseSkinState;
       maybeInferChampionLockedFromSkinState(skinMonitorState);
 
@@ -3893,6 +3926,7 @@
     }
 
     window.addEventListener("lu-skin-monitor-state", (event) => {
+      if (isClassicUiOwned(event?.detail)) return;
       const detail = event?.detail;
       emitBridgeLog("skin_state_update", detail || {});
       const prevState = skinMonitorState;
@@ -4038,13 +4072,18 @@
       bridge.subscribe("local-asset-url", handleLocalAssetUrl);
       bridge.subscribe("champion-locked", handleChampionLocked);
       bridge.subscribe("phase-change", handlePhaseChangeFromPython);
+      window.addEventListener("rose-classic-feature-owner-change", (event) => {
+        if (event?.detail?.feature !== "chroma" || !isClassicUiOwned()) return;
+        resetFrontendSessionState("classic-chroma-handoff");
+        stopObserver();
+      });
 
       subscribeToSkinMonitor();
       injectCSS();
       scanSkinSelection();
-      // Default-on: first phase-change from Python will shut the observer
-      // off again if we're already in-game.  See issue #22.
-      startObserver();
+      // Default-on: phase and ownership updates shut the observer off when a
+      // dedicated Classic chroma plugin owns the JADE presentation.
+      if (!isClassicUiOwned()) startObserver();
       log.info("fake chroma button creation active");
       _initialized = true;
       _retryCount = 0; // Reset retry counter on success
