@@ -5387,6 +5387,17 @@
           };
         }
 
+        if (code === 'LTK_SLOW_MOD_CHECK') {
+          const seconds = String(e?.detail || '').trim() || '?';
+          return {
+            title: t("LTK Manager's mod check slows down the game's loading"),
+            details: [
+              t("What it means: LTK Manager checks each mod Rose installs, and on this PC that took {seconds}s while the game was loading, which can leave it on a black loading screen. It usually takes a few seconds: a hard drive or an antivirus scanning the files makes it this slow.", { seconds }),
+              t('Fix: quit Rose, open LTK Manager from the Start menu > Settings > Library, turn off "Automatically check mods", then close LTK Manager (also from the system tray) and start Rose again.'),
+            ],
+          };
+        }
+
         if (code === 'LTK_MANAGER_MISSING') {
           return {
             title: t('LTK Manager is not installed'),

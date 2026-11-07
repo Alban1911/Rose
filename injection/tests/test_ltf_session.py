@@ -965,6 +965,35 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
         self.assertNotIn("parent", reason)
 
+    def test_a_slow_automatic_mod_check_is_reported_once(self):
+        """#481: LTK Manager's check of the skin Rose installed took 4 to 6
+        minutes on a slow drive, while the game sat on a black loading screen"""
+        session = self._session()
+        FakeBridge.patcher_statuses = [status(session={"log": (
+            "2026-11-07T20:03:50.541496Z  INFO ltk_manager_library::mods::health::sweep: Swept mod health in "
+            "263.0511754s: 1 of 1 checked, 0 repairable, 0 unrepairable\n"
+            "2026-11-07T20:03:50.559942Z  INFO ltk_manager_library::mods::health::sweep: Swept mod health in "
+            "16.5453ms: 1 of 1 checked, 0 repairable, 0 unrepairable")})]
+
+        self.overlay._poll_patcher_status(session)
+        self.overlay._poll_patcher_status(session)
+
+        (call,) = [c for c in self.report_issue.call_args_list if c.args[0] == "LTK_SLOW_MOD_CHECK"]
+        self.assertEqual(call.args[1], "warning")
+        self.assertIn("took 263s on this PC", call.args[2])
+        self.assertIn("Automatically check mods", call.kwargs["hint"])
+        self.assertEqual(self.reported_causes(), [])  # no failed session
+
+    def test_a_mod_check_of_a_few_seconds_is_not_reported(self):
+        session = self._session()
+        FakeBridge.patcher_statuses = [status(session={"log": (
+            "2026-11-07T20:40:38.929013Z  INFO ltk_manager_library::mods::health::sweep: Swept mod health in "
+            "4.0536767s: 1 of 1 checked, 1 repairable, 0 unrepairable")})]
+
+        self.overlay._poll_patcher_status(session)
+
+        self.assertNotIn("LTK_SLOW_MOD_CHECK", self.reported_codes())
+
     def test_an_incident_after_the_game_is_reported(self):
         """#432: League could not mount a WAD of the overlay and closed"""
         session = self._session()

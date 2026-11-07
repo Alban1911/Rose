@@ -202,6 +202,19 @@ OVERLAY_DISABLED_LINE = re.compile(r"overlay verification failed, disabling over
 # "Unexplained Game Exit", which does not say so (#475)
 DLL_NOT_ATTACHED_LINE = re.compile(r"DLL never attached after \d+\s*s", re.IGNORECASE)
 NOT_ATTACHED_MESSAGE = "LTK Manager's patcher never got into the game"
+# LTK Manager checks each mod new to its library ("Automatically check mods"),
+# and Rose installs the picked skin anew for each game. That check takes
+# seconds; on a slow drive it took 4 to 6 minutes, reading the disk while the
+# game loaded, and the game sat on a black loading screen until it was closed
+# (#481). Its log line gives the time as a Rust duration ("263.05s", "361.8ms")
+SLOW_MOD_CHECK_LINE = re.compile(r"Swept mod health in ([0-9.]+)(ns|µs|us|ms|s)\b")
+DURATION_UNITS_S = {"ns": 1e-9, "µs": 1e-6, "us": 1e-6, "ms": 1e-3, "s": 1.0}
+SLOW_MOD_CHECK_S = 30.0
+SLOW_MOD_CHECK_MESSAGE = "LTK Manager's automatic mod check took"
+SLOW_MOD_CHECK_HINT = (
+    "Quit Rose, open LTK Manager from the Start menu > Settings > Library, turn off \"Automatically check mods\", "
+    "then close LTK Manager (also from the system tray) and start Rose again."
+)
 OVERLAY_DISABLED_MESSAGE = "disabled the overlay"
 # LTK Manager's diagnosis of a game that went wrong (a WAD League could not
 # mount, a crash...), kept as <id>.json in its incidents folder
@@ -668,6 +681,7 @@ class OverlayManager:
             "ltk_disabled": None,  # why the DLL's integrity scan turned the overlay off
             "ltk_incident": None,  # (title, id, verdict) LTK Manager recorded after the game
             "ltk_not_attached": None,  # LTK's host giving up on getting its DLL into the game
+            "ltk_slow_mod_check_s": None,  # LTK Manager's longest automatic mod check, when slow
             "ltk_error": None,  # LTK Manager's first patcher ERROR line
             "staged_after_s": None,  # pick -> patcher start, for the staged mods
             # The library as _install_mods last read it, for _disable_other_mods
@@ -694,6 +708,7 @@ class OverlayManager:
             "disabled_reported": False,
             "incident_reported": False,
             "not_attached_reported": False,
+            "slow_mod_check_reported": False,
             "early_stop_logged": False,
             "lock": threading.Lock(),
         }
@@ -1990,6 +2005,10 @@ class OverlayManager:
         not_attached = DLL_NOT_ATTACHED_LINE.search(text)
         if not_attached and session.get("ltk_not_attached") is None:
             session["ltk_not_attached"] = not_attached.group(0)
+        for sweep in SLOW_MOD_CHECK_LINE.finditer(text):
+            seconds = float(sweep.group(1)) * DURATION_UNITS_S[sweep.group(2)]
+            if seconds >= SLOW_MOD_CHECK_S and seconds > (session.get("ltk_slow_mod_check_s") or 0.0):
+                session["ltk_slow_mod_check_s"] = seconds
         incident = INCIDENT_LINE.search(text)
         if incident and session.get("ltk_incident") is None:
             session["ltk_incident"] = (incident.group(1).strip(), incident.group(2), incident.group(3))
@@ -2143,6 +2162,19 @@ class OverlayManager:
             # Its incident only repeats a disabled overlay or a DLL that never got in
             if not disabled and not session.get("not_attached_reported"):
                 self._report_ltf_failure(f"LTK Manager recorded an incident after the game: {title} ({verdict}; {where})")
+        slow = session.get("ltk_slow_mod_check_s")
+        if slow is not None and not session.get("slow_mod_check_reported"):
+            session["slow_mod_check_reported"] = True
+            message = f"{SLOW_MOD_CHECK_MESSAGE} {slow:.0f}s on this PC, slowing down the game's loading"
+            log.warning(f"[INJECT] {message}")
+            report_issue(
+                "LTK_SLOW_MOD_CHECK",
+                "warning",
+                f"{message}.",
+                details={"seconds": f"{slow:.0f}"},
+                hint=SLOW_MOD_CHECK_HINT,
+                dedupe_window_s=600.0,
+            )
 
     def _poll_patcher_status(self, session: dict) -> None:
         """Record what the LTK patcher reports while the game runs.

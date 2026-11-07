@@ -949,6 +949,16 @@ class MessageHandler:
                         'detail': builtins,
                     }
 
+                # Category: LTK Manager's automatic mod check took minutes while
+                # the game loaded (before the LTF category: it names LTK Manager)
+                if "automatic mod check took" in ml:
+                    took = re.search(r"took (\d+)s", msg)
+                    return {
+                        'code': 'LTK_SLOW_MOD_CHECK',
+                        'text': 'LTK Manager mod check slows loading -> turn it off',
+                        'detail': took.group(1) if took else '',
+                    }
+
                 # Category: the League client runs as administrator (checked on
                 # each client connection; before the Windows account category)
                 if "can't apply skins" in ml and 'league client runs as administrator' in ml:

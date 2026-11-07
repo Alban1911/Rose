@@ -56,6 +56,17 @@ class LtfDiagnosticsTests(unittest.TestCase):
         self.assertEqual(summary["code"], "LTF_FAILED")
         self.assertEqual(summary["cause"], "cdp")
 
+    def test_a_slow_ltk_mod_check_gets_its_own_entry(self):
+        # #481: it names LTK Manager, but it is no failed session
+        from injection.overlay.overlay_manager import SLOW_MOD_CHECK_HINT, SLOW_MOD_CHECK_MESSAGE
+        (summary,) = summarize((
+            f"{SLOW_MOD_CHECK_MESSAGE} 263s on this PC, slowing down the game's loading.",
+            SLOW_MOD_CHECK_HINT,
+        ))
+
+        self.assertEqual(summary["code"], "LTK_SLOW_MOD_CHECK")
+        self.assertEqual(summary["detail"], "263")
+
     def test_an_older_install_report_of_it_is_not_an_import_problem(self):
         (summary,) = summarize((
             'Injection failed: could not install T1 Ambessa (list failed: {"ok": false, "raw": '
