@@ -195,6 +195,8 @@ class InjectionTrigger:
         selected_chroma_id = getattr(self.state, 'selected_chroma_id', None)
         if random_active and random_chroma_id:
             selected_chroma_id = random_chroma_id
+        elif random_active:
+            selected_chroma_id = None
 
         effective_skin_id = None
         if historic_active and historic_skin_id is not None:
@@ -1034,7 +1036,10 @@ class InjectionTrigger:
 
             # Inject if user doesn't own the hovered skin
             elif self.injection_manager:
-                chroma_id_to_inject = effective_skin_id if (effective_skin_id and effective_skin_id != ui_skin_id and not name.startswith("chroma_")) else None
+                chroma_id_to_inject = None
+                if not random_active and not historic_active:
+                    if selected_chroma_id and effective_skin_id == selected_chroma_id and not name.startswith("chroma_"):
+                        chroma_id_to_inject = selected_chroma_id
                 if chroma_id_to_inject:
                     self._inject_unowned_skin(name, cname, chroma_id=chroma_id_to_inject)
                 else:
