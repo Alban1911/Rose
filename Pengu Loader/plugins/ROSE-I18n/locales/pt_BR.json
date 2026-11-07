@@ -208,7 +208,7 @@
   "LTK Manager was not ready in time": "O LTK Manager não ficou pronto a tempo",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "O que significa: o LTK Manager não ficou pronto dentro do tempo de retomada automática, então o Rose deixou a partida seguir sem a skin.",
   "Failed to import {name}: {error}": "Falha ao importar {name}: {error}",
-  "Import failed": "Falha na importa??o",
+  "Import failed": "Falha na importação",
   "Mods added": "Mods adicionados",
   "Some mods added": "Alguns mods foram adicionados",
   "{count} mod files selected": "{count} arquivos de mod selecionados"

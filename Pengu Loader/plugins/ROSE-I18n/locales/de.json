@@ -209,7 +209,7 @@
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Was das bedeutet: LTK Manager war innerhalb des automatischen Fortsetzungs-Timeouts nicht bereit, daher hat Rose das Spiel ohne den Skin weiterlaufen lassen.",
   "Failed to import {name}: {error}": "{name} konnte nicht importiert werden: {error}",
   "Import failed": "Import fehlgeschlagen",
-  "Mods added": "Mods hinzugef?gt",
-  "Some mods added": "Einige Mods hinzugef?gt",
-  "{count} mod files selected": "{count} Mod-Dateien ausgew?hlt"
+  "Mods added": "Mods hinzugefügt",
+  "Some mods added": "Einige Mods hinzugefügt",
+  "{count} mod files selected": "{count} Mod-Dateien ausgewählt"
 }

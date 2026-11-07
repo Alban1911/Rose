@@ -207,9 +207,9 @@
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "Cât timp poate Rose să rețină jocul în timp ce LTK Manager îți pregătește skinul.\n\nDacă LTK Manager nu este gata înainte de începerea jocului, Rose îngheață jocul, apoi îl repornește și te reconectează imediat ce LTK Manager este gata. După acest timp, jocul pornește fără skin.\n\nDacă folosești moduri grele, s-ar putea să ai nevoie de o valoare mai mare.",
   "LTK Manager was not ready in time": "LTK Manager nu a fost gata la timp",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Ce înseamnă: LTK Manager nu a fost gata în limita timpului de reluare automată, așa că Rose a lăsat jocul să continue fără skin.",
-  "Failed to import {name}: {error}": "Nu s-a putut importa {name}: {error}",
-  "Import failed": "Importul a e?uat",
-  "Mods added": "Moduri ad?ugate",
-  "Some mods added": "Unele moduri au fost ad?ugate",
-  "{count} mod files selected": "{count} fi?iere de mod selectate"
+  "Failed to import {name}: {error}": "Importarea {name} a eșuat: {error}",
+  "Import failed": "Importul a eșuat",
+  "Mods added": "Moduri adăugate",
+  "Some mods added": "Unele moduri au fost adăugate",
+  "{count} mod files selected": "{count} fișiere de mod selectate"
 }

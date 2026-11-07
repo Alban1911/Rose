@@ -207,9 +207,9 @@
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "LTK Manager가 스킨을 준비하는 동안 Rose가 게임을 대기시킬 수 있는 시간입니다.\n\n게임이 시작되기 전에 LTK Manager가 준비되지 않으면 Rose가 게임을 일시 정지하고, LTK Manager가 준비되는 대로 게임을 재시작하고 다시 연결합니다. 이 시간이 지나면 게임은 스킨 없이 시작됩니다.\n\n무거운 모드를 사용한다면 더 높은 값이 필요할 수 있습니다.",
   "LTK Manager was not ready in time": "LTK Manager가 제때 준비되지 않았습니다",
   "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "의미: 자동 재개 제한 시간 안에 LTK Manager가 준비되지 않아, Rose가 스킨 없이 게임을 계속 진행했습니다.",
-  "Failed to import {name}: {error}": "{name} ???? ??: {error}",
-  "Import failed": "???? ?????",
-  "Mods added": "??? ??????",
-  "Some mods added": "?? ??? ??????",
-  "{count} mod files selected": "?? ?? {count}? ???"
+  "Failed to import {name}: {error}": "{name} 가져오기 실패: {error}",
+  "Import failed": "가져오기에 실패했습니다",
+  "Mods added": "모드를 추가했습니다",
+  "Some mods added": "일부 모드를 추가했습니다",
+  "{count} mod files selected": "모드 파일 {count}개 선택됨"
 }
