@@ -5139,6 +5139,7 @@
             late: () => t('Fix: the game started before the patcher was ready. Retry the next game.'),
             bridge: () => t('Fix: LTK Manager closed while the game was running. Retry the next game. If it happens every game, report it with your Rose logs.'),
             import: () => t('Fix: free up some disk space, then retry.'),
+            outdated: () => t('Fix: LTK Manager is too old for Rose: it does not know the commands Rose sends it. Update LTK Manager (or reinstall it from github.com/LeagueToolkit/ltk-manager/releases), then retry.'),
             killed: () => t("Fix: another program closed LTK Manager, most often an antivirus. Add Rose's folder to its exclusions, then retry."),
             crashed: () => t('Fix: LTK Manager crashed. Retry the next game. If it crashes every game, report it with your Rose logs.'),
             cdp: () => t(CDP_FIX),

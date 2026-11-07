@@ -358,6 +358,23 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertNotIn("start_patcher", names)
         self.assertNotIn("kill", names)  # a reused manager belongs to the user
 
+    def test_an_ltk_manager_refusing_the_commands_is_reported_as_outdated(self):
+        """#473: an LTK Manager without the library plugin rejected the
+        library read, and Troubleshooting told the user to free disk space"""
+        def refuse(bridge_self):
+            raise BridgeCommandError(
+                'list failed: {"ok": false, "raw": {"ok": false, "error": '
+                '"Command plugin:library|get_installed_mods not allowed by ACL"}}'
+            )
+
+        with patch.object(FakeBridge, "library", refuse):
+            result = self.overlay.mk_run_overlay([self.make_mod()], stop_callback=lambda: True)
+
+        self.assertEqual(result, 1)
+        self.assertEqual(self.reported_codes(), ["LTF_FAILED"])
+        self.assertEqual(self.reported_causes(), ["outdated"])
+        self.assertNotIn("start_patcher", self.bridge.command_names())
+
     def test_a_missing_bridge_reports_ltf_missing(self):
         (self.tools / "ltk_launcher.exe").unlink()
         mod = self.make_mod()
@@ -1414,6 +1431,19 @@ class FailureCauseTests(unittest.TestCase):
                   "found. Tried:\n - C:\\Program Files\\LTK Manager\\ltk_patcher_host.exe)")
         self.assertEqual(ltk_failure_cause(reason), "host_missing")
         self.assertIn("Reinstall LTK Manager", OverlayManager._ltk_failure_hint(reason))
+
+    def test_commands_ltk_manager_does_not_declare_mean_it_is_outdated(self):
+        """#473: Tauri refuses a command the app does not declare; the reason
+        names an install, but the fix is updating LTK Manager, not disk space"""
+        reason = ("LTK Manager refused Rose's commands (list failed: {\"error\": \"Command "
+                  "plugin:library|get_installed_mods not allowed by ACL\"})")
+        self.assertEqual(ltk_failure_cause(reason), "outdated")
+        self.assertEqual(ltk_failure_cause(
+            "could not start the LTK patcher (Command plugin:patcher|start_patcher not allowed by ACL)"
+        ), "outdated")
+        hint = OverlayManager._ltk_failure_hint(reason)
+        self.assertIn("Update LTK Manager", hint)
+        self.assertNotIn("disk space", hint)
 
     def test_ltk_manager_verdicts_on_the_game(self):
         self.assertEqual(ltk_failure_cause(

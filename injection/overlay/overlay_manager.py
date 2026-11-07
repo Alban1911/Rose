@@ -187,6 +187,9 @@ CDP_FAILURE_MARKER = "cdp unavailable"
 # window.__TAURI_INTERNALS__ is still undefined (#441)
 TAURI_NOT_READY_MARKER = "reading 'invoke'"
 CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in browser (CDP unavailable or timed out)"
+# Tauri rejecting a command LTK Manager does not declare ("Command
+# plugin:library|get_installed_mods not allowed by ACL")
+LTK_ACL_REFUSAL = "not allowed by acl"
 # Every LTF report's hint ends with it (Troubleshooting recognizes the reports by it)
 LTF_LOGS_HINT = "Details are in C:\\Users\\Public\\ltk_bridge.log, ltk_api.log and ltk_launcher.log."
 
@@ -214,6 +217,11 @@ def ltk_failure_cause(reason: str) -> str:
         return "corrupt"
     if "recorded an incident" in lowered:
         return "incident"
+    # Tauri's answer to a command the app does not declare: an LTK Manager
+    # older than the commands Rose drives (its library plugin came in v1.24.1).
+    # Before "import": an install refused that way is no disk problem (#473)
+    if LTK_ACL_REFUSAL in lowered:
+        return "outdated"
     if "import" in lowered:
         return "import"
     if "already open" in lowered:
@@ -1169,6 +1177,8 @@ class OverlayManager:
                     if report and not stopped():
                         if _cdp_unreachable(e):
                             self._report_ltf_failure(_cdp_unreachable_reason())
+                        elif LTK_ACL_REFUSAL in str(e).lower():
+                            self._report_ltf_failure(f"LTK Manager refused Rose's commands ({e})")
                         elif not self._report_low_disk_space_failure(mod_names):
                             report_issue(
                                 "LTF_IMPORT_FAILED",
@@ -2253,6 +2263,11 @@ class OverlayManager:
         if cause == "bridge":
             return (f"LTK Manager closed while the game was running. Retry the next game; "
                     f"if it happens every game, {report}. {logs}")
+        if cause == "outdated":
+            return ("LTK Manager is too old for Rose: it does not know the commands Rose sends it. Update LTK "
+                    "Manager (or reinstall it from github.com/LeagueToolkit/ltk-manager/releases), then retry. If "
+                    "you picked its ltk-manager.exe yourself, check it is the up-to-date install, not an old copy. "
+                    f"{logs}")
         if cause == "import":
             return f"Rose could not install the mod into LTK Manager. Free some disk space, then retry. {logs}"
         if cause == "killed":
