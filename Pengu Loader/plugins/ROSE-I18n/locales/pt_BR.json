@@ -214,5 +214,11 @@
   "Some mods added": "Alguns mods foram adicionados",
   "{count} mod files selected": "{count} arquivos de mod selecionados",
   "Add image": "Adicionar imagem",
-  "Change image": "Alterar imagem"
+  "Change image": "Alterar imagem",
+  "Delete selected ({count})": "Excluir selecionados ({count})",
+  "Delete the selected mod? This cannot be undone.": "Excluir o mod selecionado? Esta a??o n?o pode ser desfeita.",
+  "Delete {count} selected mods? This cannot be undone.": "Excluir {count} mods selecionados? Esta a??o n?o pode ser desfeita.",
+  "Select all": "Selecionar tudo",
+  "Select all mods": "Selecionar todos os mods",
+  "Select mod {name}": "Selecionar mod {name}"
 }

@@ -214,5 +214,11 @@
   "Some mods added": "N?h?ny mod hozz?adva",
   "{count} mod files selected": "{count} modf?jl kiv?lasztva",
   "Add image": "K?p hozz?ad?sa",
-  "Change image": "K?p m?dos?t?sa"
+  "Change image": "K?p m?dos?t?sa",
+  "Delete selected ({count})": "Kijel?ltek t?rl?se ({count})",
+  "Delete the selected mod? This cannot be undone.": "T?rl?d a kijel?lt modot? Ez nem vonhat? vissza.",
+  "Delete {count} selected mods? This cannot be undone.": "T?rl?d a(z) {count} kijel?lt modot? Ez nem vonhat? vissza.",
+  "Select all": "?sszes kijel?l?se",
+  "Select all mods": "?sszes mod kijel?l?se",
+  "Select mod {name}": "{name} mod kijel?l?se"
 }

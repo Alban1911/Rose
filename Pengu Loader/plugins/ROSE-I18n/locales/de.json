@@ -214,5 +214,11 @@
   "Some mods added": "Einige Mods hinzugef?gt",
   "{count} mod files selected": "{count} Mod-Dateien ausgew?hlt",
   "Add image": "Bild hinzuf?gen",
-  "Change image": "Bild ?ndern"
+  "Change image": "Bild ?ndern",
+  "Delete selected ({count})": "Ausgew?hlte l?schen ({count})",
+  "Delete the selected mod? This cannot be undone.": "Ausgew?hlten Mod l?schen? Das kann nicht r?ckg?ngig gemacht werden.",
+  "Delete {count} selected mods? This cannot be undone.": "{count} ausgew?hlte Mods l?schen? Das kann nicht r?ckg?ngig gemacht werden.",
+  "Select all": "Alle ausw?hlen",
+  "Select all mods": "Alle Mods ausw?hlen",
+  "Select mod {name}": "Mod {name} ausw?hlen"
 }

@@ -214,5 +214,11 @@
   "Some mods added": "Unele moduri au fost ad?ugate",
   "{count} mod files selected": "{count} fi?iere de mod selectate",
   "Add image": "Adaug? imagine",
-  "Change image": "Schimb? imaginea"
+  "Change image": "Schimb? imaginea",
+  "Delete selected ({count})": "?terge selec?ia ({count})",
+  "Delete the selected mod? This cannot be undone.": "?tergi modul selectat? Ac?iunea nu poate fi anulat?.",
+  "Delete {count} selected mods? This cannot be undone.": "?tergi cele {count} moduri selectate? Ac?iunea nu poate fi anulat?.",
+  "Select all": "Selecteaz? tot",
+  "Select all mods": "Selecteaz? toate modurile",
+  "Select mod {name}": "Selecteaz? modul {name}"
 }

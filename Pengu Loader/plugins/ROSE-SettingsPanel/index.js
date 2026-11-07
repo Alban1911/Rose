@@ -4131,7 +4131,7 @@
     return { dialog, listContainer };
   }
 
-  function renderModRow(listContainer, mod, onDelete, onRename, onImage) {
+  function renderModRow(listContainer, mod, onDelete, onRename, onImage, onSelect) {
     const row = document.createElement("div");
     row.className = "mod-manage-row";
     row.style.display = "flex";
@@ -4146,6 +4146,17 @@
     infoWrapper.style.alignItems = "center";
     infoWrapper.style.gap = "10px";
     infoWrapper.style.minWidth = "0";
+
+    if (onSelect) {
+      const selection = document.createElement("input");
+      selection.type = "checkbox";
+      selection.checked = Boolean(mod.selected);
+      selection.setAttribute("aria-label", t("Select mod {name}", { name: mod.displayName || mod.name }));
+      selection.dataset.modSelection = "true";
+      selection.style.flex = "0 0 auto";
+      selection.addEventListener("change", () => onSelect(selection.checked));
+      infoWrapper.appendChild(selection);
+    }
 
     if (mod.thumbnailUrl) {
       const thumb = document.createElement("img");
@@ -4217,6 +4228,57 @@
     listContainer.appendChild(row);
   }
 
+  function renderModSelectionToolbar(listContainer, mods, selection, keyForMod, onDeleteSelected) {
+    const toolbar = document.createElement("div");
+    toolbar.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-bottom:1px solid rgba(205,190,145,0.2);";
+
+    const selectAllLabel = document.createElement("label");
+    selectAllLabel.style.cssText = "display:flex;align-items:center;gap:8px;color:#cdbe91;font-family:'Beaufort for LOL',serif;";
+    const selectAll = document.createElement("input");
+    selectAll.type = "checkbox";
+    selectAll.setAttribute("aria-label", t("Select all mods"));
+    selectAllLabel.appendChild(selectAll);
+    const selectAllText = document.createElement("span");
+    selectAllText.textContent = t("Select all");
+    selectAllLabel.appendChild(selectAllText);
+    toolbar.appendChild(selectAllLabel);
+
+    const deleteSelected = document.createElement("button");
+    deleteSelected.type = "button";
+    deleteSelected.className = "mod-delete-button";
+    toolbar.appendChild(deleteSelected);
+
+    const updateSelection = () => {
+      const checkboxes = Array.from(listContainer.querySelectorAll("input[data-mod-selection]"));
+      checkboxes.forEach((checkbox, index) => {
+        checkbox.checked = selection.has(keyForMod(mods[index]));
+      });
+      deleteSelected.disabled = selection.size === 0;
+      deleteSelected.textContent = t("Delete selected ({count})", { count: selection.size });
+      const selectedCount = mods.filter((mod) => selection.has(keyForMod(mod))).length;
+      selectAll.checked = mods.length > 0 && selectedCount === mods.length;
+      selectAll.indeterminate = selectedCount > 0 && selectedCount < mods.length;
+    };
+
+    selectAll.addEventListener("change", () => {
+      if (selectAll.checked) {
+        mods.forEach((mod) => selection.set(keyForMod(mod), mod));
+      } else {
+        mods.forEach((mod) => selection.delete(keyForMod(mod)));
+      }
+      updateSelection();
+    });
+
+    deleteSelected.addEventListener("click", () => {
+      const selectedMods = Array.from(selection.values());
+      if (!selectedMods.length) return;
+      confirmDeleteMod(null, () => onDeleteSelected(selectedMods, toolbar), selectedMods.length);
+    });
+
+    listContainer.prepend(toolbar);
+    return updateSelection;
+  }
+
   function promptRenameMod(currentName, onConfirm) {
     const existing = document.getElementById("rename-mod-dialog");
     if (existing) existing.remove();
@@ -4282,7 +4344,7 @@
     });
   }
 
-  function confirmDeleteMod(modName, onConfirm) {
+  function confirmDeleteMod(modName, onConfirm, selectedCount = 0) {
     const existing = document.getElementById("delete-mod-confirm-dialog");
     if (existing) existing.remove();
 
@@ -4305,7 +4367,11 @@
     message.style.color = "#cdbe91";
     message.style.fontFamily = '"Beaufort for LOL", serif';
     message.style.marginBottom = "16px";
-    message.textContent = t('Delete mod "{name}"? This cannot be undone.', { name: modName });
+    message.textContent = selectedCount > 0
+      ? selectedCount === 1
+        ? t("Delete the selected mod? This cannot be undone.")
+        : t("Delete {count} selected mods? This cannot be undone.", { count: selectedCount })
+      : t('Delete mod "{name}"? This cannot be undone.', { name: modName });
     box.appendChild(message);
 
     const actions = document.createElement("div");
@@ -4340,9 +4406,13 @@
       "champion-mods-manage-dialog",
       t("Manage Mods - Loading..."),
       () => openChampionSelection("manage"),
-      () => { delete window.__roseManageChampionId; }
+      () => {
+        delete window.__roseManageChampionId;
+        delete window.__roseManageChampionSelectedMods;
+      }
     );
     window.__roseManageChampionId = championId;
+    window.__roseManageChampionSelectedMods = new Map();
 
     if (bridge) bridge.send({
       type: "request-manage-champion-mods",
@@ -4354,6 +4424,7 @@
     const dialog = document.getElementById("champion-mods-manage-dialog");
     if (dialog) dialog.remove();
     delete window.__roseManageChampionId;
+    delete window.__roseManageChampionSelectedMods;
   }
 
   function handleManageSkinModsResponse(payload) {
@@ -4379,10 +4450,38 @@
 
     // De-duplicate by path: the same folder can appear once per target skin.
     const seen = new Set();
-    mods.forEach((mod) => {
-      const dedupeKey = mod.relativePath || mod.modName;
-      if (seen.has(dedupeKey)) return;
-      seen.add(dedupeKey);
+    const uniqueMods = mods.filter((mod) => {
+      const key = mod.relativePath || mod.modName;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const selection = window.__roseManageChampionSelectedMods || new Map();
+    const currentKeys = new Set(uniqueMods.map((mod) => mod.relativePath || mod.modName));
+    Array.from(selection.keys()).forEach((key) => {
+      if (!currentKeys.has(key)) selection.delete(key);
+    });
+    const updateSelection = renderModSelectionToolbar(
+      listContainer,
+      uniqueMods,
+      selection,
+      (mod) => mod.relativePath || mod.modName,
+      (selectedMods, toolbar) => {
+        if (!bridge) return;
+        toolbar.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
+        listContainer.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
+        bridge.send({
+          type: "delete-champion-mods",
+          championId: window.__roseManageChampionId,
+          mods: selectedMods.map((mod) => ({
+            modName: mod.modName,
+            relativePath: mod.relativePath,
+          })),
+        });
+      }
+    );
+    uniqueMods.forEach((mod) => {
+      const key = mod.relativePath || mod.modName;
       renderModRow(
         listContainer,
         {
@@ -4390,6 +4489,7 @@
           displayName: mod.displayName,
           thumbnailUrl: mod.thumbnailUrl,
           imageEditable: mod.imageEditable,
+          selected: selection.has(key),
         },
         (deleteButton, row) => {
           deleteButton.disabled = true;
@@ -4420,9 +4520,33 @@
             championId: window.__roseManageChampionId,
             relativePath: mod.relativePath,
           });
+        },
+        (selected) => {
+          if (selected) selection.set(key, mod);
+          else selection.delete(key);
+          updateSelection();
         }
       );
     });
+    updateSelection();
+  }
+
+  function handleChampionModsBulkDeleted(payload) {
+    const results = payload.results || [];
+    results.filter((result) => !result.success).forEach((result) => {
+      log("error", `Failed to delete champion mod ${result.modName || ""}: ${result.error || "unknown error"}`);
+    });
+    if (payload.error) log("error", `Failed to delete selected champion mods: ${payload.error}`);
+    if (payload.deletedCount > 0) {
+      log("info", `Deleted ${payload.deletedCount} champion mod(s)`);
+      requestManageCategories();
+    }
+    if (
+      document.getElementById("champion-mods-manage-dialog") &&
+      Number(payload.championId) === Number(window.__roseManageChampionId)
+    ) {
+      openChampionModsList(payload.championId);
+    }
   }
 
   function handleChampionModImageUpdated(payload) {
@@ -4481,9 +4605,13 @@
       "category-mods-manage-dialog",
       t("Manage Mods - {name}", { name: categoryMeta ? t(categoryMeta.name) : category }),
       null,
-      () => { delete window.__roseManageCategory; }
+      () => {
+        delete window.__roseManageCategory;
+        delete window.__roseManageCategorySelectedMods;
+      }
     );
     window.__roseManageCategory = category;
+    window.__roseManageCategorySelectedMods = new Map();
 
     if (bridge) bridge.send({
       type: "request-manage-category-mods",
@@ -4504,10 +4632,32 @@
       return;
     }
 
+    const selection = window.__roseManageCategorySelectedMods || new Map();
+    const currentKeys = new Set(mods.map((mod) => mod.name));
+    Array.from(selection.keys()).forEach((key) => {
+      if (!currentKeys.has(key)) selection.delete(key);
+    });
+    const updateSelection = renderModSelectionToolbar(
+      listContainer,
+      mods,
+      selection,
+      (mod) => mod.name,
+      (selectedMods, toolbar) => {
+        if (!bridge) return;
+        toolbar.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
+        listContainer.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
+        bridge.send({
+          type: "delete-category-mods",
+          category: window.__roseManageCategory,
+          mods: selectedMods.map((mod) => ({ modName: mod.name })),
+        });
+      }
+    );
     mods.forEach((mod) => {
+      const key = mod.name;
       renderModRow(
         listContainer,
-        { name: mod.name, displayName: mod.displayName },
+        { name: mod.name, displayName: mod.displayName, selected: selection.has(key) },
         (deleteButton) => {
           deleteButton.disabled = true;
           deleteButton.textContent = t("Deleting...");
@@ -4526,9 +4676,34 @@
             modName: mod.name,
             newName: newName,
           });
+        },
+        null, // category mods have no image
+        (selected) => {
+          if (selected) selection.set(key, mod);
+          else selection.delete(key);
+          updateSelection();
         }
       );
     });
+    updateSelection();
+  }
+
+  function handleCategoryModsBulkDeleted(payload) {
+    const results = payload.results || [];
+    results.filter((result) => !result.success).forEach((result) => {
+      log("error", `Failed to delete category mod ${result.modName || ""}: ${result.error || "unknown error"}`);
+    });
+    if (payload.error) log("error", `Failed to delete selected category mods: ${payload.error}`);
+    if (payload.deletedCount > 0) {
+      log("info", `Deleted ${payload.deletedCount} mod(s) from ${payload.category}`);
+      requestManageCategories();
+    }
+    if (
+      document.getElementById("category-mods-manage-dialog") &&
+      payload.category === window.__roseManageCategory
+    ) {
+      openCategoryModsList(payload.category);
+    }
   }
 
   function handleCategoryModDeleted(payload) {
@@ -5601,6 +5776,8 @@
       bridge.subscribe("manage-champion-mods-response", handleManageSkinModsResponse);
       bridge.subscribe("manage-category-mods-response", handleManageCategoryModsResponse);
       bridge.subscribe("champion-mod-image-updated", handleChampionModImageUpdated);
+      bridge.subscribe("champion-mods-bulk-deleted", handleChampionModsBulkDeleted);
+      bridge.subscribe("category-mods-bulk-deleted", handleCategoryModsBulkDeleted);
       bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
       bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
       bridge.subscribe("champion-mod-renamed", handleChampionModRenamed);

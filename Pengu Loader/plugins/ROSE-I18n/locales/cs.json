@@ -214,5 +214,11 @@
   "Some mods added": "N?kter? mody byly p?id?ny",
   "{count} mod files selected": "Vybr?no soubor? s mody: {count}",
   "Add image": "P?idat obr?zek",
-  "Change image": "Zm?nit obr?zek"
+  "Change image": "Zm?nit obr?zek",
+  "Delete selected ({count})": "Smazat vybran? ({count})",
+  "Delete the selected mod? This cannot be undone.": "Smazat vybran? mod? Tuto akci nelze vr?tit.",
+  "Delete {count} selected mods? This cannot be undone.": "Smazat {count} vybran?ch mod?? Tuto akci nelze vr?tit.",
+  "Select all": "Vybrat v?e",
+  "Select all mods": "Vybrat v?echny mody",
+  "Select mod {name}": "Vybrat mod {name}"
 }

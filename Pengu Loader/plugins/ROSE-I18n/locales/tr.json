@@ -214,5 +214,11 @@
   "Some mods added": "Baz? modlar eklendi",
   "{count} mod files selected": "{count} mod dosyas? se?ildi",
   "Add image": "G?rsel ekle",
-  "Change image": "G?rseli de?i?tir"
+  "Change image": "G?rseli de?i?tir",
+  "Delete selected ({count})": "Se?ilenleri sil ({count})",
+  "Delete the selected mod? This cannot be undone.": "Se?ilen mod silinsin mi? Bu i?lem geri al?namaz.",
+  "Delete {count} selected mods? This cannot be undone.": "Se?ilen {count} mod silinsin mi? Bu i?lem geri al?namaz.",
+  "Select all": "T?m?n? se?",
+  "Select all mods": "T?m modlar? se?",
+  "Select mod {name}": "{name} modunu se?"
 }

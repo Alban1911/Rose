@@ -214,5 +214,11 @@
   "Some mods added": "?? th?m m?t s? mod",
   "{count} mod files selected": "?? ch?n {count} t?p mod",
   "Add image": "Th?m ?nh",
-  "Change image": "??i ?nh"
+  "Change image": "??i ?nh",
+  "Delete selected ({count})": "X?a m?c ?? ch?n ({count})",
+  "Delete the selected mod? This cannot be undone.": "X?a mod ?? ch?n? B?n kh?ng th? ho?n t?c thao t?c n?y.",
+  "Delete {count} selected mods? This cannot be undone.": "X?a {count} mod ?? ch?n? B?n kh?ng th? ho?n t?c thao t?c n?y.",
+  "Select all": "Ch?n t?t c?",
+  "Select all mods": "Ch?n t?t c? mod",
+  "Select mod {name}": "Ch?n mod {name}"
 }

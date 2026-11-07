@@ -214,5 +214,11 @@
   "Some mods added": "Beberapa mod ditambahkan",
   "{count} mod files selected": "{count} file mod dipilih",
   "Add image": "Tambahkan gambar",
-  "Change image": "Ubah gambar"
+  "Change image": "Ubah gambar",
+  "Delete selected ({count})": "Hapus yang dipilih ({count})",
+  "Delete the selected mod? This cannot be undone.": "Hapus mod yang dipilih? Tindakan ini tidak dapat dibatalkan.",
+  "Delete {count} selected mods? This cannot be undone.": "Hapus {count} mod yang dipilih? Tindakan ini tidak dapat dibatalkan.",
+  "Select all": "Pilih semua",
+  "Select all mods": "Pilih semua mod",
+  "Select mod {name}": "Pilih mod {name}"
 }
