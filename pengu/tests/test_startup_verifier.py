@@ -20,7 +20,7 @@ class StartupVerifierTests(unittest.TestCase):
         self.warn = Mock()
         self.lcu = Mock()
         self.lcu.get.return_value = 'Lobby'
-        self.monitor = verifier.StartupInjectionVerifier(self.lcu, self.state, self.bridge, self.warn)
+        self.monitor = verifier.StartupInjectionVerifier(self.lcu, self.state, self.bridge, self.warn, grace=0)
         self.absent = verifier.ClientSample((42, 100.0), False)
         self.loaded = verifier.ClientSample((42, 100.0), True)
         probe = patch.object(verifier, 'sample_client', return_value=self.absent)
@@ -30,128 +30,118 @@ class StartupVerifierTests(unittest.TestCase):
         self.owner = owner.start()
         self.addCleanup(owner.stop)
 
-    def tick(self, start, stop):
-        for now in range(start, stop + 1, 5):
-            self.monitor.check_once(now)
-
-    def test_confirmed_absence_waits_for_grace_and_three_samples_then_warns_once(self):
-        self.tick(0, 65)
-        self.warn.assert_not_called()
-        self.monitor.check_once(70)
+    def test_confirmed_absence_warns_once(self):
+        self.assertTrue(self.monitor.decide())
         self.warn.assert_called_once_with(42)
-        self.tick(75, 150)
-        self.warn.assert_called_once()
 
     def test_loaded_core_without_bridge_never_warns(self):
         self.probe.return_value = self.loaded
-        self.tick(0, 120)
-        self.warn.assert_not_called()
-        self.assertTrue(self.monitor.finished)
-
-    def test_plugin_readiness_suppresses_late_failure_and_disconnects(self):
-        self.tick(0, 65)
-        self.bridge.plugin_ready_event.set()
-        self.tick(70, 150)
-        self.warn.assert_not_called()
-        self.assertTrue(self.monitor.finished)
-
-    def test_late_core_load_on_final_recheck_suppresses_warning(self):
-        self.tick(0, 65)
-        self.probe.side_effect = [self.absent, self.loaded]
-        self.monitor.check_once(70)
-        self.warn.assert_not_called()
-        self.assertTrue(self.monitor.finished)
-        self.probe.side_effect = None
-        self.probe.return_value = self.absent
-        self.tick(75, 150)
+        self.assertFalse(self.monitor.decide())
         self.warn.assert_not_called()
 
-    def test_plugin_reports_ready_during_final_inspection(self):
-        self.tick(0, 65)
+    def test_any_bridge_activity_means_the_plugin_loaded(self):
+        for activity in ('plugin_ready_event', 'client_seen_event'):
+            with self.subTest(activity=activity):
+                getattr(self.bridge, activity).set()
+                self.assertFalse(self.monitor.decide())
+                getattr(self.bridge, activity).clear()
+        self.bridge.connections.add(object())
+        self.assertFalse(self.monitor.decide())
+        self.warn.assert_not_called()
+        self.probe.assert_not_called()
+
+    def test_plugin_reports_ready_during_inspection(self):
         def late_ready(lcu):
             self.bridge.plugin_ready_event.set()
             return self.absent
         self.probe.side_effect = late_ready
-        self.monitor.check_once(70)
+        self.assertFalse(self.monitor.decide())
         self.warn.assert_not_called()
-
-    def test_unknown_inspection_and_pending_restart_reset_the_grace_period(self):
-        self.tick(0, 65)
-        self.probe.return_value = None
-        self.tick(70, 150)
-        self.probe.return_value = self.absent
-        self.tick(155, 220)
-        self.warn.assert_not_called()
-        self.monitor.check_once(225)
-        self.warn.assert_called_once()
-
-    def test_client_restart_or_pid_reuse_restarts_grace_period(self):
-        self.tick(0, 65)
-        self.probe.return_value = verifier.ClientSample((42, 200.0), False)
-        self.tick(70, 135)
-        self.warn.assert_not_called()
-        self.monitor.check_once(140)
-        self.warn.assert_called_once()
-
-    def test_sleep_resume_is_not_treated_as_ready_time(self):
-        self.tick(0, 65)
-        self.tick(1000, 1065)
-        self.warn.assert_not_called()
-
-    def test_live_bridge_connection_suppresses_warning_even_for_older_plugins(self):
-        self.tick(0, 65)
-        self.bridge.connections.add(object())
-        self.tick(70, 150)
-        self.warn.assert_not_called()
-
-    def test_shutdown_suppresses_warning(self):
-        self.tick(0, 65)
-        self.state.stop = True
-        self.monitor.check_once(70)
-        self.warn.assert_not_called()
-
-    def test_brief_legacy_connection_between_polls_permanently_suppresses_warning(self):
-        self.tick(0, 65)
-        # It has already disconnected: the active connections set is empty.
-        self.bridge.client_seen_event.set()
-        self.tick(70, 200)
-        self.warn.assert_not_called()
-        self.assertTrue(self.monitor.finished)
-
-    def test_no_warning_after_a_previously_observed_connection_disconnects(self):
-        self.bridge.connections.add(object())
-        self.monitor.check_once(0)
-        self.bridge.connections.clear()
-        self.tick(5, 200)
-        self.warn.assert_not_called()
-
-    def test_blocked_or_stopped_bridge_defers_failure(self):
-        self.tick(0, 65)
-        self.bridge.is_responsive = False
-        self.tick(70, 200)
-        self.warn.assert_not_called()
-
-    def test_unrelated_or_unreadable_lcu_owner_suppresses_failure(self):
-        self.owner.return_value = False
-        self.tick(0, 200)
-        self.warn.assert_not_called()
-
-    def test_late_phase_change_into_game_suppresses_failure(self):
-        self.tick(0, 65)
-        self.lcu.get.return_value = 'InProgress'
-        self.monitor.check_once(70)
-        self.warn.assert_not_called()
-        self.lcu.get.assert_called_with('/lol-gameflow/v1/gameflow-phase', timeout=2, use_cache=False)
 
     def test_connection_arrives_during_final_status_request(self):
-        self.tick(0, 65)
         def connected(*args, **kwargs):
             self.bridge.client_seen_event.set()
             return 'Lobby'
         self.lcu.get.side_effect = connected
-        self.monitor.check_once(70)
+        self.assertFalse(self.monitor.decide())
         self.warn.assert_not_called()
-        self.assertTrue(self.monitor.finished)
+
+    def test_an_unclear_client_never_warns(self):
+        """Still starting, restarting for Pengu, in a game, ambiguous: sample_client returns None."""
+        self.probe.return_value = None
+        self.assertFalse(self.monitor.decide())
+        self.warn.assert_not_called()
+
+    def test_shutdown_suppresses_warning(self):
+        self.state.stop = True
+        self.assertFalse(self.monitor.decide())
+        self.warn.assert_not_called()
+
+    def test_blocked_or_stopped_bridge_suppresses_warning(self):
+        self.bridge.is_responsive = False
+        self.assertFalse(self.monitor.decide())
+        self.warn.assert_not_called()
+
+    def test_unrelated_or_unreadable_lcu_owner_suppresses_failure(self):
+        self.owner.return_value = False
+        self.assertFalse(self.monitor.decide())
+        self.warn.assert_not_called()
+
+    def test_late_phase_change_into_game_suppresses_failure(self):
+        self.lcu.get.return_value = 'InProgress'
+        self.assertFalse(self.monitor.decide())
+        self.warn.assert_not_called()
+        self.lcu.get.assert_called_with('/lol-gameflow/v1/gameflow-phase', timeout=2, use_cache=False)
+
+
+class StartupVerifierWaitTests(unittest.TestCase):
+    """The verifier waits once (an OS wait) and decides once: no polling."""
+
+    def setUp(self):
+        self.bridge = SimpleNamespace(
+            plugin_ready_event=threading.Event(), client_seen_event=threading.Event(), connections=set(),
+            is_responsive=True, listeners=[],
+        )
+        self.bridge.on_client_seen = self.bridge.listeners.append
+        self.state = SimpleNamespace(stop=False)
+        self.warn = Mock()
+        probe = patch.object(verifier, 'sample_client', return_value=verifier.ClientSample((42, 1.0), False))
+        self.probe = probe.start()
+        self.addCleanup(probe.stop)
+        owner = patch.object(verifier, 'client_matches_lcu', return_value=True)
+        owner.start()
+        self.addCleanup(owner.stop)
+        self.lcu = Mock()
+        self.lcu.get.return_value = 'Lobby'
+
+    def start(self, grace):
+        monitor = verifier.StartupInjectionVerifier(self.lcu, self.state, self.bridge, self.warn, grace=grace)
+        monitor.start()
+        return monitor
+
+    def test_the_plugin_connecting_ends_the_wait_without_a_snapshot(self):
+        monitor = self.start(grace=30)
+        self.bridge.client_seen_event.set()
+        for listener in self.bridge.listeners:
+            listener()
+        monitor.join(timeout=5)
+        self.assertFalse(monitor.is_alive())
+        self.probe.assert_not_called()
+        self.warn.assert_not_called()
+
+    def test_stop_ends_the_wait_at_once(self):
+        monitor = self.start(grace=30)
+        monitor.stop()
+        monitor.join(timeout=5)
+        self.assertFalse(monitor.is_alive())
+        self.probe.assert_not_called()
+
+    def test_no_plugin_within_the_grace_takes_one_snapshot(self):
+        monitor = self.start(grace=0.05)
+        monitor.join(timeout=5)
+        self.assertTrue(monitor.finished)
+        self.probe.assert_called_once()
+        self.warn.assert_called_once_with(42)
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'Windows process snapshots')

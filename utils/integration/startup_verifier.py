@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import sys
 import threading
-import time
 
 import psutil
 
@@ -15,7 +14,8 @@ from utils.core.logging import get_logger
 from utils.integration import pengu_loader
 
 log = get_logger()
-POLL_SECONDS = 5.0
+# How long the client gets, once the LCU is up, to load Rose's plugin: it
+# reaches the bridge within seconds of the client's UI
 CLIENT_GRACE_SECONDS = 60.0
 SAFE_PHASES = {"None", "Lobby", "EndOfGame"}
 
@@ -152,99 +152,83 @@ def sample_client(lcu):
 
 
 class StartupInjectionVerifier(threading.Thread):
-    """One startup decision per Rose run. A timeout alone never triggers a warning."""
+    """One startup decision per Rose run, taken once.
 
-    def __init__(self, lcu, state, bridge, on_failure):
+    Started once the LCU is up. Rose's plugin connects to the bridge as soon as
+    Pengu loads it into the client, so the verifier waits for that (an OS wait,
+    no polling) and only if it does not happen within the grace takes one
+    module snapshot of the client to decide. An unclear answer (a client still
+    starting, restarting, in a game, ambiguous) never warns.
+    """
+
+    def __init__(self, lcu, state, bridge, on_failure, grace: float = CLIENT_GRACE_SECONDS):
         super().__init__(name="StartupInjectionVerifier", daemon=True)
         self.lcu = lcu
         self.state = state
         self.bridge = bridge
         self.on_failure = on_failure
+        self.grace = grace
         self._stop_event = threading.Event()
-        self._candidate = None
-        self._since = 0.0
-        self._missing_samples = 0
-        self._last_check = None
+        # Set by stop() or the plugin's first connection: either ends the wait
+        self._wake = threading.Event()
+        on_client_seen = getattr(bridge, "on_client_seen", None)
+        if on_client_seen is not None:
+            on_client_seen(self._wake.set)
         self.finished = False
 
     def stop(self):
         self._stop_event.set()
+        self._wake.set()
 
-    def _reset(self):
-        self._candidate = None
-        self._missing_samples = 0
+    def _stopped(self) -> bool:
+        return self._stop_event.is_set() or self.state.stop
 
-    def _suppress_for_activity(self):
-        if (self.bridge.plugin_ready_event.is_set() or self.bridge.client_seen_event.is_set()
-                or self.bridge.connections):
-            log.info("[Pengu] Client bridge activity observed; suppressing the startup failure warning for this run.")
-            self.finished = True
-            return True
-        return False
-
-    def check_once(self, now):
-        if self.finished or self._stop_event.is_set() or self.state.stop:
-            return
-        if self._suppress_for_activity():
-            return
-        if self._last_check is not None and now - self._last_check > POLL_SECONDS * 3:
-            self._reset()  # Sleep/resume or a delayed checker isn't a settled client.
-        self._last_check = now
-        if not self.bridge.is_responsive:
-            self._reset()
-            return
-        sample = sample_client(self.lcu)
-        if sample is None:
-            self._reset()
-            return
-        if sample.core_loaded:
-            log.info("[Pengu] Startup check: Pengu is loaded; no injection-failure warning.")
-            self.finished = True
-            return
-        if sample.identity != self._candidate:
-            self._candidate = sample.identity
-            self._since = now
-            self._missing_samples = 0
-        if now - self._since < CLIENT_GRACE_SECONDS:
-            return
-        self._missing_samples += 1
-        if self._missing_samples < 3:
-            return
-        if not client_matches_lcu(sample.identity, self.lcu):
-            self._reset()
-            return
-        # Recheck the exact process, readiness, and plugin activity immediately
-        # before showing a dialog; late success or a restart cancels the warning.
-        confirmation = sample_client(self.lcu)
-        if self._suppress_for_activity():
-            return
-        if confirmation is not None and confirmation.core_loaded:
-            # Even a late positive observation must remain sticky for this run.
-            self.finished = True
-            return
-        if (confirmation != sample or not self.bridge.is_responsive
-                or self.state.stop or self._stop_event.is_set()
-                or self.lcu.get('/lol-gameflow/v1/gameflow-phase', timeout=2, use_cache=False) not in SAFE_PHASES):
-            self._reset()
-            return
-        # A status request can take seconds; recheck activity after it returns.
-        if self._suppress_for_activity() or self.state.stop or self._stop_event.is_set():
-            return
-        if not self.bridge.is_responsive:
-            self._reset()
-            return
-        self.finished = True
-        log.error("[Pengu] Startup injection failure confirmed: client PID %s, creation %s; "
-                  "Pengu absent in repeated complete module snapshots after %.0fs of ready client state.",
-                  sample.identity[0], sample.identity[1], now - self._since)
-        self.on_failure(sample.identity[0])
+    def _client_active(self) -> bool:
+        """Rose's plugin reached the bridge: it was loaded, whatever came after."""
+        return (self.bridge.plugin_ready_event.is_set() or self.bridge.client_seen_event.is_set()
+                or bool(self.bridge.connections))
 
     def run(self):
-        while not self.finished and not self._stop_event.is_set() and not self.state.stop:
-            try:
-                self.check_once(time.monotonic())
-            except Exception:
-                self._reset()
-                log.debug("[Pengu] Startup verification unavailable; no failure warning.", exc_info=True)
-            if self._stop_event.wait(POLL_SECONDS):
-                break
+        try:
+            if not self._client_active():
+                self._wake.wait(self.grace)
+            self.decide()
+        except Exception:
+            log.debug("[Pengu] Startup verification unavailable; no failure warning.", exc_info=True)
+        finally:
+            self.finished = True
+
+    def decide(self) -> bool:
+        """Check the client once; True when it warned."""
+        if self._stopped():
+            return False
+        if self._client_active():
+            log.info("[Pengu] Startup check: Rose's plugin answered on the bridge.")
+            return False
+        if not self.bridge.is_responsive:
+            log.info("[Pengu] Startup check: the bridge is not responding; no failure warning.")
+            return False
+        sample = sample_client(self.lcu)
+        if sample is None:
+            log.info("[Pengu] Startup check: the client could not be checked (starting, restarting, in a game "
+                     "or ambiguous); no failure warning.")
+            return False
+        if sample.core_loaded:
+            log.info("[Pengu] Startup check: Pengu is loaded; no injection-failure warning.")
+            return False
+        if not client_matches_lcu(sample.identity, self.lcu):
+            log.info("[Pengu] Startup check: the client checked is not the LCU's; no failure warning.")
+            return False
+        # The checks above take seconds: the plugin answering, Rose stopping or the
+        # client leaving its idle phases meanwhile all cancel the warning
+        if self._client_active() or self._stopped() or not self.bridge.is_responsive:
+            return False
+        if self.lcu.get('/lol-gameflow/v1/gameflow-phase', timeout=2, use_cache=False) not in SAFE_PHASES:
+            return False
+        if self._client_active() or self._stopped():
+            return False
+        log.error("[Pengu] Startup injection failure: client PID %s (created %s) has no Pengu module "
+                  "%.0fs after the LCU connected, and Rose's plugin never reached the bridge.",
+                  sample.identity[0], sample.identity[1], self.grace)
+        self.on_failure(sample.identity[0])
+        return True

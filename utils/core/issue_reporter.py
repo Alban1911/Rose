@@ -38,6 +38,7 @@ _ALLOWED_CODES = {
     'LTK_HEAVY_BUILTINS',     # LTK Manager's built-in mods put every champion's archive into the overlay
     'LTF_IMPORT_FAILED',      # A mod could not be imported into LTK Manager's library
     'PENGU_ACTIVATION_FAILED',  # Pengu Loader could not be activated: Rose is missing from the client
+    'PENGU_INJECTION_FAILED',   # Pengu Loader was activated, but its DLL is not in the League client
     'WINDOWS_ADMIN_SHELL',    # Windows runs every program as administrator: LTK Manager refuses to patch
 }
 

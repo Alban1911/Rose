@@ -538,45 +538,11 @@ function Read-AsciiZ([byte[]]$Data, [long]$Offset) {
     return [Text.Encoding]::ASCII.GetString($Data, [int]$Offset, [int]($end - $Offset))
 }
 
-function Get-LtkCutoff($PeInfo) {
-    # Same static heuristic as injection/tools/patcher.py. No DLL loading.
-    $data = $PeInfo.data
-    $message = [Text.Encoding]::ASCII.GetBytes('end of life reached, please update: ')
-    $msgOffset = -1
-    for ($i = 0; $i -le $data.Length - $message.Length; $i++) {
-        if ($data[$i] -ne $message[0]) { continue }
-        $same = $true
-        for ($k = 1; $k -lt $message.Length; $k++) { if ($data[$i + $k] -ne $message[$k]) { $same = $false; break } }
-        if ($same) { $msgOffset = $i; break }
-    }
-    if ($msgOffset -lt 0) { return $null }
-    $msgRva = $null
-    foreach ($section in $PeInfo.sections) {
-        if ($msgOffset -ge $section.raw -and $msgOffset -lt ([long]$section.raw + $section.size)) {
-            $msgRva = $section.rva + $msgOffset - $section.raw; break
-        }
-    }
-    $code = $PeInfo.sections | Where-Object { $_.name -eq '.text' } | Select-Object -First 1
-    if ($null -eq $msgRva -or $null -eq $code) { return $null }
-    $end = [Math]::Min([long]$code.raw + $code.size, $data.Length) - 7
-    for ($i = [long]$code.raw; $i -lt $end; $i++) {
-        if ($data[$i] -notin @(72, 76) -or $data[$i + 1] -ne 141 -or ($data[$i + 2] -band 199) -ne 5) { continue }
-        $delta = $msgRva - ($code.rva + $i - $code.raw + 7 + [BitConverter]::ToInt32($data, [int]$i + 3))
-        if ($delta -lt 0 -or $delta -gt 16) { continue }
-        for ($j = $i - 11; $j -ge [Math]::Max($code.raw, $i - 256); $j--) {
-            if ($data[$j] -eq 61 -and $data[$j + 5] -eq 15 -and $data[$j + 6] -eq 134) {
-                return [BitConverter]::ToUInt32($data, [int]$j + 1)
-            }
-        }
-    }
-    return $null
-}
-
 function Test-Binary([string]$Path, [string]$Stage, [string]$Id, [switch]$RequireX64) {
     $script:KnownPaths.Add($Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         Add-Finding $Id $Stage 'FAIL' 'Required file is missing.' $Path `
-            'Check this exact folder and Windows Security Protection history. Repair Rose files; for LTK, copy both files from the same trusted LTK Manager installation.'
+            'Check this exact folder and Windows Security Protection history. Repair Rose files; for files of LTK Manager, reinstall LTK Manager.'
         return
     }
     try { $pe = Get-PeInfo $Path }
@@ -715,7 +681,7 @@ function Resolve-RoseRoot {
 }
 
 function Test-RelevantText([string]$Text) {
-    if ($Text -match '(?i)(\bRose\.exe\b|\bPengu Loader\b|\bltk_patcher_(?:host\.exe|dll\.dll)\b|\bmod-tools\.exe\b|\bcslol-dll\.(?:dll|stub)\b|\bDiagnose-Rose\.(?:ps1|cmd)\b)') { return $true }
+    if ($Text -match '(?i)(\bRose\.exe\b|\bPengu Loader\b|\bltk_patcher_host\.exe\b|\bltk-manager\.exe\b|\bltk_launcher\.exe\b|\bLeagueToolFlop\.dll\b|\bDiagnose-Rose\.(?:ps1|cmd)\b)') { return $true }
     foreach ($path in $script:KnownPaths) {
         if ($path -and $Text.IndexOf($path, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
     }
@@ -855,7 +821,7 @@ Invoke-Check 'windows' 'Environment' {
 
 Invoke-Check 'native-query-support' 'Environment' { Initialize-NativeQueries }
 Invoke-Check 'processes' 'Environment' {
-    $names = @('Rose', 'LeagueClient', 'LeagueClientUx', 'LeagueClientUxRender', 'League of Legends', 'League of Legends (TM) Client', 'ltk_patcher_host', 'mod-tools', 'Pengu Loader', 'RiotClientServices', 'explorer')
+    $names = @('Rose', 'LeagueClient', 'LeagueClientUx', 'LeagueClientUxRender', 'League of Legends', 'League of Legends (TM) Client', 'ltk_patcher_host', 'ltk-manager', 'ltk_launcher', 'Pengu Loader', 'RiotClientServices', 'explorer')
     $session = (Get-Process -Id $PID).SessionId
     $script:Processes = @(Get-Process -ErrorAction Stop | Where-Object { $_.ProcessName -in $names -and $_.SessionId -eq $session } | ForEach-Object {
         $path = ''; $start = $null; $token = $null
@@ -1127,32 +1093,39 @@ Invoke-Check 'ifeo-other-settings' 'Environment' {
 }
 
 Invoke-Check 'ltk-files' 'Game skins' {
+    # Rose starts LTK Manager through its own launcher and bridge DLL; LTK Manager
+    # brings its patcher (ltk_patcher_host.exe, and the DLL it downloads itself)
     if (-not $script:ToolsDir) { throw 'Tools directory unavailable; specify -RosePath.' }
-    foreach ($name in @('ltk_patcher_host.exe', 'ltk_patcher_dll.dll', 'mod-tools.exe', 'cslol-dll.dll')) {
+    foreach ($name in @('ltk_launcher.exe', 'LeagueToolFlop.dll')) {
         Test-Binary (Join-Path $script:ToolsDir $name) 'Game skins' "tools.$name" -RequireX64
     }
-    Add-Finding 'tools.cslol-role' 'Game skins' 'INFO' 'LTK does game patching; this Rose build still requires its cslol-dll.dll stand-in to start mod-tools.exe.' '' 'Use the stand-in supplied by Rose, not an old CSLOL injection DLL.'
-    $dll = Join-Path $script:ToolsDir 'ltk_patcher_dll.dll'
-    if (Test-Path -LiteralPath $dll) {
-        $cutoff = Get-LtkCutoff (Get-PeInfo $dll)
-        if ($null -eq $cutoff) {
-            Add-Finding 'ltk.cutoff' 'Game skins' 'UNKNOWN' 'Built-in LTK cutoff could not be recognized by the static parser.' '' 'Consult actual patcher errors and update both LTK files together if needed.'
-        } else {
-            $date = ([datetime]'1970-01-01Z').ToUniversalTime().AddSeconds($cutoff)
-            $status = 'INFO'
-            if ([datetime]::UtcNow -gt $date) { $status = 'WARN' }
-            Add-Finding 'ltk.cutoff' 'Game skins' $status 'LTK cutoff found using Rose static parsing heuristic.' $date.ToString('o') `
-                'The DLL compares the game PE build timestamp against this date; current Rose also rejects a cutoff older than the current clock. Update both LTK files from the same installation if the cutoff is past.'
-            $game = $null
-            if ($script:ClientDir) { $game = Join-Path $script:ClientDir 'Game\League of Legends.exe' }
-            if ($game -and (Test-Path -LiteralPath $game)) {
-                $gamePe = Get-PeInfo $game
-                if ($gamePe.timestamp -gt $cutoff) {
-                    Add-Finding 'ltk.game-cutoff' 'Game skins' 'FAIL' 'Game PE build timestamp exceeds the detected LTK cutoff.' "gameTimestamp=$($gamePe.timestamp); cutoff=$cutoff" 'Replace both LTK files with a compatible pair from a current trusted LTK Manager installation.'
-                }
-            }
+    # Where Rose looks for LTK Manager (injection/tools/tools_manager.py): config.ini, then its install folders
+    $manager = $null
+    $configured = ([string]$script:Config['general/ltkmanagerpath']).Trim().Trim('"')
+    if ($configured) {
+        if (Test-Path -LiteralPath $configured -PathType Leaf) { $manager = $configured }
+        else {
+            Add-Finding 'ltk.manager.config' 'Game skins' 'WARN' 'ltkManagerPath in Rose''s config.ini points to a missing file.' $configured `
+                'Fix or remove ltkManagerPath in config.ini, or reinstall LTK Manager.'
         }
     }
+    if (-not $manager) {
+        foreach ($base in @($env:ProgramW6432, $env:ProgramFiles, $env:LOCALAPPDATA)) {
+            if (-not $base) { continue }
+            foreach ($name in @('ltk-manager.exe', 'LTK Manager.exe')) {
+                $candidate = Join-Path (Join-Path $base 'LTK Manager') $name
+                if (Test-Path -LiteralPath $candidate -PathType Leaf) { $manager = $candidate; break }
+            }
+            if ($manager) { break }
+        }
+    }
+    if (-not $manager) {
+        Add-Finding 'ltk.manager' 'Game skins' 'FAIL' 'LTK Manager was not found where Rose looks for it.' '' `
+            'Install LTK Manager from github.com/LeagueToolkit/ltk-manager/releases, or set ltkManagerPath in Rose''s config.ini.'
+        return
+    }
+    Test-Binary $manager 'Game skins' 'ltk.manager' -RequireX64
+    Test-Binary (Join-Path (Split-Path -Parent $manager) 'ltk_patcher_host.exe') 'Game skins' 'ltk.patcher_host' -RequireX64
 }
 
 Invoke-Check 'compatibility-flags' 'Environment' {

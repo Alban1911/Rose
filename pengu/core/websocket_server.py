@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 import traceback
-from typing import Optional, Set, Callable
+from typing import Callable, List, Optional, Set
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol, serve
 from utils.core.security import is_loopback_origin
@@ -61,10 +61,12 @@ class WebSocketServer:
         self.ready_event = threading.Event()
         # Positive evidence from the injected Rose plugin, not an LCU connection.
         self.plugin_ready_event = threading.Event()
-        # Latch even brief/legacy connections. Avoid a startup failure popup
-        # after a working older plugin disconnected between verifier polls.
+        # Latch even brief/legacy connections: a plugin that connected once
+        # was loaded, whatever happened to its connection since.
         self.client_seen_event = threading.Event()
-    
+        # Called (on the server's loop) when a client first connects
+        self._client_seen_listeners: List[Callable[[], None]] = []
+
         # Watchdog: the loop beats while it's free; the message being handled
         # is logged if it blocks
         self._last_beat = time.monotonic()
@@ -161,7 +163,13 @@ class WebSocketServer:
         client = websocket.remote_address
         log.info("[SkinMonitor] Client connected: %s", client)
         self._connections.add(websocket)
-        self.client_seen_event.set()
+        if not self.client_seen_event.is_set():
+            self.client_seen_event.set()
+            for listener in list(self._client_seen_listeners):
+                try:
+                    listener()
+                except Exception as e:
+                    log.debug("[SkinMonitor] Client listener failed: %s", e)
         try:
             async for message in websocket:
                 try:
@@ -274,6 +282,13 @@ class WebSocketServer:
         for ws in stale:
             self._connections.discard(ws)
     
+    def on_client_seen(self, listener: Callable[[], None]) -> None:
+        """Call *listener* when a client (Rose's plugin in the League client)
+        first connects, or now if one already has."""
+        self._client_seen_listeners.append(listener)
+        if self.client_seen_event.is_set():
+            listener()
+
     @property
     def is_responsive(self) -> bool:
         """A stopped or blocked bridge cannot support an injection-failure verdict."""

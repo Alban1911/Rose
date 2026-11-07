@@ -446,13 +446,51 @@ import time
 log = get_logger()
 
 
+def _warn_pengu_activation_failed() -> None:
+    """Tell the user Rose will not show in the client because Pengu Loader is not active.
+
+    Rose's own Troubleshooting panel lives in the client plugins, the part that
+    failed, so this has to be a Windows dialog. It runs on its own thread so
+    startup goes on while it is open.
+    """
+    log = get_logger()
+    log.error("[Pengu] Activation failed - Rose will not appear in the League client")
+    report_issue(
+        "PENGU_ACTIVATION_FAILED",
+        "error",
+        "Pengu Loader could not be activated, so Rose did not appear in the League client.",
+        hint="Close the League client, then restart Rose. If it happens again, make sure your antivirus is not blocking Pengu Loader.",
+    )
+    if sys.platform != "win32":
+        return
+
+    def show():
+        import ctypes
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "Rose could not activate Pengu Loader, so it will not appear in the League client.\n\n"
+                "Close the League client, then restart Rose.\n"
+                "If it happens again, make sure your antivirus is not blocking Pengu Loader.\n\n"
+                "Details are in %LOCALAPPDATA%\\Rose\\logs\\",
+                "Rose - Pengu Loader",
+                0x50030,  # MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST
+            )
+        except Exception as e:
+            log.warning(f"[Pengu] Could not show the activation warning: {e}")
+
+    create_daemon_thread(show, "PenguActivationWarning").start()
+
+
 def _warn_pengu_injection_failed(client_pid: int) -> None:
-    """Called on the verifier thread only after repeated live absence checks."""
+    """Pengu Loader was activated, but the client checked once the LCU was up
+    has no Pengu module and Rose's plugin never reached the bridge
+    (utils.integration.startup_verifier). Called on the verifier's thread."""
     log = get_logger()
     report_issue(
         "PENGU_INJECTION_FAILED",
         "error",
-        "Pengu was absent in repeated module checks of the ready League client.",
+        "Pengu Loader was not loaded into the League client, so Rose did not appear in it.",
         details={"client_pid": client_pid},
         hint="Right-click Rose in the system tray and choose Diagnose Rose startup.",
     )
@@ -463,12 +501,12 @@ def _warn_pengu_injection_failed(client_pid: int) -> None:
     try:
         ctypes.windll.user32.MessageBoxW(
             0,
-            "Rose did not load into this League client.\n\n"
-            "The client is ready, but repeated checks confirmed that Pengu Loader's DLL is missing.\n\n"
+            "Rose did not load into this League client: Pengu Loader's DLL is missing from it.\n\n"
             "Right-click Rose's system tray icon and choose Diagnose Rose startup. "
             "Keep League open while collecting the report.\n\n"
-            "Once the reports are ready, paste the contents of report.txt and report.json into any AI assistant "
-            "and ask it to help you find out why Rose is not injecting.",
+            "Then send report.txt and report.json on the Rose Discord (https://discord.gg/roseskins) "
+            "or in a GitHub issue (https://github.com/Alban1911/Rose/issues), so we can find out why. "
+            "You can also paste them into an AI assistant for a first look.",
             "Rose - Client injection failed",
             0x50030,  # MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST
         )
@@ -531,7 +569,7 @@ def _setup_pengu_and_injection(lcu, injection_manager, activate_pengu: bool = Tr
     if activate_pengu:
         log.info("Setting client path in Pengu Loader and activating...")
         if not pengu_loader.activate_on_start(str(client_path)):
-            log.warning("[Pengu] Activation was not confirmed; the startup verifier will check the live client.")
+            _warn_pengu_activation_failed()
 
     # Initialize injection system now (with detected paths already in config.ini)
     log.info("Initializing injection system...")
