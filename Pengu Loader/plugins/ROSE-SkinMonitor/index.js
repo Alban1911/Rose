@@ -373,6 +373,9 @@ function setupBridgeSocket() {
   bridgeSocket.addEventListener("open", () => {
     opened = true;
     bridgeReady = true;
+    bridgeSocket.send(JSON.stringify({
+      type: "rose-plugin-ready", plugin: "ROSE-SkinMonitor", protocol: 1,
+    }));
     retryDelay = RETRY_BASE_MS;
     if (retryTimer) {
       clearTimeout(retryTimer);
