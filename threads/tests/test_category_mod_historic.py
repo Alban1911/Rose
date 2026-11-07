@@ -55,6 +55,21 @@ class CategoryModHistoricTests(unittest.TestCase):
         overlay.assert_called_once()
         self.assertIn('Saved VFX', overlay.call_args.args[0])
 
+    def test_a_history_listing_a_mod_under_two_categories_selects_it_once(self):
+        """Before #379 each category write also listed its paths under "others"."""
+        legacy = {'vfx': ['vfx/Saved VFX'], 'others': ['vfx/Saved VFX']}
+        with patch('utils.core.mod_historic.load_mod_historic', return_value=legacy), \
+                patch('threads.handlers.injection_trigger.link_or_extract', side_effect=self.link):
+            self.trigger.trigger_injection('skin_1000', ticker_id=1)
+        self.assertEqual([m['relative_path'] for m in self.state.selected_other_mods], ['vfx/Saved VFX'])
+        names = self.manager.injector.overlay_manager.mk_run_overlay.call_args.args[0]
+        self.assertEqual(names.count('Saved VFX'), 1)
+
+    def test_the_countdown_plan_includes_saved_category_mods(self):
+        """The staging plan read a key load_mod_historic never returns ("other")."""
+        planned = self.trigger._planned_other_mods()
+        self.assertEqual([m['relative_path'] for m in planned], ['vfx/Saved VFX'])
+
     def test_current_selection_wins_over_saved_category_mod(self):
         current = self.storage.mods_root / 'vfx' / 'Current VFX'
         current.mkdir()

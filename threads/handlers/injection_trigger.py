@@ -379,14 +379,18 @@ class InjectionTrigger:
 
     @staticmethod
     def _saved_other_mod_paths(historic_mods: dict) -> list:
-        """The saved category mods (ui/voiceover/loading_screen/vfx/sfx/others)."""
-        historic_paths = []
+        """The saved category mods (ui/voiceover/loading_screen/vfx/sfx/others), each once.
+
+        Before #379 every category write also listed its paths under "others", so
+        an existing history names "vfx/X" under both "vfx" and "others"."""
+        historic_paths, seen = [], set()
         for cat in ("ui", "voiceover", "loading_screen", "vfx", "sfx", "others"):
             v = historic_mods.get(cat)
-            if isinstance(v, list):
-                historic_paths.extend(v)
-            elif isinstance(v, str):
-                historic_paths.append(v)
+            for path in v if isinstance(v, list) else [v] if isinstance(v, str) else []:
+                key = str(path).replace("\\", "/").strip("/").lower()
+                if key and key not in seen:
+                    seen.add(key)
+                    historic_paths.append(path)
         return historic_paths
 
     @staticmethod
@@ -534,7 +538,8 @@ class InjectionTrigger:
                 mods.append(selected)
 
         other_mods = list(getattr(self.state, 'selected_other_mods', None) or [])
-        if not other_mods and historic_mods.get("other"):
+        if not other_mods:
+            # load_mod_historic keeps them per category: there is no "other" key
             for historic_path in self._saved_other_mod_paths(historic_mods):
                 saved = self._find_saved_mod(
                     mod_storage(), self._other_mod_category(mod_storage(), historic_path), historic_path
