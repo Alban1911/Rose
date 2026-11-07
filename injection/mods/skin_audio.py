@@ -41,7 +41,7 @@ import xxhash
 import zstandard
 
 from utils.core.logging import get_logger
-from ..loadingname.loading_name import _read_entry, _wad_holds, _xxh64, champion_aliases
+from ..loadingname.loading_name import FORM_RECORDS, _read_entry, _wad_holds, _xxh64, champion_aliases
 
 log = get_logger()
 
@@ -75,6 +75,8 @@ SKIN_OF_PATH = re.compile(r"/skins/skin(\d+)/", re.IGNORECASE)
 KIND_OF_PATH = re.compile(r"/(sfx|vo)/", re.IGNORECASE)
 # An event name the way bins write it ("Play_sfx_YasuoSkin09_YasuoDashWrapper_cast")
 EVENT_NAME = re.compile(rb"[A-Za-z]+_(?:sfx|vo)_[A-Za-z0-9_]+", re.IGNORECASE)
+# A word of a bin, that may name one of the champion's other characters ("NidaleeCougar")
+WORD = re.compile(rb"[A-Za-z][A-Za-z0-9_]{2,47}")
 
 # Bin value types: fixed sizes, then the ones that carry their own size
 _FIXED = {0: 0, 1: 1, 2: 1, 3: 1, 4: 2, 5: 2, 6: 4, 7: 4, 8: 8, 9: 8, 10: 4, 11: 8, 12: 12, 13: 16, 14: 64, 15: 4,
@@ -344,6 +346,16 @@ def without_events(bank: bytes, ids: Iterable[int]) -> bytes:
 # wads
 # --------------------------------------------------------------------------------------
 
+def _wad_hashes(wad: Path) -> set:
+    """The path hashes of a packed wad v3's entries (its table only is read)."""
+    with open(wad, "rb") as handle:
+        header = handle.read(_WAD_HEADER)
+        if len(header) < _WAD_HEADER or header[:2] != b"RW" or header[2] != 3:
+            return set()
+        toc = handle.read(struct.unpack_from("<I", header, 268)[0] * _WAD_TOC_ENTRY.size)
+    return {struct.unpack_from("<Q", toc, i)[0] for i in range(0, len(toc) - 31, _WAD_TOC_ENTRY.size)}
+
+
 def write_wad_entries(wad: Path, contents: Dict[int, bytes]) -> None:
     """Rewrites a packed wad v3 with these entries replaced or added (zstd, with their xxh3 checksums), or writes
     a new one."""
@@ -396,7 +408,7 @@ def _kind_of(path: str) -> Optional[str]:
 
 
 def _game_skin(game_wad: Path, alias: str, skin_ids: Iterable[int]) -> Optional[Tuple[int, bytes]]:
-    """(skin number, the game's bin) of the first of *skin_ids* the game has (a chroma, then its skin)."""
+    """(skin number, the game's bin) of the first of *skin_ids* the game has a bin of."""
     for skin_id in skin_ids:
         if not skin_id or skin_id % 1000 == 0:
             continue
@@ -564,24 +576,48 @@ def _repair_champion(game_dir: Path, mod_wad: Path, alias: str, skin_ids: Sequen
     # C. The game's bins name some events after a tag the package dropped: Genesis Nightbringer Yasuo's E dash
     # effect plays "Play_sfx_YasuoSkin09_YasuoDashWrapper_cast", which the game plays as the skin's own
     # ("YasuoSkin09" is in its tagEventList). With the default tag only, the name is played as it is and nothing
-    # answers it. Each such name gets the event the game would take, the most specific of its tags first.
-    game_tags = tag_events(game_bin)
-    dropped = [t for t in game_tags if t not in default_tags]
-    if default_tags and dropped:
-        names = []
-        todo, seen_bins = [game_bin], set()
-        animations = _read_entry(game_wads[0], _xxh64(f"data/characters/{lower}/animations/skin{number}.bin".encode()))
+    # answers it. Each such name gets the event the game would take, the most specific of its tags first. The
+    # champion's other characters the package carries (Nidalee's cougar, Elise's spider...) have tags of their own
+    # (NidaleeCougarSkin48) and play the champion's banks: they get the same.
+    def bins_of(character: str, character_bin: bytes) -> List[bytes]:
+        """A character's skin bin, its animations' and the bins they link (but the character's root record)."""
+        out, todo, seen_bins = [], [character_bin], set()
+        animations = _read_entry(
+            game_wads[0], _xxh64(f"data/characters/{character}/animations/skin{number}.bin".encode()))
         if animations:
             todo.append(animations)
         while todo:
             data = todo.pop()
-            names += event_names(data)
+            out.append(data)
             for link in _links(data):
-                if link.lower() not in seen_bins and link.lower() != f"data/characters/{lower}/{lower}.bin":
+                if link.lower() not in seen_bins and link.lower() != f"data/characters/{character}/{character}.bin":
                     seen_bins.add(link.lower())
                     linked = _read_entry(game_wads[0], _xxh64(link.lower().encode("utf-8")))
                     if linked:
                         todo.append(linked)
+        return out
+
+    characters = [(lower, game_bin, default_tags)]
+    # the champion's other characters: the words of its bins and its record (they name them, "NidaleeCougar",
+    # "AnnieTibbers") and the forms the loading screen name knows, the ones the package has a skin0.bin for
+    record = _read_entry(game_wads[0], _xxh64(f"data/characters/{lower}/{lower}.bin".encode())) or b""
+    words = {w.decode("ascii").lower() for data in [record, *bins_of(lower, game_bin)] for w in WORD.findall(data)}
+    words |= set(FORM_RECORDS.get(lower, ()))
+    carried_hashes = _wad_hashes(mod_wad)
+    others = sorted(w for w in words - {lower}
+                    if _xxh64(f"data/characters/{w}/skins/skin0.bin".encode()) in carried_hashes)
+    for other in others:
+        carried = _read_entry(mod_wad, _xxh64(f"data/characters/{other}/skins/skin0.bin".encode()))
+        its_game_bin = _read_entry(game_wads[0], _xxh64(f"data/characters/{other}/skins/skin{number}.bin".encode()))
+        if carried and its_game_bin:
+            characters.append((other, its_game_bin, tag_events(carried)))
+
+    added_names = []
+    for character, character_bin, package_tags in characters:
+        game_tags = tag_events(character_bin)
+        if not package_tags or not [t for t in game_tags if t not in package_tags]:
+            continue
+        names = [n for data in bins_of(character, character_bin) for n in event_names(data)]
         holders = answered()
         aliases_by_bank: Dict[str, Dict[int, int]] = {}
         alias_names: Dict[int, str] = {}
@@ -599,7 +635,6 @@ def _repair_champion(game_dir: Path, mod_wad: Path, alias: str, skin_ids: Sequen
                     aliases_by_bank.setdefault(holders[event_id(candidate)], {})[event_id(name)] = event_id(candidate)
                     alias_names[event_id(name)] = name
                     break
-        added_names = []
         for path, aliases in aliases_by_bank.items():
             bank, added = with_aliases(read(path), aliases)
             if added:
@@ -607,9 +642,9 @@ def _repair_champion(game_dir: Path, mod_wad: Path, alias: str, skin_ids: Sequen
                 added_names += [alias_names[i] for i in added]
                 i = next(i for i, unit_paths in enumerate(paths) if path in unit_paths)
                 events[i] = list(dict.fromkeys(events[i] + [alias_names[a] for a in added]))
-        if added_names:
-            fixes.append(f"{len(added_names)} event(s) named after a dropped tag now play the skin's sound "
-                         f"({', '.join(sorted(added_names)[:3])}...)")
+    if added_names:
+        fixes.append(f"{len(added_names)} event(s) named after a dropped tag now play the skin's sound "
+                     f"({', '.join(sorted(added_names)[:3])}...)")
 
     if not fixes:
         return False
@@ -624,10 +659,11 @@ def _repair_champion(game_dir: Path, mod_wad: Path, alias: str, skin_ids: Sequen
 
 
 def repair(game_dir: Optional[Path], mod_folder: Path, skin_ids: Iterable[int]) -> List[str]:
-    """Gives the skin's skin0.bin its own sound banks when the package used another skin's. Returns the champions
-    repaired.
+    """Repairs the sound banks of the skin's skin0.bin from the game's own bin for the skin (see the module's note).
+    Returns the champions repaired.
 
-    *skin_ids* are the client's ids to take the banks from, in order (a chroma's, then its skin's). It never fails
+    *skin_ids* are the client's ids of the skin or chroma. A skin the game has no bin of (a form Rose builds, as DJ
+    Sona's genres, numbered 998 and 999) is left as it is: its skin's bin does not describe it. It never fails
     the injection: a skin it cannot read is injected as it is.
     """
     repaired = []

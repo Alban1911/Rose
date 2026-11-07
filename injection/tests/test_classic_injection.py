@@ -110,7 +110,7 @@ class ClassicInjectionTests(unittest.TestCase):
         with patch.object(injector_module.skin_audio, 'repair', return_value=[]) as repair:
             self.assertTrue(self.injector.inject_skin('skin_1001', champion_id=1))
         game_dir, mod_folder, skin_ids = repair.call_args.args
-        self.assertEqual((game_dir, mod_folder.name, tuple(skin_ids)), (self.injector.game_dir, '1001', (1001, 1001)))
+        self.assertEqual((game_dir, mod_folder.name, tuple(skin_ids)), (self.injector.game_dir, '1001', (1001,)))
 
     def test_a_classic_skins_sound_banks_are_left_as_they_are(self):
         with patch.object(injector_module.skin_audio, 'repair') as repair:

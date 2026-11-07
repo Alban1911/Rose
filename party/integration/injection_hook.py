@@ -5,6 +5,8 @@ Party Injection Hook
 Integrates party mode skin collection with injection flow
 """
 
+import os
+import shutil
 from pathlib import Path
 from typing import List, Optional
 
@@ -212,6 +214,7 @@ def prepare_peer_skin(
                 f"[PARTY_INJECT] Custom mod path not found: {skin_data.custom_mod_path}"
             )
 
+    official = source is None
     if source is None:
         source = _resolve_skin_zip(skin_data, injector, classic)
     if source is None:
@@ -229,10 +232,36 @@ def prepare_peer_skin(
         log.warning(f"[PARTY_INJECT] Mod folder missing after extraction: {mod_dest}")
         return None
 
+    # A friend's skin gets the sound banks the game has for it, as ours does (SkinInjector.prepare_skin_mods). A
+    # custom mod is the friend's own, and Rift Classic skins target other characters: both are left as they are.
+    if official and not classic:
+        _repair_sounds(injector, mod_dest, skin_data)
+
     log.info(
         f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s skin: {source.name}"
     )
     return mod_folder_name
+
+
+def _repair_sounds(injector, mod_dest: Path, skin_data: PartySkinData) -> None:
+    """Repair the skin's sound banks (injection.mods.skin_audio) in a copy of its folder.
+
+    The folder is a junction to the cached extraction, which later games reuse: the repair takes the game's files
+    of this patch, so it is not written there. It never fails the preparation.
+    """
+    from injection.mods import skin_audio
+
+    game_dir = getattr(injector, "game_dir", None)
+    if not game_dir:
+        return
+    try:
+        if is_junction(mod_dest):
+            cached = Path(os.path.realpath(mod_dest))
+            safe_remove_entry(mod_dest)
+            shutil.copytree(cached, mod_dest)
+        skin_audio.repair(Path(game_dir), mod_dest, [skin_data.chroma_id or skin_data.skin_id])
+    except OSError as e:
+        log.warning(f"[PARTY_INJECT] {skin_data.summoner_name}'s skin sounds were not repaired: {e}")
 
 
 def _resolve_skin_zip(skin_data: PartySkinData, injector, classic: bool = False) -> Optional[Path]:

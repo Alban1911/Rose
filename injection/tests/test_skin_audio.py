@@ -222,10 +222,14 @@ class SkinAudioTests(unittest.TestCase):
         self.assertEqual(skin_audio.repair(self.game_dir, self.mod, [157009]), [])
         self.assertEqual(self.mod_wad.read_bytes(), packed)
 
-    def test_a_chroma_uses_its_skins_banks_when_the_game_has_none_of_its_own(self):
-        self.mod_wad.write_bytes(wad({SKIN0: self.broken}))
+    def test_a_form_rose_builds_is_left_alone(self):
+        # DJ Sona's genres are packages of their own, numbered 998 and 999: the game has no bin of them, and its
+        # skin's bin does not describe them
+        packed = wad({SKIN0: self.broken})
+        self.mod_wad.write_bytes(packed)
 
-        self.assertEqual(skin_audio.repair(self.game_dir, self.mod, [157012, 157009]), ["Yasuo"])
+        self.assertEqual(skin_audio.repair(self.game_dir, self.mod, [157998]), [])
+        self.assertEqual(self.mod_wad.read_bytes(), packed)
 
     def test_nothing_changes_when_the_game_does_not_have_the_skin(self):
         files = dict(self.game_files)
@@ -310,6 +314,30 @@ class SkinAudioTests(unittest.TestCase):
 
         self.assertEqual(skin_audio.repair(self.game_dir, self.mod, [157087]), [])
         self.assertEqual(self.mod_wad.read_bytes(), packed)
+
+    def test_another_character_of_the_champion_gets_its_dropped_tags_too(self):
+        # a form (as Nidalee's cougar) plays the champion's banks under tags of its own
+        form_event, form_skin_event = "Play_sfx_YasuoForm_Pounce_cast", "Play_sfx_YasuoFormSkin87_Pounce_cast"
+        skin87_bank = self._genesis("names YasuoForm")
+        files = dict(self.game_files)
+        files.pop(SKIN9)
+        files["data/characters/yasuo/skins/skin87.bin"] = skin_bin(
+            [bank_unit("Yasuo_Skin87_SFX", SKIN87_SFX, [DASH_87, form_skin_event])],
+            tags=("Yasuo", "YasuoSkin87"), extra="YasuoForm")
+        files["data/characters/yasuoform/skins/skin87.bin"] = skin_bin(
+            [], tags=("Yasuo", "YasuoForm", "YasuoSkin87", "YasuoFormSkin87"), extra=form_event)
+        files[skin87_bank] = bank([DASH_87, form_skin_event])
+        self._game(files)
+        self.mod_wad.write_bytes(wad({
+            SKIN0: skin_bin([bank_unit("Yasuo_Base_SFX", SKIN87_SFX, [DASH_87, DASH_BASE])]),
+            "data/characters/yasuoform/skins/skin0.bin": skin_bin([], tags=("Yasuo", "YasuoForm")),
+            skin87_bank: bank([DASH_87, form_skin_event], aliases=[(DASH_BASE, DASH_87)]),
+        }))
+
+        self.assertEqual(skin_audio.repair(self.game_dir, self.mod, [157087]), ["Yasuo"])
+
+        events = bank_events(self._entry(skin87_bank))
+        self.assertEqual(events[event_id(form_event)], events[event_id(form_skin_event)])
 
     def _nightbringer_voice(self):
         """Nightbringer Yasuo's voice: the game loads the default skin's voice bank next to Skin09's, the package
