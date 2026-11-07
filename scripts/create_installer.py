@@ -134,7 +134,11 @@ def _registered_inno_directories() -> list[Path]:
             continue
         with key:
             for index in range(winreg.QueryInfoKey(key)[0]):
-                with winreg.OpenKey(key, winreg.EnumKey(key, index)) as entry:
+                try:
+                    entry = winreg.OpenKey(key, winreg.EnumKey(key, index))
+                except OSError:  # an entry this account may not read (its ACL), or removed meanwhile
+                    continue
+                with entry:
                     display_name = read_string(entry, "DisplayName")
                     if not display_name or not _looks_like_inno(display_name):
                         continue

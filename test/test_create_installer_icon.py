@@ -34,7 +34,10 @@ class InstallerIconTests(unittest.TestCase):
             (self.root / 'installer/Rose_Setup_1.exe').write_bytes(b'fake installer')
             return SimpleNamespace(returncode=0)
 
-        with patch.object(builder, 'ROOT', self.root), patch.object(Path, 'home', return_value=self.home), \
+        # find_iscc (#365) takes an explicit override first: the fake compiler, not one installed on this PC
+        compiler_path = self.home / 'AppData/Local/Programs/Inno Setup 6/ISCC.exe'
+        with patch.object(builder, 'ROOT', self.root), \
+                patch.dict(builder.os.environ, {'INNO_SETUP_PATH': str(compiler_path)}), \
                 patch.object(builder, 'PIL_AVAILABLE', pil_available), \
                 patch.object(builder, 'Image', image, create=True), \
                 patch.object(builder.subprocess, 'run', side_effect=compile_installer) as compiler, \
