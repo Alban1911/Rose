@@ -99,6 +99,26 @@ class RandomModeTests(unittest.TestCase):
         self.ui.reset_skin_state()
         self.assertIsNone(self.ui.randomization_handler._forced_base_skin_id)
 
+    def test_random_mode_skin_injection_does_not_pass_skin_id_as_chroma_id(self):
+        from threads.handlers.injection_trigger import InjectionTrigger
+        trigger = InjectionTrigger(MagicMock(), self.state, MagicMock(), self.skin_scraper)
+        trigger._force_base_skin = MagicMock()
+        trigger._inject_unowned_skin = MagicMock()
+        self.state.last_hovered_skin_id = BASE_DARIUS
+        self.state.random_mode_active = True
+        self.state.random_skin_id = DIVINE_GOD_KING_DARIUS
+        self.state.random_chroma_id = None
+        self.state.owned_skin_ids = set()
+
+        with patch("utils.core.historic.get_historic_skin_for_champion", return_value=None), \
+             patch("utils.core.mod_historic.load_mod_historic", return_value={}), \
+             patch("injection.mods.storage.ModStorageService"):
+            trigger.trigger_injection(f"skin_{DIVINE_GOD_KING_DARIUS}", ticker_id=1, cname="Darius")
+
+        trigger._inject_unowned_skin.assert_called_once_with(
+            f"skin_{DIVINE_GOD_KING_DARIUS}", "Darius"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
