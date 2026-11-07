@@ -206,5 +206,10 @@
   "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "해결 방법: Windows가 LTK Manager 파일의 디지털 서명을 확인하지 못했습니다. 파일 하나가 변경되었거나 손상되어 패처가 실행을 거부합니다. 공식 릴리스(github.com/LeagueToolkit/ltk-manager/releases)에서 LTK Manager를 다시 설치한 후 다시 시도하세요.",
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "LTK Manager가 스킨을 준비하는 동안 Rose가 게임을 대기시킬 수 있는 시간입니다.\n\n게임이 시작되기 전에 LTK Manager가 준비되지 않으면 Rose가 게임을 일시 정지하고, LTK Manager가 준비되는 대로 게임을 재시작하고 다시 연결합니다. 이 시간이 지나면 게임은 스킨 없이 시작됩니다.\n\n무거운 모드를 사용한다면 더 높은 값이 필요할 수 있습니다.",
   "LTK Manager was not ready in time": "LTK Manager가 제때 준비되지 않았습니다",
-  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "의미: 자동 재개 제한 시간 안에 LTK Manager가 준비되지 않아, Rose가 스킨 없이 게임을 계속 진행했습니다."
+  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "의미: 자동 재개 제한 시간 안에 LTK Manager가 준비되지 않아, Rose가 스킨 없이 게임을 계속 진행했습니다.",
+  "Failed to import {name}: {error}": "{name} ???? ??: {error}",
+  "Import failed": "???? ?????",
+  "Mods added": "??? ??????",
+  "Some mods added": "?? ??? ??????",
+  "{count} mod files selected": "?? ?? {count}? ???"
 }

@@ -38,6 +38,7 @@ class ModImportLoadingTests(unittest.TestCase):
             self.handler._handle_add_custom_mods_category_selected({"category": "maps"})
         self.assertEqual(self._types(), ["mod-import-started", "import", "folder-opened-response"])
         self.assertEqual(self.sent[0]["fileName"], "Rift.fantome")
+        self.assertEqual(self.sent[0]["fileCount"], 1)
         self.assertTrue(self.sent[-1]["success"])
 
     def test_a_skin_import_is_announced_before_it_runs(self):
@@ -47,13 +48,15 @@ class ModImportLoadingTests(unittest.TestCase):
             )
         self.assertEqual(self._types(), ["mod-import-started", "import", "folder-opened-response"])
         self.assertEqual(self.sent[0]["fileName"], "Ezreal.modpkg")
+        self.assertEqual(self.sent[0]["fileCount"], 1)
 
     def test_multiple_category_mods_are_imported_and_reported(self):
         files = [Path("C:/Mods/Rift.fantome"), Path("C:/Mods/HowlingAbyss.zip")]
         with self._pick(*files):
             self.handler._handle_add_custom_mods_category_selected({"category": "maps"})
         self.assertEqual(self.handler.mod_storage.import_category_mod_file.call_count, 2)
-        self.assertEqual(self.sent[0]["fileName"], "2 mod files selected")
+        self.assertEqual(self.sent[0]["fileCount"], 2)
+        self.assertNotIn("fileName", self.sent[0])
         self.assertTrue(self.sent[-1]["success"])
         self.assertEqual(len(self.sent[-1]["imported"]), 2)
 
@@ -87,6 +90,25 @@ class ModImportLoadingTests(unittest.TestCase):
         self.assertEqual(self._types(), ["mod-import-started", "folder-opened-response"])
         self.assertFalse(self.sent[-1]["success"])
         self.assertEqual(self.sent[-1]["importErrors"][0]["error"], "disk full")
+        self.assertEqual(self.sent[-1]["error"], "disk full")
+
+    def test_multiple_failed_imports_keep_per_file_errors_and_generic_summary(self):
+        self.handler.mod_storage.import_category_mod_file.side_effect = [
+            OSError("disk full"),
+            ValueError("archive is invalid"),
+        ]
+        files = [Path("C:/Mods/Rift.fantome"), Path("C:/Mods/Bad.zip")]
+        with self._pick(*files), self.assertLogs(level="ERROR"):
+            self.handler._handle_add_custom_mods_category_selected({"category": "maps"})
+
+        self.assertEqual(self.sent[-1]["error"], "Failed to import all selected mods")
+        self.assertEqual(
+            self.sent[-1]["importErrors"],
+            [
+                {"fileName": "Rift.fantome", "error": "disk full"},
+                {"fileName": "Bad.zip", "error": "archive is invalid"},
+            ],
+        )
 
     def test_nothing_loads_when_the_picker_is_cancelled(self):
         with self._pick(None):

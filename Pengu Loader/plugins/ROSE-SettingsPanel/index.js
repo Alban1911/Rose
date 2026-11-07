@@ -1462,6 +1462,9 @@
       pointer-events: none;
       animation: roseModImportFadeOut 0.25s ease 1.25s forwards;
     }
+    #rose-mod-import-loading.is-done.has-errors {
+      animation: none;
+    }
     @keyframes roseModImportFadeOut {
       to { opacity: 0; }
     }
@@ -1488,6 +1491,12 @@
       stroke-dashoffset: 32;
       animation: roseModImportDraw 0.25s ease-out 0.35s forwards;
     }
+    .rose-mod-import-error {
+      display: block;
+      color: #ff6b6b;
+      font-size: 30px;
+      font-weight: bold;
+    }
     @keyframes roseModImportDraw {
       to { stroke-dashoffset: 0; }
     }
@@ -1506,6 +1515,15 @@
       white-space: nowrap;
       color: #a09b8c;
       font-size: 12px;
+    }
+    .rose-mod-import-errors {
+      max-height: 180px;
+      overflow: auto;
+      color: #ff9a9a;
+      font-size: 12px;
+      text-align: left;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
   `;
   }
@@ -4737,7 +4755,12 @@
     title.textContent = t("Adding mod...");
     card.appendChild(title);
 
-    if (payload.fileName) {
+    if (payload.fileCount > 1) {
+      const fileCount = document.createElement("div");
+      fileCount.className = "rose-mod-import-file";
+      fileCount.textContent = t("{count} mod files selected", { count: payload.fileCount });
+      card.appendChild(fileCount);
+    } else if (payload.fileName) {
       const fileName = document.createElement("div");
       fileName.className = "rose-mod-import-file";
       fileName.textContent = payload.fileName;
@@ -4754,14 +4777,37 @@
     if (!overlay || overlay.classList.contains("is-done")) return;
 
     overlay.classList.add("is-done");
-    overlay.querySelector(".rose-mod-import-spinner").outerHTML =
-      '<svg class="rose-mod-import-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"></circle><path d="M15 27l7 7 15-15"></path></svg>';
+    const errors = Array.isArray(payload.importErrors) ? payload.importErrors : [];
+    const failed = errors.length > 0;
+    if (failed) overlay.classList.add("has-errors");
+    overlay.querySelector(".rose-mod-import-spinner").outerHTML = failed && !payload.imported?.length
+      ? '<span class="rose-mod-import-error" aria-hidden="true">!</span>'
+      : '<svg class="rose-mod-import-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"></circle><path d="M15 27l7 7 15-15"></path></svg>';
     const importedCount = payload.imported ? payload.imported.length : 1;
-    const title = payload.partial
-      ? "Some mods added"
-      : importedCount > 1 ? "Mods added" : t("Mod added");
+    const title = failed && !payload.imported?.length
+      ? t("Import failed")
+      : payload.partial
+        ? t("Some mods added")
+        : importedCount > 1 ? t("Mods added") : t("Mod added");
     overlay.querySelector(".rose-mod-import-title").textContent = title;
-    modImportTimer = setTimeout(hideModImportLoading, MOD_IMPORT_DONE_MS);
+    if (errors.length) {
+      const errorList = document.createElement("div");
+      errorList.className = "rose-mod-import-errors";
+      errorList.setAttribute("role", "alert");
+      errors.forEach((item) => {
+        const error = document.createElement("div");
+        error.textContent = t("Failed to import {name}: {error}", {
+          name: item.fileName || "",
+          error: item.error || "",
+        });
+        errorList.appendChild(error);
+      });
+      overlay.querySelector(".rose-mod-import-card").appendChild(errorList);
+    }
+    modImportTimer = setTimeout(
+      hideModImportLoading,
+      failed ? MOD_IMPORT_DONE_MS * 4 : MOD_IMPORT_DONE_MS,
+    );
   }
 
   function hideModImportLoading() {
@@ -4772,7 +4818,7 @@
   }
 
   function handleFolderOpenedResponse(payload) {
-    if (payload.success || payload.partial) {
+    if (payload.success || payload.partial || payload.importErrors?.length) {
       const loadingLeft = MOD_IMPORT_MIN_LOADING_MS - (Date.now() - modImportShownAt);
       clearTimeout(modImportTimer);
       modImportTimer = setTimeout(() => showModImportDone(payload), Math.max(0, loadingLeft));

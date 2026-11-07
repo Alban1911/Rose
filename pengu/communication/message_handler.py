@@ -2901,15 +2901,13 @@ class MessageHandler:
     
     def _send_mod_import_started(self, mod_files: list[Path]) -> None:
         """Tell the plugins selected mods are being imported."""
-        file_name = (
-            mod_files[0].name
-            if len(mod_files) == 1
-            else f"{len(mod_files)} mod files selected"
-        )
-        self._send_response(json.dumps({
+        payload = {
             "type": "mod-import-started",
-            "fileName": file_name,
-        }))
+            "fileCount": len(mod_files),
+        }
+        if len(mod_files) == 1:
+            payload["fileName"] = mod_files[0].name
+        self._send_response(json.dumps(payload))
 
     def _send_settings_save_success(self) -> None:
         """Send settings save success response"""
@@ -3013,7 +3011,11 @@ class MessageHandler:
                     "modName": imported[0]["modName"],
                 })
             if errors and not imported:
-                response_payload["error"] = "Failed to import all selected mods"
+                response_payload["error"] = (
+                    errors[0]["error"]
+                    if len(selected_mod_files) == 1
+                    else "Failed to import all selected mods"
+                )
             self._send_response(json.dumps(response_payload))
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to import {category} mod: {e}")
@@ -3350,7 +3352,11 @@ class MessageHandler:
                         "targetManifest": imported[0]["targetManifest"],
                     })
                 if errors and not imported:
-                    response_payload["error"] = "Failed to import all selected mods"
+                    response_payload["error"] = (
+                        errors[0]["error"]
+                        if len(selected_mod_files) == 1
+                        else "Failed to import all selected mods"
+                    )
                 self._send_response(json.dumps(response_payload))
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle skin selection: {e}")
