@@ -142,6 +142,7 @@ def build_all():
         print("  dist/Rose/Rose.exe")
         print("\nTo create the installer:")
         print("1. Install Inno Setup from: https://jrsoftware.org/isdl.php")
+        print("   (or set INNO_SETUP_PATH to an ISCC.exe the search cannot see)")
         print("2. Run: python scripts/create_installer.py")
         return False
     
