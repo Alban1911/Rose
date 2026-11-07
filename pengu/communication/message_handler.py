@@ -949,6 +949,16 @@ class MessageHandler:
                         'detail': builtins,
                     }
 
+                # Category: LTK Manager's own programs set to run as
+                # administrator (before the LTF category: it names LTK Manager)
+                if "ltk manager is set to run as administrator" in ml:
+                    programs = msg.split('(', 1)[1].rsplit(')', 1)[0].strip() if '(' in msg else ''
+                    return {
+                        'code': 'LTK_ELEVATED',
+                        'text': 'LTK Manager set to run as administrator -> turn it off',
+                        'detail': programs,
+                    }
+
                 # Category: LTK Manager's automatic mod check took minutes while
                 # the game loaded (before the LTF category: it names LTK Manager)
                 if "automatic mod check took" in ml:

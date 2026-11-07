@@ -1,6 +1,6 @@
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from injection.tests.test_ltf_diagnostics import summarize
 from utils.system import windows_account
@@ -173,6 +173,64 @@ class LeagueClientTests(unittest.TestCase):
             ("HKCU", r"C:\Riot Games\League of Legends\LeagueClient.exe"),
             ("HKLM", r"D:\Old\Riot Client\RiotClientServices.exe"),
         ])
+
+    def test_ltk_managers_programs_set_to_run_as_administrator_are_found(self):
+        """#468, #456: Windows refused to start them unelevated (error 740)"""
+        import winreg
+
+        values = {
+            winreg.HKEY_CURRENT_USER: [
+                (r"C:\Users\x\AppData\Roaming\dev.leaguetoolkit.manager\patcher\5fb1\ltk_patcher_host.exe",
+                 "~ RUNASADMIN"),
+                (r"C:\Riot Games\League of Legends\LeagueClient.exe", "~ RUNASADMIN"),
+            ],
+            winreg.HKEY_LOCAL_MACHINE: [
+                (r"C:\Program Files\LTK Manager\ltk-manager.exe", "$ RUNASADMIN"),
+                (r"C:\Program Files\LTK Manager\uninstall.exe", "$ RUNASADMIN"),
+            ],
+        }
+
+        def open_key(root, *args):
+            key = MagicMock()
+            key.__enter__.return_value = key
+            key.values = values[root]
+            return key
+
+        def enum_value(key, index):
+            if index >= len(key.values):
+                raise OSError("no more data")
+            name, data = key.values[index]
+            return name, data, winreg.REG_SZ
+
+        with patch.object(winreg, "OpenKey", side_effect=open_key), \
+                patch.object(winreg, "EnumValue", side_effect=enum_value):
+            entries = windows_account.ltk_run_as_admin_entries()
+
+        self.assertEqual(entries, [
+            ("HKCU", r"C:\Users\x\AppData\Roaming\dev.leaguetoolkit.manager\patcher\5fb1\ltk_patcher_host.exe"),
+            ("HKLM", r"C:\Program Files\LTK Manager\ltk-manager.exe"),
+        ])
+
+    def test_troubleshooting_names_ltk_manager_set_to_run_as_administrator(self):
+        entries = [("HKLM", r"C:\Program Files\LTK Manager\ltk-manager.exe")]
+        with patch.object(windows_account, "ltk_run_as_admin_entries", return_value=entries), \
+                patch("utils.core.issue_reporter.report_issue") as report, \
+                patch("utils.core.issue_reporter.remove_issues"):
+            self.assertTrue(windows_account.check_ltk_settings())
+
+        message = report.call_args.args[2]
+        (summary,) = summarize((message, report.call_args.kwargs["hint"]))
+        self.assertEqual(summary["code"], "LTK_ELEVATED")
+        self.assertEqual(summary["detail"], r"C:\Program Files\LTK Manager\ltk-manager.exe [all users]")
+
+    def test_no_ltk_program_set_to_run_as_administrator_clears_the_warning(self):
+        with patch.object(windows_account, "ltk_run_as_admin_entries", return_value=[]), \
+                patch("utils.core.issue_reporter.report_issue") as report, \
+                patch("utils.core.issue_reporter.remove_issues") as remove:
+            self.assertFalse(windows_account.check_ltk_settings())
+
+        report.assert_not_called()
+        remove.assert_called_once()
 
     @unittest.skipUnless(sys.platform == "win32", "Windows only")
     def test_this_process_and_the_compatibility_settings_can_be_read(self):

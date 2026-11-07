@@ -294,6 +294,14 @@ def ltk_failure_cause(reason: str) -> str:
         return "league_admin"
     if "manager_elevated" in lowered or "ltk manager is running as administrator" in lowered:
         return "manager_admin"
+    # Windows refusing to start one of LTK Manager's programs unelevated: one is
+    # set to run as administrator (#456: "os error 740" spawning its host)
+    if "os error 740" in lowered or "requires elevation" in lowered:
+        return "ltk_admin"
+    # LTK Manager could not get its patcher from its delivery service (#482):
+    # the service, not Rose, refused it
+    if "no patcher dll is available" in lowered:
+        return "delivery"
     # LTK Manager's own patcher missing from its folder (an antivirus took
     # it): reinstalling LTK Manager is the fix, not Rose's files
     if "ltk_patcher_host.exe not found" in lowered:
@@ -783,6 +791,14 @@ class OverlayManager:
                          "ltk-manager.exe, then retry.",
                 )
             return None
+
+        # LTK Manager set to run as administrator: Windows refuses to start it
+        # as the desktop user (error 740), which Rose's bridge cannot work with
+        try:
+            from utils.system.windows_account import check_ltk_settings
+            check_ltk_settings()
+        except Exception as e:  # noqa: BLE001 - a diagnostic must never stop the injection
+            log.debug(f"[INJECT] Could not check LTK Manager's compatibility settings: {e}")
 
         bridge, launched = self._connect_bridge(launcher, manager, report, cancelled)
         if bridge is None:
@@ -2447,8 +2463,18 @@ class OverlayManager:
                     f"Manager) to your antivirus exclusions. {logs}")
         if cause == "disabled":
             return ("LTK Manager's integrity check turned the overlay off because of a mod: the reason names its "
-                    "WAD. LTK Manager refuses a custom skin made of another skin's files: use another custom skin "
-                    f"or the official one. {logs}")
+                    "WAD. LTK Manager refuses a skin made of another skin's files. For a custom skin, use another "
+                    "one; for one of Rose's skins or chromas, the package is at fault: pick another skin or chroma "
+                    f"and report it at github.com/Alban1911/LeagueSkins/issues. {logs}")
+        if cause == "ltk_admin":
+            return ("Windows refuses to start one of LTK Manager's programs without administrator rights: it is set "
+                    "to run as administrator. Untick \"Run this program as an administrator\" in the Compatibility "
+                    "tab of the Properties of ltk-manager.exe and ltk_patcher_host.exe (also under \"Change settings "
+                    f"for all users\"), then close LTK Manager (also from the system tray) and retry. {logs}")
+        if cause == "delivery":
+            return ("LTK Manager could not download its patcher: LTK's delivery service refused the request (the "
+                    "reason above). Rose cannot change that. Retry later, or from another network (without a VPN "
+                    f"or proxy). {logs}")
         if cause == "corrupt":
             return ("League could not read a file of the overlay, most often a mod made for an older patch. Turn "
                     "your mods off, then back on one at a time to find it; LTK Manager's incident file names the "

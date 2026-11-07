@@ -5421,7 +5421,19 @@
         }
 
         // Kept in one place: it is also the key of its translations (ROSE-I18n)
+        const LTK_ADMIN_FIX = 'Fix: untick "Run this program as an administrator" in the Compatibility tab of the Properties of ltk-manager.exe and ltk_patcher_host.exe (for one marked "all users", under "Change settings for all users"), then close LTK Manager (also from the system tray) and retry.';
         const CDP_FIX = "Fix: Rose could not reach LTK Manager's built-in browser. Restart your PC, then retry. If it keeps happening, use a regular Windows account (not the built-in Administrator) and check that your antivirus does not block LTK Manager.";
+        if (code === 'LTK_ELEVATED') {
+          const detail = String(e?.detail || '').trim();
+          return {
+            title: t('LTK Manager is set to run as administrator'),
+            details: [
+              t("What it means: Windows' compatibility settings run LTK Manager's programs as administrator, so it cannot be started for your Windows account and cannot patch League: {detail}", { detail }),
+              t(LTK_ADMIN_FIX),
+            ],
+          };
+        }
+
         if (code === 'LTF_FAILED') {
           const detail = String(e?.detail || '').trim();
           // Why it failed (ltk_failure_cause in overlay_manager.py): what to
@@ -5439,7 +5451,9 @@
             league_admin: () => t('Fix: League is set to run as administrator, and LTK Manager does not patch it then. Right-click League of Legends.exe and LeagueClient.exe (in the League of Legends folder) > Properties > Compatibility, untick "Run this program as an administrator" (also under "Change settings for all users"), then restart League.'),
             signature: () => t("Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry."),
             host_missing: () => t("Fix: LTK Manager's own patcher (ltk_patcher_host.exe) is missing from its folder, most often removed by an antivirus. Reinstall LTK Manager, then add its folder (C:\\Program Files\\LTK Manager) to your antivirus exclusions."),
-            disabled: () => t("Fix: LTK Manager's integrity check turned the overlay off because of a mod (named above). LTK Manager refuses a custom skin made of another skin's files: use another custom skin or the official one."),
+            disabled: () => t("Fix: LTK Manager's integrity check turned the overlay off because of a mod (named above): it refuses a skin made of another skin's files. For a custom skin, use another one; for one of Rose's skins or chromas, the package is at fault: pick another skin or chroma and report it at github.com/Alban1911/LeagueSkins/issues."),
+            ltk_admin: () => t(LTK_ADMIN_FIX),
+            delivery: () => t("Fix: LTK Manager could not download its patcher: LTK's delivery service refused the request (the reason above). Rose cannot change that. Retry later, or from another network (without a VPN or proxy)."),
             corrupt: () => t("Fix: League could not read a file of the overlay, most often a mod made for an older patch. Turn your mods off, then back on one at a time to find it. LTK Manager's incident file (named above) lists the mods it suspects."),
             incident: () => t("Fix: LTK Manager's incident file (named above) says what went wrong in the game and which mods it suspects."),
             not_attached: () => t("Fix: LTK Manager's patcher found the game but could not get into it, so the game ran without skins. Check that League and the Riot Client are not set to run as administrator and that your antivirus does not block LTK Manager, then retry."),

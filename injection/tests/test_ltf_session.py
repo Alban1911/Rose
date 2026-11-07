@@ -1674,6 +1674,27 @@ class FailureCauseTests(unittest.TestCase):
                                "corrupt": "recorded an incident after the game: x (CorruptArchive; y)",
                                "incident": "LTK Manager recorded an incident after the game: x (Crash; y)"}[cause]))
 
+    def test_ltk_programs_windows_will_not_start_unelevated(self):
+        """#456: LTK Manager could not spawn its host, set to run as administrator"""
+        reason = ("the LTK patcher stopped before it was ready (LTK Manager: Failed to spawn host "
+                  "'ltk_patcher_host.exe': The requested operation requires elevation. (os error 740))")
+        self.assertEqual(ltk_failure_cause(reason), "ltk_admin")
+        self.assertIn("ltk_patcher_host.exe", OverlayManager._ltk_failure_hint(reason))
+
+    def test_a_patcher_ltks_delivery_service_refused(self):
+        """#482: LTK Manager could not download its patcher (429 rate_limited)"""
+        reason = ("the LTK patcher stopped before it was ready (LTK Manager: No patcher DLL is available "
+                  "error=the delivery service refused the request with status 429 rate_limited)")
+        self.assertEqual(ltk_failure_cause(reason), "delivery")
+        self.assertIn("delivery service", OverlayManager._ltk_failure_hint(reason))
+
+    def test_a_refused_rose_package_is_sent_to_leagueskins(self):
+        """#454: the refused WAD came from an official skin's chroma, and the
+        hint said to use the official one"""
+        hint = OverlayManager._ltk_failure_hint("LTK Manager disabled the overlay (wad x: base-skin check)")
+        self.assertIn("LeagueSkins", hint)
+        self.assertNotIn("or the official one", hint)
+
     def test_a_dll_that_never_got_into_the_game(self):
         reason = "LTK Manager's patcher never got into the game (DLL never attached after 60s)"
         self.assertEqual(ltk_failure_cause(reason), "not_attached")

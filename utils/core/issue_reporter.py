@@ -37,6 +37,7 @@ _ALLOWED_CODES = {
     'LTF_FAILED',             # The LTF session (bridge or LTK patcher) reported an error
     'LTK_HEAVY_BUILTINS',     # LTK Manager's built-in mods put every champion's archive into the overlay
     'LTK_SLOW_MOD_CHECK',     # LTK Manager's automatic mod check took minutes while the game loaded
+    'LTK_ELEVATED',           # LTK Manager's own programs are set to run as administrator (error 740)
     'LTF_IMPORT_FAILED',      # A mod could not be imported into LTK Manager's library
     'PENGU_ACTIVATION_FAILED',  # Pengu Loader could not be activated: Rose is missing from the client
     'PENGU_INJECTION_FAILED',   # Pengu Loader was activated, but its DLL is not in the League client

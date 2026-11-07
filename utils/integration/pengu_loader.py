@@ -404,6 +404,23 @@ def is_available() -> bool:
     return _is_available()
 
 
+def _cli_text(output) -> str:
+    """Pengu Loader's console output as text. It writes through .NET's
+    Console.Out: the ANSI code page without a console (Rose starts it with
+    none), the console's (OEM) code page with one, so a Windows error message
+    in Chinese came out as mojibake when read as UTF-8 (#449)."""
+    if not output:
+        return ''
+    if isinstance(output, str):
+        return output
+    for encoding in ('utf-8', 'mbcs', 'oem'):
+        try:
+            return output.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return output.decode('utf-8', errors='replace')
+
+
 def _signed_exit_code(code: int) -> int:
     return code - 2**32 if code >= 2**31 else code
 
@@ -418,7 +435,7 @@ def _run_cli_result(args: Sequence[str], ok_codes: Iterable[int] = (0,)) -> Opti
     command = [str(PENGU_EXE), *command_args]
     try:
         result = subprocess.run(
-            command, cwd=str(PENGU_DIR), text=True, encoding="utf-8", errors="replace", capture_output=True,
+            command, cwd=str(PENGU_DIR), capture_output=True,
             check=False, creationflags=_CREATE_NO_WINDOW,
             timeout=_CLI_TIMEOUT_S,
         )
@@ -437,8 +454,8 @@ def _run_cli_result(args: Sequence[str], ok_codes: Iterable[int] = (0,)) -> Opti
         log.error('Failed to launch Pengu Loader CLI %s: %s', command, exc)
         return None
 
-    stdout = (result.stdout or '').strip()
-    stderr = (result.stderr or '').strip()
+    stdout = _cli_text(result.stdout).strip()
+    stderr = _cli_text(result.stderr).strip()
     returncode = result.returncode
     command_result = CommandResult(command_args, returncode, stdout, stderr)
     if returncode not in expected:

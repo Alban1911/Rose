@@ -258,6 +258,17 @@ class PenguLoaderIntegrationTests(unittest.TestCase):
         self.assertFalse(self.session_file.exists())
         deactivate.assert_not_called()
 
+    def test_cli_output_in_the_windows_code_page_is_read_as_such(self):
+        """#449: a Windows error message in Chinese (GBK) came out as mojibake when read as UTF-8"""
+        self.assertEqual(pengu_loader._cli_text('Pengu is currently ACTIVE.'), 'Pengu is currently ACTIVE.')
+        self.assertEqual(pengu_loader._cli_text('Pengu has been activated.'.encode('utf-8')),
+                         'Pengu has been activated.')
+        # Not UTF-8: read in the system's ANSI code page, as .NET wrote it without a console
+        ansi = b'Failed to perform the requested operation.\r\n\xb3\xa2\xca\xd4'
+        self.assertEqual(pengu_loader._cli_text(ansi), ansi.decode('mbcs'))
+        self.assertEqual(pengu_loader._cli_text(b''), '')
+        self.assertEqual(pengu_loader._cli_text(None), '')
+
     def test_unsigned_windows_exit_code_is_normalized(self):
         self.assertEqual(pengu_loader._signed_exit_code(4294967272), -24)
         self.assertEqual(pengu_loader._signed_exit_code(0), 0)

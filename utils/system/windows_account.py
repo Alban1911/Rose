@@ -228,6 +228,52 @@ LEAGUE_SETTING_HINT = (
 def league_run_as_admin_entries() -> List[Tuple[str, str]]:
     """(hive, program path) of every League/Riot program set to run as
     administrator, as LTK Manager reads them."""
+    return _run_as_admin_entries(lambda program: program.startswith(RUN_AS_ADMIN_PREFIXES))
+
+
+# LTK Manager's own programs set to run as administrator: Windows then refuses
+# to start them unelevated (error 740), so the launcher cannot start LTK
+# Manager as the desktop user and Rose's bridge never reaches its browser
+# (#468), or LTK Manager cannot start its patcher host (#456)
+LTK_PROGRAMS = ("ltk-manager.exe", "ltk manager.exe", "ltk_patcher_host.exe")
+LTK_REPORT_CODE = "LTK_ELEVATED"
+LTK_SETTING_MESSAGE = "LTK Manager can't apply skins: LTK Manager is set to run as administrator"
+LTK_SETTING_HINT = (
+    "Untick \"Run this program as an administrator\" in the Compatibility tab of the Properties of each "
+    "program listed (for one marked \"all users\", under \"Change settings for all users\"), then close LTK "
+    "Manager (also from the system tray). For a program that no longer exists, delete its value under "
+    f"HKEY_CURRENT_USER (or HKEY_LOCAL_MACHINE for \"all users\")\\{COMPAT_LAYERS_KEY} with regedit."
+)
+
+
+def ltk_run_as_admin_entries() -> List[Tuple[str, str]]:
+    """(hive, program path) of every LTK Manager program set to run as administrator."""
+    return _run_as_admin_entries(lambda program: program.lower() in LTK_PROGRAMS)
+
+
+def check_ltk_settings() -> bool:
+    """Warn when LTK Manager's programs are set to run as administrator,
+    naming them; clear the warning once none is. Returns whether any is."""
+    from utils.core.issue_reporter import remove_issues, report_issue
+    try:
+        entries = ltk_run_as_admin_entries()
+    except Exception as e:  # a diagnostic must never stop Rose
+        log.debug(f"[ACCOUNT] Could not read the compatibility settings: {e}")
+        return False
+    if not entries:
+        remove_issues(lambda line, fix: LTK_SETTING_MESSAGE in line)
+        return False
+    programs = ", ".join(path + (" [all users]" if hive == "HKLM" else "") for hive, path in entries)
+    message = f"{LTK_SETTING_MESSAGE} ({programs})."
+    log.warning(f"[ACCOUNT] {message}")
+    report_issue(LTK_REPORT_CODE, "error", message, details={"programs": programs}, hint=LTK_SETTING_HINT,
+                 dedupe_window_s=600.0)
+    return True
+
+
+def _run_as_admin_entries(matches) -> List[Tuple[str, str]]:
+    """(hive, program path) of every program whose file name *matches* and
+    that Windows' compatibility settings run as administrator."""
     if sys.platform != "win32":
         return []
     import winreg
@@ -246,7 +292,7 @@ def league_run_as_admin_entries() -> List[Tuple[str, str]]:
                     break
                 index += 1
                 program = re.split(r"[\\/]", name)[-1]
-                if program.startswith(RUN_AS_ADMIN_PREFIXES) and "RUNASADMIN" in str(value).upper():
+                if matches(program) and "RUNASADMIN" in str(value).upper():
                     entries.append((hive, name))
     return entries
 
