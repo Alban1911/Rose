@@ -5415,7 +5415,7 @@
             details: [
               detail ? t('What happened: {detail}', { detail }) : t('What happened: LTK Manager refused the mod import.'),
               t('Fix: free up some disk space, then retry. If it keeps happening, report it with your Rose logs.'),
-              t('Details are in ltk_api.log in C:\\Users\\Public.'),
+              t("Details are in ltk_api.log, in the ltk folder of Rose's logs (Rose's tray icon > Open Logs folder)."),
             ],
           };
         }
@@ -5451,7 +5451,7 @@
             details: [
               detail ? t('What happened: {detail}', { detail }) : t('What happened: the LTK patcher reported an error.'),
               fix ? fix() : t('Fix: retry the next game. If it fails every game, report it with your Rose logs.'),
-              t('Details are in ltk_api.log and ltk_launcher.log in C:\\Users\\Public.'),
+              t("Details are in ltk_api.log and ltk_launcher.log, in the ltk folder of Rose's logs (Rose's tray icon > Open Logs folder)."),
             ],
           };
         }

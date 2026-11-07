@@ -17,7 +17,11 @@
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "userenv.lib")
 // made by lol123love
+// The log goes to the folder Rose names with --log-dir (its logs\ltk folder,
+// where its Open Logs folder leads), else to C:\Users\Public
 static const char* kLogPath = "C:\\Users\\Public\\ltk_launcher.log";
+static std::wstring g_logDir;
+static std::wstring g_logPath;
 
 // Exit codes Rose reads (injection/overlay/overlay_manager.py)
 enum LauncherExit {
@@ -42,9 +46,10 @@ static void LogTo(const char* path, const char* text, int length)
     CloseHandle(h);
 }
 
-// The shared log lives in C:\Users\Public, which only an elevated launcher can
-// write on some machines: a copy started with the user's token (and so the
-// bridge's own helper) falls back to the user's temp folder
+// Without --log-dir the shared log lives in C:\Users\Public, which only an
+// elevated launcher can write on some machines: a copy started with the
+// user's token (and so the bridge's own helper) falls back to the user's temp
+// folder
 static const char* FallbackLogPath()
 {
     static char path[MAX_PATH] = {};
@@ -64,8 +69,11 @@ static void Log(const char* fmt, ...)
     if (n <= 0) return;
     if (n >= (int)sizeof(buf) - 1) n = (int)sizeof(buf) - 2;
 
-    HANDLE h = CreateFileA(kLogPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE h = g_logPath.empty()
+        ? CreateFileA(kLogPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
+        : CreateFileW(g_logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h != INVALID_HANDLE_VALUE) {
         SetFilePointer(h, 0, NULL, FILE_END);
         DWORD w = 0;
@@ -342,9 +350,11 @@ static bool SpawnAsUserChild(HANDLE token, const std::wstring& env, const wchar_
     swprintf_s(pidFile, L"%sltk_launcher_%lu.pid", tempDir, GetCurrentProcessId());
     DeleteFileW(pidFile);
 
-    wchar_t cmdLine[MAX_PATH * 2 + 512];
-    swprintf_s(cmdLine, L"\"%s\" --as-user-child --quiet --exe \"%s\" --pid-file \"%s\"%s",
-        self, exePath, pidFile, noHide ? L" --no-hide" : L"");
+    // The helper logs to the same file (--log-dir)
+    std::wstring logDirArg = g_logDir.empty() ? L"" : L" --log-dir \"" + g_logDir + L"\"";
+    wchar_t cmdLine[MAX_PATH * 4 + 512];
+    swprintf_s(cmdLine, L"\"%s\" --as-user-child --quiet --exe \"%s\" --pid-file \"%s\"%s%s",
+        self, exePath, pidFile, noHide ? L" --no-hide" : L"", logDirArg.c_str());
 
     STARTUPINFOW si{};
     si.cb = sizeof(si);
@@ -468,7 +478,21 @@ static int Fail(bool quiet, int code, const wchar_t* message)
 // non-ASCII characters (C:\Users\Josué\...) survives
 int wmain(int argc, wchar_t** argv)
 {
-    CreateDirectoryA("C:\\Users\\Public", NULL);
+    // Before the first line: where the log goes
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (!wcscmp(argv[i], L"--log-dir") && argv[i + 1][0]) {
+            g_logDir = argv[i + 1];
+            while (!g_logDir.empty() && (g_logDir.back() == L'\\' || g_logDir.back() == L'/')) g_logDir.pop_back();
+            break;
+        }
+    }
+    if (!g_logDir.empty()) {
+        CreateDirectoryW(g_logDir.c_str(), NULL);
+        g_logPath = g_logDir + L"\\ltk_launcher.log";
+    }
+    else {
+        CreateDirectoryA("C:\\Users\\Public", NULL);
+    }
     Log("========== ltk_launcher ==========");
 
     wchar_t exePath[MAX_PATH] = {};
@@ -490,6 +514,9 @@ int wmain(int argc, wchar_t** argv)
         }
         else if (!wcscmp(argv[i], L"--pid-file") && i + 1 < argc) {
             wcsncpy_s(pidFile, argv[++i], _TRUNCATE);
+        }
+        else if (!wcscmp(argv[i], L"--log-dir") && i + 1 < argc) {
+            ++i;  // read above
         }
         else if (!wcscmp(argv[i], L"--quiet")) {
             quiet = true;
@@ -536,6 +563,8 @@ int wmain(int argc, wchar_t** argv)
         { L"LTF_CDP_PORT", portText },
     };
     if (noHide) vars.push_back({ L"LTK_NO_HIDE", L"1" });
+    // LeagueToolFlop.dll, inside LTK Manager, keeps its log next to this one
+    if (!g_logDir.empty()) vars.push_back({ L"LTF_LOG_DIR", g_logDir });
     for (auto const& var : vars) SetEnvironmentVariableW(var.first.c_str(), var.second.c_str());
     Log("[cdp] remote debugging on 127.0.0.1:%d", cdpPort);
 

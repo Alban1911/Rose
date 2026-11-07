@@ -144,14 +144,40 @@ STATUS_FAILURE_LIMIT = 5
 BYTES_IMPORT_LIMIT = 40 * 1024 * 1024
 
 LAUNCHER_TIMEOUT_S = 60
-# ltk_launcher.exe logs how it started LTK Manager, and why it fell back when
-# it could not make explorer.exe its parent; the helper it may start logs to
-# its user's temp folder when it cannot write C:\Users\Public. Rose copies a
-# start's lines into its own log, so a report has them (#478)
-LAUNCHER_LOG_PATHS = (
-    Path(r"C:\Users\Public\ltk_launcher.log"),
-    Path(tempfile.gettempdir()) / "ltk_launcher.log",
-)
+# The LTF logs (ltk_launcher.log, and ltk_api.log from LeagueToolFlop.dll in
+# LTK Manager) go to this folder of Rose's logs (--log-dir), where Open Logs
+# folder leads: users could not find them in C:\Users\Public (#478)
+LTK_LOGS_FOLDER = "ltk"
+# ltk_launcher.log only grows: past this size the last one is kept as .old
+LAUNCHER_LOG_MAX_BYTES = 1024 * 1024
+
+
+def ltk_logs_dir() -> Path:
+    """Rose's logs\\ltk folder (%LOCALAPPDATA%\\Rose\\logs\\ltk)."""
+    from utils.core.paths import get_user_data_dir
+    return get_user_data_dir() / "logs" / LTK_LOGS_FOLDER
+
+
+def launcher_log_paths() -> tuple:
+    """Where ltk_launcher.exe logs how it started LTK Manager, and why it fell
+    back when it could not make explorer.exe its parent: Rose's logs\\ltk
+    folder; C:\\Users\\Public and the temp folder for a launcher not given it
+    (or its helper, when it cannot write there). Rose copies a start's lines
+    into its own log, so a report has them (#478)."""
+    return (
+        ltk_logs_dir() / "ltk_launcher.log",
+        Path(r"C:\Users\Public\ltk_launcher.log"),
+        Path(tempfile.gettempdir()) / "ltk_launcher.log",
+    )
+
+
+def _rotate_launcher_log(path: Path) -> None:
+    """Keep ltk_launcher.log under LAUNCHER_LOG_MAX_BYTES (the previous one as .old)."""
+    try:
+        if path.stat().st_size > LAUNCHER_LOG_MAX_BYTES:
+            path.replace(path.with_name(path.stem + ".old.log"))
+    except OSError:
+        pass
 # The parent Windows recorded for the LTK Manager the launcher spawned
 LAUNCHER_PARENT_LINE = re.compile(r"parent pid = \d+ \(([^)]*)\)")
 LAUNCHER_SHELL_PARENT = "explorer.exe"
@@ -248,7 +274,7 @@ CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in b
 # plugin:library|get_installed_mods not allowed by ACL")
 LTK_ACL_REFUSAL = "not allowed by acl"
 # Every LTF report's hint ends with it (Troubleshooting recognizes the reports by it)
-LTF_LOGS_HINT = "Details are in C:\\Users\\Public\\ltk_api.log and ltk_launcher.log."
+LTF_LOGS_HINT = "Details are in ltk_api.log and ltk_launcher.log, in the ltk folder of Rose's logs."
 
 
 def ltk_failure_cause(reason: str) -> str:
@@ -858,10 +884,16 @@ class OverlayManager:
 
         log.info(f"[INJECT] Starting LTK Manager through {launcher.name}")
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        launcher_logs = _log_sizes(LAUNCHER_LOG_PATHS)
+        log_dir = ltk_logs_dir()
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            log.debug(f"[INJECT] Could not create {log_dir}: {e}")
+        _rotate_launcher_log(log_dir / "ltk_launcher.log")
+        launcher_logs = _log_sizes(launcher_log_paths())
         try:
             result = subprocess.run(
-                [str(launcher), "--exe", str(manager), "--quiet"],
+                [str(launcher), "--exe", str(manager), "--quiet", "--log-dir", str(log_dir)],
                 cwd=str(launcher.parent),
                 creationflags=creationflags,
                 capture_output=True,

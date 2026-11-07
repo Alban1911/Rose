@@ -174,9 +174,12 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(overlay_manager, "RESTART_MISSED_GAME", False),
             # Never this PC's own LTK Manager log
             patch.object(overlay_manager.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
-            # Nor its ltk_launcher.log
-            patch.object(overlay_manager, "LAUNCHER_LOG_PATHS",
-                         (self.root / "Public" / "ltk_launcher.log", self.root / "Temp" / "ltk_launcher.log")),
+            # Nor its LTF logs
+            patch.object(overlay_manager, "ltk_logs_dir", lambda: self.root / "logs" / "ltk"),
+            patch.object(overlay_manager, "launcher_log_paths",
+                         lambda: (self.root / "logs" / "ltk" / "ltk_launcher.log",
+                                  self.root / "Public" / "ltk_launcher.log",
+                                  self.root / "Temp" / "ltk_launcher.log")),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -446,12 +449,12 @@ class InjectionSessionTests(LtfSessionTestCase):
     def test_the_launchers_own_log_of_a_start_goes_into_roses_log(self):
         """#478: why the launcher could not make explorer.exe LTK Manager's
         parent was only in ltk_launcher.log, which the user could not find"""
-        public_log, temp_log = overlay_manager.LAUNCHER_LOG_PATHS
-        public_log.parent.mkdir()
-        public_log.write_text("[launch] an earlier start, parent pid = 1 (explorer.exe)\r\n", encoding="utf-8")
+        rose_log, public_log, temp_log = overlay_manager.launcher_log_paths()
+        rose_log.parent.mkdir(parents=True)
+        rose_log.write_text("[launch] an earlier start, parent pid = 1 (explorer.exe)\r\n", encoding="utf-8")
 
         def launch(*args, **kwargs):
-            with open(public_log, "a", encoding="utf-8") as handle:
+            with open(rose_log, "a", encoding="utf-8") as handle:
                 handle.write("========== ltk_launcher ==========\r\n"
                              "[warn] spawn with explorer.exe as the parent failed (err=87) - starting it as a child\r\n"
                              "[launch] spawned pid = 4242 (suspended), parent pid = 99 (not explorer.exe)\r\n")
@@ -468,7 +471,35 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertIn("WARNING", launcher_lines[0])
         self.assertIn("starting it as a child", launcher_lines[0])
         self.assertEqual(self.overlay._launcher_parent, "not explorer.exe")
+        self.assertFalse(public_log.exists())
         self.assertFalse(temp_log.exists())
+
+    def test_the_launcher_logs_into_roses_logs_folder(self):
+        """The LTF logs go to Rose's logs\\ltk folder (Open Logs folder), not
+        C:\\Users\\Public where users could not find them"""
+        mod = self.make_mod()
+        no_bridge, run = self.launched()
+        with no_bridge, run as launcher:
+            self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        command = launcher.call_args.args[0]
+        log_dir = self.root / "logs" / "ltk"
+        self.assertEqual(command[command.index("--log-dir") + 1], str(log_dir))
+        self.assertTrue(log_dir.is_dir())
+
+    def test_a_large_launcher_log_is_kept_as_old(self):
+        rose_log = overlay_manager.launcher_log_paths()[0]
+        rose_log.parent.mkdir(parents=True)
+        rose_log.write_bytes(b"x" * (overlay_manager.LAUNCHER_LOG_MAX_BYTES + 1))
+
+        mod = self.make_mod()
+        no_bridge, run = self.launched()
+        with no_bridge, run:
+            self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        self.assertFalse(rose_log.exists())
+        self.assertEqual((rose_log.parent / "ltk_launcher.old.log").stat().st_size,
+                         overlay_manager.LAUNCHER_LOG_MAX_BYTES + 1)
 
     def test_a_failed_launcher_reports_start_failure(self):
         mod = self.make_mod()

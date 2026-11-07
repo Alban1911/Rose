@@ -37,7 +37,9 @@ namespace fs = std::filesystem;
 
 static const char* kCredit = "made by lol123love for educational purposes and bcz love loves LTK :p BIG FLOP!";
 
-static const char* kApiLog = "C:\\Users\\Public\\ltk_api.log";
+// The log: in the folder the launcher names (LTF_LOG_DIR, Rose's logs\ltk
+// folder), else in C:\Users\Public
+static wchar_t g_apiLog[MAX_PATH * 2] = L"C:\\Users\\Public\\ltk_api.log";
 static const int   kApiPortStart = 46321;
 static const int   kApiPortEnd = 46340;
 static const DWORD kSocketTimeoutHttp = 3000;
@@ -88,12 +90,12 @@ static const char* kPatStartPatcher = "plugin:patcher|start_patcher";
 static const char* kPatStopPatcher = "plugin:patcher|stop_patcher";
 static const char* kPatGetPatcherStatus = "plugin:patcher|get_patcher_status";
 
-static void LogTo(const char* path, const char* fmt, va_list ap) {
+static void LogTo(const wchar_t* path, const char* fmt, va_list ap) {
     char buf[2048];
     int n = vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
     if (n <= 0) return;
     if (n >= (int)sizeof(buf) - 1) n = (int)sizeof(buf) - 2;
-    HANDLE h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
+    HANDLE h = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) return;
     SetFilePointer(h, 0, NULL, FILE_END);
@@ -105,13 +107,20 @@ static void LogTo(const char* path, const char* fmt, va_list ap) {
 static void ApiLog(const char* fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    LogTo(kApiLog, fmt, ap);
+    LogTo(g_apiLog, fmt, ap);
     va_end(ap);
 }
-static void LogInit(const char* path) {
-    HANDLE h = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+static void LogInit(const wchar_t* path) {
+    HANDLE h = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL,
         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+}
+static void ResolveApiLog() {
+    wchar_t dir[MAX_PATH] = {};
+    DWORD n = GetEnvironmentVariableW(L"LTF_LOG_DIR", dir, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return;
+    CreateDirectoryW(dir, NULL);
+    swprintf_s(g_apiLog, L"%s\\ltk_api.log", dir);
 }
 
 static int ParseDebugPort(const wchar_t* args) {
@@ -1392,7 +1401,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         if (InterlockedCompareExchange(&g_dllAttached, 1, 0) != 0) return TRUE;
         DisableThreadLibraryCalls(hModule);
-        LogInit(kApiLog);
+        ResolveApiLog();
+        LogInit(g_apiLog);
 
         srand((unsigned)GetTickCount64() ^ (unsigned)GetCurrentProcessId());
         InitializeCriticalSection(&g_cdpLock);
