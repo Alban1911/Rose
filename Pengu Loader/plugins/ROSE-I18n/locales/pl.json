@@ -206,5 +206,11 @@
   "Fix: Windows could not verify the digital signature of LTK Manager's files: one was modified or damaged, and its patcher refuses to run. Reinstall LTK Manager from its official release (github.com/LeagueToolkit/ltk-manager/releases), then retry.": "Rozwiązanie: Windows nie mógł zweryfikować podpisu cyfrowego plików LTK Managera: jeden został zmodyfikowany lub uszkodzony, a jego patcher odmawia działania. Zainstaluj ponownie LTK Managera z oficjalnego wydania (github.com/LeagueToolkit/ltk-manager/releases) i spróbuj jeszcze raz.",
   "How long Rose may hold the game while LTK Manager prepares your skin.\n\nWhen LTK Manager is not ready before the game starts, Rose freezes the game, then restarts it and reconnects you once LTK Manager is ready. Past this time, the game starts without the skin.\n\nIf you use heavy mods, you may need a higher value.": "Jak długo Rose może wstrzymywać grę, gdy LTK Manager przygotowuje Twój skin.\n\nJeśli LTK Manager nie jest gotowy przed startem gry, Rose zamraża grę, a gdy LTK Manager będzie gotowy, uruchamia ją ponownie i łączy Cię z powrotem. Po tym czasie gra rozpoczyna się bez skina.\n\nJeśli używasz ciężkich modów, możesz potrzebować wyższej wartości.",
   "LTK Manager was not ready in time": "LTK Manager nie był gotowy na czas",
-  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Co to oznacza: LTK Manager nie był gotowy w limicie czasu automatycznego wznowienia, więc Rose pozwolił grze toczyć się bez skina."
+  "What it means: LTK Manager was not ready within the Monitor Auto-Resume Timeout, so Rose let the game play on without the skin.": "Co to oznacza: LTK Manager nie był gotowy w limicie czasu automatycznego wznowienia, więc Rose pozwolił grze toczyć się bez skina.",
+  "Delete selected ({count})": "Usu? zaznaczone ({count})",
+  "Delete the selected mod? This cannot be undone.": "Usun?? zaznaczony mod? Tej operacji nie mo?na cofn??.",
+  "Delete {count} selected mods? This cannot be undone.": "Usun?? {count} zaznaczonych mod?w? Tej operacji nie mo?na cofn??.",
+  "Select all": "Zaznacz wszystko",
+  "Select all mods": "Zaznacz wszystkie mody",
+  "Select mod {name}": "Zaznacz mod {name}"
 }

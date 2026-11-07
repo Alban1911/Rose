@@ -4488,6 +4488,7 @@
         }
       );
     });
+    updateSelection();
   }
 
   function handleChampionModsBulkDeleted(payload) {
@@ -4622,6 +4623,7 @@
         }
       );
     });
+    updateSelection();
   }
 
   function handleCategoryModsBulkDeleted(payload) {
