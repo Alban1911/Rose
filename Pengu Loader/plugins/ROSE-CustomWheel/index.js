@@ -321,11 +321,11 @@
       return null;
     }
     const modTargetSkinId = historicModEntry.skinId ? Number(historicModEntry.skinId) : null;
-    // Only auto-select if the user is CURRENTLY on the mod's target skin
-    if (modTargetSkinId && (
+    const userIsOnTargetSkinNow = Boolean(modTargetSkinId && (
       modTargetSkinId === liveSkinId ||
       historicModEntry.availableForRequestedSkin === true
-    )) {
+    ));
+    if (userIsOnTargetSkinNow) {
       return historicModEntry.relativePath || historicModEntry.modName || `mod-${Date.now()}-${Math.random()}`;
     }
     return null;

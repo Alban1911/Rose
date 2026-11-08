@@ -268,7 +268,7 @@ class OverlayManager:
         if self.game_dir is None:
             return
         with self._early_session_lock:
-            self._early_session_unwanted = False  # a session is wanted (again)
+            self._early_session_unwanted = False
         if not self.host.launcher_lock.acquire(blocking=False):
             return  # the connect in flight brings it up
         try:

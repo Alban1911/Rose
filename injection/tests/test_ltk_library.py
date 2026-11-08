@@ -262,7 +262,7 @@ class LibrarySessionTests(LtfSessionTestCase):
         self.assertEqual(FakeBridge.created, [])
 
     def test_busy_while_an_injection_installs_before_its_session_is_registered(self):
-        """mk_run_overlay installs under the stage lock, its connect done and
+        """mk_run_overlay installs under the library change lock, its connect done and
         its stopper not registered yet: a session's start-up cleanup would
         take the mods it just installed for an earlier session's leftovers"""
         installed = "0f0f0f0f-0000-4000-8000-000000000000"
