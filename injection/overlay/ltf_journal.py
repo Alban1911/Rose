@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""What Rose's LTF sessions changed in LTK Manager, in ltf_installed.json.
-
-A session records each change as it makes it: the mods it installed, the
-user's mods it turned off, the saved mods it switched on, the saved mods a
-game left installed (kept), the LTK Manager it started. The next session's
-start undoes what a session Rose could not end (a crash, Rose closed) left.
-"""
 
 import json
 import threading
@@ -18,8 +11,6 @@ from utils.core.logging import get_logger
 
 log = get_logger()
 
-# Held while ltf_installed.json is read and rewritten: every LtfHost of the
-# process shares the file
 _STATE_FILE_LOCK = threading.Lock()
 
 
@@ -37,7 +28,6 @@ class LtfJournal:
         if not isinstance(document, dict):
             document = {}
         if not any(key in document for key in ("installed", "disabled", "manager", "kept", "switched")):
-            # The first layout held the installed ids alone
             document = {"installed": {k: v for k, v in document.items() if isinstance(v, str)}}
         installed = document.get("installed")
         disabled = document.get("disabled")
@@ -48,14 +38,10 @@ class LtfJournal:
             "installed": dict(installed) if isinstance(installed, dict) else {},
             "disabled": [str(mod_id) for mod_id in disabled] if isinstance(disabled, list) else [],
             "manager": manager if isinstance(manager, dict) else None,
-            # library id -> {"folder", "fingerprint", "source"}: saved mods left
-            # in LTK Manager, turned off, for the next game (LtfHost._park)
             "kept": {
                 str(mod_id): record for mod_id, record in kept.items()
                 if isinstance(record, dict) and record.get("fingerprint") and record.get("source")
             } if isinstance(kept, dict) else {},
-            # library id -> name: saved mods LTK Manager holds, switched on
-            # for the session (SavedModSwitches)
             "switched": {
                 str(mod_id): str(name) for mod_id, name in switched.items()
             } if isinstance(switched, dict) else {},

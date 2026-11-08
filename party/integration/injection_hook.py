@@ -193,7 +193,6 @@ def prepare_peer_skin(
         Mod folder name or None if preparation failed
     """
     mods_dir = Path(mods_dir) if mods_dir is not None else injector.mods_dir
-    # Prefixed so it never collides with our own mod folder
     mod_folder_name = f"party_{skin_data.summoner_id}"
     mod = None
     label = skin_data.custom_mod_path
@@ -222,7 +221,6 @@ def prepare_peer_skin(
             return None
         mod, label = RoseFile(skin_zip, mod_folder_name), skin_zip.name
 
-    # Cached extraction: the same skin is instant in later games
     name = mod.put(mods_dir)
     if name is None:
         log.warning(f"[PARTY_INJECT] Mod folder missing after extraction: {mods_dir / mod_folder_name}")

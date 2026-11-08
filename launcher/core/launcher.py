@@ -1,15 +1,3 @@
-"""
-Native Win32 startup dialog used to prepare Rose before launching.
-
-This replaces the former PyQt-based launcher with a lightweight Steam-style
-progress window that:
-    1. Checks for application updates and applies them if needed.
-    2. Verifies local skin data and downloads missing content.
-    3. Moves the mods Rose still holds into LTK Manager's library.
-
-Once all checks succeed, the dialog closes automatically and the main
-application continues bootstrapping.
-"""
 
 from __future__ import annotations
 

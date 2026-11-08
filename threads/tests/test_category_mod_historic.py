@@ -11,7 +11,6 @@ from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from utils.core import mod_historic
 
-# The LTK Manager library id of a saved mod
 LTK_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 
 

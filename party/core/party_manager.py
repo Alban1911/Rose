@@ -607,7 +607,6 @@ class PartyManager:
             "chroma_id": selection.chroma_id,
         }
 
-        # For custom mods, share content hashes instead of the files
         if selection.custom_mod_path:
             content_hash, legacy_hash = saved_mod_hashes(selection.custom_mod_path)
             if content_hash:

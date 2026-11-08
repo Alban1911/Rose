@@ -11,9 +11,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-# The content hash is also a saved mod's partyHash, computed once when it is
-# added (injection.mods.mod_facts): one algorithm for both
-from injection.mods.mod_facts import (  # noqa: F401 - _content_digest, _is_preview_image re-exported
+from injection.mods.mod_facts import (
     _archive_content_hash,
     _content_digest,
     _folder_content_hash,

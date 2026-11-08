@@ -2521,7 +2521,6 @@
       }
     }
 
-    // Auto-select the historic mod when the user is hovering the skin it targets.
     const historicMod = detail.historicMod;
     let didAutoSelect = false;
     let historicSelectionId = null;
@@ -2592,10 +2591,8 @@
     lastMapsList = mapsList;
     selectedMapId = pruneSingleSelection(selectedMapId, mapsList);
 
-    // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
     if (historicMod && !selectedMapId) {
-      // historicMod is the relative path (e.g., "maps/default-summoner-rift_1.0.1"), as map.id is
       const historicMap = historicEntry(mapsList, historicMod);
 
       if (historicMap) {
@@ -2641,7 +2638,6 @@
     lastFontsList = fontsList;
     selectedFontId = pruneSingleSelection(selectedFontId, fontsList);
 
-    // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
     if (historicMod && !selectedFontId) {
       const historicFont = historicEntry(fontsList, historicMod);
@@ -2688,7 +2684,6 @@
     lastAnnouncersList = announcersList;
     selectedAnnouncerId = pruneSingleSelection(selectedAnnouncerId, announcersList);
 
-    // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
     if (historicMod && !selectedAnnouncerId) {
       const historicAnnouncer = historicEntry(announcersList, historicMod);
@@ -2742,7 +2737,6 @@
     
     const selectedIds = getSelectedIdsForCategory("others");
     if (historicMods.length > 0 && selectedIds.length === 0) {
-      // Find all mods that match the historic paths
       const historicOthers = [];
       for (const historicPath of historicMods) {
         const historicOther = historicEntry(othersList, historicPath);
@@ -2770,7 +2764,6 @@
 
     updateOtherCategoryEntries("others", othersList);
 
-    // After UI is updated, emit selection to backend for all historic mods found
     if (historicMods.length > 0 && selectedIds.length > 0) {
       for (const historicPath of historicMods) {
         const historicOther = historicEntry(othersList, historicPath);
@@ -2806,7 +2799,6 @@
     lastCategoryModsById[category] = modsList;
     pruneCategorySelection(category, modsList);
 
-    // Apply historic selections for this specific category.
     const historicMod = detail.historicMod;
     const historicMods = Array.isArray(historicMod) ? historicMod : (historicMod ? [historicMod] : []);
     if (historicMods.length > 0) {

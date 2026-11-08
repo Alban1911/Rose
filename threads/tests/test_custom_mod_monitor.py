@@ -11,7 +11,6 @@ from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from threads.handlers.injection_trigger import InjectionTrigger
 
-# LTK Manager library ids of saved mods
 SKIN_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 FONT_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
 

@@ -1,7 +1,3 @@
-"""The saved mods' manifests follow LTK Manager's library: a mod whose entry
-is gone is marked missing (and found again), one LTK Manager changed gets its
-facts read again from LTK Manager's archive, and Rose's leftover copy goes
-once LTK Manager lists the entry. An index Rose cannot read changes nothing."""
 
 import json
 import os
@@ -44,7 +40,7 @@ class LtkSyncTests(unittest.TestCase):
                                                  encoding="utf-8")
         for patcher in (
             patch.object(ltk_data, "ltk_data_dir", return_value=self.data),
-            patch.object(ltk_sync, "_synced_mtime", None),  # a Rose that has not synced yet
+            patch.object(ltk_sync, "_synced_mtime", None),
             patch.object(mod_facts, "get_injection_dir", return_value=self.root / "injection"),
             patch.object(historic, "get_user_data_dir", return_value=self.root),
             patch.object(mod_historic, "get_user_data_dir", return_value=self.root),
@@ -103,15 +99,15 @@ class LtkSyncTests(unittest.TestCase):
     def test_an_index_rose_cannot_read_changes_nothing_and_is_read_again_later(self):
         self.save("VO Korean", VO_ID, archive=self.ltk_archive("vo-korean", VOICEOVER))
 
-        self.assertIsNone(self.sync())  # LTK Manager never wrote one
+        self.assertIsNone(self.sync())
         self.write_index()
         text = (self.data / "library.json").read_text(encoding="utf-8")
         (self.data / "library.json").write_text(text[: len(text) // 2], encoding="utf-8")
         os.utime(self.data / "library.json", (INDEX_TIME, INDEX_TIME))
-        self.assertIsNone(self.sync())  # LTK Manager writing it
+        self.assertIsNone(self.sync())
 
         self.assertFalse(self.saved("VO Korean").missing)
-        self.write_index()  # its time as the half-written one's
+        self.write_index()
         self.assertEqual(self.sync(only_if_changed=True).missing, ["VO Korean"])
 
     def test_facts_are_read_again_from_an_archive_ltk_manager_changed(self):
@@ -160,7 +156,7 @@ class LtkSyncTests(unittest.TestCase):
         self.write_index((VO_ID, "vo-korean"))
         self.assertIsNotNone(self.sync())
 
-        self.write_index()  # the entry removed, the index's time as it was
+        self.write_index()
         self.assertIsNone(self.sync(only_if_changed=True))
         self.assertFalse(self.saved("VO Korean").missing)
 
@@ -190,7 +186,7 @@ class LtkSyncTests(unittest.TestCase):
         self.assertFalse(listed.exists())
         self.assertEqual(listed.with_suffix(".png").read_bytes(), PNG)
         self.assertIsNone(self.saved("VO Korean").stored)
-        self.assertTrue(lost.exists())  # the mod's only copy now: the next start moves it again
+        self.assertTrue(lost.exists())
         self.assertTrue(self.saved("Rift", "maps").missing)
 
     def test_a_mod_deleted_and_added_again_during_the_sync_is_left_to_the_next_one(self):
@@ -239,7 +235,7 @@ class LtkSyncTests(unittest.TestCase):
             self.assertTrue(only_if_changed)
             self.assertTrue(threading.current_thread().daemon)
             ran.set()
-            raise OSError("the mods folder is gone")  # logged: Rose goes on
+            raise OSError("the mods folder is gone")
 
         with patch.object(ltk_sync, "sync_saved_mods", side_effect=sync):
             thread = start_saved_mods_sync(only_if_changed=True)

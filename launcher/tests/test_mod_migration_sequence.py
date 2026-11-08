@@ -1,6 +1,3 @@
-"""The launcher moves the saved mods into LTK Manager after the skin sync, in
-its dialog: it offers a backup on the desktop first, sized, and a backup that
-fails moves nothing."""
 
 import re
 import unittest

@@ -290,8 +290,6 @@ INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
 # Main loop watchdog timeouts (seconds)
 MAIN_LOOP_STALL_THRESHOLD_S = 5.0       # Threshold for detecting main loop stalls
 MAIN_LOOP_FORCE_QUIT_TIMEOUT_S = 2.0    # Timeout before forcing quit when stop flag is set
-# Rose run by its uninstaller to remove its mods from LTK Manager (--remove-ltk-mods)
-# ends itself after this: the uninstaller waits for it
 REMOVE_LTK_MODS_TIMEOUT_S = 120
 CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel processing
 
@@ -368,9 +366,6 @@ _IS_DEV_BUILD = bool(getattr(sys, "frozen", False)) and (
     "rosedev" in Path(sys.executable).stem.lower() or "rose-dev" in Path(sys.executable).stem.lower()
 )
 SINGLE_INSTANCE_MUTEX_NAME = r"Local\RoseDevSingleInstance" if _IS_DEV_BUILD else r"Local\RoseSingleInstance"
-# Held while a Rose moves the saved mods into LTK Manager, in its launcher,
-# before it takes the single-instance mutex: a Rose starting meanwhile must
-# not run beside it (injection.mods.migration)
 MOD_MIGRATION_MUTEX_NAME = r"Local\RoseModMigration"
 
 # Log file patterns (handles .log files)

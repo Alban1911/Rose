@@ -1,8 +1,3 @@
-"""Rose's start and the saved mods LTK Manager holds: a normal start syncs
-them with LTK Manager's library once the stored folders are converted, and
-Rose's uninstaller runs Rose with --remove-ltk-mods, which removes the mods
-Rose added there and exits, with nothing of a normal start (no launcher,
-single-instance check or dialog) and a watchdog."""
 
 import contextlib
 import io
@@ -78,7 +73,7 @@ class RemoveLtkModsTests(unittest.TestCase):
         remove.assert_called_once_with()
         launcher.run_launcher.assert_not_called()
         dll_check.assert_not_called()
-        start.assert_not_called()  # nor its single-instance check
+        start.assert_not_called()
 
     def removing(self, **remove):
         """_remove_ltk_mods with Rose's paths and logging patched out"""

@@ -1,26 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""The saved mods' manifests, kept in line with LTK Manager's library.
-
-A saved mod lives in LTK Manager's library (injection.mods.manifest), which
-the user can change while Rose is not looking: delete an entry, update or
-repair a mod. The sync reads LTK Manager's own index, with no LTK Manager
-running, and for each entry a saved mod's manifest names:
-
-- gone from the index: the mod is marked missing (listed, so the user adds
-  it again or deletes it, and never picked); listed again: it is not any more;
-- its archive changed since Rose read the mod's facts (another size or date
-  than the manifest's ltkStamp; no stamp at all once LTK Manager repaired the
-  mod as it was added): the facts are read again from LTK Manager's archive;
-- listed, while Rose still holds a copy (a move that stopped before the copy
-  went): the copy is deleted.
-
-It runs at Rose's start, and at each champion select once LTK Manager's index
-changed since this Rose last synced. An index it cannot read (none yet, LTK Manager
-writing it) changes nothing: it is never read as "every mod is gone". Saved
-mods found switched on are switched off at a session's start instead, which
-has a bridge (injection.overlay.ltk_switches).
-"""
 
 from __future__ import annotations
 
@@ -41,12 +20,7 @@ from .storage import ModStorageService
 
 log = get_logger()
 
-# A sync started while one runs (Rose's start, then a champion select) would
-# only do its work again
 _SYNC_LOCK = threading.Lock()
-# The modified time of LTK Manager's index the last sync of this Rose read,
-# under _SYNC_LOCK: Rose's start always syncs, so a champion select only
-# needs to know whether the index changed since
 _synced_mtime: Optional[float] = None
 
 
@@ -54,9 +28,9 @@ _synced_mtime: Optional[float] = None
 class SyncReport:
     """What a sync changed, by the mods' names."""
 
-    missing: List[str] = field(default_factory=list)  # gone from LTK Manager's library
-    found: List[str] = field(default_factory=list)  # listed there again
-    refreshed: List[str] = field(default_factory=list)  # facts read again from LTK Manager's archive
+    missing: List[str] = field(default_factory=list)
+    found: List[str] = field(default_factory=list)
+    refreshed: List[str] = field(default_factory=list)
     copies_deleted: List[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
@@ -111,7 +85,7 @@ def start_saved_mods_sync(*, only_if_changed: bool) -> threading.Thread:
     def run() -> None:
         try:
             sync_saved_mods(only_if_changed=only_if_changed)
-        except Exception as e:  # noqa: BLE001 - the manifests stay as they were, the next sync tries again
+        except Exception as e:
             log.warning(f"[MODS] Could not sync the saved mods with LTK Manager's library: {e}", exc_info=True)
 
     thread = create_daemon_thread(run, "LtkLibrarySync")

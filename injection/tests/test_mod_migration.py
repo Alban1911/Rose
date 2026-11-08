@@ -1,7 +1,3 @@
-"""At its start, Rose moves the saved mods it still holds into LTK Manager's
-library: Rose's copy goes only once LTK Manager lists the mod's entry and the
-mod's manifest names it, and whatever stops the move leaves the mod in Rose
-for the next start."""
 
 import ctypes
 import json
@@ -200,7 +196,6 @@ class MoveTests(MigrationTestCase):
         self.assertEqual(report.failed, [("VO Korean", "LTK Manager does not list it after the import")])
         self.assertTrue(archive.exists())
         self.assertIsNone(self.entry("voiceover/VO Korean.fantome").ltk_id)
-        # Rose's import, not kept, is removed with the session
         self.assertEqual(self.bridge.library_entries, [])
         self.assertEqual(self.state()["installed"], {})
 
@@ -301,7 +296,7 @@ class WhatIsMovedTests(MigrationTestCase):
 
         self.assertTrue(archive.exists())
         self.assertEqual(mod_historic.get_historic_mod("map"), "maps/Rift.fantome")
-        ltk_id = self.entry("maps/Rift.zip").ltk_id  # the old path still names it
+        ltk_id = self.entry("maps/Rift.zip").ltk_id
         selection = InjectionTrigger._find_saved_mod(self.storage, "maps", "maps/Rift.fantome")
         self.assertIsNotNone(selection)
         self.assertEqual(selection["source"].ltk_id, ltk_id)
@@ -355,7 +350,7 @@ class WhatIsMovedTests(MigrationTestCase):
         self.assertEqual(mod.ltk_id, KEPT_ID)
         self.assertEqual(mod.metadata["ltkStamp"], stamp_of(kept_archive))
         self.assertFalse(archive.exists())
-        self.assertEqual(self.state()["kept"], {})  # a saved mod's for good, no game's copy
+        self.assertEqual(self.state()["kept"], {})
         self.assertEqual([(e["id"], e["enabled"]) for e in self.bridge.library_entries], [(KEPT_ID, False)])
 
     def test_a_copy_a_game_kept_of_other_content_is_not_taken(self):
@@ -433,7 +428,7 @@ class WhenNothingMovesTests(MigrationTestCase):
         self.assertEqual(report.skipped_reason, ALREADY_OPEN_REASON)
         (notice,) = self.ui.notices
         self.assertIn(ALREADY_OPEN_REASON, notice)
-        self.assertEqual(self.ui.asked, [])  # asked only once LTK Manager can take the mods
+        self.assertEqual(self.ui.asked, [])
         self.assertTrue(archive.exists())
 
     def test_not_enough_space_on_ltk_managers_drive_moves_nothing(self):
@@ -479,7 +474,7 @@ class WhenNothingMovesTests(MigrationTestCase):
                 self.assertEqual(report.skipped_reason, reason)
                 self.assertEqual(FakeBridge.created, [])
                 self.assertEqual((self.ui.steps, self.ui.notices), ([], []))
-                self.assertTrue(folder.is_dir())  # not even packed
+                self.assertTrue(folder.is_dir())
 
 
 class BackupTests(MigrationTestCase):

@@ -1,5 +1,3 @@
-"""LTK Manager's library holds the user's saved mods: read offline from its
-own index, and changed through Rose's bridge outside any game."""
 
 import json
 import os
@@ -82,8 +80,8 @@ class OfflineIndexTests(unittest.TestCase):
         self.assertEqual(index[VO_ID], IndexEntry(VO_ID, "vo-korean", "fantome", "archive", True,
                                                   self.storage / "vo-korean.fantome"))
         self.assertEqual(index[AATROX_ID].archive, self.storage / "old-aatrox.modpkg")
-        self.assertFalse(index[AATROX_ID].enabled)  # enabled in another profile only
-        self.assertIsNone(index[LOOSE_ID].archive)  # kept as a folder
+        self.assertFalse(index[AATROX_ID].enabled)
+        self.assertIsNone(index[LOOSE_ID].archive)
 
     def test_without_a_storage_path_the_archives_are_in_ltk_managers_data_folder(self):
         self.write("settings.json", {"modStoragePath": None})
@@ -158,7 +156,7 @@ class DataFolderTests(unittest.TestCase):
         self.assertEqual(ltk_data.library_index_path(), self.desktop / "library.json")
 
     def test_ltk_managers_logs_are_found_as_before(self):
-        self.desktop.mkdir(parents=True)  # never logged there
+        self.desktop.mkdir(parents=True)
         (self.admin / "logs").mkdir(parents=True)
 
         self.assertEqual(LtkLogTail.log_dir(), self.admin / "logs")
@@ -182,13 +180,13 @@ class LibrarySessionTests(LtfSessionTestCase):
         with self.library.session() as session:
             entry = session.import_archive(self.archive, "VO Korean")
             mod_id = str(entry["id"])
-            self.assertEqual(list(self.state()["installed"]), [mod_id])  # a crash here removes it
+            self.assertEqual(list(self.state()["installed"]), [mod_id])
             session.keep(mod_id)
 
         self.assertEqual([(e["id"], e["enabled"]) for e in self.bridge.library_entries], [(mod_id, False)])
         self.assertNotIn(("uninstall", mod_id), self.bridge.calls)
         self.assertEqual(self.state()["installed"], {})
-        self.assertEqual(self.state()["kept"], {})  # a saved mod, not a kept copy
+        self.assertEqual(self.state()["kept"], {})
 
     def test_an_entry_not_kept_is_removed_at_the_end(self):
         with self.library.session() as session:
@@ -243,7 +241,7 @@ class LibrarySessionTests(LtfSessionTestCase):
             session.keep(mod_id)
 
         self.assertEqual(result, {"health": "repairable", "repaired": 2, "problems": []})
-        self.assertEqual(self.archive.read_bytes(), before)  # nothing written back into Rose
+        self.assertEqual(self.archive.read_bytes(), before)
         with zipfile.ZipFile(FakeBridge.mod_storage / f"mod-{mod_id[:8]}.fantome") as repaired:
             self.assertEqual(repaired.read("WAD/Ahri.ko_KR.wad.client"), b"fixed")
 
@@ -305,7 +303,7 @@ class LibrarySessionTests(LtfSessionTestCase):
             with self.library.session():
                 self.fail("no session without the bridge")
         self.assertEqual(str(raised.exception), LTF_MISSING_REASON)
-        self.report_issue.assert_not_called()  # the caller says so, not Troubleshooting
+        self.report_issue.assert_not_called()
 
     def test_unavailable_without_ltk_manager(self):
         with patch.object(ToolsManager, "detect_ltk_manager", return_value=None):
@@ -394,7 +392,7 @@ class ModCheckTests(LtfSessionTestCase):
         self.assertEqual([(e["id"], e["enabled"]) for e in self.bridge.library_entries], [(ltk_id, False)])
         self.assertNotIn(("uninstall", ltk_id), self.bridge.calls)
         self.assertEqual(self.state()["installed"], {})
-        self.assertEqual(self.stored.read_bytes(), self.before)  # Rose's copy is the caller's to delete
+        self.assertEqual(self.stored.read_bytes(), self.before)
 
     def test_a_repaired_mod_is_kept_with_ltk_managers_repair_and_no_stamp(self):
         FakeBridge.health_answers = [self.REPAIRABLE, self.HEALTHY]
@@ -403,8 +401,8 @@ class ModCheckTests(LtfSessionTestCase):
         result = self.check()
 
         self.assertEqual(result["repaired"], 2)
-        self.assertEqual(self.recorded, [(result["ltkId"], None, True)])  # the next sync reads its facts again
-        self.assertEqual(self.stored.read_bytes(), self.before)  # nothing written back into Rose
+        self.assertEqual(self.recorded, [(result["ltkId"], None, True)])
+        self.assertEqual(self.stored.read_bytes(), self.before)
         self.assertEqual([p.name for p in self.stored.parent.iterdir()], ["Leona.fantome"])
         with zipfile.ZipFile(self.ltk_archive(result["ltkId"])) as repaired:
             self.assertEqual(repaired.read("WAD/Leona.wad.client"), b"fixed")
@@ -461,7 +459,7 @@ class ModCheckTests(LtfSessionTestCase):
         with patch.object(FakeBridge, "toggle", side_effect=BridgeCommandError("busy")):
             result = self.check()
 
-        self.assertIn("ltkId", result)  # the next session start turns it off
+        self.assertIn("ltkId", result)
         self.assertNotIn(("uninstall", result["ltkId"]), self.bridge.calls)
         self.assertEqual(self.state()["installed"], {})
 

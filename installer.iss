@@ -378,7 +378,6 @@ begin
     if not _KeepUserData then
     begin
       Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--remove-ltk-mods', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      { Rose's record of the user's mods it turned off goes with its data }
       if (ResultCode <> 0) and not UninstallSilent then
         MsgBox(
           '{#MyAppName} could not finish cleaning up LTK Manager.'#13#10 +

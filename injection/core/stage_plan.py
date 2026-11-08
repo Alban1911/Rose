@@ -1,26 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""What an injection will install, so the loadout countdown can stage it.
-
-LTK Manager's patcher only overlays a game the client creates after its scan
-started, and the client creates the game about a second after the injection
-begins: too soon to install the mods and start the patcher then. So while the
-countdown runs, InjectionManager.stage_plan installs what the injection will
-install and starts the patcher; the injection then finds the same mods in
-place (mod_fingerprint) and the scan keeps running.
-
-A plan lists the mods in the order the injection installs them. The trigger
-builds it from the selection (InjectionTrigger.staging_plan), one path each:
-
-- a skin (SkinInjector.inject_skin): SkinStep, then friends' skins
-- a custom skin mod or map/font/announcer/other mods
-  (InjectionTrigger._run_custom_mod_injection): the carrier skin, the custom
-  mod, the other mods, the loading screen name, then friends' skins
-- friends' skins alone (InjectionManager.inject_party_skins_only)
-
-A saved mod LTK Manager holds is planned as its LTK reference: nothing is
-linked for it, and the injection switches its entry on (injection.mods.mod_source).
-"""
 
 from __future__ import annotations
 
@@ -44,9 +23,6 @@ log = get_logger()
 # The label of a plan that only holds friends' skins: what
 # InjectionManager.inject_party_skins_only passes to cancel_staging(keep=...)
 PARTY_SKINS_LABEL = "party skins"
-# What the loading screen name takes a mod LTK Manager holds for when its
-# manifest lacks the facts: a skin naming no champion (no name is built) and
-# a mod that may carry the text table the name's own would compete with
 _UNKNOWN_FACTS = ModFacts(party_hash=None, champion_aliases=(), ships_language_table=True)
 
 

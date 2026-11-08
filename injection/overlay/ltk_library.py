@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""LTK Manager's library, where the user's saved mods live.
-
-A mod the user adds is imported into LTK Manager once and stays there; each
-game only switches it on and off. Rose then needs LTK Manager's library in two
-ways:
-
-- offline, with no LTK Manager running: read from its own files (ltk_data);
-- online, through Rose's bridge, outside any game: importing a saved mod,
-  checking and repairing it, keeping it (turned off) after the session that
-  imported it, removing it. LtkLibrary.session() gives such a session (an
-  LtfHost one): never while an injection's session holds LTK Manager, and LTK
-  Manager closed again if Rose started it. LtkLibrary.check_mod moves a mod
-  the user adds into the library.
-"""
 
 from __future__ import annotations
 
@@ -56,11 +42,7 @@ __all__ = [
     "remove_rose_mods",
 ]
 
-# LTK's problem severities: "fatal" (the game crashes on it) and "error" (the
-# game rejects it, the mod does not work); "warning" and "info" leave it working
 REJECTED_SEVERITIES = ("fatal", "error")
-# Repairs in a row while LTK Manager still offers fixes (a pass can leave one
-# for the next); a mod whose repair keeps finding more stops here
 REPAIR_PASSES = 3
 
 
@@ -82,7 +64,6 @@ def _rejected_by_game(verdict: dict) -> List[dict]:
     ]
     counts = verdict.get("counts") or {}
     if not problems and int(counts.get("fatals") or 0) + int(counts.get("errors") or 0) > 0:
-        # A verdict without its rules (an older LTK Manager): still say so
         problems.append({"rule": "", "title": "", "description": ""})
     return problems
 
@@ -143,7 +124,6 @@ class LtkLibrary:
                 try:
                     yield LibrarySession(host, session)
                 finally:
-                    # Removes what was imported and not kept, closes LTK Manager if Rose started it
                     host.end(session)
             finally:
                 host.connect_lock.release()
@@ -243,7 +223,6 @@ class LibrarySession:
         staging.mkdir(parents=True, exist_ok=True)
         try:
             if archive.is_file():
-                # A .modpkg keeps its suffix: LTK Manager tells the format by it
                 suffix = MODPKG_SUFFIX if archive.suffix.lower() == MODPKG_SUFFIX else ".fantome"
                 staged = archive_for_ltk(archive, staging / f"{archive.stem}{suffix}")
             else:
@@ -282,11 +261,9 @@ class LibrarySession:
         return next((mod_id for mod_id, record in records.items() if record["fingerprint"] == fingerprint), None)
 
     def switch(self, ltk_id: str, enabled: bool) -> None:
-        """Turn an entry on or off."""
         self.bridge.toggle(str(ltk_id), enabled)
 
     def uninstall(self, ltk_id: str) -> None:
-        """Remove an entry from LTK Manager's library."""
         self._host.uninstall(self._session, ltk_id)
 
     def check_and_repair(self, ltk_id: str, display_name: str) -> dict:
@@ -303,8 +280,6 @@ class LibrarySession:
         result = {"health": str(verdict.get("health") or ""), "repaired": 0, "problems": []}
         log.info(f"[MODCHECK] LTK Manager's verdict on {display_name}: {result['health'] or 'unknown'}"
                  f" ({_verdict_summary(verdict)})")
-        # One pass can leave a fix for the next: a rule skips a file an
-        # earlier rule of the same pass rewrote
         for _ in range(REPAIR_PASSES):
             if verdict.get("health") != "repairable" or int(verdict.get("fixable") or 0) <= 0:
                 break

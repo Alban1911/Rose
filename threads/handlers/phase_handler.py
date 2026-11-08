@@ -18,7 +18,6 @@ _SWIFTPLAY_ACTIVE_PHASES = {"Matchmaking", "ReadyCheck", "ChampSelect", "FINALIZ
 
 
 class PhaseHandler:
-    """Handles phase-specific logic"""
     
     def __init__(
         self,
@@ -44,7 +43,6 @@ class PhaseHandler:
         self.swiftplay_handler = swiftplay_handler
     
     def handle_phase_change(self, phase: str, previous_phase: str):
-        """Handle phase change"""
         from threads.handlers.champ_select_reset import note_phase_for_reset
         note_phase_for_reset(self.state, phase)
         log.info(f"[phase] Phase transition: {previous_phase} → {phase} (swiftplay={self.state.is_swiftplay_mode}, extracted={len(self.state.swiftplay_extracted_mods)}, queue={self.state.current_queue_id})")
@@ -58,7 +56,6 @@ class PhaseHandler:
                         self.swiftplay_handler._injection_triggered = True
         
         elif phase == "ChampSelect":
-            # Champion select lists the saved mods: those LTK Manager lost since must show as missing
             from injection.mods.ltk_sync import start_saved_mods_sync
             start_saved_mods_sync(only_if_changed=True)
 

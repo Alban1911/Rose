@@ -1,5 +1,3 @@
-"""Picking a saved mod LTK Manager holds: nothing is linked, the selection
-names its library entry, and one LTK Manager lost is refused."""
 
 import json
 import tempfile
@@ -108,7 +106,7 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["error"], MISSING)
         self.assertIsNone(self.handler.shared_state.selected_custom_mod)
-        self.injector._clean_mods_dir.assert_not_called()  # the mods already picked stay
+        self.injector._clean_mods_dir.assert_not_called()
 
     def test_dismissing_a_skin_mod_ltk_manager_holds_leaves_the_mods_folder_alone(self):
         self.handler.shared_state.selected_custom_mod = {"champion_id": 81, "source": LtkEntry(MOVED_ID)}

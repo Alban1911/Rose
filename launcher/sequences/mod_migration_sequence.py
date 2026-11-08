@@ -1,12 +1,3 @@
-"""
-Mod Migration Sequence
-Moves the user's saved mods into LTK Manager's library before Rose starts
-(injection.mods.migration), with its progress and questions in the launcher's
-dialog.
-
-The injection's modules are imported when it runs: the launcher installs
-Rose's updates first, and must do so even when they cannot be imported.
-"""
 
 from __future__ import annotations
 
@@ -38,7 +29,6 @@ BACKUP_QUESTION = (
     "Yes: copy them to a \"Rose mods backup\" folder on your desktop, then move them.\n"
     "No: move them without a backup."
 )
-# By injection.mods.migration.Step value
 STEP_TEXT = {
     "convert": "Packing your mods ({index}/{total}): {name}",
     "connect": "Opening LTK Manager to move your mods…",
@@ -114,7 +104,7 @@ class ModMigrationSequence:
             storage = self._storage or ModStorageService()
             library = self._library or LtkLibrary(LtfHost(get_tools_dir(), get_injection_dir()))
             report = migrate_saved_mods(storage, library, _DialogUi(dialog))
-        except Exception as exc:  # noqa: BLE001 - Rose must start; the mods stay pending
+        except Exception as exc:
             log.error(f"[MIGRATE] Could not move the saved mods into LTK Manager: {exc}", exc_info=True)
             return None
         finally:

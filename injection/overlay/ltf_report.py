@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Why an LTF session failed, and what Troubleshooting tells the user about it.
-
-Rose's bridge to LTK Manager (ltf_session), LTK Manager's patcher and the game
-(overlay_manager) each fail in their own words: the reason Rose reports
-carries them, ltk_failure_cause tells the failure from it, and each cause has
-its hint.
-"""
 
 import re
 
@@ -26,14 +19,11 @@ OVERLAY_REFUSED_MESSAGE = "host verification failed"
 SIGNATURE_FAILURE_MESSAGE = "Windows could not verify the signature of LTK Manager's files"
 NOT_ATTACHED_MESSAGE = "LTK Manager's patcher never got into the game"
 OVERLAY_DISABLED_MESSAGE = "disabled the overlay"
-# The bridge drives LTK Manager through the remote debugging port (CDP) of its
-# WebView2 window; when that port never answers, every command fails with this
 CDP_FAILURE_MARKER = "cdp unavailable"
 CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in browser (CDP unavailable or timed out)"
 # Tauri rejecting a command LTK Manager does not declare ("Command
 # plugin:library|get_installed_mods not allowed by ACL")
 LTK_ACL_REFUSAL = "not allowed by acl"
-# Every LTF report's hint ends with it (Troubleshooting recognizes the reports by it)
 LTF_LOGS_HINT = "Details are in ltk_api.log and ltk_launcher.log, in the ltk folder of Rose's logs."
 
 
@@ -41,7 +31,6 @@ def ltk_failure_cause(reason: str) -> str:
     """Why the LTF session failed, from the reason Rose reported: what to do
     about it depends on it (Troubleshooting shows a hint for each)"""
     lowered = reason.lower()
-    # Before "import" and "bridge": a failed install or command names them too
     if CDP_FAILURE_MARKER in lowered or "built-in browser" in lowered:
         return "cdp"
     # LTK Manager refuses to patch across an elevation boundary (ADR-0074):
@@ -59,8 +48,6 @@ def ltk_failure_cause(reason: str) -> str:
     # the user's PC or network (#487: "error sending request for url")
     if "no patcher dll is available" in lowered:
         return "delivery_unreachable" if "error sending request" in lowered else "delivery"
-    # LTK Manager's own patcher missing from its folder (an antivirus took
-    # it): reinstalling LTK Manager is the fix, not Rose's files
     if "ltk_patcher_host.exe not found" in lowered:
         return "host_missing"
     if OVERLAY_DISABLED_MESSAGE in lowered:
@@ -113,7 +100,7 @@ def cdp_unreachable_reason() -> str:
     try:
         from utils.system.windows_account import shell_account
         account = shell_account()
-    except Exception:  # a diagnostic must never fail the report
+    except Exception:
         account = None
     if account is not None and account.elevated:
         return f"{CDP_UNREACHABLE_REASON}; Windows runs every program as administrator on this account"

@@ -1,26 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Moving the mods Rose still holds into LTK Manager's library, at Rose's start.
-
-A mod the user adds lives in LTK Manager's library, and Rose keeps only what
-it knows about it (injection.mods.manifest). The mods an older Rose saved,
-and those added while LTK Manager was busy with a game, are still Rose's own
-copies (pending): the launcher moves them before Rose starts
-(launcher.sequences.mod_migration_sequence), as nothing uses them yet.
-
-There is no version flag: the migration runs while a saved mod still has its
-copy in Rose (needs_migration), so a stopped run is taken up at the next
-start, and once every mod is moved a start costs one reading of the
-manifests. Rose's copy is deleted only once LTK Manager lists the mod's entry
-and the mod's manifest names it, so a Rose stopped at any point finds:
-
-- an entry imported, not named by the manifest yet: recorded as Rose's
-  install, removed by the next session's start, and imported again;
-- an entry the manifest names, not kept yet: the session-start cleanup never
-  removes an entry a manifest names (it turns it off and forgets the install);
-- the copy, after its entry was kept: a leftover, deleted by the next run once
-  LTK Manager lists the entry.
-"""
 
 from __future__ import annotations
 
@@ -62,9 +41,7 @@ from .storage import ModStorageService
 log = get_logger()
 
 BACKUP_FOLDER = "Rose mods backup {date:%Y-%m-%d}"
-# Under Rose's injection folder: what an injection linked saved mods into
 INJECTION_FOLDERS = ("mods", "stage", "ltf_staging")
-# Rose's DLL check, right after the launcher, tells the user what to install
 SILENT_REASONS = (LTK_MANAGER_MISSING_REASON, LTF_MISSING_REASON)
 COPY_CHUNK_BYTES = 8 * 1024 * 1024
 
@@ -101,11 +78,10 @@ class MigrationUi(Protocol):
 
 @dataclass
 class MigrationReport:
-    """What a start's migration did."""
 
     moved: List[str] = field(default_factory=list)
-    failed: List[Tuple[str, str]] = field(default_factory=list)  # (mod, why it stays in Rose)
-    skipped_reason: Optional[str] = None  # why nothing was moved
+    failed: List[Tuple[str, str]] = field(default_factory=list)
+    skipped_reason: Optional[str] = None
 
 
 class MigrationStopped(Exception):
@@ -126,9 +102,9 @@ class _Move:
     """A saved mod to move into LTK Manager."""
 
     mod: SavedMod
-    name: str  # as the user knows it, and LTK Manager will
+    name: str
     size: int
-    kept_id: Optional[str]  # the copy a game left in LTK Manager, taken instead of an import
+    kept_id: Optional[str]
 
 
 @dataclass(frozen=True)

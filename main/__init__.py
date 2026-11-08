@@ -637,7 +637,6 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     """Run the core Rose application startup and main loop."""
     # Check for single instance before doing anything else
     check_single_instance()
-    # Alone now, and before anything reads a mod: no .modpkg is being unpacked
     remove_unpacked_leftovers()
 
     # Keep the Windows "Apps & features" version in sync after auto-updates
@@ -669,7 +668,6 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     # or mod list may touch a folder while it is converted
     convert_stored_mods(tray_manager)
 
-    # LTK Manager may have lost or changed a saved mod while Rose was closed
     start_saved_mods_sync(only_if_changed=False)
 
     # Initialize core components
@@ -824,7 +822,7 @@ def _remove_ltk_mods() -> int:
     watchdog.start()
     try:
         return remove_rose_mods(LtfHost(get_tools_dir(), get_injection_dir()))
-    except Exception as e:  # noqa: BLE001 - the uninstall goes on, with no dialog of Rose's
+    except Exception as e:
         log.error(f"[MODS] Could not remove Rose's mods from LTK Manager's library: {e}", exc_info=True)
         return 1
 

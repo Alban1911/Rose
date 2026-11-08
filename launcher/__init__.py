@@ -9,7 +9,6 @@ Main entry point for launcher functionality
 from .core.launcher import run_launcher
 from .updater import auto_update
 
-# Re-export subpackage classes for convenience
 from .update.update_sequence import UpdateSequence
 from .update.update_downloader import UpdateDownloader
 from .update.update_installer import UpdateInstaller

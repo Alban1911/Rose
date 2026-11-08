@@ -101,11 +101,9 @@ def _get_desktop_user_info() -> Tuple[Optional[str], Optional[str]]:
             if token_handle is None:
                 return None, None
 
-            # Get token user info size
             token_info_size = wintypes.DWORD()
             advapi32.GetTokenInformation(token_handle, TokenUser, None, 0, ctypes.byref(token_info_size))
 
-            # Allocate buffer and get token user
             token_user_buffer = ctypes.create_string_buffer(token_info_size.value)
             if not advapi32.GetTokenInformation(
                 token_handle, TokenUser, token_user_buffer, token_info_size.value, ctypes.byref(token_info_size)
@@ -115,7 +113,6 @@ def _get_desktop_user_info() -> Tuple[Optional[str], Optional[str]]:
             # Extract SID from TOKEN_USER structure (SID is at offset 0)
             sid_ptr = ctypes.cast(token_user_buffer, ctypes.POINTER(ctypes.c_void_p))[0]
 
-            # Lookup account name from SID
             name_size = wintypes.DWORD(256)
             domain_size = wintypes.DWORD(256)
             name = ctypes.create_unicode_buffer(256)
@@ -130,13 +127,11 @@ def _get_desktop_user_info() -> Tuple[Optional[str], Optional[str]]:
 
             username = name.value
 
-            # Get user profile directory
             profile_dir = ctypes.create_unicode_buffer(260)
             profile_size = wintypes.DWORD(260)
 
             if userenv.GetUserProfileDirectoryW(token_handle, profile_dir, ctypes.byref(profile_size)):
                 return username, profile_dir.value
-            # Fallback: construct profile path
             return username, f"C:\\Users\\{username}"
 
     except Exception:
@@ -354,9 +349,7 @@ def get_tools_dir() -> Path:
     inside the bundle of a built Rose, beside the sources otherwise."""
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
-            # One-file mode: tools are in _MEIPASS
             return Path(sys._MEIPASS) / "injection" / "tools"
-        # One-dir mode: tools are alongside executable
         possible_dirs = [
             get_app_dir() / "injection" / "tools",
             get_app_dir() / "_internal" / "injection" / "tools",

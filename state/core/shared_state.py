@@ -102,8 +102,7 @@ class SharedState:
     # Own champion lock tracking
     own_champion_locked: bool = False
     
-    # Custom mod selection
-    selected_custom_mod: Optional[dict] = None  # Selected custom mod for injection: {skin_id, champion_id, mod_name, relative_path, source}  # Flag to track if our champion is locked (triggers detection/UI pipeline)
+    selected_custom_mod: Optional[dict] = None
 
     # Party mode - P2P skin sharing with friends
     party_mode_enabled: bool = False

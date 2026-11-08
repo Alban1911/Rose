@@ -4211,7 +4211,6 @@
     nameEl.style.whiteSpace = "nowrap";
     infoWrapper.appendChild(nameEl);
 
-    // LTK Manager lost it: listed so the user adds it again or deletes it, with no image to change
     if (mod.missing) {
       nameEl.style.opacity = "0.6";
       const missingEl = document.createElement("div");
@@ -5058,7 +5057,6 @@
     const card = overlay.querySelector(".rose-mod-import-card");
     const lines = [
       ...errors.map((item) => ({ className: "is-error", text: importErrorText(item, several) })),
-      // What LTK Manager's check repaired in a mod it kept (LtkLibrary.check_mod in ltk_library.py)
       ...imported
         .filter((item) => item && item.health && item.health.repaired > 0)
         .map((item) => ({

@@ -1,5 +1,3 @@
-"""A saved mod's facts are read once from its files and kept in its manifest:
-once LTK Manager holds the mod, Rose has no file left to read them from."""
 
 import hashlib
 import json
@@ -21,8 +19,6 @@ from test.test_loading_name import make_wad
 PNG = b"\x89PNG\r\n\x1a\npreview"
 KO_TABLE = loading_name._xxh64(b"data/menu/ko_kr/lol.stringtable")
 
-# The champion's wad and a whole Korean language wad, as some skins carry
-# (entries in name order: a folder lists them so too)
 SKIN = {
     "META/image.png": PNG,
     "META/info.json": json.dumps({"Name": "Shockblade Zed"}),
@@ -110,7 +106,7 @@ class ComputeFactsTests(unittest.TestCase):
         facts, _, _ = compute_mod_facts(archive)
         plain_facts, _, _ = compute_mod_facts(plain)
 
-        self.assertEqual(facts.champion_aliases, ("Zed",))  # never Global
+        self.assertEqual(facts.champion_aliases, ("Zed",))
         self.assertTrue(facts.ships_language_table)
         self.assertFalse(plain_facts.ships_language_table)
         for mod, found in ((archive, facts), (plain, plain_facts)):
@@ -118,7 +114,7 @@ class ComputeFactsTests(unittest.TestCase):
             self.assertEqual(found.ships_language_table, loading_name.ships_language_table(mod))
 
     def test_a_mod_linked_without_its_extension_is_read_as_an_archive(self):
-        archive = make_archive(self.root / "Shockblade Zed", SKIN)  # as in the injection's mods folder
+        archive = make_archive(self.root / "Shockblade Zed", SKIN)
 
         facts, _, _ = compute_mod_facts(archive)
 
@@ -147,7 +143,7 @@ class ComputeFactsTests(unittest.TestCase):
 
         self.assertEqual(facts.party_hash, party_hash)
         self.assertEqual(facts.champion_aliases, ("aatrox",))
-        self.assertEqual(list((injection / "mod_facts").iterdir()), [])  # unpacked, then removed
+        self.assertEqual(list((injection / "mod_facts").iterdir()), [])
 
     def test_rose_s_start_removes_the_modpkgs_a_closed_rose_left_unpacked(self):
         injection = self.root / "injection"
@@ -160,7 +156,7 @@ class ComputeFactsTests(unittest.TestCase):
             mod_facts.remove_unpacked_leftovers()
             self.assertEqual(list((injection / "mod_facts").iterdir()), [])
             shutil.rmtree(injection)
-            mod_facts.remove_unpacked_leftovers()  # none to remove
+            mod_facts.remove_unpacked_leftovers()
 
     def test_a_mod_it_cannot_read_has_no_facts(self):
         broken = self.root / "Broken.fantome"
@@ -177,7 +173,7 @@ class ComputeFactsTests(unittest.TestCase):
 
         self.assertEqual(stamp_of(archive), [archive.stat().st_size, 2_000_000_000])
         self.assertIsNone(stamp_of(self.root / "Gone.fantome"))
-        self.assertIsNone(stamp_of(self.root))  # a folder is no archive
+        self.assertIsNone(stamp_of(self.root))
 
 
 class ModpkgSessionTests(LtfSessionTestCase):
@@ -200,7 +196,7 @@ class ModpkgSessionTests(LtfSessionTestCase):
                 patch.object(mod_facts, "extract_modpkg", side_effect=unpacked_as_a_session_starts):
             facts, _, _ = compute_mod_facts(package)
 
-        self.assertEqual(len(FakeBridge.created), 1)  # a session did start
+        self.assertEqual(len(FakeBridge.created), 1)
         self.assertEqual(facts.party_hash, custom_mods.mod_hashes(package)[0])
         self.assertEqual(facts.champion_aliases, ("aatrox",))
 
@@ -224,7 +220,7 @@ class ManifestFactsTests(unittest.TestCase):
             {},
             None,
             {"name": "Zed", "targets": [238001]},
-            {"partyHash": good["partyHash"], "championAliases": ["Zed"]},  # one missing
+            {"partyHash": good["partyHash"], "championAliases": ["Zed"]},
             dict(good, partyHash="not a hash"),
             dict(good, partyHash="0123456789ABCDEF0123456789ABCDEF"),
             dict(good, championAliases="Zed"),

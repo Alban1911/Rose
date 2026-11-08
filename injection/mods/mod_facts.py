@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""What Rose needs to know about a saved mod, read once from its files.
-
-A mod the user adds ends up in LTK Manager's library, and Rose keeps no copy
-of it: party mode, the loading screen name and the champion select listing
-can no longer open the mod's files when they need an answer. So the answers
-are computed once, when the mod is added or moved into LTK Manager (and again
-when LTK Manager changes its copy), and kept in the mod's manifest entry.
-
-The content hash lives here too: party mode matches a friend's mod by it
-(party.discovery.custom_mods), and the manifest's partyHash must be that very
-hash, read from the same files the same way.
-"""
 
 from __future__ import annotations
 
@@ -31,18 +19,11 @@ from utils.core.paths import get_injection_dir
 
 from .mod_files import ModFiles
 
-# A partyHash is the content hash cut to 32 hex characters
 _PARTY_HASH = re.compile(r"[0-9a-f]{32}")
-# Where a .modpkg is unpacked to be read, one folder per read: in Rose's
-# injection folder (the desktop user's, on the drive of Rose's data), but not
-# in its ltf_staging, which every LTK session clears as it starts
 _FACTS_SCRATCH = "mod_facts"
 _UNPACKED_PREFIX = "facts-"
 
 
-# --------------------------------------------------------------------------------------
-# the content hash (party mode's, and the manifest's folderHash)
-# --------------------------------------------------------------------------------------
 
 def _full_content_digest(entries) -> str:
     """Hash (relative path, file digest) pairs the same way for folders and
@@ -88,7 +69,6 @@ def _folder_content_hash(folder: Path) -> Optional[str]:
 def _archive_content_hash(archive_path: Path) -> Optional[str]:
     entries = []
     if archive_path.suffix.lower() == MODPKG_SUFFIX:
-        # Hash the files the package unpacks to, as the imported folder holds them
         with ModPackage.open(archive_path) as package:
             for relative_path, content in package.iter_files():
                 if _is_preview_image(relative_path):
@@ -107,9 +87,6 @@ def _archive_content_hash(archive_path: Path) -> Optional[str]:
     return _content_digest(entries) if entries else None
 
 
-# --------------------------------------------------------------------------------------
-# the facts
-# --------------------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class ModFacts:
@@ -119,11 +96,8 @@ class ModFacts:
     them, and plans are compared by equality.
     """
 
-    # party mode's content hash; None when the mod holds only its preview image
     party_hash: Optional[str]
-    # the champions it carries wads for (loading_name._champion_aliases order)
     champion_aliases: tuple[str, ...]
-    # whether it carries the game's text table (loading_name._ships_language_table)
     ships_language_table: bool
 
     def to_manifest(self) -> dict:
@@ -165,7 +139,6 @@ def compute_mod_facts(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
     if not mod.exists():
         raise FileNotFoundError(f"Mod not found: {mod}")
     if mod.is_file() and mod.suffix.lower() == MODPKG_SUFFIX:
-        # ModFiles reads ZIP archives only
         with _unpacked_modpkg(mod) as folder:
             return _facts_of(folder)
     return _facts_of(mod)
@@ -197,8 +170,6 @@ def remove_unpacked_leftovers() -> None:
 
 
 def _facts_of(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
-    # Imported here: loading_name imports injection.mods.mod_files, which runs
-    # injection.mods' __init__, which imports the storage that imports this
     from injection.loadingname import loading_name
 
     entries = []

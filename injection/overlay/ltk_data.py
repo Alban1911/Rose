@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""LTK Manager's own files, read with no LTK Manager running.
-
-Its data folder (%APPDATA%\\dev.leaguetoolkit.manager of the desktop user)
-holds its library index (library.json: which entries exist and where LTK
-Manager keeps their archives), its settings and its log. A sync marks a saved
-mod missing from the index, the loading screen name reads a skin's champion
-record from LTK Manager's copy, and an injection reads the patcher's verdict
-on the game from the log. Nothing here needs Rose's bridge.
-"""
 
 from __future__ import annotations
 
@@ -41,7 +32,7 @@ def ltk_data_candidates() -> List[Path]:
         from utils.core.paths import get_user_data_dir
 
         candidates.append(get_user_data_dir().parent.parent / "Roaming" / LTK_DATA_FOLDER)
-    except Exception:  # noqa: BLE001 - the next candidate still answers
+    except Exception:
         pass
     roaming = os.environ.get("APPDATA")
     if roaming:
@@ -84,7 +75,7 @@ class IndexEntry:
     format: Optional[str]
     storage: Optional[str]
     enabled: bool  # in the active profile's enabledMods (entries carry no flag)
-    archive: Optional[Path]  # where LTK Manager keeps it as an archive (may not exist)
+    archive: Optional[Path]
 
 
 def _mod_storage_root(data_dir: Path) -> Path:
@@ -235,9 +226,9 @@ class LtkLogTail:
         if newest is None:
             return ""
         if newest != self.path:
-            self.path, self.offset = newest, 0  # a new day's file
+            self.path, self.offset = newest, 0
         if self._size(self.path) < self.offset:
-            self.offset = 0  # rewritten
+            self.offset = 0
         try:
             with open(self.path, "rb") as handle:
                 handle.seek(self.offset)

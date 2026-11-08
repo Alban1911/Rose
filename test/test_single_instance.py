@@ -1,6 +1,3 @@
-"""A Rose started while another one still moves the saved mods in its
-launcher exits as a second instance: the first takes the single-instance
-mutex only after its launcher, and both would run at once."""
 
 import ctypes
 import sys
@@ -22,7 +19,6 @@ class SingleInstanceTests(unittest.TestCase):
         tag = uuid.uuid4().hex
         self.migration_mutex = rf"Local\RoseTestMigration-{tag}"
         for patcher in (
-            # Never this PC's running Rose, nor its state folder
             patch.object(lockfile, "SINGLE_INSTANCE_MUTEX_NAME", rf"Local\RoseTest-{tag}"),
             patch.object(lockfile, "MOD_MIGRATION_MUTEX_NAME", self.migration_mutex),
             patch.object(lockfile, "get_state_dir", return_value=Path(temp_dir.name)),
@@ -48,7 +44,7 @@ class SingleInstanceTests(unittest.TestCase):
         finally:
             ctypes.windll.kernel32.CloseHandle(migrating)
 
-        self.assertTrue(lockfile.create_single_instance_mutex())  # once it is done
+        self.assertTrue(lockfile.create_single_instance_mutex())
 
 
 if __name__ == "__main__":

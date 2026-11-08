@@ -31,7 +31,7 @@ class PatcherReconnectTests(unittest.TestCase):
             try:
                 state.phase = next(remaining)
             except StopIteration:
-                session['ltf'].ended = True  # never reached the end: stop the test's loop
+                session['ltf'].ended = True
 
         callback = make_game_ended_callback(state, clock=clock) if clock else make_game_ended_callback(state)
         with patch.object(overlay_manager.time, 'sleep', side_effect=tick), \

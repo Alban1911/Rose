@@ -37,7 +37,6 @@ log = get_logger()
 
 
 class InjectionTrigger:
-    """Handles triggering skin injection"""
     
     def __init__(
         self,
@@ -253,8 +252,6 @@ class InjectionTrigger:
             if historic_value and is_custom_mod_path(historic_value):
                 historic_custom_mod_path = get_custom_mod_path(historic_value)
 
-            # Only auto-select if the stored custom-mod path matches the skin we're injecting.
-            # This avoids injecting a random mod from another skin.
             if historic_custom_mod_path:
                 mod_storage = ModStorageService()
                 saved = mod_storage.saved_mod(historic_custom_mod_path)
@@ -425,8 +422,6 @@ class InjectionTrigger:
             return self._custom_mod_plan(name, custom_mod, carrier, cname, other_mods, party)
 
         if other_mods:
-            # trigger_injection: the other mods ride on the skin's archive
-            # unless the player owns it (or it is the default skin)
             target_skin_id = effective_skin_id or ui_skin_id
             is_default = target_skin_id is not None and is_default_skin(target_skin_id)
             is_skin_owned = target_skin_id is not None and (
@@ -500,7 +495,6 @@ class InjectionTrigger:
 
         other_mods = list(getattr(self.state, 'selected_other_mods', None) or [])
         if not other_mods:
-            # load_mod_historic keeps them per category: there is no "other" key
             for historic_path in self._saved_other_mod_paths(historic_mods):
                 saved = self._find_saved_mod(
                     mod_storage(), self._other_mod_category(mod_storage(), historic_path), historic_path
@@ -573,7 +567,6 @@ class InjectionTrigger:
         if not self._skin_matches_champion(skin_to_validate, locked_champ_id):
             self._warn_refusal_once("champion mismatch", skin_to_validate, locked_champ_id)
             return
-        # Mark that we've processed the validated hovered skin.
         self.state.last_hover_written = True
         selected_custom_mod = getattr(self.state, 'selected_custom_mod', None)
         mod_name = None
@@ -663,7 +656,6 @@ class InjectionTrigger:
 
                     # Helper function to auto-select a historic mod
                     def auto_select_historic_mod(mod_type: str, category_attr: str):
-                        """Auto-select a historic mod by type"""
                         if not self.injection_manager:
                             return
 
@@ -865,7 +857,6 @@ class InjectionTrigger:
             # If only map/font/announcer/other mods are selected (no custom skin mod), inject them
             if has_other_mods and not has_custom_skin_mod:
                 target_skin_id = effective_skin_id or ui_skin_id
-                # Create a dummy custom mod dict to use the injection path
                 dummy_custom_mod = {
                     "skin_id": target_skin_id,
                     "champion_id": self.state.locked_champ_id or self.state.hovered_champ_id,
@@ -1042,7 +1033,6 @@ class InjectionTrigger:
                 log.warning(f"[INJECT] Error forcing owned skin/chroma: {e}")
     
     def _inject_unowned_skin(self, name: str, cname: str):
-        """Inject unowned skin/chroma"""
         try:
             # Force base skin selection via LCU before injecting
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
@@ -1413,10 +1403,9 @@ class InjectionTrigger:
             if self.injection_manager:
                 self.injection_manager.start_patcher_in_background()
 
-            # Collect all mods to inject (base skin + custom skin mod + map + font + announcer + other)
             mod_folder_names = []
             mod_names_list = []
-            injected = []  # the saved mods' sources among them, for the loading screen name
+            injected = []
             # Track missing mods to clean up from historic
             missing_map_mod_path = None
             missing_font_mod_path = None
@@ -1475,7 +1464,6 @@ class InjectionTrigger:
                     log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
                     return
             
-            # Re-extract custom skin mod if available (after cleaning mods directory)
             custom_source = custom_mod.get("source")
             custom_folder = None
             if custom_source is not None:
@@ -1497,7 +1485,6 @@ class InjectionTrigger:
             else:
                 log.info(f"[INJECT] No custom skin mod selected, injecting base skin + map/font/announcer/other mods only")
             
-            # Helper function to re-extract a mod from its source path
             def re_extract_mod(mod_dict, mod_type_name):
                 """Prepare a selected mod again after cleaning (its source's put)"""
                 mod = mod_dict.get("source") if mod_dict else None
@@ -1602,9 +1589,6 @@ class InjectionTrigger:
                         if hasattr(self.state, 'selected_other_mod'):
                             self.state.selected_other_mod = None
             
-            # A custom skin runs as the default one too, so the loading screen gets the skin's name here as it does for a
-            # regular skin (SkinInjector.inject_skin). skin_id is the skin the mod targets; a chroma's mod targets its
-            # base skin, which is the name the game has. It never fails the injection.
             skin_folder = custom_folder or carrier_mod_folder_name
             if skin_folder and skin_id:
                 try:

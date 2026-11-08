@@ -1,25 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Overlay Manager
-Injects Rose's mods through LTK Manager's own patcher.
-
-An LTF session (ltf_session.LtfHost) connects Rose to LTK Manager through its
-bridge. On it, the injection installs Rose's mods into LTK Manager's library
-and starts LTK Manager's patcher. The patcher builds the overlay and starts
-scanning; Rose then resumes the game, watches for the end of it, stops the
-patcher, removes the mods it installed and turns the user's own mods back on.
-
-The patcher only overlays a game the client creates after its scan started,
-and any library change restarts the scan. The client creates the game about a
-second after the injection begins, so the selected skin is staged during the
-countdown (stage_mods): the injection then finds the same mods installed and
-the scan already running.
-
-Security Notes:
-    - Mod names are the entries Rose itself put into mods_dir (folders, and
-      archives linked under the mod's name)
-"""
 
 import json
 import re
@@ -177,7 +157,6 @@ LTK_PATCHER_ERROR_LINE = re.compile(
     r"^" + _LTK_LOG_TIME + r"\s+ERROR\s+[\w:]*(?:patch|overlay)[\w:]*:\s*([^\r\n]+)",
     re.MULTILINE | re.IGNORECASE,
 )
-# The longest LTK Manager error kept for a report
 LTK_ERROR_MAX_CHARS = 300
 
 
@@ -204,13 +183,8 @@ class OverlayManager:
         # injection starts, before the mods are prepared; mk_run_overlay
         # takes it over
         self._early_session: Optional[dict] = None
-        # Guards _early_session and _early_discard only: never held while
-        # LTK Manager starts, so a discard never waits on a launch
         self._session_lock = threading.Lock()
-        # Set by discard_early_patcher: an early connect in flight drops its session
         self._early_discard = False
-        # Staging is open from the countdown's start until the injection or a
-        # discard: a late stage must not touch the injection's session
         self._staging_open = False
         self.host = LtfHost(tools_dir, mods_dir.parent, process_manager, in_use=self._holds_ltk_manager)
 
@@ -225,7 +199,6 @@ class OverlayManager:
         if self.process_manager:
             self.process_manager.current_overlay_process = value
 
-    # -- session lifecycle --------------------------------------------------
     def _holds_ltk_manager(self) -> bool:
         """Whether the early session or the countdown's staging holds LTK
         Manager (LtfHost.busy)."""
@@ -237,7 +210,7 @@ class OverlayManager:
             "ltf": ltf,
             "patcher_running": False,
             "ltk_log": None,  # LtkLogTail from the patcher's start
-            "broken_entries": set(),  # ids LTK Manager's log named unreadable (LtfSession.library_log)
+            "broken_entries": set(),
             "broken_off": set(),  # those Rose turned off
             # Read from LTK Manager's log since the patcher's (last) start
             "overlay_build_s": None,
@@ -252,7 +225,6 @@ class OverlayManager:
             "ltk_slow_mod_check_s": None,  # LTK Manager's longest automatic mod check, when slow
             "ltk_error": None,  # LTK Manager's first patcher ERROR line
             "staged_after_s": None,  # pick -> patcher start, for the staged mods
-            # The library as _install_mods last read it, for _disable_other_mods
             "library_snapshot": None,
             "attach_logged": False,
             "stopper": None,
@@ -264,7 +236,6 @@ class OverlayManager:
             "late_join_reported": False,
             "reconnects": 0,  # games killed and reconnected to (RECONNECT_MAX)
             "restarted_at": None,  # epoch time of the last such restart
-            # A game held (suspended) while the patcher builds (_hold_watch)
             "hold_lock": threading.Lock(),
             "hold_thread": None,
             "hold_done": False,  # the patcher is ready (or gave up): hold no more
@@ -362,7 +333,6 @@ class OverlayManager:
         both get here.
         """
         def ending():
-            # Never leave a held game frozen
             session["hold_done"] = True
             self._resume_held_game(session)
             if self.process_manager and session.get("stopper") is not None:
@@ -389,7 +359,6 @@ class OverlayManager:
         """Whether the session was stopped (by Rose, the user, or its end)."""
         return bool(session["ltf"].ended) or self._stopped_by_rose()
 
-    # -- mod installation ---------------------------------------------------
     def _install_mods(self, session: dict, mod_names: List[str], folder_dir: Optional[Path] = None,
                       report: bool = True, stopped: Optional[Callable[[], bool]] = None,
                       archives: Optional[Dict[str, Path]] = None) -> bool:
@@ -429,8 +398,6 @@ class OverlayManager:
             except OSError as e:
                 log.error(f"[INJECT] Could not read the mod folder {folder}: {e}")
         switch_on, switch_off = self.host.switches.changes(ltf, ltk_ids)
-        # One read of the library for the switches, the imports (and
-        # _disable_other_mods after them): each read is a round trip through LTK Manager
         library: Optional[list] = None
         if switch_on:
             try:
@@ -462,8 +429,6 @@ class OverlayManager:
             else:
                 kept.add(match)
         unwanted = [mod_id for mod_id in ltf.imports if mod_id not in kept]
-        # Saved mods an earlier game left in LTK Manager (LtfHost._park) are turned
-        # back on instead of installed again
         reuse = []
         parked = self.host.journal.kept() if to_import else {}
         if parked:
@@ -709,9 +674,6 @@ class OverlayManager:
             return not still_wanted()
 
         with self.host.stage_lock:
-            # Once the injection closed staging nothing new starts; an install
-            # already running goes on while it is still wanted (the injection
-            # waits for this lock and takes it over when it is its own skin)
             if not self._staging_open or stopped() or self.game_dir is None:
                 return False
             session = self._staging_session()
@@ -751,7 +713,6 @@ class OverlayManager:
         """
         ltf = session["ltf"]
         bridge = ltf.bridge
-        # What _install_mods just read (with its imports added) is still the library
         library, session["library_snapshot"] = session.get("library_snapshot"), None
         try:
             if library is None:
@@ -809,7 +770,7 @@ class OverlayManager:
         """Install the mods and run LTK Manager's patcher until the game ends
 
         Args:
-            mod_names: List of mod folders (in mods_dir) to inject
+            mod_names: Mod folders (in mods_dir), and the LTK references of saved mods LTK Manager holds, to inject
             timeout: Unused (kept for backward compatibility) - the session runs until explicitly stopped
             stop_callback: Optional callback to check if game ended
         """
@@ -824,8 +785,6 @@ class OverlayManager:
             self.process_manager.stopped_by_user = False
             self.process_manager.stopped_by_rose = False
 
-        # The countdown's staging ends here (an in-flight one finishes first:
-        # its mods are likely the ones this injection wants)
         self.close_staging()
         with self.host.stage_lock:
             session = self._acquire_session()
@@ -1207,8 +1166,6 @@ class OverlayManager:
                 if session["ltf"].ended:
                     break
                 if stop_callback and stop_callback():
-                    # The client can close during a match (CN/WeGame), which looks
-                    # like the end of the game: serve the overlay until the game exits
                     game = self._running_game()
                     if game is not None:
                         log.info("[INJECT] The game is still running - keeping the LTK patcher until it exits")
@@ -1393,8 +1350,6 @@ class OverlayManager:
     def _check_patcher_verdict(self, session: dict, value: Optional[dict] = None) -> None:
         """Log the patcher reaching the game, and report it joining too late
         (the DLL then stays inert: the game runs without the overlay)."""
-        # After a restart the status may still carry the killed game's
-        # verdict: only LTK Manager's log (new lines) speaks for the new game
         if value is not None and session.get("restarted_at") is None:
             try:
                 self._note_ltk_text(session, json.dumps(value))
@@ -1454,9 +1409,6 @@ class OverlayManager:
             log.error(f"[INJECT] {NOT_ATTACHED_MESSAGE} ({not_attached}) - it runs without the overlay")
             if not self._stopped_by_rose():
                 report_ltf_failure(f"{NOT_ATTACHED_MESSAGE} ({not_attached})")
-        # LTK Manager's own verdicts on the game: the overlay turned off by its
-        # integrity scan, an incident after the game. Rose's injection
-        # "completes" either way: without these, nothing told the user (#432)
         disabled = session.get("ltk_disabled")
         if disabled and not session.get("disabled_reported"):
             session["disabled_reported"] = True
@@ -1468,7 +1420,6 @@ class OverlayManager:
             title, incident_id, verdict = incident
             where = f"{LTK_INCIDENTS_DIR}\\{incident_id}.json"
             log.error(f"[INJECT] LTK Manager recorded an incident: {title} ({verdict}), see {where}")
-            # Its incident only repeats a disabled overlay or a DLL that never got in
             if not disabled and not session.get("not_attached_reported"):
                 report_ltf_failure(f"LTK Manager recorded an incident after the game: {title} ({verdict}; {where})")
         slow = session.get("ltk_slow_mod_check_s")

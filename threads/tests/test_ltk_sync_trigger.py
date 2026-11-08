@@ -1,5 +1,3 @@
-"""Each champion select syncs the saved mods with LTK Manager's library in the
-background, so its listing shows the mods LTK Manager lost since"""
 
 import unittest
 from types import SimpleNamespace

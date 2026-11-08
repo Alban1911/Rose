@@ -39,7 +39,6 @@ from utils.core.utilities import get_champion_id_from_skin_id
 from . import manifest as saved_manifest
 from .fantome import is_packed_wad, write_fantome_zip
 from .ltk_ref import is_ltk_id
-# Shared with the manifest writers
 from .manifest import _STORAGE_LOCK
 from .manifest import SavedMod, normalize_target_ids
 from .mod_facts import ModFacts, compute_mod_facts
@@ -90,10 +89,8 @@ def _check_packed(archive: Path, expected: dict[str, int], added_metadata: bool)
 class AddedMod(NamedTuple):
     """A mod the user added, as the add left it."""
 
-    path: Path  # its archive while Rose holds it, else its identity (SavedMod.path)
+    path: Path
     name: str
-    # The folder held the same mod already: nothing was added, and LTK
-    # Manager has nothing new to check
     saved_already: bool = False
 
 
@@ -102,15 +99,15 @@ class SkinModEntry:
     """A saved skin mod as a champion's listing shows it."""
 
     champion_id: Optional[int]
-    skin_id: int  # the skins folder holding it
+    skin_id: int
     mod_name: str
-    path: Path  # its identity (SavedMod.path): no file once LTK Manager holds the mod
+    path: Path
     updated_at: float
     description: Optional[str] = None
     target_skin_ids: tuple[int, ...] = ()
     display_name: Optional[str] = None
-    source: Optional[ModSource] = None  # where an injection takes it from (SavedMod.source)
-    image_files: tuple[Path, ...] = ()  # where its preview image is (SavedMod.image_paths)
+    source: Optional[ModSource] = None
+    image_files: tuple[Path, ...] = ()
 
 
 class ModStorageService:
@@ -235,7 +232,6 @@ class ModStorageService:
                 return mod_name, archive
             suffix_number += 1
 
-    # -- stored archives -----------------------------------------------------
     def _add_archive(
         self,
         source_path: str | Path,
@@ -261,8 +257,6 @@ class ModStorageService:
         if not base_name or base_name in {".", ".."}:
             raise ValueError("The selected mod file has no usable name")
 
-        # What the user picked, before Rose adds anything (the name it stores
-        # an archive without META/info.json under): the same file added again
         with source.open("rb") as stream:
             source_hash = hashlib.file_digest(stream, "sha256").hexdigest()
         parent_dir.mkdir(parents=True, exist_ok=True)
@@ -370,7 +364,6 @@ class ModStorageService:
             for suffix in (*cls.IMAGE_SIDECAR_SUFFIXES, cls.DESCRIPTION_SIDECAR_SUFFIX)
         ]
 
-    # -- saved mods, by their manifest entries (injection.mods.manifest) -------
     def saved_mods(self, kind: Optional[str] = None) -> List[SavedMod]:
         """Every saved mod (of *kind*: "skins" or a category), whether LTK
         Manager holds it or Rose still does."""
@@ -495,7 +488,7 @@ class ModStorageService:
             if entry.name.endswith(".tmp") and entry.is_file():
                 safe_remove_entry(entry)
             elif entry.name.startswith(self.IMPORT_TEMP_PREFIX):
-                continue  # a mod folder an earlier Rose's repair set aside may be the mod's only copy
+                continue
             elif entry.name.endswith(".old") and entry.is_dir():
                 name = entry.name[len(self.CONVERT_TEMP_PREFIX):-len(".old")]
                 original = parent / name
@@ -704,7 +697,7 @@ class ModStorageService:
             safe_remove_entry(mod.stored)
         for suffix in (*self.IMAGE_SIDECAR_SUFFIXES, self.DESCRIPTION_SIDECAR_SUFFIX):
             sidecar = mod.sidecar(suffix)
-            if sidecar.is_file():  # a folder of that name is another mod ("Example.txt")
+            if sidecar.is_file():
                 safe_remove_entry(sidecar)
         return True
 

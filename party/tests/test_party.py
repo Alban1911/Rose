@@ -183,7 +183,7 @@ class CustomModsTests(unittest.TestCase):
         self.save_ltk_mod("Lost Ahri", "b" * 32, "d6f841c7-140b-4ac2-a11c-b37e18eb8006", missing=True)
 
         self.assertEqual(custom_mods.find_local_mod(103, content_hash="a" * 32), "skins/103000/LTK Ahri.fantome")
-        self.assertIsNone(custom_mods.find_local_mod(103, content_hash="b" * 32))  # we could not inject it
+        self.assertIsNone(custom_mods.find_local_mod(103, content_hash="b" * 32))
         self.assertIsNone(custom_mods.find_local_mod(11, content_hash="a" * 32))
 
     def test_our_pick_of_a_mod_ltk_manager_holds_shares_its_manifest_hash(self):
@@ -193,11 +193,10 @@ class CustomModsTests(unittest.TestCase):
 
         self.assertTrue(state["is_custom"])
         self.assertEqual(state["custom_mod_content_hash"], "a" * 32)
-        self.assertNotIn("custom_mod_hash", state)  # no file to take an older Rose's whole-file hash of
+        self.assertNotIn("custom_mod_hash", state)
 
     def test_our_pick_of_a_mod_ltk_manager_holds_shares_its_manifest_hash_not_a_leftover_copys(self):
         self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
-        # A move into LTK Manager stopped before Rose's copy was deleted: LTK Manager's entry is what is injected
         self._make_archive(self.mods_root / "skins" / "103000" / "LTK Ahri.fantome")
 
         state = self.our_pick("skins/103000/LTK Ahri.fantome")
@@ -231,7 +230,7 @@ class CustomModsTests(unittest.TestCase):
         archive = self.mods_root / "skins" / "103000" / "Ahri.fantome"
         self._make_archive(archive)
         self.save_mod("Ahri")
-        before = self.our_pick("skins/103000/Ahri")  # the pick an older Rose saved: the folder it was
+        before = self.our_pick("skins/103000/Ahri")
 
         with zipfile.ZipFile(archive, "w") as packed:
             packed.writestr("WAD/Ahri.wad.client", b"the mod's newer version")

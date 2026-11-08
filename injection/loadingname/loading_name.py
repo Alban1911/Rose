@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Loading screen name
-Builds a mod that makes the loading screen print the injected skin's name instead of the champion's.
-
-The loading screen is drawn by the game, which asks its text table for
-"game_character_skin_displayname_<Champion>_<n>" when the server says the player is on skin n, and for the champion's
-own name when it says 0. An injected skin always runs as skin 0, so the screen prints the champion's name.
-
-The skin's name is already in the player's game, translated, for every skin: this copies the table the game has
-installed, writes the skin's text over the champion's, and leaves the copy in the mods directory as one more mod. The
-language and the patch are therefore always the player's own, and nothing has to be downloaded or shipped.
-
-The mod is a loose file, RAW/DATA/Menu/en_US/lol.stringtable (the folder is en_US in every language: the language is
-in the name of the game's wad, not in the path inside it). The mod folder goes into the .fantome as it is, so the
-table is read under that path from the language the client runs the game in.
-
-The skin and the other mods it reads are folders or archives (injection.mods.mod_files): Rose installs a stored
-archive as it is, without unpacking it. A saved mod the user added lives in LTK Manager's library, with no copy in
-Rose: what this needs to know of it comes from its manifest (injection.mods.mod_facts), and a skin's champion record
-from LTK Manager's own archive of it (LtkSkin).
-
-The champion's text is also what the chat ("Player (Champion): ...") and the name over the champion's head print, and
-those should keep the champion's name. They read the key the champion's own record names
-("Characters/<Champion>/CharacterRecords/Root", field name), while the loading screen builds its key from the champion's
-internal name. So the mod also carries the champion's record pointing at a key of its own, of the same length, that
-holds the champion's name: RAW/data/characters/<champion>/<champion>.bin.
-"""
 
 import json
 import re
@@ -574,12 +547,9 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Union[Path, LtkSkin], skin
                 (target / "META").mkdir(parents=True, exist_ok=True)
                 texts = {f"{RECORD_KEY}{alias}": name}
 
-                # the chat and the name over the head keep the champion's name (see the module's note), in its forms
-                # too (FORM_RECORDS)
                 repointed = 0
                 with _record_source(skin_files()) as mod:
                     carried = f"WAD/{alias}.wad.client"
-                    # read once for all the forms: in an archive it may have to be inflated
                     carried_wad = mod.read(carried) if mod is not None and mod.is_file(carried) else None
                     records = [
                         (character, _champion_record(game_dir, mod, alias, character, carried_wad))

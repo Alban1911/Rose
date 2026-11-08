@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""A saved mod LTK Manager holds, named where a mod's folder name goes.
-
-The injection passes its mods around as names in the injection's mods folder
-(mk_run_overlay, stage_mods, prepare_plan). A mod the user added lives in LTK
-Manager's library only, with no file there: it travels in those same lists as
-a reference to its library entry (its source's name: injection.mods.mod_source),
-and the code that turns a name into a path asks ltk_id_of first.
-
-The token holds no ':': on Windows, Path(x) / "ltk:..." reads it as a drive
-and drops x.
-"""
 
 from __future__ import annotations
 
@@ -19,8 +8,6 @@ from typing import Iterable, List, Optional, Tuple
 
 LTK_REF_PREFIX = "ltk~"
 
-# LTK Manager names its library entries by UUID; requiring that form also
-# keeps a token from ever holding a path separator
 _LTK_ID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 

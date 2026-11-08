@@ -344,7 +344,6 @@ class LoadingNameTests(unittest.TestCase):
         self.assertIsNone(loading_name.build(game, mods, mod, 238001, other_mods=[packed]))
 
     def test_a_skin_ltk_manager_holds_has_its_record_read_from_ltk_managers_archive(self):
-        # Rose keeps no copy of a saved mod: its champions come from its manifest, its record from LTK Manager's copy
         game, mods, _ = self._game_with_zed_record('fr_FR')
         key = b'game_character_displayname_Zed'
         skins_record = b'skin:' + struct.pack('<H', len(key)) + key
@@ -355,7 +354,7 @@ class LoadingNameTests(unittest.TestCase):
         opened = []
         skin = loading_name.LtkSkin(('Zed',), lambda: opened.append(archive) or archive)
 
-        self.assertIsNone(loading_name.build(game, mods, skin, 238002))  # no name to show: the archive is not looked for
+        self.assertIsNone(loading_name.build(game, mods, skin, 238002))
         self.assertEqual(opened, [])
         name = loading_name.build(game, mods, skin, 238001)
 
@@ -366,7 +365,7 @@ class LoadingNameTests(unittest.TestCase):
     def test_without_ltk_managers_archive_the_games_record_is_used(self):
         game, mods, _ = self._game_with_zed_record('fr_FR')
         key = b'game_character_displayname_Zed'
-        packed = self.root / 'ltk' / 'shockblade-zed.modpkg'  # LTK Manager's own format: not a ZIP
+        packed = self.root / 'ltk' / 'shockblade-zed.modpkg'
         packed.parent.mkdir()
         packed.write_bytes(b'modpkg')
         for archive in (None, packed):

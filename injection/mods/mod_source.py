@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Where an injection takes a mod from.
-
-The user's saved mods reach an injection as selections (picked in champion
-select, restored from the last game), as the steps of the countdown's plan
-(injection.core.stage_plan), or as a friend's custom mod matched to one of
-theirs (party mode). Each carries its source, built once from its manifest
-entry (SavedMod.source):
-
-- LtkEntry, a saved mod LTK Manager holds: it goes into the injection's list
-  of mod names as its LTK reference (injection.mods.ltk_ref), nothing is
-  linked, and OverlayManager switches its library entry on;
-- RoseFile, a file Rose links into the injection's mods folder: a saved mod
-  still pending in Rose's storage, as before, or a friend's skin.
-
-put() readies either for an injection and take_back() undoes it, so the code
-that prepares an injection never tells the two apart.
-"""
 
 from __future__ import annotations
 
@@ -37,7 +20,7 @@ class RoseFile:
     mods folder."""
 
     path: Path
-    name: str  # what it is linked as: its name in the injection's list of mods
+    name: str
 
     @classmethod
     def at(cls, path: Path) -> "RoseFile":
@@ -81,7 +64,7 @@ class LtkEntry:
 
     ltk_id: str
     facts: Optional[ModFacts] = None
-    missing: bool = False  # the last sync found the entry gone from LTK Manager
+    missing: bool = False
 
     @property
     def name(self) -> str:

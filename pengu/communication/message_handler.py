@@ -1815,7 +1815,6 @@ class MessageHandler:
                 raise RuntimeError("The mod could not be linked or extracted into the injection folder")
             log.info(f"[SkinMonitor] Prepared mod for the injection: {prepared}")
 
-            # The explicitly selected skin/chroma folder is the target.
             self.shared_state.selected_custom_mod = {
                 "skin_id": int(skin_id),
                 "storage_skin_id": selected_mod.skin_id,
@@ -2482,7 +2481,6 @@ class MessageHandler:
             if getattr(self.shared_state, pick.state_attr, None):
                 setattr(self.shared_state, pick.state_attr, None)
                 log.info(f"[SkinMonitor] {kind.capitalize()} mod deselected")
-                # Clear historic mod when deselected
                 try:
                     from utils.core.mod_historic import clear_historic_mod
                     clear_historic_mod(kind)
@@ -2491,7 +2489,6 @@ class MessageHandler:
                     log.debug(f"[MOD_HISTORIC] Failed to clear historic {kind} mod: {e}")
             return
 
-        # The data holds the listing's entry: id (relative path), name, path, ...
         data = payload.get(pick.data_key) or {}
         try:
             selection = self._prepare_saved_mod(data.get("id") or data.get("name") or mod_id, (pick.category,), kind)
@@ -2539,7 +2536,6 @@ class MessageHandler:
             return
 
         try:
-            # other_data contains: id (relative path), name, path, updatedAt, description
             selection = self._prepare_saved_mod(
                 other_data.get("path") or other_data.get("id") or other_id,
                 self.mod_storage.MOD_CATEGORIES,
@@ -2780,7 +2776,6 @@ class MessageHandler:
                 log.debug(f"[MOD_HISTORIC] Historic {mod_type} mod not found in available mods: {historic_path}")
                 return
             
-            # Select it as the plugin would; a mod that cannot be injected (missing from LTK Manager) is refused there
             log.info(f"[MOD_HISTORIC] Restoring historic {mod_type} mod: {selected_mod_dict.get('name', historic_path)}")
             mod_id = selected_mod_dict.get("id") or selected_mod_dict.get("name")
             pick = _ONE_MOD_CATEGORIES.get(mod_type)

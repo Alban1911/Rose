@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""The user's saved mods, as their manifests list them.
-
-A mod the user adds moves into LTK Manager's library, and Rose keeps only
-what it knows about it: its manifest entry (rose_mod_targets.json in a
-champion's folder, rose_category_mods.json in a category's), and its preview
-image and description beside the manifest, under the mod's name. So a saved
-mod is a manifest entry, not a file:
-
-- an entry with an ltkId is held by LTK Manager (missing once a sync no
-  longer finds it there);
-- an entry without one whose archive (or folder) is still in Rose's mods
-  folder is pending: it is injected as before and moved at the next start;
-- an entry with neither is gone, and not listed, as before.
-
-Files nobody registered are still listed where they were before (a champion's
-or a legacy per-skin folder with default targets), so a mod dropped into the
-folder by hand keeps working.
-
-An entry taken out of a manifest leaves its LTK Manager entry, if any, in
-that manifest's pendingRemovals, in the same write: the next session start
-removes it from LTK Manager, then from the list. So a deletion is never half
-recorded, whatever stops Rose.
-
-Reading here has no side effects: nothing is created or cleaned up. Every
-writer of a mods manifest holds _STORAGE_LOCK and merges its fields into the
-entry as the file holds it now, so two writers never undo each other.
-"""
 
 from __future__ import annotations
 
@@ -48,21 +21,15 @@ from .mod_source import LtkEntry, ModSource, RoseFile
 
 log = get_logger()
 
-# Held by every writer of a mods manifest (ModStorageService and the writers
-# here): each reads the file, changes it and writes it back
 _STORAGE_LOCK = threading.RLock()
-# Unreadable manifests already reported, so repeated listings do not flood the log
 _reported_manifests: set[str] = set()
 
-# As ModStorageService names them (it imports this module, not the reverse)
 SKINS = "skins"
 MOD_CATEGORIES = ("maps", "fonts", "announcers", "ui", "voiceover", "loading_screen", "vfx", "sfx", "others")
 TARGET_METADATA = "rose_mod_targets.json"
 LEGACY_TARGET_METADATA = "rose_wad_targets.json"
 CATEGORY_METADATA = "rose_category_mods.json"
 ARCHIVE_SUFFIX = ".fantome"
-# A manifest's list of the LTK Manager entries of its mods deleted in Rose,
-# still to remove from LTK Manager
 PENDING_REMOVALS = "pendingRemovals"
 
 _METADATA_NAMES = {TARGET_METADATA, LEGACY_TARGET_METADATA, CATEGORY_METADATA}
@@ -75,22 +42,18 @@ class UnreadableManifest(ValueError):
 
 @dataclass(frozen=True)
 class SavedMod:
-    """One mod the user saved in Rose."""
 
-    kind: str  # "skins" or one of MOD_CATEGORIES
-    directory: Path  # holds the manifest and the sidecars
-    key: str  # its key in the manifest's "mods" ("" for a file nobody registered)
+    kind: str
+    directory: Path
+    key: str
     name: str
-    # Its identity, relative to the mods root (POSIX): the path historic.json
-    # and mod_historic.json hold. <dir>/<name>.fantome, or a pending mod's
-    # stored folder's (or non-.fantome archive's) own path while it exists
     relative_path: str
     ltk_id: Optional[str]
     missing: bool
-    stored: Optional[Path]  # Rose's copy (archive or folder), if there is one
+    stored: Optional[Path]
     facts: Optional[ModFacts]
     display_name: Optional[str]
-    target_skin_ids: tuple[int, ...]  # skins only
+    target_skin_ids: tuple[int, ...]
     updated_at: float
     metadata: Mapping[str, object] = field(compare=False)
 
@@ -147,9 +110,6 @@ class SavedMod:
         return Path(mods_root) / self.relative_path
 
 
-# --------------------------------------------------------------------------------------
-# reading manifests
-# --------------------------------------------------------------------------------------
 
 def read_manifest(manifest_path: Path) -> Optional[dict]:
     """Read a mod manifest: {} when there is none, None when it exists but cannot be read.
@@ -200,9 +160,9 @@ def normalize_target_ids(value: object) -> tuple[int, ...]:
 class _Directory:
     kind: str
     path: Path
-    relative: str  # POSIX, relative to the mods root
-    storage_id: Optional[int] = None  # a skins folder's number
-    legacy: bool = False  # a per-skin folder from before champion folders
+    relative: str
+    storage_id: Optional[int] = None
+    legacy: bool = False
 
     @property
     def manifest(self) -> Path:
@@ -288,7 +248,6 @@ def _writable_manifest(directory: _Directory) -> Optional[dict]:
 def _entry_name(directory: _Directory, key: str, metadata: Mapping) -> str:
     if directory.kind == SKINS:
         return str(metadata.get("name") or key)
-    # A category knows a mod by its path (its name, without the extension)
     return str(metadata.get("path") or key).replace("\\", "/").strip("/")
 
 
@@ -306,7 +265,6 @@ def _entries(directory: _Directory, payload: Optional[dict]) -> List[_Entry]:
             continue
         ltk_id = metadata.get("ltkId")
         entries.append(_Entry(key, name, metadata, targets, ltk_id if is_ltk_id(ltk_id) else None))
-    # One mod per name: the entry LTK Manager holds wins, else the first
     chosen: dict[str, _Entry] = {}
     for entry in entries:
         current = chosen.get(entry.name.casefold())
@@ -338,10 +296,10 @@ def _content_match(candidate: Path, entries: List[_Entry]) -> Optional[_Entry]:
     """The entry a renamed stored mod was registered as, by its content (the
     hash the manifest keeps): only files no entry names need it."""
     if candidate.is_file() and candidate.suffix.lower() == MODPKG_SUFFIX:
-        return None  # never stored as one, and reading it would mean unpacking it
+        return None
     try:
         _facts, full_hash, wad_hashes = compute_mod_facts(candidate)
-    except Exception as e:  # noqa: BLE001 - an unreadable file just stays unmatched
+    except Exception as e:
         log.debug(f"[MODS] Could not hash {candidate.name} to match it to its manifest entry: {e}")
         return None
     for entry in entries:
@@ -398,7 +356,7 @@ def _directory_mods(directory: _Directory, match_content: bool = True) -> List[S
 
     by_key = {entry.key.casefold(): entry for entry in entries}
     by_name = {entry.name.casefold(): entry for entry in entries}
-    stored: dict[int, tuple[Path, bool]] = {}  # id(entry) -> its stored copy
+    stored: dict[int, tuple[Path, bool]] = {}
     unmatched: List[tuple[Path, bool]] = []
     for candidate, is_dir in _stored_candidates(directory.path):
         stem = (candidate.name if is_dir else candidate.stem).casefold()
@@ -409,8 +367,6 @@ def _directory_mods(directory: _Directory, match_content: bool = True) -> List[S
             unmatched.append((candidate, is_dir))
 
     if directory.kind == SKINS and unmatched and match_content:
-        # A renamed mod, as the listing always matched it: never an entry LTK
-        # Manager holds, so a listing of moved mods hashes nothing
         unclaimed = [entry for entry in entries if id(entry) not in stored and entry.ltk_id is None]
         for candidate, is_dir in list(unmatched):
             if not unclaimed:
@@ -425,7 +381,7 @@ def _directory_mods(directory: _Directory, match_content: bool = True) -> List[S
     for entry in entries:
         copy, is_dir = stored.get(id(entry), (None, False))
         if copy is None and entry.ltk_id is None:
-            continue  # gone, as before
+            continue
         name = (copy.name if is_dir else copy.stem) if copy is not None else entry.name
         targets = ()
         if directory.kind == SKINS:
@@ -446,8 +402,6 @@ def _directory_mods(directory: _Directory, match_content: bool = True) -> List[S
             updated_at=updated_at if updated_at is not None else _updated_at(entry.metadata),
             metadata=MappingProxyType(entry.metadata),
         ))
-    # A file nobody registered: listed with the folder's default targets, as
-    # before; a category lists only what it registered
     if directory.kind == SKINS and default_targets:
         for candidate, is_dir in unmatched:
             name = candidate.name if is_dir else candidate.stem
@@ -469,9 +423,6 @@ def _directory_mods(directory: _Directory, match_content: bool = True) -> List[S
     return sorted(mods, key=lambda mod: mod.name.lower())
 
 
-# --------------------------------------------------------------------------------------
-# saved mods
-# --------------------------------------------------------------------------------------
 
 def iter_saved_mods(mods_root: Path, kind: Optional[str] = None, *,
                     champion_id: Optional[int] = None) -> List[SavedMod]:
@@ -617,9 +568,6 @@ def ltk_removals(mods_root: Path) -> List[str]:
     return [mod_id for mod_id in removals if mod_id not in named]
 
 
-# --------------------------------------------------------------------------------------
-# writing manifests
-# --------------------------------------------------------------------------------------
 
 def _write_json(path: Path, payload: dict) -> None:
     """Replace *path* with *payload* in one move: a reader never sees half a file."""
@@ -698,8 +646,6 @@ def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -
                     "name": mod.name, "targets": list(normalize_target_ids(current)),
                 }
                 if directory.kind == SKINS and mod.stored is not None and fields.get("ltkId"):
-                    # A renamed file was matched by its content, which an entry LTK
-                    # Manager holds never is: its name must lead to the file now
                     entry["name"] = mod.name
             else:
                 key = mod.name
@@ -727,7 +673,7 @@ def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
     start (_drop_entries). False when the manifest cannot be read. Rose's
     copy and the files beside the manifest are the caller's to delete."""
     if not mod.key:
-        return True  # a file nobody registered: no entry to take out
+        return True
     if mod.kind == SKINS:
         directory = _skins_directory(mod.directory)
     else:

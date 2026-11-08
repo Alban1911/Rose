@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""The user's saved mods LTK Manager holds, switched on for one game.
-
-A mod the user added lives in LTK Manager's library for good
-(injection.mods.manifest). An injection lists it among its mods by its LTK
-reference (injection.mods.ltk_ref), and its session switches the entry on,
-then off again after the game: it is never imported for a game, nor removed.
-
-Each entry is recorded ("switched" in ltf_installed.json) before it is
-switched on and forgotten once it is off again, so the next session's start
-switches off what a Rose that crashed mid-game left on. That start also
-switches off the saved mods found on (LTK Manager used by hand between
-games) and removes the entries of saved mods deleted in Rose.
-"""
 
 from __future__ import annotations
 
@@ -35,10 +22,10 @@ log = get_logger()
 class Leftovers:
     """What earlier sessions left of the saved mods in LTK Manager."""
 
-    remove: List[str] = field(default_factory=list)  # entries of saved mods deleted in Rose
-    gone: List[str] = field(default_factory=list)  # to remove, but no longer in LTK Manager
-    switch_off: List[str] = field(default_factory=list)  # saved mods found switched on
-    records: List[str] = field(default_factory=list)  # switched on by a session that did not end
+    remove: List[str] = field(default_factory=list)
+    gone: List[str] = field(default_factory=list)
+    switch_off: List[str] = field(default_factory=list)
+    records: List[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         """Whether LTK Manager's library has to change."""
