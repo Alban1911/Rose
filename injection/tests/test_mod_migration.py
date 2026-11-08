@@ -19,9 +19,9 @@ from injection.mods.manifest import iter_saved_mods
 from injection.mods.migration import MigrationReport, Step, migrate_saved_mods, needs_migration, size_text
 from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
 from injection.mods.storage import ModStorageService
-from injection.overlay import overlay_manager
+from injection.overlay import ltf_session
+from injection.overlay.ltf_session import ALREADY_OPEN_REASON, LTK_MANAGER_MISSING_REASON, LtfHost
 from injection.overlay.ltk_library import LibrarySession, LtkLibrary
-from injection.overlay.overlay_manager import ALREADY_OPEN_REASON, LTK_MANAGER_MISSING_REASON, OverlayManager
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
 from injection.tests.test_mod_archives import PNG, VOICEOVER, add_entries, make_archive, make_folder
 from injection.tools.bridge import BridgeCommandError, BridgeUnavailable
@@ -68,9 +68,9 @@ class MigrationTestCase(LtfSessionTestCase):
     def setUp(self):
         super().setUp()
         FakeBridge.mod_storage = self.root / "ltk-mods"
-        self.mods_root = self.overlay.saved_mods_root
+        self.mods_root = self.host.saved_mods_root
         self.storage = ModStorageService(self.mods_root)
-        self.library = LtkLibrary(self.overlay)
+        self.library = LtkLibrary(self.host)
         self.desktop = self.root / "Desktop"
         self.free = 100 * GB
         tag = uuid.uuid4().hex
@@ -426,8 +426,8 @@ class WhenNothingMovesTests(MigrationTestCase):
     def test_an_ltk_manager_rose_cannot_use_is_told_and_moves_nothing(self):
         archive = self.category_mod("VO Korean")
 
-        with patch.object(overlay_manager, "find_bridge", return_value=None), \
-                patch.object(OverlayManager, "_ltk_manager_running", return_value=True):
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(LtfHost, "_ltk_manager_running", return_value=True):
             report = self.migrate()
 
         self.assertEqual(report.skipped_reason, ALREADY_OPEN_REASON)

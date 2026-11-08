@@ -93,9 +93,8 @@ class RemoveLtkModsTests(unittest.TestCase):
     def test_the_mods_are_removed_through_roses_own_tools_with_a_watchdog(self):
         self.assertEqual(self.removing(return_value=0), 0)
 
-        overlay = self.remove.call_args.args[0]
-        self.assertEqual((overlay.tools_dir, overlay.mods_dir, overlay.game_dir),
-                         (self.tools, self.injection / "mods", None))
+        host = self.remove.call_args.args[0]
+        self.assertEqual((host.tools_dir, host.injection_dir), (self.tools, self.injection))
         self.logging.assert_called_once_with("customer")
         self.watchdog.assert_called_once_with(REMOVE_LTK_MODS_TIMEOUT_S, os._exit, args=(1,))
         self.assertTrue(self.watchdog.return_value.daemon)

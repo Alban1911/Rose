@@ -17,12 +17,16 @@ games) and removes the entries of saved mods deleted in Rose.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
 
 from utils.core.logging import get_logger
 
 from ..mods.manifest import forget_ltk_removals, ltk_removals
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
+from .ltk_data import entry_name
+
+if TYPE_CHECKING:
+    from .ltf_session import LtfHost, LtfSession
 
 log = get_logger()
 
@@ -43,19 +47,19 @@ class Leftovers:
 
 class SavedModSwitches:
     """Switches the saved mods LTK Manager holds on and off for an
-    OverlayManager's sessions: a session's "switched" holds the entries it
-    switched on (id -> name), its "rose_ids" every entry a saved mod's
-    manifest named when it started."""
+    LtfHost's sessions: a session's switched holds the entries it switched
+    on (id -> name), its rose_ids every entry a saved mod's manifest named
+    when it started."""
 
-    def __init__(self, overlay) -> None:
-        self._overlay = overlay
+    def __init__(self, host: LtfHost) -> None:
+        self._host = host
 
-    def _record(self, session: dict, ltk_id: str, name: str) -> bool:
+    def _record(self, session: LtfSession, ltk_id: str, name: str) -> bool:
         """Journal the entry as switched on, before it is: False when the
         journal could not be written (a crash would then leave it on for good)."""
-        if not self._overlay._update_state(lambda state: state["switched"].__setitem__(ltk_id, name)):
+        if not self._host.journal.update(lambda state: state["switched"].__setitem__(ltk_id, name)):
             return False
-        session["switched"][ltk_id] = name
+        session.switched[ltk_id] = name
         return True
 
     def _forget(self, ltk_ids: Iterable[str]) -> None:
@@ -66,13 +70,13 @@ class SavedModSwitches:
         def drop(state):
             state["switched"] = {k: v for k, v in state["switched"].items() if k not in ltk_ids}
 
-        self._overlay._update_state(drop)
+        self._host.journal.update(drop)
 
     def leftovers(self, library: Dict[str, dict], switched: Dict[str, str], rose_ids: set) -> Leftovers:
         """What to undo at a session's start, from LTK Manager's *library*
         (id -> entry), the entries earlier sessions recorded as *switched* on,
         and every saved mod's entry (*rose_ids*)."""
-        removals = ltk_removals(self._overlay._saved_mods_dir())
+        removals = ltk_removals(self._host.saved_mods_dir())
         remove = [ltk_id for ltk_id in removals if ltk_id in library]
         return Leftovers(
             remove=remove,
@@ -98,7 +102,7 @@ class SavedModSwitches:
             removed.append(ltk_id)
             log.info(f"[INJECT] Removed {ltk_id} from LTK Manager: its saved mod was deleted in Rose")
         if removed:
-            forget_ltk_removals(self._overlay._saved_mods_dir(), removed)
+            forget_ltk_removals(self._host.saved_mods_dir(), removed)
         still_on = set()
         for ltk_id in leftovers.switch_off:
             try:
@@ -111,11 +115,11 @@ class SavedModSwitches:
         self._forget(set(leftovers.records) - still_on)
 
     @staticmethod
-    def changes(session: dict, ltk_ids: List[str]) -> Tuple[List[str], List[str]]:
+    def changes(session: LtfSession, ltk_ids: List[str]) -> Tuple[List[str], List[str]]:
         """(the entries to switch on, those to switch off) for the session's
         saved mods to be exactly *ltk_ids*."""
-        on = [ltk_id for ltk_id in ltk_ids if ltk_id not in session["switched"]]
-        off = [ltk_id for ltk_id in session["switched"] if ltk_id not in ltk_ids]
+        on = [ltk_id for ltk_id in ltk_ids if ltk_id not in session.switched]
+        off = [ltk_id for ltk_id in session.switched if ltk_id not in ltk_ids]
         return on, off
 
     @staticmethod
@@ -130,13 +134,13 @@ class SavedModSwitches:
                             "injecting the others")
         return [ltk_id for ltk_id in ltk_ids if ltk_id in entries]
 
-    def switch(self, session: dict, on: List[str], off: List[str], library: Optional[List[dict]]) -> None:
+    def switch(self, session: LtfSession, on: List[str], off: List[str], library: Optional[List[dict]]) -> None:
         """Switch the entries *on* on for the session and *off* off, keeping
         *library* (the read the install shares) as LTK Manager now has it.
         Raises BridgeUnavailable or BridgeCommandError: a mod left off is
         missing from the overlay, one left on applies with it.
 
-        Each switch-on holds the session's lock, which _end_session takes to
+        Each switch-on holds the session's lock, which LtfHost.end takes to
         end it: a session that ended (a discard while this read the library)
         switches nothing on, and one ending after sees the entry to switch off.
         """
@@ -146,33 +150,33 @@ class SavedModSwitches:
             if ltk_id in entries:
                 entries[ltk_id]["enabled"] = False
         for ltk_id in on:
-            name = self._overlay._entry_name(entries[ltk_id]) if ltk_id in entries else ltk_id
-            with session["lock"]:
-                if session["ended"]:
+            name = entry_name(entries[ltk_id]) if ltk_id in entries else ltk_id
+            with session.lock:
+                if session.ended:
                     log.debug(f"[INJECT] The session ended: {name} stays off")
                     return
                 if not self._record(session, ltk_id, name):
                     log.warning(f"[INJECT] Could not record {name} in Rose's LTF session state - left off: "
                                 "a crash would leave it on in LTK Manager")
                     continue
-                session["bridge"].toggle(ltk_id, True)
+                session.bridge.toggle(ltk_id, True)
             if ltk_id in entries:
                 entries[ltk_id]["enabled"] = True
             log.info(f"[INJECT] Switched on {name} in LTK Manager (a saved mod)")
 
-    def switch_off_all(self, session: dict) -> None:
+    def switch_off_all(self, session: LtfSession) -> None:
         """Switch off every entry the session switched on: they are the user's
         saved mods, never removed. One that cannot be switched off stays
         recorded: the next session's start does it."""
-        for ltk_id in list(session["switched"]):
+        for ltk_id in list(session.switched):
             try:
                 self._switch_off(session, ltk_id)
             except (BridgeUnavailable, BridgeCommandError) as e:
-                log.debug(f"[INJECT] Could not switch off {session['switched'].get(ltk_id)} in LTK Manager: {e}")
+                log.debug(f"[INJECT] Could not switch off {session.switched.get(ltk_id)} in LTK Manager: {e}")
 
-    def _switch_off(self, session: dict, ltk_id: str) -> None:
-        name = session["switched"].get(ltk_id, ltk_id)
-        session["bridge"].toggle(ltk_id, False)
-        session["switched"].pop(ltk_id, None)
+    def _switch_off(self, session: LtfSession, ltk_id: str) -> None:
+        name = session.switched.get(ltk_id, ltk_id)
+        session.bridge.toggle(ltk_id, False)
+        session.switched.pop(ltk_id, None)
         self._forget([ltk_id])
         log.debug(f"[INJECT] Switched off {name} in LTK Manager")

@@ -107,13 +107,12 @@ class ModMigrationSequence:
         try:
             from injection.mods.migration import migrate_saved_mods
             from injection.mods.storage import ModStorageService
+            from injection.overlay.ltf_session import LtfHost
             from injection.overlay.ltk_library import LtkLibrary
-            from injection.overlay.overlay_manager import OverlayManager
             from utils.core.paths import get_injection_dir, get_tools_dir
 
             storage = self._storage or ModStorageService()
-            library = self._library or LtkLibrary(
-                OverlayManager(get_tools_dir(), get_injection_dir() / "mods", None))
+            library = self._library or LtkLibrary(LtfHost(get_tools_dir(), get_injection_dir()))
             report = migrate_saved_mods(storage, library, _DialogUi(dialog))
         except Exception as exc:  # noqa: BLE001 - Rose must start; the mods stay pending
             log.error(f"[MIGRATE] Could not move the saved mods into LTK Manager: {exc}", exc_info=True)

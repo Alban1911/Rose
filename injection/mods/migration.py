@@ -42,6 +42,8 @@ from utils.core.junction import is_junction, safe_remove_entry
 from utils.core.logging import get_logger
 from utils.core.paths import get_desktop_user_desktop_dir
 
+from ..overlay.ltf_session import DISK_SPACE_HEADROOM_BYTES
+from ..overlay.ltk_data import entry_archive, mod_storage_root
 from ..overlay.ltk_library import (
     LTF_MISSING_REASON,
     LTK_MANAGER_MISSING_REASON,
@@ -51,10 +53,7 @@ from ..overlay.ltk_library import (
     LtkBusy,
     LtkLibrary,
     LtkUnavailable,
-    entry_archive,
-    mod_storage_root,
 )
-from ..overlay.overlay_manager import DISK_SPACE_HEADROOM_BYTES
 from .conversion import convert_folder_mods, rename_saved_paths
 from .manifest import ARCHIVE_SUFFIX, SavedMod, iter_saved_mods
 from .mod_facts import compute_mod_facts, stamp_of
@@ -168,7 +167,7 @@ def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: Migr
         with _alone():
             convert_folder_mods(storage, progress=lambda index, total, name: ui.progress(
                 Step.CONVERT, index, total, name))
-            _empty_injection_folders(library.overlay.mods_dir.parent)
+            _empty_injection_folders(library.host.injection_dir)
             ui.progress(Step.CONNECT)
             try:
                 with library.session() as session:

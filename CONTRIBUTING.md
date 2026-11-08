@@ -164,7 +164,8 @@ Rose/
 │   │   ├── storage.py      # Custom mods storage
 │   │   └── zip_resolver.py
 │   ├── overlay/            # Overlay session management
-│   │   ├── overlay_manager.py  # LTF session: install mods, run the LTK patcher
+│   │   ├── ltf_session.py      # LTF session: LTK Manager through the bridge, Rose's imports
+│   │   ├── overlay_manager.py  # Injection: install mods, run the LTK patcher
 │   │   └── process_manager.py
 │   ├── loadingname/        # Skin name on the loading screen
 │   │   └── loading_name.py

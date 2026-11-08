@@ -12,8 +12,10 @@ from unittest.mock import MagicMock, patch
 
 from injection.mods import manifest
 from injection.mods.ltk_ref import ltk_ref
-from injection.overlay import overlay_manager
-from injection.overlay.overlay_manager import OverlayManager, ltk_failure_cause
+from injection.overlay import ltf_report, ltf_session, ltk_data, overlay_manager
+from injection.overlay.ltf_report import ltk_failure_cause, ltk_failure_hint
+from injection.overlay.ltf_session import LtfHost, LtfSession
+from injection.overlay.overlay_manager import OverlayManager
 from injection.overlay.process_manager import ProcessManager
 from injection.tools.bridge import BridgeCommandError, BridgeUnavailable
 from injection.tools.tools_manager import ToolsManager
@@ -232,49 +234,51 @@ class LtfSessionTestCase(unittest.TestCase):
         self.game.mkdir()
         self.process_manager = ProcessManager()
         self.overlay = OverlayManager(self.tools, self.mods, self.game, self.process_manager)
+        self.host = self.overlay.host
         # Never this PC's saved mods
-        self.overlay.saved_mods_root = self.root / "saved-mods"
+        self.host.saved_mods_root = self.root / "saved-mods"
 
         FakeBridge.reset()
         self.state_path = self.root / "injection" / "ltf_installed.json"
         self.terminated = []
         self.ltk_logs = self.root / "ltk-logs"
         self.ltk_logs.mkdir()
+        self.report_issue = MagicMock()
 
         for patcher in (
-            patch.object(overlay_manager, "LtkBridge", FakeBridge),
-            patch.object(overlay_manager, "find_bridge", return_value=(46321, {"pid": 777})),
+            patch.object(ltf_session, "LtkBridge", FakeBridge),
+            patch.object(ltf_session, "find_bridge", return_value=(46321, {"pid": 777})),
             patch.object(ToolsManager, "detect_ltk_manager", return_value=self.root / "ltk-manager.exe"),
-            patch.object(overlay_manager, "report_issue"),
+            patch.object(overlay_manager, "report_issue", self.report_issue),
+            patch.object(ltf_session, "report_issue", self.report_issue),
+            patch.object(ltf_report, "report_issue", self.report_issue),
             patch.object(OverlayManager, "_running_game", return_value=None),
-            patch.object(OverlayManager, "_ltk_manager_running", return_value=False),
-            patch.object(OverlayManager, "_process_created", return_value=None),
-            patch.object(OverlayManager, "_terminate_manager",
+            patch.object(LtfHost, "_ltk_manager_running", return_value=False),
+            patch.object(LtfHost, "_process_created", return_value=None),
+            patch.object(LtfHost, "_terminate_manager",
                          lambda _self, pid, grace_s=0.0: self.terminated.append(pid)),
             patch.object(overlay_manager, "PROCESS_MONITOR_SLEEP_S", 0.01),
             patch.object(overlay_manager, "PATCHER_STATUS_POLL_TICKS", 1),
             patch.object(overlay_manager, "PATCHER_READY_POLL_S", 0.01),
             patch.object(overlay_manager, "PATCHER_IDLE_GRACE_S", 0.05),
-            patch.object(overlay_manager, "CDP_READY_POLL_S", 0.01),
-            patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 0.05),
+            patch.object(ltf_session, "CDP_READY_POLL_S", 0.01),
+            patch.object(ltf_session, "CDP_READY_TIMEOUT_S", 0.05),
             patch.object(overlay_manager, "PATCHER_STOP_WAIT_S", 0.5),
             # Never this PC's game or client: RestartMissedGameTests turn it on with fakes
             patch.object(overlay_manager, "RESTART_MISSED_GAME", False),
             # Never this PC's own LTK Manager log
-            patch.object(overlay_manager.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
+            patch.object(ltk_data.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
             # Nor its LTF logs
-            patch.object(overlay_manager, "ltk_logs_dir", lambda: self.root / "logs" / "ltk"),
+            patch.object(ltf_session, "ltk_logs_dir", lambda: self.root / "logs" / "ltk"),
             # Nor its registry and Rose's diagnostics file
             patch("utils.system.windows_account.check_ltk_settings", return_value=False),
-            patch.object(overlay_manager, "launcher_log_paths",
+            patch.object(ltf_session, "launcher_log_paths",
                          lambda: (self.root / "logs" / "ltk" / "ltk_launcher.log",
                                   self.root / "Public" / "ltk_launcher.log",
                                   self.root / "Temp" / "ltk_launcher.log")),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
-
-        self.report_issue = overlay_manager.report_issue
 
     @property
     def bridge(self):
@@ -295,8 +299,8 @@ class LtfSessionTestCase(unittest.TestCase):
     def launched(self, pid=4242):
         """Patches for an LTK Manager Rose starts through the launcher."""
         return (
-            patch.object(overlay_manager, "find_bridge", return_value=None),
-            patch.object(overlay_manager.subprocess, "run",
+            patch.object(ltf_session, "find_bridge", return_value=None),
+            patch.object(ltf_session.subprocess, "run",
                          return_value=MagicMock(returncode=0, stdout=f"LTK_MANAGER_PID={pid}\n")),
         )
 
@@ -348,7 +352,7 @@ class InjectionSessionTests(LtfSessionTestCase):
             imported.append((Path(path).name, Path(path).read_bytes(), name))
             return install(bridge_self, path, name)
 
-        with patch.object(FakeBridge, "import_fantome", import_fantome),                 patch.object(overlay_manager, "write_fantome_zip", side_effect=AssertionError("packed again")):
+        with patch.object(FakeBridge, "import_fantome", import_fantome),                 patch.object(ltf_session, "write_fantome_zip", side_effect=AssertionError("packed again")):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 0)
@@ -397,7 +401,7 @@ class InjectionSessionTests(LtfSessionTestCase):
             raise BridgeCommandError(f"import failed: not found: {path}")
 
         with patch.object(FakeBridge, "import_fantome", unreadable), \
-                patch.object(overlay_manager, "BYTES_IMPORT_LIMIT", 1):
+                patch.object(ltf_session, "BYTES_IMPORT_LIMIT", 1):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
@@ -554,7 +558,7 @@ class InjectionSessionTests(LtfSessionTestCase):
         mod = self.make_mod()
         no_bridge, run = self.launched()
         with no_bridge, run as launcher, \
-                patch.object(OverlayManager, "_ltk_manager_running", return_value=True):
+                patch.object(LtfHost, "_ltk_manager_running", return_value=True):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
@@ -563,8 +567,8 @@ class InjectionSessionTests(LtfSessionTestCase):
 
     def test_the_launcher_refusing_an_open_ltk_manager_is_reported(self):
         mod = self.make_mod()
-        with patch.object(overlay_manager, "find_bridge", return_value=None), \
-                patch.object(overlay_manager.subprocess, "run", return_value=MagicMock(returncode=5, stdout="")):
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(ltf_session.subprocess, "run", return_value=MagicMock(returncode=5, stdout="")):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
@@ -573,7 +577,7 @@ class InjectionSessionTests(LtfSessionTestCase):
     def test_the_launchers_own_log_of_a_start_goes_into_roses_log(self):
         """#478: why the launcher could not make explorer.exe LTK Manager's
         parent was only in ltk_launcher.log, which the user could not find"""
-        rose_log, public_log, temp_log = overlay_manager.launcher_log_paths()
+        rose_log, public_log, temp_log = ltf_session.launcher_log_paths()
         rose_log.parent.mkdir(parents=True)
         rose_log.write_text("[launch] an earlier start, parent pid = 1 (explorer.exe)\r\n", encoding="utf-8")
 
@@ -585,8 +589,8 @@ class InjectionSessionTests(LtfSessionTestCase):
             return MagicMock(returncode=0, stdout="LTK_MANAGER_PID=4242\n")
 
         mod = self.make_mod()
-        with patch.object(overlay_manager, "find_bridge", return_value=None), \
-                patch.object(overlay_manager.subprocess, "run", side_effect=launch), \
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(ltf_session.subprocess, "run", side_effect=launch), \
                 self.assertLogs(overlay_manager.log.name, level="DEBUG") as logs:
             self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
@@ -594,7 +598,7 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertEqual(len(launcher_lines), 2)  # this start's lines only, without its banner
         self.assertIn("WARNING", launcher_lines[0])
         self.assertIn("starting it as a child", launcher_lines[0])
-        self.assertEqual(self.overlay._launcher_parent, "not explorer.exe")
+        self.assertEqual(self.host.launcher_parent, "not explorer.exe")
         self.assertFalse(public_log.exists())
         self.assertFalse(temp_log.exists())
 
@@ -651,9 +655,9 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertIn("import", self.bridge.command_names())
 
     def test_a_large_launcher_log_is_kept_as_old(self):
-        rose_log = overlay_manager.launcher_log_paths()[0]
+        rose_log = ltf_session.launcher_log_paths()[0]
         rose_log.parent.mkdir(parents=True)
-        rose_log.write_bytes(b"x" * (overlay_manager.LAUNCHER_LOG_MAX_BYTES + 1))
+        rose_log.write_bytes(b"x" * (ltf_session.LAUNCHER_LOG_MAX_BYTES + 1))
 
         mod = self.make_mod()
         no_bridge, run = self.launched()
@@ -662,12 +666,12 @@ class InjectionSessionTests(LtfSessionTestCase):
 
         self.assertFalse(rose_log.exists())
         self.assertEqual((rose_log.parent / "ltk_launcher.old.log").stat().st_size,
-                         overlay_manager.LAUNCHER_LOG_MAX_BYTES + 1)
+                         ltf_session.LAUNCHER_LOG_MAX_BYTES + 1)
 
     def test_a_failed_launcher_reports_start_failure(self):
         mod = self.make_mod()
-        with patch.object(overlay_manager, "find_bridge", return_value=None), \
-                patch.object(overlay_manager.subprocess, "run", return_value=MagicMock(returncode=3, stdout="")):
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(ltf_session.subprocess, "run", return_value=MagicMock(returncode=3, stdout="")):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
@@ -711,7 +715,7 @@ class InjectionSessionTests(LtfSessionTestCase):
             self.process_manager.stop_injection_by_user()
             return 46321, {"pid": 777}
 
-        with patch.object(overlay_manager, "find_bridge", connect_then_stop):
+        with patch.object(ltf_session, "find_bridge", connect_then_stop):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 0)
@@ -789,7 +793,7 @@ class LibraryOwnershipTests(LtfSessionTestCase):
         def connect(expected_pid=None):
             return 46321, {"pid": 777}
 
-        with patch.object(overlay_manager, "find_bridge", connect):
+        with patch.object(ltf_session, "find_bridge", connect):
             original_init = FakeBridge.__init__
 
             def failing_init(bridge_self, port=None, pid=None):
@@ -881,7 +885,7 @@ class KeptModsTests(LtfSessionTestCase):
     def setUp(self):
         super().setUp()
         self.saved = self.root / "saved"
-        self.overlay.saved_mods_root = self.saved
+        self.host.saved_mods_root = self.saved
         self.links = {}  # name in the injection's mods folder -> the archive it links
 
     def saved_mod(self, name="VO Korean", display="VO Korean", wad=b"voiceover", folder=False):
@@ -1080,7 +1084,7 @@ class SavedLtkModTests(LtfSessionTestCase):
 
     def setUp(self):
         super().setUp()
-        voiceover = self.overlay.saved_mods_root / "voiceover"
+        voiceover = self.host.saved_mods_root / "voiceover"
         voiceover.mkdir(parents=True)
         (voiceover / "rose_category_mods.json").write_text(json.dumps({"version": 1, "category": "voiceover", "mods": {
             "VO Korean": {"name": "VO Korean", "path": "VO Korean", "ltkId": self.VO_ID},
@@ -1223,7 +1227,7 @@ class SavedLtkModTests(LtfSessionTestCase):
 
     def maps_removals(self, *ids):
         """A maps manifest whose deleted mods' entries are still to remove"""
-        maps = self.overlay.saved_mods_root / "maps"
+        maps = self.host.saved_mods_root / "maps"
         maps.mkdir()
         (maps / "rose_category_mods.json").write_text(json.dumps(
             {"version": 1, "category": "maps", "mods": {}, "pendingRemovals": list(ids)}), encoding="utf-8")
@@ -1231,7 +1235,7 @@ class SavedLtkModTests(LtfSessionTestCase):
 
     def test_the_entries_of_saved_mods_deleted_in_rose_are_removed_when_a_session_starts(self):
         FakeBridge.initial_library.append(self.entry(self.OLD_ID, "Old map"))
-        saved_mods = self.overlay.saved_mods_root
+        saved_mods = self.host.saved_mods_root
         maps = self.maps_removals(self.OLD_ID, self.GONE_ID)
         self.assertTrue(manifest.remove_saved_mod(saved_mods, manifest.find_saved_mod(saved_mods, "voiceover/VO Korean")))
 
@@ -1245,7 +1249,7 @@ class SavedLtkModTests(LtfSessionTestCase):
 
     def test_a_deletion_whose_manifest_write_failed_removes_nothing(self):
         """The saved mod is still there, and LTK Manager holds its only copy"""
-        saved_mods = self.overlay.saved_mods_root
+        saved_mods = self.host.saved_mods_root
         voiceover = manifest.find_saved_mod(saved_mods, "voiceover/VO Korean")
         with patch.object(manifest, "_write_manifest", side_effect=OSError("disk full")), \
                 self.assertRaises(OSError):
@@ -1439,7 +1443,7 @@ class OverlayOnlyTests(LtfSessionTestCase):
 class PatcherStatusParsingTests(LtfSessionTestCase):
     def _session(self):
         self.overlay.start_patcher_early()
-        return self.overlay._new_session(self.bridge, False)
+        return self.overlay._new_session(LtfSession(self.bridge, False))
 
     def test_a_running_patcher_records_its_phase(self):
         session = self._session()
@@ -1572,7 +1576,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         """#478: LTK Manager's log showed parent ltk_launcher.exe; the reason
         the launcher fell back was only in ltk_launcher.log"""
         session = self._session()
-        self.overlay._launcher_parent = "not explorer.exe"
+        self.host.launcher_parent = "not explorer.exe"
         FakeBridge.patcher_statuses = [status(session={"log": (
             "2026-11-07T20:56:40.028528Z  INFO ltk_manager_runtime::patcher::injector: [ltk-dll pid=19048 "
             "tid=14596 ERROR] ltk_patcher_dll::verify: host verification failed, refusing overlay: "
@@ -1587,7 +1591,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
 
     def test_a_refusal_with_a_manager_under_explorer_names_no_parent(self):
         session = self._session()
-        self.overlay._launcher_parent = "explorer.exe"
+        self.host.launcher_parent = "explorer.exe"
         FakeBridge.patcher_statuses = [status(session={"log": "ERROR] ltk_patcher_dll::verify: host verification "
                                                               "failed, refusing overlay: [VRF00000008] (1, x)"})]
 
@@ -1697,7 +1701,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.overlay.open_staging()
         no_bridge, run = self.launched()  # a freshly started LTK Manager
         with no_bridge, run, patch.object(FakeBridge, "library", library), \
-                patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 5.0):
+                patch.object(ltf_session, "CDP_READY_TIMEOUT_S", 5.0):
             self.overlay.start_patcher_early()
             self.assertTrue(self.overlay.stage_mods(self.mods, [mod]))
 
@@ -1721,7 +1725,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.overlay.open_staging()
         no_bridge, run = self.launched()
         with no_bridge, run, patch.object(FakeBridge, "library", library), \
-                patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 5.0):
+                patch.object(ltf_session, "CDP_READY_TIMEOUT_S", 5.0):
             self.overlay.start_patcher_early()
             self.assertTrue(self.overlay.stage_mods(self.mods, [mod]))
 
@@ -1745,9 +1749,9 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
                          {"characterInking": {"enabled": True, "scope": "chosen"}},
                          {"characterInking": {"enabled": False, "scope": "all"}}):
             with self.subTest(builtins=builtins):
-                self.assertEqual(overlay_manager.heavy_builtin_mods({"builtinMods": builtins}), [])
-        self.assertEqual(overlay_manager.heavy_builtin_mods({}), [])
-        self.assertEqual(overlay_manager.heavy_builtin_mods("not a dict"), [])
+                self.assertEqual(ltf_session.heavy_builtin_mods({"builtinMods": builtins}), [])
+        self.assertEqual(ltf_session.heavy_builtin_mods({}), [])
+        self.assertEqual(ltf_session.heavy_builtin_mods("not a dict"), [])
 
     def test_unreadable_ltk_settings_report_nothing(self):
         (self.ltk_logs.parent / "settings.json").write_text("{not json", encoding="utf-8")
@@ -1807,7 +1811,7 @@ class RestartMissedGameTests(LtfSessionTestCase):
 
     def _session(self):
         self.overlay.start_patcher_early()
-        return self.overlay._new_session(self.bridge, False)
+        return self.overlay._new_session(LtfSession(self.bridge, False))
 
     def test_a_late_join_restarts_the_game_instead_of_losing_it(self):
         session = self._session()
@@ -2168,11 +2172,11 @@ class FailureCauseTests(unittest.TestCase):
         self.assertEqual(ltk_failure_cause(manager), "manager_admin")
         # LTK's own log line for it, without the kind
         self.assertEqual(ltk_failure_cause("Start patcher failed: League is set to run as administrator"), "league_admin")
-        self.assertIn("Run this program as an administrator", OverlayManager._ltk_failure_hint(league))
-        self.assertIn("User Account Control", OverlayManager._ltk_failure_hint(manager))
+        self.assertIn("Run this program as an administrator", ltk_failure_hint(league))
+        self.assertIn("User Account Control", ltk_failure_hint(manager))
         # The CDP reason names administrator rights too, but stays a CDP failure
         self.assertEqual(ltk_failure_cause(
-            overlay_manager.CDP_UNREACHABLE_REASON + "; Windows runs every program as administrator on this account"
+            ltf_report.CDP_UNREACHABLE_REASON + "; Windows runs every program as administrator on this account"
         ), "cdp")
 
     def test_ltk_managers_missing_patcher_is_not_blamed_on_roses_files(self):
@@ -2181,7 +2185,7 @@ class FailureCauseTests(unittest.TestCase):
         reason = ("could not start the LTK patcher (start_patcher failed: UNKNOWN: ltk_patcher_host.exe not "
                   "found. Tried:\n - C:\\Program Files\\LTK Manager\\ltk_patcher_host.exe)")
         self.assertEqual(ltk_failure_cause(reason), "host_missing")
-        self.assertIn("Reinstall LTK Manager", OverlayManager._ltk_failure_hint(reason))
+        self.assertIn("Reinstall LTK Manager", ltk_failure_hint(reason))
 
     def test_commands_ltk_manager_does_not_declare_mean_it_is_outdated(self):
         """#473: Tauri refuses a command the app does not declare; the reason
@@ -2192,7 +2196,7 @@ class FailureCauseTests(unittest.TestCase):
         self.assertEqual(ltk_failure_cause(
             "could not start the LTK patcher (Command plugin:patcher|start_patcher not allowed by ACL)"
         ), "outdated")
-        hint = OverlayManager._ltk_failure_hint(reason)
+        hint = ltk_failure_hint(reason)
         self.assertIn("Update LTK Manager", hint)
         self.assertNotIn("disk space", hint)
 
@@ -2210,7 +2214,7 @@ class FailureCauseTests(unittest.TestCase):
         ), "incident")
         for cause in ("disabled", "corrupt", "incident"):
             self.assertIn("incident" if cause != "disabled" else "custom skin",
-                          OverlayManager._ltk_failure_hint(
+                          ltk_failure_hint(
                               {"disabled": "LTK Manager disabled the overlay (x)",
                                "corrupt": "recorded an incident after the game: x (CorruptArchive; y)",
                                "incident": "LTK Manager recorded an incident after the game: x (Crash; y)"}[cause]))
@@ -2220,14 +2224,14 @@ class FailureCauseTests(unittest.TestCase):
         reason = ("the LTK patcher stopped before it was ready (LTK Manager: Failed to spawn host "
                   "'ltk_patcher_host.exe': The requested operation requires elevation. (os error 740))")
         self.assertEqual(ltk_failure_cause(reason), "ltk_admin")
-        self.assertIn("ltk_patcher_host.exe", OverlayManager._ltk_failure_hint(reason))
+        self.assertIn("ltk_patcher_host.exe", ltk_failure_hint(reason))
 
     def test_a_patcher_ltks_delivery_service_refused(self):
         """#482: LTK Manager could not download its patcher (429 rate_limited)"""
         reason = ("the LTK patcher stopped before it was ready (LTK Manager: No patcher DLL is available "
                   "error=the delivery service refused the request with status 429 rate_limited)")
         self.assertEqual(ltk_failure_cause(reason), "delivery")
-        self.assertIn("delivery service", OverlayManager._ltk_failure_hint(reason))
+        self.assertIn("delivery service", ltk_failure_hint(reason))
 
     def test_a_patcher_download_blocked_on_the_users_side(self):
         """#487: LTK Manager's request never reached its delivery service"""
@@ -2235,21 +2239,21 @@ class FailureCauseTests(unittest.TestCase):
                   "error=the delivery request failed: error sending request for url "
                   "(https://patcher.leaguetoolkit.dev/v1/challenge?install=x))")
         self.assertEqual(ltk_failure_cause(reason), "delivery_unreachable")
-        hint = OverlayManager._ltk_failure_hint(reason)
+        hint = ltk_failure_hint(reason)
         self.assertIn("firewall", hint)
         self.assertNotIn("refused", hint)
 
     def test_a_refused_rose_package_is_sent_to_leagueskins(self):
         """#454: the refused WAD came from an official skin's chroma, and the
         hint said to use the official one"""
-        hint = OverlayManager._ltk_failure_hint("LTK Manager disabled the overlay (wad x: base-skin check)")
+        hint = ltk_failure_hint("LTK Manager disabled the overlay (wad x: base-skin check)")
         self.assertIn("LeagueSkins", hint)
         self.assertNotIn("or the official one", hint)
 
     def test_a_dll_that_never_got_into_the_game(self):
         reason = "LTK Manager's patcher never got into the game (DLL never attached after 60s)"
         self.assertEqual(ltk_failure_cause(reason), "not_attached")
-        hint = OverlayManager._ltk_failure_hint(reason)
+        hint = ltk_failure_hint(reason)
         self.assertIn("run as administrator", hint)
         self.assertIn("antivirus", hint)
 
@@ -2259,7 +2263,7 @@ class FailureCauseTests(unittest.TestCase):
         self.assertEqual(ltk_failure_cause("import failed for My Skin (bad archive)"), "import")
 
     def test_an_open_ltk_manager_and_a_late_join(self):
-        self.assertEqual(ltk_failure_cause(overlay_manager.ALREADY_OPEN_REASON), "running")
+        self.assertEqual(ltk_failure_cause(ltf_session.ALREADY_OPEN_REASON), "running")
         self.assertEqual(
             ltk_failure_cause("the game started before the LTK patcher was scanning (joined too late)"), "late"
         )

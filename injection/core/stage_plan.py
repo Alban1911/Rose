@@ -37,7 +37,7 @@ from ..loadingname.loading_name import build as build_loading_name
 from ..mods.mod_facts import ModFacts
 from ..mods.mod_manager import ModManager
 from ..mods.mod_source import LtkEntry, ModSource
-from ..overlay.ltk_library import stored_archive
+from ..overlay.ltk_data import stored_archive
 
 log = get_logger()
 

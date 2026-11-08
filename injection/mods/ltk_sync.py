@@ -33,7 +33,7 @@ from typing import List, Optional
 from utils.core.logging import get_logger
 from utils.threading.thread_manager import create_daemon_thread
 
-from ..overlay.ltk_library import IndexEntry, library_index_mtime, read_library_index
+from ..overlay.ltk_data import IndexEntry, library_index_mtime, read_library_index
 from .manifest import _STORAGE_LOCK, SavedMod, find_saved_mod, update_saved_mod
 from .migration import delete_copy
 from .mod_facts import compute_mod_facts, stamp_of

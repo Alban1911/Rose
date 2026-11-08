@@ -27,8 +27,10 @@ from injection.mods.ltk_ref import ltk_ref
 from injection.mods.manifest import SavedMod
 from injection.mods.mod_facts import ModFacts
 from injection.mods.mod_source import LtkEntry, RoseFile
-from injection.overlay import overlay_manager
-from injection.overlay.overlay_manager import LtkLogTail
+from injection.overlay import ltf_session, overlay_manager
+from injection.overlay.ltf_report import ltk_failure_hint
+from injection.overlay.ltf_session import LtfSession
+from injection.overlay.ltk_data import LtkLogTail
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase, status
 from threads.handlers.injection_trigger import InjectionTrigger
 from utils.core.junction import link_or_extract
@@ -259,7 +261,7 @@ class OverlayStagingTests(LtfSessionTestCase):
         archives = self.overlay.pack_mods(self.stage_dir, [mod])
 
         self.assertEqual(archives, {mod: self.stage_dir / f"{mod}.fantome"})
-        with patch.object(overlay_manager, "write_fantome_zip") as pack:
+        with patch.object(ltf_session, "write_fantome_zip") as pack:
             self.assertTrue(self.overlay.stage_mods(self.stage_dir, [mod], archives=archives))
 
         pack.assert_not_called()  # nothing left to pack on the way to the scan
@@ -323,7 +325,7 @@ class LtkLogReadingTests(LtfSessionTestCase):
             handle.write(text)
 
     def started_session(self):
-        session = self.overlay._new_session(FakeBridge(), launched=False)
+        session = self.overlay._new_session(LtfSession(FakeBridge(), launched=False))
         self.assertTrue(self.overlay._start_patcher(session))
         return session
 
@@ -507,7 +509,7 @@ class LtkLogTests(LtfSessionTestCase):
         (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
         self.assertIn("VRF00000009 (3168)", reason)
         self.assertIn("0x80096010", reason)
-        self.assertIn("Reinstall LTK Manager", overlay_manager.OverlayManager._ltk_failure_hint(reason))
+        self.assertIn("Reinstall LTK Manager", ltk_failure_hint(reason))
 
     def test_an_attached_patcher_is_not_reported(self):
         mod = self.make_mod()

@@ -11,25 +11,22 @@ from pathlib import Path
 from unittest.mock import patch
 
 from injection.mods.mod_facts import stamp_of
-from injection.overlay import ltk_library, overlay_manager
-from injection.overlay.ltk_library import (
+from injection.overlay import ltf_session, ltk_data, ltk_library
+from injection.overlay.ltf_session import (
+    ALREADY_OPEN_REASON,
+    LTF_MISSING_REASON,
+    LTK_MANAGER_MISSING_REASON,
+    LtfHost,
+)
+from injection.overlay.ltk_data import (
     IndexEntry,
-    LibrarySession,
-    LtkBusy,
-    LtkLibrary,
-    LtkUnavailable,
+    LtkLogTail,
     entry_archive,
     library_index_mtime,
     read_library_index,
     stored_archive,
 )
-from injection.overlay.overlay_manager import (
-    ALREADY_OPEN_REASON,
-    LTF_MISSING_REASON,
-    LTK_MANAGER_MISSING_REASON,
-    LtkLogTail,
-    OverlayManager,
-)
+from injection.overlay.ltk_library import LibrarySession, LtkBusy, LtkLibrary, LtkUnavailable
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
 from injection.tools.bridge import BridgeCommandError
 from injection.tools.tools_manager import ToolsManager
@@ -71,7 +68,7 @@ class OfflineIndexTests(unittest.TestCase):
         self.storage = self.root / "LTK mods"
         self.write("settings.json", {"modStoragePath": str(self.storage), "leaguePath": None})
         self.write("library.json", LIBRARY)
-        patcher = patch.object(ltk_library, "ltk_data_dir", return_value=self.data)
+        patcher = patch.object(ltk_data, "ltk_data_dir", return_value=self.data)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -105,7 +102,7 @@ class OfflineIndexTests(unittest.TestCase):
         (self.data / "library.json").unlink()
         self.assertIsNone(read_library_index())
         self.assertIsNone(library_index_mtime())
-        with patch.object(ltk_library, "ltk_data_dir", return_value=None):
+        with patch.object(ltk_data, "ltk_data_dir", return_value=None):
             self.assertIsNone(read_library_index())
 
     def test_the_index_time_tells_when_the_library_changed(self):
@@ -151,14 +148,14 @@ class DataFolderTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def test_the_desktop_users_folder_comes_first(self):
-        self.assertIsNone(ltk_library.ltk_data_dir())
+        self.assertIsNone(ltk_data.ltk_data_dir())
 
         self.admin.mkdir(parents=True)
-        self.assertEqual(ltk_library.ltk_data_dir(), self.admin)
+        self.assertEqual(ltk_data.ltk_data_dir(), self.admin)
 
         self.desktop.mkdir(parents=True)
-        self.assertEqual(ltk_library.ltk_data_dir(), self.desktop)
-        self.assertEqual(ltk_library.library_index_path(), self.desktop / "library.json")
+        self.assertEqual(ltk_data.ltk_data_dir(), self.desktop)
+        self.assertEqual(ltk_data.library_index_path(), self.desktop / "library.json")
 
     def test_ltk_managers_logs_are_found_as_before(self):
         self.desktop.mkdir(parents=True)  # never logged there
@@ -173,13 +170,13 @@ class LibrarySessionTests(LtfSessionTestCase):
     def setUp(self):
         super().setUp()
         FakeBridge.mod_storage = self.root / "ltk-mods"
-        self.overlay.saved_mods_root = self.root / "saved"
+        self.host.saved_mods_root = self.root / "saved"
         self.archive = self.root / "saved" / "voiceover" / "VO Korean.fantome"
         self.archive.parent.mkdir(parents=True)
         with zipfile.ZipFile(self.archive, "w") as packed:
             packed.writestr("META/info.json", '{"Name": "VO Korean"}')
             packed.writestr("WAD/Ahri.ko_KR.wad.client", b"voice")
-        self.library = LtkLibrary(self.overlay)
+        self.library = LtkLibrary(self.host)
 
     def test_a_kept_entry_stays_turned_off_and_is_rose_s_no_more(self):
         with self.library.session() as session:
@@ -202,7 +199,7 @@ class LibrarySessionTests(LtfSessionTestCase):
         self.assertEqual(self.state()["installed"], {})
 
     def test_the_archive_goes_to_ltk_manager_as_it_is(self):
-        with patch.object(overlay_manager, "write_fantome_zip", side_effect=AssertionError("packed again")):
+        with patch.object(ltf_session, "write_fantome_zip", side_effect=AssertionError("packed again")):
             with self.library.session() as session:
                 session.import_archive(self.archive, "VO Korean")
 
@@ -251,7 +248,7 @@ class LibrarySessionTests(LtfSessionTestCase):
             self.assertEqual(repaired.read("WAD/Ahri.ko_KR.wad.client"), b"fixed")
 
     def test_busy_while_champion_select_stages(self):
-        self.overlay._staging_open = True
+        self.overlay.open_staging()
 
         with self.assertRaises(LtkBusy):
             with self.library.session():
@@ -273,8 +270,8 @@ class LibrarySessionTests(LtfSessionTestCase):
         installed = "0f0f0f0f-0000-4000-8000-000000000000"
         FakeBridge.initial_library = [{"id": installed, "name": "1001-EternalAspect", "enabled": True}]
         self.state_path.write_text(json.dumps({"installed": {installed: "1001-EternalAspect"}}), encoding="utf-8")
-        self.assertTrue(self.overlay._stage_lock.acquire(blocking=False))
-        self.addCleanup(self.overlay._stage_lock.release)
+        self.assertTrue(self.host.stage_lock.acquire(blocking=False))
+        self.addCleanup(self.host.stage_lock.release)
 
         with self.assertRaises(LtkBusy):
             with self.library.session():
@@ -283,23 +280,23 @@ class LibrarySessionTests(LtfSessionTestCase):
         self.assertEqual(list(self.state()["installed"]), [installed])
 
     def test_busy_at_once_while_another_session_connects(self):
-        self.assertTrue(self.overlay._connect_lock.acquire(blocking=False))
-        self.addCleanup(self.overlay._connect_lock.release)
+        self.assertTrue(self.host.connect_lock.acquire(blocking=False))
+        self.addCleanup(self.host.connect_lock.release)
 
         with self.assertRaises(LtkBusy):
             with self.library.session():
                 self.fail("no session while another connects")
 
     def test_waiting_for_another_connect_when_asked(self):
-        self.overlay._stage_lock.acquire()
-        self.overlay._connect_lock.acquire()
-        threading.Timer(0.05, self.overlay._stage_lock.release).start()
-        threading.Timer(0.1, self.overlay._connect_lock.release).start()
+        self.host.stage_lock.acquire()
+        self.host.connect_lock.acquire()
+        threading.Timer(0.05, self.host.stage_lock.release).start()
+        threading.Timer(0.1, self.host.connect_lock.release).start()
 
         with self.library.session(wait=True) as session:
             self.assertEqual(session.library(), {})
-        self.assertTrue(self.overlay._stage_lock.acquire(blocking=False))
-        self.overlay._stage_lock.release()
+        self.assertTrue(self.host.stage_lock.acquire(blocking=False))
+        self.host.stage_lock.release()
 
     def test_unavailable_without_rose_s_bridge_files(self):
         (self.tools / "ltk_launcher.exe").unlink()
@@ -318,8 +315,8 @@ class LibrarySessionTests(LtfSessionTestCase):
         self.assertEqual(str(raised.exception), LTK_MANAGER_MISSING_REASON)
 
     def test_unavailable_while_the_user_has_ltk_manager_open(self):
-        with patch.object(overlay_manager, "find_bridge", return_value=None), \
-                patch.object(OverlayManager, "_ltk_manager_running", return_value=True):
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(LtfHost, "_ltk_manager_running", return_value=True):
             with self.assertRaises(LtkUnavailable) as raised:
                 with self.library.session():
                     self.fail("no session beside the user's LTK Manager")
@@ -342,7 +339,7 @@ class LibrarySessionTests(LtfSessionTestCase):
                 raise RuntimeError("the caller failed")
 
         self.assertEqual(self.bridge.library_entries, [])
-        for lock in (self.overlay._stage_lock, self.overlay._connect_lock):
+        for lock in (self.host.stage_lock, self.host.connect_lock):
             self.assertTrue(lock.acquire(blocking=False))
             lock.release()
 
@@ -370,7 +367,7 @@ class ModCheckTests(LtfSessionTestCase):
             packed.writestr("WAD/Leona.wad.client", b"wad")
         self.before = self.stored.read_bytes()
         self.recorded = []
-        self.library = LtkLibrary(self.overlay)
+        self.library = LtkLibrary(self.host, self.game)
 
     def record(self, ltk_id, stamp=None):
         """The manifest write: what it was given, and whether the entry was
@@ -482,7 +479,7 @@ class ModCheckTests(LtfSessionTestCase):
         self.assertEqual(FakeBridge.created, [])
 
     def test_nothing_is_checked_while_champion_select_stages(self):
-        self.overlay._staging_open = True
+        self.overlay.open_staging()
 
         self.assertIsNone(self.check())
         self.assertEqual(FakeBridge.created, [])
@@ -497,7 +494,7 @@ class ModCheckTests(LtfSessionTestCase):
     def test_nothing_is_checked_without_ltk_manager_or_a_game_folder(self):
         with patch.object(ToolsManager, "detect_ltk_manager", return_value=None):
             self.assertIsNone(self.check())
-        self.overlay.game_dir = None
+        self.library.game_dir = None
         self.assertIsNone(self.check())
 
         self.assertEqual((FakeBridge.created, self.recorded), ([], []))
@@ -515,7 +512,7 @@ class RemoveRoseModsTests(LtfSessionTestCase):
 
     def setUp(self):
         super().setUp()
-        self.mods_root = self.overlay.saved_mods_root
+        self.mods_root = self.host.saved_mods_root
         manifest = self.mods_root / "voiceover" / "rose_category_mods.json"
         manifest.parent.mkdir(parents=True)
         manifest.write_text(json.dumps({"version": 1, "mods": {
@@ -531,7 +528,7 @@ class RemoveRoseModsTests(LtfSessionTestCase):
                                       for mod_id, enabled in entries]
 
     def remove(self):
-        return ltk_library.remove_rose_mods(self.overlay)
+        return ltk_library.remove_rose_mods(self.host)
 
     def test_every_entry_rose_added_goes_and_the_users_are_turned_back_on(self):
         self.library((VO_ID, True), (self.DELETED, False), (self.KEPT, False), (self.INSTALLED, True),

@@ -37,7 +37,8 @@ class ModCheckOnImportTests(unittest.TestCase):
         self.imported = [{"fileName": source.name, "path": str(self.stored), "relativePath": self.relative_path,
                           "modName": name}]
         library_class = patch.object(message_handler, "LtkLibrary")
-        self.library = library_class.start().return_value
+        self.library_class = library_class.start()
+        self.library = self.library_class.return_value
         self.addCleanup(library_class.stop)
 
     def handler(self, phase="Lobby", injecting=False):
@@ -69,6 +70,8 @@ class ModCheckOnImportTests(unittest.TestCase):
 
         kept = instance._check_imported_mods(self.imported, [], MagicMock())
 
+        overlay = instance.injection_manager.injector.overlay_manager
+        self.library_class.assert_called_once_with(overlay.host, overlay.game_dir)
         self.assertEqual(kept[0]["health"], dict(verdict, ltkId=LTK_ID))
         mod = self.saved()
         self.assertEqual((mod.ltk_id, mod.stored, mod.pending), (LTK_ID, None, False))

@@ -813,8 +813,8 @@ def _remove_ltk_mods() -> int:
     import threading
 
     from config import REMOVE_LTK_MODS_TIMEOUT_S
+    from injection.overlay.ltf_session import LtfHost
     from injection.overlay.ltk_library import remove_rose_mods
-    from injection.overlay.overlay_manager import OverlayManager
     from utils.core.logging import setup_logging
     from utils.core.paths import get_injection_dir, get_tools_dir
 
@@ -823,7 +823,7 @@ def _remove_ltk_mods() -> int:
     watchdog.daemon = True
     watchdog.start()
     try:
-        return remove_rose_mods(OverlayManager(get_tools_dir(), get_injection_dir() / "mods", None))
+        return remove_rose_mods(LtfHost(get_tools_dir(), get_injection_dir()))
     except Exception as e:  # noqa: BLE001 - the uninstall goes on, with no dialog of Rose's
         log.error(f"[MODS] Could not remove Rose's mods from LTK Manager's library: {e}", exc_info=True)
         return 1

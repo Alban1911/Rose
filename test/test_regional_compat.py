@@ -208,7 +208,8 @@ class OverlayLifetimeTests(unittest.TestCase):
     the client (and so the phase) goes away mid-match as on CN/WeGame."""
 
     def setUp(self):
-        from injection.overlay import overlay_manager
+        from injection.overlay import ltf_report, overlay_manager
+        from injection.overlay.ltf_session import LtfSession
         from injection.overlay.overlay_manager import OverlayManager
         self.module = overlay_manager
         self.temp = tempfile.TemporaryDirectory()
@@ -226,10 +227,11 @@ class OverlayLifetimeTests(unittest.TestCase):
             }}),
             alive=lambda: self.bridge.is_alive,
         )
-        self.session = self.manager._new_session(self.bridge, launched=False)
+        self.session = self.manager._new_session(LtfSession(self.bridge, launched=False))
         self.enterContext(patch.object(overlay_manager.time, 'sleep'))
         self.enterContext(patch.object(overlay_manager, 'PATCHER_STATUS_POLL_TICKS', 1))
         self.report = self.enterContext(patch.object(overlay_manager, 'report_issue'))
+        self.enterContext(patch.object(ltf_report, 'report_issue', self.report))
 
     def game(self, timeouts=0, on_wait=None):
         """A game process that exits after `timeouts` one-second waits."""

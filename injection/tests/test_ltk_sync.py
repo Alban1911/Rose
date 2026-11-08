@@ -15,7 +15,7 @@ from injection.mods import ltk_sync, mod_facts
 from injection.mods.ltk_sync import start_saved_mods_sync, sync_saved_mods
 from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
 from injection.mods.storage import ModStorageService
-from injection.overlay import ltk_library
+from injection.overlay import ltk_data
 from injection.tests.test_mod_archives import PNG, VOICEOVER, add_entries, make_archive
 from utils.core import historic, mod_historic
 
@@ -43,7 +43,7 @@ class LtkSyncTests(unittest.TestCase):
         (self.data / "settings.json").write_text(json.dumps({"modStoragePath": str(self.ltk_mods)}),
                                                  encoding="utf-8")
         for patcher in (
-            patch.object(ltk_library, "ltk_data_dir", return_value=self.data),
+            patch.object(ltk_data, "ltk_data_dir", return_value=self.data),
             patch.object(ltk_sync, "_synced_mtime", None),  # a Rose that has not synced yet
             patch.object(mod_facts, "get_injection_dir", return_value=self.root / "injection"),
             patch.object(historic, "get_user_data_dir", return_value=self.root),

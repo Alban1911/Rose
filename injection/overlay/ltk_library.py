@@ -6,26 +6,21 @@ A mod the user adds is imported into LTK Manager once and stays there; each
 game only switches it on and off. Rose then needs LTK Manager's library in two
 ways:
 
-- offline, with no LTK Manager running: which entries exist and where LTK
-  Manager keeps their archives, read from its own index (library.json in its
-  data folder). A sync marks a saved mod missing from it, and the loading
-  screen name reads a skin's champion record from LTK Manager's copy;
+- offline, with no LTK Manager running: read from its own files (ltk_data);
 - online, through Rose's bridge, outside any game: importing a saved mod,
   checking and repairing it, keeping it (turned off) after the session that
-  imported it, removing it. LtkLibrary.session() gives such a session: never
-  while an injection's session holds LTK Manager, and LTK Manager closed
-  again if Rose started it. LtkLibrary.check_mod moves a mod the user adds
-  into the library.
+  imported it, removing it. LtkLibrary.session() gives such a session (an
+  LtfHost one): never while an injection's session holds LTK Manager, and LTK
+  Manager closed again if Rose started it. LtkLibrary.check_mod moves a mod
+  the user adds into the library.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Mapping, Optional
 
@@ -36,12 +31,15 @@ from ..mods.fingerprint import mod_fingerprint
 from ..mods.manifest import manifest_ltk_ids
 from ..mods.mod_facts import stamp_of
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
-from .overlay_manager import (
+from .ltf_session import (
     ALREADY_OPEN_REASON,
     LTF_MISSING_REASON,
     LTK_MANAGER_MISSING_REASON,
-    _archive_for_ltk,
+    LtfHost,
+    LtfSession,
+    archive_for_ltk,
 )
+from .ltk_data import entry_archive
 
 log = get_logger()
 
@@ -49,31 +47,14 @@ __all__ = [
     "ALREADY_OPEN_REASON",
     "BridgeCommandError",
     "BridgeUnavailable",
-    "IndexEntry",
     "LTF_MISSING_REASON",
     "LTK_MANAGER_MISSING_REASON",
     "LibrarySession",
     "LtkBusy",
     "LtkLibrary",
     "LtkUnavailable",
-    "entry_archive",
-    "library_index_mtime",
-    "library_index_path",
-    "ltk_data_candidates",
-    "ltk_data_dir",
-    "mod_storage_root",
-    "read_library_index",
     "remove_rose_mods",
-    "stored_archive",
 ]
-
-LTK_DATA_FOLDER = "dev.leaguetoolkit.manager"
-LIBRARY_INDEX = "library.json"
-LTK_SETTINGS = "settings.json"
-# The index layout this reads (LTK Manager 1.33): {"version": 2, "mods": [{id,
-# format, storage, slug...}], "profiles": [{id, enabledMods...}], "activeProfileId"}.
-# Another layout is not guessed at: a misread index would mark mods missing
-LIBRARY_INDEX_VERSION = 2
 
 # LTK's problem severities: "fatal" (the game crashes on it) and "error" (the
 # game rejects it, the mod does not work); "warning" and "info" leave it working
@@ -82,167 +63,6 @@ REJECTED_SEVERITIES = ("fatal", "error")
 # for the next); a mod whose repair keeps finding more stops here
 REPAIR_PASSES = 3
 
-
-# --------------------------------------------------------------------------------------
-# offline: LTK Manager's own files
-# --------------------------------------------------------------------------------------
-
-def ltk_data_candidates() -> List[Path]:
-    """Where LTK Manager may keep its data: the roaming app data of the
-    desktop user it runs as first (an elevated Rose may run as another
-    account), then this account's."""
-    candidates = []
-    try:
-        from utils.core.paths import get_user_data_dir
-
-        candidates.append(get_user_data_dir().parent.parent / "Roaming" / LTK_DATA_FOLDER)
-    except Exception:  # noqa: BLE001 - the next candidate still answers
-        pass
-    roaming = os.environ.get("APPDATA")
-    if roaming:
-        candidates.append(Path(roaming) / LTK_DATA_FOLDER)
-    return candidates
-
-
-def ltk_data_dir() -> Optional[Path]:
-    """LTK Manager's data folder (%APPDATA%\\dev.leaguetoolkit.manager of the
-    desktop user), None when LTK Manager never ran there."""
-    for candidate in ltk_data_candidates():
-        if candidate.is_dir():
-            return candidate
-    return None
-
-
-def library_index_path() -> Optional[Path]:
-    """LTK Manager's library index: it changes whenever its library does."""
-    data_dir = ltk_data_dir()
-    return data_dir / LIBRARY_INDEX if data_dir is not None else None
-
-
-def library_index_mtime() -> Optional[float]:
-    """When LTK Manager last changed its library (None: no index)."""
-    path = library_index_path()
-    if path is None:
-        return None
-    try:
-        return path.stat().st_mtime
-    except OSError:
-        return None
-
-
-@dataclass(frozen=True)
-class IndexEntry:
-    """One mod of LTK Manager's library, as its index lists it."""
-
-    ltk_id: str
-    slug: Optional[str]
-    format: Optional[str]
-    storage: Optional[str]
-    enabled: bool  # in the active profile's enabledMods (entries carry no flag)
-    archive: Optional[Path]  # where LTK Manager keeps it as an archive (may not exist)
-
-
-def _mod_storage_root(data_dir: Path) -> Path:
-    """Where LTK Manager stores its mods: its settings' modStoragePath, else
-    the mods folder of its data folder."""
-    try:
-        settings = json.loads((data_dir / LTK_SETTINGS).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        log.debug(f"[MODS] Could not read LTK Manager's settings: {e}")
-        settings = None
-    custom = settings.get("modStoragePath") if isinstance(settings, dict) else None
-    if isinstance(custom, str) and custom.strip():
-        return Path(custom.strip())
-    return data_dir / "mods"
-
-
-def mod_storage_root() -> Optional[Path]:
-    """Where LTK Manager stores the mods it imports (None: it never ran
-    here). The folder may not exist yet."""
-    data_dir = ltk_data_dir()
-    return _mod_storage_root(data_dir) if data_dir is not None else None
-
-
-def _archive_suffix(fmt: object) -> str:
-    return MODPKG_SUFFIX if fmt == "modpkg" else ".fantome"
-
-
-def _plain_name(value: str) -> bool:
-    """Whether *value* names a file in a folder, and nothing more."""
-    return bool(value) and value not in {".", ".."} and not any(c in value for c in "/\\:")
-
-
-def read_library_index() -> Optional[Dict[str, IndexEntry]]:
-    """LTK Manager's library by entry id, read from its index without it
-    running. None when the index is absent or cannot be read (LTK Manager
-    writing it, another layout): never read that as "every mod is gone"."""
-    path = library_index_path()
-    if path is None:
-        return None
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError) as e:
-        log.debug(f"[MODS] Could not read LTK Manager's library index: {e}")
-        return None
-    if not isinstance(document, dict) or document.get("version") != LIBRARY_INDEX_VERSION:
-        return None
-    mods = document.get("mods")
-    if not isinstance(mods, list):
-        return None
-
-    enabled: set = set()
-    profiles = document.get("profiles")
-    if isinstance(profiles, list):
-        for profile in profiles:
-            if isinstance(profile, dict) and profile.get("id") == document.get("activeProfileId"):
-                listed = profile.get("enabledMods")
-                if isinstance(listed, list):
-                    enabled = {str(mod_id) for mod_id in listed}
-                break
-
-    root = _mod_storage_root(path.parent)
-    index: Dict[str, IndexEntry] = {}
-    for mod in mods:
-        if not isinstance(mod, dict):
-            continue
-        ltk_id = mod.get("id")
-        if not isinstance(ltk_id, str) or not ltk_id:
-            continue
-        slug = mod.get("slug") if isinstance(mod.get("slug"), str) else None
-        fmt = mod.get("format") if isinstance(mod.get("format"), str) else None
-        storage = mod.get("storage") if isinstance(mod.get("storage"), str) else None
-        archive = None
-        if slug and _plain_name(slug) and storage in (None, "archive"):
-            archive = root / f"{slug}{_archive_suffix(fmt)}"
-        index[ltk_id] = IndexEntry(ltk_id, slug, fmt, storage, ltk_id in enabled, archive)
-    return index
-
-
-def entry_archive(entry: Mapping) -> Optional[Path]:
-    """Where LTK Manager keeps the archive of a library entry its bridge
-    listed: an archive-storage mod keeps it beside its folder (modDir), as
-    <modDir>.fantome (.modpkg for that format). None for a folder-storage
-    mod, or an entry without modDir. The file may not exist."""
-    mod_dir = entry.get("modDir")
-    if not mod_dir or entry.get("storage") not in (None, "archive"):
-        return None
-    mod_dir = Path(str(mod_dir))
-    return mod_dir.with_name(mod_dir.name + _archive_suffix(entry.get("format")))
-
-
-def stored_archive(ltk_id: str) -> Optional[Path]:
-    """LTK Manager's archive of the entry *ltk_id*, if it is there."""
-    index = read_library_index()
-    entry = index.get(ltk_id) if index else None
-    archive = entry.archive if entry is not None else None
-    return archive if archive is not None and archive.is_file() else None
-
-
-# --------------------------------------------------------------------------------------
-# online: a session through Rose's bridge, outside any game
-# --------------------------------------------------------------------------------------
 
 def _answer_value(response: dict) -> dict:
     """The value LTK Manager answered a library command with ({} when none)."""
@@ -284,10 +104,14 @@ class LtkUnavailable(RuntimeError):
 
 
 class LtkLibrary:
-    """LTK Manager's library through Rose's bridge, for the saved mods."""
+    """LTK Manager's library through Rose's bridge, for the saved mods.
 
-    def __init__(self, overlay) -> None:
-        self.overlay = overlay
+    *game_dir* is the injection's League game folder: check_mod does not run
+    without one."""
+
+    def __init__(self, host: LtfHost, game_dir: Optional[Path] = None) -> None:
+        self.host = host
+        self.game_dir = game_dir
 
     @contextmanager
     def session(self, *, wait: bool = False) -> Iterator["LibrarySession"]:
@@ -304,30 +128,27 @@ class LtkLibrary:
         session is registered (session_active), and a session starting then
         would remove the mods it just installed as an earlier session's.
         """
-        overlay = self.overlay
-        if not overlay._stage_lock.acquire(blocking=wait):
+        host = self.host
+        if not host.stage_lock.acquire(blocking=wait):
             raise LtkBusy("LTK Manager is in use for a game")
         try:
-            if not overlay._connect_lock.acquire(blocking=wait):
+            if not host.connect_lock.acquire(blocking=wait):
                 raise LtkBusy("LTK Manager is busy with another session")
             try:
-                with overlay._session_lock:
-                    busy = overlay._early_session is not None or overlay._staging_open
-                process_manager = overlay.process_manager
-                if busy or (process_manager is not None and process_manager.session_active()):
+                if host.busy():
                     raise LtkBusy("LTK Manager is in use for a game")
-                session = overlay._start_ltf_session(report=False)
+                session = host.start(report=False)
                 if session is None:
-                    raise LtkUnavailable(overlay.last_failure_reason or "LTK Manager could not be started")
+                    raise LtkUnavailable(host.last_failure_reason or "LTK Manager could not be started")
                 try:
-                    yield LibrarySession(overlay, session)
+                    yield LibrarySession(host, session)
                 finally:
                     # Removes what was imported and not kept, closes LTK Manager if Rose started it
-                    overlay._end_session(session)
+                    host.end(session)
             finally:
-                overlay._connect_lock.release()
+                host.connect_lock.release()
         finally:
-            overlay._stage_lock.release()
+            host.stage_lock.release()
 
     def check_mod(self, mod: Path, display_name: str, on_kept: Callable[..., bool]) -> Optional[dict]:
         """Move a mod the user adds into LTK Manager's library: import it,
@@ -356,7 +177,7 @@ class LtkLibrary:
         [{"rule", "title", "description"}] that make the game reject the mod,
         and "ltkId" once the entry is kept}.
         """
-        if self.overlay.game_dir is None or not Path(mod).exists():
+        if self.game_dir is None or not Path(mod).exists():
             return None
         try:
             with self.session() as session:
@@ -401,13 +222,13 @@ class LibrarySession:
     BridgeCommandError (this command failed).
     """
 
-    def __init__(self, overlay, session: dict) -> None:
-        self._overlay = overlay
+    def __init__(self, host: LtfHost, session: LtfSession) -> None:
+        self._host = host
         self._session = session
 
     @property
     def bridge(self):
-        return self._session["bridge"]
+        return self._session.bridge
 
     def library(self) -> Dict[str, dict]:
         """LTK Manager's library by entry id."""
@@ -418,16 +239,16 @@ class LibrarySession:
         entry. The entry is Rose's until kept: a session that ends, or a Rose
         that crashes, first removes it, as an injection's mods."""
         archive = Path(archive)
-        staging = self._overlay._staging_root() / f"import-{uuid.uuid4().hex}"
+        staging = self._host.staging_root() / f"import-{uuid.uuid4().hex}"
         staging.mkdir(parents=True, exist_ok=True)
         try:
             if archive.is_file():
                 # A .modpkg keeps its suffix: LTK Manager tells the format by it
                 suffix = MODPKG_SUFFIX if archive.suffix.lower() == MODPKG_SUFFIX else ".fantome"
-                staged = _archive_for_ltk(archive, staging / f"{archive.stem}{suffix}")
+                staged = archive_for_ltk(archive, staging / f"{archive.stem}{suffix}")
             else:
-                staged = _archive_for_ltk(archive, staging / f"{archive.name}.fantome")
-            return self._overlay._import_archive(self._session, staged, archive, display_name)
+                staged = archive_for_ltk(archive, staging / f"{archive.name}.fantome")
+            return self._host.import_archive(self._session, staged, archive, display_name)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 
@@ -442,26 +263,17 @@ class LibrarySession:
         nothing removes the entry, and the session-start cleanup leaves alone
         the entries a manifest lists. Raises when it could not be turned off
         (it is still kept; the next session start turns it off)."""
-        ltk_id = str(ltk_id)
-        for tracked in ("installed", "fingerprints", "sources"):
-            self._session[tracked].pop(ltk_id, None)
-
-        def release(state):
-            state["installed"].pop(ltk_id, None)
-            state["kept"].pop(ltk_id, None)
-
-        self._overlay._update_state(release)
-        self.bridge.toggle(ltk_id, False)
+        self._host.keep(self._session, ltk_id)
 
     def kept_copy(self, stored: Path, library: Mapping[str, dict]) -> Optional[str]:
         """The entry a game left in LTK Manager of the saved mod Rose stores
-        at *stored* (overlay_manager's _park: kept, turned off, for the next
+        at *stored* (LtfHost._park: kept, turned off, for the next
         game), when *library* (by id) still lists it and it came from that
         very content: it is that mod's already, with no import. Raises
         OSError when *stored* cannot be read."""
         source = os.path.normcase(str(Path(stored).resolve()))
         records = {
-            mod_id: record for mod_id, record in self._overlay._kept_mods().items()
+            mod_id: record for mod_id, record in self._host.journal.kept().items()
             if mod_id in library and os.path.normcase(record["source"]) == source
         }
         if not records:
@@ -475,12 +287,7 @@ class LibrarySession:
 
     def uninstall(self, ltk_id: str) -> None:
         """Remove an entry from LTK Manager's library."""
-        ltk_id = str(ltk_id)
-        self.bridge.uninstall(ltk_id)
-        if self._session["installed"].pop(ltk_id, None) is not None:
-            self._session["fingerprints"].pop(ltk_id, None)
-            self._session["sources"].pop(ltk_id, None)
-            self._overlay._untrack(removed=[ltk_id])
+        self._host.uninstall(self._session, ltk_id)
 
     def check_and_repair(self, ltk_id: str, display_name: str) -> dict:
         """LTK Manager's verdict on an entry, after it repaired what it can.
@@ -519,7 +326,7 @@ class LibrarySession:
         return result
 
 
-def remove_rose_mods(overlay) -> int:
+def remove_rose_mods(host: LtfHost) -> int:
     """Remove from LTK Manager's library every entry Rose added there, for
     Rose's uninstaller when the user does not keep Rose's data (main's
     --remove-ltk-mods): only that data names them, so nothing would remove
@@ -533,14 +340,14 @@ def remove_rose_mods(overlay) -> int:
     nothing and turned nothing off), 1 when LTK Manager could not be reached,
     an entry could not be removed or a user's mod stays off.
     """
-    state = overlay._read_state()
-    ids = manifest_ltk_ids(overlay._saved_mods_dir()) | set(state["kept"]) | set(state["installed"])
+    state = host.journal.read()
+    ids = manifest_ltk_ids(host.saved_mods_dir()) | set(state["kept"]) | set(state["installed"])
     if not ids and not state["disabled"]:
         log.info("[MODS] Rose added nothing to LTK Manager's library")
         return 0
     removed, failed = [], []
     try:
-        with LtkLibrary(overlay).session(wait=True) as session:
+        with LtkLibrary(host).session(wait=True) as session:
             library = session.library()
             for ltk_id in sorted(ids & set(library)):
                 try:
@@ -551,8 +358,8 @@ def remove_rose_mods(overlay) -> int:
                     continue
                 removed.append(ltk_id)
             if removed:
-                overlay._forget_kept(removed)
-            failed += _turn_users_mods_back_on(overlay, session, library)
+                host.journal.forget_kept(removed)
+            failed += _turn_users_mods_back_on(host, session, library)
     except (LtkBusy, LtkUnavailable, BridgeUnavailable, BridgeCommandError) as e:
         log.warning(f"[MODS] Could not remove Rose's mods from LTK Manager's library: {e}")
         return 1
@@ -560,12 +367,12 @@ def remove_rose_mods(overlay) -> int:
     return 1 if failed else 0
 
 
-def _turn_users_mods_back_on(overlay, session: LibrarySession, library: Mapping[str, dict]) -> List[str]:
+def _turn_users_mods_back_on(host: LtfHost, session: LibrarySession, library: Mapping[str, dict]) -> List[str]:
     """Turn back on the user's own mods a game turned off that the session's
     start could not (its cleanup leaves them recorded and goes on), and
     return those still off: the uninstaller deletes that record next."""
     still_off = []
-    for ltk_id in overlay._read_state()["disabled"]:
+    for ltk_id in host.journal.read()["disabled"]:
         if ltk_id not in library or library[ltk_id].get("enabled"):
             continue
         try:
@@ -574,5 +381,5 @@ def _turn_users_mods_back_on(overlay, session: LibrarySession, library: Mapping[
             log.warning(f"[MODS] Could not turn the user's mod {ltk_id} back on in LTK Manager: {e}")
             still_off.append(ltk_id)
             continue
-        overlay._untrack(restored=[ltk_id])
+        host.journal.untrack(restored=[ltk_id])
     return still_off
