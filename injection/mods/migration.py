@@ -14,24 +14,23 @@ from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from typing import Callable, Iterator, List, Mapping, Optional, Protocol, Tuple
+from typing import Callable, Iterator, List, Mapping, NamedTuple, Optional, Protocol, Tuple
 
 from config import MOD_MIGRATION_MUTEX_NAME, SINGLE_INSTANCE_MUTEX_NAME
 from utils.core.junction import is_junction, safe_remove_entry
 from utils.core.logging import get_logger
 from utils.core.paths import get_desktop_user_desktop_dir
 
-from ..overlay.ltf_session import DISK_SPACE_HEADROOM_BYTES
+from ..overlay.ltf_session import LIBRARY_IMPORT_HEADROOM_BYTES
 from ..overlay.ltk_data import entry_archive, mod_storage_root
 from ..overlay.ltk_library import (
-    LTF_MISSING_REASON,
-    LTK_MANAGER_MISSING_REASON,
     BridgeCommandError,
     BridgeUnavailable,
     LibrarySession,
     LtkBusy,
     LtkLibrary,
     LtkUnavailable,
+    MissingComponent,
 )
 from .conversion import convert_folder_mods, rename_saved_paths
 from .manifest import ARCHIVE_SUFFIX, SavedMod, iter_saved_mods
@@ -41,8 +40,8 @@ from .storage import ModStorageService
 log = get_logger()
 
 BACKUP_FOLDER = "Rose mods backup {date:%Y-%m-%d}"
-INJECTION_FOLDERS = ("mods", "stage", "ltf_staging")
-SILENT_REASONS = (LTK_MANAGER_MISSING_REASON, LTF_MISSING_REASON)
+INJECTION_LINK_FOLDERS = ("mods", "stage", "ltf_staging")
+REASONS_THE_DLL_CHECK_REPORTS = tuple(MissingComponent)
 COPY_CHUNK_BYTES = 8 * 1024 * 1024
 
 _SYNCHRONIZE = 0x00100000
@@ -76,11 +75,16 @@ class MigrationUi(Protocol):
         """Tell the user why mods stay in Rose for now."""
 
 
+class FailedMove(NamedTuple):
+    mod: str
+    reason: str
+
+
 @dataclass
 class MigrationReport:
 
     moved: List[str] = field(default_factory=list)
-    failed: List[Tuple[str, str]] = field(default_factory=list)
+    failed: List[FailedMove] = field(default_factory=list)
     skipped_reason: Optional[str] = None
 
 
@@ -102,9 +106,9 @@ class _Move:
     """A saved mod to move into LTK Manager."""
 
     mod: SavedMod
-    name: str
+    display_name: str
     size: int
-    kept_id: Optional[str]
+    ltk_id_left_by_game: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -151,7 +155,7 @@ def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: Migr
             except (LtkBusy, LtkUnavailable) as e:
                 reason = str(e)
                 raise MigrationStopped(
-                    reason, None if reason in SILENT_REASONS else _unavailable_notice(reason)) from e
+                    reason, None if reason in REASONS_THE_DLL_CHECK_REPORTS else _unavailable_notice(reason)) from e
     except MigrationStopped as e:
         log.info(f"[MIGRATE] The saved mods stay in Rose for now: {e}")
         report.skipped_reason = str(e)
@@ -263,7 +267,7 @@ class _Migration:
         mods. Each import copies a mod there and Rose's copy goes after it:
         a drive Rose's mods share needs room for the largest, another drive
         for all of them."""
-        imports = [move.size for move in moves if move.kept_id is None]
+        imports = [move.size for move in moves if move.ltk_id_left_by_game is None]
         root = mod_storage_root()
         if not imports or root is None:
             return
@@ -273,7 +277,7 @@ class _Migration:
         except OSError as e:
             log.debug(f"[MIGRATE] Could not tell the free space on LTK Manager's drive: {e}")
             return
-        need = (max(imports) if shared else sum(imports)) + DISK_SPACE_HEADROOM_BYTES
+        need = (max(imports) if shared else sum(imports)) + LIBRARY_IMPORT_HEADROOM_BYTES
         if free < need:
             raise MigrationStopped(
                 f"{size_text(free)} free on LTK Manager's drive, {size_text(need)} needed",
@@ -286,19 +290,19 @@ class _Migration:
         total_bytes = sum(move.size for move in moves)
         done_bytes = 0
         for index, move in enumerate(moves, 1):
-            self.ui.progress(Step.MOVE, index, len(moves), move.name, done_bytes, total_bytes)
+            self.ui.progress(Step.MOVE, index, len(moves), move.display_name, done_bytes, total_bytes)
             try:
                 self._move(move)
             except BridgeUnavailable as e:
                 log.warning(f"[MIGRATE] LTK Manager stopped answering: the remaining mods stay in Rose for now ({e})")
                 self.report.failed.extend(
-                    (rest.name, f"LTK Manager stopped answering ({e})") for rest in moves[index - 1:])
+                    FailedMove(rest.display_name, f"LTK Manager stopped answering ({e})") for rest in moves[index - 1:])
                 return
             except (_MoveFailed, BridgeCommandError, OSError, ValueError, zipfile.BadZipFile) as e:
-                log.warning(f"[MIGRATE] Could not move {move.name} into LTK Manager, it stays in Rose for now: {e}")
-                self.report.failed.append((move.name, str(e)))
+                log.warning(f"[MIGRATE] Could not move {move.display_name} into LTK Manager, it stays in Rose for now: {e}")
+                self.report.failed.append(FailedMove(move.display_name, str(e)))
             else:
-                self.report.moved.append(move.name)
+                self.report.moved.append(move.display_name)
             done_bytes += move.size
 
     def _move(self, move: _Move) -> None:
@@ -308,7 +312,7 @@ class _Migration:
         kept there, and Rose's copy deleted. Raises with the mod still Rose's."""
         mod = move.mod
         facts = mod.facts or compute_mod_facts(mod.stored)[0]
-        ltk_id = move.kept_id or str(self.session.import_archive(mod.stored, move.name).get("id"))
+        ltk_id = move.ltk_id_left_by_game or str(self.session.import_archive(mod.stored, move.display_name).get("id"))
         entry = self.session.confirm(ltk_id)
         if entry is None:
             raise _MoveFailed("LTK Manager does not list it after the import")
@@ -319,10 +323,10 @@ class _Migration:
         try:
             self.session.keep(ltk_id)
         except (BridgeUnavailable, BridgeCommandError) as e:
-            log.debug(f"[MIGRATE] Could not turn {move.name} off in LTK Manager, the next session start does: {e}")
+            log.debug(f"[MIGRATE] Could not turn {move.display_name} off in LTK Manager, the next session start does: {e}")
         delete_copy(self.storage, mod)
-        log.info(f"[MIGRATE] Moved {move.name} into LTK Manager's library"
-                 f"{' (the copy a game kept there)' if move.kept_id else ''}")
+        log.info(f"[MIGRATE] Moved {move.display_name} into LTK Manager's library"
+                 f"{' (the copy a game kept there)' if move.ltk_id_left_by_game else ''}")
 
 
 @contextmanager
@@ -359,7 +363,7 @@ def _alone() -> Iterator[None]:
 def _empty_injection_folders(injection_dir: Path) -> None:
     """Empty the folders an injection links saved mods into: a hard link
     left there keeps a deleted archive's bytes on disk."""
-    for name in INJECTION_FOLDERS:
+    for name in INJECTION_LINK_FOLDERS:
         try:
             entries = list((injection_dir / name).iterdir())
         except OSError:

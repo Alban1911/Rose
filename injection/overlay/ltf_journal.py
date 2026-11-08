@@ -4,14 +4,32 @@
 import json
 import threading
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Callable, Dict, TypedDict
 
 from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
 
 log = get_logger()
 
-_STATE_FILE_LOCK = threading.Lock()
+LibraryId = str
+LibraryNames = Dict[LibraryId, str]
+
+
+class KeptRecord(TypedDict):
+    """A saved mod left in LTK Manager, turned off, for the next game (LtfHost._park)."""
+
+    folder: str
+    fingerprint: str
+    source: str
+
+
+_SHARED_STATE_FILE_LOCK = threading.Lock()
+_LAYOUT_KEYS = ("installed", "disabled", "manager", "kept", "switched")
+
+
+def _upgrade_first_layout(document: dict) -> dict:
+    """The state of the first layout, which held the installed ids alone."""
+    return {"installed": {k: v for k, v in document.items() if isinstance(v, str)}}
 
 
 class LtfJournal:
@@ -27,31 +45,33 @@ class LtfJournal:
             document = {}
         if not isinstance(document, dict):
             document = {}
-        if not any(key in document for key in ("installed", "disabled", "manager", "kept", "switched")):
-            document = {"installed": {k: v for k, v in document.items() if isinstance(v, str)}}
+        if not any(key in document for key in _LAYOUT_KEYS):
+            document = _upgrade_first_layout(document)
         installed = document.get("installed")
         disabled = document.get("disabled")
         manager = document.get("manager")
         kept = document.get("kept")
         switched = document.get("switched")
+        kept_for_next_game: Dict[LibraryId, KeptRecord] = {
+            str(mod_id): record for mod_id, record in kept.items()
+            if isinstance(record, dict) and record.get("fingerprint") and record.get("source")
+        } if isinstance(kept, dict) else {}
+        switched_on: LibraryNames = {
+            str(mod_id): str(name) for mod_id, name in switched.items()
+        } if isinstance(switched, dict) else {}
         return {
             "installed": dict(installed) if isinstance(installed, dict) else {},
             "disabled": [str(mod_id) for mod_id in disabled] if isinstance(disabled, list) else [],
             "manager": manager if isinstance(manager, dict) else None,
-            "kept": {
-                str(mod_id): record for mod_id, record in kept.items()
-                if isinstance(record, dict) and record.get("fingerprint") and record.get("source")
-            } if isinstance(kept, dict) else {},
-            "switched": {
-                str(mod_id): str(name) for mod_id, name in switched.items()
-            } if isinstance(switched, dict) else {},
+            "kept": kept_for_next_game,
+            "switched": switched_on,
         }
 
     def update(self, change: Callable[[dict], None]) -> bool:
         """Apply *change* to the state file (read, change, write). False when
         it could not be written: the file then still holds what it held (a
         truncated one would lose the user's mods to turn back on)."""
-        with _STATE_FILE_LOCK:
+        with _SHARED_STATE_FILE_LOCK:
             state = self.read()
             change(state)
             try:
@@ -62,9 +82,9 @@ class LtfJournal:
                 return False
         return True
 
-    def kept(self) -> Dict[str, dict]:
-        """The saved mods left in LTK Manager, turned off: library id -> record."""
-        with _STATE_FILE_LOCK:
+    def kept(self) -> Dict[LibraryId, KeptRecord]:
+        """The saved mods left in LTK Manager, turned off."""
+        with _SHARED_STATE_FILE_LOCK:
             return self.read()["kept"]
 
     def forget_kept(self, mod_ids) -> None:

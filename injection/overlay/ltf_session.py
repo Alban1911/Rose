@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
+from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
@@ -19,6 +20,7 @@ import psutil
 from utils.core.issue_reporter import report_issue
 from utils.core.junction import link_file
 from utils.core.logging import get_logger
+from utils.core.paths import get_user_data_dir
 from ..mods.fantome import fantome_display_name, write_fantome_zip
 from ..mods.manifest import manifest_ltk_ids
 from ..tools.bridge import (
@@ -28,7 +30,7 @@ from ..tools.bridge import (
     find_bridge,
 )
 from ..tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
-from .ltf_journal import LtfJournal
+from .ltf_journal import KeptRecord, LibraryId, LibraryNames, LtfJournal
 from .ltf_report import cdp_unreachable, report_ltf_failure
 from .ltk_data import LtkLogTail, entry_name
 from .ltk_switches import SavedModSwitches
@@ -36,12 +38,15 @@ from .process_manager import LTK_MANAGER_PROCESSES
 
 log = get_logger()
 
-BYTES_IMPORT_LIMIT = 40 * 1024 * 1024
+BRIDGE_REQUEST_LINE_CAP_BYTES = 64 * 1024 * 1024
+BASE64_PAYLOAD_CAP_BYTES = BRIDGE_REQUEST_LINE_CAP_BYTES // 4 * 3
+REQUEST_ENVELOPE_BYTES = 8 * 1024 * 1024
+BYTES_IMPORT_LIMIT = BASE64_PAYLOAD_CAP_BYTES - REQUEST_ENVELOPE_BYTES
 
 LAUNCHER_TIMEOUT_S = 60
 LTK_LOGS_FOLDER = "ltk"
-LAUNCHER_LOG_MAX_BYTES = 1024 * 1024
-LAUNCHER_PARENT_LINE = re.compile(r"parent pid = \d+ \(([^)]*)\)")
+LAUNCHER_LOG_ROTATE_BYTES = 1024 * 1024
+LAUNCHER_PARENT_LOG_LINE = re.compile(r"parent pid = \d+ \(([^)]*)\)")
 LAUNCHER_SHELL_PARENT = "explorer.exe"
 BRIDGE_START_TIMEOUT_S = 30
 # LTK Manager's built-in browser (CDP) answers seconds after its bridge does:
@@ -50,15 +55,32 @@ BRIDGE_START_TIMEOUT_S = 30
 # often to ask
 CDP_READY_TIMEOUT_S = 20.0
 CDP_READY_POLL_S = 0.5
-LAUNCHER_EXIT_ALREADY_RUNNING = 5
-LAUNCHER_EXIT_NO_LIVE_INSTANCE = 6
+EXIT_GRACE_BEFORE_NEXT_SESSION_S = 3.0
 
-MIN_FREE_SPACE_BYTES = 1 * 1024 * 1024 * 1024
-DISK_SPACE_HEADROOM_BYTES = 512 * 1024 * 1024
+
+class LauncherExit(IntEnum):
+    """ltk_launcher.exe's exit codes (native/ltf/LeagueToolFlop-inj.cpp)."""
+
+    OK = 0
+    DLL_MISSING = 1
+    EXE_MISSING = 2
+    SPAWN_FAILED = 3
+    INJECT_FAILED = 4
+    ALREADY_RUNNING = 5
+    NO_LIVE_INSTANCE = 6
+
+
+MIN_LIBRARY_FREE_BYTES = 1 * 1024 * 1024 * 1024
+LIBRARY_IMPORT_HEADROOM_BYTES = 512 * 1024 * 1024
 
 ALREADY_OPEN_REASON = "LTK Manager is already open without Rose's bridge"
-LTF_MISSING_REASON = "Rose's LTF bridge files are missing"
-LTK_MANAGER_MISSING_REASON = "LTK Manager is not installed"
+
+
+class MissingComponent(StrEnum):
+    """Why a session could not start for want of a component (LtfHost.last_failure_reason)."""
+
+    LTF_BRIDGE = "Rose's LTF bridge files are missing"
+    LTK_MANAGER = "LTK Manager is not installed"
 # LTK Manager's page loaded, its Tauri IPC not yet: the browser answers but
 # window.__TAURI_INTERNALS__ is still undefined (#441)
 TAURI_NOT_READY_MARKER = "reading 'invoke'"
@@ -94,9 +116,9 @@ def launcher_log_paths() -> tuple:
 
 
 def _rotate_launcher_log(path: Path) -> None:
-    """Keep ltk_launcher.log under LAUNCHER_LOG_MAX_BYTES (the previous one as .old)."""
+    """Keep ltk_launcher.log under LAUNCHER_LOG_ROTATE_BYTES (the previous one as .old)."""
     try:
-        if path.stat().st_size > LAUNCHER_LOG_MAX_BYTES:
+        if path.stat().st_size > LAUNCHER_LOG_ROTATE_BYTES:
             path.replace(path.with_name(path.stem + ".old.log"))
     except OSError:
         pass
@@ -160,14 +182,35 @@ def _unreadable_archive(error: Exception) -> bool:
     return any(marker in text for marker in ("not found:", "cannot read file:", "failed to read file:"))
 
 
+def _resendable_as_bytes(error: Exception, archive: Path) -> bool:
+    """Whether an import of *archive* can be sent again as its bytes: LTK
+    Manager refused it before installing anything (it could not read the
+    file), and the bytes fit a bridge request."""
+    return _unreadable_archive(error) and archive.stat().st_size <= BYTES_IMPORT_LIMIT
+
+
+def _same_content_kept(kept: Dict[LibraryId, KeptRecord], mod_id: str, fingerprint: str) -> bool:
+    """Whether another kept entry than *mod_id* holds the same content already."""
+    return any(record["fingerprint"] == fingerprint for other, record in kept.items() if other != mod_id)
+
+
+def _cdp_not_up_yet(error: Exception) -> bool:
+    """Whether a command failed because LTK Manager's browser is not up yet:
+    no browser, or its page without Tauri's IPC."""
+    return cdp_unreachable(error) or TAURI_NOT_READY_MARKER in str(error).lower()
+
+
+_OLD_BRIDGE_OR_UNREADY_PAGE = (BridgeCommandError, BridgeUnavailable)
+
+
 @dataclass
 class TrackedImport:
     """An entry Rose imported into LTK Manager's library: the session's end
     removes it unless it was kept."""
 
-    folder: str
-    fingerprint: Optional[str] = None
-    source: Optional[str] = None
+    source_folder: str
+    source_digest: Optional[str] = None
+    saved_mod_source: Optional[str] = None
 
 
 @dataclass(eq=False)
@@ -176,12 +219,12 @@ class LtfSession:
     changed in LTK Manager's library during it."""
 
     bridge: Any
-    launched: bool
-    imports: Dict[str, TrackedImport] = field(default_factory=dict)
-    disabled: List[str] = field(default_factory=list)
-    switched: Dict[str, str] = field(default_factory=dict)
-    rose_ids: Set[str] = field(default_factory=set)
-    library_log: Optional[LtkLogTail] = None
+    rose_started_manager: bool
+    imports: Dict[LibraryId, TrackedImport] = field(default_factory=dict)
+    user_mods_turned_off: List[LibraryId] = field(default_factory=list)
+    switched_on: LibraryNames = field(default_factory=dict)
+    saved_mod_ids: Set[LibraryId] = field(default_factory=set)
+    start_log_tail: Optional[LtkLogTail] = None
     lock: threading.Lock = field(default_factory=threading.Lock)
     ended: bool = False
 
@@ -203,11 +246,11 @@ class LtfHost:
         self.injection_dir = injection_dir
         self.process_manager = process_manager
         self._in_use = in_use
-        self.saved_mods_root: Optional[Path] = None
-        self.stage_lock = threading.Lock()
-        self.connect_lock = threading.Lock()
+        self.saved_mods_root: Path = get_user_data_dir() / "mods"
+        self.library_change_lock = threading.Lock()
+        self.launcher_lock = threading.Lock()
         self.last_failure_reason: Optional[str] = None
-        self.launcher_parent: Optional[str] = None
+        self.logged_manager_parent: Optional[str] = None
         self.journal = LtfJournal(injection_dir / "ltf_installed.json")
         self.switches = SavedModSwitches(self)
 
@@ -216,11 +259,8 @@ class LtfHost:
         return self._in_use() or (self.process_manager is not None and self.process_manager.session_active())
 
     def saved_mods_dir(self) -> Path:
-        """Where the user's saved mods live (saved_mods_root, else Rose's data folder's "mods")."""
-        if self.saved_mods_root is not None:
-            return Path(self.saved_mods_root)
-        from utils.core.paths import get_user_data_dir
-        return get_user_data_dir() / "mods"
+        """Where the user's saved mods live: only those are kept in LTK Manager between games (_park)."""
+        return Path(self.saved_mods_root)
 
     def staging_root(self) -> Path:
         """Where archives wait for LTK Manager to import them.
@@ -245,7 +285,7 @@ class LtfHost:
 
         launcher = tools_manager.detect_ltf_launcher()
         if launcher is None:
-            self.last_failure_reason = LTF_MISSING_REASON
+            self.last_failure_reason = MissingComponent.LTF_BRIDGE
             log.error(f"[INJECT] Missing LTF bridge in {self.tools_dir}: {LTF_LAUNCHER} + {LTF_BRIDGE_DLL}")
             if report:
                 report_issue(
@@ -260,7 +300,7 @@ class LtfHost:
 
         manager = tools_manager.detect_ltk_manager()
         if manager is None:
-            self.last_failure_reason = LTK_MANAGER_MISSING_REASON
+            self.last_failure_reason = MissingComponent.LTK_MANAGER
             log.error("[INJECT] LTK Manager is not installed")
             if report:
                 report_issue(
@@ -284,14 +324,23 @@ class LtfHost:
         if bridge is None:
             return None
 
-        session = LtfSession(bridge, launched)
-        session.rose_ids = manifest_ltk_ids(self.saved_mods_dir())
-        session.library_log = LtkLogTail(LtkLogTail.log_dir())
-        self._turn_off_health_check(bridge)
-        self._check_ltk_builtins()
-        self._cleanup_stale_installs(session)
+        session = LtfSession(
+            bridge,
+            launched,
+            saved_mod_ids=manifest_ltk_ids(self.saved_mods_dir()),
+            start_log_tail=LtkLogTail(LtkLogTail.log_dir()),
+        )
+        self._ready_library(session)
         shutil.rmtree(self.staging_root(), ignore_errors=True)
         return session
+
+    def _ready_library(self, session: LtfSession) -> None:
+        """Ready LTK Manager's library before the session's first install (an
+        install is what sets the automatic mod check off): the check turned
+        off, the built-in mods checked, an earlier session's leftovers undone."""
+        self._turn_off_health_check(session.bridge)
+        self._check_ltk_builtins()
+        self._cleanup_stale_installs(session)
 
     def end(self, session: LtfSession, ending: Optional[Callable[[], None]] = None) -> None:
         """Stop the patcher, remove Rose's mods (the user's saved mods stay,
@@ -314,7 +363,7 @@ class LtfHost:
         bridge = session.bridge
         if not bridge.alive():
             log.info("[INJECT] The LTF bridge is gone - Rose's mods are removed at the next session")
-            if session.launched:
+            if session.rose_started_manager:
                 self._terminate_manager(bridge.pid)
             return
         try:
@@ -325,17 +374,17 @@ class LtfHost:
         removed = []
         for mod_id, tracked in session.imports.items():
             if self._park(session, mod_id):
-                log.debug(f"[INJECT] Turned off {tracked.folder} in LTK Manager, kept for the next game")
+                log.debug(f"[INJECT] Turned off {tracked.source_folder} in LTK Manager, kept for the next game")
                 continue
             try:
                 bridge.uninstall(mod_id)
                 removed.append(mod_id)
-                log.debug(f"[INJECT] Removed {tracked.folder} from LTK Manager")
+                log.debug(f"[INJECT] Removed {tracked.source_folder} from LTK Manager")
             except (BridgeUnavailable, BridgeCommandError) as e:
-                log.debug(f"[INJECT] Could not remove {tracked.folder} from LTK Manager: {e}")
+                log.debug(f"[INJECT] Could not remove {tracked.source_folder} from LTK Manager: {e}")
         self.switches.switch_off_all(session)
         restored = []
-        for mod_id in session.disabled:
+        for mod_id in session.user_mods_turned_off:
             try:
                 bridge.toggle(mod_id, True)
                 restored.append(mod_id)
@@ -343,9 +392,9 @@ class LtfHost:
                 log.debug(f"[INJECT] Could not turn {mod_id} back on in LTK Manager: {e}")
         self.journal.untrack(removed, restored)
 
-        if session.launched:
+        if session.rose_started_manager:
             bridge.kill()
-            self._terminate_manager(bridge.pid, grace_s=3.0)
+            self._terminate_manager(bridge.pid, grace_s=EXIT_GRACE_BEFORE_NEXT_SESSION_S)
 
     def import_archive(self, session: LtfSession, archive: Path, folder: Path, display_name: str,
                        fingerprint: Optional[str] = None, before_ids: Optional[set] = None) -> dict:
@@ -362,7 +411,7 @@ class LtfHost:
             try:
                 response = bridge.import_fantome(str(archive), name=display_name)
             except BridgeCommandError as e:
-                if not _unreadable_archive(e) or archive.stat().st_size > BYTES_IMPORT_LIMIT:
+                if not _resendable_as_bytes(e, archive):
                     raise
                 log.info(f"[INJECT] LTK Manager cannot read {archive.name} ({e}) - sending its bytes instead")
                 response = bridge.import_fantome_bytes(archive.read_bytes(), name=archive.name)
@@ -374,7 +423,7 @@ class LtfHost:
             raise BridgeCommandError(f"{display_name} is not in the library after the import")
         tracked = self._track(session, str(entry.get("id")), folder.name, fingerprint)
         if fingerprint:
-            tracked.source = self._keep_source(folder)
+            tracked.saved_mod_source = self._keep_source(folder)
         return entry
 
     def keep(self, session: LtfSession, ltk_id: str) -> None:
@@ -399,7 +448,7 @@ class LtfHost:
 
     def track_disabled(self, session: LtfSession, mod_id: str) -> None:
         """Record a user's mod turned off for the session, before it is."""
-        session.disabled.append(mod_id)
+        session.user_mods_turned_off.append(mod_id)
 
         def add(state):
             if mod_id not in state["disabled"]:
@@ -421,25 +470,32 @@ class LtfHost:
             tracked = session.imports[mod_id]
             if self._park(session, mod_id):
                 session.imports.pop(mod_id, None)
-                log.debug(f"[INJECT] Turned off {tracked.folder} in LTK Manager (no longer selected, kept for later)")
+                log.debug(f"[INJECT] Turned off {tracked.source_folder} in LTK Manager (no longer selected, kept for later)")
                 continue
             try:
                 bridge.uninstall(mod_id)
             except (BridgeUnavailable, BridgeCommandError) as e:
-                try:
-                    bridge.toggle(mod_id, False)
-                    log.warning(f"[INJECT] Could not remove {tracked.folder} from LTK Manager ({e}) - "
-                                "turned it off instead")
-                except (BridgeUnavailable, BridgeCommandError) as toggle_error:
-                    log.error(f"[INJECT] Could not remove {tracked.folder} from LTK Manager: {toggle_error}")
-                    ok = False
-                tracked.fingerprint = None
+                ok = self._turn_off_instead(bridge, mod_id, tracked, e) and ok
+                tracked.source_digest = None
                 continue
             removed.append(mod_id)
             session.imports.pop(mod_id, None)
-            log.debug(f"[INJECT] Removed {tracked.folder} from LTK Manager (no longer selected)")
+            log.debug(f"[INJECT] Removed {tracked.source_folder} from LTK Manager (no longer selected)")
         self.journal.untrack(removed)
         return ok
+
+    @staticmethod
+    def _turn_off_instead(bridge, mod_id: str, tracked: TrackedImport, error: Exception) -> bool:
+        """Turn off an import that could not be removed: left enabled it would
+        apply too. False when it could not be turned off either."""
+        try:
+            bridge.toggle(mod_id, False)
+            log.warning(f"[INJECT] Could not remove {tracked.source_folder} from LTK Manager ({error}) - "
+                        "turned it off instead")
+            return True
+        except (BridgeUnavailable, BridgeCommandError) as toggle_error:
+            log.error(f"[INJECT] Could not remove {tracked.source_folder} from LTK Manager: {toggle_error}")
+            return False
 
     def reuse_kept(self, session: LtfSession, reuse: list, parked: Dict[str, dict], to_import: list,
                    library: Optional[list] = None) -> Optional[list]:
@@ -457,10 +513,10 @@ class LtfHost:
                 to_import.extend(item for item, _ in reuse)
                 return None
         listed = {str(entry.get("id")) for entry in library if entry.get("id")}
-        gone = []
+        removed_by_user = []
         for (name, folder, fingerprint), mod_id in reuse:
             if mod_id not in listed:
-                gone.append(mod_id)
+                removed_by_user.append(mod_id)
                 to_import.append((name, folder, fingerprint))
                 continue
             try:
@@ -469,12 +525,19 @@ class LtfHost:
                 log.debug(f"[INJECT] Could not turn the kept {name} back on ({e}) - installing it anew")
                 to_import.append((name, folder, fingerprint))
                 continue
-            session.imports[mod_id] = TrackedImport(folder.name, fingerprint, parked[mod_id]["source"])
+            self._track_reused(session, mod_id, folder, fingerprint, parked[mod_id]["source"])
             log.info(f"[INJECT] Turned {fantome_display_name(folder) or name} back on in LTK Manager "
                      "(kept from an earlier game)")
-        if gone:
-            self.journal.forget_kept(gone)
+        if removed_by_user:
+            self.journal.forget_kept(removed_by_user)
         return library
+
+    @staticmethod
+    def _track_reused(session: LtfSession, mod_id: str, folder: Path, fingerprint: str, source: str) -> None:
+        """Track a kept mod turned back on for the session. Its journal record
+        stays the kept one: a crash leaves it in LTK Manager, and the next
+        session turns it off."""
+        session.imports[mod_id] = TrackedImport(folder.name, fingerprint, source)
 
     def _keep_source(self, mod: Path) -> Optional[str]:
         """Where *mod* in the injection's mods folder really is, when it is
@@ -506,27 +569,19 @@ class LtfHost:
         pack is a 3.5 GB copy each time (#486). False when it is not one to
         keep (skins, generated mods, an older copy of a kept one): remove it."""
         tracked = session.imports.get(mod_id)
-        if tracked is None or not tracked.fingerprint or not tracked.source:
+        if tracked is None or not tracked.source_digest or not tracked.saved_mod_source:
             return False
-        fingerprint, source = tracked.fingerprint, tracked.source
+        fingerprint, source = tracked.source_digest, tracked.saved_mod_source
         kept = self.journal.kept()
-        if any(record["fingerprint"] == fingerprint for other, record in kept.items() if other != mod_id):
+        if _same_content_kept(kept, mod_id, fingerprint):
             return False
         try:
             session.bridge.toggle(mod_id, False)
         except (BridgeUnavailable, BridgeCommandError) as e:
-            log.debug(f"[INJECT] Could not turn off {tracked.folder} to keep it: {e}")
+            log.debug(f"[INJECT] Could not turn off {tracked.source_folder} to keep it: {e}")
             return False
-        record = {"folder": tracked.folder, "fingerprint": fingerprint, "source": source}
-        replaced = []
-        for other, kept_record in kept.items():
-            if other == mod_id or kept_record["source"] != source:
-                continue
-            try:
-                session.bridge.uninstall(other)
-                replaced.append(other)
-            except (BridgeUnavailable, BridgeCommandError) as e:
-                log.debug(f"[INJECT] Could not remove the earlier copy of {record['folder']} ({other}): {e}")
+        record = {"folder": tracked.source_folder, "fingerprint": fingerprint, "source": source}
+        replaced = self._drop_earlier_versions(session, kept, mod_id, source, tracked.source_folder)
 
         def keep(state):
             state["installed"].pop(mod_id, None)
@@ -536,6 +591,24 @@ class LtfHost:
 
         self.journal.update(keep)
         return True
+
+    @staticmethod
+    def _drop_earlier_versions(session: LtfSession, kept: Dict[LibraryId, KeptRecord], mod_id: str,
+                               source: str, folder: str) -> List[str]:
+        """Remove the kept copies of an earlier version of the saved mod
+        *source*: it is not wanted any more. Returns those removed; one that
+        could not be removed stays recorded, and the next park of this mod
+        tries again."""
+        replaced = []
+        for other, kept_record in kept.items():
+            if other == mod_id or kept_record["source"] != source:
+                continue
+            try:
+                session.bridge.uninstall(other)
+                replaced.append(other)
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not remove the earlier copy of {folder} ({other}): {e}")
+        return replaced
 
     @staticmethod
     def _entry_matches(entry: dict, folder: Path, display_name: str) -> bool:
@@ -595,12 +668,12 @@ class LtfHost:
         back on, switch off the saved mods it switched on. What cannot be
         undone now stays recorded for the next try. Kept saved mods stay,
         turned off, unless their saved mod is gone. An entry a saved mod's
-        manifest names (session.rose_ids) is the user's mod: never removed
+        manifest names (session.saved_mod_ids) is the user's mod: never removed
         as a leftover, only switched off (SavedModSwitches)."""
-        bridge, rose_ids = session.bridge, session.rose_ids
+        bridge, saved_mod_ids = session.bridge, session.saved_mod_ids
         state = self.journal.read()
         installed, disabled, kept = state["installed"], state["disabled"], state["kept"]
-        if not installed and not disabled and not kept and not state["switched"] and not rose_ids:
+        if not installed and not disabled and not kept and not state["switched"] and not saved_mod_ids:
             return
         try:
             library = {str(entry.get("id")): entry for entry in bridge.library() if entry.get("id")}
@@ -608,12 +681,12 @@ class LtfHost:
             log.debug(f"[INJECT] Could not read LTK Manager's library to clean up an earlier session: {e}")
             return
 
-        forgotten = [mod_id for mod_id in kept if mod_id not in library or mod_id in rose_ids]
+        forgotten = [mod_id for mod_id in kept if mod_id not in library or mod_id in saved_mod_ids]
         orphaned = [mod_id for mod_id in kept
                     if mod_id not in forgotten and not Path(kept[mod_id]["source"]).exists()]
         enabled = [mod_id for mod_id in kept
                    if mod_id not in forgotten and mod_id not in orphaned and library[mod_id].get("enabled")]
-        leftovers = self.switches.leftovers(library, state["switched"], rose_ids)
+        leftovers = self.switches.leftovers(library, state["switched"], saved_mod_ids)
         if installed or disabled or orphaned or enabled or leftovers:
             try:
                 bridge.stop_patcher()
@@ -637,7 +710,8 @@ class LtfHost:
 
         removed, restored = [], []
         for mod_id, folder in installed.items():
-            if mod_id not in library or mod_id in rose_ids:
+            gone_or_now_a_saved_mod = mod_id not in library or mod_id in saved_mod_ids
+            if gone_or_now_a_saved_mod:
                 removed.append(mod_id)
                 continue
             try:
@@ -720,6 +794,13 @@ class LtfHost:
             self._terminate_manager(pid)
         self.journal.update(lambda state: state.__setitem__("manager", None))
 
+    def _users_manager_open(self) -> bool:
+        """Whether an LTK Manager Rose did not start is open (one Rose started
+        whose bridge is gone is closed first). The bridge only loads into an
+        LTK Manager the launcher starts, and the user's stays open."""
+        self._close_stale_rose_manager()
+        return self._ltk_manager_running()
+
     @staticmethod
     def _ltk_manager_running() -> bool:
         """Whether any LTK Manager is running."""
@@ -740,7 +821,7 @@ class LtfHost:
         Rose's skins, and the user can still run it by hand in LTK Manager."""
         try:
             response = bridge.health_check_off()
-        except (BridgeCommandError, BridgeUnavailable) as e:
+        except _OLD_BRIDGE_OR_UNREADY_PAGE as e:
             log.debug(f"[INJECT] Could not turn off LTK Manager's automatic mod check: {e}")
             return
         if response.get("changed"):
@@ -785,7 +866,8 @@ class LtfHost:
             try:
                 bridge.library()
             except BridgeCommandError as e:
-                if not cdp_unreachable(e) and TAURI_NOT_READY_MARKER not in str(e).lower():
+                left_to_library_commands = not _cdp_not_up_yet(e)
+                if left_to_library_commands:
                     return
             except BridgeUnavailable:
                 return
@@ -814,10 +896,10 @@ class LtfHost:
                 log.info(f"[INJECT] ltk_launcher: {line}")
             else:
                 log.debug(f"[INJECT] ltk_launcher: {line}")
-            found = LAUNCHER_PARENT_LINE.search(line)
+            found = LAUNCHER_PARENT_LOG_LINE.search(line)
             if found:
                 parent = found.group(1).strip()
-        self.launcher_parent = parent
+        self.logged_manager_parent = parent
 
     def _session_failed(self, reason: str, report: bool) -> None:
         """Keep why the session could not start (last_failure_reason), and
@@ -841,8 +923,7 @@ class LtfHost:
             )
             return LtkBridge(port, pid=pid), launched
 
-        self._close_stale_rose_manager()
-        if self._ltk_manager_running():
+        if self._users_manager_open():
             log.warning("[INJECT] LTK Manager is already open without Rose's bridge - leaving it alone")
             self._session_failed(ALREADY_OPEN_REASON, report)
             return None, False
@@ -872,21 +953,21 @@ class LtfHost:
             self._session_failed(f"could not start the LTF launcher ({e})", report)
             return None, False
         self._log_launcher_run(launcher_logs)
-        if result.returncode == LAUNCHER_EXIT_ALREADY_RUNNING:
+        if result.returncode == LauncherExit.ALREADY_RUNNING:
             log.warning("[INJECT] LTK Manager opened before the launcher could start it - leaving it alone")
             self._session_failed(ALREADY_OPEN_REASON, report)
             return None, False
-        if result.returncode != 0:
+        if result.returncode != LauncherExit.OK:
             self._session_failed(
                 f"could not start the LTF launcher (exit code {result.returncode})", report
             )
             return None, False
 
         match = re.search(r"LTK_MANAGER_PID=(\d+)", result.stdout or "")
-        pid = int(match.group(1)) if match else None
+        hidden_manager_pid = int(match.group(1)) if match else None
         try:
             bridge = LtkBridge.wait_for_bridge(
-                timeout=BRIDGE_START_TIMEOUT_S, expected_pid=pid, cancelled=cancelled
+                timeout=BRIDGE_START_TIMEOUT_S, expected_pid=hidden_manager_pid, cancelled=cancelled
             )
         except BridgeUnavailable as e:
             reason = f"the LTF bridge is unreachable ({e})"
@@ -895,8 +976,8 @@ class LtfHost:
                 log.debug("[INJECT] Stopped waiting for the LTF bridge: the session is no longer wanted")
             else:
                 self._session_failed(reason, report)
-            self._terminate_manager(pid)
+            self._terminate_manager(hidden_manager_pid)
             return None, False
-        self._register_manager(bridge.pid or pid)
+        self._register_manager(bridge.pid or hidden_manager_pid)
         self._wait_for_cdp(bridge, cancelled)
         return bridge, True

@@ -19,8 +19,7 @@ from ..mods.mod_facts import stamp_of
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
 from .ltf_session import (
     ALREADY_OPEN_REASON,
-    LTF_MISSING_REASON,
-    LTK_MANAGER_MISSING_REASON,
+    MissingComponent,
     LtfHost,
     LtfSession,
     archive_for_ltk,
@@ -33,8 +32,7 @@ __all__ = [
     "ALREADY_OPEN_REASON",
     "BridgeCommandError",
     "BridgeUnavailable",
-    "LTF_MISSING_REASON",
-    "LTK_MANAGER_MISSING_REASON",
+    "MissingComponent",
     "LibrarySession",
     "LtkBusy",
     "LtkLibrary",
@@ -43,7 +41,7 @@ __all__ = [
 ]
 
 REJECTED_SEVERITIES = ("fatal", "error")
-REPAIR_PASSES = 3
+MAX_REPAIR_PASSES = 3
 
 
 def _answer_value(response: dict) -> dict:
@@ -104,16 +102,16 @@ class LtkLibrary:
         here ever waits on a game. *wait* waits for another session's connect
         instead (the uninstall cleanup, with Rose not running).
 
-        The stage lock is held throughout, taken before the connect lock as
+        The library change lock is held throughout, taken before the launcher lock as
         the injection takes them: an injection installs under it before its
         session is registered (session_active), and a session starting then
         would remove the mods it just installed as an earlier session's.
         """
         host = self.host
-        if not host.stage_lock.acquire(blocking=wait):
+        if not host.library_change_lock.acquire(blocking=wait):
             raise LtkBusy("LTK Manager is in use for a game")
         try:
-            if not host.connect_lock.acquire(blocking=wait):
+            if not host.launcher_lock.acquire(blocking=wait):
                 raise LtkBusy("LTK Manager is busy with another session")
             try:
                 if host.busy():
@@ -126,9 +124,9 @@ class LtkLibrary:
                 finally:
                     host.end(session)
             finally:
-                host.connect_lock.release()
+                host.launcher_lock.release()
         finally:
-            host.stage_lock.release()
+            host.library_change_lock.release()
 
     def check_mod(self, mod: Path, display_name: str, on_kept: Callable[..., bool]) -> Optional[dict]:
         """Move a mod the user adds into LTK Manager's library: import it,
@@ -280,7 +278,7 @@ class LibrarySession:
         result = {"health": str(verdict.get("health") or ""), "repaired": 0, "problems": []}
         log.info(f"[MODCHECK] LTK Manager's verdict on {display_name}: {result['health'] or 'unknown'}"
                  f" ({_verdict_summary(verdict)})")
-        for _ in range(REPAIR_PASSES):
+        for _ in range(MAX_REPAIR_PASSES):
             if verdict.get("health") != "repairable" or int(verdict.get("fixable") or 0) <= 0:
                 break
             report = _answer_value(bridge.repair_mod(ltk_id))

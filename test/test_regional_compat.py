@@ -227,7 +227,7 @@ class OverlayLifetimeTests(unittest.TestCase):
             }}),
             alive=lambda: self.bridge.is_alive,
         )
-        self.session = self.manager._new_session(LtfSession(self.bridge, launched=False))
+        self.session = self.manager._new_session(LtfSession(self.bridge, rose_started_manager=False))
         self.enterContext(patch.object(overlay_manager.time, 'sleep'))
         self.enterContext(patch.object(overlay_manager, 'PATCHER_STATUS_POLL_TICKS', 1))
         self.report = self.enterContext(patch.object(overlay_manager, 'report_issue'))

@@ -22,21 +22,21 @@ log = get_logger()
 class Leftovers:
     """What earlier sessions left of the saved mods in LTK Manager."""
 
-    remove: List[str] = field(default_factory=list)
-    gone: List[str] = field(default_factory=list)
-    switch_off: List[str] = field(default_factory=list)
-    records: List[str] = field(default_factory=list)
+    deleted_in_rose: List[str] = field(default_factory=list)
+    already_gone: List[str] = field(default_factory=list)
+    found_switched_on: List[str] = field(default_factory=list)
+    unended_switches: List[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         """Whether LTK Manager's library has to change."""
-        return bool(self.remove or self.switch_off)
+        return bool(self.deleted_in_rose or self.found_switched_on)
 
 
 class SavedModSwitches:
     """Switches the saved mods LTK Manager holds on and off for an
-    LtfHost's sessions: a session's switched holds the entries it switched
-    on (id -> name), its rose_ids every entry a saved mod's manifest named
-    when it started."""
+    LtfHost's sessions: a session's switched_on holds the entries it switched
+    on, its saved_mod_ids every entry a saved mod's manifest named when it
+    started."""
 
     def __init__(self, host: LtfHost) -> None:
         self._host = host
@@ -46,7 +46,7 @@ class SavedModSwitches:
         journal could not be written (a crash would then leave it on for good)."""
         if not self._host.journal.update(lambda state: state["switched"].__setitem__(ltk_id, name)):
             return False
-        session.switched[ltk_id] = name
+        session.switched_on[ltk_id] = name
         return True
 
     def _forget(self, ltk_ids: Iterable[str]) -> None:
@@ -59,28 +59,28 @@ class SavedModSwitches:
 
         self._host.journal.update(drop)
 
-    def leftovers(self, library: Dict[str, dict], switched: Dict[str, str], rose_ids: set) -> Leftovers:
+    def leftovers(self, library: Dict[str, dict], switched: Dict[str, str], saved_mod_ids: set) -> Leftovers:
         """What to undo at a session's start, from LTK Manager's *library*
         (id -> entry), the entries earlier sessions recorded as *switched* on,
-        and every saved mod's entry (*rose_ids*)."""
+        and every saved mod's entry (*saved_mod_ids*)."""
         removals = ltk_removals(self._host.saved_mods_dir())
         remove = [ltk_id for ltk_id in removals if ltk_id in library]
         return Leftovers(
-            remove=remove,
-            gone=[ltk_id for ltk_id in removals if ltk_id not in library],
-            switch_off=sorted(
-                ltk_id for ltk_id in (set(switched) | set(rose_ids)) - set(remove)
+            deleted_in_rose=remove,
+            already_gone=[ltk_id for ltk_id in removals if ltk_id not in library],
+            found_switched_on=sorted(
+                ltk_id for ltk_id in (set(switched) | set(saved_mod_ids)) - set(remove)
                 if library.get(ltk_id, {}).get("enabled")
             ),
-            records=list(switched),
+            unended_switches=list(switched),
         )
 
     def undo(self, bridge, leftovers: Leftovers) -> None:
         """Undo *leftovers*, LTK Manager's patcher stopped (it holds library
         edits while it runs). What could not be undone stays recorded for the
         next start."""
-        removed = list(leftovers.gone)
-        for ltk_id in leftovers.remove:
+        removed = list(leftovers.already_gone)
+        for ltk_id in leftovers.deleted_in_rose:
             try:
                 bridge.uninstall(ltk_id)
             except (BridgeUnavailable, BridgeCommandError) as e:
@@ -91,7 +91,7 @@ class SavedModSwitches:
         if removed:
             forget_ltk_removals(self._host.saved_mods_dir(), removed)
         still_on = set()
-        for ltk_id in leftovers.switch_off:
+        for ltk_id in leftovers.found_switched_on:
             try:
                 bridge.toggle(ltk_id, False)
             except (BridgeUnavailable, BridgeCommandError) as e:
@@ -99,14 +99,14 @@ class SavedModSwitches:
                 log.debug(f"[INJECT] Could not switch off the saved mod {ltk_id}: {e}")
                 continue
             log.info(f"[INJECT] Switched off the saved mod {ltk_id} in LTK Manager: it is on only for a game")
-        self._forget(set(leftovers.records) - still_on)
+        self._forget(set(leftovers.unended_switches) - still_on)
 
     @staticmethod
     def changes(session: LtfSession, ltk_ids: List[str]) -> Tuple[List[str], List[str]]:
         """(the entries to switch on, those to switch off) for the session's
         saved mods to be exactly *ltk_ids*."""
-        on = [ltk_id for ltk_id in ltk_ids if ltk_id not in session.switched]
-        off = [ltk_id for ltk_id in session.switched if ltk_id not in ltk_ids]
+        on = [ltk_id for ltk_id in ltk_ids if ltk_id not in session.switched_on]
+        off = [ltk_id for ltk_id in session.switched_on if ltk_id not in ltk_ids]
         return on, off
 
     @staticmethod
@@ -155,15 +155,15 @@ class SavedModSwitches:
         """Switch off every entry the session switched on: they are the user's
         saved mods, never removed. One that cannot be switched off stays
         recorded: the next session's start does it."""
-        for ltk_id in list(session.switched):
+        for ltk_id in list(session.switched_on):
             try:
                 self._switch_off(session, ltk_id)
             except (BridgeUnavailable, BridgeCommandError) as e:
-                log.debug(f"[INJECT] Could not switch off {session.switched.get(ltk_id)} in LTK Manager: {e}")
+                log.debug(f"[INJECT] Could not switch off {session.switched_on.get(ltk_id)} in LTK Manager: {e}")
 
     def _switch_off(self, session: LtfSession, ltk_id: str) -> None:
-        name = session.switched.get(ltk_id, ltk_id)
+        name = session.switched_on.get(ltk_id, ltk_id)
         session.bridge.toggle(ltk_id, False)
-        session.switched.pop(ltk_id, None)
+        session.switched_on.pop(ltk_id, None)
         self._forget([ltk_id])
         log.debug(f"[INJECT] Switched off {name} in LTK Manager")

@@ -12,9 +12,8 @@ from injection.mods.mod_facts import stamp_of
 from injection.overlay import ltf_session, ltk_data, ltk_library
 from injection.overlay.ltf_session import (
     ALREADY_OPEN_REASON,
-    LTF_MISSING_REASON,
-    LTK_MANAGER_MISSING_REASON,
     LtfHost,
+    MissingComponent,
 )
 from injection.overlay.ltk_data import (
     IndexEntry,
@@ -268,8 +267,8 @@ class LibrarySessionTests(LtfSessionTestCase):
         installed = "0f0f0f0f-0000-4000-8000-000000000000"
         FakeBridge.initial_library = [{"id": installed, "name": "1001-EternalAspect", "enabled": True}]
         self.state_path.write_text(json.dumps({"installed": {installed: "1001-EternalAspect"}}), encoding="utf-8")
-        self.assertTrue(self.host.stage_lock.acquire(blocking=False))
-        self.addCleanup(self.host.stage_lock.release)
+        self.assertTrue(self.host.library_change_lock.acquire(blocking=False))
+        self.addCleanup(self.host.library_change_lock.release)
 
         with self.assertRaises(LtkBusy):
             with self.library.session():
@@ -278,23 +277,23 @@ class LibrarySessionTests(LtfSessionTestCase):
         self.assertEqual(list(self.state()["installed"]), [installed])
 
     def test_busy_at_once_while_another_session_connects(self):
-        self.assertTrue(self.host.connect_lock.acquire(blocking=False))
-        self.addCleanup(self.host.connect_lock.release)
+        self.assertTrue(self.host.launcher_lock.acquire(blocking=False))
+        self.addCleanup(self.host.launcher_lock.release)
 
         with self.assertRaises(LtkBusy):
             with self.library.session():
                 self.fail("no session while another connects")
 
     def test_waiting_for_another_connect_when_asked(self):
-        self.host.stage_lock.acquire()
-        self.host.connect_lock.acquire()
-        threading.Timer(0.05, self.host.stage_lock.release).start()
-        threading.Timer(0.1, self.host.connect_lock.release).start()
+        self.host.library_change_lock.acquire()
+        self.host.launcher_lock.acquire()
+        threading.Timer(0.05, self.host.library_change_lock.release).start()
+        threading.Timer(0.1, self.host.launcher_lock.release).start()
 
         with self.library.session(wait=True) as session:
             self.assertEqual(session.library(), {})
-        self.assertTrue(self.host.stage_lock.acquire(blocking=False))
-        self.host.stage_lock.release()
+        self.assertTrue(self.host.library_change_lock.acquire(blocking=False))
+        self.host.library_change_lock.release()
 
     def test_unavailable_without_rose_s_bridge_files(self):
         (self.tools / "ltk_launcher.exe").unlink()
@@ -302,7 +301,7 @@ class LibrarySessionTests(LtfSessionTestCase):
         with self.assertRaises(LtkUnavailable) as raised:
             with self.library.session():
                 self.fail("no session without the bridge")
-        self.assertEqual(str(raised.exception), LTF_MISSING_REASON)
+        self.assertEqual(str(raised.exception), MissingComponent.LTF_BRIDGE)
         self.report_issue.assert_not_called()
 
     def test_unavailable_without_ltk_manager(self):
@@ -310,7 +309,7 @@ class LibrarySessionTests(LtfSessionTestCase):
             with self.assertRaises(LtkUnavailable) as raised:
                 with self.library.session():
                     self.fail("no session without LTK Manager")
-        self.assertEqual(str(raised.exception), LTK_MANAGER_MISSING_REASON)
+        self.assertEqual(str(raised.exception), MissingComponent.LTK_MANAGER)
 
     def test_unavailable_while_the_user_has_ltk_manager_open(self):
         with patch.object(ltf_session, "find_bridge", return_value=None), \
@@ -337,7 +336,7 @@ class LibrarySessionTests(LtfSessionTestCase):
                 raise RuntimeError("the caller failed")
 
         self.assertEqual(self.bridge.library_entries, [])
-        for lock in (self.host.stage_lock, self.host.connect_lock):
+        for lock in (self.host.library_change_lock, self.host.launcher_lock):
             self.assertTrue(lock.acquire(blocking=False))
             lock.release()
 

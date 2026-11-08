@@ -19,19 +19,26 @@ OVERLAY_REFUSED_MESSAGE = "host verification failed"
 SIGNATURE_FAILURE_MESSAGE = "Windows could not verify the signature of LTK Manager's files"
 NOT_ATTACHED_MESSAGE = "LTK Manager's patcher never got into the game"
 OVERLAY_DISABLED_MESSAGE = "disabled the overlay"
-CDP_FAILURE_MARKER = "cdp unavailable"
+BRIDGE_CDP_FAILURE_MARKER = "cdp unavailable"
 CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in browser (CDP unavailable or timed out)"
 # Tauri rejecting a command LTK Manager does not declare ("Command
 # plugin:library|get_installed_mods not allowed by ACL")
 LTK_ACL_REFUSAL = "not allowed by acl"
-LTF_LOGS_HINT = "Details are in ltk_api.log and ltk_launcher.log, in the ltk folder of Rose's logs."
+LTF_API_LOG = "ltk_api.log"
+LTF_LOGS_HINT = f"Details are in {LTF_API_LOG} and ltk_launcher.log, in the ltk folder of Rose's logs."
+
+
+def has_ltf_logs_hint(hint: str) -> bool:
+    """Whether a report's hint ends as every LTF report's does (LTF_LOGS_HINT):
+    Troubleshooting recognizes the LTF reports by it."""
+    return LTF_API_LOG in hint.lower()
 
 
 def ltk_failure_cause(reason: str) -> str:
     """Why the LTF session failed, from the reason Rose reported: what to do
     about it depends on it (Troubleshooting shows a hint for each)"""
     lowered = reason.lower()
-    if CDP_FAILURE_MARKER in lowered or "built-in browser" in lowered:
+    if BRIDGE_CDP_FAILURE_MARKER in lowered or "built-in browser" in lowered:
         return "cdp"
     # LTK Manager refuses to patch across an elevation boundary (ADR-0074):
     # League set to run as administrator, or LTK Manager itself elevated
@@ -90,18 +97,24 @@ def ltk_failure_cause(reason: str) -> str:
 
 def cdp_unreachable(error: BaseException) -> bool:
     """Whether a bridge command failed because LTK Manager's browser did not answer."""
-    return CDP_FAILURE_MARKER in str(error).lower()
+    return BRIDGE_CDP_FAILURE_MARKER in str(error).lower()
+
+
+def _shell_account_or_none():
+    """This account's shell account, or None when it cannot be told: a
+    diagnostic never fails the report it adds to."""
+    try:
+        from utils.system.windows_account import shell_account
+        return shell_account()
+    except Exception:
+        return None
 
 
 def cdp_unreachable_reason() -> str:
     """CDP_UNREACHABLE_REASON, with its usual cause when this account has it:
     both PCs where the browser never answered ran every program as
     administrator (#425 built-in Administrator, #426 UAC turned off)."""
-    try:
-        from utils.system.windows_account import shell_account
-        account = shell_account()
-    except Exception:
-        account = None
+    account = _shell_account_or_none()
     if account is not None and account.elevated:
         return f"{CDP_UNREACHABLE_REASON}; Windows runs every program as administrator on this account"
     return CDP_UNREACHABLE_REASON

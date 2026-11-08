@@ -16,7 +16,7 @@ from injection.mods.migration import MigrationReport, Step, migrate_saved_mods, 
 from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
 from injection.mods.storage import ModStorageService
 from injection.overlay import ltf_session
-from injection.overlay.ltf_session import ALREADY_OPEN_REASON, LTK_MANAGER_MISSING_REASON, LtfHost
+from injection.overlay.ltf_session import ALREADY_OPEN_REASON, LtfHost, MissingComponent
 from injection.overlay.ltk_library import LibrarySession, LtkLibrary
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
 from injection.tests.test_mod_archives import PNG, VOICEOVER, add_entries, make_archive, make_folder
@@ -413,7 +413,7 @@ class WhenNothingMovesTests(MigrationTestCase):
         with patch.object(ToolsManager, "detect_ltk_manager", return_value=None):
             report = self.migrate()
 
-        self.assertEqual(report.skipped_reason, LTK_MANAGER_MISSING_REASON)
+        self.assertEqual(report.skipped_reason, MissingComponent.LTK_MANAGER)
         self.assertEqual((self.ui.asked, self.ui.notices), ([], []))
         self.assertTrue(archive.exists())
         self.assertIsNone(self.entry("voiceover/VO Korean.fantome").ltk_id)

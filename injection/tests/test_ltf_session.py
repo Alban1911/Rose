@@ -593,7 +593,7 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertEqual(len(launcher_lines), 2)  # this start's lines only, without its banner
         self.assertIn("WARNING", launcher_lines[0])
         self.assertIn("starting it as a child", launcher_lines[0])
-        self.assertEqual(self.host.launcher_parent, "not explorer.exe")
+        self.assertEqual(self.host.logged_manager_parent, "not explorer.exe")
         self.assertFalse(public_log.exists())
         self.assertFalse(temp_log.exists())
 
@@ -652,7 +652,7 @@ class InjectionSessionTests(LtfSessionTestCase):
     def test_a_large_launcher_log_is_kept_as_old(self):
         rose_log = ltf_session.launcher_log_paths()[0]
         rose_log.parent.mkdir(parents=True)
-        rose_log.write_bytes(b"x" * (ltf_session.LAUNCHER_LOG_MAX_BYTES + 1))
+        rose_log.write_bytes(b"x" * (ltf_session.LAUNCHER_LOG_ROTATE_BYTES + 1))
 
         mod = self.make_mod()
         no_bridge, run = self.launched()
@@ -661,7 +661,7 @@ class InjectionSessionTests(LtfSessionTestCase):
 
         self.assertFalse(rose_log.exists())
         self.assertEqual((rose_log.parent / "ltk_launcher.old.log").stat().st_size,
-                         ltf_session.LAUNCHER_LOG_MAX_BYTES + 1)
+                         ltf_session.LAUNCHER_LOG_ROTATE_BYTES + 1)
 
     def test_a_failed_launcher_reports_start_failure(self):
         mod = self.make_mod()
@@ -1571,7 +1571,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         """#478: LTK Manager's log showed parent ltk_launcher.exe; the reason
         the launcher fell back was only in ltk_launcher.log"""
         session = self._session()
-        self.host.launcher_parent = "not explorer.exe"
+        self.host.logged_manager_parent = "not explorer.exe"
         FakeBridge.patcher_statuses = [status(session={"log": (
             "2026-11-07T20:56:40.028528Z  INFO ltk_manager_runtime::patcher::injector: [ltk-dll pid=19048 "
             "tid=14596 ERROR] ltk_patcher_dll::verify: host verification failed, refusing overlay: "
@@ -1586,7 +1586,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
 
     def test_a_refusal_with_a_manager_under_explorer_names_no_parent(self):
         session = self._session()
-        self.host.launcher_parent = "explorer.exe"
+        self.host.logged_manager_parent = "explorer.exe"
         FakeBridge.patcher_statuses = [status(session={"log": "ERROR] ltk_patcher_dll::verify: host verification "
                                                               "failed, refusing overlay: [VRF00000008] (1, x)"})]
 

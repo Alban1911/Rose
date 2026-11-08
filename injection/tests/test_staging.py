@@ -324,7 +324,7 @@ class LtkLogReadingTests(LtfSessionTestCase):
             handle.write(text)
 
     def started_session(self):
-        session = self.overlay._new_session(LtfSession(FakeBridge(), launched=False))
+        session = self.overlay._new_session(LtfSession(FakeBridge(), rose_started_manager=False))
         self.assertTrue(self.overlay._start_patcher(session))
         return session
 

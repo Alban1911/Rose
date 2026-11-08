@@ -26,7 +26,7 @@ from urllib.parse import quote
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.mod_source import LtkEntry, ModSource
 from injection.mods.storage import ModStorageService
-from injection.overlay.ltf_report import ltk_failure_cause
+from injection.overlay.ltf_report import has_ltf_logs_hint, ltk_failure_cause
 from injection.overlay.ltk_library import LtkLibrary
 from utils.core.paths import get_user_data_dir, get_asset_path, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
@@ -1061,7 +1061,7 @@ class MessageHandler:
                 )
                 is_ltf_report = (
                     is_import_failure
-                    or 'ltk_api.log' in fl
+                    or has_ltf_logs_hint(fl)
                     or 'ltf' in ml or 'ltk patcher' in ml or 'ltk manager' in ml
                 )
                 if is_ltf_report:

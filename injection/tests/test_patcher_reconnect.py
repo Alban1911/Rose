@@ -24,7 +24,7 @@ class PatcherReconnectTests(unittest.TestCase):
         state = SimpleNamespace(phase='InProgress', stop=False)
         remaining = iter(phases)
         observed = []
-        session = {'ltf': LtfSession(None, launched=False), 'error': None, 'done': False}
+        session = {'ltf': LtfSession(None, rose_started_manager=False), 'error': None, 'done': False}
 
         def tick(_):
             observed.append(state.phase)

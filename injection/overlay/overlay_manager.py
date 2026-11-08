@@ -7,9 +7,10 @@ import shutil
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional
 
 # Import psutil with fallback for development environments
 try:
@@ -39,9 +40,9 @@ from .ltf_report import (
     report_ltf_failure,
 )
 from .ltf_session import (
-    DISK_SPACE_HEADROOM_BYTES,
+    LIBRARY_IMPORT_HEADROOM_BYTES,
     LAUNCHER_SHELL_PARENT,
-    MIN_FREE_SPACE_BYTES,
+    MIN_LIBRARY_FREE_BYTES,
     LtfHost,
     LtfSession,
     archive_for_ltk,
@@ -183,9 +184,9 @@ class OverlayManager:
         # injection starts, before the mods are prepared; mk_run_overlay
         # takes it over
         self._early_session: Optional[dict] = None
-        self._session_lock = threading.Lock()
-        self._early_discard = False
-        self._staging_open = False
+        self._early_session_lock = threading.Lock()
+        self._early_session_unwanted = False
+        self._countdown_staging_open = False
         self.host = LtfHost(tools_dir, mods_dir.parent, process_manager, in_use=self._holds_ltk_manager)
 
     @property
@@ -202,8 +203,8 @@ class OverlayManager:
     def _holds_ltk_manager(self) -> bool:
         """Whether the early session or the countdown's staging holds LTK
         Manager (LtfHost.busy)."""
-        with self._session_lock:
-            return self._early_session is not None or self._staging_open
+        with self._early_session_lock:
+            return self._early_session is not None or self._countdown_staging_open
 
     def _new_session(self, ltf: LtfSession) -> dict:
         return {
@@ -266,34 +267,34 @@ class OverlayManager:
         """
         if self.game_dir is None:
             return
-        with self._session_lock:
-            self._early_discard = False  # a session is wanted (again)
-        if not self.host.connect_lock.acquire(blocking=False):
+        with self._early_session_lock:
+            self._early_session_unwanted = False  # a session is wanted (again)
+        if not self.host.launcher_lock.acquire(blocking=False):
             return  # the connect in flight brings it up
         try:
-            with self._session_lock:
+            with self._early_session_lock:
                 session = self._early_session
             if session is not None:
                 if self._check_bridge(session):
                     return
                 # Rose stopped it after the last game: connect again for this one
-                with self._session_lock:
+                with self._early_session_lock:
                     if self._early_session is session:
                         self._early_session = None
                 self._end_session(session)
 
-            session = self._start_ltf_session(report=False, cancelled=lambda: self._early_discard)
+            session = self._start_ltf_session(report=False, cancelled=lambda: self._early_session_unwanted)
             if session is None:
                 return
-            with self._session_lock:
-                keep = not self._early_discard
+            with self._early_session_lock:
+                keep = not self._early_session_unwanted
                 if keep:
                     self._early_session = session
             if not keep:
                 log.debug("[INJECT] The early LTF session is no longer wanted - stopping it")
                 self._end_session(session)
         finally:
-            self.host.connect_lock.release()
+            self.host.launcher_lock.release()
 
     def _acquire_session(self) -> Optional[dict]:
         """The early session if its bridge is still up, else a new one.
@@ -301,8 +302,8 @@ class OverlayManager:
         Waits for an early connect in flight rather than start a second
         LTK Manager next to it.
         """
-        with self.host.connect_lock:
-            with self._session_lock:
+        with self.host.launcher_lock:
+            with self._early_session_lock:
                 session, self._early_session = self._early_session, None
             if session is not None:
                 if self._check_bridge(session):
@@ -316,10 +317,10 @@ class OverlayManager:
         Returns at once while LTK Manager is still starting: that connect
         drops its session when it completes.
         """
-        with self._session_lock:
+        with self._early_session_lock:
             session, self._early_session = self._early_session, None
-            self._early_discard = True
-            self._staging_open = False
+            self._early_session_unwanted = True
+            self._countdown_staging_open = False
         if session:
             log.debug("[INJECT] Stopping the LTF session started for an injection that did not happen")
             self._end_session(session)
@@ -333,14 +334,18 @@ class OverlayManager:
         both get here.
         """
         def ending():
-            session["hold_done"] = True
-            self._resume_held_game(session)
+            self._release_held_game(session)
             if self.process_manager and session.get("stopper") is not None:
                 self.process_manager.clear_session_stopper(session["stopper"])
             if self.process_manager:
                 self.process_manager.current_overlay_process = None
 
         self.host.end(session["ltf"], ending)
+
+    def _release_held_game(self, session: dict) -> None:
+        """Hold the game no more and resume it: a held game is never left frozen."""
+        session["hold_done"] = True
+        self._resume_held_game(session)
 
     def _check_bridge(self, session: dict) -> bool:
         """Whether the bridge inside LTK Manager still answers."""
@@ -398,14 +403,14 @@ class OverlayManager:
             except OSError as e:
                 log.error(f"[INJECT] Could not read the mod folder {folder}: {e}")
         switch_on, switch_off = self.host.switches.changes(ltf, ltk_ids)
-        library: Optional[list] = None
+        shared_library_read: Optional[list] = None
         if switch_on:
             try:
-                library = bridge.library()
+                shared_library_read = bridge.library()
             except (BridgeUnavailable, BridgeCommandError) as e:
                 return self._saved_mods_failed(e, report and not stopped())
-            switch_on = self.host.switches.listed(switch_on, library)
-        if not wanted and not switch_on and not (set(ltk_ids) & set(ltf.switched)):
+            switch_on = self.host.switches.listed(switch_on, shared_library_read)
+        if not wanted and not switch_on and not (set(ltk_ids) & set(ltf.switched_on)):
             log.error("[INJECT] No mods could be installed into LTK Manager")
             if report and not stopped():
                 report_issue(
@@ -421,7 +426,7 @@ class OverlayManager:
         for name, folder, fingerprint in wanted:
             match = next(
                 (mod_id for mod_id, tracked in ltf.imports.items()
-                 if tracked.fingerprint == fingerprint and mod_id not in kept),
+                 if tracked.source_digest == fingerprint and mod_id not in kept),
                 None,
             )
             if match is None:
@@ -429,15 +434,7 @@ class OverlayManager:
             else:
                 kept.add(match)
         unwanted = [mod_id for mod_id in ltf.imports if mod_id not in kept]
-        reuse = []
-        parked = self.host.journal.kept() if to_import else {}
-        if parked:
-            by_fingerprint = {record["fingerprint"]: mod_id for mod_id, record in parked.items()}
-            for item in list(to_import):
-                mod_id = by_fingerprint.pop(item[2], None)
-                if mod_id is not None:
-                    reuse.append((item, mod_id))
-                    to_import.remove(item)
+        reuse, parked = self._reuse_parked(to_import)
         if not to_import and not unwanted and not reuse and not switch_on and not switch_off:
             return True  # the library already holds exactly these mods
 
@@ -450,9 +447,9 @@ class OverlayManager:
         if unwanted and not self.host.remove_unwanted(ltf, unwanted):
             return False
         if reuse:
-            library = self.host.reuse_kept(ltf, reuse, parked, to_import, library)
+            shared_library_read = self.host.reuse_kept(ltf, reuse, parked, to_import, shared_library_read)
         try:
-            self.host.switches.switch(ltf, switch_on, switch_off, library)
+            self.host.switches.switch(ltf, switch_on, switch_off, shared_library_read)
         except (BridgeUnavailable, BridgeCommandError) as e:
             return self._saved_mods_failed(e, report and not stopped())
 
@@ -464,16 +461,16 @@ class OverlayManager:
                     return False
                 display_name = fantome_display_name(folder)
                 try:
-                    if library is None:
-                        library = bridge.library()
+                    if shared_library_read is None:
+                        shared_library_read = bridge.library()
                     archive = (archives or {}).get(name)
                     if archive is None or not Path(archive).is_file():
                         staging.mkdir(parents=True, exist_ok=True)
                         archive = archive_for_ltk(folder, staging / f"{name}.fantome")
-                    before_ids = {str(e.get("id")) for e in library if e.get("id")}
+                    before_ids = {str(e.get("id")) for e in shared_library_read if e.get("id")}
                     entry = self.host.import_archive(ltf, Path(archive), folder, display_name, fingerprint,
                                                      before_ids=before_ids)
-                    library.append(entry)
+                    shared_library_read.append(entry)
                     if not entry.get("enabled"):
                         bridge.toggle(str(entry.get("id")), True)
                     log.info(f"[INJECT] Installed {display_name} into LTK Manager")
@@ -493,10 +490,25 @@ class OverlayManager:
                                 hint=f"Free some disk space, then retry. {LTF_LOGS_HINT}",
                             )
                     return False
-            session["library_snapshot"] = library
+            session["library_snapshot"] = shared_library_read
         finally:
             shutil.rmtree(staging, ignore_errors=True)
         return True
+
+    def _reuse_parked(self, to_import: list) -> tuple:
+        """(reuse, parked): the saved mods of *to_import* an earlier game left
+        in LTK Manager (LtfHost._park), taken out of *to_import* to be turned
+        back on instead of installed again, and every such parked mod."""
+        reuse = []
+        parked = self.host.journal.kept() if to_import else {}
+        if parked:
+            by_fingerprint = {record["fingerprint"]: mod_id for mod_id, record in parked.items()}
+            for item in list(to_import):
+                mod_id = by_fingerprint.pop(item[2], None)
+                if mod_id is not None:
+                    reuse.append((item, mod_id))
+                    to_import.remove(item)
+        return reuse, parked
 
     def _saved_mods_failed(self, error: Exception, report: bool) -> bool:
         """Fail the install: a saved mod LTK Manager holds could not be
@@ -542,13 +554,13 @@ class OverlayManager:
         """The content digests of the mods staged in the early session's LTK
         Manager, and of the saved mods kept there from an earlier game."""
         kept = {record["fingerprint"] for record in self.host.journal.kept().values()}
-        with self._session_lock:
+        with self._early_session_lock:
             session = self._early_session
         if session is None:
             return kept
         try:
-            return kept | {tracked.fingerprint for tracked in list(session["ltf"].imports.values())
-                           if tracked.fingerprint}
+            return kept | {tracked.source_digest for tracked in list(session["ltf"].imports.values())
+                           if tracked.source_digest}
         except RuntimeError:  # an install changed them meanwhile
             return kept
 
@@ -620,40 +632,56 @@ class OverlayManager:
     # -- staging during the loadout countdown ---------------------------------
     def open_staging(self) -> None:
         """Let stage_mods prepare LTK Manager for this champ select."""
-        with self._session_lock:
-            self._staging_open = True
-            self._early_discard = False
+        with self._early_session_lock:
+            self._countdown_staging_open = True
+            self._early_session_unwanted = False
+
+    @contextmanager
+    def _staging_closed(self) -> Iterator[None]:
+        """Close the countdown's staging, and hold the library change lock once
+        an in-flight staging has finished: its mods are likely the ones the
+        injection wants."""
+        self.close_staging()
+        with self.host.library_change_lock:
+            yield
 
     def close_staging(self) -> None:
         """No more staging: the injection (or a discard) owns the session now."""
-        with self._session_lock:
-            self._staging_open = False
+        with self._early_session_lock:
+            self._countdown_staging_open = False
 
     def _staging_session(self) -> Optional[dict]:
         """The early session, connected (or LTK Manager started) if it is not up."""
-        with self.host.connect_lock:
-            with self._session_lock:
+        with self.host.launcher_lock:
+            with self._early_session_lock:
                 session = self._early_session
             if session is not None and self._check_bridge(session):
                 return session
             if session is not None:
-                with self._session_lock:
+                with self._early_session_lock:
                     if self._early_session is session:
                         self._early_session = None
                 self._end_session(session)
             session = self._start_ltf_session(
-                report=False, cancelled=lambda: self._early_discard or not self._staging_open
+                report=False, cancelled=lambda: self._early_session_unwanted or not self._countdown_staging_open
             )
             if session is None:
                 return None
-            with self._session_lock:
-                keep = self._staging_open and not self._early_discard
+            with self._early_session_lock:
+                keep = self._countdown_staging_open and not self._early_session_unwanted
                 if keep:
                     self._early_session = session
             if not keep:
                 self._end_session(session)
                 return None
             return session
+
+    def _may_start_staging(self, stopped: Callable[[], bool]) -> bool:
+        """Whether a staging may start: nothing new starts once the injection
+        closed staging. An install already running goes on while it is still
+        wanted: the injection waits for the library change lock, and takes it
+        over when it is its own skin."""
+        return self._countdown_staging_open and not stopped() and self.game_dir is not None
 
     def stage_mods(self, folder_dir: Path, mod_names: List[str],
                    still_wanted: Callable[[], bool] = lambda: True,
@@ -673,8 +701,8 @@ class OverlayManager:
         def stopped() -> bool:
             return not still_wanted()
 
-        with self.host.stage_lock:
-            if not self._staging_open or stopped() or self.game_dir is None:
+        with self.host.library_change_lock:
+            if not self._may_start_staging(stopped):
                 return False
             session = self._staging_session()
             if session is None or stopped():
@@ -702,6 +730,13 @@ class OverlayManager:
             )
             return True
 
+    @staticmethod
+    def _take_library_snapshot(session: dict) -> Optional[list]:
+        """What _install_mods just read of the library, its imports added: it
+        is still LTK Manager's library. Taken once."""
+        library, session["library_snapshot"] = session.get("library_snapshot"), None
+        return library
+
     def _disable_other_mods(self, session: dict) -> None:
         """Turn off the user's own enabled mods for this session.
 
@@ -713,17 +748,17 @@ class OverlayManager:
         """
         ltf = session["ltf"]
         bridge = ltf.bridge
-        library, session["library_snapshot"] = session.get("library_snapshot"), None
+        library = self._take_library_snapshot(session)
         try:
             if library is None:
                 library = bridge.library()
         except (BridgeUnavailable, BridgeCommandError) as e:
             log.warning(f"[INJECT] Could not read LTK Manager's library - its other enabled mods may apply too: {e}")
             return
-        rose_entries = set(self.host.journal.kept()) | ltf.rose_ids
+        rose_entries = set(self.host.journal.kept()) | ltf.saved_mod_ids
         for entry in library:
             mod_id = str(entry.get("id") or "")
-            if not mod_id or mod_id in ltf.imports or mod_id in ltf.switched or not entry.get("enabled"):
+            if not mod_id or mod_id in ltf.imports or mod_id in ltf.switched_on or not entry.get("enabled"):
                 continue
             if mod_id in rose_entries:
                 try:
@@ -748,7 +783,7 @@ class OverlayManager:
         would break the next build again.
         """
         ltf = session["ltf"]
-        tail = ltf.library_log
+        tail = ltf.start_log_tail
         if tail is not None:
             session["broken_entries"].update(BROKEN_ENTRY_LINE.findall(tail.read()))
         listed = {str(entry.get("id") or "") for entry in library}
@@ -785,8 +820,7 @@ class OverlayManager:
             self.process_manager.stopped_by_user = False
             self.process_manager.stopped_by_rose = False
 
-        self.close_staging()
-        with self.host.stage_lock:
+        with self._staging_closed():
             session = self._acquire_session()
             if session is None:
                 return 0 if self._stopped_by_rose() else 1
@@ -1347,10 +1381,17 @@ class OverlayManager:
             parts.append(f"Rose started it {staged:.1f}s after the skin was picked")
         return "; ".join(parts)
 
+    @staticmethod
+    def _status_may_be_killed_games(session: dict) -> bool:
+        """Whether the patcher's status may still carry the verdict of a game
+        killed for a restart: only LTK Manager's log (new lines) speaks for
+        the new game then."""
+        return session.get("restarted_at") is not None
+
     def _check_patcher_verdict(self, session: dict, value: Optional[dict] = None) -> None:
         """Log the patcher reaching the game, and report it joining too late
         (the DLL then stays inert: the game runs without the overlay)."""
-        if value is not None and session.get("restarted_at") is None:
+        if value is not None and not self._status_may_be_killed_games(session):
             try:
                 self._note_ltk_text(session, json.dumps(value))
             except (TypeError, ValueError):
@@ -1389,7 +1430,7 @@ class OverlayManager:
                 log.error(f"[INJECT] {SIGNATURE_FAILURE_MESSAGE} ({signature}): reinstall LTK Manager")
             # The check wants LTK Manager started under explorer.exe: when the
             # launcher could not do that, its lines in this log say why (#478)
-            parent = self.host.launcher_parent
+            parent = self.host.logged_manager_parent
             unparented = parent is not None and parent != LAUNCHER_SHELL_PARENT
             if unparented:
                 log.error(
@@ -1420,7 +1461,8 @@ class OverlayManager:
             title, incident_id, verdict = incident
             where = f"{LTK_INCIDENTS_DIR}\\{incident_id}.json"
             log.error(f"[INJECT] LTK Manager recorded an incident: {title} ({verdict}), see {where}")
-            if not disabled and not session.get("not_attached_reported"):
+            incident_repeats_a_report = disabled or session.get("not_attached_reported")
+            if not incident_repeats_a_report:
                 report_ltf_failure(f"LTK Manager recorded an incident after the game: {title} ({verdict}; {where})")
         slow = session.get("ltk_slow_mod_check_s")
         if slow is not None and not session.get("slow_mod_check_reported"):
@@ -1559,14 +1601,14 @@ class OverlayManager:
     def _report_low_disk_space_failure(self, mod_names: Optional[List[str]] = None) -> bool:
         '''Report a failed import when its output drive is out of space.'''
         free_bytes = None
-        required_bytes = max(MIN_FREE_SPACE_BYTES, DISK_SPACE_HEADROOM_BYTES)
+        required_bytes = max(MIN_LIBRARY_FREE_BYTES, LIBRARY_IMPORT_HEADROOM_BYTES)
         try:
             usage = shutil.disk_usage(self.mods_dir.parent)
             free_bytes = usage.free
             extracted_bytes = self._directory_size(self.mods_dir)
             required_bytes = max(
-                MIN_FREE_SPACE_BYTES,
-                extracted_bytes + DISK_SPACE_HEADROOM_BYTES,
+                MIN_LIBRARY_FREE_BYTES,
+                extracted_bytes + LIBRARY_IMPORT_HEADROOM_BYTES,
             )
         except (OSError, ValueError) as exc:
             log.debug(f'[INJECT] Could not inspect free disk space after injection failure: {exc}')

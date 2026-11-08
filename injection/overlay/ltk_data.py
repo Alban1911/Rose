@@ -225,9 +225,11 @@ class LtkLogTail:
         newest = self._newest()
         if newest is None:
             return ""
-        if newest != self.path:
+        rolled_over_to_new_file = newest != self.path
+        if rolled_over_to_new_file:
             self.path, self.offset = newest, 0
-        if self._size(self.path) < self.offset:
+        rewritten = self._size(self.path) < self.offset
+        if rewritten:
             self.offset = 0
         try:
             with open(self.path, "rb") as handle:
