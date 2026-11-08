@@ -8,11 +8,73 @@ Handles user data directories and permissions
 import os
 import subprocess
 import sys
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Iterator, Optional, Tuple
 
 # Cache for the resolved user data directory
 _cached_user_data_dir: Optional[Path] = None
+
+
+TOKEN_DUPLICATE = 0x0002
+TOKEN_IMPERSONATE = 0x0004
+TOKEN_QUERY = 0x0008
+# The Desktop as Windows knows it (OneDrive's backup may have moved it)
+FOLDERID_DESKTOP = "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"
+
+
+def _explorer_process_token(access: int):
+    """Open the token of explorer.exe for *access*: the caller closes it."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.windll.kernel32
+    advapi32 = ctypes.windll.advapi32
+    PROCESS_QUERY_INFORMATION = 0x0400
+
+    result = subprocess.run(
+        ['tasklist', '/FI', 'IMAGENAME eq explorer.exe', '/FO', 'CSV', '/NH'],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+
+    # Parse PID from CSV output: "explorer.exe","1234",...
+    parts = result.stdout.strip().split('\n')[0].split(',')
+    if len(parts) < 2:
+        return None
+    explorer_pid = int(parts[1].strip('"'))
+
+    process_handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, explorer_pid)
+    if not process_handle:
+        return None
+    try:
+        token_handle = wintypes.HANDLE()
+        if not advapi32.OpenProcessToken(process_handle, access, ctypes.byref(token_handle)):
+            return None
+        return token_handle
+    finally:
+        kernel32.CloseHandle(process_handle)
+
+
+@contextmanager
+def _explorer_token(access: int) -> Iterator[Optional[object]]:
+    """The token of explorer.exe, opened for *access* and closed after, or
+    None. Explorer always runs as the user logged into the desktop, even when
+    Rose runs elevated as a different admin account."""
+    token = None
+    if os.name == "nt":
+        try:
+            token = _explorer_process_token(access)
+        except Exception:
+            token = None
+    try:
+        yield token
+    finally:
+        if token is not None:
+            import ctypes
+            ctypes.windll.kernel32.CloseHandle(token)
 
 
 def _get_desktop_user_info() -> Tuple[Optional[str], Optional[str]]:
@@ -31,89 +93,51 @@ def _get_desktop_user_info() -> Tuple[Optional[str], Optional[str]]:
         import ctypes
         from ctypes import wintypes
 
-        # Load required DLLs
-        kernel32 = ctypes.windll.kernel32
         advapi32 = ctypes.windll.advapi32
         userenv = ctypes.windll.userenv
-
-        # Constants
-        PROCESS_QUERY_INFORMATION = 0x0400
-        TOKEN_QUERY = 0x0008
         TokenUser = 1
 
-        # Find explorer.exe - it always runs as the desktop user
-        import subprocess
-        result = subprocess.run(
-            ['tasklist', '/FI', 'IMAGENAME eq explorer.exe', '/FO', 'CSV', '/NH'],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW
-        )
-
-        if result.returncode != 0 or not result.stdout.strip():
-            return None, None
-
-        # Parse PID from CSV output: "explorer.exe","1234",...
-        line = result.stdout.strip().split('\n')[0]
-        parts = line.split(',')
-        if len(parts) < 2:
-            return None, None
-
-        explorer_pid = int(parts[1].strip('"'))
-
-        # Open the process
-        process_handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, explorer_pid)
-        if not process_handle:
-            return None, None
-
-        try:
-            # Open the process token
-            token_handle = wintypes.HANDLE()
-            if not advapi32.OpenProcessToken(process_handle, TOKEN_QUERY, ctypes.byref(token_handle)):
+        with _explorer_token(TOKEN_QUERY) as token_handle:
+            if token_handle is None:
                 return None, None
 
-            try:
-                # Get token user info size
-                token_info_size = wintypes.DWORD()
-                advapi32.GetTokenInformation(token_handle, TokenUser, None, 0, ctypes.byref(token_info_size))
+            # Get token user info size
+            token_info_size = wintypes.DWORD()
+            advapi32.GetTokenInformation(token_handle, TokenUser, None, 0, ctypes.byref(token_info_size))
 
-                # Allocate buffer and get token user
-                token_user_buffer = ctypes.create_string_buffer(token_info_size.value)
-                if not advapi32.GetTokenInformation(
-                    token_handle, TokenUser, token_user_buffer, token_info_size.value, ctypes.byref(token_info_size)
-                ):
-                    return None, None
+            # Allocate buffer and get token user
+            token_user_buffer = ctypes.create_string_buffer(token_info_size.value)
+            if not advapi32.GetTokenInformation(
+                token_handle, TokenUser, token_user_buffer, token_info_size.value, ctypes.byref(token_info_size)
+            ):
+                return None, None
 
-                # Extract SID from TOKEN_USER structure (SID is at offset 0)
-                sid_ptr = ctypes.cast(token_user_buffer, ctypes.POINTER(ctypes.c_void_p))[0]
+            # Extract SID from TOKEN_USER structure (SID is at offset 0)
+            sid_ptr = ctypes.cast(token_user_buffer, ctypes.POINTER(ctypes.c_void_p))[0]
 
-                # Lookup account name from SID
-                name_size = wintypes.DWORD(256)
-                domain_size = wintypes.DWORD(256)
-                name = ctypes.create_unicode_buffer(256)
-                domain = ctypes.create_unicode_buffer(256)
-                sid_type = wintypes.DWORD()
+            # Lookup account name from SID
+            name_size = wintypes.DWORD(256)
+            domain_size = wintypes.DWORD(256)
+            name = ctypes.create_unicode_buffer(256)
+            domain = ctypes.create_unicode_buffer(256)
+            sid_type = wintypes.DWORD()
 
-                if not advapi32.LookupAccountSidW(
-                    None, sid_ptr, name, ctypes.byref(name_size),
-                    domain, ctypes.byref(domain_size), ctypes.byref(sid_type)
-                ):
-                    return None, None
+            if not advapi32.LookupAccountSidW(
+                None, sid_ptr, name, ctypes.byref(name_size),
+                domain, ctypes.byref(domain_size), ctypes.byref(sid_type)
+            ):
+                return None, None
 
-                username = name.value
+            username = name.value
 
-                # Get user profile directory
-                profile_dir = ctypes.create_unicode_buffer(260)
-                profile_size = wintypes.DWORD(260)
+            # Get user profile directory
+            profile_dir = ctypes.create_unicode_buffer(260)
+            profile_size = wintypes.DWORD(260)
 
-                if userenv.GetUserProfileDirectoryW(token_handle, profile_dir, ctypes.byref(profile_size)):
-                    return username, profile_dir.value
-                else:
-                    # Fallback: construct profile path
-                    return username, f"C:\\Users\\{username}"
-
-            finally:
-                kernel32.CloseHandle(token_handle)
-        finally:
-            kernel32.CloseHandle(process_handle)
+            if userenv.GetUserProfileDirectoryW(token_handle, profile_dir, ctypes.byref(profile_size)):
+                return username, profile_dir.value
+            # Fallback: construct profile path
+            return username, f"C:\\Users\\{username}"
 
     except Exception:
         return None, None
@@ -208,6 +232,57 @@ def get_appdata_dir() -> Path:
     return get_user_data_dir()
 
 
+def _known_folder(folder_id: str, token) -> Optional[Path]:
+    """Where Windows keeps the known folder *folder_id* of the user *token*
+    is (None: this account's), or None when it cannot tell."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        shell32 = ctypes.WinDLL("shell32")
+        ole32 = ctypes.WinDLL("ole32")
+        shell32.SHGetKnownFolderPath.argtypes = [
+            ctypes.c_char_p, wintypes.DWORD, wintypes.HANDLE, ctypes.POINTER(ctypes.c_void_p),
+        ]
+        shell32.SHGetKnownFolderPath.restype = ctypes.c_long
+        ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+        pointer = ctypes.c_void_p()
+        result = shell32.SHGetKnownFolderPath(uuid.UUID(folder_id).bytes_le, 0, token, ctypes.byref(pointer))
+        try:
+            if result != 0 or not pointer.value:
+                return None
+            return Path(ctypes.wstring_at(pointer.value))
+        finally:
+            ole32.CoTaskMemFree(pointer)
+    except Exception:
+        return None
+
+
+def get_desktop_user_desktop_dir() -> Path:
+    """
+    The Desktop of the user logged into the desktop, where Windows keeps it.
+
+    OneDrive's backup moves the Desktop into the OneDrive folder, so it is
+    asked from Windows, not assumed under the profile. Rose may run elevated
+    as another admin account, whose Desktop the user never sees: Windows is
+    then asked with the desktop user's token, as get_user_data_dir finds
+    that user. Falls back on <profile>\\Desktop.
+    """
+    desktop_username, desktop_profile = _get_desktop_user_info()
+    other_user = bool(desktop_username) and desktop_username.lower() != os.environ.get("USERNAME", "").lower()
+    if other_user:
+        with _explorer_token(TOKEN_QUERY | TOKEN_IMPERSONATE | TOKEN_DUPLICATE) as token:
+            desktop = _known_folder(FOLDERID_DESKTOP, token) if token is not None else None
+    else:
+        desktop = _known_folder(FOLDERID_DESKTOP, None)
+    if desktop is not None:
+        return desktop
+    profile = desktop_profile if other_user else os.environ.get("USERPROFILE")
+    return (Path(profile) if profile else Path.home()) / "Desktop"
+
+
 def get_skins_dir() -> Path:
     """
     Get the skins directory path.
@@ -272,6 +347,22 @@ def get_app_dir() -> Path:
         # Running as script
         # __file__ is utils/core/paths.py, so we need to go up 3 levels to get to root
         return Path(__file__).parent.parent.parent
+
+
+def get_tools_dir() -> Path:
+    """Where Rose's injection tools are (ltk_launcher.exe, LeagueToolFlop.dll):
+    inside the bundle of a built Rose, beside the sources otherwise."""
+    if getattr(sys, 'frozen', False):
+        if hasattr(sys, '_MEIPASS'):
+            # One-file mode: tools are in _MEIPASS
+            return Path(sys._MEIPASS) / "injection" / "tools"
+        # One-dir mode: tools are alongside executable
+        possible_dirs = [
+            get_app_dir() / "injection" / "tools",
+            get_app_dir() / "_internal" / "injection" / "tools",
+        ]
+        return next((dir_path for dir_path in possible_dirs if dir_path.exists()), possible_dirs[0])
+    return get_app_dir() / "injection" / "tools"
 
 
 def get_assets_dir() -> Path:

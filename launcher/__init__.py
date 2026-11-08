@@ -17,6 +17,7 @@ from .update.github_client import GitHubClient
 from .ui.update_dialog import UpdateDialog
 from .sequences.hash_check_sequence import HashCheckSequence
 from .sequences.skin_sync_sequence import SkinSyncSequence
+from .sequences.mod_migration_sequence import ModMigrationSequence
 
 __all__ = [
     'run_launcher',
@@ -28,4 +29,5 @@ __all__ = [
     'UpdateDialog',
     'HashCheckSequence',
     'SkinSyncSequence',
+    'ModMigrationSequence',
 ]

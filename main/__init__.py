@@ -18,30 +18,6 @@ if sys.version_info < MIN_PYTHON:
     )
 
 
-def _get_tools_dir() -> Path:
-    """Get the tools directory path (works in both frozen and development environments)"""
-    if getattr(sys, 'frozen', False):
-        # Running as compiled executable (PyInstaller)
-        if hasattr(sys, '_MEIPASS'):
-            # One-file mode: tools are in _MEIPASS
-            base_path = Path(sys._MEIPASS)
-            return base_path / "injection" / "tools"
-        else:
-            # One-dir mode: tools are alongside executable
-            base_dir = Path(sys.executable).parent
-            possible_dirs = [
-                base_dir / "injection" / "tools",
-                base_dir / "_internal" / "injection" / "tools",
-            ]
-            for dir_path in possible_dirs:
-                if dir_path.exists():
-                    return dir_path
-            return possible_dirs[0]
-    else:
-        # Running as Python script
-        return Path(__file__).parent.parent / "injection" / "tools"
-
-
 LTK_MANAGER_DOWNLOAD_URL = "https://github.com/LeagueToolkit/ltk-manager/releases"
 
 
@@ -403,8 +379,9 @@ def _check_dll_present() -> bool:
         return True  # Only relevant on Windows
 
     from injection.tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
+    from utils.core.paths import get_tools_dir
 
-    tools_dir = _get_tools_dir()
+    tools_dir = get_tools_dir()
     missing = [name for name in (LTF_LAUNCHER, LTF_BRIDGE_DLL) if not (tools_dir / name).exists()]
     if missing:
         return _show_dll_dialog(tools_dir, reason="missing", detail=" and ".join(missing))

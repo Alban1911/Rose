@@ -32,6 +32,7 @@ from typing import Callable, Dict, Iterator, List, Mapping, Optional
 from utils.core.logging import get_logger
 from utils.core.modpkg import MODPKG_SUFFIX
 
+from ..mods.fingerprint import mod_fingerprint
 from ..mods.mod_facts import stamp_of
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
 from .overlay_manager import (
@@ -59,6 +60,7 @@ __all__ = [
     "library_index_path",
     "ltk_data_candidates",
     "ltk_data_dir",
+    "mod_storage_root",
     "read_library_index",
     "stored_archive",
 ]
@@ -150,6 +152,13 @@ def _mod_storage_root(data_dir: Path) -> Path:
     if isinstance(custom, str) and custom.strip():
         return Path(custom.strip())
     return data_dir / "mods"
+
+
+def mod_storage_root() -> Optional[Path]:
+    """Where LTK Manager stores the mods it imports (None: it never ran
+    here). The folder may not exist yet."""
+    data_dir = ltk_data_dir()
+    return _mod_storage_root(data_dir) if data_dir is not None else None
 
 
 def _archive_suffix(fmt: object) -> str:
@@ -426,15 +435,37 @@ class LibrarySession:
 
     def keep(self, ltk_id: str) -> None:
         """Leave the entry in LTK Manager after the session, turned off: it is
-        a saved mod now. Write its ltkId into the manifest before: from here
+        a saved mod now, whether this session imported it or a game kept it
+        (kept_copy). Write its ltkId into the manifest before: from here
         nothing removes the entry, and the session-start cleanup leaves alone
         the entries a manifest lists. Raises when it could not be turned off
         (it is still kept; the next session start turns it off)."""
         ltk_id = str(ltk_id)
         for tracked in ("installed", "fingerprints", "sources"):
             self._session[tracked].pop(ltk_id, None)
-        self._overlay._untrack(removed=[ltk_id])
+
+        def release(state):
+            state["installed"].pop(ltk_id, None)
+            state["kept"].pop(ltk_id, None)
+
+        self._overlay._update_state(release)
         self.bridge.toggle(ltk_id, False)
+
+    def kept_copy(self, stored: Path, library: Mapping[str, dict]) -> Optional[str]:
+        """The entry a game left in LTK Manager of the saved mod Rose stores
+        at *stored* (overlay_manager's _park: kept, turned off, for the next
+        game), when *library* (by id) still lists it and it came from that
+        very content: it is that mod's already, with no import. Raises
+        OSError when *stored* cannot be read."""
+        source = os.path.normcase(str(Path(stored).resolve()))
+        records = {
+            mod_id: record for mod_id, record in self._overlay._kept_mods().items()
+            if mod_id in library and os.path.normcase(record["source"]) == source
+        }
+        if not records:
+            return None
+        fingerprint = mod_fingerprint(Path(stored))
+        return next((mod_id for mod_id, record in records.items() if record["fingerprint"] == fingerprint), None)
 
     def switch(self, ltk_id: str, enabled: bool) -> None:
         """Turn an entry on or off."""
