@@ -30,6 +30,34 @@ SPECIAL_CHROMA_SKIN_IDS = {
 }
 
 
+def custom_mod_state_payload(selected_custom_mod: Optional[dict]) -> dict:
+    """The custom-mod-state message for the selected custom mod (None: no mod)"""
+    selected = selected_custom_mod or {}
+    raw_display_name = selected.get("display_name")
+    display_name = (
+        raw_display_name.strip()
+        if isinstance(raw_display_name, str) and raw_display_name.strip()
+        else None
+    )
+    try:
+        target_skin_ids = sorted({
+            int(value) for value in selected.get("target_skin_ids") or [] if int(value) > 0
+        })
+    except (TypeError, ValueError):
+        target_skin_ids = []
+    return {
+        "type": "custom-mod-state",
+        "active": selected_custom_mod is not None,
+        "modName": selected.get("mod_name"),
+        "displayName": display_name,
+        "skinId": selected.get("skin_id"),
+        "championId": selected.get("champion_id"),
+        "relativePath": selected.get("relative_path"),
+        "targetSkinIds": target_skin_ids,
+        "timestamp": int(time.time() * 1000),
+    }
+
+
 class Broadcaster:
     """Broadcasts messages to WebSocket clients"""
     
@@ -196,39 +224,11 @@ class Broadcaster:
         if not self.websocket_server.loop or not self.websocket_server.connections:
             return
 
-        selected_custom_mod = getattr(self.shared_state, 'selected_custom_mod', None)
-        active = selected_custom_mod is not None
-        mod_name = selected_custom_mod.get("mod_name") if selected_custom_mod else None
-        raw_display_name = selected_custom_mod.get("display_name") if selected_custom_mod else None
-        display_name = (
-            raw_display_name.strip()
-            if isinstance(raw_display_name, str) and raw_display_name.strip()
-            else None
-        )
-        skin_id = selected_custom_mod.get("skin_id") if selected_custom_mod else None
-        champion_id = selected_custom_mod.get("champion_id") if selected_custom_mod else None
-        relative_path = selected_custom_mod.get("relative_path") if selected_custom_mod else None
-        target_skin_ids = selected_custom_mod.get("target_skin_ids", []) if selected_custom_mod else []
-        try:
-            target_skin_ids = sorted({int(value) for value in target_skin_ids if int(value) > 0})
-        except (TypeError, ValueError):
-            target_skin_ids = []
-        payload = {
-            "type": "custom-mod-state",
-            "active": active,
-            "modName": mod_name,
-            "displayName": display_name,
-            "skinId": skin_id,
-            "championId": champion_id,
-            "relativePath": relative_path,
-            "targetSkinIds": target_skin_ids,
-            "timestamp": int(time.time() * 1000),
-        }
-
+        payload = custom_mod_state_payload(getattr(self.shared_state, 'selected_custom_mod', None))
         log.debug(
             "[SkinMonitor] Broadcasting custom mod state → active=%s modName=%s",
-            active,
-            mod_name,
+            payload["active"],
+            payload["modName"],
         )
 
         self._send_message(json.dumps(payload))
