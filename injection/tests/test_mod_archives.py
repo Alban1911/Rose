@@ -331,6 +331,16 @@ class ManifestListingTests(TempCase):
         self.assertFalse(self.pending.exists())
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
+    def test_deleting_a_folder_mod_leaves_a_mod_folder_named_like_its_description(self):
+        legacy = self.service.get_skin_dir(81020)
+        make_folder(legacy / "Example", VOICEOVER)
+        sibling = make_folder(legacy / "Example.txt", VOICEOVER)
+
+        self.assertTrue(self.service.delete_champion_mod(81, relative_path="skins/81020/Example"))
+
+        self.assertFalse((legacy / "Example").exists())
+        self.assertEqual(len([path for path in sibling.rglob("*") if path.is_file()]), len(VOICEOVER))
+
     def test_a_category_mod_ltk_manager_holds_is_deleted_by_its_name(self):
         self.assertTrue(self.service.delete_category_mod("voiceover", "VO Korean"))
 

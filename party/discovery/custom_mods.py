@@ -20,7 +20,7 @@ from injection.mods.mod_facts import (  # noqa: F401 - _content_digest, _is_prev
     _hash_stream,
     _is_preview_image,
 )
-from injection.mods.manifest import SKINS, find_saved_mod, iter_saved_mods
+from injection.mods.manifest import SKINS, TARGET_METADATA, find_saved_mod, iter_saved_mods
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
@@ -32,6 +32,8 @@ _METADATA_FILES = {"rose_mod_targets.json"}
 
 # path -> ((mtime_ns, size), content_hash, legacy_hash)
 _hash_cache: Dict[str, Tuple[Tuple[int, ...], Optional[str], Optional[str]]] = {}
+# saved mod's path -> ((its manifest's stamp, its file's stamp), content_hash, legacy_hash)
+_saved_hash_cache: Dict[str, Tuple[tuple, Optional[str], Optional[str]]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -87,21 +89,45 @@ def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
     return content_hash, legacy_hash
 
 
+def _file_stamp(path: Path) -> Tuple[int, ...]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return ()
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 def saved_mod_hashes(relative_path: str) -> Tuple[Optional[str], Optional[str]]:
     """(content hash, legacy hash) our pick of a saved mod shares with the
-    party. A mod LTK Manager holds has no file in Rose: its manifest's
-    partyHash is the content hash, and there is no whole-file hash for older
-    Roses. Rose's copy, while it has one, is hashed (mod_hashes). Nothing for
-    a mod we cannot inject ourselves."""
+    party. A mod LTK Manager holds is injected from its library entry: its
+    manifest's partyHash is the content hash, and there is no whole-file hash
+    for older Roses. A pending mod's copy is hashed (mod_hashes). Nothing for
+    a mod we cannot inject ourselves.
+
+    Cached until its manifest or file changes: party mode asks every second,
+    and finding the entry of a renamed pending mod reads the whole mod."""
     mods_root = get_mods_root()
+    identity = mods_root / relative_path
+    key = str(identity)
+    stamp = (_file_stamp(identity.parent / TARGET_METADATA), _file_stamp(identity))
+    with _cache_lock:
+        cached = _saved_hash_cache.get(key)
+    if cached and cached[0] == stamp:
+        return cached[1], cached[2]
+
     saved = find_saved_mod(mods_root, relative_path)
     if saved is None:
-        return mod_hashes(mods_root / relative_path)
-    if not saved.available:
-        return None, None
-    if saved.stored is None:
-        return (saved.facts.party_hash if saved.facts else None), None
-    return mod_hashes(saved.stored)
+        hashes = mod_hashes(identity)
+    elif not saved.available:
+        hashes = None, None
+    elif saved.ltk_id:
+        hashes = (saved.facts.party_hash if saved.facts else None), None
+    else:
+        hashes = mod_hashes(saved.stored)
+
+    with _cache_lock:
+        _saved_hash_cache[key] = (stamp, *hashes)
+    return hashes
 
 
 def _champion_mod_entries(champion_id: int):

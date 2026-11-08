@@ -932,7 +932,9 @@ class ModStorageService:
         if mod.stored is not None:
             safe_remove_entry(mod.stored)
         for suffix in (*self.IMAGE_SIDECAR_SUFFIXES, self.DESCRIPTION_SIDECAR_SUFFIX):
-            safe_remove_entry(mod.sidecar(suffix))
+            sidecar = mod.sidecar(suffix)
+            if sidecar.is_file():  # a folder of that name is another mod ("Example.txt")
+                safe_remove_entry(sidecar)
         return True
 
     def delete_champion_mod(

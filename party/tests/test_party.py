@@ -15,7 +15,7 @@ from party.discovery import custom_mods
 from party.discovery.skin_collector import PartySkinData, SkinCollector
 from party.integration.injection_hook import PartyInjectionHook
 from injection.mods.ltk_ref import ltk_ref
-from injection.mods.mod_facts import ModFacts
+from injection.mods.mod_facts import ModFacts, compute_mod_facts
 from injection.mods.mod_files import ModFiles
 from party.protocol.token_codec import PartyToken, create_token
 
@@ -194,6 +194,31 @@ class CustomModsTests(unittest.TestCase):
         self.assertTrue(state["is_custom"])
         self.assertEqual(state["custom_mod_content_hash"], "a" * 32)
         self.assertNotIn("custom_mod_hash", state)  # no file to take an older Rose's whole-file hash of
+
+    def test_our_pick_of_a_mod_ltk_manager_holds_shares_its_manifest_hash_not_a_leftover_copys(self):
+        self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
+        # A move into LTK Manager stopped before Rose's copy was deleted: LTK Manager's entry is what is injected
+        self._make_archive(self.mods_root / "skins" / "103000" / "LTK Ahri.fantome")
+
+        state = self.our_pick("skins/103000/LTK Ahri.fantome")
+
+        self.assertEqual(state["custom_mod_content_hash"], "a" * 32)
+        self.assertNotIn("custom_mod_hash", state)
+
+    def test_a_renamed_pending_pick_is_matched_to_its_entry_once_until_it_changes(self):
+        archive = self.mods_root / "skins" / "103000" / "Renamed Ahri.zip"
+        self._make_archive(archive)
+        self.save_mod("Original Ahri", folderHash=compute_mod_facts(archive)[1])
+
+        with patch("injection.mods.manifest.compute_mod_facts", wraps=compute_mod_facts) as read_whole_mod:
+            polls = [self.our_pick("skins/103000/Renamed Ahri.zip") for _ in range(3)]
+            self.assertEqual(read_whole_mod.call_count, 1)
+
+            os.utime(archive, ns=(2_000_000_000, 2_000_000_000))
+            self.our_pick("skins/103000/Renamed Ahri.zip")
+            self.assertEqual(read_whole_mod.call_count, 2)
+
+        self.assertEqual(polls[-1]["custom_mod_content_hash"], custom_mods.mod_hashes(archive)[0])
 
     def test_our_pick_of_a_pending_mod_shares_the_hashes_of_its_file(self):
         archive = self.mods_root / "skins" / "103000" / "Old Ahri.zip"
