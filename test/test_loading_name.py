@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 from injection.loadingname import loading_name
+from injection.mods.mod_facts import ModFacts
 
 
 def make_table(texts):
@@ -341,6 +342,46 @@ class LoadingNameTests(unittest.TestCase):
         self.assertTrue(loading_name.ships_language_table(raw))
         self.assertFalse(loading_name.ships_language_table(other))
         self.assertIsNone(loading_name.build(game, mods, mod, 238001, other_mods=[packed]))
+
+    def test_a_skin_ltk_manager_holds_has_its_record_read_from_ltk_managers_archive(self):
+        # Rose keeps no copy of a saved mod: its champions come from its manifest, its record from LTK Manager's copy
+        game, mods, _ = self._game_with_zed_record('fr_FR')
+        key = b'game_character_displayname_Zed'
+        skins_record = b'skin:' + struct.pack('<H', len(key)) + key
+        archive = self._archive(self.root / 'ltk' / 'shockblade-zed.fantome', {
+            'META/info.json': '{}',
+            'WAD/Zed.wad.client': make_wad(skins_record, loading_name._xxh64(b'data/characters/zed/zed.bin')),
+        })
+        opened = []
+        skin = loading_name.LtkSkin(('Zed',), lambda: opened.append(archive) or archive)
+
+        self.assertIsNone(loading_name.build(game, mods, skin, 238002))  # no name to show: the archive is not looked for
+        self.assertEqual(opened, [])
+        name = loading_name.build(game, mods, skin, 238001)
+
+        written = (mods / name / 'RAW' / 'data' / 'characters' / 'zed' / 'zed.bin').read_bytes()
+        self.assertEqual(written, b'skin:' + struct.pack('<H', len(key)) + b'rose_character_displayname_Zed')
+        self.assertEqual(opened, [archive])
+
+    def test_without_ltk_managers_archive_the_games_record_is_used(self):
+        game, mods, _ = self._game_with_zed_record('fr_FR')
+        key = b'game_character_displayname_Zed'
+        packed = self.root / 'ltk' / 'shockblade-zed.modpkg'  # LTK Manager's own format: not a ZIP
+        packed.parent.mkdir()
+        packed.write_bytes(b'modpkg')
+        for archive in (None, packed):
+            with self.subTest(archive=archive):
+                name = loading_name.build(game, mods, loading_name.LtkSkin(('Zed',), lambda: archive), 238001)
+
+                written = (mods / name / 'RAW' / 'data' / 'characters' / 'zed' / 'zed.bin').read_bytes()
+                self.assertEqual(written, struct.pack('<H', len(key)) + b'rose_character_displayname_Zed')
+
+    def test_the_facts_of_a_mod_ltk_manager_holds_tell_whether_it_carries_the_text_table(self):
+        game, mods, mod = self._zed_game()
+
+        self.assertIsNone(loading_name.build(game, mods, mod, 238001, other_mods=[ModFacts(None, (), True)]))
+        self.assertEqual(loading_name.build(game, mods, mod, 238001, other_mods=[ModFacts(None, ('Ahri',), False)]),
+                         loading_name.MOD_FOLDER)
 
     def test_the_chat_keeps_the_champions_name(self):
         game = self.root / 'game'

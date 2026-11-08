@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import tempfile
 import time
@@ -13,6 +14,7 @@ from party.core.party_manager import PartyManager
 from party.discovery import custom_mods
 from party.discovery.skin_collector import PartySkinData, SkinCollector
 from party.integration.injection_hook import PartyInjectionHook
+from injection.mods.ltk_ref import ltk_ref
 from injection.mods.mod_files import ModFiles
 from party.protocol.token_codec import PartyToken, create_token
 
@@ -614,7 +616,7 @@ class InjectionHookTests(unittest.TestCase):
         self.mods_dir = self.root / "mods_dir"
         self.mods_dir.mkdir()
         for target, value in (
-            ("party.integration.injection_hook.get_injection_dir", self.root / "injection"),
+            ("injection.core.mod_source.get_injection_dir", self.root / "injection"),
             ("party.integration.injection_hook.get_mods_root", self.root / "mods"),
         ):
             patcher = patch(target, return_value=value)
@@ -655,6 +657,31 @@ class InjectionHookTests(unittest.TestCase):
         name = hook._prepare_single_skin(skin, self.injector())
 
         self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"custom")
+
+    def save_ltk_mod(self, ltk_id, missing=False):
+        """Our copy of Custom Yi, a saved mod LTK Manager holds: Rose has no file of it."""
+        champion = self.root / "mods" / "skins" / "11000"
+        champion.mkdir(parents=True)
+        (champion / "rose_mod_targets.json").write_text(json.dumps({"version": 1, "championId": 11, "mods": {
+            "Custom Yi": {"name": "Custom Yi", "targets": [11002], "ltkId": ltk_id, "missing": missing},
+        }}), encoding="utf-8")
+        return PartySkinData(2, "B", 11, 11002, custom_mod_path="skins/11000/Custom Yi.fantome")
+
+    def test_a_custom_mod_ltk_manager_holds_goes_as_its_reference(self):
+        ltk_id = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
+        skin = self.save_ltk_mod(ltk_id)
+
+        name = PartyInjectionHook(Mock(), make_state())._prepare_single_skin(skin, self.injector())
+
+        self.assertEqual(name, ltk_ref(ltk_id))
+        self.assertEqual(list(self.mods_dir.iterdir()), [])
+
+    def test_a_custom_mod_missing_from_ltk_manager_gives_the_friends_skin(self):
+        skin = self.save_ltk_mod("5e9b2219-f49f-4cf1-bc7e-774fb43e1349", missing=True)
+
+        name = PartyInjectionHook(Mock(), make_state())._prepare_single_skin(skin, self.injector())
+
+        self.assertEqual(self._wad(name), b"skin")
 
     def test_rift_classic_uses_the_classic_skin(self):
         mod = self.root / "mods" / "skins" / "11000" / "Custom Yi"

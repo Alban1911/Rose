@@ -62,7 +62,10 @@ from ..tools.bridge import (
 from ..tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
 from ..mods.fantome import fantome_display_name, write_fantome_zip
 from ..mods.fingerprint import mod_fingerprint
+from ..mods.ltk_ref import split_mod_names
+from ..mods.manifest import manifest_ltk_ids
 from ..mods.mod_files import is_mod_archive
+from .ltk_switches import SavedModSwitches
 from .process_manager import LTK_MANAGER_PROCESSES
 from config import (
     GAME_EXECUTABLE_NAMES,
@@ -70,6 +73,10 @@ from config import (
 )
 
 log = get_logger()
+
+# Held while ltf_installed.json is read and rewritten: every OverlayManager
+# of the process shares the file
+_STATE_FILE_LOCK = threading.Lock()
 
 # The patcher status is polled while the game runs (one tick per sleep)
 PATCHER_STATUS_POLL_TICKS = 4
@@ -543,7 +550,6 @@ class OverlayManager:
         self._connect_lock = threading.Lock()
         # Set by discard_early_patcher: an early connect in flight drops its session
         self._early_discard = False
-        self._state_file_lock = threading.Lock()
         # Where the user's saved mods live (%LOCALAPPDATA%\Rose\mods): only
         # those are kept in LTK Manager between games (_park). None: Rose's
         # data folder's "mods"
@@ -560,6 +566,7 @@ class OverlayManager:
         # The parent ltk_launcher.exe last gave the LTK Manager it started, as
         # its log names it ("explorer.exe" when the patcher's check accepts it)
         self._launcher_parent: Optional[str] = None
+        self._switches = SavedModSwitches(self)
 
     @property
     def current_overlay_process(self):
@@ -587,13 +594,14 @@ class OverlayManager:
             document = {}
         if not isinstance(document, dict):
             document = {}
-        if not any(key in document for key in ("installed", "disabled", "manager", "kept")):
+        if not any(key in document for key in ("installed", "disabled", "manager", "kept", "switched")):
             # The first layout held the installed ids alone
             document = {"installed": {k: v for k, v in document.items() if isinstance(v, str)}}
         installed = document.get("installed")
         disabled = document.get("disabled")
         manager = document.get("manager")
         kept = document.get("kept")
+        switched = document.get("switched")
         return {
             "installed": dict(installed) if isinstance(installed, dict) else {},
             "disabled": [str(mod_id) for mod_id in disabled] if isinstance(disabled, list) else [],
@@ -604,11 +612,16 @@ class OverlayManager:
                 str(mod_id): record for mod_id, record in kept.items()
                 if isinstance(record, dict) and record.get("fingerprint") and record.get("source")
             } if isinstance(kept, dict) else {},
+            # library id -> name: saved mods LTK Manager holds, switched on
+            # for the session (SavedModSwitches)
+            "switched": {
+                str(mod_id): str(name) for mod_id, name in switched.items()
+            } if isinstance(switched, dict) else {},
         }
 
     def _update_state(self, change: Callable[[dict], None]) -> None:
         """Apply *change* to the state file (read, change, write)."""
-        with self._state_file_lock:
+        with _STATE_FILE_LOCK:
             state = self._read_state()
             change(state)
             try:
@@ -657,19 +670,22 @@ class OverlayManager:
     # -- saved mods kept in LTK Manager between games -------------------------
     def _kept_mods(self) -> Dict[str, dict]:
         """The saved mods left in LTK Manager, turned off: library id -> record."""
-        with self._state_file_lock:
+        with _STATE_FILE_LOCK:
             return self._read_state()["kept"]
+
+    def _saved_mods_dir(self) -> Path:
+        """Where the user's saved mods live (saved_mods_root, else Rose's data folder's "mods")."""
+        if self.saved_mods_root is not None:
+            return Path(self.saved_mods_root)
+        from utils.core.paths import get_user_data_dir
+        return get_user_data_dir() / "mods"
 
     def _keep_source(self, mod: Path) -> Optional[str]:
         """Where *mod* in the injection's mods folder really is, when it is
         one of the user's saved mods (a junction to a saved folder, or a hard
         link to a saved archive); None for a skin, a generated mod, a party skin."""
-        root = self.saved_mods_root
-        if root is None:
-            from utils.core.paths import get_user_data_dir
-            root = get_user_data_dir() / "mods"
         try:
-            root = Path(root).resolve()
+            root = self._saved_mods_dir().resolve()
             source = Path(mod).resolve()
             if source.is_relative_to(root):
                 return str(source)
@@ -727,14 +743,18 @@ class OverlayManager:
         self._update_state(keep)
         return True
 
-    def _cleanup_stale_installs(self, bridge: LtkBridge) -> None:
+    def _cleanup_stale_installs(self, session: dict) -> None:
         """Undo what an earlier session left in LTK Manager (Rose crashed or
         was closed before its cleanup ran): remove its mods, turn the user's
-        back on. What cannot be undone now stays recorded for the next try.
-        Kept saved mods stay, turned off, unless their saved mod is gone."""
+        back on, switch off the saved mods it switched on. What cannot be
+        undone now stays recorded for the next try. Kept saved mods stay,
+        turned off, unless their saved mod is gone. An entry a saved mod's
+        manifest names (session["rose_ids"]) is the user's mod: never removed
+        as a leftover, only switched off (SavedModSwitches)."""
+        bridge, rose_ids = session["bridge"], session["rose_ids"]
         state = self._read_state()
         installed, disabled, kept = state["installed"], state["disabled"], state["kept"]
-        if not installed and not disabled and not kept:
+        if not installed and not disabled and not kept and not state["switched"] and not rose_ids:
             return
         try:
             library = {str(entry.get("id")): entry for entry in bridge.library() if entry.get("id")}
@@ -742,20 +762,21 @@ class OverlayManager:
             log.debug(f"[INJECT] Could not read LTK Manager's library to clean up an earlier session: {e}")
             return
 
-        # Kept mods the user removed from LTK Manager are forgotten; those whose
-        # saved mod was deleted are removed; one turned on is turned off
-        forgotten = [mod_id for mod_id in kept if mod_id not in library]
-        orphaned = [mod_id for mod_id in kept if mod_id in library and not Path(kept[mod_id]["source"]).exists()]
+        # Kept mods the user removed from LTK Manager are forgotten, as are
+        # those a saved mod's manifest names now (moved into LTK Manager for
+        # good); those whose saved mod was deleted are removed; one turned on
+        # is turned off
+        forgotten = [mod_id for mod_id in kept if mod_id not in library or mod_id in rose_ids]
+        orphaned = [mod_id for mod_id in kept
+                    if mod_id not in forgotten and not Path(kept[mod_id]["source"]).exists()]
         enabled = [mod_id for mod_id in kept
-                   if mod_id in library and mod_id not in orphaned and library[mod_id].get("enabled")]
-        if not installed and not disabled and not orphaned and not enabled:
-            if forgotten:
-                self._forget_kept(forgotten)
-            return
-        try:
-            bridge.stop_patcher()  # library edits wait for a running patcher
-        except (BridgeUnavailable, BridgeCommandError):
-            pass
+                   if mod_id not in forgotten and mod_id not in orphaned and library[mod_id].get("enabled")]
+        leftovers = self._switches.leftovers(library, state["switched"], rose_ids)
+        if installed or disabled or orphaned or enabled or leftovers:
+            try:
+                bridge.stop_patcher()  # library edits wait for a running patcher
+            except (BridgeUnavailable, BridgeCommandError):
+                pass
         for mod_id in orphaned:
             try:
                 bridge.uninstall(mod_id)
@@ -770,11 +791,12 @@ class OverlayManager:
                 log.debug(f"[INJECT] Could not turn off the kept {kept[mod_id]['folder']} ({mod_id}): {e}")
         if forgotten:
             self._forget_kept(forgotten)
+        self._switches.undo(bridge, leftovers)
 
         removed, restored = [], []
         for mod_id, folder in installed.items():
-            if mod_id not in library:
-                removed.append(mod_id)  # already gone
+            if mod_id not in library or mod_id in rose_ids:
+                removed.append(mod_id)  # already gone, or a saved mod's for good since
                 continue
             try:
                 bridge.uninstall(mod_id)
@@ -879,6 +901,8 @@ class OverlayManager:
             "fingerprints": {},  # library id -> content digest of the folder it came from
             "sources": {},  # library id -> the saved mod it came from (kept after the game)
             "disabled": [],  # the user's mods turned off for the session
+            "switched": {},  # library id -> name: saved mods switched on for the session
+            "rose_ids": set(),  # every library id a saved mod's manifest names (read at the start)
             "patcher_running": False,
             "ltk_log": None,  # LtkLogTail from the patcher's start
             "library_log": None,  # LtkLogTail from the session's start (broken library entries)
@@ -980,12 +1004,13 @@ class OverlayManager:
             return None
 
         session = self._new_session(bridge, launched)
+        session["rose_ids"] = manifest_ltk_ids(self._saved_mods_dir())
         # Before any library read: LTK Manager logs the entries it cannot read then
         session["library_log"] = LtkLogTail(LtkLogTail.log_dir())
         # Before any install: an install is what sets a check off
         self._turn_off_health_check(bridge)
         self._check_ltk_builtins()
-        self._cleanup_stale_installs(bridge)
+        self._cleanup_stale_installs(session)
         shutil.rmtree(self._staging_root(), ignore_errors=True)
         return session
 
@@ -1371,8 +1396,9 @@ class OverlayManager:
 
     def _end_session(self, session: dict) -> None:
         """Stop the patcher, remove Rose's mods (the user's saved mods stay,
-        turned off, for the next game: _park), turn the user's back on, and
-        close LTK Manager if Rose started it (a running one is the user's).
+        turned off, for the next game: _park; those LTK Manager holds are
+        switched off), turn the user's back on, and close LTK Manager if Rose
+        started it (a running one is the user's).
 
         Safe to call more than once: Rose's cleanup and the session loop can
         both get here.
@@ -1412,6 +1438,7 @@ class OverlayManager:
                     log.debug(f"[INJECT] Removed {folder} from LTK Manager")
                 except (BridgeUnavailable, BridgeCommandError) as e:
                     log.debug(f"[INJECT] Could not remove {folder} from LTK Manager: {e}")
+            self._switches.switch_off_all(session)
             restored = []
             for mod_id in session["disabled"]:
                 try:
@@ -1574,18 +1601,21 @@ class OverlayManager:
         self._untrack(removed)
         return ok
 
-    def _reuse_kept(self, session: dict, reuse: list, parked: Dict[str, dict], to_import: list) -> Optional[list]:
+    def _reuse_kept(self, session: dict, reuse: list, parked: Dict[str, dict], to_import: list,
+                    library: Optional[list] = None) -> Optional[list]:
         """Turn the kept mods in *reuse* ((name, folder, fingerprint), id)
         back on for this session. One no longer in LTK Manager's library, or
         that cannot be turned on, goes back to *to_import*. Returns the
-        library read (None when it could not be read: all are installed anew)."""
+        library read (None when it could not be read: all are installed anew);
+        *library* is one the install made already."""
         bridge = session["bridge"]
-        try:
-            library = bridge.library()
-        except (BridgeUnavailable, BridgeCommandError) as e:
-            log.debug(f"[INJECT] Could not read LTK Manager's library to reuse the kept mods: {e}")
-            to_import.extend(item for item, _ in reuse)
-            return None
+        if library is None:
+            try:
+                library = bridge.library()
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not read LTK Manager's library to reuse the kept mods: {e}")
+                to_import.extend(item for item, _ in reuse)
+                return None
         listed = {str(entry.get("id")) for entry in library if entry.get("id")}
         gone = []
         for (name, folder, fingerprint), mod_id in reuse:
@@ -1613,7 +1643,9 @@ class OverlayManager:
                       report: bool = True, stopped: Optional[Callable[[], bool]] = None,
                       archives: Optional[Dict[str, Path]] = None) -> bool:
         """Make Rose's mods in LTK Manager's library exactly the folders
-        *mod_names* (in *folder_dir*, mods_dir by default).
+        *mod_names* (in *folder_dir*, mods_dir by default), and the saved mods
+        LTK Manager holds that *mod_names* name by their LTK reference
+        switched on: those are never imported (SavedModSwitches).
 
         A mod already installed from the same content (staged during the
         countdown, see stage_mods) is kept as it is: an unchanged library keeps
@@ -1633,8 +1665,9 @@ class OverlayManager:
             stopped = lambda: self._session_stopped(session)
         session["library_snapshot"] = None
 
+        files, ltk_ids = split_mod_names(mod_names)
         wanted = []
-        for name in mod_names:
+        for name in files:
             folder = folder_dir / name
             if not folder.is_dir() and not is_mod_archive(folder):
                 log.error(f"[INJECT] Mod not found: {folder}")
@@ -1643,7 +1676,17 @@ class OverlayManager:
                 wanted.append((name, folder, mod_fingerprint(folder)))
             except OSError as e:
                 log.error(f"[INJECT] Could not read the mod folder {folder}: {e}")
-        if not wanted:
+        switch_on, switch_off = self._switches.changes(session, ltk_ids)
+        # One read of the library for the switches, the imports (and
+        # _disable_other_mods after them): each read is a round trip through LTK Manager
+        library: Optional[list] = None
+        if switch_on:
+            try:
+                library = bridge.library()
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                return self._saved_mods_failed(e, report and not stopped())
+            switch_on = self._switches.listed(switch_on, library)
+        if not wanted and not switch_on and not (set(ltk_ids) & set(session["switched"])):
             log.error("[INJECT] No mods could be installed into LTK Manager")
             if report and not stopped():
                 report_issue(
@@ -1678,7 +1721,7 @@ class OverlayManager:
                 if mod_id is not None:
                     reuse.append((item, mod_id))
                     to_import.remove(item)
-        if not to_import and not unwanted and not reuse:
+        if not to_import and not unwanted and not reuse and not switch_on and not switch_off:
             return True  # the library already holds exactly these mods
 
         if session["patcher_running"]:
@@ -1689,12 +1732,12 @@ class OverlayManager:
             self._stop_patcher(session)
         if unwanted and not self._remove_unwanted(session, unwanted):
             return False
-
-        # One read of the library for all the imports (and _disable_other_mods
-        # after them): each read is a round trip through LTK Manager
-        library: Optional[list] = None
         if reuse:
-            library = self._reuse_kept(session, reuse, parked, to_import)
+            library = self._reuse_kept(session, reuse, parked, to_import, library)
+        try:
+            self._switches.switch(session, switch_on, switch_off, library)
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            return self._saved_mods_failed(e, report and not stopped())
 
         staging = self._staging_root() / uuid.uuid4().hex
         try:
@@ -1738,6 +1781,18 @@ class OverlayManager:
             shutil.rmtree(staging, ignore_errors=True)
         return True
 
+    def _saved_mods_failed(self, error: Exception, report: bool) -> bool:
+        """Fail the install: a saved mod LTK Manager holds could not be
+        switched (one left off is missing from the overlay, one left on
+        applies with it)."""
+        log.error(f"[INJECT] Could not switch the saved mods in LTK Manager: {error}")
+        if report:
+            self._report_ltf_failure(
+                _cdp_unreachable_reason() if _cdp_unreachable(error)
+                else f"could not switch a saved mod in LTK Manager ({error})"
+            )
+        return False
+
     def pack_mods(self, folder_dir: Path, mod_names: List[str]) -> Dict[str, Path]:
         """Pack the mod folders into the archives LTK Manager imports, ahead of the install.
 
@@ -1747,11 +1802,12 @@ class OverlayManager:
         cannot be packed is left out and packed by the install instead. So is
         a mod an earlier pick already staged (a saved map or voiceover mod,
         the same for every skin): the install keeps it as it is. A mod that
-        is an archive already needs no packing.
+        is an archive already needs no packing, nor does a saved mod LTK
+        Manager holds (named by its LTK reference).
         """
         staged = self._staged_fingerprints()
         archives: Dict[str, Path] = {}
-        for name in mod_names:
+        for name in split_mod_names(mod_names)[0]:
             folder = Path(folder_dir) / name
             archive = Path(folder_dir) / f"{name}.fantome"
             if folder.is_file():
@@ -1936,7 +1992,9 @@ class OverlayManager:
 
         LTK Manager's patcher applies every enabled mod, and the overlay must
         hold Rose's alone (as mod-tools' did). Each one is recorded before it
-        is turned off, so a crash still turns it back on next session.
+        is turned off, so a crash still turns it back on next session. Rose's
+        own (a kept copy, a saved mod not picked for this game) are turned
+        off, and never turned back on as the user's.
         """
         bridge = session["bridge"]
         # What _install_mods just read (with its imports added) is still the library
@@ -1947,17 +2005,16 @@ class OverlayManager:
         except (BridgeUnavailable, BridgeCommandError) as e:
             log.warning(f"[INJECT] Could not read LTK Manager's library - its other enabled mods may apply too: {e}")
             return
-        kept = self._kept_mods()
+        rose_entries = set(self._kept_mods()) | session["rose_ids"]
         for entry in library:
             mod_id = str(entry.get("id") or "")
-            if not mod_id or mod_id in session["installed"] or not entry.get("enabled"):
+            if not mod_id or mod_id in session["installed"] or mod_id in session["switched"] or not entry.get("enabled"):
                 continue
-            if mod_id in kept:
-                # Rose's own, kept from an earlier game: off, and not the user's to turn back on
+            if mod_id in rose_entries:
                 try:
                     bridge.toggle(mod_id, False)
                 except (BridgeUnavailable, BridgeCommandError) as e:
-                    log.warning(f"[INJECT] Could not turn off the kept {kept[mod_id]['folder']} - it may apply too: {e}")
+                    log.warning(f"[INJECT] Could not turn off {self._entry_name(entry)} - it may apply too: {e}")
                 continue
             self._track_disabled(session, mod_id)
             try:

@@ -17,7 +17,9 @@ in the name of the game's wad, not in the path inside it). The mod folder goes i
 table is read under that path from the language the client runs the game in.
 
 The skin and the other mods it reads are folders or archives (injection.mods.mod_files): Rose installs a stored
-archive as it is, without unpacking it.
+archive as it is, without unpacking it. A saved mod the user added lives in LTK Manager's library, with no copy in
+Rose: what this needs to know of it comes from its manifest (injection.mods.mod_facts), and a skin's champion record
+from LTK Manager's own archive of it (LtkSkin).
 
 The champion's text is also what the chat ("Player (Champion): ...") and the name over the champion's head print, and
 those should keep the champion's name. They read the key the champion's own record names
@@ -30,12 +32,15 @@ import json
 import re
 import struct
 import zipfile
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, Iterator, List, Optional, Sequence, Tuple, Union
 
 from utils.core.logging import get_logger
 
-from ..mods.mod_files import ModFiles
+from ..mods.mod_facts import ModFacts
+from ..mods.mod_files import ModFiles, is_mod_archive
 
 log = get_logger()
 
@@ -150,10 +155,11 @@ FORM_RECORDS = {
 }
 
 
-def _champion_record(game_dir: Path, mod: ModFiles, alias: str, character: Optional[str] = None,
+def _champion_record(game_dir: Path, mod: Optional[ModFiles], alias: str, character: Optional[str] = None,
                      carried_wad: Optional[bytes] = None) -> Optional[bytes]:
     """The bin of one of the champion's characters (the champion's own by default): the skin's copy when it carries
-    one, the game's otherwise. *carried_wad* is the skin's WAD/<alias>.wad.client when it carries it packed."""
+    one, the game's otherwise (and when the skin's files cannot be read: *mod* None). *carried_wad* is the skin's
+    WAD/<alias>.wad.client when it carries it packed."""
     game_path = _record_path(character or alias)
     path_hash = _xxh64(game_path.encode("utf-8"))
     carried = f"WAD/{alias}.wad.client"
@@ -161,7 +167,7 @@ def _champion_record(game_dir: Path, mod: ModFiles, alias: str, character: Optio
         found = _entry_of(carried_wad, f"{alias}.wad.client", path_hash)
         if found:
             return found
-    elif mod.is_dir(carried):
+    elif mod is not None and mod.is_dir(carried):
         for loose in (f"{carried}/{game_path}", f"{carried}/{path_hash:016x}.bin"):
             if mod.is_file(loose):
                 return mod.read(loose)
@@ -486,14 +492,37 @@ def _uses_string_overrides(game_dir: Path) -> Optional[bool]:
     return True if locale == "en_us" else None
 
 
-def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
-          other_mods: Sequence[Path] = ()) -> Optional[str]:
+@dataclass(frozen=True)
+class LtkSkin:
+    """A skin LTK Manager holds (a saved mod the user added): Rose has no copy of its files.
+
+    Its champions come from its manifest; *archive* finds LTK Manager's own copy of it, opened only for the
+    champion's record (the name over the head), and None when it cannot be found.
+    """
+
+    aliases: Tuple[str, ...]
+    archive: Callable[[], Optional[Path]]
+
+
+@contextmanager
+def _record_source(found: Optional[Path]) -> Iterator[Optional[ModFiles]]:
+    """The skin's files, to read the champion's record from; None when *found* is no folder or ZIP archive (an
+    LTK Manager archive that is gone, or a .modpkg it keeps): the game's own record is used then."""
+    if found is None or not (found.is_dir() or is_mod_archive(found)):
+        yield None
+        return
+    with ModFiles(found) as mod:
+        yield mod
+
+
+def build(game_dir: Path, mods_dir: Path, mod_folder: Union[Path, LtkSkin], skin_id: int,
+          other_mods: Sequence[Union[Path, ModFacts]] = ()) -> Optional[str]:
     """Writes the mod and returns its folder name, or None when there is nothing to show.
 
     skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id. *mod_folder* is
-    the skin, a folder or an archive; *other_mods* are the other mods installed with it, folders or archives: when one
-    carries its own language table, the mod's own table
-    would compete with it, and nothing is built (see ships_language_table).
+    the skin, a folder or an archive, or a skin LTK Manager holds (LtkSkin); *other_mods* are the other mods installed
+    with it, folders or archives, or the facts of one LTK Manager holds: when one carries its own language table, the
+    mod's own table would compete with it, and nothing is built (see ships_language_table).
 
     The texts reach the game as string overrides in META/info.json on an en_US client, as the mod's own table
     otherwise (see _uses_string_overrides). The champion's record is only pointed at a key of the mod's own when
@@ -502,7 +531,10 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
     try:
         if not skin_id or skin_id % 1000 == 0:
             return None
-        aliases = champion_aliases(mod_folder)
+        if isinstance(mod_folder, LtkSkin):
+            aliases, skin_files = list(mod_folder.aliases), mod_folder.archive
+        else:
+            aliases, skin_files = champion_aliases(mod_folder), (lambda: Path(mod_folder))
         if not aliases:
             log.debug("[LOADNAME] the skin carries no champion wad, skipped")
             return None
@@ -514,8 +546,12 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
             return None
         if not overrides:
             for other in other_mods:
-                if ships_language_table(other):
-                    log.info(f"[LOADNAME] {Path(other).name} carries its own text table: the loading screen keeps "
+                if isinstance(other, ModFacts):
+                    ships, which = other.ships_language_table, "a mod LTK Manager holds"
+                else:
+                    ships, which = ships_language_table(other), Path(other).name
+                if ships:
+                    log.info(f"[LOADNAME] {which} carries its own text table: the loading screen keeps "
                              "the champion's name")
                     return None
 
@@ -541,10 +577,10 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
                 # the chat and the name over the head keep the champion's name (see the module's note), in its forms
                 # too (FORM_RECORDS)
                 repointed = 0
-                with ModFiles(Path(mod_folder)) as mod:
+                with _record_source(skin_files()) as mod:
                     carried = f"WAD/{alias}.wad.client"
                     # read once for all the forms: in an archive it may have to be inflated
-                    carried_wad = mod.read(carried) if mod.is_file(carried) else None
+                    carried_wad = mod.read(carried) if mod is not None and mod.is_file(carried) else None
                     records = [
                         (character, _champion_record(game_dir, mod, alias, character, carried_wad))
                         for character in (alias.lower(),) + FORM_RECORDS.get(alias.lower(), ())

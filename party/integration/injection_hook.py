@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import List, Optional
 
 from injection.classic import is_classic_game_mode
+from injection.core.mod_source import ModSource
+from injection.mods.manifest import find_saved_mod
 from state import SharedState
-from utils.core.junction import is_junction, link_or_extract, safe_remove_entry
 from utils.core.logging import get_logger
-from utils.core.paths import get_injection_dir
 
 from ..core.party_manager import PartyManager
 from ..discovery.custom_mods import get_mods_root
@@ -178,7 +178,9 @@ def prepare_peer_skin(
     """Prepare a party member's skin in *mods_dir* (the injector's by default)
 
     The loadout countdown stages it in a folder of its own
-    (injection.core.stage_plan), the same way the injection prepares it.
+    (injection.core.stage_plan), the same way the injection prepares it. Our
+    copy of a friend's custom mod that LTK Manager holds is named by its LTK
+    reference, with nothing linked: the injection switches it on.
 
     Args:
         skin_data: Party member's skin data
@@ -190,7 +192,9 @@ def prepare_peer_skin(
         Mod folder name or None if preparation failed
     """
     mods_dir = Path(mods_dir) if mods_dir is not None else injector.mods_dir
-    source = None
+    # Prefixed so it never collides with our own mod folder
+    mod_folder_name = f"party_{skin_data.summoner_id}"
+    mod = None
 
     if skin_data.custom_mod_path and classic:
         # Custom mods target the regular characters, which Classic doesn't load
@@ -199,40 +203,47 @@ def prepare_peer_skin(
             f"does not apply, using the Classic skin"
         )
     elif skin_data.custom_mod_path:
-        # Our own copy of the party member's custom mod (folder or archive)
-        local_mod = get_mods_root() / skin_data.custom_mod_path
-        if local_mod.exists():
+        mod = _local_custom_mod(skin_data.custom_mod_path, mod_folder_name)
+        if mod is not None:
             log.info(
                 f"[PARTY_INJECT] {skin_data.summoner_name} has custom mod, "
                 f"using local match: {skin_data.custom_mod_path}"
             )
-            source = local_mod
         else:
             log.warning(
                 f"[PARTY_INJECT] Custom mod path not found: {skin_data.custom_mod_path}"
             )
 
-    if source is None:
-        source = _resolve_skin_zip(skin_data, injector, classic)
-    if source is None:
-        return None
-
-    # Prefixed so it never collides with our own mod folder
-    mod_folder_name = f"party_{skin_data.summoner_id}"
-    mod_dest = mods_dir / mod_folder_name
-    if mod_dest.exists() or is_junction(mod_dest):
-        safe_remove_entry(mod_dest)
+    if mod is None:
+        skin_zip = _resolve_skin_zip(skin_data, injector, classic)
+        if skin_zip is None:
+            return None
+        mod = ModSource(mod_folder_name, str(skin_zip))
 
     # Cached extraction: the same skin is instant in later games
-    link_or_extract(source, mod_dest, cache_dir=get_injection_dir() / ".extract_cache")
-    if not (mod_dest.exists() or is_junction(mod_dest)):
-        log.warning(f"[PARTY_INJECT] Mod folder missing after extraction: {mod_dest}")
+    name = mod.put(mods_dir)
+    if name is None:
+        log.warning(f"[PARTY_INJECT] Mod folder missing after extraction: {mods_dir / mod_folder_name}")
         return None
 
     log.info(
-        f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s skin: {source.name}"
+        f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s skin: {Path(mod.source).name}"
     )
-    return mod_folder_name
+    return name
+
+
+def _local_custom_mod(relative_path: str, folder_name: str) -> Optional[ModSource]:
+    """Our own copy of a friend's custom mod: a saved mod (LTK Manager's
+    entry, or Rose's copy while it is pending), or a file nobody registered.
+    None when it cannot be injected."""
+    mods_root = get_mods_root()
+    saved = find_saved_mod(mods_root, relative_path)
+    if saved is not None:
+        if not saved.available:
+            return None
+        return ModSource(folder_name, str(saved.stored or saved.path(mods_root)), saved.ltk_id, saved.facts)
+    local_mod = mods_root / relative_path
+    return ModSource(folder_name, str(local_mod)) if local_mod.exists() else None
 
 
 def _resolve_skin_zip(skin_data: PartySkinData, injector, classic: bool = False) -> Optional[Path]:

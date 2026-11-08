@@ -8,7 +8,6 @@ Handles triggering skin injection based on countdown timer
 import logging
 import threading
 import time
-from pathlib import Path
 from typing import Optional
 
 from config import BASE_SKIN_VERIFICATION_WAIT_S, LOG_SEPARATOR_WIDTH
@@ -16,11 +15,11 @@ from lcu import LCU
 from state import SharedState
 from utils.core.issue_reporter import report_issue
 from utils.core.logging import get_logger, log_action
-from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
-from utils.core.paths import get_injection_dir
+from utils.core.junction import is_junction
 from utils.core.utilities import is_default_skin, is_selectable_owned
 from injection.classic import is_classic_game_mode
 from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
+from injection.core.mod_source import ModSource, loading_name_mods, saved_selection
 from injection.core.stage_plan import (
     PARTY_SKINS_LABEL,
     CarrierStep,
@@ -32,6 +31,7 @@ from injection.core.stage_plan import (
 )
 from injection.game.game_monitor import make_game_ended_callback
 from injection.loadingname.loading_name import build as build_loading_name
+from injection.mods.manifest import find_saved_mod, selection_available
 
 log = get_logger()
 
@@ -323,10 +323,6 @@ class InjectionTrigger:
                 warning(f"[HISTORIC] Saved custom mod not found in storage: {historic_custom_mod_path}")
                 return None
 
-            # Determine mod folder name (an archive's is its name without the extension)
-            mod_source = Path(selected_mod_entry.path)
-            mod_folder_name = mod_source.name if mod_source.is_dir() else mod_source.stem
-
             target_skin_ids = self._get_entry_target_skin_ids(selected_mod_entry)
             current_skin_id = effective_skin_id or ui_skin_id
             target_skin_id = current_skin_id
@@ -340,17 +336,25 @@ class InjectionTrigger:
                 and target_skin_ids & self._get_compatible_skin_ids(current_skin_id)
             ):
                 target_skin_id = next(iter(sorted(target_skin_ids)), int(champion_id) * 1000)
-            return {
+            selection = {
                 "skin_id": int(target_skin_id),
                 "storage_skin_id": selected_mod_entry.skin_id,
                 "target_skin_ids": sorted(target_skin_ids),
                 "champion_id": champion_id,
                 "mod_name": selected_mod_entry.mod_name,
                 "display_name": selected_mod_entry.display_name,
-                "mod_path": str(selected_mod_entry.path),
-                "mod_folder_name": mod_folder_name,
                 "relative_path": historic_custom_mod_path,
+                **saved_selection(
+                    selected_mod_entry.path,
+                    getattr(selected_mod_entry, "ltk_id", None),
+                    getattr(selected_mod_entry, "missing", False),
+                    getattr(selected_mod_entry, "facts", None),
+                ),
             }
+            if not selection_available(selection):
+                warning(f"[HISTORIC] Saved custom mod is missing from LTK Manager: {historic_custom_mod_path}")
+                return None
+            return selection
         except Exception as e:
             warning(f"[HISTORIC] Failed to auto-select saved custom mod: {e}")
             import traceback
@@ -360,20 +364,23 @@ class InjectionTrigger:
     @staticmethod
     def _find_saved_mod(mod_storage, category: str, historic_path) -> Optional[dict]:
         """A saved mod (mod_historic.json) as trigger_injection selects it
-        (mod_name, mod_path, mod_folder_name, relative_path), or None when the
-        mods storage does not list it. Its file may be gone: check mod_path."""
+        (mod_name, relative_path and saved_selection's keys), or None when the
+        mods storage does not list it. It may not be available: check
+        selection_available."""
         wanted = str(historic_path).replace("\\", "/")
         for entry_dict in mod_storage.list_mods_for_category(category):
             entry_id = entry_dict.get("id") or ""
             if entry_id.replace("\\", "/") == wanted:
                 entry_path_str = entry_dict.get("path", "").replace("/", "\\")
-                mod_path = mod_storage.mods_root / entry_path_str
                 return {
                     "mod_name": entry_dict.get("name", ""),
-                    "mod_path": str(mod_path),
-                    # An archive's folder is its name without the extension
-                    "mod_folder_name": mod_path.name if mod_path.is_dir() else mod_path.stem,
                     "relative_path": str(historic_path),
+                    **saved_selection(
+                        mod_storage.mods_root / entry_path_str,
+                        entry_dict.get("ltkId"),
+                        entry_dict.get("missing"),
+                        entry_dict.get("facts"),
+                    ),
                 }
         return None
 
@@ -490,14 +497,12 @@ class InjectionTrigger:
         steps = []
         if carrier:
             steps.append(CarrierStep(carrier, cname, champion_id))
-        mod_folder_name, mod_path = custom_mod.get("mod_folder_name"), custom_mod.get("mod_path")
-        if mod_folder_name and mod_path:
-            steps.append(ModStep(mod_folder_name, str(mod_path), required=True))
-        elif mod_folder_name:
+        custom_step = ModStep.of(custom_mod, required=True)
+        if custom_step is not None:
+            steps.append(custom_step)
+        elif custom_mod.get("mod_folder_name"):
             return None  # the injection gives up: it cannot extract the mod
-        for mod in other_mods:
-            if mod.get("mod_folder_name") and mod.get("mod_path"):
-                steps.append(ModStep(mod["mod_folder_name"], str(mod["mod_path"])))
+        steps.extend(step for step in map(ModStep.of, other_mods) if step is not None)
         try:
             skin_id = int(custom_mod.get("skin_id"))
         except (TypeError, ValueError):
@@ -532,7 +537,7 @@ class InjectionTrigger:
             historic_path = historic_mods.get(mod_type)
             if not selected and historic_path:
                 saved = self._find_saved_mod(mod_storage(), getattr(mod_storage(), category_attr), historic_path)
-                if saved and Path(saved["mod_path"]).exists():
+                if saved and selection_available(saved):
                     selected = saved
             if selected:
                 mods.append(selected)
@@ -544,7 +549,7 @@ class InjectionTrigger:
                 saved = self._find_saved_mod(
                     mod_storage(), self._other_mod_category(mod_storage(), historic_path), historic_path
                 )
-                if saved and Path(saved["mod_path"]).exists():
+                if saved and selection_available(saved):
                     other_mods.append(saved)
         if not other_mods:
             # Fallback to legacy single mod
@@ -700,16 +705,6 @@ class InjectionTrigger:
                     mod_storage = ModStorageService()
                     historic_mods = load_mod_historic()
 
-                    def link_mod(injector, mod: dict) -> Path:
-                        """Extract/copy the mod to the injection mods directory via junction"""
-                        mod_dest = injector.mods_dir / mod["mod_folder_name"]
-                        if mod_dest.exists() or is_junction(mod_dest):
-                            safe_remove_entry(mod_dest)
-                        link_or_extract(
-                            Path(mod["mod_path"]), mod_dest, cache_dir=get_injection_dir() / ".extract_cache"
-                        )
-                        return mod_dest
-
                     # Helper function to auto-select a historic mod
                     def auto_select_historic_mod(mod_type: str, category_attr: str):
                         """Auto-select a historic mod by type"""
@@ -743,13 +738,12 @@ class InjectionTrigger:
                                         log.debug(f"[HISTORIC] Historic other mod not found in storage: {historic_path_item}")
                                         continue
 
-                                    mod_source = Path(selected_mod["mod_path"])
-                                    if not mod_source.exists():
-                                        log.info(f"[HISTORIC] Historic other mod file not found (mod may have been deleted), ignoring: {mod_source}")
+                                    if not selection_available(selected_mod):
+                                        log.info(f"[HISTORIC] Historic other mod not available (deleted, or missing from LTK Manager), ignoring: {selected_mod['mod_path']}")
                                         continue
 
-                                    mod_dest = link_mod(injector, selected_mod)
-                                    log.info(f"[HISTORIC] Linked/extracted other mod to: {mod_dest}")
+                                    mod_dest = ModSource.of(selected_mod).put(injector.mods_dir)
+                                    log.info(f"[HISTORIC] Prepared other mod: {mod_dest}")
 
                                     # Add to valid mods list
                                     valid_other_mods.append(selected_mod)
@@ -799,9 +793,8 @@ class InjectionTrigger:
                                 log.debug(f"[HISTORIC] Historic {mod_type} mod not found in storage: {historic_path}")
                                 return
 
-                            mod_source = Path(selected_mod["mod_path"])
-                            if not mod_source.exists():
-                                log.info(f"[HISTORIC] Historic {mod_type} mod file not found (mod may have been deleted), ignoring: {mod_source}")
+                            if not selection_available(selected_mod):
+                                log.info(f"[HISTORIC] Historic {mod_type} mod not available (deleted, or missing from LTK Manager), ignoring: {selected_mod['mod_path']}")
                                 # Clear the historic mod entry since the mod no longer exists
                                 try:
                                     from utils.core.mod_historic import clear_historic_mod
@@ -811,8 +804,8 @@ class InjectionTrigger:
                                     log.debug(f"[HISTORIC] Failed to clear historic {mod_type} mod entry: {e}")
                                 return
 
-                            mod_dest = link_mod(injector, selected_mod)
-                            log.info(f"[HISTORIC] Linked/extracted {mod_type} mod to: {mod_dest}")
+                            mod_dest = ModSource.of(selected_mod).put(injector.mods_dir)
+                            log.info(f"[HISTORIC] Prepared {mod_type} mod: {mod_dest}")
 
                             # Store selected mod in shared state
                             setattr(self.state, selected_attr, selected_mod)
@@ -1172,11 +1165,13 @@ class InjectionTrigger:
                             mod_storage = ModStorageService()
                             mods_root = mod_storage.mods_root
                             
-                            # Helper to check if a mod file exists
                             def mod_file_exists(relative_path: str) -> bool:
+                                """Whether the saved mod is still there: one LTK Manager holds
+                                has no file in Rose, and a file nobody registered no manifest
+                                entry."""
                                 try:
                                     full_path = mods_root / relative_path.replace("/", "\\")
-                                    return full_path.exists()
+                                    return find_saved_mod(mods_root, relative_path) is not None or full_path.exists()
                                 except Exception as e:
                                     # False clears the user's selection, so say why
                                     log.warning(f"[INJECT] Could not check mod file {relative_path}: {e}")
@@ -1436,8 +1431,6 @@ class InjectionTrigger:
         Note: custom_mod can have mod_folder_name=None if only map/font/announcer mods are selected
         """
         try:
-            from pathlib import Path
-            
             if not self.injection_manager:
                 log.error("[INJECT] Cannot inject custom mod - injection manager not available")
                 return
@@ -1469,6 +1462,7 @@ class InjectionTrigger:
             # Collect all mods to inject (base skin + custom skin mod + map + font + announcer + other)
             mod_folder_names = []
             mod_names_list = []
+            injected = []  # the saved mods among them (ModSource), for the loading screen name
             # Track missing mods to clean up from historic
             missing_map_mod_path = None
             missing_font_mod_path = None
@@ -1528,32 +1522,19 @@ class InjectionTrigger:
                     return
             
             # Re-extract custom skin mod if available (after cleaning mods directory)
-            if mod_folder_name and mod_path:
-                log.info(f"[INJECT] Re-extracting custom mod from: {mod_path}")
+            custom_source = ModSource.of(custom_mod)
+            custom_folder = None
+            if custom_source is not None:
+                log.info(f"[INJECT] Preparing custom mod: {mod_path}")
                 try:
-                    mod_source = Path(mod_path)
-                    if not mod_source.exists():
-                        log.error(f"[INJECT] Custom mod source not found: {mod_source}")
+                    custom_folder = custom_source.put(injector.mods_dir)
+                    if custom_folder is None:
+                        log.error(f"[INJECT] Custom mod not available (deleted, or missing from LTK Manager): {mod_path}")
                         return
-
-                    extract_cache_dir = get_injection_dir() / ".extract_cache"
-                    mod_dest = injector.mods_dir / mod_folder_name
-                    if mod_dest.exists() or is_junction(mod_dest):
-                        safe_remove_entry(mod_dest)
-                    link_or_extract(mod_source, mod_dest, cache_dir=extract_cache_dir)
-                    log.info(f"[INJECT] Custom mod linked/extracted: {mod_folder_name}")
-
-                    # Verify mod folder exists after extraction (junctions count too)
-                    if mod_dest.exists() or is_junction(mod_dest):
-                        mod_folder_names.append(mod_folder_name)
-                        mod_names_list.append(mod_name or "Custom Mod")
-                        log.info(f"[INJECT] Custom skin mod ready: {mod_folder_name}")
-                    else:
-                        log.error(
-                            "[INJECT] Custom mod folder not found after extraction: %s",
-                            mod_dest,
-                        )
-                        return
+                    injected.append(custom_source)
+                    mod_folder_names.append(custom_folder)
+                    mod_names_list.append(mod_name or "Custom Mod")
+                    log.info(f"[INJECT] Custom skin mod ready: {custom_folder}")
                 except Exception as e:
                     log.error(f"[INJECT] Error re-extracting custom mod: {e}")
                     import traceback
@@ -1569,35 +1550,21 @@ class InjectionTrigger:
             
             # Helper function to re-extract a mod from its source path
             def re_extract_mod(mod_dict, mod_type_name):
-                """Re-extract a mod from its source path after cleaning"""
+                """Prepare a selected mod again after cleaning (ModSource.put)"""
                 if not mod_dict or not mod_dict.get("mod_folder_name"):
                     return None
-                
-                mod_folder_name = mod_dict.get("mod_folder_name")
-                mod_path = mod_dict.get("mod_path")
-                
-                if not mod_path:
+                mod = ModSource.of(mod_dict)
+                if mod is None:
                     log.warning(f"[INJECT] {mod_type_name} mod folder name provided but no mod_path - cannot re-extract")
                     return None
-                
                 try:
-                    mod_source = Path(mod_path)
-                    if not mod_source.exists():
-                        log.info(f"[INJECT] {mod_type_name} mod source not found (mod may have been deleted), ignoring: {mod_source}")
+                    folder = mod.put(injector.mods_dir)
+                    if folder is None:
+                        log.info(f"[INJECT] {mod_type_name} mod not available (deleted, or missing from LTK Manager), ignoring: {mod.source}")
                         return None
-
-                    extract_cache_dir = get_injection_dir() / ".extract_cache"
-                    mod_dest = injector.mods_dir / mod_folder_name
-                    if mod_dest.exists() or is_junction(mod_dest):
-                        safe_remove_entry(mod_dest)
-                    link_or_extract(mod_source, mod_dest, cache_dir=extract_cache_dir)
-                    log.info(f"[INJECT] {mod_type_name} mod linked/extracted: {mod_folder_name}")
-
-                    if mod_dest.exists() or is_junction(mod_dest):
-                        return mod_folder_name
-                    else:
-                        log.warning(f"[INJECT] {mod_type_name} mod folder not found after extraction: {mod_dest}")
-                        return None
+                    injected.append(mod)
+                    log.info(f"[INJECT] {mod_type_name} mod ready: {folder}")
+                    return folder
                 except Exception as e:
                     log.error(f"[INJECT] Error re-extracting {mod_type_name} mod: {e}")
                     import traceback
@@ -1692,12 +1659,12 @@ class InjectionTrigger:
             # A custom skin runs as the default one too, so the loading screen gets the skin's name here as it does for a
             # regular skin (SkinInjector.inject_skin). skin_id is the skin the mod targets; a chroma's mod targets its
             # base skin, which is the name the game has. It never fails the injection.
-            skin_folder = mod_folder_name or carrier_mod_folder_name
+            skin_folder = custom_folder or carrier_mod_folder_name
             if skin_folder and skin_id:
                 try:
+                    skin, others = loading_name_mods(injector.mods_dir, skin_folder, mod_folder_names, injected)
                     loading_name_mod = build_loading_name(
-                        injector.game_dir, injector.mods_dir, injector.mods_dir / skin_folder, int(skin_id),
-                        other_mods=[injector.mods_dir / name for name in mod_folder_names if name != skin_folder],
+                        injector.game_dir, injector.mods_dir, skin, int(skin_id), other_mods=others,
                     )
                     if loading_name_mod:
                         mod_folder_names.append(loading_name_mod)

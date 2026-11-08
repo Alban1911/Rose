@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from injection.core import manager as manager_module
+from injection.core import mod_source as mod_source_module
 from injection.core import stage_plan as stage_plan_module
 from injection.core.manager import InjectionManager
 from injection.core.stage_plan import (
@@ -22,11 +23,17 @@ from injection.core.stage_plan import (
     skin_plan,
 )
 from injection.mods.fingerprint import mod_fingerprint
+from injection.mods.ltk_ref import ltk_ref
+from injection.mods.mod_facts import ModFacts
 from injection.overlay import overlay_manager
 from injection.overlay.overlay_manager import LtkLogTail
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase, status
 from threads.handlers.injection_trigger import InjectionTrigger
 from utils.core.junction import link_or_extract
+
+# LTK Manager library ids of saved mods
+SKIN_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
+FONT_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
 
 
 class FingerprintTests(unittest.TestCase):
@@ -271,6 +278,15 @@ class OverlayStagingTests(LtfSessionTestCase):
         self.assertTrue(self.overlay.stage_mods(next_pick, [other, rift], archives=archives))
         imported = [call[1] for call in self.bridge.calls if call[0] == "import"]
         self.assertEqual(imported[2:], [str(next_pick / f"{other}.fantome")])  # the map stays as it is
+
+    def test_a_saved_mod_ltk_manager_holds_is_not_packed(self):
+        mod = self.make_mod(where=self.stage_dir)
+
+        with patch.object(overlay_manager, "write_fantome_zip", wraps=overlay_manager.write_fantome_zip) as pack:
+            archives = self.overlay.pack_mods(self.stage_dir, [mod, ltk_ref(SKIN_ID)])
+
+        self.assertEqual(archives, {mod: self.stage_dir / f"{mod}.fantome"})
+        self.assertEqual([call.args[0] for call in pack.call_args_list], [self.stage_dir / mod])
 
     def test_a_missing_packed_archive_is_packed_by_the_install(self):
         mod = self.make_mod(where=self.stage_dir)
@@ -826,7 +842,7 @@ class StagingPlanTests(unittest.TestCase):
             patch("utils.core.historic.get_historic_skin_for_champion", return_value=None),
             patch("utils.core.mod_historic.load_mod_historic", side_effect=lambda: dict(self.saved)),
             patch("injection.mods.storage.ModStorageService", side_effect=lambda: self.storage),
-            patch("threads.handlers.injection_trigger.get_injection_dir", return_value=self.mods_root / "injection"),
+            patch("injection.core.mod_source.get_injection_dir", return_value=self.mods_root / "injection"),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -886,6 +902,34 @@ class StagingPlanTests(unittest.TestCase):
             LoadingNameStep(1001),
         ))
 
+    def test_a_custom_mod_ltk_manager_holds_is_staged_as_its_reference(self):
+        facts = ModFacts(None, ("Leona",), False)
+        self.state.selected_custom_mod = self.custom_mod(
+            mod_folder_name=ltk_ref(SKIN_ID), ltk_id=SKIN_ID, missing=False, facts=facts.to_manifest(),
+        )
+
+        plan = self.trigger.staging_plan("skin_1001", "Leona")
+
+        self.assertEqual(plan.steps[1], ModStep(
+            ltk_ref(SKIN_ID), self.state.selected_custom_mod["mod_path"], SKIN_ID, facts, required=True,
+        ))
+
+    def test_a_saved_map_mod_ltk_manager_holds_is_staged_without_its_file(self):
+        self.storage.entries.append({"id": "maps/Rift.fantome", "name": "Rift", "path": "maps/Rift.fantome",
+                                     "ltkId": SKIN_ID})
+        self.saved["map"] = "maps/Rift.fantome"
+
+        plan = self.trigger.staging_plan("skin_1001", "Leona")
+
+        self.assertEqual(plan.steps[1], ModStep(ltk_ref(SKIN_ID), str(self.mods_root / "maps" / "Rift.fantome"), SKIN_ID))
+
+    def test_a_saved_mod_missing_from_ltk_manager_is_left_out(self):
+        self.storage.entries.append({"id": "maps/Rift.fantome", "name": "Rift", "path": "maps/Rift.fantome",
+                                     "ltkId": SKIN_ID, "missing": True})
+        self.saved["map"] = "maps/Rift.fantome"
+
+        self.assertEqual(self.trigger.staging_plan("skin_1001", "Leona"), skin_plan("skin_1001", "Leona", 1, False))
+
     def test_a_custom_mod_the_injection_cannot_extract_is_not_staged(self):
         self.state.selected_custom_mod = self.custom_mod(mod_path=None)
 
@@ -937,7 +981,7 @@ class StagingPlanTests(unittest.TestCase):
         self.trigger._inject_custom_mod = MagicMock()
         plan = self.trigger.staging_plan("skin_1001", "Leona")
 
-        with patch("threads.handlers.injection_trigger.link_or_extract"):
+        with patch("injection.core.mod_source.link_or_extract"):
             self.trigger.trigger_injection("skin_1001", ticker_id=1, cname="Leona")
 
         self.assertEqual(self.state.selected_map_mod["mod_path"], str(path))
@@ -957,7 +1001,7 @@ class PreparePlanTests(unittest.TestCase):
         self.target.mkdir(parents=True)
         self.injector = MagicMock()
         self.injector.game_dir = self.root / "game"
-        cache = patch.object(stage_plan_module, "get_injection_dir", return_value=self.root / "injection")
+        cache = patch.object(mod_source_module, "get_injection_dir", return_value=self.root / "injection")
         cache.start()
         self.addCleanup(cache.stop)
 
@@ -1017,6 +1061,29 @@ class PreparePlanTests(unittest.TestCase):
 
         self.assertEqual(names, ["1001"])
         loading_name.assert_called_once_with(self.injector.game_dir, self.target, self.target / "1001", 1001, other_mods=[])
+
+    def test_saved_mods_ltk_manager_holds_go_as_their_references_with_nothing_linked(self):
+        self.injector._resolve_zip.return_value = self.skin_archive()
+        skin_facts, font_facts = ModFacts(None, ("Leona",), False), ModFacts(None, (), True)
+        plan = StagePlan("skin_1001", (
+            CarrierStep("skin_1001", "Leona", 1),
+            ModStep(ltk_ref(SKIN_ID), str(self.root / "mods" / "My mod.fantome"), SKIN_ID, skin_facts, required=True),
+            ModStep(ltk_ref(FONT_ID), str(self.root / "mods" / "Font.fantome"), FONT_ID, font_facts),
+            LoadingNameStep(1001),
+        ))
+        ltk_archive = self.root / "ltk" / "my-mod.fantome"
+
+        with patch.object(stage_plan_module, "build_loading_name", return_value=None) as loading_name, \
+                patch.object(mod_source_module, "link_or_extract", side_effect=AssertionError("linked")), \
+                patch.object(mod_source_module, "stored_archive", return_value=ltk_archive) as stored:
+            names = prepare_plan(self.injector, plan, self.target)
+
+            self.assertEqual(names, ["1001", ltk_ref(SKIN_ID), ltk_ref(FONT_ID)])
+            self.assertEqual([path.name for path in self.target.iterdir()], ["1001"])
+            skin = loading_name.call_args.args[2]
+            self.assertEqual((skin.aliases, skin.archive()), (("Leona",), ltk_archive))
+            stored.assert_called_once_with(SKIN_ID)
+            self.assertEqual(loading_name.call_args.kwargs["other_mods"], [self.target / "1001", font_facts])
 
     def test_nothing_is_staged_without_the_custom_mod_or_the_carrier(self):
         missing_mod = StagePlan("skin_1001", (ModStep("My mod", str(self.root / "gone"), required=True),))

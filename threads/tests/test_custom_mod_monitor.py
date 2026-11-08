@@ -4,7 +4,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from injection.core.mod_source import saved_selection
+from injection.mods.ltk_ref import ltk_ref
+from injection.mods.mod_facts import ModFacts
 from threads.handlers.injection_trigger import InjectionTrigger
+
+# LTK Manager library ids of saved mods
+SKIN_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
+FONT_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
 
 
 class CustomModInjectionCase(unittest.TestCase):
@@ -33,6 +40,9 @@ class CustomModInjectionCase(unittest.TestCase):
         )
         self.trigger = InjectionTrigger(lcu=MagicMock(), state=state, injection_manager=self.manager)
         self.trigger._force_base_skin = MagicMock()
+        cache = patch("injection.core.mod_source.get_injection_dir", return_value=self.root / "injection")
+        cache.start()
+        self.addCleanup(cache.stop)
 
     def custom_mod(self, mod_path):
         return {
@@ -69,7 +79,7 @@ class CustomModInjectionStagingTests(CustomModInjectionCase):
     def test_an_error_ends_the_staging(self):
         mod_source = self.root / "Mod"
         mod_source.mkdir()
-        with patch("threads.handlers.injection_trigger.link_or_extract", side_effect=OSError("locked")):
+        with patch("injection.core.mod_source.link_or_extract", side_effect=OSError("locked")):
             self.inject(self.custom_mod(mod_source))
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
@@ -80,7 +90,7 @@ class CustomModInjectionStagingTests(CustomModInjectionCase):
         def link(source, dest, cache_dir=None):
             dest.mkdir(parents=True)
 
-        with patch("threads.handlers.injection_trigger.link_or_extract", side_effect=link), \
+        with patch("injection.core.mod_source.link_or_extract", side_effect=link), \
                 patch("utils.core.mod_historic.write_historic_mod"), \
                 patch("utils.core.historic.write_historic_entry"), \
                 patch("utils.core.historic.write_historic_target"):
@@ -118,7 +128,7 @@ class CustomModBaseSkinTests(CustomModInjectionCase):
         dest.mkdir(parents=True, exist_ok=True)
 
     def test_the_default_skin_is_forced_before_any_mod_is_extracted(self):
-        with patch("threads.handlers.injection_trigger.link_or_extract", side_effect=self.link), \
+        with patch("injection.core.mod_source.link_or_extract", side_effect=self.link), \
                 patch("utils.core.mod_historic.write_historic_mod"), \
                 patch("utils.core.historic.write_historic_entry"):
             self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103},
@@ -135,11 +145,45 @@ class CustomModBaseSkinTests(CustomModInjectionCase):
         self.trigger._force_base_skin.assert_not_called()
 
     def test_an_owned_skin_is_not_forced(self):
-        with patch("threads.handlers.injection_trigger.link_or_extract", side_effect=self.link), \
+        with patch("injection.core.mod_source.link_or_extract", side_effect=self.link), \
                 patch("utils.core.mod_historic.write_historic_mod"):
             self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103})
 
         self.trigger._force_base_skin.assert_not_called()
+
+
+class SavedLtkModInjectionTests(CustomModInjectionCase):
+    """A saved mod LTK Manager holds goes into the injection as its LTK
+    reference, with nothing linked into the mods folder"""
+
+    def selection(self, name, ltk_id, missing=False, facts=None):
+        path = self.root / "library" / f"{name}.fantome"  # Rose's copy is gone
+        return {"mod_name": name, **saved_selection(path, ltk_id, missing, facts)}
+
+    def test_the_custom_mod_and_a_font_go_as_their_references(self):
+        custom = dict(self.selection("Mod", SKIN_ID, facts=ModFacts(None, ("Annie",), False)),
+                      skin_id=103001, champion_id=103)
+        font_facts = ModFacts(None, (), True)
+        self.trigger.state.selected_font_mod = self.selection("Font", FONT_ID, facts=font_facts)
+
+        with patch("injection.core.mod_source.link_or_extract", side_effect=AssertionError("linked")), \
+                patch("threads.handlers.injection_trigger.build_loading_name", return_value=None) as loading_name, \
+                patch("utils.core.mod_historic.write_historic_mod"), \
+                patch("utils.core.historic.write_historic_entry"), \
+                patch("utils.core.historic.write_historic_target"):
+            self.inject(custom)
+
+        names = self.injector.overlay_manager.mk_run_overlay.call_args.args[0]
+        self.assertEqual(names, [ltk_ref(SKIN_ID), ltk_ref(FONT_ID)])
+        self.assertEqual(loading_name.call_args.args[2].aliases, ("Annie",))
+        self.assertEqual(loading_name.call_args.kwargs["other_mods"], [font_facts])
+
+    def test_a_custom_mod_missing_from_ltk_manager_is_not_injected(self):
+        custom = dict(self.selection("Mod", SKIN_ID, missing=True), skin_id=103001, champion_id=103)
+
+        self.inject(custom)
+
+        self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
 
 if __name__ == "__main__":

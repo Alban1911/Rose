@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from injection.mods.ltk_ref import ltk_ref
 from injection.mods.mod_files import ModFiles
 from injection.overlay import overlay_manager
 from injection.overlay.overlay_manager import OverlayManager, ltk_failure_cause
@@ -197,6 +198,8 @@ class LtfSessionTestCase(unittest.TestCase):
         self.game.mkdir()
         self.process_manager = ProcessManager()
         self.overlay = OverlayManager(self.tools, self.mods, self.game, self.process_manager)
+        # Never this PC's saved mods
+        self.overlay.saved_mods_root = self.root / "saved-mods"
 
         FakeBridge.reset()
         self.state_path = self.root / "injection" / "ltf_installed.json"
@@ -1029,6 +1032,169 @@ class KeptModsTests(LtfSessionTestCase):
         archives = self.overlay.pack_mods(self.mods, [voiceover, skin])
 
         self.assertEqual(list(archives), [skin])
+
+
+class SavedLtkModTests(LtfSessionTestCase):
+    """A saved mod LTK Manager holds is switched on for the game and off
+    after: never imported for it, never removed"""
+
+    VO_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
+    GONE_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"  # not in LTK Manager's library
+    OLD_ID = "799b6c82-8324-4394-a0cf-ddebcd16eba7"
+
+    def setUp(self):
+        super().setUp()
+        voiceover = self.overlay.saved_mods_root / "voiceover"
+        voiceover.mkdir(parents=True)
+        (voiceover / "rose_category_mods.json").write_text(json.dumps({"version": 1, "category": "voiceover", "mods": {
+            "VO Korean": {"name": "VO Korean", "path": "VO Korean", "ltkId": self.VO_ID},
+        }}), encoding="utf-8")
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean")]
+        self.stage_dir = self.root / "injection" / "stage"
+
+    @staticmethod
+    def entry(mod_id, name, enabled=False):
+        return {"id": mod_id, "name": name, "displayName": name, "enabled": enabled}
+
+    def enabled(self, mod_id):
+        return next(entry["enabled"] for entry in self.bridge.library_entries if entry["id"] == mod_id)
+
+    def toggles(self, mod_id):
+        return [call[2] for call in self.bridge.calls if call[0] == "toggle" and call[1] == mod_id]
+
+    def test_it_is_switched_on_for_the_game_and_off_after(self):
+        skin = self.make_mod()
+        during = {}
+
+        def stop():
+            during.setdefault("on", self.enabled(self.VO_ID))
+            during.setdefault("switched", list(self.state()["switched"]))
+            return True
+
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID), skin], stop_callback=stop), 0)
+
+        self.assertTrue(during["on"])
+        self.assertEqual(during["switched"], [self.VO_ID])  # a crash then leaves the record
+        self.assertFalse(self.enabled(self.VO_ID))
+        self.assertEqual([call[2] for call in self.bridge.calls if call[0] == "import"], ["Eternal Aspect Leona"])
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
+        self.assertEqual(self.state()["switched"], {})
+        self.assertEqual(self.state()["disabled"], [])
+
+    def test_saved_mods_alone_are_an_injection(self):
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID)], stop_callback=lambda: True), 0)
+
+        self.assertEqual(self.toggles(self.VO_ID), [True, False])
+        self.assertIn("start_patcher", self.bridge.command_names())
+        self.assertNotIn("import", self.bridge.command_names())
+
+    def test_one_no_longer_in_the_library_is_left_out_and_the_rest_injects(self):
+        during = {}
+
+        def stop():
+            during.setdefault("on", self.enabled(self.VO_ID))
+            return True
+
+        result = self.overlay.mk_run_overlay([ltk_ref(self.GONE_ID), ltk_ref(self.VO_ID), self.make_mod()],
+                                             stop_callback=stop)
+
+        self.assertEqual(result, 0)
+        self.assertTrue(during["on"])
+        self.assertEqual(self.toggles(self.GONE_ID), [])
+        self.assertIn("import", self.bridge.command_names())
+
+    def test_nothing_left_to_inject_fails(self):
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.GONE_ID)], stop_callback=lambda: True), 1)
+
+        self.assertIn("LTF_IMPORT_FAILED", self.reported_codes())
+        self.assertNotIn("start_patcher", self.bridge.command_names())
+
+    def test_the_injection_keeps_a_staged_one_without_restarting_the_patcher(self):
+        self.overlay.open_staging()
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [ltk_ref(self.VO_ID)]))
+        staged = len(self.bridge.calls)
+        during = []
+
+        def stop():
+            during.extend(call[0] for call in self.bridge.calls[staged:])
+            return True
+
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID)], stop_callback=stop), 0)
+
+        self.assertFalse({"stop_patcher", "start_patcher", "toggle"} & set(during))
+        self.assertEqual(self.toggles(self.VO_ID), [True, False])
+
+    def test_one_a_new_pick_drops_is_switched_off(self):
+        self.overlay.open_staging()
+        skin = self.make_mod(where=self.stage_dir)
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin, ltk_ref(self.VO_ID)]))
+        self.assertTrue(self.enabled(self.VO_ID))
+
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin]))
+
+        self.assertFalse(self.enabled(self.VO_ID))
+        self.assertEqual(self.state()["switched"], {})
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+
+    def test_a_crash_leaves_it_on_and_the_next_session_switches_it_off(self):
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+        self.state_path.write_text(json.dumps({"switched": {self.VO_ID: "VO Korean"}}), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertEqual(self.toggles(self.VO_ID), [False])
+        self.assertEqual(self.state()["switched"], {})
+
+    def test_one_found_on_is_switched_off_when_a_session_starts(self):
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+
+        self.overlay.start_patcher_early()
+
+        self.assertEqual(self.toggles(self.VO_ID), [False])
+        self.assertFalse(self.state_path.exists())  # not the user's, to turn back on
+
+    def test_one_turned_on_before_the_injection_is_not_taken_for_the_users(self):
+        self.overlay.start_patcher_early()
+        for entry in self.bridge.library_entries:
+            entry["enabled"] = True  # turned on in LTK Manager meanwhile
+
+        self.assertEqual(self.overlay.mk_run_overlay([self.make_mod()], stop_callback=lambda: True), 0)
+
+        self.assertEqual(self.toggles(self.VO_ID), [False])
+        self.assertEqual(self.state()["disabled"], [])
+
+    def test_an_entry_left_installed_is_kept_once_a_manifest_names_it(self):
+        """A move into LTK Manager that stopped between the manifest write and keep()"""
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+        self.state_path.write_text(json.dumps({"installed": {self.VO_ID: "VO Korean"}}), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertFalse(self.enabled(self.VO_ID))
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_a_kept_copy_a_manifest_took_over_is_not_removed(self):
+        self.state_path.write_text(json.dumps({"kept": {self.VO_ID: {
+            "folder": "VO Korean", "fingerprint": "abc", "source": str(self.root / "deleted.fantome")}}}),
+            encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertEqual(self.state()["kept"], {})
+
+    def test_the_entries_of_saved_mods_deleted_in_rose_are_removed_when_a_session_starts(self):
+        FakeBridge.initial_library.append(self.entry(self.OLD_ID, "Old map"))
+        queue = self.overlay.saved_mods_root / "ltk_removals.json"
+        queue.write_text(json.dumps({"ids": [self.OLD_ID, self.GONE_ID]}), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertEqual([call for call in self.bridge.calls if call[0] == "uninstall"], [("uninstall", self.OLD_ID)])
+        self.assertFalse(queue.exists())
+        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
 
 
 class EarlySessionTests(LtfSessionTestCase):

@@ -15,7 +15,7 @@ and drops x.
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Iterable, List, Optional, Tuple
 
 LTK_REF_PREFIX = "ltk~"
 
@@ -46,3 +46,17 @@ def ltk_id_of(name: object) -> Optional[str]:
         return None
     ltk_id = name[len(LTK_REF_PREFIX):]
     return ltk_id if is_ltk_id(ltk_id) else None
+
+
+def split_mod_names(names: Iterable[str]) -> Tuple[List[str], List[str]]:
+    """An injection's mod names as (the files in its mods folder, the library
+    ids of the saved mods LTK Manager holds), each in their order."""
+    files: List[str] = []
+    ltk_ids: List[str] = []
+    for name in names:
+        ltk_id = ltk_id_of(name)
+        if ltk_id is None:
+            files.append(name)
+        elif ltk_id not in ltk_ids:
+            ltk_ids.append(ltk_id)
+    return files, ltk_ids
