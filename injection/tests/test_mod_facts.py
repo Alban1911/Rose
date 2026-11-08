@@ -13,6 +13,7 @@ from unittest.mock import patch
 from injection.loadingname import loading_name
 from injection.mods import mod_facts
 from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
+from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
 from party.discovery import custom_mods
 from test.test_loading_name import make_wad
 
@@ -145,7 +146,7 @@ class ComputeFactsTests(unittest.TestCase):
 
         self.assertEqual(facts.party_hash, party_hash)
         self.assertEqual(facts.champion_aliases, ("aatrox",))
-        self.assertEqual(list((injection / "ltf_staging").iterdir()), [])  # unpacked, then removed
+        self.assertEqual(list((injection / "mod_facts").iterdir()), [])  # unpacked, then removed
 
     def test_a_mod_it_cannot_read_has_no_facts(self):
         broken = self.root / "Broken.fantome"
@@ -163,6 +164,31 @@ class ComputeFactsTests(unittest.TestCase):
         self.assertEqual(stamp_of(archive), [archive.stat().st_size, 2_000_000_000])
         self.assertIsNone(stamp_of(self.root / "Gone.fantome"))
         self.assertIsNone(stamp_of(self.root))  # a folder is no archive
+
+
+class ModpkgSessionTests(LtfSessionTestCase):
+    def test_a_session_starting_while_a_modpkg_is_unpacked_leaves_its_files(self):
+        """Each LTK session clears its staging folder as it starts: a sync
+        reading a .modpkg LTK Manager holds during champion select read half
+        a mod, then recorded empty aliases and no party hash as its facts"""
+        from utils.tests.test_modpkg import SKIN0, Chunk, build_package
+
+        package = self.root / "old-aatrox_1.2.0.modpkg"
+        package.write_bytes(build_package([Chunk(SKIN0, b"skin" * 100)]))
+        injection = self.mods.parent
+        real_extract = mod_facts.extract_modpkg
+
+        def unpacked_as_a_session_starts(source, dest):
+            real_extract(source, dest)
+            self.overlay._end_session(self.overlay._start_ltf_session(report=False))
+
+        with patch.object(mod_facts, "get_injection_dir", return_value=injection), \
+                patch.object(mod_facts, "extract_modpkg", side_effect=unpacked_as_a_session_starts):
+            facts, _, _ = compute_mod_facts(package)
+
+        self.assertEqual(len(FakeBridge.created), 1)  # a session did start
+        self.assertEqual(facts.party_hash, custom_mods.mod_hashes(package)[0])
+        self.assertEqual(facts.champion_aliases, ("aatrox",))
 
 
 class ManifestFactsTests(unittest.TestCase):

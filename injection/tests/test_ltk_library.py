@@ -572,6 +572,24 @@ class RemoveRoseModsTests(LtfSessionTestCase):
 
         self.assertEqual(FakeBridge.created, [])
 
+    def test_a_users_mod_that_stays_off_fails_it(self):
+        """The session's start only logs a mod it could not turn back on, and
+        the uninstaller deletes the record of it right after"""
+        self.library((VO_ID, False), (self.USERS_OFF, False))
+        self.state_path.write_text(json.dumps({"disabled": [self.USERS_OFF]}), encoding="utf-8")
+        toggle = FakeBridge.toggle
+
+        def refuse_turning_on(bridge, target, enabled=True):
+            if target == self.USERS_OFF and enabled:
+                raise BridgeCommandError("CDP busy")
+            return toggle(bridge, target, enabled)
+
+        with patch.object(FakeBridge, "toggle", refuse_turning_on):
+            self.assertEqual(self.remove(), 1)
+
+        self.assertEqual([(e["id"], e["enabled"]) for e in self.bridge.library_entries], [(self.USERS_OFF, False)])
+        self.assertEqual(self.state()["disabled"], [self.USERS_OFF])
+
     def test_an_entry_ltk_manager_would_not_remove_fails_it(self):
         self.library((VO_ID, False))
 

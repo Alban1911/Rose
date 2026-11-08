@@ -21,6 +21,7 @@ from utils.core import historic, mod_historic
 
 VO_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 MAP_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
+NEW_ID = "799b6c82-8324-4394-a0cf-ddebcd16eba7"
 MAP = {
     "META/info.json": json.dumps({"Name": "Summoner's Rift"}),
     "WAD/Map11.wad.client": b"map" * 50,
@@ -192,6 +193,34 @@ class LtkSyncTests(unittest.TestCase):
         self.assertIsNone(self.saved("VO Korean").stored)
         self.assertTrue(lost.exists())  # the mod's only copy now: the next start moves it again
         self.assertTrue(self.saved("Rift", "maps").missing)
+
+    def test_a_mod_deleted_and_added_again_during_the_sync_is_left_to_the_next_one(self):
+        """What the sync read of the mod no longer applies to the entry now
+        under its name, another mod with another LTK Manager entry"""
+        self.ltk_archive("vo-korean", VOICEOVER)
+
+        def added_again():
+            self.save("VO Korean", NEW_ID, **STALE.to_manifest())
+
+        for case, index, during in (
+            ("its entry gone", (), "read_library_index"),
+            ("its archive changed", ((VO_ID, "vo-korean"),), "compute_mod_facts"),
+        ):
+            with self.subTest(case):
+                self.save("VO Korean", VO_ID, **STALE.to_manifest(), ltkStamp=[1, 1])
+                self.write_index(*index)
+                real = getattr(ltk_sync, during)
+
+                def replaced_during(*args, real=real):
+                    added_again()
+                    return real(*args)
+
+                with patch.object(ltk_sync, during, side_effect=replaced_during):
+                    self.sync()
+
+                mod = self.saved("VO Korean")
+                self.assertEqual((mod.ltk_id, mod.missing, mod.facts), (NEW_ID, False, STALE))
+                self.assertNotIn("ltkStamp", mod.metadata)
 
     def test_a_sync_already_running_is_not_started_again(self):
         self.save("VO Korean", VO_ID, **STALE.to_manifest())

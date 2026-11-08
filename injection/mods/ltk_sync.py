@@ -37,7 +37,7 @@ from utils.core.paths import get_state_dir
 from utils.threading.thread_manager import create_daemon_thread
 
 from ..overlay.ltk_library import IndexEntry, library_index_mtime, read_library_index
-from .manifest import SavedMod, update_saved_mod
+from .manifest import _STORAGE_LOCK, SavedMod, find_saved_mod, update_saved_mod
 from .migration import delete_copy
 from .mod_facts import compute_mod_facts, stamp_of
 from .storage import ModStorageService
@@ -123,27 +123,40 @@ def start_saved_mods_sync(*, only_if_changed: bool) -> threading.Thread:
 def _sync_mod(storage: ModStorageService, mod: SavedMod, entry: Optional[IndexEntry], report: SyncReport) -> None:
     """Bring one saved mod LTK Manager holds in line with its index *entry*
     (None: gone), in one manifest write, then delete Rose's leftover copy of
-    a listed one."""
+    a listed one: under the manifests' lock, and only while its manifest
+    entry is still the one the sync read."""
     fields: dict = {}
     if (entry is None) != mod.missing:
         fields["missing"] = True if entry is None else None
     if entry is not None:
         fields.update(_changed_facts(mod, entry))
-    if fields and not update_saved_mod(storage.mods_root, mod.relative_path, **fields):
-        return
-    if "missing" in fields:
-        if entry is None:
-            report.missing.append(mod.name)
-            log.info(f"[MODS] {mod.name} is no longer in LTK Manager's library: shown as missing until it is "
-                     "added again")
-        else:
-            report.found.append(mod.name)
-            log.info(f"[MODS] {mod.name} is in LTK Manager's library again")
-    if "ltkStamp" in fields:
-        report.refreshed.append(mod.name)
-        log.info(f"[MODS] LTK Manager changed {mod.name}: read what Rose needs to know about it again")
-    if entry is not None and mod.stored is not None and delete_copy(storage, mod):
-        report.copies_deleted.append(mod.name)
+    with _STORAGE_LOCK:
+        if not _unchanged(storage.mods_root, mod):
+            log.debug(f"[MODS] {mod.name} was deleted or added again during the sync: left to the next one")
+            return
+        if fields and not update_saved_mod(storage.mods_root, mod.relative_path, **fields):
+            return
+        if "missing" in fields:
+            if entry is None:
+                report.missing.append(mod.name)
+                log.info(f"[MODS] {mod.name} is no longer in LTK Manager's library: shown as missing until it "
+                         "is added again")
+            else:
+                report.found.append(mod.name)
+                log.info(f"[MODS] {mod.name} is in LTK Manager's library again")
+        if "ltkStamp" in fields:
+            report.refreshed.append(mod.name)
+            log.info(f"[MODS] LTK Manager changed {mod.name}: read what Rose needs to know about it again")
+        if entry is not None and mod.stored is not None and delete_copy(storage, mod):
+            report.copies_deleted.append(mod.name)
+
+
+def _unchanged(mods_root: Path, mod: SavedMod) -> bool:
+    """Whether the manifest entry *mod* came from is still under its name,
+    with the same LTK Manager entry: one deleted and added again under that
+    name is another mod, whatever the sync read of the first."""
+    current = find_saved_mod(mods_root, mod.relative_path, match_content=False)
+    return current is not None and (current.key, current.ltk_id) == (mod.key, mod.ltk_id)
 
 
 def _changed_facts(mod: SavedMod, entry: IndexEntry) -> dict:

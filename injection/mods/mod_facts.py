@@ -33,9 +33,10 @@ from .mod_files import ModFiles
 
 # A partyHash is the content hash cut to 32 hex characters
 _PARTY_HASH = re.compile(r"[0-9a-f]{32}")
-# Where a .modpkg is unpacked to be read: Rose's injection folder is the
-# desktop user's and on the drive of Rose's data, and LTK sessions clear it
-_FACTS_SCRATCH = "ltf_staging"
+# Where a .modpkg is unpacked to be read, one folder per read: in Rose's
+# injection folder (the desktop user's, on the drive of Rose's data), but not
+# in its ltf_staging, which every LTK session clears as it starts
+_FACTS_SCRATCH = "mod_facts"
 
 
 # --------------------------------------------------------------------------------------

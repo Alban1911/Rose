@@ -530,8 +530,8 @@ def remove_rose_mods(overlay) -> int:
     entry a manifest names: those are removed here.
 
     Returns 0 when done (LTK Manager is not even started when Rose added
-    nothing and turned nothing off), 1 when LTK Manager could not be reached
-    or an entry could not be removed.
+    nothing and turned nothing off), 1 when LTK Manager could not be reached,
+    an entry could not be removed or a user's mod stays off.
     """
     state = overlay._read_state()
     ids = manifest_ltk_ids(overlay._saved_mods_dir()) | set(state["kept"]) | set(state["installed"])
@@ -541,7 +541,8 @@ def remove_rose_mods(overlay) -> int:
     removed, failed = [], []
     try:
         with LtkLibrary(overlay).session(wait=True) as session:
-            for ltk_id in sorted(ids & set(session.library())):
+            library = session.library()
+            for ltk_id in sorted(ids & set(library)):
                 try:
                     session.uninstall(ltk_id)
                 except BridgeCommandError as e:
@@ -551,8 +552,27 @@ def remove_rose_mods(overlay) -> int:
                 removed.append(ltk_id)
             if removed:
                 overlay._forget_kept(removed)
+            failed += _turn_users_mods_back_on(overlay, session, library)
     except (LtkBusy, LtkUnavailable, BridgeUnavailable, BridgeCommandError) as e:
         log.warning(f"[MODS] Could not remove Rose's mods from LTK Manager's library: {e}")
         return 1
     log.info(f"[MODS] Removed {len(removed)} mod(s) Rose added from LTK Manager's library")
     return 1 if failed else 0
+
+
+def _turn_users_mods_back_on(overlay, session: LibrarySession, library: Mapping[str, dict]) -> List[str]:
+    """Turn back on the user's own mods a game turned off that the session's
+    start could not (its cleanup leaves them recorded and goes on), and
+    return those still off: the uninstaller deletes that record next."""
+    still_off = []
+    for ltk_id in overlay._read_state()["disabled"]:
+        if ltk_id not in library or library[ltk_id].get("enabled"):
+            continue
+        try:
+            session.switch(ltk_id, True)
+        except BridgeCommandError as e:
+            log.warning(f"[MODS] Could not turn the user's mod {ltk_id} back on in LTK Manager: {e}")
+            still_off.append(ltk_id)
+            continue
+        overlay._untrack(restored=[ltk_id])
+    return still_off
