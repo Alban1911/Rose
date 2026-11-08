@@ -814,9 +814,9 @@ class FakeModStorage:
         kind = entry["id"].split("/", 1)[0]
         stored = self.mods_root / entry["path"]
         return SavedMod(
-            kind=kind, directory=self.mods_root / kind, key=entry["name"], name=entry["name"],
-            relative_path=entry["id"], ltk_id=entry.get("ltkId"), missing=bool(entry.get("missing")),
-            stored=stored if stored.exists() else None, facts=None, display_name=None,
+            kind=kind, manifest_dir=self.mods_root / kind, key=entry["name"], name=entry["name"],
+            identity=entry["id"], ltk_id=entry.get("ltkId"), missing=bool(entry.get("missing")),
+            rose_copy=stored if stored.exists() else None, facts=None, display_name=None,
             target_skin_ids=(), updated_at=0.0, metadata={},
         )
 

@@ -94,7 +94,7 @@ class SavedLtkModSelectionTests(unittest.TestCase):
 
         self.assertTrue(result["success"])
         selected = self.handler.shared_state.selected_custom_mod
-        self.assertEqual(selected["source"], LtkEntry(MOVED_ID, FACTS, missing=False))
+        self.assertEqual(selected["source"], LtkEntry(MOVED_ID, FACTS, gone_at_last_sync=False))
         self.assertEqual(selected["relative_path"], "skins/81000/Moved Ezreal.fantome")
         self.assertEqual(self.linked, [])
         self.assertEqual(list(self.mods_dir.iterdir()), [])

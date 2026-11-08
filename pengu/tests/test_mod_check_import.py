@@ -71,7 +71,7 @@ class ModCheckOnImportTests(unittest.TestCase):
         self.library_class.assert_called_once_with(overlay.host, overlay.game_dir)
         self.assertEqual(kept[0]["health"], dict(verdict, ltkId=LTK_ID))
         mod = self.saved()
-        self.assertEqual((mod.ltk_id, mod.stored, mod.pending), (LTK_ID, None, False))
+        self.assertEqual((mod.ltk_id, mod.rose_copy, mod.pending), (LTK_ID, None, False))
         self.assertEqual(mod.metadata["ltkStamp"], [10, 20])
         self.assertIsNotNone(mod.facts)
         self.assertFalse(self.stored.exists())

@@ -69,7 +69,7 @@ class SavedModsTestCase(unittest.TestCase):
             "Rift": {"name": "Rift", "path": "Rift", "displayName": "Summoner's Rift"},
             "Night": {"name": "Night", "path": "Night", "ltkId": NIGHT_ID},
         }})
-        manifest._reported_manifests.clear()
+        manifest._unreadable_manifests_logged.clear()
 
     def write_annie_manifest(self, targets=(), **extra_mods):
         mods = {
@@ -100,7 +100,7 @@ class ListingTests(SavedModsTestCase):
         self.assertEqual(sorted(mods), ["Gone Skin", "Moved Skin", "Old Folder", "Pending Skin"])
         pending = mods["Pending Skin"]
         self.assertTrue(pending.pending and pending.available)
-        self.assertEqual(pending.stored, self.pending_archive)
+        self.assertEqual(pending.rose_copy, self.pending_archive)
         self.assertEqual(pending.key, self.pending_hash)
         self.assertEqual(pending.display_name, "Pending!")
         self.assertEqual(pending.target_skin_ids, (1001,))
@@ -109,26 +109,26 @@ class ListingTests(SavedModsTestCase):
 
         moved = mods["Moved Skin"]
         self.assertEqual(moved.ltk_id, MOVED_ID)
-        self.assertIsNone(moved.stored)
+        self.assertIsNone(moved.rose_copy)
         self.assertFalse(moved.pending)
         self.assertTrue(moved.available)
         self.assertEqual(moved.facts, FACTS)
-        self.assertEqual(moved.source, LtkEntry(MOVED_ID, FACTS, missing=False))
+        self.assertEqual(moved.source, LtkEntry(MOVED_ID, FACTS, gone_at_last_sync=False))
         self.assertEqual(moved.updated_at, 1234.5)
 
         gone = mods["Gone Skin"]
         self.assertTrue(gone.missing)
         self.assertFalse(gone.available)
-        self.assertEqual(gone.source, LtkEntry(GONE_ID, None, missing=True))
+        self.assertEqual(gone.source, LtkEntry(GONE_ID, None, gone_at_last_sync=True))
 
     def test_the_identity_is_the_archive_path_unless_a_folder_is_stored(self):
         mods = self.annie_mods()
 
-        self.assertEqual(mods["Pending Skin"].relative_path, "skins/1000/Pending Skin.fantome")
-        self.assertEqual(mods["Moved Skin"].relative_path, "skins/1000/Moved Skin.fantome")
+        self.assertEqual(mods["Pending Skin"].identity, "skins/1000/Pending Skin.fantome")
+        self.assertEqual(mods["Moved Skin"].identity, "skins/1000/Moved Skin.fantome")
         self.assertEqual(mods["Moved Skin"].path(self.mods_root), self.annie / "Moved Skin.fantome")
         self.assertFalse(mods["Moved Skin"].path(self.mods_root).exists())
-        self.assertEqual(mods["Old Folder"].relative_path, "skins/1000/Old Folder")
+        self.assertEqual(mods["Old Folder"].identity, "skins/1000/Old Folder")
         self.assertEqual(mods["Old Folder"].source, RoseFile(self.annie / "Old Folder", "Old Folder"))
 
     def test_images_and_descriptions_sit_beside_the_manifest_under_the_mods_name(self):
@@ -152,7 +152,7 @@ class ListingTests(SavedModsTestCase):
 
         legacy = self.annie_mods()["Legacy Mod"]
 
-        self.assertEqual(legacy.relative_path, "skins/1007/Legacy Mod.fantome")
+        self.assertEqual(legacy.identity, "skins/1007/Legacy Mod.fantome")
         self.assertEqual(legacy.target_skin_ids, (1007,))
 
     def test_a_category_lists_only_the_mods_it_registered(self):
@@ -162,7 +162,7 @@ class ListingTests(SavedModsTestCase):
         self.assertTrue(maps["Rift"].pending)
         self.assertEqual(maps["Rift"].display_name, "Summoner's Rift")
         self.assertEqual(maps["Night"].ltk_id, NIGHT_ID)
-        self.assertEqual(maps["Night"].relative_path, "maps/Night.fantome")
+        self.assertEqual(maps["Night"].identity, "maps/Night.fantome")
         self.assertEqual(maps["Night"].target_skin_ids, ())
 
     def test_every_kind_is_listed_without_a_filter(self):
@@ -193,7 +193,7 @@ class ListingTests(SavedModsTestCase):
         self.assertFalse(renamed.exists())
         self.assertEqual(self.entry(self.annie, self.pending_hash)["name"], "Renamed")
         moved = service.saved_mod("skins/1000/Renamed.fantome")
-        self.assertEqual((moved.ltk_id, moved.stored, moved.display_name), (NEW_ID, None, "Pending!"))
+        self.assertEqual((moved.ltk_id, moved.rose_copy, moved.display_name), (NEW_ID, None, "Pending!"))
 
     def test_one_mod_per_name_and_the_one_ltk_manager_holds_wins(self):
         self.write_annie_manifest(**{"dup-key": {"name": "Pending Skin", "targets": [1001], "ltkId": NEW_ID}})
@@ -366,14 +366,14 @@ class SourceTests(unittest.TestCase):
             existing.write_bytes(b"map")
 
             self.assertTrue(RoseFile.at(existing).available)
-            self.assertEqual(RoseFile.at(existing).name, "Rift")
+            self.assertEqual(RoseFile.at(existing).linked_name, "Rift")
             self.assertFalse(RoseFile.at(Path(temp_dir) / "Gone.fantome").available)
 
     def test_an_ltk_entry_is_available_until_a_sync_finds_it_gone(self):
         self.assertTrue(LtkEntry(MOVED_ID).available)
         self.assertEqual(LtkEntry(MOVED_ID).put(Path("nowhere")), f"ltk~{MOVED_ID}")
-        self.assertFalse(LtkEntry(GONE_ID, missing=True).available)
-        self.assertIsNone(LtkEntry(GONE_ID, missing=True).put(Path("nowhere")))
+        self.assertFalse(LtkEntry(GONE_ID, gone_at_last_sync=True).available)
+        self.assertIsNone(LtkEntry(GONE_ID, gone_at_last_sync=True).put(Path("nowhere")))
 
 
 class StorageDelegationTests(SavedModsTestCase):
@@ -382,7 +382,7 @@ class StorageDelegationTests(SavedModsTestCase):
         self.service = ModStorageService(self.mods_root)
 
     def test_the_storage_shares_the_writers_lock_and_names(self):
-        self.assertIs(storage._STORAGE_LOCK, manifest._STORAGE_LOCK)
+        self.assertIs(storage.MANIFEST_WRITERS_LOCK, manifest.MANIFEST_WRITERS_LOCK)
         self.assertEqual(manifest.MOD_CATEGORIES, ModStorageService.MOD_CATEGORIES)
         self.assertEqual(manifest.SKINS, ModStorageService.CATEGORY_SKINS)
         self.assertEqual((manifest.TARGET_METADATA, manifest.LEGACY_TARGET_METADATA, manifest.CATEGORY_METADATA),
@@ -436,7 +436,7 @@ class StorageDelegationTests(SavedModsTestCase):
         self.assertFalse(self.pending_archive.exists())
         self.assertEqual((self.annie / "Pending Skin.png").read_bytes(), PNG)
         moved = self.service.saved_mod("skins/1000/Pending Skin.fantome")
-        self.assertEqual((moved.ltk_id, moved.stored, moved.display_name), (NEW_ID, None, "Pending!"))
+        self.assertEqual((moved.ltk_id, moved.rose_copy, moved.display_name), (NEW_ID, None, "Pending!"))
         self.assertFalse(self.service.drop_stored_copy("skins/1000/Pending Skin.fantome"))
 
     def test_a_pending_copy_is_never_dropped(self):

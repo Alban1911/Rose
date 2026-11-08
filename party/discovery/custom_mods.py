@@ -110,7 +110,7 @@ def saved_mod_hashes(relative_path: str) -> Tuple[Optional[str], Optional[str]]:
         return None, None
     if saved.ltk_id:
         return (saved.facts.party_hash if saved.facts else None), None
-    return mod_hashes(saved.stored)
+    return mod_hashes(saved.rose_copy)
 
 
 def _champion_mod_entries(champion_id: int):
@@ -153,7 +153,7 @@ def find_local_mod(
         if content_hash:
             for saved in iter_saved_mods(mods_root, SKINS, champion_id=int(champion_id)):
                 if saved.available and saved.facts and saved.facts.party_hash == content_hash:
-                    return saved.relative_path
+                    return saved.identity
         for entry in _champion_mod_entries(int(champion_id)):
             entry_content, entry_legacy = mod_hashes(entry)
             if (content_hash and entry_content == content_hash) or (

@@ -429,6 +429,35 @@ def _record_source(found: Optional[Path]) -> Iterator[Optional[ModFiles]]:
         yield mod
 
 
+def _carried_wad(mod: Optional[ModFiles], alias: str) -> Optional[bytes]:
+    """The champion's wad the skin carries, read once for all its forms: in
+    an archive it may have to be inflated."""
+    carried = f"WAD/{alias}.wad.client"
+    return mod.read(carried) if mod is not None and mod.is_file(carried) else None
+
+
+def _keep_champion_name_in_chat(game_dir: Path, skin_files: Optional[Path], alias: str, target: Path) -> int:
+    """Write the champion's records, its forms' too (FORM_RECORDS), pointed
+    at a key of the mod's own: the chat and the name over the head keep the
+    champion's name. Returns how many were written."""
+    with _record_source(skin_files) as mod:
+        carried_wad = _carried_wad(mod, alias)
+        records = [
+            (character, _champion_record(game_dir, mod, alias, character, carried_wad))
+            for character in (alias.lower(),) + FORM_RECORDS.get(alias.lower(), ())
+        ]
+    repointed = 0
+    for character, record in records:
+        own_record = _with_own_record_key(record, alias) if record else None
+        if not own_record:
+            continue
+        record_file = target / "RAW" / _record_path(character)
+        record_file.parent.mkdir(parents=True, exist_ok=True)
+        record_file.write_bytes(own_record)
+        repointed += 1
+    return repointed
+
+
 def build(game_dir: Path, mods_dir: Path, mod_folder: Union[Path, LtkSkin], skin_id: int,
           other_mods: Sequence[Union[Path, ModFacts]] = ()) -> Optional[str]:
     """Writes the mod and returns its folder name, or None when there is nothing to show.
@@ -488,22 +517,7 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Union[Path, LtkSkin], skin
                 (target / "META").mkdir(parents=True, exist_ok=True)
                 texts = {f"{RECORD_KEY}{alias}": name}
 
-                repointed = 0
-                with _record_source(skin_files()) as mod:
-                    carried = f"WAD/{alias}.wad.client"
-                    carried_wad = mod.read(carried) if mod is not None and mod.is_file(carried) else None
-                    records = [
-                        (character, _champion_record(game_dir, mod, alias, character, carried_wad))
-                        for character in (alias.lower(),) + FORM_RECORDS.get(alias.lower(), ())
-                    ]
-                for character, record in records:
-                    own_record = _with_own_record_key(record, alias) if record else None
-                    if not own_record:
-                        continue
-                    record_file = target / "RAW" / _record_path(character)
-                    record_file.parent.mkdir(parents=True, exist_ok=True)
-                    record_file.write_bytes(own_record)
-                    repointed += 1
+                repointed = _keep_champion_name_in_chat(game_dir, skin_files(), alias, target)
                 if repointed:
                     texts[f"{RECORD_KEY_OWN}{alias}"] = champion_name
                 else:

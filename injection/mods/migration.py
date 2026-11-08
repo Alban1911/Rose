@@ -124,7 +124,7 @@ def needs_migration(mods_root: Path) -> bool:
     """Whether a saved mod still has its copy in Rose: one to move into LTK
     Manager (pending), or a moved one whose copy a stopped run left. Reads
     the manifests and lists the mods folders, and starts no LTK Manager."""
-    return any(mod.stored is not None for mod in iter_saved_mods(mods_root))
+    return any(mod.rose_copy is not None for mod in iter_saved_mods(mods_root))
 
 
 def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: MigrationUi) -> MigrationReport:
@@ -175,10 +175,10 @@ def delete_copy(storage: ModStorageService, mod: SavedMod) -> bool:
     (ModStorageService.drop_stored_copy). False when the copy stays: a
     selection not renamed, or the copy in use. It is then a leftover copy,
     and the next start does both again."""
-    if mod.stored is None:
+    if mod.rose_copy is None:
         return False
-    parent = PurePosixPath(mod.relative_path).parent
-    copy_path, identity = f"{parent}/{mod.stored.name}", f"{parent}/{mod.name}{ARCHIVE_SUFFIX}"
+    parent = PurePosixPath(mod.identity).parent
+    copy_path, identity = f"{parent}/{mod.rose_copy.name}", f"{parent}/{mod.name}{ARCHIVE_SUFFIX}"
     if copy_path.casefold() != identity.casefold() and not rename_saved_paths({copy_path: identity}):
         log.warning(f"[MIGRATE] Kept Rose's copy of {mod.name}: its saved selections could not be renamed")
         return False
@@ -216,17 +216,17 @@ class _Migration:
         only copy now."""
         moves, leftovers = [], []
         for mod in iter_saved_mods(self.storage.mods_root):
-            if mod.stored is None:
+            if mod.rose_copy is None:
                 continue
             if mod.ltk_id is not None and mod.ltk_id in library:
                 leftovers.append(mod)
                 continue
             try:
-                kept_id = self.session.kept_copy(mod.stored, library)
+                kept_id = self.session.kept_copy(mod.rose_copy, library)
             except OSError as e:
                 log.debug(f"[MIGRATE] Could not read {mod.name} to find the copy a game kept of it: {e}")
                 kept_id = None
-            moves.append(_Move(mod, mod.display_name or mod.name, _stored_size(mod.stored), kept_id))
+            moves.append(_Move(mod, mod.display_name or mod.name, _stored_size(mod.rose_copy), kept_id))
         return moves, leftovers
 
     def _offer_backup(self) -> None:
@@ -311,14 +311,14 @@ class _Migration:
         it is), the entry named by its manifest once LTK Manager lists it,
         kept there, and Rose's copy deleted. Raises with the mod still Rose's."""
         mod = move.mod
-        facts = mod.facts or compute_mod_facts(mod.stored)[0]
-        ltk_id = move.ltk_id_left_by_game or str(self.session.import_archive(mod.stored, move.display_name).get("id"))
+        facts = mod.facts or compute_mod_facts(mod.rose_copy)[0]
+        ltk_id = move.ltk_id_left_by_game or str(self.session.import_archive(mod.rose_copy, move.display_name).get("id"))
         entry = self.session.confirm(ltk_id)
         if entry is None:
             raise _MoveFailed("LTK Manager does not list it after the import")
         archive = entry_archive(entry)
         stamp = stamp_of(archive) if archive is not None else None
-        if not self.storage.attach_ltk_entry(mod.relative_path, ltk_id, facts=facts, stamp=stamp):
+        if not self.storage.attach_ltk_entry(mod.identity, ltk_id, facts=facts, stamp=stamp):
             raise _MoveFailed("its manifest could not be written")
         try:
             self.session.keep(ltk_id)

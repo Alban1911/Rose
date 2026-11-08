@@ -319,7 +319,7 @@ class InjectionTrigger:
                 "champion_id": champion_id,
                 "mod_name": saved.name,
                 "display_name": saved.display_name,
-                "relative_path": saved.relative_path,
+                "relative_path": saved.identity,
                 "source": source,
             }
         except Exception as e:
@@ -338,7 +338,7 @@ class InjectionTrigger:
         mod = mod_storage.saved_mod(str(historic_path))
         if mod is None or mod.kind != category:
             return None
-        return {"mod_name": mod.name, "relative_path": mod.relative_path, "source": mod.source}
+        return {"mod_name": mod.name, "relative_path": mod.identity, "source": mod.source}
 
     @staticmethod
     def _saved_other_mod_paths(historic_mods: dict) -> list:

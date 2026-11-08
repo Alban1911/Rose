@@ -22,7 +22,8 @@ from utils.core.paths import get_injection_dir
 
 from .mod_files import ModFiles
 
-_PARTY_HASH = re.compile(r"[0-9a-f]{32}")
+PARTY_HASH_LENGTH = 32
+_PARTY_HASH = re.compile(rf"[0-9a-f]{{{PARTY_HASH_LENGTH}}}")
 _FACTS_SCRATCH = "mod_facts"
 _UNPACKED_PREFIX = "facts-"
 TABLE_HASH = xxhash.xxh64_intdigest(b"data/menu/en_us/lol.stringtable")
@@ -43,7 +44,7 @@ def _full_content_digest(entries) -> str:
 
 def _content_digest(entries) -> str:
     """Hash (relative path, file digest) pairs the same way for folders and archives."""
-    return _full_content_digest(entries)[:32]
+    return _full_content_digest(entries)[:PARTY_HASH_LENGTH]
 
 
 def _hash_stream(stream) -> bytes:
@@ -70,15 +71,23 @@ def _folder_content_hash(folder: Path) -> Optional[str]:
     return _content_digest(entries) if entries else None
 
 
-def _archive_content_hash(archive_path: Path) -> Optional[str]:
+def _modpkg_unpacked_entries(package_path: Path) -> list:
+    """(relative path, file digest) of the files a .modpkg unpacks to, as the
+    folder it is imported as holds them."""
     entries = []
+    with ModPackage.open(package_path) as package:
+        for relative_path, content in package.iter_files():
+            if _is_preview_image(relative_path):
+                continue
+            entries.append((relative_path, hashlib.sha256(content).digest()))
+    return entries
+
+
+def _archive_content_hash(archive_path: Path) -> Optional[str]:
     if archive_path.suffix.lower() == MODPKG_SUFFIX:
-        with ModPackage.open(archive_path) as package:
-            for relative_path, content in package.iter_files():
-                if _is_preview_image(relative_path):
-                    continue
-                entries.append((relative_path, hashlib.sha256(content).digest()))
+        entries = _modpkg_unpacked_entries(archive_path)
         return _content_digest(entries) if entries else None
+    entries = []
     with zipfile.ZipFile(archive_path, "r") as archive:
         for info in archive.infolist():
             if info.is_dir():
@@ -103,6 +112,14 @@ class ModFacts:
     party_hash: Optional[str]
     champion_aliases: tuple[str, ...]
     ships_language_table: bool
+
+    @classmethod
+    def unknown(cls) -> "ModFacts":
+        """What the loading screen name takes a mod LTK Manager holds for when
+        its manifest lacks the facts: a skin naming no champion (no name is
+        built) and a mod that may carry the text table the name's own would
+        compete with."""
+        return cls(party_hash=None, champion_aliases=(), ships_language_table=True)
 
     def to_manifest(self) -> dict:
         return {
@@ -142,15 +159,30 @@ def compute_mod_facts(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
     mod = Path(mod)
     if not mod.exists():
         raise FileNotFoundError(f"Mod not found: {mod}")
+    with _readable(mod) as readable:
+        return _facts_of(readable)
+
+
+@contextmanager
+def _readable(mod: Path) -> Iterator[Path]:
+    """*mod* as ModFiles reads it, a folder or a ZIP archive: a .modpkg unpacked."""
     if mod.is_file() and mod.suffix.lower() == MODPKG_SUFFIX:
         with _unpacked_modpkg(mod) as folder:
-            return _facts_of(folder)
-    return _facts_of(mod)
+            yield folder
+    else:
+        yield mod
+
+
+def _facts_scratch_dir() -> Path:
+    """Where a .modpkg is unpacked to be read, one folder per read: in Rose's
+    injection folder (the desktop user's, on the drive of Rose's data), but
+    not in its ltf_staging, which every LTK session clears as it starts."""
+    return get_injection_dir() / _FACTS_SCRATCH
 
 
 @contextmanager
 def _unpacked_modpkg(package: Path) -> Iterator[Path]:
-    scratch = get_injection_dir() / _FACTS_SCRATCH / f"{_UNPACKED_PREFIX}{uuid.uuid4().hex}"
+    scratch = _facts_scratch_dir() / f"{_UNPACKED_PREFIX}{uuid.uuid4().hex}"
     scratch.mkdir(parents=True)
     try:
         extract_modpkg(package, scratch)
@@ -165,7 +197,7 @@ def remove_unpacked_leftovers() -> None:
     for a voiceover pack. Only for Rose's start, before anything reads a mod:
     no other Rose runs then and the launcher's migration has finished."""
     try:
-        leftovers = [entry for entry in (get_injection_dir() / _FACTS_SCRATCH).iterdir()
+        leftovers = [entry for entry in _facts_scratch_dir().iterdir()
                      if entry.name.startswith(_UNPACKED_PREFIX)]
     except OSError:
         return
@@ -248,7 +280,8 @@ def _facts_of(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
         aliases = tuple(champion_aliases_of(files))
         ships = ships_language_table_of(files)
     full_hash = _full_content_digest(entries)
-    facts = ModFacts(full_hash[:32] if entries else None, aliases, ships)
+    preview_only = not entries
+    facts = ModFacts(None if preview_only else full_hash[:PARTY_HASH_LENGTH], aliases, ships)
     return facts, full_hash, wad_hashes
 
 

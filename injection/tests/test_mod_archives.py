@@ -299,7 +299,7 @@ class AddTests(TempCase):
         self.assertEqual((mods[name]["folderHash"], mods[name]["targets"]), (full_hash, [81021]))
         listed = {mod.mod_name: mod for mod in self.service.list_mods_for_champion(81)}
         self.assertEqual((listed["Lost Ezreal"].source, listed["Lost Ezreal"].display_name),
-                         (LtkEntry(LOST_ID, None, missing=True), "My Ezreal"))
+                         (LtkEntry(LOST_ID, None, gone_at_last_sync=True), "My Ezreal"))
         self.assertEqual(listed[name].source, RoseFile.at(stored))
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
@@ -344,7 +344,7 @@ class AddTests(TempCase):
         again = self.service.import_mod_file(81, source, [81022])
 
         self.assertEqual(again, (first, name, True))
-        self.assertFalse(again.path.exists())
+        self.assertFalse(again.identity_path.exists())
         [entry] = self.entries(self.skins_manifest).values()
         self.assertEqual((entry["ltkId"], entry["targets"]), (MOVED_ID, [81020, 81021, 81022]))
         self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
@@ -411,7 +411,7 @@ class ManifestListingTests(TempCase):
 
         self.assertEqual(moved.path, self.ezreal / "Moved Ezreal.fantome")
         self.assertFalse(moved.path.exists())
-        self.assertEqual(moved.source, LtkEntry(MOVED_ID, FACTS, missing=False))
+        self.assertEqual(moved.source, LtkEntry(MOVED_ID, FACTS, gone_at_last_sync=False))
         self.assertEqual(moved.description, "Moved to LTK Manager")
         self.assertEqual(moved.display_name, "Moved!")
         self.assertEqual(moved.updated_at, 1234.5)
@@ -426,7 +426,7 @@ class ManifestListingTests(TempCase):
     def test_a_mod_ltk_manager_lost_is_listed_as_missing(self):
         lost = self.champion_mods()["Lost Ezreal"]
 
-        self.assertEqual(lost.source, LtkEntry(LOST_ID, None, missing=True))
+        self.assertEqual(lost.source, LtkEntry(LOST_ID, None, gone_at_last_sync=True))
         self.assertFalse(lost.source.available)
 
     def test_a_file_nobody_registered_is_listed_with_the_folders_targets(self):

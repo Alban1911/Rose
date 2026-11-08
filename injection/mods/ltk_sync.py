@@ -13,29 +13,29 @@ from utils.core.logging import get_logger
 from utils.threading.thread_manager import create_daemon_thread
 
 from ..overlay.ltk_data import IndexEntry, library_index_mtime, read_library_index
-from .manifest import _STORAGE_LOCK, SavedMod, find_saved_mod, update_saved_mod
+from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, find_saved_mod, update_saved_mod
 from .migration import delete_copy
 from .mod_facts import compute_mod_facts, stamp_of
 from .storage import ModStorageService
 
 log = get_logger()
 
-_SYNC_LOCK = threading.Lock()
-_synced_mtime: Optional[float] = None
+_ONE_SYNC_AT_A_TIME = threading.Lock()
+_last_synced_index_mtime: Optional[float] = None
 
 
 @dataclass
 class SyncReport:
     """What a sync changed, by the mods' names."""
 
-    missing: List[str] = field(default_factory=list)
-    found: List[str] = field(default_factory=list)
-    refreshed: List[str] = field(default_factory=list)
+    gone_from_library: List[str] = field(default_factory=list)
+    listed_again: List[str] = field(default_factory=list)
+    facts_reread: List[str] = field(default_factory=list)
     copies_deleted: List[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         """Whether the sync changed anything."""
-        return bool(self.missing or self.found or self.refreshed or self.copies_deleted)
+        return bool(self.gone_from_library or self.listed_again or self.facts_reread or self.copies_deleted)
 
 
 def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
@@ -49,13 +49,13 @@ def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
     one LTK Manager lost. None when the sync did not run: another one is
     running, the index did not change, or it cannot be read.
     """
-    global _synced_mtime
-    if not _SYNC_LOCK.acquire(blocking=False):
+    global _last_synced_index_mtime
+    if not _ONE_SYNC_AT_A_TIME.acquire(blocking=False):
         log.debug("[MODS] A sync with LTK Manager's library is running already")
         return None
     try:
         mtime = library_index_mtime()
-        if only_if_changed and mtime is not None and mtime == _synced_mtime:
+        if only_if_changed and mtime is not None and mtime == _last_synced_index_mtime:
             log.debug("[MODS] LTK Manager's library did not change since the last sync")
             return None
         storage = storage or ModStorageService()
@@ -68,14 +68,14 @@ def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
         for mod in held:
             _sync_mod(storage, mod, index.get(mod.ltk_id), report)
         if mtime is not None:
-            _synced_mtime = mtime
+            _last_synced_index_mtime = mtime
         if report:
-            log.info(f"[MODS] Synced the saved mods with LTK Manager's library: {len(report.missing)} missing, "
-                     f"{len(report.found)} found again, {len(report.refreshed)} changed by LTK Manager, "
+            log.info(f"[MODS] Synced the saved mods with LTK Manager's library: {len(report.gone_from_library)} missing, "
+                     f"{len(report.listed_again)} found again, {len(report.facts_reread)} changed by LTK Manager, "
                      f"{len(report.copies_deleted)} copies deleted")
         return report
     finally:
-        _SYNC_LOCK.release()
+        _ONE_SYNC_AT_A_TIME.release()
 
 
 def start_saved_mods_sync(*, only_if_changed: bool) -> threading.Thread:
@@ -103,24 +103,24 @@ def _sync_mod(storage: ModStorageService, mod: SavedMod, entry: Optional[IndexEn
         fields["missing"] = True if entry is None else None
     if entry is not None:
         fields.update(_changed_facts(mod, entry))
-    with _STORAGE_LOCK:
+    with MANIFEST_WRITERS_LOCK:
         if not _unchanged(storage.mods_root, mod):
             log.debug(f"[MODS] {mod.name} was deleted or added again during the sync: left to the next one")
             return
-        if fields and not update_saved_mod(storage.mods_root, mod.relative_path, **fields):
+        if fields and not update_saved_mod(storage.mods_root, mod.identity, **fields):
             return
         if "missing" in fields:
             if entry is None:
-                report.missing.append(mod.name)
+                report.gone_from_library.append(mod.name)
                 log.info(f"[MODS] {mod.name} is no longer in LTK Manager's library: shown as missing until it "
                          "is added again")
             else:
-                report.found.append(mod.name)
+                report.listed_again.append(mod.name)
                 log.info(f"[MODS] {mod.name} is in LTK Manager's library again")
         if "ltkStamp" in fields:
-            report.refreshed.append(mod.name)
+            report.facts_reread.append(mod.name)
             log.info(f"[MODS] LTK Manager changed {mod.name}: read what Rose needs to know about it again")
-        if entry is not None and mod.stored is not None and delete_copy(storage, mod):
+        if entry is not None and mod.rose_copy is not None and delete_copy(storage, mod):
             report.copies_deleted.append(mod.name)
 
 
@@ -128,7 +128,7 @@ def _unchanged(mods_root: Path, mod: SavedMod) -> bool:
     """Whether the manifest entry *mod* came from is still under its name,
     with the same LTK Manager entry: one deleted and added again under that
     name is another mod, whatever the sync read of the first."""
-    current = find_saved_mod(mods_root, mod.relative_path, match_content=False)
+    current = find_saved_mod(mods_root, mod.identity, match_content=False)
     return current is not None and (current.key, current.ltk_id) == (mod.key, mod.ltk_id)
 
 

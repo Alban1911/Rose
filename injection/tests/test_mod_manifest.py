@@ -23,7 +23,7 @@ class UnreadableManifestTests(unittest.TestCase):
         self.archive = self.root / 'Summoner Rift.fantome'
         with zipfile.ZipFile(self.archive, 'w') as zf:
             zf.writestr('WAD/Map11.wad.client', b'data')
-        manifest._reported_manifests.clear()
+        manifest._unreadable_manifests_logged.clear()
 
     def test_importing_does_not_overwrite_an_unreadable_manifest(self):
         corrupt = '{"version": 1, "mods": {"Old Map": {"name": "Old Map"'

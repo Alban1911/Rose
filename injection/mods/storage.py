@@ -39,7 +39,7 @@ from utils.core.utilities import get_champion_id_from_skin_id
 from . import manifest as saved_manifest
 from .fantome import is_packed_wad, write_fantome_zip
 from .ltk_ref import is_ltk_id
-from .manifest import _STORAGE_LOCK
+from .manifest import MANIFEST_WRITERS_LOCK
 from .manifest import SavedMod, normalize_target_ids
 from .mod_facts import ModFacts, compute_mod_facts
 from .mod_files import ModFiles
@@ -86,12 +86,20 @@ def _check_packed(archive: Path, expected: dict[str, int], added_metadata: bool)
         raise OSError(f"the archive does not hold the folder's files as they are (missing: {missing or 'none'})")
 
 
-class AddedMod(NamedTuple):
-    """A mod the user added, as the add left it."""
+def _remove_sidecar_file(sidecar: Path) -> None:
+    """Remove a mod's image or description beside the manifest; a folder of
+    that name is another mod ("Example.txt") and stays."""
+    if sidecar.is_file():
+        safe_remove_entry(sidecar)
 
-    path: Path
+
+class AddedMod(NamedTuple):
+    """A mod the user added, as the add left it: identity_path is where its
+    identity points (SavedMod.path), its archive while Rose holds it."""
+
+    identity_path: Path
     name: str
-    saved_already: bool = False
+    nothing_added: bool = False
 
 
 @dataclass(frozen=True)
@@ -152,7 +160,7 @@ class ModStorageService:
 
     def __init__(self, mods_root: Optional[Path] = None):
         self.mods_root = mods_root or (get_user_data_dir() / "mods")
-        self._storage_lock = _STORAGE_LOCK
+        self._storage_lock = MANIFEST_WRITERS_LOCK
         self._champion_listing_cache: dict[
             int, tuple[float, tuple[SkinModEntry, ...]]
         ] = {}
@@ -228,7 +236,8 @@ class ModStorageService:
 
         A mod the folder holds already (the same file added again, or the
         same content: LTK Manager's or still Rose's) is not added twice:
-        *targets* join its own, and it is returned, saved_already."""
+        *targets* join its own, and it is returned, nothing_added: LTK Manager
+        has nothing new to check."""
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
@@ -239,14 +248,14 @@ class ModStorageService:
             raise ValueError("The selected mod file has no usable name")
 
         with source.open("rb") as stream:
-            source_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+            picked_file_hash = hashlib.file_digest(stream, "sha256").hexdigest()
         parent_dir.mkdir(parents=True, exist_ok=True)
         mod_name, target = self._choose_archive_destination(parent_dir, base_name)
         temporary = parent_dir / f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
         try:
             self._write_stored_archive(source, temporary, mod_name)
             facts, full_hash, wad_hashes = compute_mod_facts(temporary)
-            existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash, source_hash)
+            existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash, picked_file_hash)
             if existing is None:
                 temporary.replace(target)
         finally:
@@ -254,15 +263,15 @@ class ModStorageService:
         if existing is not None:
             merged = sorted({*existing.target_skin_ids, *targets})
             if targets and tuple(merged) != existing.target_skin_ids:
-                if not saved_manifest.update_saved_mod(self.mods_root, existing.relative_path, targets=merged):
+                if not saved_manifest.update_saved_mod(self.mods_root, existing.identity, targets=merged):
                     raise ValueError("The mod is saved already, but its targets could not be updated")
                 self._champion_listing_cache.clear()
             log.info(f"[MODS] {source.name} is saved already, as {existing.name}")
-            return AddedMod(existing.path(self.mods_root), existing.name, saved_already=True)
+            return AddedMod(existing.path(self.mods_root), existing.name, nothing_added=True)
         image = self._write_image_sidecar(target)
         try:
             saved_manifest.add_saved_mod(self.mods_root, target, facts, full_hash, wad_hashes, targets,
-                                         source_hash=source_hash)
+                                         source_hash=picked_file_hash)
         except Exception:
             for written in (target, image):
                 if written is not None:
@@ -384,9 +393,9 @@ class ModStorageService:
             fields.update(facts.to_manifest())
         with self._storage_lock:
             mod = self.saved_mod(relative_path)
-            if mod is not None and mod.stored is not None and "updatedAt" not in mod.metadata:
+            if mod is not None and mod.rose_copy is not None and "updatedAt" not in mod.metadata:
                 try:
-                    fields["updatedAt"] = mod.stored.stat().st_mtime
+                    fields["updatedAt"] = mod.rose_copy.stat().st_mtime
                 except OSError:
                     pass
             attached = saved_manifest.update_saved_mod(self.mods_root, relative_path, **fields)
@@ -400,9 +409,9 @@ class ModStorageService:
         mod has no ltkId or no copy, or the copy could not be deleted."""
         with self._storage_lock:
             mod = self.saved_mod(relative_path)
-            if mod is None or not mod.ltk_id or mod.stored is None:
+            if mod is None or not mod.ltk_id or mod.rose_copy is None:
                 return False
-            stored = mod.stored
+            stored = mod.rose_copy
             if stored.is_dir() and not is_junction(stored):
                 try:
                     self._keep_folder_sidecars(mod)
@@ -420,7 +429,7 @@ class ModStorageService:
     def _keep_folder_sidecars(self, mod: SavedMod) -> None:
         """Copy a mod folder's preview image and description beside it, as an
         archive keeps them: the folder is about to go."""
-        folder = mod.stored
+        folder = mod.rose_copy
         if not any(mod.sidecar(suffix).exists() for suffix in self.IMAGE_SIDECAR_SUFFIXES):
             for member, suffix in _PREVIEW_IMAGES:
                 image = folder.joinpath(*member.split("/"))
@@ -468,7 +477,7 @@ class ModStorageService:
         for entry in leftovers:
             if entry.name.endswith(".tmp") and entry.is_file():
                 safe_remove_entry(entry)
-            elif entry.name.startswith(self.IMPORT_TEMP_PREFIX):
+            elif self._set_aside_by_a_repair(entry):
                 continue
             elif entry.name.endswith(".old") and entry.is_dir():
                 name = entry.name[len(self.CONVERT_TEMP_PREFIX):-len(".old")]
@@ -480,6 +489,12 @@ class ModStorageService:
                         entry.rename(original)  # stopped before the archive was in place
                     except OSError as exc:
                         log.warning(f"[MODS] Could not restore the mod folder {name}: {exc}")
+
+    @classmethod
+    def _set_aside_by_a_repair(cls, entry: Path) -> bool:
+        """Whether *entry* is a mod folder an earlier Rose's repair set aside
+        (under an import's temporary name): it may be the mod's only copy."""
+        return entry.name.startswith(cls.IMPORT_TEMP_PREFIX)
 
     def convert_folder_mod(self, folder: Path) -> Optional[Path]:
         """Pack a mod stored as a folder into the archive Rose stores now, and
@@ -640,7 +655,7 @@ class ModStorageService:
             raise ValueError("Display name cannot be empty")
         if mod is None:
             raise ValueError("Mod not found in manifest")
-        if not saved_manifest.update_saved_mod(self.mods_root, mod.relative_path, displayName=clean_name):
+        if not saved_manifest.update_saved_mod(self.mods_root, mod.identity, displayName=clean_name):
             raise ValueError("The mod's manifest could not be updated")
         self._champion_listing_cache.clear()
         return clean_name
@@ -674,12 +689,10 @@ class ModStorageService:
         the image and description beside the manifest."""
         if not saved_manifest.remove_saved_mod(self.mods_root, mod):
             return False
-        if mod.stored is not None:
-            safe_remove_entry(mod.stored)
+        if mod.rose_copy is not None:
+            safe_remove_entry(mod.rose_copy)
         for suffix in (*self.IMAGE_SIDECAR_SUFFIXES, self.DESCRIPTION_SIDECAR_SUFFIX):
-            sidecar = mod.sidecar(suffix)
-            if sidecar.is_file():
-                safe_remove_entry(sidecar)
+            _remove_sidecar_file(mod.sidecar(suffix))
         return True
 
     def delete_champion_mod(
@@ -853,10 +866,10 @@ class ModStorageService:
         with self._storage_lock:
             return [
                 {
-                    "id": mod.relative_path,
+                    "id": mod.identity,
                     "name": mod.name,
                     "displayName": mod.display_name,
-                    "path": mod.relative_path,
+                    "path": mod.identity,
                     "updatedAt": mod.updated_at,
                     "description": self._read_mod_description(mod),
                     **mod.source.plugin_fields(),

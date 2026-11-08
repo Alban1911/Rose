@@ -20,7 +20,7 @@ class RoseFile:
     mods folder."""
 
     path: Path
-    name: str
+    linked_name: str
 
     @classmethod
     def at(cls, path: Path) -> "RoseFile":
@@ -40,15 +40,15 @@ class RoseFile:
         when it cannot be linked."""
         if not self.path.exists():
             return None
-        dest = Path(mods_dir) / self.name
+        dest = Path(mods_dir) / self.linked_name
         if dest.exists() or is_junction(dest):
             safe_remove_entry(dest)
         link_or_extract(self.path, dest, cache_dir=get_injection_dir() / ".extract_cache")
-        return self.name if dest.exists() or is_junction(dest) else None
+        return self.linked_name if dest.exists() or is_junction(dest) else None
 
     def take_back(self, mods_dir: Path) -> None:
         """Undo put: remove the link from *mods_dir* (only it: the other mods stay)."""
-        dest = Path(mods_dir) / self.name
+        dest = Path(mods_dir) / self.linked_name
         if dest.exists() or is_junction(dest):
             safe_remove_entry(dest)
 
@@ -64,7 +64,7 @@ class LtkEntry:
 
     ltk_id: str
     facts: Optional[ModFacts] = None
-    missing: bool = False
+    gone_at_last_sync: bool = False
 
     @property
     def name(self) -> str:
@@ -74,12 +74,12 @@ class LtkEntry:
     @property
     def available(self) -> bool:
         """Whether the last sync still found its entry in LTK Manager."""
-        return not self.missing
+        return not self.gone_at_last_sync
 
     def put(self, mods_dir: Path) -> Optional[str]:
         """Its LTK reference, the session switches the entry on (None when
         the entry is missing): nothing goes into *mods_dir*."""
-        return None if self.missing else self.name
+        return None if self.gone_at_last_sync else self.name
 
     def take_back(self, mods_dir: Path) -> None:
         """Nothing to undo: put linked nothing."""
@@ -87,7 +87,7 @@ class LtkEntry:
     def plugin_fields(self) -> dict:
         """Where the plugins' listings say the saved mod is: LTK Manager's,
         missing when the last sync found its entry gone."""
-        return {"ltkId": self.ltk_id, "missing": self.missing, "pending": False}
+        return {"ltkId": self.ltk_id, "missing": self.gone_at_last_sync, "pending": False}
 
 
 ModSource = Union[RoseFile, LtkEntry]

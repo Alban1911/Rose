@@ -23,7 +23,6 @@ log = get_logger()
 # The label of a plan that only holds friends' skins: what
 # InjectionManager.inject_party_skins_only passes to cancel_staging(keep=...)
 PARTY_SKINS_LABEL = "party skins"
-_UNKNOWN_FACTS = ModFacts(party_hash=None, champion_aliases=(), ships_language_table=True)
 
 
 @dataclass(frozen=True)
@@ -160,7 +159,7 @@ def loading_name_mods(
     entries = {source.name: source for source in sources if isinstance(source, LtkEntry)}
 
     def facts_of(name: str) -> ModFacts:
-        return entries[name].facts or _UNKNOWN_FACTS
+        return entries[name].facts or ModFacts.unknown()
 
     if skin in entries:
         skin_source = LtkSkin(facts_of(skin).champion_aliases, partial(stored_archive, entries[skin].ltk_id))

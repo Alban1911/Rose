@@ -40,7 +40,7 @@ class LtkSyncTests(unittest.TestCase):
                                                  encoding="utf-8")
         for patcher in (
             patch.object(ltk_data, "ltk_data_dir", return_value=self.data),
-            patch.object(ltk_sync, "_synced_mtime", None),
+            patch.object(ltk_sync, "_last_synced_index_mtime", None),
             patch.object(mod_facts, "get_injection_dir", return_value=self.root / "injection"),
             patch.object(historic, "get_user_data_dir", return_value=self.root),
             patch.object(mod_historic, "get_user_data_dir", return_value=self.root),
@@ -90,11 +90,11 @@ class LtkSyncTests(unittest.TestCase):
 
         report = self.sync()
 
-        self.assertEqual((report.missing, report.found), (["Rift"], ["VO Korean"]))
+        self.assertEqual((report.gone_from_library, report.listed_again), (["Rift"], ["VO Korean"]))
         self.assertTrue(self.saved("Rift", "maps").missing)
         self.assertFalse(self.saved("VO Korean").missing)
         self.assertNotIn("missing", self.saved("VO Korean").metadata)
-        self.assertEqual(report.refreshed, [])
+        self.assertEqual(report.facts_reread, [])
 
     def test_an_index_rose_cannot_read_changes_nothing_and_is_read_again_later(self):
         self.save("VO Korean", VO_ID, archive=self.ltk_archive("vo-korean", VOICEOVER))
@@ -108,7 +108,7 @@ class LtkSyncTests(unittest.TestCase):
 
         self.assertFalse(self.saved("VO Korean").missing)
         self.write_index()
-        self.assertEqual(self.sync(only_if_changed=True).missing, ["VO Korean"])
+        self.assertEqual(self.sync(only_if_changed=True).gone_from_library, ["VO Korean"])
 
     def test_facts_are_read_again_from_an_archive_ltk_manager_changed(self):
         voiceover = self.ltk_archive("vo-korean", VOICEOVER)
@@ -118,7 +118,7 @@ class LtkSyncTests(unittest.TestCase):
         report = self.sync()
 
         mod = self.saved("VO Korean")
-        self.assertEqual(report.refreshed, ["VO Korean"])
+        self.assertEqual(report.facts_reread, ["VO Korean"])
         self.assertEqual(mod.facts, compute_mod_facts(voiceover)[0])
         self.assertEqual(mod.metadata["ltkStamp"], stamp_of(voiceover))
 
@@ -128,7 +128,7 @@ class LtkSyncTests(unittest.TestCase):
         self.save("VO Korean", VO_ID, **STALE.to_manifest())
         self.write_index((VO_ID, "vo-korean"))
 
-        self.assertEqual(self.sync().refreshed, ["VO Korean"])
+        self.assertEqual(self.sync().facts_reread, ["VO Korean"])
         self.assertEqual(self.saved("VO Korean").facts, compute_mod_facts(repaired)[0])
         self.assertEqual(self.saved("VO Korean").metadata["ltkStamp"], stamp_of(repaired))
 
@@ -147,7 +147,7 @@ class LtkSyncTests(unittest.TestCase):
         self.save("VO Korean", VO_ID, **STALE.to_manifest(), ltkStamp=[1, 1])
         self.write_index((VO_ID, "vo-korean"))
 
-        self.assertEqual(self.sync().refreshed, [])
+        self.assertEqual(self.sync().facts_reread, [])
         self.assertEqual(self.saved("VO Korean").facts, STALE)
         self.assertEqual(self.saved("VO Korean").metadata["ltkStamp"], [1, 1])
 
@@ -161,7 +161,7 @@ class LtkSyncTests(unittest.TestCase):
         self.assertFalse(self.saved("VO Korean").missing)
 
         self.write_index(when=INDEX_TIME + 60)
-        self.assertEqual(self.sync(only_if_changed=True).missing, ["VO Korean"])
+        self.assertEqual(self.sync(only_if_changed=True).gone_from_library, ["VO Korean"])
 
     def test_rose_s_start_syncs_whatever_the_index_s_time(self):
         self.save("VO Korean", VO_ID, archive=self.ltk_archive("vo-korean", VOICEOVER))
@@ -170,7 +170,7 @@ class LtkSyncTests(unittest.TestCase):
 
         self.write_index()
 
-        self.assertEqual(self.sync().missing, ["VO Korean"])
+        self.assertEqual(self.sync().gone_from_library, ["VO Korean"])
 
     def test_a_leftover_copy_goes_only_once_ltk_manager_lists_its_entry(self):
         listed = make_archive(self.mods_root / "voiceover" / "VO Korean.fantome", VOICEOVER)
@@ -185,7 +185,7 @@ class LtkSyncTests(unittest.TestCase):
         self.assertEqual(report.copies_deleted, ["VO Korean"])
         self.assertFalse(listed.exists())
         self.assertEqual(listed.with_suffix(".png").read_bytes(), PNG)
-        self.assertIsNone(self.saved("VO Korean").stored)
+        self.assertIsNone(self.saved("VO Korean").rose_copy)
         self.assertTrue(lost.exists())
         self.assertTrue(self.saved("Rift", "maps").missing)
 
@@ -220,11 +220,11 @@ class LtkSyncTests(unittest.TestCase):
     def test_a_sync_already_running_is_not_started_again(self):
         self.save("VO Korean", VO_ID, **STALE.to_manifest())
         self.write_index()
-        self.assertTrue(ltk_sync._SYNC_LOCK.acquire(blocking=False))
+        self.assertTrue(ltk_sync._ONE_SYNC_AT_A_TIME.acquire(blocking=False))
         try:
             self.assertIsNone(self.sync())
         finally:
-            ltk_sync._SYNC_LOCK.release()
+            ltk_sync._ONE_SYNC_AT_A_TIME.release()
 
         self.assertFalse(self.saved("VO Korean").missing)
 

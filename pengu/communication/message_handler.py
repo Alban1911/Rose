@@ -2466,7 +2466,7 @@ class MessageHandler:
             log.warning(f"[SkinMonitor] Cannot select the {label} mod {mod.name}: {error}")
             return None
         log.info(f"[SkinMonitor] {label.capitalize()} mod ready for injection alongside the skin: {mod.name}")
-        return {"mod_name": mod.name, "relative_path": mod.relative_path, "source": source}
+        return {"mod_name": mod.name, "relative_path": mod.identity, "source": source}
 
     def _handle_select_one_mod(self, kind: str, payload: dict) -> None:
         """Select the map, font or announcer mod (*kind*) for the injection,
@@ -2942,13 +2942,13 @@ class MessageHandler:
                     )
                     imported.append({
                         "fileName": mod_file.name,
-                        "path": str(added.path),
-                        "relativePath": added.path.relative_to(self.mod_storage.mods_root).as_posix(),
+                        "path": str(added.identity_path),
+                        "relativePath": added.identity_path.relative_to(self.mod_storage.mods_root).as_posix(),
                         "modName": added.name,
-                        "savedAlready": added.saved_already,
+                        "savedAlready": added.nothing_added,
                     })
                     log.info(
-                        f"[SkinMonitor] Imported {category} mod {added.name} to {added.path}"
+                        f"[SkinMonitor] Imported {category} mod {added.name} to {added.identity_path}"
                     )
                 except Exception as exc:
                     log.error(
@@ -3285,10 +3285,10 @@ class MessageHandler:
                         )
                         imported.append({
                             "fileName": mod_file.name,
-                            "path": str(added.path),
-                            "relativePath": added.path.relative_to(self.mod_storage.mods_root).as_posix(),
+                            "path": str(added.identity_path),
+                            "relativePath": added.identity_path.relative_to(self.mod_storage.mods_root).as_posix(),
                             "modName": added.name,
-                            "savedAlready": added.saved_already,
+                            "savedAlready": added.nothing_added,
                             "targetManifest": str(self.mod_storage.get_champion_dir(champion_id)
                                                   / ModStorageService.TARGET_METADATA),
                         })

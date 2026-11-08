@@ -125,7 +125,7 @@ class MoveTests(MigrationTestCase):
             with self.subTest(relative_path):
                 mod = self.entry(relative_path)
                 self.assertFalse(archive.exists())
-                self.assertIsNone(mod.stored)
+                self.assertIsNone(mod.rose_copy)
                 entry = self.ltk_entry(mod.ltk_id)
                 self.assertFalse(entry["enabled"])
                 self.assertEqual(mod.metadata["ltkStamp"],
@@ -218,7 +218,7 @@ class MoveTests(MigrationTestCase):
         mod = self.entry("voiceover/VO Korean.fantome")
         self.assertEqual(report.moved, ["VO Korean"])
         self.assertIsNotNone(mod.ltk_id)
-        self.assertIsNotNone(mod.stored)
+        self.assertIsNotNone(mod.rose_copy)
         self.assertTrue(needs_migration(self.mods_root))
 
     def test_the_injection_folders_are_emptied_first(self):
@@ -565,7 +565,7 @@ class ListingTests(MigrationTestCase):
         self.migrate()
 
         (mod,) = iter_saved_mods(self.mods_root, "voiceover")
-        self.assertEqual((mod.relative_path, mod.pending, mod.available), ("voiceover/VO Korean.fantome", False, True))
+        self.assertEqual((mod.identity, mod.pending, mod.available), ("voiceover/VO Korean.fantome", False, True))
         (listed,) = self.storage.list_mods_for_category("voiceover")
         self.assertEqual(listed["description"], "VO Korean's description")
 

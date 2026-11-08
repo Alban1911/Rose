@@ -8,12 +8,12 @@ from typing import Iterable, List, Optional, Tuple
 
 LTK_REF_PREFIX = "ltk~"
 
-_LTK_ID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
 def is_ltk_id(value: object) -> bool:
     """Whether *value* is an LTK Manager library id (a UUID)."""
-    return isinstance(value, str) and _LTK_ID.fullmatch(value) is not None
+    return isinstance(value, str) and _UUID.fullmatch(value) is not None
 
 
 def ltk_ref(ltk_id: str) -> str:
