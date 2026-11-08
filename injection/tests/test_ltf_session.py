@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from injection.mods import manifest
 from injection.mods.ltk_ref import ltk_ref
 from injection.overlay import overlay_manager
 from injection.overlay.overlay_manager import OverlayManager, ltk_failure_cause
@@ -1230,6 +1231,22 @@ class SavedLtkModTests(LtfSessionTestCase):
         self.assertEqual([call for call in self.bridge.calls if call[0] == "uninstall"], [("uninstall", self.OLD_ID)])
         self.assertFalse(queue.exists())
         self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
+
+    def test_an_entry_a_manifest_still_names_is_never_removed_for_the_queue(self):
+        """A deletion queued the entry, then could not write the manifest:
+        the saved mod is still there, and LTK Manager holds its only copy"""
+        saved_mods = self.overlay.saved_mods_root
+        voiceover = manifest.find_saved_mod(saved_mods, "voiceover/VO Korean")
+        with patch.object(manifest, "_write_manifest", side_effect=OSError("disk full")), \
+                self.assertRaises(OSError):
+            manifest.remove_saved_mod(saved_mods, voiceover)
+        self.assertEqual(manifest.ltk_removals(saved_mods), [self.VO_ID])
+
+        self.overlay.start_patcher_early()
+
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
+        self.assertEqual(manifest.ltk_removals(saved_mods), [])
 
     def test_a_discard_while_staging_reads_the_library_leaves_it_off(self):
         """The discard's cleanup ran before the switch-on: nothing would switch it off"""

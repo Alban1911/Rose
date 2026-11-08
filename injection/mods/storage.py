@@ -382,22 +382,33 @@ class ModStorageService:
         *facts* replace the entry's (None keeps those it has); *stamp* is LTK
         Manager's archive they were read from (None: the next sync reads them
         again from it). The mod's date is taken from Rose's copy now: once the
-        copy is gone the listing has no file to read it from. False when the
-        mod is not listed or its manifest cannot be read.
+        copy is gone the listing has no file to read it from. The mods it took
+        the place of as it was added go for good: their LTK Manager entries
+        are queued for removal, and what Rose still holds of them is deleted.
+        False when the mod is not listed or its manifest cannot be read.
         """
         if not is_ltk_id(ltk_id):
             raise ValueError(f"Not an LTK Manager library id: {ltk_id!r}")
-        fields: dict = {"ltkId": ltk_id, "missing": None, "ltkStamp": list(stamp) if stamp else None}
+        fields: dict = {"ltkId": ltk_id, "missing": None, "ltkStamp": list(stamp) if stamp else None,
+                        saved_manifest.REPLACES: None}
         if facts is not None:
             fields.update(facts.to_manifest())
         with self._storage_lock:
             mod = self.saved_mod(relative_path)
+            superseded = saved_manifest.superseded(mod) if mod is not None else []
             if mod is not None and mod.stored is not None and "updatedAt" not in mod.metadata:
                 try:
                     fields["updatedAt"] = mod.stored.stat().st_mtime
                 except OSError:
                     pass
+            # Queued while this entry still names them: the session start never
+            # removes an entry a manifest names, should the write below fail
+            saved_manifest.queue_ltk_removal(self.mods_root, [ltk for _name, ltk in superseded if ltk])
             attached = saved_manifest.update_saved_mod(self.mods_root, relative_path, **fields)
+            if attached:
+                for name, _ltk_id in superseded:
+                    if name.casefold() != mod.name.casefold():  # else its image and description are this mod's
+                        self._delete_files_of(mod.directory, name)
             self._champion_listing_cache.clear()
         return attached
 
@@ -686,11 +697,29 @@ class ModStorageService:
             return False
         if mod.stored is not None:
             safe_remove_entry(mod.stored)
+        # The mod LTK Manager lost that this one took the place of is back
+        # under its name: the image and description are that mod's
+        if saved_manifest.find_saved_mod(self.mods_root, mod.relative_path, match_content=False) is None:
+            self._delete_sidecars(mod.directory, mod.name)
+        return True
+
+    def _delete_sidecars(self, directory: Path, name: str) -> None:
         for suffix in (*self.IMAGE_SIDECAR_SUFFIXES, self.DESCRIPTION_SIDECAR_SUFFIX):
-            sidecar = mod.sidecar(suffix)
+            sidecar = directory / f"{name}{suffix}"
             if sidecar.is_file():  # a folder of that name is another mod ("Example.txt")
                 safe_remove_entry(sidecar)
-        return True
+
+    def _delete_files_of(self, directory: Path, name: str) -> None:
+        """Delete what Rose holds of the mod *name* no manifest entry names
+        any more: its archive or folder, its image and description."""
+        folder = directory / name
+        if folder.is_dir():
+            safe_remove_entry(folder)
+        for suffix in MOD_ARCHIVE_SUFFIXES:
+            archive = directory / f"{name}{suffix}"
+            if archive.is_file():
+                safe_remove_entry(archive)
+        self._delete_sidecars(directory, name)
 
     def delete_champion_mod(
         self,

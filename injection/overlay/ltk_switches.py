@@ -21,7 +21,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from utils.core.logging import get_logger
 
-from ..mods.manifest import forget_ltk_removals, ltk_removals
+from ..mods.manifest import forget_ltk_removals, ltk_removals, named_ltk_ids
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
 
 log = get_logger()
@@ -32,7 +32,8 @@ class Leftovers:
     """What earlier sessions left of the saved mods in LTK Manager."""
 
     remove: List[str] = field(default_factory=list)  # entries of saved mods deleted in Rose
-    gone: List[str] = field(default_factory=list)  # queued for removal, no longer in LTK Manager
+    # queued for removal, but no longer in LTK Manager, or still a saved mod's
+    gone: List[str] = field(default_factory=list)
     switch_off: List[str] = field(default_factory=list)  # saved mods found switched on
     records: List[str] = field(default_factory=list)  # switched on by a session that did not end
 
@@ -72,12 +73,17 @@ class SavedModSwitches:
         """What to undo at a session's start, from LTK Manager's *library*
         (id -> entry), the entries earlier sessions recorded as *switched* on,
         and every saved mod's entry (*rose_ids*)."""
-        queued = ltk_removals(self._overlay._saved_mods_dir())
+        saved_mods = self._overlay._saved_mods_dir()
+        queued = ltk_removals(saved_mods)
+        # One a manifest still names was queued by a manifest write that then
+        # failed: removing it would lose the saved mod's only copy
+        named = named_ltk_ids(saved_mods) if queued else set()
+        remove = [ltk_id for ltk_id in queued if ltk_id in library and ltk_id not in named]
         return Leftovers(
-            remove=[ltk_id for ltk_id in queued if ltk_id in library],
-            gone=[ltk_id for ltk_id in queued if ltk_id not in library],
+            remove=remove,
+            gone=[ltk_id for ltk_id in queued if ltk_id not in remove],
             switch_off=sorted(
-                ltk_id for ltk_id in (set(switched) | set(rose_ids)) - set(queued)
+                ltk_id for ltk_id in (set(switched) | set(rose_ids)) - set(remove)
                 if library.get(ltk_id, {}).get("enabled")
             ),
             records=list(switched),
