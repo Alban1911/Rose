@@ -1799,6 +1799,16 @@ class FailureCauseTests(unittest.TestCase):
         self.assertEqual(ltk_failure_cause(reason), "delivery")
         self.assertIn("delivery service", OverlayManager._ltk_failure_hint(reason))
 
+    def test_a_patcher_download_blocked_on_the_users_side(self):
+        """#487: LTK Manager's request never reached its delivery service"""
+        reason = ("the LTK patcher stopped before it was ready (LTK Manager: No patcher DLL is available "
+                  "error=the delivery request failed: error sending request for url "
+                  "(https://patcher.leaguetoolkit.dev/v1/challenge?install=x))")
+        self.assertEqual(ltk_failure_cause(reason), "delivery_unreachable")
+        hint = OverlayManager._ltk_failure_hint(reason)
+        self.assertIn("firewall", hint)
+        self.assertNotIn("refused", hint)
+
     def test_a_refused_rose_package_is_sent_to_leagueskins(self):
         """#454: the refused WAD came from an official skin's chroma, and the
         hint said to use the official one"""

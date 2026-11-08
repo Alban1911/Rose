@@ -337,10 +337,11 @@ def ltk_failure_cause(reason: str) -> str:
     # set to run as administrator (#456: "os error 740" spawning its host)
     if "os error 740" in lowered or "requires elevation" in lowered:
         return "ltk_admin"
-    # LTK Manager could not get its patcher from its delivery service (#482):
-    # the service, not Rose, refused it
+    # LTK Manager could not get its patcher from its delivery service: the
+    # service refused it (#482), or the request never reached it, blocked on
+    # the user's PC or network (#487: "error sending request for url")
     if "no patcher dll is available" in lowered:
-        return "delivery"
+        return "delivery_unreachable" if "error sending request" in lowered else "delivery"
     # LTK Manager's own patcher missing from its folder (an antivirus took
     # it): reinstalling LTK Manager is the fix, not Rose's files
     if "ltk_patcher_host.exe not found" in lowered:
@@ -2627,6 +2628,11 @@ class OverlayManager:
             return ("LTK Manager could not download its patcher: LTK's delivery service refused the request (the "
                     "reason above). Rose cannot change that. Retry later, or from another network (without a VPN "
                     f"or proxy). {logs}")
+        if cause == "delivery_unreachable":
+            return ("LTK Manager could not connect to LTK's delivery service (patcher.leaguetoolkit.dev) to "
+                    "download its patcher: something on this PC or network blocks it. Allow ltk-manager.exe "
+                    "through your firewall and antivirus, turn off any VPN, proxy or DNS blocker, then retry. "
+                    f"{logs}")
         if cause == "corrupt":
             return ("League could not read a file of the overlay, most often a mod made for an older patch. Turn "
                     "your mods off, then back on one at a time to find it; LTK Manager's incident file names the "
