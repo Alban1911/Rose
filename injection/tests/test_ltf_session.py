@@ -1183,6 +1183,26 @@ class SavedLtkModTests(LtfSessionTestCase):
         self.assertFalse(self.enabled(self.VO_ID), "on only for a game")
         self.assertEqual(self.state()["switched"], {})
 
+    def test_one_whose_switch_on_failed_and_then_left_ltk_manager_fails_the_injection(self):
+        toggle = FakeBridge.toggle
+        refusals = [BridgeCommandError("toggle failed: CDP busy")]
+
+        def refuse_once(bridge_self, target, enabled=True):
+            if enabled and refusals:
+                raise refusals.pop()
+            return toggle(bridge_self, target, enabled)
+
+        with patch.object(FakeBridge, "toggle", refuse_once):
+            self.overlay.start_patcher_early()
+            self.overlay.open_staging()
+            self.overlay.stage_mods(self.stage_dir, [ltk_ref(self.VO_ID)])
+            self.bridge.library_entries = []
+
+            result = self.overlay.mk_run_overlay([ltk_ref(self.VO_ID)], stop_callback=lambda: True)
+
+        self.assertEqual(result, 1, "nothing was injected")
+        self.assertNotIn("start_patcher", self.bridge.command_names()[-3:])
+
     def test_saved_mods_alone_are_an_injection(self):
         self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID)], stop_callback=lambda: True), 0)
 

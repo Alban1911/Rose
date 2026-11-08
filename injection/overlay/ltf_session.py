@@ -229,6 +229,11 @@ class LtfSession:
     lock: threading.Lock = field(default_factory=threading.Lock)
     ended: bool = False
 
+    @property
+    def confirmed_on(self) -> Set[LibraryId]:
+        """The entries this session switched on and LTK Manager confirmed."""
+        return set(self.switched_on) - self.switch_on_unconfirmed
+
 
 class LtfHost:
     """Rose's sessions with LTK Manager: start one (connected, or LTK Manager

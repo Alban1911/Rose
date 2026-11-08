@@ -410,7 +410,7 @@ class OverlayManager:
             except (BridgeUnavailable, BridgeCommandError) as e:
                 return self._saved_mods_failed(e, report and not stopped())
             switch_on = self.host.switches.listed(switch_on, shared_library_read)
-        if not wanted and not switch_on and not (set(ltk_ids) & set(ltf.switched_on)):
+        if not wanted and not switch_on and not (set(ltk_ids) & ltf.confirmed_on):
             log.error("[INJECT] No mods could be installed into LTK Manager")
             if report and not stopped():
                 report_issue(
