@@ -246,7 +246,7 @@ class LtfHost:
         self.injection_dir = injection_dir
         self.process_manager = process_manager
         self._in_use = in_use
-        self.saved_mods_root: Path = get_user_data_dir() / "mods"
+        self.saved_mods_root: Optional[Path] = None
         self.library_change_lock = threading.Lock()
         self.launcher_lock = threading.Lock()
         self.last_failure_reason: Optional[str] = None
@@ -259,8 +259,10 @@ class LtfHost:
         return self._in_use() or (self.process_manager is not None and self.process_manager.session_active())
 
     def saved_mods_dir(self) -> Path:
-        """Where the user's saved mods live: only those are kept in LTK Manager between games (_park)."""
-        return Path(self.saved_mods_root)
+        """Where the user's saved mods live: only those are kept in LTK Manager between games (_park).
+        Rose's data folder is looked up only when no root was set, since finding the desktop user
+        can create that user's folder."""
+        return Path(self.saved_mods_root) if self.saved_mods_root is not None else get_user_data_dir() / "mods"
 
     def staging_root(self) -> Path:
         """Where archives wait for LTK Manager to import them.

@@ -164,6 +164,20 @@ class DataFolderTests(unittest.TestCase):
         self.assertEqual(LtkLogTail.log_dir(), self.desktop / "logs")
 
 
+class SavedModsRootTests(unittest.TestCase):
+    def test_a_host_given_its_saved_mods_root_never_looks_up_the_desktop_user(self):
+        with patch.object(ltf_session, "get_user_data_dir", side_effect=AssertionError("looked up")) as lookup:
+            host = ltf_session.LtfHost(Path("tools"), Path("injection"))
+            host.saved_mods_root = Path("saved")
+
+            self.assertEqual(host.saved_mods_dir(), Path("saved"))
+        self.assertFalse(lookup.called, "finding the desktop user can create that user's Rose folder")
+
+    def test_a_host_without_one_uses_roses_data_folder(self):
+        with patch.object(ltf_session, "get_user_data_dir", return_value=Path("data")):
+            self.assertEqual(ltf_session.LtfHost(Path("tools"), Path("injection")).saved_mods_dir(), Path("data") / "mods")
+
+
 class LibrarySessionTests(LtfSessionTestCase):
     def setUp(self):
         super().setUp()
