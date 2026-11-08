@@ -14,12 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
-try:
-    import psutil
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    PSUTIL_AVAILABLE = False
-    psutil = None
+import psutil
 
 from utils.core.issue_reporter import report_issue
 from utils.core.junction import link_file
@@ -666,7 +661,7 @@ class LtfHost:
 
     @staticmethod
     def _process_created(pid: Optional[int]) -> Optional[float]:
-        if not pid or not PSUTIL_AVAILABLE:
+        if not pid:
             return None
         try:
             return psutil.Process(pid).create_time()
@@ -693,7 +688,7 @@ class LtfHost:
     def _terminate_manager(self, pid: Optional[int], grace_s: float = 0.0) -> None:
         """Terminate the LTK Manager *pid* Rose started, if it still runs
         after *grace_s* (the time a requested exit gets to finish)."""
-        if not pid or not PSUTIL_AVAILABLE:
+        if not pid:
             return
         try:
             proc = psutil.Process(pid)
@@ -728,8 +723,6 @@ class LtfHost:
     @staticmethod
     def _ltk_manager_running() -> bool:
         """Whether any LTK Manager is running."""
-        if not PSUTIL_AVAILABLE:
-            return False
         try:
             for proc in psutil.process_iter(['name']):
                 if (proc.info.get('name') or '').lower() in LTK_MANAGER_PROCESSES:

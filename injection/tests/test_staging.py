@@ -982,14 +982,14 @@ class StagingPlanTests(unittest.TestCase):
     def test_the_injection_of_saved_mods_selects_what_was_staged(self):
         path = self.save_map()
         self.trigger.injection_manager.injector.mods_dir = self.mods_root / "injection" / "mods"
-        self.trigger._inject_custom_mod = MagicMock()
+        self.trigger._inject_other_mods = MagicMock()
         plan = self.trigger.staging_plan("skin_1001", "Leona")
 
         with patch("injection.mods.mod_source.link_or_extract"):
             self.trigger.trigger_injection("skin_1001", ticker_id=1, cname="Leona")
 
         self.assertEqual(self.state.selected_map_mod["source"], RoseFile(path, "Rift"))
-        _, kwargs = self.trigger._inject_custom_mod.call_args
+        _, kwargs = self.trigger._inject_other_mods.call_args
         self.assertEqual(kwargs["base_skin_name"], "skin_1001")
         self.trigger.injection_manager.cancel_staging.assert_called_with(keep=plan.label)
 

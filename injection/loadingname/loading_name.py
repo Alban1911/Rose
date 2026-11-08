@@ -7,19 +7,18 @@ import struct
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Callable, Iterator, List, Optional, Sequence, Tuple, Union
 
 from utils.core.logging import get_logger
 
-from ..mods.mod_facts import ModFacts
+from ..mods.mod_facts import TABLE_HASH, ModFacts, champion_aliases_of, ships_language_table_of
 from ..mods.mod_files import ModFiles, is_mod_archive
 
 log = get_logger()
 
 MOD_FOLDER = "ROSE-LoadingName"
 TABLE_PATH = Path("RAW") / "DATA" / "Menu" / "en_US" / "lol.stringtable"
-TABLE_HASH = 0x062D6ED714BFF7DF  # xxh64("data/menu/en_us/lol.stringtable"), fixed for every language
 RST_MASK = (1 << 38) - 1
 # The champion's record points here instead, for the chat and the name over its head. "rose" is as long as "game",
 # so the record's text keeps its length and the file keeps its layout.
@@ -148,33 +147,6 @@ def _champion_record(game_dir: Path, mod: Optional[ModFiles], alias: str, charac
     return _read_entry(installed, path_hash) if installed.is_file() else None
 
 
-def _table_hashes(wad_name: str) -> set:
-    """The path hashes the language table can have in a wad: the en_US path every language uses, and the wad's own
-    language's (Global.ko_KR.wad.client -> data/menu/ko_kr/lol.stringtable)."""
-    hashes = {TABLE_HASH}
-    parts = wad_name.lower().split(".")
-    if len(parts) >= 4 and parts[0] == "global":
-        hashes.add(_xxh64(f"data/menu/{parts[1]}/lol.stringtable".encode("utf-8")))
-    return hashes
-
-
-def _wad_holds(mod: ModFiles, wad: str, hashes: set) -> Optional[bool]:
-    """Whether the mod's packed wad (its relative path) has an entry for one of these path hashes, or None when it
-    can't be read."""
-    try:
-        with mod.open(wad) as handle:
-            header = handle.read(272)
-            if len(header) < 272 or header[:2] != b"RW" or header[2] != 3:
-                return None
-            count = struct.unpack_from("<I", header, 268)[0]
-            toc = handle.read(count * 32)
-    except (OSError, zipfile.BadZipFile):
-        return None
-    if len(toc) < count * 32:
-        return None
-    return any(struct.unpack_from("<Q", toc, i * 32)[0] in hashes for i in range(count))
-
-
 def ships_language_table(mod_path: Path) -> bool:
     """Whether a mod (folder or archive) carries its own lol.stringtable (a whole Global.<language>.wad.client, as
     some font mods are).
@@ -185,30 +157,10 @@ def ships_language_table(mod_path: Path) -> bool:
     """
     try:
         with ModFiles(Path(mod_path)) as mod:
-            return _ships_language_table(mod)
+            return ships_language_table_of(mod)
     except (OSError, zipfile.BadZipFile) as e:
         log.debug(f"[LOADNAME] could not read {Path(mod_path).name}: {e}")
         return False
-
-
-def _ships_language_table(mod: ModFiles) -> bool:
-    if any(PurePosixPath(path).name.lower() == "lol.stringtable" for path in mod.files_under("RAW")):
-        return True
-    for name in mod.children("WAD"):
-        lowered = name.lower()
-        if not (lowered.startswith("global") and lowered.endswith(".wad.client")):
-            continue
-        hashes = _table_hashes(name)
-        wad = f"WAD/{name}"
-        if mod.is_dir(wad):
-            names = {f"{h:016x}" for h in hashes}
-            for path in mod.files_under(wad):
-                file_name = PurePosixPath(path).name.lower()
-                if file_name == "lol.stringtable" or file_name.split(".")[0] in names:
-                    return True
-        elif _wad_holds(mod, wad, hashes) is not False:
-            return True  # holds it, or a packed language wad that can't be read: most likely a whole copy
-    return False
 
 
 def _with_own_record_key(record: bytes, alias: str) -> Optional[bytes]:
@@ -394,21 +346,10 @@ def champion_aliases(mod_path: Path) -> List[str]:
     (Zed.wad.client -> Zed)."""
     try:
         with ModFiles(Path(mod_path)) as mod:
-            return _champion_aliases(mod)
+            return champion_aliases_of(mod)
     except (OSError, zipfile.BadZipFile) as e:
         log.debug(f"[LOADNAME] could not read {Path(mod_path).name}: {e}")
         return []
-
-
-def _champion_aliases(mod: ModFiles) -> List[str]:
-    aliases = []
-    for name in mod.children("WAD"):
-        if not name.lower().endswith(".wad.client"):
-            continue
-        alias = name[: -len(".wad.client")].split(".")[0]
-        if alias.lower() != "global" and alias not in aliases:
-            aliases.append(alias)
-    return aliases
 
 
 def parse_skin_id(skin_name: str, champion_id: Optional[int] = None) -> int:

@@ -441,7 +441,7 @@ class InjectionTrigger:
 
     def _custom_mod_plan(self, label: str, custom_mod: dict, carrier: Optional[str], cname: str,
                          other_mods: list, party: tuple) -> Optional[StagePlan]:
-        """The plan of _run_custom_mod_injection: the carrier skin, the custom
+        """The plan of _run_mod_injection: the carrier skin, the custom
         mod, the other mods, the loading screen name, then friends' skins."""
         champion_id = (
             custom_mod.get("champion_id")
@@ -857,11 +857,6 @@ class InjectionTrigger:
             # If only map/font/announcer/other mods are selected (no custom skin mod), inject them
             if has_other_mods and not has_custom_skin_mod:
                 target_skin_id = effective_skin_id or ui_skin_id
-                dummy_custom_mod = {
-                    "skin_id": target_skin_id,
-                    "champion_id": self.state.locked_champ_id or self.state.hovered_champ_id,
-                    "mod_name": name.upper(),
-                }
                 # Build list of selected mod types for logging
                 selected_mod_types = []
                 if selected_map_mod:
@@ -901,7 +896,12 @@ class InjectionTrigger:
                     # Default skin - user can select it normally, just inject the mods
                     log.info(f"[INJECT] {mod_types_str} mod(s) selected, injecting them (skin: {name})")
                 
-                self._inject_custom_mod(dummy_custom_mod, base_skin_name=base_skin_name_for_injection, champion_name=cname)
+                self._inject_other_mods(
+                    target_skin_id,
+                    self.state.locked_champ_id or self.state.hovered_champ_id,
+                    base_skin_name=base_skin_name_for_injection,
+                    champion_name=cname,
+                )
                 return
             
             # Skip injection for base/default skins (only if no mods are selected and
@@ -1355,25 +1355,37 @@ class InjectionTrigger:
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
     
     def _inject_custom_mod(self, custom_mod: dict, base_skin_name: Optional[str] = None, champion_name: str = ""):
-        """Inject custom mod, then end the countdown's staging however the
+        """Inject the custom skin mod *custom_mod* with the other mods picked."""
+        self._inject_mods(
+            custom_mod, custom_mod.get("skin_id"), custom_mod.get("champion_id"), base_skin_name, champion_name
+        )
+
+    def _inject_other_mods(self, skin_id, champion_id, base_skin_name: Optional[str] = None, champion_name: str = ""):
+        """Inject the map, font, announcer and other mods picked without a custom skin mod."""
+        self._inject_mods(None, skin_id, champion_id, base_skin_name, champion_name)
+
+    def _inject_mods(self, custom_mod: Optional[dict], skin_id, champion_id, base_skin_name: Optional[str],
+                     champion_name: str):
+        """Inject the mods picked, then end the countdown's staging however the
         injection ends: one that gives up early (missing carrier archive or
         mod source, nothing to inject, an error) included.
         """
         try:
-            self._run_custom_mod_injection(custom_mod, base_skin_name, champion_name)
+            self._run_mod_injection(custom_mod, skin_id, champion_id, base_skin_name, champion_name)
         finally:
             if self.injection_manager:
                 self.injection_manager.discard_early_patcher()
 
-    def _run_custom_mod_injection(self, custom_mod: dict, base_skin_name: Optional[str] = None, champion_name: str = ""):
-        """Inject custom mod from mods storage (mod should already be extracted)
+    def _run_mod_injection(self, custom_mod: Optional[dict], skin_id, champion_id,
+                           base_skin_name: Optional[str] = None, champion_name: str = ""):
+        """Inject the mods picked from mods storage (mod should already be extracted)
         
         Args:
-            custom_mod: Custom mod dictionary
+            custom_mod: Custom mod dictionary, None when only other mods are picked
+            skin_id: The skin the mods are injected for
+            champion_id: Its champion, else the locked or hovered one
             base_skin_name: Optional carrier skin archive to extract and inject
             champion_name: Optional champion name for base skin extraction
-        
-        Note: custom_mod has no source if only map/font/announcer mods are selected
         """
         try:
             if not self.injection_manager:
@@ -1385,14 +1397,7 @@ class InjectionTrigger:
                 log.error("[INJECT] Cannot inject custom mod - injector not available")
                 return
             
-            mod_name = custom_mod.get("mod_name")
-            mod_path = custom_mod.get("relative_path")
-            skin_id = custom_mod.get("skin_id")
-            champion_id = (
-                custom_mod.get("champion_id")
-                or self.state.locked_champ_id
-                or self.state.hovered_champ_id
-            )
+            champion_id = champion_id or self.state.locked_champ_id or self.state.hovered_champ_id
             
             # Clean mods directory first (before extracting base skin and custom mod)
             injector._clean_mods_dir()
@@ -1464,9 +1469,10 @@ class InjectionTrigger:
                     log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
                     return
             
-            custom_source = custom_mod.get("source")
+            custom_source = custom_mod.get("source") if custom_mod else None
             custom_folder = None
             if custom_source is not None:
+                mod_path = custom_mod.get("relative_path")
                 log.info(f"[INJECT] Preparing custom mod: {mod_path}")
                 try:
                     custom_folder = custom_source.put(injector.mods_dir)
@@ -1475,7 +1481,7 @@ class InjectionTrigger:
                         return
                     injected.append(custom_source)
                     mod_folder_names.append(custom_folder)
-                    mod_names_list.append(mod_name or "Custom Mod")
+                    mod_names_list.append(custom_mod.get("mod_name") or "Custom Mod")
                     log.info(f"[INJECT] Custom skin mod ready: {custom_folder}")
                 except Exception as e:
                     log.error(f"[INJECT] Error re-extracting custom mod: {e}")

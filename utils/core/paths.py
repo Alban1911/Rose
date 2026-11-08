@@ -348,13 +348,7 @@ def get_tools_dir() -> Path:
     """Where Rose's injection tools are (ltk_launcher.exe, LeagueToolFlop.dll):
     inside the bundle of a built Rose, beside the sources otherwise."""
     if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            return Path(sys._MEIPASS) / "injection" / "tools"
-        possible_dirs = [
-            get_app_dir() / "injection" / "tools",
-            get_app_dir() / "_internal" / "injection" / "tools",
-        ]
-        return next((dir_path for dir_path in possible_dirs if dir_path.exists()), possible_dirs[0])
+        return Path(sys._MEIPASS) / "injection" / "tools"
     return get_app_dir() / "injection" / "tools"
 
 

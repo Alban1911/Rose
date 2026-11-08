@@ -7,12 +7,15 @@ import hashlib
 import re
 import shutil
 import stat
+import struct
 import uuid
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterator, Mapping, Optional
+from pathlib import Path, PurePosixPath
+from typing import Iterator, List, Mapping, Optional
+
+import xxhash
 
 from utils.core.modpkg import MODPKG_SUFFIX, ModPackage, extract_modpkg
 from utils.core.paths import get_injection_dir
@@ -22,6 +25,7 @@ from .mod_files import ModFiles
 _PARTY_HASH = re.compile(r"[0-9a-f]{32}")
 _FACTS_SCRATCH = "mod_facts"
 _UNPACKED_PREFIX = "facts-"
+TABLE_HASH = xxhash.xxh64_intdigest(b"data/menu/en_us/lol.stringtable")
 
 
 
@@ -169,9 +173,67 @@ def remove_unpacked_leftovers() -> None:
         shutil.rmtree(entry, ignore_errors=True)
 
 
-def _facts_of(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
-    from injection.loadingname import loading_name
+def champion_aliases_of(mod: ModFiles) -> List[str]:
+    """The champions a mod carries wads for, in the order it lists them (Zed.wad.client -> Zed)."""
+    aliases = []
+    for name in mod.children("WAD"):
+        if not name.lower().endswith(".wad.client"):
+            continue
+        alias = name[: -len(".wad.client")].split(".")[0]
+        if alias.lower() != "global" and alias not in aliases:
+            aliases.append(alias)
+    return aliases
 
+
+def _table_hashes(wad_name: str) -> set:
+    """The path hashes the language table can have in a wad: the en_US path every language uses, and the wad's own
+    language's (Global.ko_KR.wad.client -> data/menu/ko_kr/lol.stringtable)."""
+    hashes = {TABLE_HASH}
+    parts = wad_name.lower().split(".")
+    if len(parts) >= 4 and parts[0] == "global":
+        hashes.add(xxhash.xxh64_intdigest(f"data/menu/{parts[1]}/lol.stringtable".encode("utf-8")))
+    return hashes
+
+
+def _wad_may_hold(mod: ModFiles, wad: str, hashes: set) -> bool:
+    """Whether the mod's packed wad (its relative path) has an entry for one of these path hashes, or can't be
+    read: a packed language wad that can't be read is most likely a whole copy."""
+    try:
+        with mod.open(wad) as handle:
+            header = handle.read(272)
+            if len(header) < 272 or header[:2] != b"RW" or header[2] != 3:
+                return True
+            count = struct.unpack_from("<I", header, 268)[0]
+            toc = handle.read(count * 32)
+    except (OSError, zipfile.BadZipFile):
+        return True
+    if len(toc) < count * 32:
+        return True
+    return any(struct.unpack_from("<Q", toc, i * 32)[0] in hashes for i in range(count))
+
+
+def ships_language_table_of(mod: ModFiles) -> bool:
+    """Whether a mod carries its own lol.stringtable, loose or in a language wad (as some font mods do)."""
+    if any(PurePosixPath(path).name.lower() == "lol.stringtable" for path in mod.files_under("RAW")):
+        return True
+    for name in mod.children("WAD"):
+        lowered = name.lower()
+        if not (lowered.startswith("global") and lowered.endswith(".wad.client")):
+            continue
+        hashes = _table_hashes(name)
+        wad = f"WAD/{name}"
+        if mod.is_dir(wad):
+            names = {f"{h:016x}" for h in hashes}
+            for path in mod.files_under(wad):
+                file_name = PurePosixPath(path).name.lower()
+                if file_name == "lol.stringtable" or file_name.split(".")[0] in names:
+                    return True
+        elif _wad_may_hold(mod, wad, hashes):
+            return True
+    return False
+
+
+def _facts_of(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
     entries = []
     wad_hashes: dict[str, str] = {}
     with ModFiles(mod) as files:
@@ -183,8 +245,8 @@ def _facts_of(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
             entries.append((relative_path, file_digest))
             if relative_path.casefold().endswith((".wad", ".wad.client")):
                 wad_hashes[relative_path] = file_digest.hex()
-        aliases = tuple(loading_name._champion_aliases(files))
-        ships = bool(loading_name._ships_language_table(files))
+        aliases = tuple(champion_aliases_of(files))
+        ships = ships_language_table_of(files)
     full_hash = _full_content_digest(entries)
     facts = ModFacts(full_hash[:32] if entries else None, aliases, ships)
     return facts, full_hash, wad_hashes

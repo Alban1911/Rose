@@ -171,7 +171,7 @@ def loading_name_mods(
 
 
 def _prepare_carrier(injector, step: CarrierStep, target_dir: Path) -> Optional[str]:
-    """Link the carrier skin archive (InjectionTrigger._run_custom_mod_injection)."""
+    """Link the carrier skin archive (InjectionTrigger._run_mod_injection)."""
     zp = injector._resolve_zip(
         step.skin_name, skin_name=step.skin_name, champion_name=step.champion_name,
         champion_id=step.champion_id,

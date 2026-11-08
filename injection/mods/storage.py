@@ -126,27 +126,18 @@ class ModStorageService:
     # A folder being packed into an archive (convert_folder_mod)
     CONVERT_TEMP_PREFIX = ".rose-convert-"
     # How Rose stores a mod: the archive LTK Manager installs
-    ARCHIVE_SUFFIX = ".fantome"
+    ARCHIVE_SUFFIX = saved_manifest.ARCHIVE_SUFFIX
     # Beside a stored archive, under its name
     IMAGE_SIDECAR_SUFFIXES = (".png", ".webp")
     DESCRIPTION_SIDECAR_SUFFIX = ".txt"
     MAX_MOD_IMAGE_BYTES = 5 * 1024 * 1024
-    TARGET_METADATA = "rose_mod_targets.json"
-    LEGACY_TARGET_METADATA = "rose_wad_targets.json"
-    CATEGORY_METADATA = "rose_category_mods.json"
+    TARGET_METADATA = saved_manifest.TARGET_METADATA
+    LEGACY_TARGET_METADATA = saved_manifest.LEGACY_TARGET_METADATA
+    CATEGORY_METADATA = saved_manifest.CATEGORY_METADATA
 
-    CATEGORY_SKINS = "skins"
-    CATEGORY_MAPS = "maps"
-    CATEGORY_FONTS = "fonts"
-    CATEGORY_ANNOUNCERS = "announcers"
-    CATEGORY_UI = "ui"
-    CATEGORY_VOICEOVER = "voiceover"
-    CATEGORY_LOADING_SCREEN = "loading_screen"
-    CATEGORY_VFX = "vfx"
-    CATEGORY_SFX = "sfx"
-    CATEGORY_OTHERS = "others"
-    ROOT_CATEGORIES = (
-        CATEGORY_SKINS,
+    CATEGORY_SKINS = saved_manifest.SKINS
+    MOD_CATEGORIES = saved_manifest.MOD_CATEGORIES
+    (
         CATEGORY_MAPS,
         CATEGORY_FONTS,
         CATEGORY_ANNOUNCERS,
@@ -156,18 +147,8 @@ class ModStorageService:
         CATEGORY_VFX,
         CATEGORY_SFX,
         CATEGORY_OTHERS,
-    )
-    MOD_CATEGORIES = (
-        CATEGORY_MAPS,
-        CATEGORY_FONTS,
-        CATEGORY_ANNOUNCERS,
-        CATEGORY_UI,
-        CATEGORY_VOICEOVER,
-        CATEGORY_LOADING_SCREEN,
-        CATEGORY_VFX,
-        CATEGORY_SFX,
-        CATEGORY_OTHERS,
-    )
+    ) = MOD_CATEGORIES
+    ROOT_CATEGORIES = (CATEGORY_SKINS, *MOD_CATEGORIES)
 
     def __init__(self, mods_root: Optional[Path] = None):
         self.mods_root = mods_root or (get_user_data_dir() / "mods")
