@@ -5057,6 +5057,7 @@
     const lines = [
       ...errors.map((item) => ({ className: "is-error", text: importErrorText(item, several) })),
       ...ltkCheckRepairedLines(imported, several),
+      ...baseSkinAdjustedLines(imported, several),
     ];
     if (lines.length) {
       overlay.classList.add("has-notes");
@@ -5084,8 +5085,6 @@
     modImportTimer = setTimeout(hideModImportLoading, lines.length ? MOD_IMPORT_DONE_MS * 2 : MOD_IMPORT_DONE_MS);
   }
 
-  // A failed import's line: LTK Manager's refusals (_rejected_import in message_handler.py) in the
-  // user's language, any other failure with Rose's error text
   function ltkCheckRepairedLines(imported, several) {
     return imported
       .filter((item) => item && item.health && item.health.repaired > 0)
@@ -5097,6 +5096,20 @@
       }));
   }
 
+  // A skin Rose wrote again so LTK Manager does not take it for a skinhack (_fix_base_skin in message_handler.py)
+  function baseSkinAdjustedLines(imported, several) {
+    return imported
+      .filter((item) => item && item.baseSkin)
+      .map((item) => ({
+        className: "is-repaired",
+        text: several
+          ? t("Rose adjusted {name} so LTK Manager won't treat it as a skinhack.", { name: item.modName || item.fileName || "" })
+          : t("Rose adjusted this mod so LTK Manager won't treat it as a skinhack."),
+      }));
+  }
+
+  // A failed import's line: LTK Manager's refusals (_rejected_import in message_handler.py) in the
+  // user's language, any other failure with Rose's error text
   function importErrorText(item, several) {
     const name = item.fileName || "";
     if (item.code === "ltk_skinhack") {

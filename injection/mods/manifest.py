@@ -33,6 +33,7 @@ LEGACY_TARGET_METADATA = "rose_wad_targets.json"
 CATEGORY_METADATA = "rose_category_mods.json"
 ARCHIVE_SUFFIX = ".fantome"
 PENDING_REMOVALS = "pendingRemovals"
+SOURCE_HASHES = "sourceHashes"
 
 _METADATA_NAMES = {TARGET_METADATA, LEGACY_TARGET_METADATA, CATEGORY_METADATA}
 
@@ -41,9 +42,10 @@ def lives_in_ltk(kind: str) -> bool:
     """Whether a saved mod of *kind* lives in LTK Manager's library once it is
     added: a category's mod (a map, a font, a voiceover pack...) does, and
     Rose keeps only its manifest entry. A custom skin never does: Rose keeps
-    its file, imports it for each game and removes it after, as it does its
-    own skins. Everything else follows from SavedMod.source, a custom skin's
-    always Rose's file."""
+    its file, which it rewrites to match the game's base skin
+    (injection.baseskin), imports it for each game and removes it after, as
+    it does its own skins. Everything else follows from SavedMod.source, a
+    custom skin's always Rose's file."""
     return kind in MOD_CATEGORIES
 
 
@@ -548,6 +550,20 @@ def find_saved_mod(mods_root: Path, relative_path: object, *, match_content: boo
     registered (listed only with its folder's default targets)."""
     found = _find(Path(mods_root), relative_path, match_content)
     return found[1] if found else None
+
+
+def skin_entry(mod_path: Path) -> Optional[Mapping[str, object]]:
+    """The manifest entry of the custom skin stored at *mod_path* (in a
+    skins/<id> folder), found by its file's name as the listing finds it,
+    never by its content; None when it has none."""
+    path = Path(mod_path)
+    directory = _skins_directory(path.parent)
+    if directory is None:
+        return None
+    return next((
+        mod.metadata for mod in _directory_mods(directory, match_content=False)
+        if mod.registered and mod.rose_copy is not None and mod.rose_copy.name.casefold() == path.name.casefold()
+    ), None)
 
 
 def _ltk_directories(mods_root: Path) -> List[_Directory]:

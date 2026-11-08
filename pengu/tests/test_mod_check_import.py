@@ -1,4 +1,10 @@
+"""Adding mods makes custom skins match the base skin, then has LTK Manager
+check them (outside champion select and games): a category's mod moves into
+its library, a custom skin stays Rose's; a mod LTK Manager will turn off in
+game is not added."""
+
 import json
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -7,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from injection.mods.manifest import ltk_removals
+from injection.mods.mod_facts import compute_mod_facts
 from injection.mods.storage import ModStorageService
 from pengu.communication import message_handler
 
@@ -92,11 +99,13 @@ class ModCheckOnImportTests(ModCheckCase):
     def test_a_mod_ltk_manager_repaired_has_no_stamp(self):
         self.ltk_keeps_it({"health": "repairable", "repaired": 4300, "problems": []}, stamp=None)
 
-        kept = self.handler()._check_imported_mods(self.imported, [], MagicMock())
+        with patch.object(self.storage, "refresh_mod_hashes") as refresh:
+            kept = self.handler()._check_imported_mods(self.imported, [], MagicMock())
 
         self.assertEqual(kept[0]["health"]["repaired"], 4300)
         self.assertNotIn("ltkStamp", self.saved().metadata, "the next sync reads LTK Manager's copy")
         self.assertFalse(self.stored.exists())
+        refresh.assert_not_called()
 
     def test_a_check_that_did_not_run_leaves_the_mod_pending(self):
         self.library.check_mod.return_value = None
@@ -180,6 +189,21 @@ class SkinCheckOnImportTests(ModCheckCase):
         self.assertNotIn("ltkId", skin.metadata)
         self.assertTrue(self.skin.exists())
 
+    def test_the_manifest_follows_the_repair_written_into_a_custom_skin(self):
+        """LTK Manager's repair rewrote Rose's file: the manifest finds it by its new hashes"""
+        def repair_into_roses_file(mod, display_name, on_kept):
+            with zipfile.ZipFile(mod, "w") as archive:
+                archive.writestr("WAD/Ezreal.wad.client", b"repaired skin")
+            return {"health": "repairable", "repaired": 1, "problems": []}
+        self.library.check_mod.side_effect = repair_into_roses_file
+
+        self.handler()._check_imported_mods(self.skin_imported, [], MagicMock())
+
+        repaired_hash = compute_mod_facts(self.skin)[1]
+        self.assertEqual(self.saved(self.skin_path).metadata["folderHash"], repaired_hash)
+        self.assertIsNotNone(self.storage.saved_mod(self.skin_path).metadata.get("sourceHashes"),
+                             "what party mode shares, as the skin was added")
+
     def test_a_skinhack_is_removed_and_reported_as_a_failed_import(self):
         """The Ezreal custom skin LTK Manager turned off in game"""
         self.library.check_mod.return_value = {"health": "repairable", "repaired": 3224, "problems": [SKINHACK]}
@@ -207,6 +231,110 @@ class SkinCheckOnImportTests(ModCheckCase):
         self.assertTrue(response["success"])
         self.assertEqual(response["imported"][0]["relativePath"], self.skin_path)
         self.assertEqual(self.saved(self.skin_path).target_skin_ids, (81020, 81021))
+
+
+def imported_mod():
+    return [{"fileName": "gojo-ezreal-v1.0.0.fantome", "path": "C:/mods/gojo", "modName": "gojo-ezreal-v1.0.0",
+             "relativePath": "skins/81000/gojo.fantome"}]
+
+
+class BaseSkinFixOnImportTests(unittest.TestCase):
+    """A skin is fixed before LTK Manager sees it, and without LTK Manager."""
+
+    GAME = "C:/Riot Games/League of Legends/Game"
+    FIX = "injection.baseskin.library.fix_stored_mod"
+
+    def handler(self, phase, check_result=None, injecting=False, game_dir=None):
+        """The handler, its added mod a custom skin, and LTK Manager faked at LtkLibrary"""
+        library_class = patch.object(message_handler, "LtkLibrary")
+        ltk = library_class.start().return_value
+        self.addCleanup(library_class.stop)
+        ltk.check_mod.return_value = check_result
+        overlay = MagicMock()
+        overlay.game_dir = game_dir
+        manager = SimpleNamespace(injector=SimpleNamespace(overlay_manager=overlay), _injection_in_progress=injecting)
+        instance = object.__new__(message_handler.MessageHandler)
+        instance.injection_manager = manager
+        instance.mod_storage = MagicMock()
+        instance.mod_storage.saved_mod.return_value.pending = False
+        instance.shared_state = SimpleNamespace(phase=phase)
+        instance.sent = []
+        instance._send_response = lambda message: instance.sent.append(json.loads(message))
+        return instance, ltk
+
+    def fixed(self, fixes=3):
+        findings = SimpleNamespace(names=[("EzrealSkin21", "BaseEzreal")] * fixes, meshes=[], audio_merges=0,
+                                   unit_renames=0, notes=["name: ezreal: ..."])
+        return SimpleNamespace(changed=fixes > 0, fixes=fixes, findings=findings)
+
+    def check(self, instance, skins=True):
+        return instance._check_imported_mods(imported_mod(), [], MagicMock(), skins=skins)
+
+    def test_a_fixed_skin_is_kept_with_what_was_fixed(self):
+        instance, ltk = self.handler("Lobby", {"health": "healthy", "repaired": 0, "problems": []}, game_dir=self.GAME)
+        with patch(self.FIX, return_value=self.fixed(302)) as fix:
+            kept = self.check(instance)
+
+        fix.assert_called_once()
+        self.assertEqual(str(fix.call_args.args[1]).replace("\\", "/"), "C:/mods/gojo")
+        self.assertEqual(kept[0]["baseSkin"], {"fixes": 302})
+        ltk.check_mod.assert_called_once()  # LTK Manager then checks the fixed mod
+
+    def test_a_skin_that_already_matches_gets_no_note(self):
+        instance, _ = self.handler("Lobby", None, game_dir=self.GAME)
+        with patch(self.FIX, return_value=self.fixed(0)):
+            kept = self.check(instance)
+        self.assertNotIn("baseSkin", kept[0])
+
+    def test_the_fix_runs_in_champion_select_when_ltk_manager_is_the_games(self):
+        instance, ltk = self.handler("ChampSelect", {"health": "healthy"}, game_dir=self.GAME)
+        with patch(self.FIX, return_value=self.fixed(5)):
+            kept = self.check(instance)
+        ltk.check_mod.assert_not_called()
+        self.assertEqual(kept[0]["baseSkin"], {"fixes": 5})
+
+    def test_the_fix_waits_for_the_client_to_be_idle_during_a_game_or_an_injection(self):
+        for phase, injecting in (("FINALIZATION", False), ("InProgress", False), ("Lobby", True)):
+            instance, _ = self.handler(phase, None, injecting, game_dir=self.GAME)
+            with patch(self.FIX) as fix:
+                kept = self.check(instance)
+            fix.assert_not_called()
+            self.assertEqual(len(kept), 1)
+
+    def test_map_font_and_other_mods_are_not_fixed(self):
+        instance, ltk = self.handler("Lobby", None, game_dir=self.GAME)
+        with patch(self.FIX) as fix:
+            self.check(instance, skins=False)
+        fix.assert_not_called()
+        ltk.check_mod.assert_called_once()
+
+    def test_a_fix_that_fails_leaves_the_mod_as_it_was_added(self):
+        instance, ltk = self.handler("Lobby", None, game_dir=self.GAME)
+        with patch(self.FIX, side_effect=OSError("disk full")):
+            kept = self.check(instance)
+        self.assertEqual(len(kept), 1)
+        self.assertNotIn("baseSkin", kept[0])
+        ltk.check_mod.assert_called_once()
+
+    def test_a_fix_that_cannot_be_loaded_does_not_fail_the_import(self):
+        instance, ltk = self.handler("Lobby", None, game_dir=self.GAME)
+        with patch.dict(sys.modules, {"injection.baseskin.library": None}):
+            kept = self.check(instance)
+        self.assertEqual(len(kept), 1)
+        ltk.check_mod.assert_called_once()
+
+    def test_nothing_is_fixed_without_the_games_folder(self):
+        instance, _ = self.handler("Lobby", None, game_dir=None)
+        with patch(self.FIX) as fix:
+            self.check(instance)
+        fix.assert_not_called()
+
+    def test_a_mod_ltk_manager_repaired_gets_its_new_hashes_recorded(self):
+        instance, _ = self.handler("Lobby", {"health": "repairable", "repaired": 2, "problems": []})
+        instance._check_imported_mods(imported_mod(), [], MagicMock())
+        instance.mod_storage.refresh_mod_hashes.assert_called_once()
+        self.assertEqual(str(instance.mod_storage.refresh_mod_hashes.call_args.args[0]).replace("\\", "/"),
+                         "C:/mods/gojo")
 
 
 if __name__ == "__main__":

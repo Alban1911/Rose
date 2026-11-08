@@ -2814,27 +2814,70 @@ class MessageHandler:
     
     # Client phases where LTK Manager belongs to the game's injection
     _MOD_CHECK_BUSY_PHASES = frozenset({"ChampSelect", "FINALIZATION", "GameStart", "InProgress", "Reconnect"})
+    # Client phases where the base-skin fix of an added skin waits until the client is idle
+    # (injection.baseskin.library): it rewrites the whole mod, which neither the countdown's
+    # staging nor a running game should share the disk with
+    _BASE_SKIN_WAIT_PHASES = frozenset({"FINALIZATION", "GameStart", "InProgress", "Reconnect"})
 
-    def _check_imported_mods(self, imported: list[dict], errors: list[dict], remove) -> list[dict]:
-        """Have LTK Manager check and repair each just-imported mod
-        (LtkLibrary.check_mod), and return the mods added. A pending one (a
-        category's) moves into LTK Manager's library as it is checked, and
-        Rose's copy of one LTK Manager kept is deleted; any other (a custom
-        skin) stays Rose's, LTK Manager's repair written into its file, and
-        leaves LTK Manager again. One LTK Manager will still turn off in game
-        (a skinhack, a problem it cannot repair) is not added: *remove*
-        deletes it again, and it joins *errors* with the reason. A checked
-        mod gets the verdict as "health"; one saved already (the same mod
-        added again) is not checked. Skipped during champion select and
-        games, where LTK Manager is the game's: the mod stays in Rose as it
-        was added."""
+    def _fix_base_skin(self, imported: list[dict], game_dir) -> None:
+        """Make each just-imported skin match the base skin's identity (its
+        sound banks, bank units, SKN/SKL padding and championSkinName: see
+        injection.baseskin) so LTK Manager does not take it for a skinhack,
+        writing the mod again only when it did not. A mod written again gets
+        "baseSkin" ({"fixes": how many}). This needs the game's files, not
+        LTK Manager, so it also runs during champion select. A mod it cannot
+        read is left as it was added."""
+        if game_dir is None or not imported:
+            return
+        for item in imported:
+            name = item.get("modName") or item.get("fileName") or ""
+            try:
+                from injection.baseskin.library import describe, fix_stored_mod
+
+                storage = getattr(self, "mod_storage", None)
+                result = fix_stored_mod(storage, Path(item["path"]), Path(game_dir))
+            except Exception as e:  # noqa: BLE001 - a fix must never fail the import
+                log.warning(f"[BASESKIN] Could not check {name} against the base skin: {e}")
+                continue
+            if not result.changed:
+                log.info(f"[BASESKIN] {name} already matches the base skin")
+                continue
+            item["baseSkin"] = {"fixes": result.fixes}
+            log.info(f"[BASESKIN] Fixed {name} so LTK Manager does not take it for a skinhack: {describe(result)}")
+            for note in result.findings.notes:
+                log.debug(f"[BASESKIN] {name}: {note}")
+
+    def _check_imported_mods(self, imported: list[dict], errors: list[dict], remove, skins: bool = False) -> list[dict]:
+        """Make each just-imported custom skin (*skins*: not a map, font...
+        mod) match the base skin (_fix_base_skin), have LTK Manager check and
+        repair each mod (LtkLibrary.check_mod), and return the mods added. A
+        pending one (a category's) moves into LTK Manager's library as it is
+        checked, and Rose's copy of one LTK Manager kept is deleted; any other
+        (a custom skin) stays Rose's: LTK Manager's repair is written into its
+        file, whose hashes its manifest records again, and it leaves LTK
+        Manager. One LTK Manager will still turn off in game (a skinhack, a
+        problem it cannot repair) is not added: *remove* deletes it again, and
+        it joins *errors* with the reason. A checked mod gets the verdict as
+        "health"; one saved already (the same mod added again) is not checked.
+        LTK Manager's check is skipped during champion select and games, where
+        it is the game's: the mod stays in Rose as it was added; from the
+        countdown on, the base-skin fix waits for the client to be idle."""
         injection_manager = getattr(self, "injection_manager", None)
         injector = getattr(injection_manager, "injector", None)
         overlay = getattr(injector, "overlay_manager", None)
+        phase = getattr(getattr(self, "shared_state", None), "phase", None)
+        injecting = bool(getattr(injection_manager, "_injection_in_progress", False))
+        if skins and imported:
+            if phase in self._BASE_SKIN_WAIT_PHASES or injecting:
+                log.info("[BASESKIN] The added skins are matched to the base skin once the client is idle, "
+                         "not during the countdown or a game")
+            else:
+                # Before LTK Manager's check, so its verdict is on the mod as it will be played
+                game_dir = getattr(overlay, "game_dir", None) or getattr(injector, "game_dir", None)
+                self._fix_base_skin(imported, game_dir)
         if overlay is None or not imported:
             return imported
-        phase = getattr(getattr(self, "shared_state", None), "phase", None)
-        if phase in self._MOD_CHECK_BUSY_PHASES or getattr(injection_manager, "_injection_in_progress", False):
+        if phase in self._MOD_CHECK_BUSY_PHASES or injecting:
             log.info("[MODCHECK] Not checking the added mods with LTK Manager during champion select or a game")
             return imported
         self._send_response(json.dumps({"type": "mod-import-checking", "fileCount": len(imported)}))
@@ -2845,7 +2888,8 @@ class MessageHandler:
                 kept.append(item)
                 continue
             saved = self.mod_storage.saved_mod(item["relativePath"])
-            on_kept = partial(self.mod_storage.attach_ltk_entry, item["relativePath"]) if saved and saved.pending else None
+            moves_into_ltk = bool(saved and saved.pending)
+            on_kept = partial(self.mod_storage.attach_ltk_entry, item["relativePath"]) if moves_into_ltk else None
             try:
                 result = library.check_mod(
                     Path(item["path"]), item.get("modName") or Path(item["path"]).name, on_kept,
@@ -2869,6 +2913,8 @@ class MessageHandler:
                 item["health"] = result
                 if result.get("ltkId"):
                     self.mod_storage.drop_stored_copy(item["relativePath"])
+                elif result.get("repaired") and not moves_into_ltk:
+                    self.mod_storage.refresh_mod_hashes(Path(item["path"]))
             kept.append(item)
         return kept
 
@@ -3321,6 +3367,7 @@ class MessageHandler:
                 imported = self._check_imported_mods(
                     imported, errors,
                     lambda item: self.mod_storage.delete_champion_mod(champion_id, mod_name=item["modName"]),
+                    skins=True,
                 )
                 response_payload = {
                     "type": "folder-opened-response",

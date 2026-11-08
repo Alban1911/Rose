@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from injection.mods.mod_facts import _archive_content_hash, _folder_content_hash, _hash_stream
-from injection.mods.manifest import find_saved_mod
+from injection.mods.manifest import SOURCE_HASHES, find_saved_mod, skin_entry
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
@@ -79,6 +79,26 @@ def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
     return content_hash, legacy_hash
 
 
+def _recorded_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
+    """(content, legacy) hashes of a stored mod as it was before Rose rewrote it
+    (the base-skin fix, LTK Manager's repair: ModStorageService.remember_source_hashes)."""
+    entry = skin_entry(mod_path)
+    hashes = entry.get(SOURCE_HASHES) if entry else None
+    if not isinstance(hashes, dict):
+        return None, None
+    return hashes.get("content") or None, hashes.get("legacy") or None
+
+
+def shared_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
+    """The (content, legacy) hashes to share for a custom mod: those of the mod
+    as it was added, which a friend's copy has whatever Rose since rewrote in
+    either (its version, the game's patch), else mod_hashes."""
+    content_hash, legacy_hash = _recorded_hashes(mod_path)
+    if content_hash:
+        return content_hash, legacy_hash
+    return mod_hashes(mod_path)
+
+
 def _stored_path(path: Path) -> Path:
     """*path*, or the .fantome a mod saved as a folder by an older Rose was
     packed into (the pick still names the folder)."""
@@ -88,14 +108,14 @@ def _stored_path(path: Path) -> Path:
 
 def saved_mod_hashes(relative_path: str) -> Tuple[Optional[str], Optional[str]]:
     """(content hash, legacy hash) our pick of a custom skin shares with the
-    party: those of its file in Rose (mod_hashes, cached by the file).
+    party: shared_hashes of its file in Rose.
 
     Party mode asks every second: the mod is found without matching a renamed
     file to its entry by content, which reads the whole mod (a renamed file
     is hashed as itself)."""
     mods_root = get_mods_root()
     saved = find_saved_mod(mods_root, relative_path, match_content=False)
-    return mod_hashes(saved.rose_copy if saved is not None else _stored_path(mods_root / relative_path))
+    return shared_hashes(saved.rose_copy if saved is not None else _stored_path(mods_root / relative_path))
 
 
 def _champion_mod_entries(champion_id: int):
@@ -134,8 +154,9 @@ def find_local_mod(
     try:
         for entry in _champion_mod_entries(int(champion_id)):
             entry_content, entry_legacy = mod_hashes(entry)
-            if (content_hash and entry_content == content_hash) or (
-                legacy_hash and entry_legacy == legacy_hash
+            source_content, source_legacy = _recorded_hashes(entry)
+            if (content_hash and content_hash in (entry_content, source_content)) or (
+                legacy_hash and legacy_hash in (entry_legacy, source_legacy)
             ):
                 return entry.relative_to(mods_root).as_posix()
     except OSError as e:

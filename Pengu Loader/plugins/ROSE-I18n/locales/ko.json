@@ -109,6 +109,8 @@
   "Checking with LTK Manager...": "LTK Manager로 확인하는 중...",
   "LTK Manager repaired this mod.": "LTK Manager가 이 모드를 수정했습니다.",
   "LTK Manager repaired {name}.": "LTK Manager가 {name}을(를) 수정했습니다.",
+  "Rose adjusted this mod so LTK Manager won't treat it as a skinhack.": "LTK Manager가 스킨핵으로 판단하지 않도록 Rose가 이 모드를 조정했습니다.",
+  "Rose adjusted {name} so LTK Manager won't treat it as a skinhack.": "LTK Manager가 스킨핵으로 판단하지 않도록 Rose가 {name}을(를) 조정했습니다.",
   "LTK Manager considers this mod a skinhack, so it won't be playable.": "LTK Manager가 이 모드를 스킨핵으로 판단하므로 플레이할 수 없습니다.",
   "LTK Manager considers {name} a skinhack, so it won't be playable.": "LTK Manager가 {name}을(를) 스킨핵으로 판단하므로 플레이할 수 없습니다.",
   "LTK Manager found problems it can't repair in this mod, so it won't be playable. {reason}": "LTK Manager가 이 모드에서 수정할 수 없는 문제를 발견해 플레이할 수 없습니다. {reason}",

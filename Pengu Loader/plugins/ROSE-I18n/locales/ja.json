@@ -109,6 +109,8 @@
   "Checking with LTK Manager...": "LTK Manager で確認中...",
   "LTK Manager repaired this mod.": "LTK Manager がこの MOD を修復しました。",
   "LTK Manager repaired {name}.": "LTK Manager が {name} を修復しました。",
+  "Rose adjusted this mod so LTK Manager won't treat it as a skinhack.": "LTK Manager がスキンハックと見なさないように、Rose がこの MOD を調整しました。",
+  "Rose adjusted {name} so LTK Manager won't treat it as a skinhack.": "LTK Manager がスキンハックと見なさないように、Rose が {name} を調整しました。",
   "LTK Manager considers this mod a skinhack, so it won't be playable.": "LTK Manager はこの MOD をスキンハックと見なすため、プレイできません。",
   "LTK Manager considers {name} a skinhack, so it won't be playable.": "LTK Manager は {name} をスキンハックと見なすため、プレイできません。",
   "LTK Manager found problems it can't repair in this mod, so it won't be playable. {reason}": "LTK Manager がこの MOD に修復できない問題を見つけたため、プレイできません。{reason}",

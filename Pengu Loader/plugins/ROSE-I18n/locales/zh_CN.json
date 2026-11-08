@@ -109,6 +109,8 @@
   "Checking with LTK Manager...": "正在用 LTK Manager 检查...",
   "LTK Manager repaired this mod.": "LTK Manager 已修复此模组。",
   "LTK Manager repaired {name}.": "LTK Manager 已修复 {name}。",
+  "Rose adjusted this mod so LTK Manager won't treat it as a skinhack.": "Rose 已调整此模组，使 LTK Manager 不会将其视为换肤外挂（skinhack）。",
+  "Rose adjusted {name} so LTK Manager won't treat it as a skinhack.": "Rose 已调整 {name}，使 LTK Manager 不会将其视为换肤外挂（skinhack）。",
   "LTK Manager considers this mod a skinhack, so it won't be playable.": "LTK Manager 认为此模组是换肤外挂（skinhack），因此无法使用。",
   "LTK Manager considers {name} a skinhack, so it won't be playable.": "LTK Manager 认为 {name} 是换肤外挂（skinhack），因此无法使用。",
   "LTK Manager found problems it can't repair in this mod, so it won't be playable. {reason}": "LTK Manager 在此模组中发现了无法修复的问题，因此无法使用。{reason}",

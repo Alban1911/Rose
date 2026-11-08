@@ -109,6 +109,8 @@
   "Checking with LTK Manager...": "Ellenőrzés az LTK Managerrel...",
   "LTK Manager repaired this mod.": "Az LTK Manager megjavította ezt a modot.",
   "LTK Manager repaired {name}.": "Az LTK Manager megjavította ezt: {name}.",
+  "Rose adjusted this mod so LTK Manager won't treat it as a skinhack.": "A Rose úgy módosította ezt a modot, hogy az LTK Manager ne tekintse skinhacknek.",
+  "Rose adjusted {name} so LTK Manager won't treat it as a skinhack.": "A Rose úgy módosította a(z) {name} modot, hogy az LTK Manager ne tekintse skinhacknek.",
   "LTK Manager considers this mod a skinhack, so it won't be playable.": "Az LTK Manager skinhacknek tekinti ezt a modot, így nem lesz játszható.",
   "LTK Manager considers {name} a skinhack, so it won't be playable.": "Az LTK Manager skinhacknek tekinti ezt: {name}, így nem lesz játszható.",
   "LTK Manager found problems it can't repair in this mod, so it won't be playable. {reason}": "Az LTK Manager olyan hibákat talált ebben a modban, amelyeket nem tud javítani, így nem lesz játszható. {reason}",

@@ -22,7 +22,7 @@ import time
 import uuid
 import zipfile
 from pathlib import Path
-from typing import List, NamedTuple, Optional
+from typing import List, Mapping, NamedTuple, Optional
 
 from utils.core.junction import is_junction, safe_remove_entry
 from utils.core.atomic_file import atomic_write
@@ -142,6 +142,7 @@ class ModStorageService:
     TARGET_METADATA = saved_manifest.TARGET_METADATA
     LEGACY_TARGET_METADATA = saved_manifest.LEGACY_TARGET_METADATA
     CATEGORY_METADATA = saved_manifest.CATEGORY_METADATA
+    SOURCE_HASHES = saved_manifest.SOURCE_HASHES
 
     CATEGORY_SKINS = saved_manifest.SKINS
     MOD_CATEGORIES = saved_manifest.MOD_CATEGORIES
@@ -667,14 +668,61 @@ class ModStorageService:
         skin_ids: object,
     ) -> AddedMod:
         """Add one user-selected mod archive to its champion's folder,
-        targeting *skin_ids* (_add_archive)."""
+        targeting *skin_ids* (_add_archive), with the hashes party mode
+        shares for it as it came (remember_source_hashes): the base-skin fix
+        and LTK Manager's repair may rewrite it next."""
         champion_id_int = self._to_int(champion_id)
         if champion_id_int is None or champion_id_int <= 0:
             raise ValueError(f"Invalid champion ID: {champion_id}")
         targets = normalize_target_ids(skin_ids)
         if not targets:
             raise ValueError("At least one target skin ID is required")
-        return self._add_archive(source_path, self.get_champion_dir(champion_id_int), targets)
+        added = self._add_archive(source_path, self.get_champion_dir(champion_id_int), targets)
+        if not added.nothing_added:
+            self.remember_source_hashes(added.identity_path)
+        return added
+
+    @staticmethod
+    def manifest_entry(mod_path: Path) -> Optional[Mapping[str, object]]:
+        """A stored custom skin's entry in its folder's manifest (None when it has none)."""
+        return saved_manifest.skin_entry(mod_path)
+
+    def remember_source_hashes(self, mod_path: Path) -> None:
+        """Keep in a stored custom skin's manifest entry the hashes party mode
+        shares for it (party.discovery.custom_mods.mod_hashes), as it is now:
+        called before Rose first rewrites the mod, so a friend's copy of the
+        mod as it came still matches. Kept once recorded."""
+        mod_path = Path(mod_path)
+        try:
+            entry = self.manifest_entry(mod_path)
+            if entry is None or isinstance(entry.get(self.SOURCE_HASHES), dict):
+                return
+            from party.discovery.custom_mods import mod_hashes
+
+            content, legacy = mod_hashes(mod_path)
+            if not content:
+                return
+            hashes = {"content": content, **({"legacy": legacy} if legacy else {})}
+            with self._storage_lock:
+                entry = self.manifest_entry(mod_path)
+                if entry is not None and not isinstance(entry.get(self.SOURCE_HASHES), dict):
+                    saved_manifest.update_saved_mod(self.mods_root, mod_path, **{self.SOURCE_HASHES: hashes})
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            log.warning(f"[MODS] Could not record the hashes of {mod_path.name}: {exc}")
+
+    def refresh_mod_hashes(self, mod_path: Path) -> None:
+        """Re-record a stored custom skin's content hashes (folderHash,
+        wadHashes) in its manifest entry after Rose rewrote it: a renamed mod
+        is found by them, and the same mod added again by its folderHash."""
+        mod_path = Path(mod_path)
+        try:
+            if self.manifest_entry(mod_path) is None:
+                return
+            _facts, full_hash, wad_hashes = compute_mod_facts(mod_path)
+            saved_manifest.update_saved_mod(self.mods_root, mod_path, folderHash=full_hash, wadHashes=wad_hashes)
+            self._champion_listing_cache.clear()
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            log.warning(f"[MODS] Could not update the hashes of {mod_path.name}: {exc}")
 
     @staticmethod
     def _is_unsafe_mod_identity(value: object) -> bool:
