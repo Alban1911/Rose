@@ -771,6 +771,20 @@ class InjectionHookTests(unittest.TestCase):
 
         self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"custom")
 
+    def test_a_registered_custom_mod_rose_still_holds_is_linked_for_the_friend(self):
+        champion = self.root / "mods" / "skins" / "11000"
+        (champion / "Custom Yi" / "WAD").mkdir(parents=True)
+        (champion / "Custom Yi" / "WAD" / "MasterYi.wad.client").write_bytes(b"custom")
+        (champion / "rose_mod_targets.json").write_text(json.dumps({"version": 1, "championId": 11, "mods": {
+            "Custom Yi": {"name": "Custom Yi", "targets": [11002]},
+        }}), encoding="utf-8")
+        skin = PartySkinData(2, "B", 11, 11002, custom_mod_path="skins/11000/Custom Yi")
+
+        name = PartyInjectionHook(Mock(), make_state())._prepare_single_skin(skin, self.injector())
+
+        self.assertEqual(name, "party_2")
+        self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"custom")
+
     def save_ltk_mod(self, ltk_id, missing=False):
         """Our copy of Custom Yi, a saved mod LTK Manager holds: Rose has no file of it."""
         champion = self.root / "mods" / "skins" / "11000"

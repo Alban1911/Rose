@@ -243,7 +243,7 @@ def _local_custom_mod(relative_path: str, folder_name: str) -> Optional[ModSourc
         if not saved.available:
             return None
         source = saved.source
-        return replace(source, name=folder_name) if isinstance(source, RoseFile) else source
+        return replace(source, linked_name=folder_name) if isinstance(source, RoseFile) else source
     local_mod = mods_root / relative_path
     return RoseFile(local_mod, folder_name) if local_mod.exists() else None
 

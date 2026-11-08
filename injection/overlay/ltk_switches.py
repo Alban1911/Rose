@@ -130,6 +130,9 @@ class SavedModSwitches:
         Each switch-on holds the session's lock, which LtfHost.end takes to
         end it: a session that ended (a discard while this read the library)
         switches nothing on, and one ending after sees the entry to switch off.
+        One that fails to switch on is not counted as on, so the next install
+        of the session switches it on again; its journal record stays, so a
+        next session's start switches it off had LTK Manager applied it anyway.
         """
         entries = {str(entry.get("id")): entry for entry in library or () if entry.get("id")}
         for ltk_id in off:
@@ -146,7 +149,11 @@ class SavedModSwitches:
                     log.warning(f"[INJECT] Could not record {name} in Rose's LTF session state - left off: "
                                 "a crash would leave it on in LTK Manager")
                     continue
-                session.bridge.toggle(ltk_id, True)
+                try:
+                    session.bridge.toggle(ltk_id, True)
+                except (BridgeUnavailable, BridgeCommandError):
+                    session.switched_on.pop(ltk_id, None)
+                    raise
             if ltk_id in entries:
                 entries[ltk_id]["enabled"] = True
             log.info(f"[INJECT] Switched on {name} in LTK Manager (a saved mod)")
