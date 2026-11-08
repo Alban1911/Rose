@@ -27,6 +27,7 @@ Security Notes:
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -661,18 +662,33 @@ class OverlayManager:
         with self._state_file_lock:
             return self._read_state()["kept"]
 
-    def _keep_source(self, folder: Path) -> Optional[str]:
-        """Where *folder* (a junction to a saved mod) really is, when it is one
-        of the user's saved mods; None for a skin, a generated mod, a party skin."""
+    def _keep_source(self, mod: Path) -> Optional[str]:
+        """Where *mod* in the injection's mods folder really is, when it is
+        one of the user's saved mods (a junction to a saved folder, or a hard
+        link to a saved archive); None for a skin, a generated mod, a party skin."""
         root = self.saved_mods_root
         if root is None:
             from utils.core.paths import get_user_data_dir
             root = get_user_data_dir() / "mods"
         try:
-            source = Path(folder).resolve()
-            return str(source) if source.is_relative_to(Path(root).resolve()) else None
+            root = Path(root).resolve()
+            source = Path(mod).resolve()
+            if source.is_relative_to(root):
+                return str(source)
+            # A hard link does not resolve: find the saved archive that is the same file
+            linked = source.stat()
+            if not source.is_file() or linked.st_nlink < 2:
+                return None
+            for candidate in root.rglob("*"):
+                try:
+                    stat = candidate.stat()
+                except OSError:
+                    continue
+                if stat.st_size == linked.st_size and os.path.samestat(stat, linked):
+                    return str(candidate)
         except (OSError, ValueError):
             return None
+        return None
 
     def _park(self, session: dict, mod_id: str) -> bool:
         """Leave a saved mod Rose installed in LTK Manager, turned off, so the

@@ -1,5 +1,4 @@
 import json
-import shutil
 import tempfile
 import threading
 import time
@@ -844,18 +843,44 @@ class KeptModsTests(LtfSessionTestCase):
         super().setUp()
         self.saved = self.root / "saved"
         self.overlay.saved_mods_root = self.saved
+        self.links = {}  # name in the injection's mods folder -> the archive it links
 
-    def saved_mod(self, name="VO Korean", display="VO Korean", wad=b"voiceover"):
-        """A saved mod, linked into the injection's mods folder as Rose links one."""
-        from utils.core.junction import create_junction
-        self.make_mod(name, display, where=self.saved, wad=wad)
-        self.assertTrue(create_junction(self.saved / name, self.mods / name))
+    def saved_mod(self, name="VO Korean", display="VO Korean", wad=b"voiceover", folder=False):
+        """A saved mod, put into the injection's mods folder as Rose puts one:
+        its archive hard linked, or a folder never converted to one junctioned."""
+        if folder:
+            from utils.core.junction import create_junction
+            self.make_mod(name, display, where=self.saved, wad=wad)
+            self.assertTrue(create_junction(self.saved / name, self.mods / name))
+            return name
+        self.write_archive(self.saved / f"{name}.fantome", name, display, wad)
+        return self.link(name, self.saved / f"{name}.fantome")
+
+    def write_archive(self, archive, name, display, wad):
+        """Store a mod's .fantome as Rose does (replaced, never rewritten in place)."""
+        from injection.mods.fantome import write_fantome_zip
+        build = self.root / "build" / uuid.uuid4().hex
+        self.make_mod(name, display, where=build, wad=wad)
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        temporary = archive.with_name(archive.name + ".tmp")
+        write_fantome_zip(build / name, temporary)
+        temporary.replace(archive)
+
+    def link(self, name, archive):
+        """Hard link *archive* into the injection's mods folder as *name*."""
+        from utils.core.junction import link_file
+        self.assertTrue(link_file(archive, self.mods / name))
+        self.links[name] = archive
         return name
 
     def next_game(self, skin=None):
-        """LTK Manager's library as the last game left it, and the skin
-        extracted again (the injection wipes it once imported)."""
+        """LTK Manager's library as the last game left it, and the mods put
+        into the injection's mods folder again (it is wiped once imported)."""
+        from utils.core.junction import link_file
         FakeBridge.initial_library = [dict(entry) for entry in self.bridge.library_entries]
+        for name, archive in self.links.items():
+            if archive.exists() and not (self.mods / name).exists():
+                link_file(archive, self.mods / name)
         if skin is not None and not (self.mods / skin).exists():
             self.make_mod(skin)
 
@@ -871,6 +896,25 @@ class KeptModsTests(LtfSessionTestCase):
         self.assertEqual(list(kept), [left[0]["id"]])
         self.assertEqual(kept[left[0]["id"]]["folder"], voiceover)
         self.assertEqual(self.state()["installed"], {})
+
+    def test_a_saved_folder_never_converted_to_an_archive_is_kept_too(self):
+        voiceover = self.saved_mod(folder=True)
+
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+
+        self.assertEqual(len(self.state()["kept"]), 1)
+        self.assertFalse(self.bridge.library_entries[0]["enabled"])
+
+    def test_a_rose_skin_linked_from_its_own_library_is_removed_after_the_game(self):
+        library = self.root / "skins" / "777" / "777000"
+        self.write_archive(library / "777000.fantome", "777000", "Heavenly T1 Yone", b"skin")
+        skin = self.link("777000", library / "777000.fantome")
+        voiceover = self.saved_mod()
+
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+
+        self.assertEqual([entry["displayName"] for entry in self.bridge.library_entries], ["VO Korean"])
+        self.assertEqual([record["folder"] for record in self.state()["kept"].values()], [voiceover])
 
     def test_the_next_game_turns_the_kept_mod_back_on_instead_of_installing_it(self):
         voiceover, skin = self.saved_mod(), self.make_mod()
@@ -908,6 +952,7 @@ class KeptModsTests(LtfSessionTestCase):
         voiceover = self.saved_mod()
         self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
         gone_id = next(iter(self.state()["kept"]))
+        self.next_game()
         FakeBridge.initial_library = []  # the user removed it in LTK Manager
 
         self.assertEqual(self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True), 0)
@@ -921,8 +966,8 @@ class KeptModsTests(LtfSessionTestCase):
         voiceover = self.saved_mod()
         self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
         old_id = next(iter(self.state()["kept"]))
+        self.write_archive(self.saved / f"{voiceover}.fantome", voiceover, "VO Korean", b"a newer voiceover")
         self.next_game()
-        (self.saved / voiceover / "WAD" / "Aatrox.wad.client").write_bytes(b"a newer voiceover")
 
         self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
 
@@ -934,8 +979,8 @@ class KeptModsTests(LtfSessionTestCase):
         voiceover = self.saved_mod()
         self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
         old_id = next(iter(self.state()["kept"]))
+        self.write_archive(self.saved / f"{voiceover}.fantome", voiceover, "VO Korean", b"a newer voiceover")
         self.next_game()
-        (self.saved / voiceover / "WAD" / "Aatrox.wad.client").write_bytes(b"a newer voiceover")
         uninstall = FakeBridge.uninstall
 
         def refuse_old(bridge_self, target):
@@ -956,7 +1001,7 @@ class KeptModsTests(LtfSessionTestCase):
         self.next_game()
         from utils.core.junction import safe_remove_entry
         safe_remove_entry(self.mods / voiceover)
-        shutil.rmtree(self.saved / voiceover)
+        (self.saved / f"{voiceover}.fantome").unlink()
 
         self.overlay.start_patcher_early()
 
@@ -976,8 +1021,8 @@ class KeptModsTests(LtfSessionTestCase):
         self.assertNotIn(("uninstall", "kept-id"), self.bridge.calls)
         self.assertEqual(list(self.state()["kept"]), ["kept-id"])
 
-    def test_the_countdown_does_not_pack_a_kept_mod(self):
-        voiceover, skin = self.saved_mod(), self.make_mod()
+    def test_the_countdown_does_not_pack_a_kept_folder(self):
+        voiceover, skin = self.saved_mod(folder=True), self.make_mod()
         self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
         self.next_game(skin)
 
