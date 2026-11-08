@@ -37,7 +37,7 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Callable, Iterator, List, Mapping, Optional, Protocol, Tuple
 
-from config import SINGLE_INSTANCE_MUTEX_NAME
+from config import MOD_MIGRATION_MUTEX_NAME, SINGLE_INSTANCE_MUTEX_NAME
 from utils.core.junction import is_junction, safe_remove_entry
 from utils.core.logging import get_logger
 from utils.core.paths import get_desktop_user_desktop_dir
@@ -62,9 +62,6 @@ from .storage import ModStorageService
 
 log = get_logger()
 
-# Held while a Rose moves the mods: two Roses started at once both run the
-# launcher before either takes the single-instance mutex
-MIGRATION_MUTEX = r"Local\RoseModMigration"
 BACKUP_FOLDER = "Rose mods backup {date:%Y-%m-%d}"
 # Under Rose's injection folder: what an injection linked saved mods into
 INJECTION_FOLDERS = ("mods", "stage", "ltf_staging")
@@ -192,17 +189,19 @@ def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: Migr
 
 
 def delete_copy(storage: ModStorageService, mod: SavedMod) -> bool:
-    """Delete Rose's copy of a saved mod LTK Manager holds now
-    (ModStorageService.drop_stored_copy), and point the saved selections at
-    the identity the mod has without it, <dir>/<name>.fantome: the path of a
-    .zip, a .modpkg or a folder names nothing once the copy is gone. False
-    when the copy stays (in use: the next start deletes it)."""
-    if not storage.drop_stored_copy(mod.relative_path):
-        return False
+    """Point the saved selections at the identity a saved mod LTK Manager
+    holds has without Rose's copy, <dir>/<name>.fantome (the path of a .zip,
+    a .modpkg or a folder names nothing once the copy is gone; the new one
+    names the mod already), then delete the copy
+    (ModStorageService.drop_stored_copy). False when the copy stays: a
+    selection not renamed, or the copy in use. It is then a leftover copy,
+    and the next start does both again."""
     identity = f"{PurePosixPath(mod.relative_path).parent}/{mod.name}{ARCHIVE_SUFFIX}"
-    if identity.casefold() != mod.relative_path.casefold():
-        rename_saved_paths({mod.relative_path: identity})
-    return True
+    if identity.casefold() != mod.relative_path.casefold() and not rename_saved_paths(
+            {mod.relative_path: identity}):
+        log.warning(f"[MIGRATE] Kept Rose's copy of {mod.name}: its saved selections could not be renamed")
+        return False
+    return storage.drop_stored_copy(mod.relative_path)
 
 
 class _Migration:
@@ -265,7 +264,7 @@ class _Migration:
         if not self.ui.ask_backup(size, free):
             log.info("[MIGRATE] Moving the saved mods without a backup, as the user chose")
             return
-        if size + DISK_SPACE_HEADROOM_BYTES > free:
+        if size > free:
             raise MigrationStopped(
                 "not enough space for the backup",
                 _backup_notice(f"there is not enough free space on its drive ({size_text(size)} needed, "
@@ -369,7 +368,7 @@ def _alone() -> Iterator[None]:
     if running:
         kernel32.CloseHandle(running)
         raise MigrationStopped("Rose is running already")
-    handle = kernel32.CreateMutexW(None, False, MIGRATION_MUTEX)
+    handle = kernel32.CreateMutexW(None, False, MOD_MIGRATION_MUTEX_NAME)
     if handle and ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
         kernel32.CloseHandle(handle)
         raise MigrationStopped("another Rose is moving the mods")

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from utils.core.logging import get_logger
 from utils.core.paths import get_state_dir
-from config import SINGLE_INSTANCE_MUTEX_NAME, LOCK_FILE_NAME
+from config import MOD_MIGRATION_MUTEX_NAME, SINGLE_INSTANCE_MUTEX_NAME, LOCK_FILE_NAME
 
 from .state import get_app_state
 
@@ -21,6 +21,7 @@ log = get_logger()
 
 # Win32 constant
 ERROR_ALREADY_EXISTS = 183
+SYNCHRONIZE = 0x00100000
 
 
 class LockFile:
@@ -163,13 +164,22 @@ def create_lock_file() -> bool:
 
 
 def create_single_instance_mutex() -> bool:
-    """Create a Windows named mutex (kernel-managed) to enforce single instance."""
+    """Create a Windows named mutex (kernel-managed) to enforce single instance.
+
+    A Rose moving the saved mods in its launcher (MOD_MIGRATION_MUTEX_NAME)
+    is running too: it takes the single-instance mutex only after that.
+    """
     if sys.platform != "win32":
         return True
 
     app_state = get_app_state()
 
     try:
+        migrating = ctypes.windll.kernel32.OpenMutexW(SYNCHRONIZE, False, MOD_MIGRATION_MUTEX_NAME)
+        if migrating:
+            ctypes.windll.kernel32.CloseHandle(migrating)
+            return False
+
         handle = ctypes.windll.kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX_NAME)
         if not handle:
             log.error("CreateMutexW failed; falling back to lock file.")

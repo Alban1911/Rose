@@ -365,6 +365,10 @@ _IS_DEV_BUILD = bool(getattr(sys, "frozen", False)) and (
     "rosedev" in Path(sys.executable).stem.lower() or "rose-dev" in Path(sys.executable).stem.lower()
 )
 SINGLE_INSTANCE_MUTEX_NAME = r"Local\RoseDevSingleInstance" if _IS_DEV_BUILD else r"Local\RoseSingleInstance"
+# Held while a Rose moves the saved mods into LTK Manager, in its launcher,
+# before it takes the single-instance mutex: a Rose starting meanwhile must
+# not run beside it (injection.mods.migration)
+MOD_MIGRATION_MUTEX_NAME = r"Local\RoseModMigration"
 
 # Log file patterns (handles .log files)
 LOG_FILE_PATTERN = "rose_*.log*"

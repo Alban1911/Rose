@@ -84,7 +84,7 @@ class MigrationTestCase(LtfSessionTestCase):
             patch.object(migration, "get_desktop_user_desktop_dir", return_value=self.desktop),
             patch.object(migration, "free_space", side_effect=lambda _path: self.free),
             patch.object(migration, "SINGLE_INSTANCE_MUTEX_NAME", self.single_instance),
-            patch.object(migration, "MIGRATION_MUTEX", self.migration_mutex),
+            patch.object(migration, "MOD_MIGRATION_MUTEX_NAME", self.migration_mutex),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -289,6 +289,30 @@ class WhatIsMovedTests(MigrationTestCase):
         self.assertEqual(mod_historic.get_historic_mod("map"), "maps/Rift.fantome")
         self.assertEqual(historic.get_historic_skin_for_champion(75), "path:skins/75000/Nasus.fantome")
 
+    def test_a_selection_that_cannot_be_renamed_keeps_roses_copy_until_a_later_start(self):
+        """Deleted first, the .zip would leave the selection naming nothing, and
+        with no copy left no later start would rename it"""
+        archive = self.category_mod("Rift", category="maps", suffix=".zip")
+        mod_historic.write_historic_mod("map", "maps/Rift.zip")
+
+        with patch.object(mod_historic, "_write_json", side_effect=OSError(13, "Access is denied")):
+            report = self.migrate()
+
+        self.assertEqual(report.moved, ["Rift"])
+        self.assertTrue(archive.exists())
+        self.assertEqual(mod_historic.get_historic_mod("map"), "maps/Rift.zip")
+        ltk_id = self.entry("maps/Rift.zip").ltk_id
+        self.assertIsNotNone(ltk_id)
+        self.assertTrue(needs_migration(self.mods_root))
+
+        FakeBridge.initial_library = self.bridge.library_entries
+        self.migrate()
+
+        self.assertNotIn("import", self.bridge.command_names())
+        self.assertFalse(archive.exists())
+        self.assertEqual(mod_historic.get_historic_mod("map"), "maps/Rift.fantome")
+        self.assertEqual(self.entry("maps/Rift.fantome").ltk_id, ltk_id)
+
     def test_a_copy_a_game_kept_is_taken_without_an_import(self):
         archive = self.category_mod("VO Korean")
         kept_archive = make_archive(FakeBridge.mod_storage / "kept-vo.fantome", VOICEOVER)
@@ -487,7 +511,7 @@ class BackupTests(MigrationTestCase):
 
     def test_a_desktop_without_room_for_the_backup_moves_nothing(self):
         archive = self.category_mod("VO Korean")
-        self.free = 10 * 1024 ** 2
+        self.free = 100
 
         report = self.migrate(FakeUi(backup=True))
 
@@ -495,7 +519,19 @@ class BackupTests(MigrationTestCase):
         self.assertTrue(archive.exists())
         self.assertEqual(report.skipped_reason, "not enough space for the backup")
         (notice,) = self.ui.notices
-        self.assertIn("10 MB free", notice)
+        self.assertIn("100 B free", notice)
+
+    def test_a_backup_that_fits_is_made_without_the_room_imports_keep(self):
+        """The 512 MB LTK Manager's imports keep free is no part of a backup's room"""
+        self.category_mod("VO Korean")
+
+        with patch.object(migration, "free_space",
+                          side_effect=lambda path: 50 * 1024 ** 2 if Path(path) == self.desktop else 100 * GB):
+            report = self.migrate(FakeUi(backup=True))
+
+        (backup,) = self.desktop.iterdir()
+        self.assertTrue((backup / "voiceover" / "VO Korean.fantome").is_file())
+        self.assertEqual(report.moved, ["VO Korean"])
 
     def test_sizes_read_as_people_read_them(self):
         self.assertEqual([size_text(int(3.6 * GB)), size_text(120 * GB), size_text(850 * 1024 ** 2), size_text(512)],
