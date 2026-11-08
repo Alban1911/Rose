@@ -30,7 +30,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Iterable, List, Mapping, Optional
+from typing import Callable, Iterable, List, Mapping, Optional
 
 from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
@@ -60,6 +60,11 @@ ARCHIVE_SUFFIX = ".fantome"
 LTK_REMOVALS = "ltk_removals.json"
 
 _METADATA_NAMES = {TARGET_METADATA, LEGACY_TARGET_METADATA, CATEGORY_METADATA}
+
+
+class UnreadableManifest(ValueError):
+    """A mods manifest exists but cannot be read: rewriting it would drop the
+    mods it lists, so it is left as it is."""
 
 
 @dataclass(frozen=True)
@@ -550,83 +555,185 @@ def _write_json(path: Path, payload: dict) -> None:
         handle.write(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def _change_manifest(directory: _Directory, change: Callable[[dict, dict], bool]) -> bool:
+    """Every manifest write goes through here: *change(payload, mods)* edits
+    the manifest as the file holds it now (its root, and a copy of its
+    "mods"), under _STORAGE_LOCK, and returns whether to write it back, which
+    is done in one move. Raises UnreadableManifest rather than start from an
+    empty one."""
+    with _STORAGE_LOCK:
+        payload = _writable_manifest(directory)
+        if payload is None:
+            raise UnreadableManifest("The list of mods in this folder could not be read, so it was left unchanged")
+        payload = dict(payload)
+        raw_mods = payload.get("mods")
+        mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
+        if not change(payload, mods):
+            return False
+        _write_manifest(directory, payload, mods)
+        return True
+
+
+def _named(directory: _Directory, mods: dict, name: str) -> List[str]:
+    """The keys of the entries in *mods* that name the mod *name*."""
+    return [
+        key for key, value in mods.items()
+        if _entry_name(directory, key, value if isinstance(value, dict) else {}).casefold() == name.casefold()
+    ]
+
+
+def _drop_entries(mods_root: Path, mods: dict, keys: Iterable[str]) -> None:
+    """Take these entries out of *mods*, their LTK Manager entries queued for
+    removal at the next session start first: one no manifest names any more
+    would stay in LTK Manager for good, as Rose would never know it again."""
+    keys = list(keys)
+    queue_ltk_removal(mods_root, [mods[key].get("ltkId") for key in keys if isinstance(mods[key], dict)])
+    for key in keys:
+        del mods[key]
+
+
 def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -> bool:
     """Merge *fields* (manifest keys: ltkId=..., partyHash=...) into a saved
     mod's manifest entry; a None value removes the key. A file nobody
     registered gets its entry, under its name, with its default targets
     written out. False when the mod is not listed, or its manifest cannot be
-    read (rewriting it would drop the mods it lists)."""
+    read."""
     with _STORAGE_LOCK:
         found = _find(Path(mods_root), relative_path)
         if found is None:
             log.debug(f"[MODS] {relative_path} is not a saved mod: no manifest entry was changed")
             return False
         directory, mod = found
-        payload = _writable_manifest(directory)
-        if payload is None:
+
+        def merge(_payload: dict, mods: dict) -> bool:
+            key = mod.key
+            if key:
+                if key not in mods:
+                    log.debug(f"[MODS] {mod.name}'s manifest entry changed meanwhile: left unchanged")
+                    return False
+                current = mods[key]
+                entry = dict(current) if isinstance(current, dict) else {
+                    "name": mod.name, "targets": list(normalize_target_ids(current)),
+                }
+                if directory.kind == SKINS and mod.stored is not None and fields.get("ltkId"):
+                    # A renamed file was matched by its content, which an entry LTK
+                    # Manager holds never is: its name must lead to the file now
+                    entry["name"] = mod.name
+            else:
+                key = mod.name
+                if any(str(existing).casefold() == key.casefold() for existing in mods):
+                    return False
+                entry = {"name": mod.name, "targets": list(mod.target_skin_ids)}
+            for name, value in fields.items():
+                if value is None:
+                    entry.pop(name, None)
+                else:
+                    entry[name] = value
+            mods[key] = entry
+            return True
+
+        try:
+            return _change_manifest(directory, merge)
+        except UnreadableManifest:
             log.warning(f"[MODS] The manifest of {mod.name} could not be read, so it was left unchanged")
             return False
-        payload = dict(payload)
-        raw_mods = payload.get("mods")
-        mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
-        key = mod.key
-        if key:
-            if key not in mods:
-                log.debug(f"[MODS] {mod.name}'s manifest entry changed meanwhile: left unchanged")
-                return False
-            current = mods[key]
-            entry = dict(current) if isinstance(current, dict) else {
-                "name": mod.name, "targets": list(normalize_target_ids(current)),
-            }
-            if directory.kind == SKINS and mod.stored is not None and fields.get("ltkId"):
-                # A renamed file was matched by its content, which an entry LTK
-                # Manager holds never is: its name must lead to the file now
-                entry["name"] = mod.name
-        else:
-            key = mod.name
-            if any(str(existing).casefold() == key.casefold() for existing in mods):
-                return False
-            entry = {"name": mod.name, "targets": list(mod.target_skin_ids)}
-        for name, value in fields.items():
-            if value is None:
-                entry.pop(name, None)
-            else:
-                entry[name] = value
-        mods[key] = entry
-        _write_manifest(directory, payload, mods)
-        return True
 
 
 def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
     """Take a saved mod out of its manifest: its entry, and any other under
-    its name. The LTK Manager entries they name are queued for removal at the
-    next session start first: one no manifest names any more would stay in
-    LTK Manager for good, as Rose would never know it again. False when the
-    manifest cannot be read (rewriting it would drop the mods it lists).
-    Rose's copy and the files beside the manifest are the caller's to delete."""
+    its name, their LTK Manager entries queued for removal at the next
+    session start. False when the manifest cannot be read. Rose's copy and
+    the files beside the manifest are the caller's to delete."""
     if not mod.key:
         return True  # a file nobody registered: no entry to take out
     if mod.kind == SKINS:
         directory = _skins_directory(mod.directory)
     else:
         directory = _Directory(mod.kind, mod.directory, mod.kind)
-    with _STORAGE_LOCK:
-        payload = _writable_manifest(directory)
-        if payload is None:
-            log.warning(f"[MODS] The manifest of {mod.name} could not be read, so it was left unchanged")
-            return False
-        raw_mods = payload.get("mods")
-        mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
-        removed = {
-            key: value for key, value in mods.items()
-            if key == mod.key
-            or _entry_name(directory, key, value if isinstance(value, dict) else {}).casefold() == mod.name.casefold()
-        }
-        if not removed:
-            return True
-        queue_ltk_removal(mods_root, [value.get("ltkId") for value in removed.values() if isinstance(value, dict)])
-        _write_manifest(directory, dict(payload), {key: value for key, value in mods.items() if key not in removed})
+
+    def drop(_payload: dict, mods: dict) -> bool:
+        removed = set(_named(directory, mods, mod.name))
+        if mod.key in mods:
+            removed.add(mod.key)
+        _drop_entries(mods_root, mods, removed)
+        return bool(removed)
+
+    try:
+        _change_manifest(directory, drop)
+    except UnreadableManifest:
+        log.warning(f"[MODS] The manifest of {mod.name} could not be read, so it was left unchanged")
+        return False
     return True
+
+
+def add_saved_mod(mods_root: Path, archive: Path, facts: ModFacts, full_hash: str,
+                  wad_hashes: Mapping[str, str], targets: Iterable[int] = ()) -> None:
+    """Register the archive of a mod just added to its folder with what was
+    read from it once (compute_mod_facts): its facts, its date (the listing
+    keeps it once the archive is in LTK Manager), and in a champion's folder
+    its targets and content hashes, the key the same mod added again is known
+    by.
+
+    It takes the place of the entries under its name (a mod LTK Manager lost,
+    added again) and, in a champion's folder, of those with its content: it
+    keeps their display name, and their LTK Manager entries are queued for
+    removal. Raises UnreadableManifest, or ValueError when *archive* is not in
+    a saved mods folder."""
+    mods_root = Path(mods_root)
+    identity = _relative_identity(mods_root, archive)
+    directory = _directory_of(mods_root, identity.split("/")) if identity else None
+    if directory is None:
+        raise ValueError(f"{archive} is not in a saved mods folder")
+    name = Path(identity).stem
+    entry: dict = {"name": name, **facts.to_manifest()}
+    updated_at = _mtime(mods_root / identity)
+    if updated_at is not None:
+        entry["updatedAt"] = updated_at
+    if directory.kind == SKINS:
+        key = full_hash
+        entry.update(folderHash=full_hash, wadHashes=dict(wad_hashes), targets=list(targets))
+    else:
+        key = name
+        entry["path"] = name
+
+    def register(_payload: dict, mods: dict) -> bool:
+        replaced = set(_named(directory, mods, name))
+        if directory.kind == SKINS:
+            replaced.update(
+                other for other, value in mods.items()
+                if isinstance(value, dict) and value.get("folderHash") == full_hash
+            )
+        if key in mods:
+            replaced.add(key)
+        display_name = next(filter(None, (
+            _display_name(mods[other]) for other in sorted(replaced) if isinstance(mods[other], dict)
+        )), None)
+        _drop_entries(mods_root, mods, replaced)
+        mods[key] = dict(entry, displayName=display_name) if display_name else entry
+        return True
+
+    _change_manifest(directory, register)
+
+
+def set_targets(directory: Path, targets: Iterable[int], name: Optional[str] = None) -> None:
+    """Set the skins a champion's folder targets by default, or those its mod
+    *name* targets (an entry under that name is created when none has it).
+    Raises UnreadableManifest."""
+    folder = _skins_directory(Path(directory))
+    if folder is None:
+        raise ValueError(f"{directory} is not a champion's mods folder")
+    targets = list(targets)
+
+    def retarget(payload: dict, mods: dict) -> bool:
+        if name is None:
+            payload["targets"] = targets
+            return True
+        key = next(iter(_named(folder, mods, name)), name)
+        current = mods.get(key)
+        mods[key] = {**(current if isinstance(current, dict) else {"name": name}), "targets": targets}
+        return True
+
+    _change_manifest(folder, retarget)
 
 
 def _write_manifest(directory: _Directory, payload: dict, mods: dict) -> None:

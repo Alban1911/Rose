@@ -1,6 +1,7 @@
 """A saved mod's facts are read once from its files and kept in its manifest:
 once LTK Manager holds the mod, Rose has no file left to read them from."""
 
+import hashlib
 import json
 import os
 import tempfile
@@ -12,7 +13,6 @@ from unittest.mock import patch
 from injection.loadingname import loading_name
 from injection.mods import mod_facts
 from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
-from injection.mods.storage import ModStorageService
 from party.discovery import custom_mods
 from test.test_loading_name import make_wad
 
@@ -35,6 +35,23 @@ def make_archive(path, files):
         for name, data in files.items():
             archive.writestr(name, data)
     return path
+
+
+def manifest_folder_hash(archive):
+    """The folderHash and wadHashes earlier Roses wrote into a champion's
+    manifest for the mod at *archive*: a renamed file is still matched to its
+    entry by them, so the facts' full hash must be the same."""
+    folder_hash, wad_hashes = hashlib.sha256(), {}
+    with zipfile.ZipFile(archive) as packed:
+        names = sorted((info.filename for info in packed.infolist() if not info.is_dir()), key=str.casefold)
+        for name in names:
+            if name.casefold() == "meta/image.png":
+                continue
+            digest = hashlib.sha256(packed.read(name))
+            folder_hash.update(name.encode("utf-8") + b"\0" + digest.digest() + b"\0")
+            if name.casefold().endswith((".wad", ".wad.client")):
+                wad_hashes[name] = digest.hexdigest()
+    return folder_hash.hexdigest(), wad_hashes
 
 
 def make_folder(path, files):
@@ -77,7 +94,7 @@ class ComputeFactsTests(unittest.TestCase):
 
         facts, full_hash, wad_hashes = compute_mod_facts(archive)
 
-        self.assertEqual((full_hash, wad_hashes), ModStorageService._hash_mod_folder(archive))
+        self.assertEqual((full_hash, wad_hashes), manifest_folder_hash(archive))
         self.assertEqual(sorted(wad_hashes), ["WAD/Global.ko_KR.wad.client", "WAD/Zed.wad.client"])
         self.assertEqual(facts.party_hash, full_hash[:32])
 
@@ -112,7 +129,7 @@ class ComputeFactsTests(unittest.TestCase):
 
         self.assertIsNone(facts.party_hash)
         self.assertIsNone(custom_mods.mod_hashes(archive)[0])
-        self.assertEqual(full_hash, ModStorageService._hash_mod_folder(archive)[0])
+        self.assertEqual(full_hash, manifest_folder_hash(archive)[0])
 
     def test_a_modpkg_is_read_through_its_unpacked_files(self):
         from utils.tests.test_modpkg import SKIN0, Chunk, build_package

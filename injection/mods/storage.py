@@ -14,8 +14,6 @@ archives once, when Rose starts (convert_folder_mod).
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
-import json
 import os
 import shutil
 import tempfile
@@ -40,10 +38,10 @@ from utils.core.utilities import get_champion_id_from_skin_id
 from . import manifest as saved_manifest
 from .fantome import is_packed_wad, write_fantome_zip
 from .ltk_ref import is_ltk_id
-# Shared with the manifest writers: one lock, one report per unreadable manifest
-from .manifest import _STORAGE_LOCK, _reported_manifests
-from .manifest import SavedMod
-from .mod_facts import ModFacts
+# Shared with the manifest writers
+from .manifest import _STORAGE_LOCK
+from .manifest import SavedMod, normalize_target_ids
+from .mod_facts import ModFacts, compute_mod_facts
 from .mod_files import ModFiles
 
 log = get_logger()
@@ -67,6 +65,11 @@ def _folder_file_sizes(folder: Path) -> dict[str, int]:
             path = Path(root) / name
             sizes[path.relative_to(folder).as_posix()] = path.stat().st_size
     return sizes
+
+
+def _occupied(path: Path) -> bool:
+    """Whether something (a link included, even a broken one) is at *path*."""
+    return path.exists() or path.is_symlink()
 
 
 def _check_packed(archive: Path, expected: dict[str, int], added_metadata: bool) -> None:
@@ -173,22 +176,24 @@ class ModStorageService:
         self.mods_root.mkdir(parents=True, exist_ok=True)
         self._ensure_mods_root_layout()
 
-    @classmethod
-    def _choose_archive_destination(
-        cls,
-        parent_dir: Path,
-        base_name: str,
-    ) -> tuple[str, Path]:
+    def _choose_archive_destination(self, parent_dir: Path, base_name: str) -> tuple[str, Path]:
         """Choose a unique mod name for an archive stored in *parent_dir* and
         return it with the archive's path (<parent_dir>/<name>.fantome).
 
+        A name is taken by a stored mod (archive or folder), and by a saved
+        mod's manifest entry or the image and description beside it under
+        that name: once LTK Manager holds a mod, nothing else in the folder
+        holds its name. A mod LTK Manager lost is the exception: added again
+        under its name, the new one takes its place and keeps its image,
+        description and display name (manifest.add_saved_mod).
+
         A long name is truncated only as much as Windows' traditional
         260-character path limit needs, then the normal `` (2)`` collision
-        suffixes are added. A mod stored as a folder takes its name too.
+        suffixes are added.
         """
         max_name_length = min(
-            cls.MAX_MOD_NAME_LENGTH,
-            cls.MAX_WINDOWS_PATH_LENGTH - len(str(parent_dir)) - 1 - len(cls.ARCHIVE_SUFFIX),
+            self.MAX_MOD_NAME_LENGTH,
+            self.MAX_WINDOWS_PATH_LENGTH - len(str(parent_dir)) - 1 - len(self.ARCHIVE_SUFFIX),
         )
         if max_name_length < 1:
             raise ValueError("The mods folder's path is too long for Windows")
@@ -210,33 +215,64 @@ class ModStorageService:
                     "The selected mod archive has no usable Windows-safe name"
                 )
             mod_name = f"{candidate_base}{suffix}"
-            archive = parent_dir / f"{mod_name}{cls.ARCHIVE_SUFFIX}"
-            if not any(
-                path.exists() or path.is_symlink()
-                for path in (archive, parent_dir / mod_name)
-            ):
-                if mod_name != original_name:
-                    log.warning(
-                        "[MODS] Shortened mod name for Windows path limit: '%s' -> '%s'",
-                        original_name,
-                        mod_name,
-                    )
-                return mod_name, archive
+            archive = parent_dir / f"{mod_name}{self.ARCHIVE_SUFFIX}"
+            stored = [parent_dir / mod_name, *(archive.with_suffix(s) for s in MOD_ARCHIVE_SUFFIXES)]
+            if not any(_occupied(path) for path in stored):
+                claim = saved_manifest.find_saved_mod(self.mods_root, archive, match_content=False)
+                lost = claim is not None and claim.missing and suffix_number == 1
+                if lost or (claim is None and not any(_occupied(path) for path in self.sidecar_paths(archive))):
+                    if mod_name != original_name:
+                        log.warning(
+                            "[MODS] Shortened mod name for Windows path limit: '%s' -> '%s'",
+                            original_name,
+                            mod_name,
+                        )
+                    if lost:
+                        log.info(f"[MODS] {mod_name} takes the place of the mod LTK Manager lost under that name")
+                    return mod_name, archive
             suffix_number += 1
 
     # -- stored archives -----------------------------------------------------
-    def _store_archive(self, source: Path, parent_dir: Path, base_name: str) -> tuple[str, Path]:
-        """Store the mod archive *source* in *parent_dir* as the .fantome LTK
-        Manager installs; return its mod name and path."""
+    def _add_archive(
+        self,
+        source_path: str | Path,
+        parent_dir: Path,
+        targets: tuple[int, ...] = (),
+    ) -> tuple[str, Path]:
+        """Store one user-selected mod archive in *parent_dir* as the .fantome
+        LTK Manager installs, its preview image beside it, and register it in
+        the folder's manifest with what Rose needs to know about it, read
+        once (compute_mod_facts): LTK Manager will hold the mod, and Rose
+        keeps no copy to read it from again. Return its mod name and path.
+        Nothing it wrote stays when a step fails."""
+        source = Path(source_path).expanduser()
+        if not source.is_file():
+            raise FileNotFoundError(f"Mod file not found: {source}")
+        if source.suffix.lower() not in MOD_ARCHIVE_SUFFIXES:
+            raise ValueError("Only .zip, .fantome and .modpkg mod files are supported")
+        base_name = source.stem.strip()
+        if not base_name or base_name in {".", ".."}:
+            raise ValueError("The selected mod file has no usable name")
+
+        parent_dir.mkdir(parents=True, exist_ok=True)
         mod_name, target = self._choose_archive_destination(parent_dir, base_name)
         temporary = parent_dir / f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
         try:
             self._write_stored_archive(source, temporary, mod_name)
+            facts, full_hash, wad_hashes = compute_mod_facts(temporary)
             temporary.replace(target)
         except Exception:
             safe_remove_entry(temporary)
             raise
-        self._write_image_sidecar(target)
+        image = self._write_image_sidecar(target)
+        try:
+            saved_manifest.add_saved_mod(self.mods_root, target, facts, full_hash, wad_hashes, targets)
+        except Exception:
+            for written in (target, image):
+                if written is not None:
+                    safe_remove_entry(written)
+            raise
+        self._champion_listing_cache.clear()
         return mod_name, target
 
     def _write_stored_archive(self, source: Path, dest: Path, mod_name: str) -> None:
@@ -283,20 +319,27 @@ class ModStorageService:
     # Larger previews are not copied out of an archive (a broken or odd mod)
     MAX_SIDECAR_IMAGE_BYTES = 32 * 1024 * 1024
 
-    def _write_image_sidecar(self, archive: Path) -> None:
-        """Copy the archive's preview image beside it, for the mods UI."""
+    def _write_image_sidecar(self, archive: Path) -> Optional[Path]:
+        """Copy the archive's preview image beside it, for the mods UI, and
+        return it. An image already there stays: it is the one the user gave
+        the mod LTK Manager lost that this one takes the place of."""
+        if any(archive.with_suffix(suffix).exists() for suffix in self.IMAGE_SIDECAR_SUFFIXES):
+            return None
         try:
             with ModFiles(archive) as files:
                 for member, suffix in _PREVIEW_IMAGES:
                     if not files.is_file(member):
                         continue
                     data = files.read(member)
-                    if 0 < len(data) <= self.MAX_SIDECAR_IMAGE_BYTES:
-                        with atomic_write(archive.with_suffix(suffix), "wb", durable=False) as handle:
-                            handle.write(data)
-                    return
+                    if not 0 < len(data) <= self.MAX_SIDECAR_IMAGE_BYTES:
+                        return None
+                    image = archive.with_suffix(suffix)
+                    with atomic_write(image, "wb", durable=False) as handle:
+                        handle.write(data)
+                    return image
         except (OSError, zipfile.BadZipFile) as exc:
             log.debug(f"[MODS] No preview image for {archive.name}: {exc}")
+        return None
 
     @classmethod
     def sidecar_paths(cls, stored: Path) -> list[Path]:
@@ -308,14 +351,6 @@ class ModStorageService:
             stored.with_suffix(suffix)
             for suffix in (*cls.IMAGE_SIDECAR_SUFFIXES, cls.DESCRIPTION_SIDECAR_SUFFIX)
         ]
-
-    @classmethod
-    def _remove_stored_mod(cls, stored: Path) -> None:
-        """Delete a stored mod, folder or archive, with what sits beside it."""
-        sidecars = cls.sidecar_paths(stored)
-        safe_remove_entry(stored)
-        for sidecar in sidecars:
-            safe_remove_entry(sidecar)
 
     # -- saved mods, by their manifest entries (injection.mods.manifest) -------
     def saved_mods(self, kind: Optional[str] = None) -> List[SavedMod]:
@@ -442,7 +477,7 @@ class ModStorageService:
             if entry.name.endswith(".tmp") and entry.is_file():
                 safe_remove_entry(entry)
             elif entry.name.startswith(self.IMPORT_TEMP_PREFIX):
-                continue  # a folder repair's copy (OverlayManager._take_repaired_archive)
+                continue  # a mod folder an earlier Rose's repair set aside may be the mod's only copy
             elif entry.name.endswith(".old") and entry.is_dir():
                 name = entry.name[len(self.CONVERT_TEMP_PREFIX):-len(".old")]
                 original = parent / name
@@ -550,189 +585,26 @@ class ModStorageService:
             raise ValueError(f"Invalid champion ID: {champion_id}")
         return self.get_skin_dir(champion_id_int * 1000)
 
-    @staticmethod
-    def _normalize_target_ids(value: object) -> tuple[int, ...]:
-        if isinstance(value, dict):
-            value = (
-                value.get("targets")
-                or value.get("skinIds")
-                or value.get("targetSkinIds")
-                or value.get("affectedSkinIds")
-                or []
-            )
-        if isinstance(value, (str, bytes)) or value is None:
-            return ()
-        try:
-            values = iter(value)
-        except TypeError:
-            return ()
-
-        normalized = set()
-        for raw_value in values:
-            try:
-                skin_id = int(raw_value)
-            except (TypeError, ValueError):
-                continue
-            if skin_id > 0:
-                normalized.add(skin_id)
-        return tuple(sorted(normalized))
-
-    @staticmethod
-    def _load_manifest(manifest_path: Path) -> Optional[dict]:
-        """Read a mod manifest: {} when there is none, None when it exists but cannot be read.
-
-        An unreadable manifest used to look empty, so the mods it lists vanished
-        from the UI with no trace, and importing a mod rewrote it with that mod alone.
-        """
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return {}
-        except (OSError, TypeError, ValueError) as e:
-            if str(manifest_path) not in _reported_manifests:
-                _reported_manifests.add(str(manifest_path))
-                log.warning(f"[MODS] Could not read mod manifest {manifest_path}: {e}")
-            return None
-        return payload if isinstance(payload, dict) else {}
-
-    def _load_target_manifest(
-        self,
-        champion_id: int,
-        *,
-        require_readable: bool = False,
-    ) -> tuple[tuple[int, ...], dict[str, dict]]:
-        champion_dir = self.get_champion_dir(champion_id)
-        payload = None
-        for metadata_name in (self.TARGET_METADATA, self.LEGACY_TARGET_METADATA):
-            manifest_path = champion_dir / metadata_name
-            payload = self._load_manifest(manifest_path)
-            if payload is None and require_readable:
-                raise ValueError("The saved skin mod targets could not be read, so they were left unchanged")
-            if payload:
-                break
-        if not isinstance(payload, dict):
-            return (), {}
-
-        default_targets = self._normalize_target_ids(
-            payload.get("targets") or payload.get("skinIds")
-        )
-        raw_mods = payload.get("mods") or {}
-        mod_targets: dict[str, dict] = {}
-        if isinstance(raw_mods, dict):
-            for mod_name, raw_targets in raw_mods.items():
-                targets = self._normalize_target_ids(raw_targets)
-                if targets:
-                    if isinstance(raw_targets, dict):
-                        metadata = dict(raw_targets)
-                    else:
-                        metadata = {}
-                    metadata["targets"] = list(targets)
-                    mod_targets[str(mod_name)] = metadata
-        return default_targets, mod_targets
-
-    @staticmethod
-    def _hash_mod_folder(mod_path: Path) -> tuple[str, dict[str, str]]:
-        """Return a rename-stable hash of a mod (folder or archive: the same
-        for an archive and the folder it unpacks to) and hashes for its WADs."""
-        folder_hash = hashlib.sha256()
-        wad_hashes: dict[str, str] = {}
-        try:
-            files = ModFiles(mod_path)
-        except (OSError, zipfile.BadZipFile):
-            return folder_hash.hexdigest(), wad_hashes
-
-        with files:
-            for relative_path in sorted(files.files_under(), key=str.casefold):
-                if relative_path.casefold() == "meta/image.png":
-                    continue
-                try:
-                    file_hash = hashlib.sha256()
-                    with files.open(relative_path) as stream:
-                        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                            file_hash.update(chunk)
-                    file_digest = file_hash.digest()
-                    folder_hash.update(relative_path.encode("utf-8"))
-                    folder_hash.update(b"\0")
-                    folder_hash.update(file_digest)
-                    folder_hash.update(b"\0")
-                    if relative_path.casefold().endswith((".wad", ".wad.client")):
-                        wad_hashes[relative_path] = file_hash.hexdigest()
-                except (OSError, ValueError, zipfile.BadZipFile):
-                    continue
-        return folder_hash.hexdigest(), wad_hashes
-
-    @staticmethod
-    def _extract_display_name(metadata: Optional[dict]) -> Optional[str]:
-        if not isinstance(metadata, dict):
-            return None
-        raw = metadata.get("displayName")
-        if isinstance(raw, str) and raw.strip():
-            return raw.strip()
-        return None
-
     def set_champion_target_ids(
         self,
         champion_id: int | str,
         skin_ids: object,
         mod_name: Optional[str] = None,
-        mod_path: Optional[Path] = None,
     ) -> Path:
-        """Persist the user's manual targets for a champion or named mod."""
+        """Persist the user's manual targets for a champion's folder (its
+        default) or for one of its mods, by name."""
         champion_id_int = self._to_int(champion_id)
         if champion_id_int is None or champion_id_int <= 0:
             raise ValueError(f"Invalid champion ID: {champion_id}")
-
-        targets = self._normalize_target_ids(skin_ids)
+        targets = normalize_target_ids(skin_ids)
         if not targets:
             raise ValueError("At least one target skin ID is required")
 
         champion_dir = self.get_champion_dir(champion_id_int)
         champion_dir.mkdir(parents=True, exist_ok=True)
-        default_targets, mod_targets = self._load_target_manifest(champion_id_int, require_readable=True)
-        if mod_name:
-            if mod_path is not None:
-                folder_hash, wad_hashes = self._hash_mod_folder(Path(mod_path))
-                existing_display_name = None
-                for key, metadata in list(mod_targets.items()):
-                    if key == folder_hash or (
-                        isinstance(metadata, dict)
-                        and metadata.get("folderHash") == folder_hash
-                    ):
-                        if isinstance(metadata, dict):
-                            existing_display_name = self._extract_display_name(metadata)
-                        mod_targets.pop(key, None)
-                entry = {
-                    "name": str(mod_name),
-                    "folderHash": folder_hash,
-                    "wadHashes": wad_hashes,
-                    "targets": list(targets),
-                }
-                if existing_display_name:
-                    entry["displayName"] = existing_display_name
-                mod_targets[folder_hash] = entry
-            else:
-                mod_targets[str(mod_name)] = {
-                    "name": str(mod_name),
-                    "targets": list(targets),
-                }
-        else:
-            default_targets = targets
-
-        payload = {
-            "version": 1,
-            "championId": champion_id_int,
-            "targets": list(default_targets),
-            "mods": dict(sorted(mod_targets.items())),
-        }
-        manifest_path = champion_dir / self.TARGET_METADATA
-        temporary_path = manifest_path.with_name(f".{manifest_path.name}.tmp")
-        temporary_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temporary_path.replace(manifest_path)
+        saved_manifest.set_targets(champion_dir, targets, str(mod_name) if mod_name else None)
         self._champion_listing_cache.pop(champion_id_int, None)
-        return manifest_path
+        return champion_dir / self.TARGET_METADATA
 
     MAX_DISPLAY_NAME_LENGTH = 100
 
@@ -743,73 +615,18 @@ class ModStorageService:
         mod_name: Optional[str] = None,
         relative_path: Optional[str] = None,
     ) -> str:
-        """Persist a user-facing display alias for an imported skin mod.
-
-        The mod's on-disk folder is left untouched; only the manifest entry
-        gains a ``displayName`` field, so target associations and any saved
-        selections that reference the folder path stay intact.
-        """
+        """Give a champion's saved mod, known by its identity (*relative_path*)
+        or by its name in the champion's folder, the name the UI shows. Its
+        manifest entry alone changes, so saved selections still find it."""
         champion_id_int = self._to_int(champion_id)
         if champion_id_int is None or champion_id_int <= 0:
             raise ValueError(f"Invalid champion ID: {champion_id}")
-
-        clean_name = str(display_name or "").strip()[: self.MAX_DISPLAY_NAME_LENGTH]
-        if not clean_name:
-            raise ValueError("Display name cannot be empty")
-
+        identity = relative_path or (mod_name and f"{self.CATEGORY_SKINS}/{champion_id_int * 1000}/{mod_name}")
         with self._storage_lock:
-            champion_dir = self.get_champion_dir(champion_id_int)
-            manifest_path = champion_dir / self.TARGET_METADATA
-            payload = self._load_manifest(manifest_path)
-            if not payload:
-                raise ValueError("No mod manifest found for this champion")
-
-            raw_mods = payload.get("mods")
-            mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
-            if not mods:
-                raise ValueError("No mods registered for this champion")
-
-            # Match by folder/manifest name only. Hashing WADs here ran on the
-            # WebSocket event loop and could stall past ping_timeout, so the
-            # UI never received champion-mod-renamed and stayed on "Saving...".
-            name_candidates = []
-            if mod_name:
-                name_candidates.append(str(mod_name))
-            target_path = self._resolve_mod_path(champion_dir, relative_path)
-            if target_path is not None:
-                name_candidates.append(target_path.name)
-            name_candidates = list(dict.fromkeys(name_candidates))
-
-            matched_key = None
-            for candidate_name in name_candidates:
-                for key, metadata in mods.items():
-                    stored_name = metadata.get("name") if isinstance(metadata, dict) else None
-                    if key == candidate_name or str(stored_name or "") == candidate_name:
-                        matched_key = key
-                        break
-                if matched_key is not None:
-                    break
-            if matched_key is None:
-                raise ValueError("Mod not found in manifest")
-
-            entry = mods[matched_key]
-            if not isinstance(entry, dict):
-                entry = {"name": str(mod_name or matched_key)}
-            entry["displayName"] = clean_name
-            mods[matched_key] = entry
-
-            payload["mods"] = dict(sorted(mods.items()))
-            payload.setdefault("version", 1)
-            payload.setdefault("championId", champion_id_int)
-
-            temporary_path = manifest_path.with_name(f".{manifest_path.name}.tmp")
-            temporary_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            temporary_path.replace(manifest_path)
-            self._champion_listing_cache.pop(champion_id_int, None)
-            return clean_name
+            mod = self.saved_mod(identity) if identity else None
+            if mod is None or mod.storage_id is None or get_champion_id_from_skin_id(mod.storage_id) != champion_id_int:
+                mod = None
+            return self._set_display_name(mod, display_name)
 
     def set_category_mod_display_name(
         self,
@@ -817,54 +634,24 @@ class ModStorageService:
         mod_name: str,
         display_name: str,
     ) -> str:
-        """Persist a user-facing display alias for a category mod."""
+        """Give a category's saved mod, known by its name, the name the UI shows."""
         if category not in self.MOD_CATEGORIES:
             raise ValueError(f"Unsupported mod category: {category}")
         if not mod_name:
             raise ValueError("Mod name is required")
+        with self._storage_lock:
+            return self._set_display_name(self.saved_mod(f"{category}/{mod_name}"), display_name)
 
+    def _set_display_name(self, mod: Optional[SavedMod], display_name: str) -> str:
         clean_name = str(display_name or "").strip()[: self.MAX_DISPLAY_NAME_LENGTH]
         if not clean_name:
             raise ValueError("Display name cannot be empty")
-
-        with self._storage_lock:
-            category_dir = self.mods_root / category
-            manifest_path = category_dir / self.CATEGORY_METADATA
-            payload = self._load_manifest(manifest_path) or {}
-
-            raw_mods = payload.get("mods")
-            mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
-
-            matched_key = None
-            if mod_name in mods:
-                matched_key = mod_name
-            else:
-                for key, metadata in mods.items():
-                    stored = metadata.get("path") if isinstance(metadata, dict) else None
-                    if str(stored or key) == str(mod_name):
-                        matched_key = key
-                        break
-            if matched_key is None:
-                raise ValueError("Mod not found in manifest")
-
-            entry = mods[matched_key]
-            if not isinstance(entry, dict):
-                entry = {"name": matched_key, "path": matched_key}
-            entry["displayName"] = clean_name
-            mods[matched_key] = entry
-
-            payload.update({
-                "version": 1,
-                "category": category,
-                "mods": dict(sorted(mods.items())),
-            })
-            temporary_manifest = manifest_path.with_name(f".{manifest_path.name}.tmp")
-            temporary_manifest.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            temporary_manifest.replace(manifest_path)
-            return clean_name
+        if mod is None:
+            raise ValueError("Mod not found in manifest")
+        if not saved_manifest.update_saved_mod(self.mods_root, mod.relative_path, displayName=clean_name):
+            raise ValueError("The mod's manifest could not be updated")
+        self._champion_listing_cache.clear()
+        return clean_name
 
     def import_mod_file(
         self,
@@ -872,49 +659,17 @@ class ModStorageService:
         source_path: str | Path,
         skin_ids: object,
     ) -> tuple[Path, Path, str]:
-        """Store one user-selected mod archive in its champion folder, as the
-        .fantome LTK Manager installs (_store_archive)."""
-        source = Path(source_path).expanduser()
-        if not source.is_file():
-            raise FileNotFoundError(f"Mod file not found: {source}")
-        if source.suffix.lower() not in MOD_ARCHIVE_SUFFIXES:
-            raise ValueError("Only .zip, .fantome and .modpkg mod files are supported")
-
+        """Add one user-selected mod archive to its champion's folder,
+        targeting *skin_ids* (_add_archive)."""
         champion_id_int = self._to_int(champion_id)
         if champion_id_int is None or champion_id_int <= 0:
             raise ValueError(f"Invalid champion ID: {champion_id}")
-
+        targets = normalize_target_ids(skin_ids)
+        if not targets:
+            raise ValueError("At least one target skin ID is required")
         champion_dir = self.get_champion_dir(champion_id_int)
-        champion_dir.mkdir(parents=True, exist_ok=True)
-        base_name = source.stem.strip()
-        if not base_name or base_name in {".", ".."}:
-            raise ValueError("The selected mod file has no usable name")
-
-        mod_name, target = self._store_archive(source, champion_dir, base_name)
-        try:
-            manifest_path = self.set_champion_target_ids(
-                champion_id_int,
-                skin_ids,
-                mod_name=mod_name,
-                mod_path=target,
-            )
-            return target, manifest_path, mod_name
-        except Exception:
-            self._remove_stored_mod(target)
-            raise
-
-    def _resolve_mod_path(self, base_dir: Path, relative_path: object) -> Optional[Path]:
-        """Resolve a user-supplied relative path, guarding against traversal."""
-        if not relative_path:
-            return None
-        try:
-            candidate = (self.mods_root / str(relative_path)).resolve()
-            base_resolved = base_dir.resolve()
-        except OSError:
-            return None
-        if base_resolved != candidate and base_resolved not in candidate.parents:
-            return None
-        return candidate
+        mod_name, target = self._add_archive(source_path, champion_dir, targets)
+        return target, champion_dir / self.TARGET_METADATA, mod_name
 
     @staticmethod
     def _is_unsafe_mod_identity(value: object) -> bool:
@@ -1035,48 +790,11 @@ class ModStorageService:
         category: str,
         source_path: str | Path,
     ) -> tuple[Path, str]:
-        """Store one user-selected archive in a registered category folder, as
-        the .fantome LTK Manager installs (_store_archive)."""
+        """Add one user-selected mod archive to a category's folder (_add_archive)."""
         if category not in self.MOD_CATEGORIES:
             raise ValueError(f"Unsupported mod category: {category}")
-
-        source = Path(source_path).expanduser()
-        if not source.is_file():
-            raise FileNotFoundError(f"Mod file not found: {source}")
-        if source.suffix.lower() not in MOD_ARCHIVE_SUFFIXES:
-            raise ValueError("Only .zip, .fantome and .modpkg mod files are supported")
-
-        category_dir = self.mods_root / category
-        category_dir.mkdir(parents=True, exist_ok=True)
-        base_name = source.stem.strip()
-        if not base_name or base_name in {".", ".."}:
-            raise ValueError("The selected mod archive has no usable name")
-
-        mod_name, target = self._store_archive(source, category_dir, base_name)
-        try:
-            manifest_path = category_dir / self.CATEGORY_METADATA
-            payload = self._load_manifest(manifest_path)
-            if payload is None:
-                # Rewriting it would drop every other mod registered in this category
-                raise ValueError("The list of mods in this category could not be read, so it was left unchanged")
-            raw_mods = payload.get("mods")
-            mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
-            mods[mod_name] = {"name": mod_name, "path": mod_name}
-            payload.update({
-                "version": 1,
-                "category": category,
-                "mods": dict(sorted(mods.items())),
-            })
-            temporary_manifest = manifest_path.with_name(f".{manifest_path.name}.tmp")
-            temporary_manifest.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            temporary_manifest.replace(manifest_path)
-            return target, mod_name
-        except Exception:
-            self._remove_stored_mod(target)
-            raise
+        mod_name, target = self._add_archive(source_path, self.mods_root / category)
+        return target, mod_name
 
     def list_mods_for_skin(self, skin_id: int | str) -> List[SkinModEntry]:
         """Return mods for a skin, including champion-level target metadata."""

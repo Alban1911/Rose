@@ -10,9 +10,11 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from injection.mods.mod_facts import stamp_of
 from injection.overlay import ltk_library, overlay_manager
 from injection.overlay.ltk_library import (
     IndexEntry,
+    LibrarySession,
     LtkBusy,
     LtkLibrary,
     LtkUnavailable,
@@ -29,6 +31,7 @@ from injection.overlay.overlay_manager import (
     OverlayManager,
 )
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
+from injection.tools.bridge import BridgeCommandError
 from injection.tools.tools_manager import ToolsManager
 
 VO_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
@@ -342,6 +345,155 @@ class LibrarySessionTests(LtfSessionTestCase):
         for lock in (self.overlay._stage_lock, self.overlay._connect_lock):
             self.assertTrue(lock.acquire(blocking=False))
             lock.release()
+
+
+class ModCheckTests(LtfSessionTestCase):
+    """A mod the user adds moves into LTK Manager's library: LTK Manager
+    checks it, repairs what it can in its own copy, and keeps it, turned off,
+    unless the game would still reject it"""
+
+    SKINHACK = {
+        "rule": "bin/skinhack", "title": "Another skin's model",
+        "description": "This base skin uses the mesh of another skin.",
+        "severity": "error", "count": 1, "fixable": 0,
+    }
+    REPAIRABLE = {"health": "repairable", "fixable": 2, "counts": {"errors": 2}}
+    HEALTHY = {"health": "healthy", "fixable": 0, "counts": {}}
+
+    def setUp(self):
+        super().setUp()
+        FakeBridge.mod_storage = self.root / "ltk-mods"
+        self.stored = self.root / "saved-mods" / "skins" / "89000" / "Leona.fantome"
+        self.stored.parent.mkdir(parents=True)
+        with zipfile.ZipFile(self.stored, "w") as packed:
+            packed.writestr("META/info.json", '{"Name": "Eternal Aspect Leona"}')
+            packed.writestr("WAD/Leona.wad.client", b"wad")
+        self.before = self.stored.read_bytes()
+        self.recorded = []
+        self.library = LtkLibrary(self.overlay)
+
+    def record(self, ltk_id, stamp=None):
+        """The manifest write: what it was given, and whether the entry was
+        still Rose's to remove then (a crash before the keep removes it)"""
+        self.recorded.append((ltk_id, stamp, ltk_id in self.state()["installed"]))
+        return True
+
+    def check(self, on_kept=None):
+        return self.library.check_mod(self.stored, "Eternal Aspect Leona", on_kept or self.record)
+
+    @staticmethod
+    def ltk_archive(ltk_id):
+        return FakeBridge.mod_storage / f"mod-{ltk_id[:8]}.fantome"
+
+    def test_a_healthy_mod_is_recorded_then_kept_turned_off(self):
+        FakeBridge.health_answers = [self.HEALTHY]
+
+        result = self.check()
+
+        ltk_id = result["ltkId"]
+        self.assertEqual(result, {"health": "healthy", "repaired": 0, "problems": [], "ltkId": ltk_id})
+        self.assertEqual(self.recorded, [(ltk_id, stamp_of(self.ltk_archive(ltk_id)), True)])
+        self.assertIsNotNone(self.recorded[0][1])
+        self.assertEqual([(e["id"], e["enabled"]) for e in self.bridge.library_entries], [(ltk_id, False)])
+        self.assertNotIn(("uninstall", ltk_id), self.bridge.calls)
+        self.assertEqual(self.state()["installed"], {})
+        self.assertEqual(self.stored.read_bytes(), self.before)  # Rose's copy is the caller's to delete
+
+    def test_a_repaired_mod_is_kept_with_ltk_managers_repair_and_no_stamp(self):
+        FakeBridge.health_answers = [self.REPAIRABLE, self.HEALTHY]
+        FakeBridge.repair_files = {"META/info.json": "{}", "WAD/Leona.wad.client": b"fixed"}
+
+        result = self.check()
+
+        self.assertEqual(result["repaired"], 2)
+        self.assertEqual(self.recorded, [(result["ltkId"], None, True)])  # the next sync reads its facts again
+        self.assertEqual(self.stored.read_bytes(), self.before)  # nothing written back into Rose
+        self.assertEqual([p.name for p in self.stored.parent.iterdir()], ["Leona.fantome"])
+        with zipfile.ZipFile(self.ltk_archive(result["ltkId"])) as repaired:
+            self.assertEqual(repaired.read("WAD/Leona.wad.client"), b"fixed")
+
+    def test_a_fix_one_pass_leaves_for_the_next_is_applied(self):
+        """The Nasus mod: its type fixes rewrote skin0.bin, so the same pass
+        skipped its skinhack fix ("skin0.bin changed since the check"); LTK
+        Manager's second repair applied it and the mod passed in game"""
+        FakeBridge.health_answers = [
+            {"health": "repairable", "fixable": 2, "counts": {"fatals": 2}},
+            {"health": "repairable", "fixable": 1, "counts": {"errors": 1}, "rules": [dict(self.SKINHACK, fixable=1)]},
+            self.HEALTHY,
+        ]
+        FakeBridge.repair_files = {"META/info.json": "{}", "WAD/Leona.wad.client": b"fixed"}
+
+        result = self.check()
+
+        self.assertEqual(self.bridge.command_names().count("repair_mod"), 2)
+        self.assertEqual((result["repaired"], result["problems"]), (4, []))
+        self.assertIn("ltkId", result)
+
+    def test_a_mod_the_game_will_reject_is_removed_and_not_recorded(self):
+        """#440, #454: LTK Manager turns off a skin that uses another skin's model"""
+        FakeBridge.health_answers = [{"health": "unrepairable", "fixable": 0, "counts": {"errors": 1},
+                                      "rules": [self.SKINHACK, dict(self.SKINHACK, rule="x/warning",
+                                                                     severity="warning")]}]
+
+        result = self.check()
+
+        self.assertEqual(result["problems"], [{"rule": "bin/skinhack", "title": "Another skin's model",
+                                               "description": "This base skin uses the mesh of another skin."}])
+        self.assertNotIn("ltkId", result)
+        self.assertEqual(self.recorded, [])
+        self.assertNotIn("repair_mod", self.bridge.command_names())
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_an_entry_rose_could_not_record_is_removed_again(self):
+        result = self.check(on_kept=lambda ltk_id, stamp=None: False)
+
+        self.assertEqual(result["health"], "healthy")
+        self.assertNotIn("ltkId", result)
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_an_entry_no_longer_listed_after_its_check_is_not_recorded(self):
+        with patch.object(LibrarySession, "confirm", return_value=None):
+            result = self.check()
+
+        self.assertNotIn("ltkId", result)
+        self.assertEqual(self.recorded, [])
+
+    def test_an_entry_ltk_manager_cannot_turn_off_is_still_kept(self):
+        with patch.object(FakeBridge, "toggle", side_effect=BridgeCommandError("busy")):
+            result = self.check()
+
+        self.assertIn("ltkId", result)  # the next session start turns it off
+        self.assertNotIn(("uninstall", result["ltkId"]), self.bridge.calls)
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_a_check_that_fails_records_nothing_and_removes_the_entry(self):
+        with patch.object(FakeBridge, "check_mod_health", side_effect=BridgeCommandError("CDP busy")):
+            self.assertIsNone(self.check())
+
+        self.assertEqual(self.recorded, [])
+        self.assertEqual(self.bridge.library_entries, [])
+
+    def test_nothing_is_checked_while_a_game_uses_ltk_manager(self):
+        self.process_manager.set_session_stopper(lambda: None)
+
+        self.assertIsNone(self.check())
+        self.assertEqual(FakeBridge.created, [])
+
+    def test_nothing_is_checked_while_champion_select_stages(self):
+        self.overlay._staging_open = True
+
+        self.assertIsNone(self.check())
+        self.assertEqual(FakeBridge.created, [])
+
+    def test_nothing_is_checked_without_ltk_manager_or_a_game_folder(self):
+        with patch.object(ToolsManager, "detect_ltk_manager", return_value=None):
+            self.assertIsNone(self.check())
+        self.overlay.game_dir = None
+        self.assertIsNone(self.check())
+
+        self.assertEqual((FakeBridge.created, self.recorded), ([], []))
 
 
 if __name__ == "__main__":

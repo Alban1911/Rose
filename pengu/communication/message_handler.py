@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+from functools import partial
 from pathlib import Path, PureWindowsPath
 from typing import NamedTuple, Optional, Sequence
 from urllib.parse import quote
@@ -26,6 +27,7 @@ from config import get_config_float, get_config_option, set_config_option
 from injection.core.mod_source import ModSource, saved_selection
 from injection.mods.manifest import selection_available
 from injection.mods.storage import ModStorageService
+from injection.overlay.ltk_library import LtkLibrary
 from injection.overlay.overlay_manager import ltk_failure_cause
 from utils.core.paths import get_user_data_dir, get_asset_path, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
@@ -2828,12 +2830,14 @@ class MessageHandler:
     _MOD_CHECK_BUSY_PHASES = frozenset({"ChampSelect", "FINALIZATION", "GameStart", "InProgress", "Reconnect"})
 
     def _check_imported_mods(self, imported: list[dict], errors: list[dict], remove) -> list[dict]:
-        """Have LTK Manager check each just-imported mod and repair what it
-        can, and return the mods kept. One LTK Manager will still turn off in
-        game (a skinhack, a problem it cannot repair) is not added: *remove*
-        deletes it again, and it joins *errors* with the reason. A kept mod
-        gets the verdict as "health". Skipped during champion select and
-        games, where LTK Manager is the game's."""
+        """Move each just-imported mod into LTK Manager's library, which
+        checks and repairs it (LtkLibrary.check_mod), and return the mods
+        added; Rose's copy of one LTK Manager kept is deleted. One LTK Manager
+        will still turn off in game (a skinhack, a problem it cannot repair)
+        is not added: *remove* deletes it again, and it joins *errors* with
+        the reason. A checked mod gets the verdict as "health". Skipped during
+        champion select and games, where LTK Manager is the game's: the mod
+        stays in Rose, pending."""
         injection_manager = getattr(self, "injection_manager", None)
         injector = getattr(injection_manager, "injector", None)
         overlay = getattr(injector, "overlay_manager", None)
@@ -2844,10 +2848,14 @@ class MessageHandler:
             log.info("[MODCHECK] Not checking the added mods with LTK Manager during champion select or a game")
             return imported
         self._send_response(json.dumps({"type": "mod-import-checking", "fileCount": len(imported)}))
+        library = LtkLibrary(overlay)
         kept = []
         for item in imported:
             try:
-                result = overlay.check_mod(Path(item["path"]), item.get("modName") or Path(item["path"]).name)
+                result = library.check_mod(
+                    Path(item["path"]), item.get("modName") or Path(item["path"]).name,
+                    partial(self.mod_storage.attach_ltk_entry, item["relativePath"]),
+                )
             except Exception as e:  # noqa: BLE001 - a check must never fail the import
                 log.warning(f"[MODCHECK] Could not check {item.get('modName')}: {e}")
                 result = None
@@ -2865,6 +2873,8 @@ class MessageHandler:
                 continue
             if result is not None:
                 item["health"] = result
+                if result.get("ltkId"):
+                    self.mod_storage.drop_stored_copy(item["relativePath"])
             kept.append(item)
         return kept
 
@@ -2955,6 +2965,7 @@ class MessageHandler:
                     imported.append({
                         "fileName": mod_file.name,
                         "path": str(mod_folder),
+                        "relativePath": mod_folder.relative_to(self.mod_storage.mods_root).as_posix(),
                         "modName": mod_name,
                     })
                     log.info(
@@ -3296,6 +3307,7 @@ class MessageHandler:
                         imported.append({
                             "fileName": mod_file.name,
                             "path": str(mod_folder),
+                            "relativePath": mod_folder.relative_to(self.mod_storage.mods_root).as_posix(),
                             "modName": mod_name,
                             "targetManifest": str(target_manifest),
                         })

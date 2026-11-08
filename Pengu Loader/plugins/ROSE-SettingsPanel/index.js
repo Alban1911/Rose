@@ -5048,7 +5048,7 @@
     const card = overlay.querySelector(".rose-mod-import-card");
     const lines = [
       ...errors.map((item) => ({ className: "is-error", text: importErrorText(item, several) })),
-      // What LTK Manager's check repaired in a mod it kept (check_mod in overlay_manager.py)
+      // What LTK Manager's check repaired in a mod it kept (LtkLibrary.check_mod in ltk_library.py)
       ...imported
         .filter((item) => item && item.health && item.health.repaired > 0)
         .map((item) => ({

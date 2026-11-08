@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from injection.mods.mod_facts import compute_mod_facts
 from injection.mods.storage import ModStorageService
 
 
@@ -73,12 +74,12 @@ class ChampionModImageTests(unittest.TestCase):
         wad = self.mod_folder / "WAD"
         wad.mkdir()
         (wad / "Ahri.wad.client").write_bytes(b"skin data")
-        before, _ = self.service._hash_mod_folder(self.mod_folder)
+        before = compute_mod_facts(self.mod_folder)[1]
         image = self.mod_folder / "META" / "image.png"
         image.parent.mkdir()
         image.write_bytes(PNG_HEADER + b"preview")
 
-        after, _ = self.service._hash_mod_folder(self.mod_folder)
+        after = compute_mod_facts(self.mod_folder)[1]
 
         self.assertEqual(after, before)
 

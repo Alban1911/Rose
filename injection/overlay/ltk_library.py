@@ -12,9 +12,10 @@ ways:
   screen name reads a skin's champion record from LTK Manager's copy;
 - online, through Rose's bridge, outside any game: importing a saved mod,
   checking and repairing it, keeping it (turned off) after the session that
-  imported it, removing it. LtkLibrary.session() gives such a session, on the
-  rules OverlayManager.check_mod always followed: never while an injection's
-  session holds LTK Manager, and LTK Manager closed again if Rose started it.
+  imported it, removing it. LtkLibrary.session() gives such a session: never
+  while an injection's session holds LTK Manager, and LTK Manager closed
+  again if Rose started it. LtkLibrary.check_mod moves a mod the user adds
+  into the library.
 """
 
 from __future__ import annotations
@@ -26,21 +27,18 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Mapping, Optional
+from typing import Callable, Dict, Iterator, List, Mapping, Optional
 
 from utils.core.logging import get_logger
 from utils.core.modpkg import MODPKG_SUFFIX
 
+from ..mods.mod_facts import stamp_of
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
 from .overlay_manager import (
     ALREADY_OPEN_REASON,
     LTF_MISSING_REASON,
     LTK_MANAGER_MISSING_REASON,
-    REPAIR_PASSES,
-    _answer_value,
     _archive_for_ltk,
-    _rejected_by_game,
-    _verdict_summary,
 )
 
 log = get_logger()
@@ -72,6 +70,13 @@ LTK_SETTINGS = "settings.json"
 # format, storage, slug...}], "profiles": [{id, enabledMods...}], "activeProfileId"}.
 # Another layout is not guessed at: a misread index would mark mods missing
 LIBRARY_INDEX_VERSION = 2
+
+# LTK's problem severities: "fatal" (the game crashes on it) and "error" (the
+# game rejects it, the mod does not work); "warning" and "info" leave it working
+REJECTED_SEVERITIES = ("fatal", "error")
+# Repairs in a row while LTK Manager still offers fixes (a pass can leave one
+# for the next); a mod whose repair keeps finding more stops here
+REPAIR_PASSES = 3
 
 
 # --------------------------------------------------------------------------------------
@@ -228,6 +233,35 @@ def stored_archive(ltk_id: str) -> Optional[Path]:
 # online: a session through Rose's bridge, outside any game
 # --------------------------------------------------------------------------------------
 
+def _answer_value(response: dict) -> dict:
+    """The value LTK Manager answered a library command with ({} when none)."""
+    nested = response.get("response") if isinstance(response, dict) else None
+    value = nested.get("value") if isinstance(nested, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+def _rejected_by_game(verdict: dict) -> List[dict]:
+    """What in LTK Manager's verdict still makes the game reject the mod."""
+    rules = verdict.get("rules") or []
+    problems = [
+        {"rule": str(rule.get("rule") or ""), "title": str(rule.get("title") or ""),
+         "description": str(rule.get("description") or "")}
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("severity") in REJECTED_SEVERITIES and int(rule.get("count") or 0) > 0
+    ]
+    counts = verdict.get("counts") or {}
+    if not problems and int(counts.get("fatals") or 0) + int(counts.get("errors") or 0) > 0:
+        # A verdict without its rules (an older LTK Manager): still say so
+        problems.append({"rule": "", "title": "", "description": ""})
+    return problems
+
+
+def _verdict_summary(verdict: dict) -> str:
+    counts = verdict.get("counts") or {}
+    return ", ".join(f"{counts.get(key, 0)} {key}" for key in ("fatals", "errors", "warnings")) + \
+        f", {verdict.get('fixable', 0)} fixable"
+
+
 class LtkBusy(RuntimeError):
     """LTK Manager is in use: an injection's session holds it (champion
     select, a game), or another session is connecting."""
@@ -283,6 +317,69 @@ class LtkLibrary:
                 overlay._connect_lock.release()
         finally:
             overlay._stage_lock.release()
+
+    def check_mod(self, mod: Path, display_name: str, on_kept: Callable[..., bool]) -> Optional[dict]:
+        """Move a mod the user adds into LTK Manager's library: import it,
+        have LTK Manager check it and repair what it can, and keep it there,
+        turned off, unless the game would still reject it.
+
+        LTK Manager's Problems rules find what makes the game drop or reject a
+        mod (an audio bank of an old version, a bin type a patch changed,
+        another skin's model...): run as the mod is added, the user learns
+        then, not in a game, that LTK Manager would turn it off, and a
+        repairable mod is repaired once, in LTK Manager's copy. A rejected mod
+        is removed again.
+
+        *on_kept(ltk_id, stamp=...)* records the entry in the mod's manifest
+        before the entry is kept, and returns whether it did: once kept,
+        nothing removes the entry, and one no manifest named would stay in LTK
+        Manager for good. *stamp* is LTK Manager's archive as it was when Rose
+        read the mod's facts from its own copy; None when LTK Manager repaired
+        its copy since, so the next sync reads them again from it.
+
+        None when it did not run: no game folder yet, an injection's session
+        holds LTK Manager (champion select, a game), LTK Manager is missing or
+        failed; the mod then stays pending in Rose. Otherwise {"health": LTK's
+        word before any repair, "repaired": fixes applied, "problems":
+        [{"rule", "title", "description"}] that make the game reject the mod,
+        and "ltkId" once the entry is kept}.
+        """
+        if self.overlay.game_dir is None:
+            return None
+        try:
+            with self.session() as session:
+                return self._check_and_keep(session, Path(mod), display_name, on_kept)
+        except LtkBusy:
+            log.debug(f"[MODCHECK] LTK Manager is in use for a game - not checking {display_name}")
+        except LtkUnavailable as e:
+            log.info(f"[MODCHECK] Not checking {display_name}, it stays in Rose for now: {e}")
+        except (BridgeUnavailable, BridgeCommandError, OSError, ValueError) as e:
+            log.warning(f"[MODCHECK] LTK Manager could not check {display_name}: {e}")
+        return None
+
+    @staticmethod
+    def _check_and_keep(session: "LibrarySession", mod: Path, display_name: str,
+                        on_kept: Callable[..., bool]) -> dict:
+        ltk_id = str(session.import_archive(mod, display_name).get("id"))
+        result = session.check_and_repair(ltk_id, display_name)
+        if result["problems"]:
+            return result
+        entry = session.confirm(ltk_id)
+        if entry is None:
+            log.warning(f"[MODCHECK] {display_name} is not in LTK Manager's library after its check: it stays in Rose")
+            return result
+        archive = entry_archive(entry)
+        stamp = stamp_of(archive) if archive is not None and not result["repaired"] else None
+        if not on_kept(ltk_id, stamp=stamp):
+            log.warning(f"[MODCHECK] {display_name} could not be recorded as LTK Manager's: it stays in Rose")
+            return result
+        try:
+            session.keep(ltk_id)
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.debug(f"[MODCHECK] Could not turn {display_name} off, the next session start does: {e}")
+        result["ltkId"] = ltk_id
+        log.info(f"[MODCHECK] {display_name} is in LTK Manager's library now")
+        return result
 
 
 class LibrarySession:
