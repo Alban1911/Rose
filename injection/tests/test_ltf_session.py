@@ -930,6 +930,25 @@ class KeptModsTests(LtfSessionTestCase):
         self.assertEqual(len(self.bridge.library_entries), 1)
         self.assertEqual(list(self.state()["kept"]), [self.bridge.library_entries[0]["id"]])
 
+    def test_an_older_copy_that_cannot_be_removed_stays_recorded(self):
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        old_id = next(iter(self.state()["kept"]))
+        self.next_game()
+        (self.saved / voiceover / "WAD" / "Aatrox.wad.client").write_bytes(b"a newer voiceover")
+        uninstall = FakeBridge.uninstall
+
+        def refuse_old(bridge_self, target):
+            if target == old_id:
+                raise BridgeCommandError("uninstall failed: CDP busy")
+            return uninstall(bridge_self, target)
+
+        with patch.object(FakeBridge, "uninstall", refuse_old):
+            self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+
+        self.assertIn(old_id, self.state()["kept"])  # retried at the next park
+        self.assertEqual(len(self.state()["kept"]), 2)
+
     def test_a_kept_mod_whose_saved_mod_was_deleted_is_removed_at_start(self):
         voiceover = self.saved_mod()
         self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)

@@ -693,12 +693,15 @@ class OverlayManager:
             return False
         record = {"folder": session["installed"].get(mod_id), "fingerprint": fingerprint, "source": source}
         # An earlier version of the same saved mod is not wanted any more
-        replaced = [other for other, kept_record in kept.items()
-                    if other != mod_id and kept_record["source"] == source]
-        for other in replaced:
+        replaced = []
+        for other, kept_record in kept.items():
+            if other == mod_id or kept_record["source"] != source:
+                continue
             try:
                 session["bridge"].uninstall(other)
+                replaced.append(other)
             except (BridgeUnavailable, BridgeCommandError) as e:
+                # Still recorded: the next park of this mod tries again
                 log.debug(f"[INJECT] Could not remove the earlier copy of {record['folder']} ({other}): {e}")
 
         def keep(state):
