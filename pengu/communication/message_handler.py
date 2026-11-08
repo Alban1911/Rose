@@ -27,6 +27,7 @@ from config import get_config_float, get_config_option, set_config_option
 from injection.mods.mod_source import LtkEntry, ModSource
 from injection.mods.storage import ModStorageService
 from injection.overlay.ltf_report import has_ltf_logs_hint, ltk_failure_cause
+from injection.baseskin.library import stored_skin_rewrite
 from injection.overlay.ltk_library import LtkLibrary
 from utils.core.paths import get_user_data_dir, get_asset_path, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
@@ -2853,8 +2854,9 @@ class MessageHandler:
         repair each mod (LtkLibrary.check_mod), and return the mods added. A
         pending one (a category's) moves into LTK Manager's library as it is
         checked, and Rose's copy of one LTK Manager kept is deleted; any other
-        (a custom skin) stays Rose's: LTK Manager's repair is written into its
-        file, whose hashes its manifest records again, and it leaves LTK
+        (a custom skin) stays Rose's and is checked while no base-skin fix
+        holds it (stored_skin_rewrite): LTK Manager's repair is written into
+        its file, whose hashes its manifest records again, and it leaves LTK
         Manager. One LTK Manager will still turn off in game (a skinhack, a
         problem it cannot repair) is not added: *remove* deletes it again, and
         it joins *errors* with the reason. A checked mod gets the verdict as
@@ -2888,12 +2890,16 @@ class MessageHandler:
                 kept.append(item)
                 continue
             saved = self.mod_storage.saved_mod(item["relativePath"])
-            moves_into_ltk = bool(saved and saved.pending)
-            on_kept = partial(self.mod_storage.attach_ltk_entry, item["relativePath"]) if moves_into_ltk else None
+            mod_path, name = Path(item["path"]), item.get("modName") or Path(item["path"]).name
             try:
-                result = library.check_mod(
-                    Path(item["path"]), item.get("modName") or Path(item["path"]).name, on_kept,
-                )
+                if saved and saved.pending:
+                    result = library.check_mod(mod_path, name, partial(self.mod_storage.attach_ltk_entry,
+                                                                       item["relativePath"]))
+                else:
+                    with stored_skin_rewrite():
+                        result = library.check_mod(mod_path, name)
+                        if result and result.get("repaired") and not result.get("problems"):
+                            self.mod_storage.refresh_mod_hashes(mod_path)
             except Exception as e:  # noqa: BLE001 - a check must never fail the import
                 log.warning(f"[MODCHECK] Could not check {item.get('modName')}: {e}")
                 result = None
@@ -2913,8 +2919,6 @@ class MessageHandler:
                 item["health"] = result
                 if result.get("ltkId"):
                     self.mod_storage.drop_stored_copy(item["relativePath"])
-                elif result.get("repaired") and not moves_into_ltk:
-                    self.mod_storage.refresh_mod_hashes(Path(item["path"]))
             kept.append(item)
         return kept
 

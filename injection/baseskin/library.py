@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Optional, Set
 
@@ -89,16 +90,26 @@ def _up_to_date(known: Optional[dict], stamp: List[int], champions_dir: Path, ke
     return True
 
 
+@contextmanager
+def stored_skin_rewrite() -> Iterator[None]:
+    """Hold while anything else than the base-skin fix rewrites a stored
+    custom skin or reads it whole (LTK Manager's repair written back, its
+    hashes recorded again): one at a time with the fix, as a replace fails
+    on Windows while another holds the file open."""
+    with _FIX_LOCK:
+        yield
+
+
 def fix_stored_mod(storage, mod: Path, game_dir: Path) -> FixResult:
     """Fix a stored custom skin in place (fix_mod), keeping its manifest's
     hashes right, and remember it was checked. Raises what fix_mod raises."""
     mod = Path(mod)
     with _FIX_LOCK:
         # Before Rose rewrites the mod: what a friend's copy of it hashes to
-        storage.remember_source_hashes(mod)
+        listed = storage.remember_source_hashes(mod)
         result = fix_mod(mod, game_dir)
         if result.changed:
-            storage.refresh_mod_hashes(mod)
+            storage.refresh_mod_hashes(mod, listed)
         _remember(storage.mods_root, mod, result)
     return result
 

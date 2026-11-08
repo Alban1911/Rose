@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from injection.mods.mod_facts import _archive_content_hash, _folder_content_hash, _hash_stream
-from injection.mods.manifest import SOURCE_HASHES, find_saved_mod, skin_entry
+from injection.mods.manifest import SOURCE_HASHES, find_saved_mod, stored_skin
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
@@ -82,8 +82,8 @@ def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
 def _recorded_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
     """(content, legacy) hashes of a stored mod as it was before Rose rewrote it
     (the base-skin fix, LTK Manager's repair: ModStorageService.remember_source_hashes)."""
-    entry = skin_entry(mod_path)
-    hashes = entry.get(SOURCE_HASHES) if entry else None
+    skin = stored_skin(mod_path)
+    hashes = skin.metadata.get(SOURCE_HASHES) if skin is not None else None
     if not isinstance(hashes, dict):
         return None, None
     return hashes.get("content") or None, hashes.get("legacy") or None

@@ -552,16 +552,16 @@ def find_saved_mod(mods_root: Path, relative_path: object, *, match_content: boo
     return found[1] if found else None
 
 
-def skin_entry(mod_path: Path) -> Optional[Mapping[str, object]]:
-    """The manifest entry of the custom skin stored at *mod_path* (in a
-    skins/<id> folder), found by its file's name as the listing finds it,
-    never by its content; None when it has none."""
+def stored_skin(mod_path: Path) -> Optional[SavedMod]:
+    """The registered custom skin stored at *mod_path* (in a skins/<id>
+    folder), found by its file's name, never by its content; None when its
+    manifest has no entry under that name."""
     path = Path(mod_path)
     directory = _skins_directory(path.parent)
     if directory is None:
         return None
     return next((
-        mod.metadata for mod in _directory_mods(directory, match_content=False)
+        mod for mod in _directory_mods(directory, match_content=False)
         if mod.registered and mod.rose_copy is not None and mod.rose_copy.name.casefold() == path.name.casefold()
     ), None)
 
@@ -717,36 +717,57 @@ def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -
         if found is None:
             log.debug(f"[MODS] {relative_path} is not a saved mod: no manifest entry was changed")
             return False
-        directory, mod = found
+        return _merge_into_entry(*found, fields)
 
-        def merge(_payload: dict, mods: dict) -> bool:
-            key = mod.key
-            if key:
-                if key not in mods:
-                    log.debug(f"[MODS] {mod.name}'s manifest entry changed meanwhile: left unchanged")
-                    return False
-                current = mods[key]
-                entry = dict(current) if isinstance(current, dict) else {
-                    "name": mod.name, "targets": list(normalize_target_ids(current)),
-                }
+
+def update_listed_mod(mod: SavedMod, *, keep_existing: bool = False, **fields: object) -> bool:
+    """Merge *fields* into the manifest entry *mod* was listed from, by its
+    key, whatever its file holds now: a renamed skin Rose rewrote no longer
+    matches its entry by content. A file nobody registered gets its entry
+    (update_saved_mod). *keep_existing* leaves a field the entry holds
+    already as it is. False when the entry changed meanwhile, or its
+    manifest cannot be read."""
+    return _merge_into_entry(_mod_directory(mod), mod, fields, keep_existing)
+
+
+def _merge_into_entry(directory: _Directory, mod: SavedMod, fields: Mapping[str, object],
+                      keep_existing: bool = False) -> bool:
+    def merge(_payload: dict, mods: dict) -> bool:
+        key = mod.key
+        if key:
+            if key not in mods:
+                log.debug(f"[MODS] {mod.name}'s manifest entry changed meanwhile: left unchanged")
+                return False
+            current = mods[key]
+            entry = dict(current) if isinstance(current, dict) else {
+                "name": mod.name, "targets": list(normalize_target_ids(current)),
+            }
+        else:
+            key = mod.name
+            if any(str(existing).casefold() == key.casefold() for existing in mods):
+                return False
+            entry = {"name": mod.name, "targets": list(mod.target_skin_ids)}
+        for name, value in fields.items():
+            if keep_existing and name in entry:
+                continue
+            if value is None:
+                entry.pop(name, None)
             else:
-                key = mod.name
-                if any(str(existing).casefold() == key.casefold() for existing in mods):
-                    return False
-                entry = {"name": mod.name, "targets": list(mod.target_skin_ids)}
-            for name, value in fields.items():
-                if value is None:
-                    entry.pop(name, None)
-                else:
-                    entry[name] = value
-            mods[key] = entry
-            return True
+                entry[name] = value
+        mods[key] = entry
+        return True
 
-        try:
-            return _change_manifest(directory, merge)
-        except UnreadableManifest:
-            log.warning(f"[MODS] The manifest of {mod.name} could not be read, so it was left unchanged")
-            return False
+    try:
+        return _change_manifest(directory, merge)
+    except UnreadableManifest:
+        log.warning(f"[MODS] The manifest of {mod.name} could not be read, so it was left unchanged")
+        return False
+
+
+def _mod_directory(mod: SavedMod) -> _Directory:
+    if mod.kind == SKINS:
+        return _skins_directory(mod.manifest_dir)
+    return _Directory(mod.kind, mod.manifest_dir, PurePosixPath(mod.kind))
 
 
 def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
@@ -756,10 +777,7 @@ def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
     copy and the files beside the manifest are the caller's to delete."""
     if not mod.registered:
         return True
-    if mod.kind == SKINS:
-        directory = _skins_directory(mod.manifest_dir)
-    else:
-        directory = _Directory(mod.kind, mod.manifest_dir, PurePosixPath(mod.kind))
+    directory = _mod_directory(mod)
 
     def drop(payload: dict, mods: dict) -> bool:
         removed = set(_named(directory, mods, mod.name))

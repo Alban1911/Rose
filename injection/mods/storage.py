@@ -685,41 +685,54 @@ class ModStorageService:
     @staticmethod
     def manifest_entry(mod_path: Path) -> Optional[Mapping[str, object]]:
         """A stored custom skin's entry in its folder's manifest (None when it has none)."""
-        return saved_manifest.skin_entry(mod_path)
+        skin = saved_manifest.stored_skin(mod_path)
+        return skin.metadata if skin is not None else None
 
-    def remember_source_hashes(self, mod_path: Path) -> None:
+    def remember_source_hashes(self, mod_path: Path) -> Optional[SavedMod]:
         """Keep in a stored custom skin's manifest entry the hashes party mode
         shares for it (party.discovery.custom_mods.mod_hashes), as it is now:
         called before Rose first rewrites the mod, so a friend's copy of the
-        mod as it came still matches. Kept once recorded."""
+        mod as it came still matches. Kept once recorded.
+
+        The skin is the one the listing shows for the file: a renamed file is
+        matched to its entry by its content, which the rewrite changes, and a
+        file nobody registered gets its entry. It is returned, registered,
+        for refresh_mod_hashes after the rewrite; None when the listing shows
+        no skin there."""
         mod_path = Path(mod_path)
         try:
-            entry = self.manifest_entry(mod_path)
-            if entry is None or isinstance(entry.get(self.SOURCE_HASHES), dict):
-                return
+            listed = self.saved_mod(mod_path)
+            if listed is None or listed.kind != self.CATEGORY_SKINS:
+                return None
+            if isinstance(listed.metadata.get(self.SOURCE_HASHES), dict):
+                return listed
             from party.discovery.custom_mods import mod_hashes
 
             content, legacy = mod_hashes(mod_path)
             if not content:
-                return
+                return listed
             hashes = {"content": content, **({"legacy": legacy} if legacy else {})}
-            with self._storage_lock:
-                entry = self.manifest_entry(mod_path)
-                if entry is not None and not isinstance(entry.get(self.SOURCE_HASHES), dict):
-                    saved_manifest.update_saved_mod(self.mods_root, mod_path, **{self.SOURCE_HASHES: hashes})
+            if saved_manifest.update_listed_mod(listed, keep_existing=True, **{self.SOURCE_HASHES: hashes}):
+                self._champion_listing_cache.clear()
+            return listed if listed.registered else saved_manifest.stored_skin(mod_path)
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             log.warning(f"[MODS] Could not record the hashes of {mod_path.name}: {exc}")
+            return None
 
-    def refresh_mod_hashes(self, mod_path: Path) -> None:
+    def refresh_mod_hashes(self, mod_path: Path, listed: Optional[SavedMod] = None) -> None:
         """Re-record a stored custom skin's content hashes (folderHash,
         wadHashes) in its manifest entry after Rose rewrote it: a renamed mod
-        is found by them, and the same mod added again by its folderHash."""
+        is found by them, and the same mod added again by its folderHash.
+        *listed* is the skin as remember_source_hashes found it before the
+        rewrite, its entry the one written (a renamed file no longer matches
+        it by content); without it, the entry under the file's name."""
         mod_path = Path(mod_path)
         try:
-            if self.manifest_entry(mod_path) is None:
+            listed = listed or saved_manifest.stored_skin(mod_path)
+            if listed is None:
                 return
             _facts, full_hash, wad_hashes = compute_mod_facts(mod_path)
-            saved_manifest.update_saved_mod(self.mods_root, mod_path, folderHash=full_hash, wadHashes=wad_hashes)
+            saved_manifest.update_listed_mod(listed, folderHash=full_hash, wadHashes=wad_hashes)
             self._champion_listing_cache.clear()
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             log.warning(f"[MODS] Could not update the hashes of {mod_path.name}: {exc}")

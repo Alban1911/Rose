@@ -6,6 +6,7 @@ ships: the two must keep producing the same bins.
 """
 
 import os
+import shutil
 import struct
 import tempfile
 import unittest
@@ -937,6 +938,32 @@ class StoredSkinsTests(_GameAndMod):
         with patch.object(custom_mods, "get_mods_root", return_value=self.storage.mods_root):
             self.assertEqual(custom_mods.find_local_mod(266, content_hash=content), "skins/266000/custom.fantome")
             self.assertEqual(custom_mods.find_local_mod(266, legacy_hash=legacy), "skins/266000/custom.fantome")
+
+    def test_a_renamed_skin_stays_listed_once_the_fix_rewrote_it(self):
+        """Matched to its entry by its content, which the rewrite changes: the
+        entry must follow the rewrite, or the skin is listed no more"""
+        renamed = self.stored.rename(self.stored.with_name("renamed.fantome"))
+
+        self.assertEqual(self.run_pass(), 1)
+
+        listed = self.storage.saved_mod(renamed.relative_to(self.storage.mods_root).as_posix())
+        self.assertIsNotNone(listed, "gone from the listing")
+        self.assertEqual(listed.target_skin_ids, (266033,))
+
+    def test_a_skin_nobody_registered_keeps_what_party_mode_shares_through_its_first_rewrite(self):
+        """A skin an older Rose kept in a per-skin folder, listed by the folder's skin alone"""
+        legacy = self.storage.get_skin_dir(266033) / "legacy.fantome"
+        legacy.parent.mkdir(parents=True)
+        shutil.copyfile(self.archive, legacy)
+        content, legacy_hash = custom_mods.mod_hashes(legacy)
+
+        self.run_pass()
+
+        self.assertNotEqual(custom_mods.mod_hashes(legacy)[0], content, "rewritten")
+        self.assertEqual(ModStorageService.manifest_entry(legacy)["sourceHashes"],
+                         {"content": content, "legacy": legacy_hash})
+        self.assertEqual(custom_mods.shared_hashes(legacy), (content, legacy_hash))
+        self.assertEqual(self.storage.saved_mod("skins/266033/legacy.fantome").target_skin_ids, (266033,))
 
     def test_new_targets_keep_what_party_mode_shares(self):
         self.storage.set_champion_target_ids(266, [266001], mod_name="custom")

@@ -6,12 +6,14 @@ game is not added."""
 import json
 import sys
 import tempfile
+import threading
 import unittest
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from injection.baseskin import library as base_skin_library
 from injection.mods.manifest import ltk_removals
 from injection.mods.mod_facts import compute_mod_facts
 from injection.mods.storage import ModStorageService
@@ -181,8 +183,9 @@ class SkinCheckOnImportTests(ModCheckCase):
 
         kept = self.handler()._check_imported_mods(self.skin_imported, [], MagicMock())
 
-        path, display_name, on_kept = self.library.check_mod.call_args.args
-        self.assertEqual((Path(path), on_kept), (self.skin, None), "LTK Manager's repair comes back into its file")
+        path, _display_name = self.library.check_mod.call_args.args
+        self.assertEqual(Path(path), self.skin)
+        self.assertEqual(self.library.check_mod.call_args.kwargs, {}, "no on_kept: LTK Manager's repair comes back")
         self.assertEqual(kept[0]["health"], verdict)
         skin = self.saved(self.skin_path)
         self.assertEqual((skin.ltk_id, skin.rose_copy, skin.pending), (None, self.skin, False))
@@ -203,6 +206,27 @@ class SkinCheckOnImportTests(ModCheckCase):
         self.assertEqual(self.saved(self.skin_path).metadata["folderHash"], repaired_hash)
         self.assertIsNotNone(self.storage.saved_mod(self.skin_path).metadata.get("sourceHashes"),
                              "what party mode shares, as the skin was added")
+
+    def test_a_custom_skin_is_checked_only_once_the_base_skin_fix_lets_go_of_it(self):
+        """The idle pass rewriting the skin and LTK Manager's repair written into
+        it would meet on the open file, which Windows refuses: the check waits"""
+        checked = threading.Event()
+
+        def check(mod, display_name, on_kept=None):
+            checked.set()
+            return {"health": "repairable", "repaired": 1, "problems": []}
+        self.library.check_mod.side_effect = check
+        instance = self.handler()
+
+        with base_skin_library.stored_skin_rewrite():
+            worker = threading.Thread(target=instance._check_imported_mods, args=(self.skin_imported, [], MagicMock()))
+            worker.start()
+            self.addCleanup(worker.join, 10)
+            self.assertFalse(checked.wait(0.5), "checked while the base-skin fix held the skin")
+        worker.join(10)
+
+        self.assertTrue(checked.is_set())
+        self.assertFalse(worker.is_alive())
 
     def test_a_skinhack_is_removed_and_reported_as_a_failed_import(self):
         """The Ezreal custom skin LTK Manager turned off in game"""
