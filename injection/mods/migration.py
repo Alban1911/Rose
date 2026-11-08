@@ -189,19 +189,21 @@ def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: Migr
 
 
 def delete_copy(storage: ModStorageService, mod: SavedMod) -> bool:
-    """Point the saved selections at the identity a saved mod LTK Manager
-    holds has without Rose's copy, <dir>/<name>.fantome (the path of a .zip,
-    a .modpkg or a folder names nothing once the copy is gone; the new one
-    names the mod already), then delete the copy
+    """Point the saved selections still naming Rose's copy of a saved mod LTK
+    Manager holds (the path of a .zip, a .modpkg or a folder, which names
+    nothing once the copy is gone) at the mod's identity,
+    <dir>/<name>.fantome, then delete the copy
     (ModStorageService.drop_stored_copy). False when the copy stays: a
     selection not renamed, or the copy in use. It is then a leftover copy,
     and the next start does both again."""
-    identity = f"{PurePosixPath(mod.relative_path).parent}/{mod.name}{ARCHIVE_SUFFIX}"
-    if identity.casefold() != mod.relative_path.casefold() and not rename_saved_paths(
-            {mod.relative_path: identity}):
+    if mod.stored is None:
+        return False
+    parent = PurePosixPath(mod.relative_path).parent
+    copy_path, identity = f"{parent}/{mod.stored.name}", f"{parent}/{mod.name}{ARCHIVE_SUFFIX}"
+    if copy_path.casefold() != identity.casefold() and not rename_saved_paths({copy_path: identity}):
         log.warning(f"[MIGRATE] Kept Rose's copy of {mod.name}: its saved selections could not be renamed")
         return False
-    return storage.drop_stored_copy(mod.relative_path)
+    return storage.drop_stored_copy(identity)
 
 
 class _Migration:

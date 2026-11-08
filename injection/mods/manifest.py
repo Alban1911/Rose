@@ -76,8 +76,8 @@ class SavedMod:
     key: str  # its key in the manifest's "mods" ("" for a file nobody registered)
     name: str
     # Its identity, relative to the mods root (POSIX): the path historic.json
-    # and mod_historic.json hold. <dir>/<name>.fantome, or the stored folder's
-    # (or non-.fantome archive's) own path while it exists
+    # and mod_historic.json hold. <dir>/<name>.fantome, or a pending mod's
+    # stored folder's (or non-.fantome archive's) own path while it exists
     relative_path: str
     ltk_id: Optional[str]
     missing: bool
@@ -340,8 +340,13 @@ def _mtime(path: Path) -> Optional[float]:
         return None
 
 
-def _identity(directory: _Directory, name: str, stored: Optional[Path], is_dir: bool) -> str:
-    if stored is not None and (is_dir or stored.suffix.lower() != ARCHIVE_SUFFIX):
+def _identity(directory: _Directory, name: str, stored: Optional[Path], is_dir: bool,
+              ltk_id: Optional[str]) -> str:
+    """A saved mod's identity: <dir>/<name>.fantome, or a pending mod's own
+    folder or non-.fantome archive path. A mod LTK Manager holds keeps the
+    first while a leftover copy remains: the saved selections are pointed at
+    it before that copy goes (migration.delete_copy)."""
+    if ltk_id is None and stored is not None and (is_dir or stored.suffix.lower() != ARCHIVE_SUFFIX):
         return f"{directory.relative}/{stored.name}"
     return f"{directory.relative}/{name}{ARCHIVE_SUFFIX}"
 
@@ -409,7 +414,7 @@ def _directory_mods(directory: _Directory, match_content: bool = True) -> List[S
             directory=directory.path,
             key=entry.key,
             name=name,
-            relative_path=_identity(directory, name, copy, is_dir),
+            relative_path=_identity(directory, name, copy, is_dir, entry.ltk_id),
             ltk_id=entry.ltk_id,
             missing=bool(entry.ltk_id) and entry.metadata.get("missing") is True,
             stored=copy,
@@ -429,7 +434,7 @@ def _directory_mods(directory: _Directory, match_content: bool = True) -> List[S
                 directory=directory.path,
                 key="",
                 name=name,
-                relative_path=_identity(directory, name, candidate, is_dir),
+                relative_path=_identity(directory, name, candidate, is_dir, None),
                 ltk_id=None,
                 missing=False,
                 stored=candidate,

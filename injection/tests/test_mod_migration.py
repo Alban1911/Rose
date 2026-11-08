@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from injection.mods import conversion, migration, mod_facts
 from injection.mods.fingerprint import mod_fingerprint
+from injection.mods.ltk_ref import ltk_ref
 from injection.mods.manifest import iter_saved_mods
 from injection.mods.migration import MigrationReport, Step, migrate_saved_mods, needs_migration, size_text
 from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
@@ -26,6 +27,7 @@ from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
 from injection.tests.test_mod_archives import PNG, VOICEOVER, add_entries, make_archive, make_folder
 from injection.tools.bridge import BridgeCommandError, BridgeUnavailable
 from injection.tools.tools_manager import ToolsManager
+from threads.handlers.injection_trigger import InjectionTrigger
 from utils.core import historic, mod_historic
 
 KEPT_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
@@ -288,6 +290,30 @@ class WhatIsMovedTests(MigrationTestCase):
         self.assertIsNotNone(self.entry("maps/Rift.fantome").ltk_id)
         self.assertEqual(mod_historic.get_historic_mod("map"), "maps/Rift.fantome")
         self.assertEqual(historic.get_historic_skin_for_champion(75), "path:skins/75000/Nasus.fantome")
+
+    def test_a_zip_copy_left_in_use_keeps_the_renamed_selection_injected(self):
+        """The selection names maps/Rift.fantome before the copy goes; a copy
+        in use stays, and the injection must still find the mod by that name"""
+        archive = self.category_mod("Rift", category="maps", suffix=".zip")
+        mod_historic.write_historic_mod("map", "maps/Rift.zip")
+
+        with patch.object(ModStorageService, "drop_stored_copy", return_value=False):
+            self.migrate()
+
+        self.assertTrue(archive.exists())
+        self.assertEqual(mod_historic.get_historic_mod("map"), "maps/Rift.fantome")
+        ltk_id = self.entry("maps/Rift.zip").ltk_id  # the old path still names it
+        selection = InjectionTrigger._find_saved_mod(self.storage, "maps", "maps/Rift.fantome")
+        self.assertIsNotNone(selection)
+        self.assertEqual((selection["ltk_id"], selection["mod_folder_name"]), (ltk_id, ltk_ref(ltk_id)))
+        self.assertEqual([mod["id"] for mod in self.storage.list_mods_for_category("maps")], ["maps/Rift.fantome"])
+
+        FakeBridge.initial_library = self.bridge.library_entries
+        self.migrate()
+
+        self.assertFalse(archive.exists())
+        self.assertEqual(mod_historic.get_historic_mod("map"), "maps/Rift.fantome")
+        self.assertIsNotNone(InjectionTrigger._find_saved_mod(self.storage, "maps", "maps/Rift.fantome"))
 
     def test_a_selection_that_cannot_be_renamed_keeps_roses_copy_until_a_later_start(self):
         """Deleted first, the .zip would leave the selection naming nothing, and
