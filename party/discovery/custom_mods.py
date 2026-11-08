@@ -20,6 +20,7 @@ from injection.mods.mod_facts import (  # noqa: F401 - _content_digest, _is_prev
     _hash_stream,
     _is_preview_image,
 )
+from injection.mods.manifest import SKINS, find_saved_mod, iter_saved_mods
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
@@ -86,6 +87,23 @@ def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
     return content_hash, legacy_hash
 
 
+def saved_mod_hashes(relative_path: str) -> Tuple[Optional[str], Optional[str]]:
+    """(content hash, legacy hash) our pick of a saved mod shares with the
+    party. A mod LTK Manager holds has no file in Rose: its manifest's
+    partyHash is the content hash, and there is no whole-file hash for older
+    Roses. Rose's copy, while it has one, is hashed (mod_hashes). Nothing for
+    a mod we cannot inject ourselves."""
+    mods_root = get_mods_root()
+    saved = find_saved_mod(mods_root, relative_path)
+    if saved is None:
+        return mod_hashes(mods_root / relative_path)
+    if not saved.available:
+        return None, None
+    if saved.stored is None:
+        return (saved.facts.party_hash if saved.facts else None), None
+    return mod_hashes(saved.stored)
+
+
 def _champion_mod_entries(champion_id: int):
     """Custom mods stored for a champion (champion folder and legacy per-skin folders)."""
     skins_dir = get_mods_root() / "skins"
@@ -110,7 +128,10 @@ def find_local_mod(
     content_hash: Optional[str] = None,
     legacy_hash: Optional[str] = None,
 ) -> Optional[str]:
-    """Find our copy of a friend's custom mod.
+    """Find our copy of a friend's custom mod: first by the partyHash our
+    saved mods' manifests keep (one LTK Manager holds has no file in Rose to
+    hash), then by hashing the files Rose still holds, as friends on older
+    Roses may send only an archive's whole-file hash.
 
     Returns:
         Path relative to the mods root, or None if we don't have it.
@@ -120,6 +141,10 @@ def find_local_mod(
 
     mods_root = get_mods_root()
     try:
+        if content_hash:
+            for saved in iter_saved_mods(mods_root, SKINS, champion_id=int(champion_id)):
+                if saved.available and saved.facts and saved.facts.party_hash == content_hash:
+                    return saved.relative_path
         for entry in _champion_mod_entries(int(champion_id)):
             entry_content, entry_legacy = mod_hashes(entry)
             if (content_hash and entry_content == content_hash) or (

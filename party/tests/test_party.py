@@ -15,6 +15,7 @@ from party.discovery import custom_mods
 from party.discovery.skin_collector import PartySkinData, SkinCollector
 from party.integration.injection_hook import PartyInjectionHook
 from injection.mods.ltk_ref import ltk_ref
+from injection.mods.mod_facts import ModFacts
 from injection.mods.mod_files import ModFiles
 from party.protocol.token_codec import PartyToken, create_token
 
@@ -158,6 +159,50 @@ class CustomModsTests(unittest.TestCase):
 
         self.assertEqual(replacement_hash, archive_hash)
         self.assertNotEqual(replacement_stamp, first_stamp)
+
+    def save_mod(self, name, **entry):
+        """Register a saved mod of Ahri's in her manifest"""
+        manifest = self.mods_root / "skins" / "103000" / "rose_mod_targets.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {"version": 1, "mods": {}}
+        payload["mods"][name] = {"name": name, "targets": [103001], **entry}
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    def save_ltk_mod(self, name, party_hash, ltk_id, missing=False):
+        """A saved mod LTK Manager holds: Rose has no file of it, its manifest keeps its hash"""
+        self.save_mod(name, ltkId=ltk_id, missing=missing, **ModFacts(party_hash, ("Ahri",), False).to_manifest())
+
+    def our_pick(self, custom_mod_path):
+        manager = PartyManager(Mock(), make_state())
+        selection = SimpleNamespace(champion_id=103, skin_id=103001, chroma_id=None, custom_mod_path=custom_mod_path)
+        manager._skin_collector = Mock(get_my_selection=Mock(return_value=selection))
+        return manager._current_skin_state()
+
+    def test_a_mod_ltk_manager_holds_is_matched_by_its_manifest_hash(self):
+        self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
+        self.save_ltk_mod("Lost Ahri", "b" * 32, "d6f841c7-140b-4ac2-a11c-b37e18eb8006", missing=True)
+
+        self.assertEqual(custom_mods.find_local_mod(103, content_hash="a" * 32), "skins/103000/LTK Ahri.fantome")
+        self.assertIsNone(custom_mods.find_local_mod(103, content_hash="b" * 32))  # we could not inject it
+        self.assertIsNone(custom_mods.find_local_mod(11, content_hash="a" * 32))
+
+    def test_our_pick_of_a_mod_ltk_manager_holds_shares_its_manifest_hash(self):
+        self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
+
+        state = self.our_pick("skins/103000/LTK Ahri.fantome")
+
+        self.assertTrue(state["is_custom"])
+        self.assertEqual(state["custom_mod_content_hash"], "a" * 32)
+        self.assertNotIn("custom_mod_hash", state)  # no file to take an older Rose's whole-file hash of
+
+    def test_our_pick_of_a_pending_mod_shares_the_hashes_of_its_file(self):
+        archive = self.mods_root / "skins" / "103000" / "Old Ahri.zip"
+        self._make_archive(archive)
+        self.save_mod("Old Ahri")
+
+        state = self.our_pick("skins/103000/Old Ahri.zip")
+
+        self.assertEqual((state["custom_mod_content_hash"], state["custom_mod_hash"]), custom_mods.mod_hashes(archive))
 
 
 class SkinCollectorSelectionTests(unittest.TestCase):

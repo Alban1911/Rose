@@ -104,6 +104,13 @@ class SavedMod:
             return self.name
         return self.stored.name if self.stored.is_dir() else self.stored.stem
 
+    @property
+    def storage_id(self) -> Optional[int]:
+        """The number of the skins folder holding it: its champion's id
+        times 1000, or the skin a per-skin folder of an older Rose is named
+        after. None for a category's mod."""
+        return int(self.directory.name) if self.kind == SKINS else None
+
     def sidecar(self, suffix: str) -> Path:
         """Its file beside the manifest (".png", ".webp", ".txt")."""
         return self.directory / f"{self.name}{suffix}"
@@ -251,6 +258,13 @@ def _writable_manifest(directory: _Directory) -> Optional[dict]:
     return read_manifest(directory.path / LEGACY_TARGET_METADATA)
 
 
+def _entry_name(directory: _Directory, key: str, metadata: Mapping) -> str:
+    if directory.kind == SKINS:
+        return str(metadata.get("name") or key)
+    # A category knows a mod by its path (its name, without the extension)
+    return str(metadata.get("path") or key).replace("\\", "/").strip("/")
+
+
 def _entries(directory: _Directory, payload: Optional[dict]) -> List[_Entry]:
     raw = payload.get("mods") if isinstance(payload, dict) else None
     if not isinstance(raw, dict):
@@ -259,13 +273,8 @@ def _entries(directory: _Directory, payload: Optional[dict]) -> List[_Entry]:
     for raw_key, value in raw.items():
         key = str(raw_key)
         metadata = dict(value) if isinstance(value, dict) else {}
-        if directory.kind == SKINS:
-            name = str(metadata.get("name") or key)
-            targets = normalize_target_ids(value)
-        else:
-            # A category knows a mod by its path (its name, without the extension)
-            name = str(metadata.get("path") or key).replace("\\", "/").strip("/")
-            targets = ()
+        name = _entry_name(directory, key, metadata)
+        targets = normalize_target_ids(value) if directory.kind == SKINS else ()
         if not name or name in {".", ".."} or "/" in name or "\\" in name:
             continue
         ltk_id = metadata.get("ltkId")
@@ -579,16 +588,51 @@ def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -
             else:
                 entry[name] = value
         mods[key] = entry
-
-        payload["version"] = 1
-        if directory.kind == SKINS:
-            payload.setdefault("championId", directory.storage_id // 1000)
-            payload.setdefault("targets", [directory.storage_id] if directory.legacy else [])
-        else:
-            payload["category"] = directory.kind
-        payload["mods"] = dict(sorted(mods.items()))
-        _write_json(directory.manifest, payload)
+        _write_manifest(directory, payload, mods)
         return True
+
+
+def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
+    """Take a saved mod out of its manifest: its entry, and any other under
+    its name. The LTK Manager entries they name are queued for removal at the
+    next session start first: one no manifest names any more would stay in
+    LTK Manager for good, as Rose would never know it again. False when the
+    manifest cannot be read (rewriting it would drop the mods it lists).
+    Rose's copy and the files beside the manifest are the caller's to delete."""
+    if not mod.key:
+        return True  # a file nobody registered: no entry to take out
+    if mod.kind == SKINS:
+        directory = _skins_directory(mod.directory)
+    else:
+        directory = _Directory(mod.kind, mod.directory, mod.kind)
+    with _STORAGE_LOCK:
+        payload = _writable_manifest(directory)
+        if payload is None:
+            log.warning(f"[MODS] The manifest of {mod.name} could not be read, so it was left unchanged")
+            return False
+        raw_mods = payload.get("mods")
+        mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
+        removed = {
+            key: value for key, value in mods.items()
+            if key == mod.key
+            or _entry_name(directory, key, value if isinstance(value, dict) else {}).casefold() == mod.name.casefold()
+        }
+        if not removed:
+            return True
+        queue_ltk_removal(mods_root, [value.get("ltkId") for value in removed.values() if isinstance(value, dict)])
+        _write_manifest(directory, dict(payload), {key: value for key, value in mods.items() if key not in removed})
+    return True
+
+
+def _write_manifest(directory: _Directory, payload: dict, mods: dict) -> None:
+    payload["version"] = 1
+    if directory.kind == SKINS:
+        payload.setdefault("championId", directory.storage_id // 1000)
+        payload.setdefault("targets", [directory.storage_id] if directory.legacy else [])
+    else:
+        payload["category"] = directory.kind
+    payload["mods"] = dict(sorted(mods.items()))
+    _write_json(directory.manifest, payload)
 
 
 # --------------------------------------------------------------------------------------

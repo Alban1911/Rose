@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
+from injection.mods.storage import SkinModEntry
 from pengu.communication.message_handler import (
     MessageHandler,
     _mod_thumbnail_details,
@@ -80,27 +81,11 @@ class ChampionModImageHandlerTests(unittest.TestCase):
             handler.mod_storage = SimpleNamespace(mods_root=root)
             handler.port = 50000
             entries = [
-                SimpleNamespace(
-                    path=mod_folder,
-                    mod_name="folder",
-                    display_name=None,
-                    skin_id=1001,
-                    target_skin_ids={1001},
-                    description="",
-                    updated_at=0,
-                ),
-                SimpleNamespace(
-                    path=archive,
-                    mod_name="archive",
-                    display_name=None,
-                    skin_id=1001,
-                    target_skin_ids={1001},
-                    description="",
-                    updated_at=0,
-                ),
+                SkinModEntry(1, 1000, name, path, 0, "", (1001,), stored=path)
+                for name, path in (("folder", mod_folder), ("archive", archive))
             ]
 
-            payload = handler._serialize_manage_champion_mods(entries)
+            payload = [handler._champion_mod_payload(entry) for entry in entries]
 
         self.assertTrue(payload[0]["imageEditable"])
         self.assertTrue(payload[1]["imageEditable"])
@@ -126,6 +111,19 @@ class ModThumbnailCacheTests(unittest.TestCase):
         self.assertEqual(second_relative, first_relative)
         self.assertNotEqual(first_url, second_url)
         self.assertIn("?v=", second_url)
+
+    def test_a_mod_ltk_manager_holds_shows_the_image_beside_its_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            mods_root = Path(temporary)
+            champion = mods_root / "skins" / "1000"
+            champion.mkdir(parents=True)
+            (champion / "Example.png").write_bytes(b"preview")
+
+            # Its archive is LTK Manager's: Rose has no file at its path
+            relative, url = _mod_thumbnail_details(champion / "Example.fantome", mods_root, 50000)
+
+        self.assertEqual(relative, "skins/1000/Example.png")
+        self.assertIn("/mod-asset/skins/1000/Example.png?v=", url)
 
 
 if __name__ == "__main__":

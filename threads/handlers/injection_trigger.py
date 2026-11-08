@@ -346,9 +346,9 @@ class InjectionTrigger:
                 "relative_path": historic_custom_mod_path,
                 **saved_selection(
                     selected_mod_entry.path,
-                    getattr(selected_mod_entry, "ltk_id", None),
-                    getattr(selected_mod_entry, "missing", False),
-                    getattr(selected_mod_entry, "facts", None),
+                    selected_mod_entry.ltk_id,
+                    selected_mod_entry.missing,
+                    selected_mod_entry.facts,
                 ),
             }
             if not selection_available(selection):

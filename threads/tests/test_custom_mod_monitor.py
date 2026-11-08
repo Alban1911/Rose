@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from injection.core.mod_source import saved_selection
 from injection.mods.ltk_ref import ltk_ref
 from injection.mods.mod_facts import ModFacts
+from injection.mods.storage import ModStorageService
 from threads.handlers.injection_trigger import InjectionTrigger
 
 # LTK Manager library ids of saved mods
@@ -184,6 +186,32 @@ class SavedLtkModInjectionTests(CustomModInjectionCase):
         self.inject(custom)
 
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
+
+    def saved_custom_mod(self, **entry):
+        """The custom mod the last game saved for Ahri, as the trigger restores it"""
+        storage = ModStorageService(self.root / "library")
+        manifest = storage.get_champion_dir(103) / ModStorageService.TARGET_METADATA
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps({"version": 1, "mods": {
+            "Mod": {"name": "Mod", "targets": [103001], "ltkId": SKIN_ID, **entry},
+        }}), encoding="utf-8")
+        with patch("injection.mods.storage.ModStorageService", return_value=storage), \
+                patch("utils.core.historic.get_historic_skin_for_champion", return_value="path:skins/103000/Mod.fantome"), \
+                patch("utils.core.historic.get_historic_target_for_champion", return_value=None):
+            return self.trigger._saved_custom_mod(103001, 103001)
+
+    def test_a_saved_custom_mod_ltk_manager_holds_is_restored_as_its_reference(self):
+        facts = ModFacts(None, ("Ahri",), False)
+
+        selection = self.saved_custom_mod(**facts.to_manifest())
+
+        self.assertEqual(selection["mod_folder_name"], ltk_ref(SKIN_ID))
+        self.assertEqual((selection["ltk_id"], selection["facts"]), (SKIN_ID, facts.to_manifest()))
+        self.assertEqual(selection["relative_path"], "skins/103000/Mod.fantome")
+
+    def test_a_saved_custom_mod_ltk_manager_lost_is_not_restored(self):
+        with self.assertLogs(level="WARNING"):
+            self.assertIsNone(self.saved_custom_mod(missing=True))
 
 
 if __name__ == "__main__":

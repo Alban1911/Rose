@@ -19,15 +19,16 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
-from typing import Optional
+from typing import NamedTuple, Optional, Sequence
 from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
+from injection.core.mod_source import ModSource, saved_selection
+from injection.mods.manifest import selection_available
 from injection.mods.storage import ModStorageService
 from injection.overlay.overlay_manager import ltk_failure_cause
-from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
+from utils.core.paths import get_user_data_dir, get_asset_path, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
-from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
 from utils.core.utilities import get_base_skin_id_for_chroma
 from ui.handlers.randomization_handler import cancel_random_mode_for_selection
@@ -83,13 +84,14 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
 })
 
 
-def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
-    """Return a stored mod's preview image (.fantome mods ship a PNG, .modpkg a
-    WebP): in a folder's META, beside an archive under its name."""
-    if mod_folder.is_file():
-        candidates = [mod_folder.with_suffix(suffix) for suffix in (".png", ".webp")]
+def _mod_thumbnail(mod_path: Path) -> Optional[Path]:
+    """Return a saved mod's preview image (.fantome mods ship a PNG, .modpkg a
+    WebP): in a stored folder's META, else beside the manifest under the mod's
+    name, where it stays once LTK Manager holds the mod and Rose has no file."""
+    if mod_path.is_dir():
+        candidates = [mod_path / "META" / name for name in ("image.png", "image.webp")]
     else:
-        candidates = [mod_folder / "META" / name for name in ("image.png", "image.webp")]
+        candidates = [mod_path.with_suffix(suffix) for suffix in (".png", ".webp")]
     for thumbnail_path in candidates:
         if thumbnail_path.is_file():
             return thumbnail_path
@@ -114,6 +116,34 @@ def _mod_thumbnail_details(
     quoted_path = quote(relative_path, safe="/")
     version = thumbnail_path.stat().st_mtime_ns
     return relative_path, f"http://127.0.0.1:{port}/mod-asset/{quoted_path}?v={version}"
+
+
+def _unavailable(selection: dict) -> Optional[str]:
+    """Why a picked saved mod (saved_selection's keys) cannot be injected, as
+    the user is told; None when it can."""
+    if selection_available(selection):
+        return None
+    if selection.get("ltk_id"):
+        return "This mod is missing from LTK Manager - add it again"
+    return "The mod files are missing"
+
+
+class _OneModCategory(NamedTuple):
+    """A category the user picks one mod of: the select message's id and data
+    keys, the category, and the shared state attribute that keeps the pick
+    (its mod_historic key is the kind _ONE_MOD_CATEGORIES files it under)."""
+
+    id_key: str
+    data_key: str
+    category: str
+    state_attr: str
+
+
+_ONE_MOD_CATEGORIES = {
+    "map": _OneModCategory("mapId", "mapData", "maps", "selected_map_mod"),
+    "font": _OneModCategory("fontId", "fontData", "fonts", "selected_font_mod"),
+    "announcer": _OneModCategory("announcerId", "announcerData", "announcers", "selected_announcer_mod"),
+}
 
 
 # LTK Manager's rule for a base skin that uses another skin's model or name:
@@ -351,12 +381,8 @@ class MessageHandler:
             self._handle_request_category_mods({"category": self.mod_storage.CATEGORY_OTHERS})
         elif payload_type == "select-skin-mod":
             self._handle_select_skin_mod(payload)
-        elif payload_type == "select-map":
-            self._handle_select_map(payload)
-        elif payload_type == "select-font":
-            self._handle_select_font(payload)
-        elif payload_type == "select-announcer":
-            self._handle_select_announcer(payload)
+        elif payload_type in ("select-map", "select-font", "select-announcer"):
+            self._handle_select_one_mod(payload_type[len("select-"):], payload)
         elif payload_type == "select-other":
             self._handle_select_other(payload)
         elif payload_type == "open-logs-folder":
@@ -1165,41 +1191,13 @@ class MessageHandler:
             entries = []
 
         compatible_skin_ids = self._get_compatible_skin_ids(skin_id)
-
-        mods_payload = []
-        for entry in entries:
-            target_skin_ids = self._get_entry_target_skin_ids(entry)
-            try:
-                relative_path = entry.path.relative_to(self.mod_storage.mods_root)
-            except Exception:
-                relative_path = entry.path
-
-            thumbnail_relative_path = None
-            thumbnail_url = None
-            try:
-                thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
-                    entry.path,
-                    self.mod_storage.mods_root,
-                    self.port,
-                )
-            except Exception as e:
-                log.debug('[SkinMonitor] Could not build mod thumbnail URL: %s', e)
-
-            mods_payload.append(
-                {
-                    "modName": entry.mod_name,
-                    "displayName": entry.display_name,
-                    "skinId": entry.skin_id,
-                    "targetSkinIds": sorted(target_skin_ids),
-                    "availableForRequestedSkin": bool(target_skin_ids & compatible_skin_ids),
-                    "description": entry.description,
-                    "updatedAt": int(entry.updated_at * 1000),
-                    "relativePath": str(relative_path).replace("\\", "/"),
-                    "thumbnailRelativePath": thumbnail_relative_path,
-                    "thumbnailUrl": thumbnail_url,
-                    "imageEditable": _image_editable(entry.path),
-                }
-            )
+        mods_payload = [
+            {
+                **self._champion_mod_payload(entry),
+                "availableForRequestedSkin": bool(self._get_entry_target_skin_ids(entry) & compatible_skin_ids),
+            }
+            for entry in entries
+        ]
 
         # Get historic custom mod path for this champion if available
         historic_mod_path = None
@@ -1262,39 +1260,39 @@ class MessageHandler:
         name = champion_data.get("name")
         return str(name) if name else None
 
-    def _serialize_manage_champion_mods(self, entries) -> list[dict]:
-        mods_payload = []
-        for entry in entries:
-            target_skin_ids = self._get_entry_target_skin_ids(entry)
-            try:
-                relative_path = entry.path.relative_to(self.mod_storage.mods_root)
-            except Exception:
-                relative_path = entry.path
-            thumbnail_relative_path = None
-            thumbnail_url = None
-            try:
-                thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
-                    entry.path,
-                    self.mod_storage.mods_root,
-                    self.port,
-                )
-            except Exception as e:
-                log.debug(f"[SkinMonitor] No thumbnail for mod {entry.path}: {e}")
-            mods_payload.append(
-                {
-                    "modName": entry.mod_name,
-                    "displayName": entry.display_name,
-                    "skinId": entry.skin_id,
-                    "targetSkinIds": sorted(target_skin_ids),
-                    "description": entry.description,
-                    "updatedAt": int(entry.updated_at * 1000),
-                    "relativePath": str(relative_path).replace("\\", "/"),
-                    "thumbnailRelativePath": thumbnail_relative_path,
-                    "thumbnailUrl": thumbnail_url,
-                    "imageEditable": _image_editable(entry.path),
-                }
+    def _champion_mod_payload(self, entry) -> dict:
+        """A saved skin mod (SkinModEntry) as the plugins list it. ltkId,
+        missing (LTK Manager lost it: listed so it can be deleted, never
+        selected) and pending (Rose still holds its file) say where it is."""
+        try:
+            relative_path = entry.path.relative_to(self.mod_storage.mods_root)
+        except Exception:
+            relative_path = entry.path
+        thumbnail_relative_path = None
+        thumbnail_url = None
+        try:
+            thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
+                entry.path,
+                self.mod_storage.mods_root,
+                self.port,
             )
-        return mods_payload
+        except Exception as e:
+            log.debug(f"[SkinMonitor] No thumbnail for mod {entry.path}: {e}")
+        return {
+            "modName": entry.mod_name,
+            "displayName": entry.display_name,
+            "skinId": entry.skin_id,
+            "targetSkinIds": sorted(self._get_entry_target_skin_ids(entry)),
+            "description": entry.description,
+            "updatedAt": int(entry.updated_at * 1000),
+            "relativePath": str(relative_path).replace("\\", "/"),
+            "thumbnailRelativePath": thumbnail_relative_path,
+            "thumbnailUrl": thumbnail_url,
+            "imageEditable": _image_editable(entry.path),
+            "ltkId": entry.ltk_id,
+            "missing": entry.missing,
+            "pending": entry.pending,
+        }
 
     def _handle_request_manage_champion_mods(self, payload: dict) -> None:
         """List champion mods for the Settings manage UI without touching champ-select state."""
@@ -1312,7 +1310,7 @@ class MessageHandler:
             "type": "manage-champion-mods-response",
             "championId": champion_id,
             "championName": self._lookup_champion_name(champion_id),
-            "mods": self._serialize_manage_champion_mods(entries),
+            "mods": [self._champion_mod_payload(entry) for entry in entries],
             "timestamp": int(time.time() * 1000),
         }))
 
@@ -1688,19 +1686,7 @@ class MessageHandler:
                 except Exception as exc:
                     log.debug("[HISTORIC] Failed to clear saved custom mod on deselect: %s", exc)
 
-                # Best-effort cleanup: remove the extracted mod folder only (do NOT wipe other mods).
-                try:
-                    mod_folder_name = self.shared_state.selected_custom_mod.get("mod_folder_name")
-                    injector = getattr(getattr(self.injection_manager, "injector", None), "mods_dir", None)
-                    if mod_folder_name and self.injection_manager and getattr(self.injection_manager, "injector", None):
-                        mods_dir = self.injection_manager.injector.mods_dir
-                        extracted_path = mods_dir / str(mod_folder_name)
-                        if extracted_path.exists() or is_junction(extracted_path):
-                            safe_remove_entry(extracted_path)
-                            log.info("[SkinMonitor] Removed extracted custom mod folder: %s", extracted_path)
-                except Exception as exc:
-                    log.debug("[SkinMonitor] Failed to cleanup extracted custom mod on deselect: %s", exc)
-
+                self._take_back_custom_mod("SkinMonitor")
                 self.shared_state.selected_custom_mod = None
                 log.info(f"[SkinMonitor] Custom mod deselected for skin {skin_id}")
 
@@ -1801,25 +1787,20 @@ class MessageHandler:
                 )
                 return
 
-            mod_source = Path(selected_mod.path)
-            if not mod_source.exists():
-                log.error(f"[SkinMonitor] Mod file not found: {mod_source}")
+            selection = saved_selection(
+                selected_mod.path, selected_mod.ltk_id, selected_mod.missing, selected_mod.facts
+            )
+            error = _unavailable(selection)
+            if error:
+                log.warning(f"[SkinMonitor] Cannot select {selected_mod.mod_name}: {error}")
                 self._send_custom_mod_selection_result(
                     payload,
                     success=False,
                     operation="select",
-                    error="The mod files are missing",
+                    error=error,
                     selected_mod=selected_mod,
                 )
                 return
-
-            # Determine mod folder name
-            if mod_source.is_dir():
-                mod_folder_name = mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_folder_name = mod_source.stem
-            else:
-                mod_folder_name = mod_source.stem
 
             # Extract/copy mod to injection mods directory immediately
             # Check if other mods (map/font/announcer/other) are already selected
@@ -1843,19 +1824,10 @@ class MessageHandler:
             else:
                 log.info("[SkinMonitor] Other mods selected - keeping existing mods and adding skin mod")
             
-            extract_cache_dir = get_injection_dir() / ".extract_cache"
-            if mod_source.is_dir():
-                mod_dest = injector.mods_dir / mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_dest = injector.mods_dir / mod_source.stem
-            else:
-                mod_dest = injector.mods_dir / mod_folder_name
-            if mod_dest.exists() or is_junction(mod_dest):
-                safe_remove_entry(mod_dest)
-            link_or_extract(mod_source, mod_dest, cache_dir=extract_cache_dir)
-            if not (mod_dest.exists() or is_junction(mod_dest)):
+            prepared = ModSource.of(selection).put(injector.mods_dir)
+            if prepared is None:
                 raise RuntimeError("The mod could not be linked or extracted into the injection folder")
-            log.info(f"[SkinMonitor] Linked/extracted mod to: {mod_dest}")
+            log.info(f"[SkinMonitor] Prepared mod for the injection: {prepared}")
 
             # The explicitly selected skin/chroma folder is the target.
             self.shared_state.selected_custom_mod = {
@@ -1865,9 +1837,8 @@ class MessageHandler:
                 "champion_id": champion_id,
                 "mod_name": selected_mod.mod_name,
                 "display_name": selected_mod.display_name,
-                "mod_path": str(selected_mod.path),
-                "mod_folder_name": mod_folder_name,  # Add this for injection
                 "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
+                **selection,
             }
             
             # Disable HistoricMode if active (custom mod takes priority)
@@ -1923,17 +1894,7 @@ class MessageHandler:
         if not getattr(self.shared_state, "selected_custom_mod", None):
             return
 
-        # Clean up extracted mod folder
-        try:
-            mod_folder_name = self.shared_state.selected_custom_mod.get("mod_folder_name")
-            if mod_folder_name and self.injection_manager and getattr(self.injection_manager, "injector", None):
-                mods_dir = self.injection_manager.injector.mods_dir
-                extracted_path = mods_dir / str(mod_folder_name)
-                if extracted_path.exists() or is_junction(extracted_path):
-                    safe_remove_entry(extracted_path)
-                    log.info("[Dismiss] Removed extracted custom mod folder: %s", extracted_path)
-        except Exception as exc:
-            log.debug("[Dismiss] Failed to cleanup extracted custom mod: %s", exc)
+        self._take_back_custom_mod("Dismiss")
 
         # Clear historic entry so it doesn't auto-reselect
         try:
@@ -1964,6 +1925,18 @@ class MessageHandler:
                 self.shared_state.ui_skin_thread._broadcast_custom_mod_state()
         except Exception as exc:
             log.debug("[Dismiss] Failed to broadcast custom mod state: %s", exc)
+
+    def _take_back_custom_mod(self, tag: str) -> None:
+        """Take the selected custom mod back out of the injection's mods
+        folder (ModSource.take_back), so it does not keep injecting once
+        unpicked. Best effort: a failure is only logged under *tag*."""
+        try:
+            mod = ModSource.of(self.shared_state.selected_custom_mod)
+            injector = getattr(self.injection_manager, "injector", None)
+            if mod is not None and injector is not None:
+                mod.take_back(injector.mods_dir)
+        except Exception as exc:
+            log.debug("[%s] Failed to take the custom mod out of the injection: %s", tag, exc)
 
     def _clear_active_selection_if_matches(self, champion_id: object, relative_path: object) -> None:
         """Clear the active/historic custom mod selection if it points at the deleted mod."""
@@ -2480,319 +2453,90 @@ class MessageHandler:
         except Exception as exc:
             log.debug("[Dismiss] Failed to broadcast historic state: %s", exc)
 
-    def _handle_select_map(self, payload: dict) -> None:
-        """Handle map mod selection for injection"""
+    def _prepare_saved_mod(self, identifier: object, categories: Sequence[str], label: str) -> Optional[dict]:
+        """Ready the saved mod a plugin picked in one of *categories* for the
+        injection (ModSource.put: an entry LTK Manager holds needs nothing,
+        Rose's copy is linked in) and return its selection: mod_name,
+        relative_path and saved_selection's keys. None, logged, when it
+        cannot be injected. *identifier* is the mod's identity or, in a single
+        category, its name."""
+        relative_path = str(identifier or "").replace("\\", "/").strip("/")
+        if not _is_safe_relative_path(relative_path):
+            log.warning(f"[SkinMonitor] Blocked unsafe {label} mod path: {identifier}")
+            return None
+        if "/" not in relative_path and len(categories) == 1:
+            relative_path = f"{categories[0]}/{relative_path}"
+        mod = self.mod_storage.saved_mod(relative_path)
+        if mod is None or mod.kind not in categories:
+            log.warning(f"[SkinMonitor] {label.capitalize()} mod not found: {identifier}")
+            return None
+        injector = getattr(self.injection_manager, "injector", None)
+        if not injector:
+            log.warning(f"[SkinMonitor] Cannot prepare the {label} mod - injector not available")
+            return None
+        selection = {
+            "mod_name": mod.name,
+            "relative_path": mod.relative_path,
+            **saved_selection(mod.path(self.mod_storage.mods_root), mod.ltk_id, mod.missing, mod.facts),
+        }
+        error = _unavailable(selection)
+        if error is None and ModSource.of(selection).put(injector.mods_dir) is None:
+            error = "The mod could not be linked into the injection folder"
+        if error:
+            log.warning(f"[SkinMonitor] Cannot select the {label} mod {mod.name}: {error}")
+            return None
+        log.info(f"[SkinMonitor] {label.capitalize()} mod ready for injection alongside the skin: {mod.name}")
+        return selection
+
+    def _handle_select_one_mod(self, kind: str, payload: dict) -> None:
+        """Select the map, font or announcer mod (*kind*) for the injection,
+        or deselect it (a null id)"""
+        pick = _ONE_MOD_CATEGORIES[kind]
         if not self.mod_storage:
-            log.warning("[SkinMonitor] Cannot handle map selection - mod storage not available")
+            log.warning(f"[SkinMonitor] Cannot handle {kind} selection - mod storage not available")
             return
-        
-        map_id = payload.get("mapId")
-        map_data = payload.get("mapData", {})
-        
-        # Handle deselection (map_id is null)
-        if map_id is None:
-            if hasattr(self.shared_state, 'selected_map_mod') and self.shared_state.selected_map_mod:
-                self.shared_state.selected_map_mod = None
-                log.info(f"[SkinMonitor] Map mod deselected")
+
+        mod_id = payload.get(pick.id_key)
+        if mod_id is None:
+            if getattr(self.shared_state, pick.state_attr, None):
+                setattr(self.shared_state, pick.state_attr, None)
+                log.info(f"[SkinMonitor] {kind.capitalize()} mod deselected")
                 # Clear historic mod when deselected
                 try:
                     from utils.core.mod_historic import clear_historic_mod
-                    clear_historic_mod("map")
-                    log.debug("[MOD_HISTORIC] Cleared historic map mod")
+                    clear_historic_mod(kind)
+                    log.debug(f"[MOD_HISTORIC] Cleared historic {kind} mod")
                 except Exception as e:
-                    log.debug(f"[MOD_HISTORIC] Failed to clear historic map mod: {e}")
+                    log.debug(f"[MOD_HISTORIC] Failed to clear historic {kind} mod: {e}")
             return
-        
+
+        # The data holds the listing's entry: id (relative path), name, path, ...
+        data = payload.get(pick.data_key) or {}
         try:
-            # Find the mod in storage
-            entries = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_MAPS)
-            selected_mod = None
-            # map_data contains: id (relative path), name, path, updatedAt, description
-            mod_identifier = map_data.get("id") or map_data.get("name") or map_id
-            for entry_dict in entries:
-                # Match by id (relative path) or name
-                if (entry_dict.get("id") == mod_identifier or 
-                    entry_dict.get("name") == mod_identifier):
-                    # Convert dict to Path for extraction
-                    mod_path = self.mod_storage.mods_root / entry_dict["path"].replace("/", "\\")
-                    selected_mod = type('ModEntry', (), {
-                        'mod_name': entry_dict["name"],
-                        'path': mod_path
-                    })()
-                    break
-            
-            if not selected_mod:
-                log.warning(f"[SkinMonitor] Map mod not found: {map_id}")
-                return
-            
-            # Extract mod immediately when selected
-            if not self.injection_manager:
-                log.warning("[SkinMonitor] Cannot extract map mod - injection manager not available")
-                return
-                
-            injector = self.injection_manager.injector
-            if not injector:
-                log.warning("[SkinMonitor] Cannot extract map mod - injector not available")
-                return
-
-            mod_source = Path(selected_mod.path)
-            if not mod_source.exists():
-                log.error(f"[SkinMonitor] Map mod file not found: {mod_source}")
-                return
-
-            # Determine mod folder name
-            if mod_source.is_dir():
-                mod_folder_name = mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_folder_name = mod_source.stem
-            else:
-                mod_folder_name = mod_source.stem
-
-            # Extract/copy mod to injection mods directory immediately
-            # Don't clean mods directory - we want to keep skin mod if it exists
-            # Just ensure the map mod is extracted
-            
-            extract_cache_dir = get_injection_dir() / ".extract_cache"
-            if mod_source.is_dir():
-                mod_dest = injector.mods_dir / mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_dest = injector.mods_dir / mod_source.stem
-            else:
-                mod_dest = injector.mods_dir / mod_folder_name
-            if mod_dest.exists() or is_junction(mod_dest):
-                safe_remove_entry(mod_dest)
-            link_or_extract(mod_source, mod_dest, cache_dir=extract_cache_dir)
-            log.info(f"[SkinMonitor] Linked/extracted map mod to: {mod_dest}")
-
-            # Store selected map mod in shared state for injection
-            self.shared_state.selected_map_mod = {
-                "mod_name": selected_mod.mod_name,
-                "mod_path": str(selected_mod.path),
-                "mod_folder_name": mod_folder_name,
-                "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
-            }
-            
-            log.info(f"[SkinMonitor] Map mod selected and extracted: {selected_mod.mod_name}")
-            log.info(f"[SkinMonitor] Map mod ready for injection alongside skin")
-
+            selection = self._prepare_saved_mod(data.get("id") or data.get("name") or mod_id, (pick.category,), kind)
         except Exception as e:
-            log.error(f"[SkinMonitor] Failed to handle map selection: {e}")
+            log.error(f"[SkinMonitor] Failed to handle {kind} selection: {e}")
             import traceback
             log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
-    
-    def _handle_select_font(self, payload: dict) -> None:
-        """Handle font mod selection for injection"""
-        if not self.mod_storage:
-            log.warning("[SkinMonitor] Cannot handle font selection - mod storage not available")
             return
-        
-        font_id = payload.get("fontId")
-        font_data = payload.get("fontData", {})
-        
-        # Handle deselection (font_id is null)
-        if font_id is None:
-            if hasattr(self.shared_state, 'selected_font_mod') and self.shared_state.selected_font_mod:
-                self.shared_state.selected_font_mod = None
-                log.info(f"[SkinMonitor] Font mod deselected")
-                # Clear historic mod when deselected
-                try:
-                    from utils.core.mod_historic import clear_historic_mod
-                    clear_historic_mod("font")
-                    log.debug("[MOD_HISTORIC] Cleared historic font mod")
-                except Exception as e:
-                    log.debug(f"[MOD_HISTORIC] Failed to clear historic font mod: {e}")
-            return
-        
-        try:
-            # Find the mod in storage
-            entries = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_FONTS)
-            selected_mod = None
-            # font_data contains: id (relative path), name, path, updatedAt, description
-            mod_identifier = font_data.get("id") or font_data.get("name") or font_id
-            for entry_dict in entries:
-                # Match by id (relative path) or name
-                if (entry_dict.get("id") == mod_identifier or 
-                    entry_dict.get("name") == mod_identifier):
-                    # Convert dict to Path for extraction
-                    mod_path = self.mod_storage.mods_root / entry_dict["path"].replace("/", "\\")
-                    selected_mod = type('ModEntry', (), {
-                        'mod_name': entry_dict["name"],
-                        'path': mod_path
-                    })()
-                    break
-            
-            if not selected_mod:
-                log.warning(f"[SkinMonitor] Font mod not found: {font_id}")
-                return
-            
-            # Extract mod immediately when selected
-            if not self.injection_manager:
-                log.warning("[SkinMonitor] Cannot extract font mod - injection manager not available")
-                return
-                
-            injector = self.injection_manager.injector
-            if not injector:
-                log.warning("[SkinMonitor] Cannot extract font mod - injector not available")
-                return
+        if selection is not None:
+            setattr(self.shared_state, pick.state_attr, selection)
 
-            mod_source = Path(selected_mod.path)
-            if not mod_source.exists():
-                log.error(f"[SkinMonitor] Font mod file not found: {mod_source}")
-                return
-
-            # Determine mod folder name
-            if mod_source.is_dir():
-                mod_folder_name = mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_folder_name = mod_source.stem
-            else:
-                mod_folder_name = mod_source.stem
-
-            # Extract/copy mod to injection mods directory immediately
-            # Don't clean mods directory - we want to keep skin/map mods if they exist
-            
-            extract_cache_dir = get_injection_dir() / ".extract_cache"
-            if mod_source.is_dir():
-                mod_dest = injector.mods_dir / mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_dest = injector.mods_dir / mod_source.stem
-            else:
-                mod_dest = injector.mods_dir / mod_folder_name
-            if mod_dest.exists() or is_junction(mod_dest):
-                safe_remove_entry(mod_dest)
-            link_or_extract(mod_source, mod_dest, cache_dir=extract_cache_dir)
-            log.info(f"[SkinMonitor] Linked/extracted font mod to: {mod_dest}")
-
-            # Store selected font mod in shared state for injection
-            self.shared_state.selected_font_mod = {
-                "mod_name": selected_mod.mod_name,
-                "mod_path": str(selected_mod.path),
-                "mod_folder_name": mod_folder_name,
-                "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
-            }
-            
-            log.info(f"[SkinMonitor] Font mod selected and extracted: {selected_mod.mod_name}")
-            log.info(f"[SkinMonitor] Font mod ready for injection alongside skin")
-
-        except Exception as e:
-            log.error(f"[SkinMonitor] Failed to handle font selection: {e}")
-            import traceback
-            log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
-    
-    def _handle_select_announcer(self, payload: dict) -> None:
-        """Handle announcer mod selection for injection"""
-        if not self.mod_storage:
-            log.warning("[SkinMonitor] Cannot handle announcer selection - mod storage not available")
-            return
-        
-        announcer_id = payload.get("announcerId")
-        announcer_data = payload.get("announcerData", {})
-        
-        # Handle deselection (announcer_id is null)
-        if announcer_id is None:
-            if hasattr(self.shared_state, 'selected_announcer_mod') and self.shared_state.selected_announcer_mod:
-                self.shared_state.selected_announcer_mod = None
-                log.info(f"[SkinMonitor] Announcer mod deselected")
-                # Clear historic mod when deselected
-                try:
-                    from utils.core.mod_historic import clear_historic_mod
-                    clear_historic_mod("announcer")
-                    log.debug("[MOD_HISTORIC] Cleared historic announcer mod")
-                except Exception as e:
-                    log.debug(f"[MOD_HISTORIC] Failed to clear historic announcer mod: {e}")
-            return
-        
-        try:
-            # Find the mod in storage
-            entries = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_ANNOUNCERS)
-            selected_mod = None
-            # announcer_data contains: id (relative path), name, path, updatedAt, description
-            mod_identifier = announcer_data.get("id") or announcer_data.get("name") or announcer_id
-            for entry_dict in entries:
-                # Match by id (relative path) or name
-                if (entry_dict.get("id") == mod_identifier or 
-                    entry_dict.get("name") == mod_identifier):
-                    # Convert dict to Path for extraction
-                    mod_path = self.mod_storage.mods_root / entry_dict["path"].replace("/", "\\")
-                    selected_mod = type('ModEntry', (), {
-                        'mod_name': entry_dict["name"],
-                        'path': mod_path
-                    })()
-                    break
-            
-            if not selected_mod:
-                log.warning(f"[SkinMonitor] Announcer mod not found: {announcer_id}")
-                return
-            
-            # Extract mod immediately when selected
-            if not self.injection_manager:
-                log.warning("[SkinMonitor] Cannot extract announcer mod - injection manager not available")
-                return
-                
-            injector = self.injection_manager.injector
-            if not injector:
-                log.warning("[SkinMonitor] Cannot extract announcer mod - injector not available")
-                return
-
-            mod_source = Path(selected_mod.path)
-            if not mod_source.exists():
-                log.error(f"[SkinMonitor] Announcer mod file not found: {mod_source}")
-                return
-
-            # Determine mod folder name
-            if mod_source.is_dir():
-                mod_folder_name = mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_folder_name = mod_source.stem
-            else:
-                mod_folder_name = mod_source.stem
-
-            # Extract/copy mod to injection mods directory immediately
-            # Don't clean mods directory - we want to keep skin/map/font mods if they exist
-            
-            extract_cache_dir = get_injection_dir() / ".extract_cache"
-            if mod_source.is_dir():
-                mod_dest = injector.mods_dir / mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_dest = injector.mods_dir / mod_source.stem
-            else:
-                mod_dest = injector.mods_dir / mod_folder_name
-            if mod_dest.exists() or is_junction(mod_dest):
-                safe_remove_entry(mod_dest)
-            link_or_extract(mod_source, mod_dest, cache_dir=extract_cache_dir)
-            log.info(f"[SkinMonitor] Linked/extracted announcer mod to: {mod_dest}")
-
-            # Store selected announcer mod in shared state for injection
-            self.shared_state.selected_announcer_mod = {
-                "mod_name": selected_mod.mod_name,
-                "mod_path": str(selected_mod.path),
-                "mod_folder_name": mod_folder_name,
-                "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
-            }
-            
-            log.info(f"[SkinMonitor] Announcer mod selected and extracted: {selected_mod.mod_name}")
-            log.info(f"[SkinMonitor] Announcer mod ready for injection alongside skin")
-
-        except Exception as e:
-            log.error(f"[SkinMonitor] Failed to handle announcer selection: {e}")
-            import traceback
-            log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
-    
     def _handle_select_other(self, payload: dict) -> None:
         """Handle other mod selection for injection (supports multiple selections)"""
         if not self.mod_storage:
             log.warning("[SkinMonitor] Cannot handle other selection - mod storage not available")
             return
-        
+
         other_id = payload.get("otherId")
         # The category's "None" entry deselects each mod with otherData null
         other_data = payload.get("otherData") or {}
         action = payload.get("action", "select")  # "select" or "deselect"
-        
+
         # Initialize selected_other_mods as list if it doesn't exist
         if not hasattr(self.shared_state, 'selected_other_mods'):
             self.shared_state.selected_other_mods = []
-        
+
         # Handle deselection
         if action == "deselect" or other_id is None:
             if other_id:
@@ -2810,133 +2554,54 @@ class MessageHandler:
                 # Clear all (legacy support)
                 self.shared_state.selected_other_mods = []
                 log.info(f"[SkinMonitor] All other mods deselected")
-            # Persist historic selection per category (ui/voiceover/loading_screen/vfx/sfx/others)
-            try:
-                from utils.core.mod_historic import write_historic_mod, clear_historic_mod
-
-                # Rebuild per-category lists from current selection state
-                by_cat = {"ui": [], "voiceover": [], "loading_screen": [], "vfx": [], "sfx": [], "others": []}
-                for m in (self.shared_state.selected_other_mods or []):
-                    rp = str(m.get("relative_path") or "").replace("\\", "/").lstrip("/")
-                    if not rp:
-                        continue
-                    cat = (rp.split("/", 1)[0] if "/" in rp else rp).strip().lower()
-                    if cat not in by_cat:
-                        cat = "others"
-                    by_cat[cat].append(rp)
-
-                for cat, paths in by_cat.items():
-                    if paths:
-                        write_historic_mod(cat, paths)
-                    else:
-                        clear_historic_mod(cat)
-            except Exception as e:
-                log.debug(f"[MOD_HISTORIC] Failed to update category historic after deselect: {e}")
+            self._save_other_mods_historic("deselect")
             return
-        
+
         try:
             # other_data contains: id (relative path), name, path, updatedAt, description
-            rel_path = other_data.get("path") or other_data.get("id") or other_id
-            if not rel_path:
-                log.warning("[SkinMonitor] Other mod selection missing path/id")
-                return
-            if not _is_safe_relative_path(str(rel_path)):
-                log.warning("[SkinMonitor] Blocked unsafe other mod path: %s", rel_path)
-                return
-
-            mod_path = self.mod_storage.mods_root / str(rel_path).replace("/", "\\")
-            selected_mod = type("ModEntry", (), {
-                "mod_name": other_data.get("name") or other_id or mod_path.name,
-                "path": mod_path,
-            })()
-            
-            # Extract mod immediately when selected
-            if not self.injection_manager:
-                log.warning("[SkinMonitor] Cannot extract other mod - injection manager not available")
-                return
-                
-            injector = self.injection_manager.injector
-            if not injector:
-                log.warning("[SkinMonitor] Cannot extract other mod - injector not available")
+            selection = self._prepare_saved_mod(
+                other_data.get("path") or other_data.get("id") or other_id,
+                self.mod_storage.MOD_CATEGORIES,
+                "other",
+            )
+            if selection is None:
                 return
 
-            mod_source = Path(selected_mod.path)
-            if not mod_source.exists():
-                log.error(f"[SkinMonitor] Other mod file not found: {mod_source}")
-                return
-
-            # Determine mod folder name
-            if mod_source.is_dir():
-                mod_folder_name = mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_folder_name = mod_source.stem
+            selected = self.shared_state.selected_other_mods
+            if any(existing.get("relative_path") == selection["relative_path"] for existing in selected):
+                log.info(f"[SkinMonitor] Other mod already selected: {selection['mod_name']}")
             else:
-                mod_folder_name = mod_source.stem
-
-            # Extract/copy mod to injection mods directory immediately via junction
-            # Don't clean mods directory - we want to keep skin/map/font/announcer mods if they exist
-            extract_cache_dir = get_injection_dir() / ".extract_cache"
-            if mod_source.is_dir():
-                mod_dest = injector.mods_dir / mod_source.name
-            elif mod_source.is_file() and mod_source.suffix.lower() in {".zip", ".fantome"}:
-                mod_dest = injector.mods_dir / mod_source.stem
-            else:
-                mod_dest = injector.mods_dir / mod_folder_name
-            if mod_dest.exists() or is_junction(mod_dest):
-                safe_remove_entry(mod_dest)
-            link_or_extract(mod_source, mod_dest, cache_dir=extract_cache_dir)
-            log.info(f"[SkinMonitor] Linked/extracted other mod to: {mod_dest}")
-
-            # Store selected other mod in shared state for injection (add to list)
-            mod_info = {
-                "mod_name": selected_mod.mod_name,
-                "mod_path": str(selected_mod.path),
-                "mod_folder_name": mod_folder_name,
-                "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
-            }
-            
-            # Check if mod is already in list (by relative_path)
-            relative_path = mod_info["relative_path"]
-            existing_index = None
-            for i, existing_mod in enumerate(self.shared_state.selected_other_mods):
-                if existing_mod.get("relative_path") == relative_path:
-                    existing_index = i
-                    break
-            
-            if existing_index is None:
-                # Add new mod to list
-                self.shared_state.selected_other_mods.append(mod_info)
-                log.info(f"[SkinMonitor] Other mod selected and extracted: {selected_mod.mod_name}")
-                log.info(f"[SkinMonitor] Other mod ready for injection alongside skin (total: {len(self.shared_state.selected_other_mods)})")
-            else:
-                log.info(f"[SkinMonitor] Other mod already selected: {selected_mod.mod_name}")
-
-            # Persist historic selection per category (ui/voiceover/loading_screen/vfx/sfx/others)
-            try:
-                from utils.core.mod_historic import write_historic_mod, clear_historic_mod
-
-                by_cat = {"ui": [], "voiceover": [], "loading_screen": [], "vfx": [], "sfx": [], "others": []}
-                for m in (self.shared_state.selected_other_mods or []):
-                    rp = str(m.get("relative_path") or "").replace("\\", "/").lstrip("/")
-                    if not rp:
-                        continue
-                    cat = (rp.split("/", 1)[0] if "/" in rp else rp).strip().lower()
-                    if cat not in by_cat:
-                        cat = "others"
-                    by_cat[cat].append(rp)
-
-                for cat, paths in by_cat.items():
-                    if paths:
-                        write_historic_mod(cat, paths)
-                    else:
-                        clear_historic_mod(cat)
-            except Exception as e:
-                log.debug(f"[MOD_HISTORIC] Failed to update category historic after select: {e}")
+                selected.append(selection)
+                log.info(f"[SkinMonitor] Other mods ready for injection alongside skin (total: {len(selected)})")
+            self._save_other_mods_historic("select")
 
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle other selection: {e}")
             import traceback
             log.debug(f"[SkinMonitor] Traceback: {traceback.format_exc()}")
+
+    def _save_other_mods_historic(self, action: str) -> None:
+        """Save the selected other mods per category (ui/voiceover/loading_screen/vfx/sfx/others) for the next game"""
+        try:
+            from utils.core.mod_historic import write_historic_mod, clear_historic_mod
+
+            by_cat = {"ui": [], "voiceover": [], "loading_screen": [], "vfx": [], "sfx": [], "others": []}
+            for m in (self.shared_state.selected_other_mods or []):
+                rp = str(m.get("relative_path") or "").replace("\\", "/").lstrip("/")
+                if not rp:
+                    continue
+                cat = (rp.split("/", 1)[0] if "/" in rp else rp).strip().lower()
+                if cat not in by_cat:
+                    cat = "others"
+                by_cat[cat].append(rp)
+
+            for cat, paths in by_cat.items():
+                if paths:
+                    write_historic_mod(cat, paths)
+                else:
+                    clear_historic_mod(cat)
+        except Exception as e:
+            log.debug(f"[MOD_HISTORIC] Failed to update category historic after {action}: {e}")
 
     def _handle_request_category_mods(self, payload: dict) -> None:
         """Return the list of mods for a specific top-level category under %LOCALAPPDATA%\\Rose\\mods."""
@@ -3134,29 +2799,14 @@ class MessageHandler:
                 log.debug(f"[MOD_HISTORIC] Historic {mod_type} mod not found in available mods: {historic_path}")
                 return
             
-            # Create a payload to trigger selection (similar to what frontend would send)
-            if mod_type == "map":
-                self._handle_select_map({
-                    "mapId": selected_mod_dict.get("id") or selected_mod_dict.get("name"),
-                    "mapData": selected_mod_dict
-                })
-            elif mod_type == "font":
-                self._handle_select_font({
-                    "fontId": selected_mod_dict.get("id") or selected_mod_dict.get("name"),
-                    "fontData": selected_mod_dict
-                })
-            elif mod_type == "announcer":
-                self._handle_select_announcer({
-                    "announcerId": selected_mod_dict.get("id") or selected_mod_dict.get("name"),
-                    "announcerData": selected_mod_dict
-                })
+            # Select it as the plugin would; a mod that cannot be injected (missing from LTK Manager) is refused there
+            log.info(f"[MOD_HISTORIC] Restoring historic {mod_type} mod: {selected_mod_dict.get('name', historic_path)}")
+            mod_id = selected_mod_dict.get("id") or selected_mod_dict.get("name")
+            pick = _ONE_MOD_CATEGORIES.get(mod_type)
+            if pick is not None:
+                self._handle_select_one_mod(mod_type, {pick.id_key: mod_id, pick.data_key: selected_mod_dict})
             elif mod_type == "other":
-                self._handle_select_other({
-                    "otherId": selected_mod_dict.get("id") or selected_mod_dict.get("name"),
-                    "otherData": selected_mod_dict
-                })
-            
-            log.info(f"[MOD_HISTORIC] Auto-selected historic {mod_type} mod: {selected_mod_dict.get('name', historic_path)}")
+                self._handle_select_other({"otherId": mod_id, "otherData": selected_mod_dict})
         except Exception as e:
             log.debug(f"[MOD_HISTORIC] Failed to auto-select historic {mod_type} mod: {e}")
     

@@ -98,6 +98,15 @@ class ModSource:
         link_or_extract(source, dest, cache_dir=get_injection_dir() / ".extract_cache")
         return self.folder_name if dest.exists() or is_junction(dest) else None
 
+    def take_back(self, mods_dir: Path) -> None:
+        """Undo put: remove Rose's copy from *mods_dir* (only it: the other
+        mods stay). An entry LTK Manager holds put nothing there."""
+        if self.ltk_id:
+            return
+        dest = Path(mods_dir) / self.folder_name
+        if dest.exists() or is_junction(dest):
+            safe_remove_entry(dest)
+
 
 def loading_name_mods(
     mods_dir: Path, skin: str, names: Sequence[str], sources: Iterable[ModSource]
