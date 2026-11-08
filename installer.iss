@@ -337,6 +337,23 @@ begin
     RegDeleteKeyIncludingSubkeys(HKLM, IfeoKey);
 end;
 
+{ Rose turns its hook off when it exits, so a crash or shutdown leaves it on,
+  pointing at the core.dll copy in the desktop user's %LOCALAPPDATA%\Rose\Pengu Loader.
+  The bundled loader's --uninstall only removes a hook on its own copy, and that
+  folder survives an uninstall that keeps the user's data, so remove Rose's hook here. }
+procedure _RemoveRosePenguIfeo();
+var
+  Debugger: string;
+begin
+  if not RegQueryStringValue(HKLM, IfeoKey, 'Debugger', Debugger) then
+    exit;
+  // The elevated uninstaller's localappdata can be another account's, so match
+  // the folder names rather than the full path.
+  if _ContainsTextLower(Debugger, '\rose\pengu loader\core.dll"') or
+     _ContainsTextLower(Debugger, '"' + LowerCase(ExpandConstant('{app}\_internal\Pengu Loader\core.dll')) + '"') then
+    RegDeleteValue(HKLM, IfeoKey, 'Debugger');
+end;
+
 const
   LegacyUninstallKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}';
 
@@ -380,6 +397,7 @@ begin
       contain unrelated files. Remove the root only when it is empty. }
     RemoveDir(ExpandConstant('{app}'));
     { Safety net if Pengu's own --uninstall could not run }
+    _RemoveRosePenguIfeo();
     _RemoveDeadPenguIfeo();
   end;
 end;
