@@ -337,8 +337,8 @@ class LtkLibrary:
         read the mod's facts from its own copy; None when LTK Manager repaired
         its copy since, so the next sync reads them again from it.
 
-        None when it did not run: no game folder yet, no file at *mod* (a mod
-        added again that LTK Manager holds already), an injection's session
+        None when it did not run: no game folder yet, no file at *mod*, an
+        injection's session
         holds LTK Manager (champion select, a game), LTK Manager is missing or
         failed; the mod then stays pending in Rose. Otherwise {"health": LTK's
         word before any repair, "repaired": fixes applied, "problems":

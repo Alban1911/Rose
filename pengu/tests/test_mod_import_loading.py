@@ -3,10 +3,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from injection.mods.storage import AddedMod
 from pengu.communication.message_handler import MessageHandler
 
 MODS_ROOT = Path("C:/Rose/mods")
-RIFT = (MODS_ROOT / "maps" / "Summoner's Rift.fantome", "Summoner's Rift")
+RIFT = AddedMod(MODS_ROOT / "maps" / "Summoner's Rift.fantome", "Summoner's Rift")
 
 
 class ModImportLoadingTests(unittest.TestCase):
@@ -21,9 +22,8 @@ class ModImportLoadingTests(unittest.TestCase):
         storage.MOD_CATEGORIES = ("maps",)
         storage.mods_root = MODS_ROOT
         storage.import_category_mod_file.side_effect = self._import(RIFT)
-        skins = MODS_ROOT / "skins" / "81000"
         storage.import_mod_file.side_effect = self._import(
-            (skins / "Arcane Ezreal.fantome", skins / "rose_mod_targets.json", "Arcane Ezreal"))
+            AddedMod(MODS_ROOT / "skins" / "81000" / "Arcane Ezreal.fantome", "Arcane Ezreal"))
         self.handler.mod_storage = storage
 
     def _import(self, result):

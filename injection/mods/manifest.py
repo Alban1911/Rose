@@ -529,8 +529,10 @@ def leftover_copies(mods_root: Path) -> List[SavedMod]:
     return [mod for mod in iter_saved_mods(mods_root) if mod.ltk_id and mod.stored is not None]
 
 
-def same_content(mods_root: Path, directory: Path, full_hash: str) -> Optional[SavedMod]:
-    """The saved mod of *directory* whose content is that of *full_hash*
+def same_content(mods_root: Path, directory: Path, full_hash: str,
+                 source_hash: Optional[str] = None) -> Optional[SavedMod]:
+    """The saved mod of *directory* added from the file *source_hash* names
+    (its sourceHash), or whose content is that of *full_hash*
     (compute_mod_facts; its folderHash), LTK Manager's or still Rose's: the
     same mod, added again. One LTK Manager lost does not count: it is to be
     added again."""
@@ -540,7 +542,10 @@ def same_content(mods_root: Path, directory: Path, full_hash: str) -> Optional[S
         return None
     return next((
         mod for mod in _directory_mods(folder, match_content=False)
-        if mod.available and full_hash in (mod.key, mod.metadata.get("folderHash"))
+        if mod.available and (
+            full_hash in (mod.key, mod.metadata.get("folderHash"))
+            or (source_hash is not None and mod.metadata.get("sourceHash") == source_hash)
+        )
     ), None)
 
 
@@ -697,12 +702,15 @@ def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
 
 
 def add_saved_mod(mods_root: Path, archive: Path, facts: ModFacts, full_hash: str,
-                  wad_hashes: Mapping[str, str], targets: Iterable[int] = ()) -> None:
+                  wad_hashes: Mapping[str, str], targets: Iterable[int] = (), *,
+                  source_hash: Optional[str] = None) -> None:
     """Register the archive of a mod just added to its folder with what was
     read from it once (compute_mod_facts): its facts, its content hash (what
-    the same mod added again is known by: same_content), its date (the
-    listing keeps it once the archive is in LTK Manager), and in a champion's
-    folder its targets and its WADs' hashes.
+    the same mod added again is known by: same_content), that of the file
+    the user picked (*source_hash*: Rose names the mod in an archive it
+    packs, so the same file added again under another name packs another
+    content), its date (the listing keeps it once the archive is in LTK
+    Manager), and in a champion's folder its targets and its WADs' hashes.
 
     A champion's mod is keyed by its content hash, or by its name while a
     mod LTK Manager lost holds that key. An entry left under its name by a
@@ -718,6 +726,8 @@ def add_saved_mod(mods_root: Path, archive: Path, facts: ModFacts, full_hash: st
     updated_at = _mtime(mods_root / identity)
     if updated_at is not None:
         entry["updatedAt"] = updated_at
+    if source_hash is not None:
+        entry["sourceHash"] = source_hash
     if directory.kind == SKINS:
         entry.update(wadHashes=dict(wad_hashes), targets=list(targets))
     else:

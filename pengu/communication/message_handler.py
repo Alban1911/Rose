@@ -2835,7 +2835,8 @@ class MessageHandler:
         added; Rose's copy of one LTK Manager kept is deleted. One LTK Manager
         will still turn off in game (a skinhack, a problem it cannot repair)
         is not added: *remove* deletes it again, and it joins *errors* with
-        the reason. A checked mod gets the verdict as "health". Skipped during
+        the reason. A checked mod gets the verdict as "health"; one saved
+        already (the same mod added again) is not checked. Skipped during
         champion select and games, where LTK Manager is the game's: the mod
         stays in Rose, pending."""
         injection_manager = getattr(self, "injection_manager", None)
@@ -2851,6 +2852,9 @@ class MessageHandler:
         library = LtkLibrary(overlay)
         kept = []
         for item in imported:
+            if item.get("savedAlready"):
+                kept.append(item)
+                continue
             try:
                 result = library.check_mod(
                     Path(item["path"]), item.get("modName") or Path(item["path"]).name,
@@ -2958,18 +2962,19 @@ class MessageHandler:
             errors = []
             for mod_file in selected_mod_files:
                 try:
-                    mod_folder, mod_name = self.mod_storage.import_category_mod_file(
+                    added = self.mod_storage.import_category_mod_file(
                         category,
                         mod_file,
                     )
                     imported.append({
                         "fileName": mod_file.name,
-                        "path": str(mod_folder),
-                        "relativePath": mod_folder.relative_to(self.mod_storage.mods_root).as_posix(),
-                        "modName": mod_name,
+                        "path": str(added.path),
+                        "relativePath": added.path.relative_to(self.mod_storage.mods_root).as_posix(),
+                        "modName": added.name,
+                        "savedAlready": added.saved_already,
                     })
                     log.info(
-                        f"[SkinMonitor] Imported {category} mod {mod_name} to {mod_folder}"
+                        f"[SkinMonitor] Imported {category} mod {added.name} to {added.path}"
                     )
                 except Exception as exc:
                     log.error(
@@ -3299,21 +3304,23 @@ class MessageHandler:
                 errors = []
                 for mod_file in selected_mod_files:
                     try:
-                        mod_folder, target_manifest, mod_name = self.mod_storage.import_mod_file(
+                        added = self.mod_storage.import_mod_file(
                             champion_id,
                             mod_file,
                             skin_ids,
                         )
                         imported.append({
                             "fileName": mod_file.name,
-                            "path": str(mod_folder),
-                            "relativePath": mod_folder.relative_to(self.mod_storage.mods_root).as_posix(),
-                            "modName": mod_name,
-                            "targetManifest": str(target_manifest),
+                            "path": str(added.path),
+                            "relativePath": added.path.relative_to(self.mod_storage.mods_root).as_posix(),
+                            "modName": added.name,
+                            "savedAlready": added.saved_already,
+                            "targetManifest": str(self.mod_storage.get_champion_dir(champion_id)
+                                                  / ModStorageService.TARGET_METADATA),
                         })
                         log.info(
                             f"[SkinMonitor] Imported mod for champion "
-                            f"{champion_id}, mod {mod_name}, targets {skin_ids}"
+                            f"{champion_id}, mod {added.name}, targets {skin_ids}"
                         )
                     except Exception as exc:
                         log.error(

@@ -137,7 +137,7 @@ class StorageTests(TempCase):
     def test_an_imported_fantome_is_stored_as_it_is(self):
         source = make_archive(self.root / "VO Korean.fantome", VOICEOVER)
 
-        stored, name = self.service.import_category_mod_file("voiceover", source)
+        stored, name, _ = self.service.import_category_mod_file("voiceover", source)
 
         self.assertEqual(name, "VO Korean")
         self.assertEqual(stored, self.service.mods_root / "voiceover" / "VO Korean.fantome")
@@ -147,13 +147,13 @@ class StorageTests(TempCase):
         self.assertEqual([(m["name"], m["path"]) for m in listed], [("VO Korean", "voiceover/VO Korean.fantome")])
 
     def test_a_zip_is_stored_as_a_fantome(self):
-        stored, _ = self.service.import_category_mod_file("maps", make_archive(self.root / "Rift.zip", VOICEOVER))
+        stored, *_ = self.service.import_category_mod_file("maps", make_archive(self.root / "Rift.zip", VOICEOVER))
         self.assertEqual(stored.name, "Rift.fantome")
 
     def test_an_archive_without_its_info_is_packed_as_an_injection_packed_it(self):
         source = make_archive(self.root / "Rift.fantome", {"WAD/Map11.wad.client": b"map"})
 
-        stored, _ = self.service.import_category_mod_file("maps", source)
+        stored, *_ = self.service.import_category_mod_file("maps", source)
 
         with ModFiles(stored) as files:
             self.assertEqual(files.read("WAD/Map11.wad.client"), b"map")
@@ -167,7 +167,7 @@ class StorageTests(TempCase):
             for name, data in VOICEOVER.items():
                 archive.writestr(name, data)
 
-        stored, _ = self.service.import_category_mod_file("voiceover", source)
+        stored, *_ = self.service.import_category_mod_file("voiceover", source)
 
         with zipfile.ZipFile(stored) as archive:
             infos = {info.filename: info for info in archive.infolist()}
@@ -187,11 +187,11 @@ class StorageTests(TempCase):
 
     def test_a_name_taken_by_a_folder_mod_is_not_reused(self):
         (self.service.mods_root / "maps" / "Rift").mkdir()
-        stored, name = self.service.import_category_mod_file("maps", make_archive(self.root / "Rift.fantome", VOICEOVER))
+        stored, name, _ = self.service.import_category_mod_file("maps", make_archive(self.root / "Rift.fantome", VOICEOVER))
         self.assertEqual((name, stored.name), ("Rift (2)", "Rift (2).fantome"))
 
     def test_deleting_an_archive_mod_removes_what_sits_beside_it(self):
-        stored, name = self.service.import_category_mod_file("voiceover", make_archive(self.root / "VO.fantome", VOICEOVER))
+        stored, name, _ = self.service.import_category_mod_file("voiceover", make_archive(self.root / "VO.fantome", VOICEOVER))
         stored.with_suffix(".txt").write_text("description", encoding="utf-8")
 
         self.assertTrue(self.service.delete_category_mod("voiceover", name))
@@ -201,7 +201,7 @@ class StorageTests(TempCase):
         self.assertEqual(self.service.list_mods_for_category("voiceover"), [])
 
     def test_a_skin_mod_archive_is_listed_and_deleted_by_its_name(self):
-        stored, _manifest, name = self.service.import_mod_file(
+        stored, name, _ = self.service.import_mod_file(
             81, make_archive(self.root / "Arcane Ezreal.fantome", VOICEOVER), [81020])
 
         self.assertEqual([(e.mod_name, e.path) for e in self.service.list_mods_for_skin(81020)], [(name, stored)])
@@ -210,7 +210,7 @@ class StorageTests(TempCase):
         self.assertFalse(stored.with_suffix(".png").exists())
 
     def test_an_archive_mods_image_is_set_beside_it(self):
-        stored, _manifest, _name = self.service.import_mod_file(
+        stored, _name, _ = self.service.import_mod_file(
             81, make_archive(self.root / "Ezreal.fantome", VOICEOVER), [81020])
         before = stored.read_bytes()
         relative = stored.relative_to(self.service.mods_root).as_posix()
@@ -252,8 +252,8 @@ class AddTests(TempCase):
         source = make_archive(self.root / "VO Korean.fantome", VOICEOVER)
         facts, full_hash, wad_hashes = compute_mod_facts(source)
 
-        stored, name = self.service.import_category_mod_file("voiceover", source)
-        skin, _manifest, skin_name = self.service.import_mod_file(81, source, [81020])
+        stored, name, _ = self.service.import_category_mod_file("voiceover", source)
+        skin, skin_name, _ = self.service.import_mod_file(81, source, [81020])
 
         entry = self.entries(stored.parent / ModStorageService.CATEGORY_METADATA)[name]
         self.assertEqual(ModFacts.from_manifest(entry), facts)
@@ -267,7 +267,7 @@ class AddTests(TempCase):
     def test_a_name_ltk_manager_holds_is_not_taken_again(self):
         add_entries(self.maps_manifest, {"Rift": {"name": "Rift", "path": "Rift", "ltkId": MOVED_ID}})
 
-        stored, name = self.add_map()
+        stored, name, _ = self.add_map()
 
         self.assertEqual((name, stored.name), ("Rift (2)", "Rift (2).fantome"))
         self.assertEqual(self.entries(self.maps_manifest)["Rift"]["ltkId"], MOVED_ID)
@@ -291,7 +291,7 @@ class AddTests(TempCase):
                 "missing": True, "displayName": "My Ezreal"}
         add_entries(self.skins_manifest, {full_hash: lost})
 
-        stored, _manifest, name = self.service.import_mod_file(81, source, [81021])
+        stored, name, _ = self.service.import_mod_file(81, source, [81021])
 
         self.assertEqual((name, stored.name), ("Lost Ezreal (2)", "Lost Ezreal (2).fantome"))
         mods = self.entries(self.skins_manifest)
@@ -310,7 +310,7 @@ class AddTests(TempCase):
         (self.maps / "Rift.txt").write_text("My notes", encoding="utf-8")
         before = self.entries(self.maps_manifest)
 
-        stored, name = self.add_map()
+        stored, name, _ = self.add_map()
         self.assertEqual(name, "Rift (2)")
         self.assertTrue(self.service.delete_category_mod("maps", name))
 
@@ -327,12 +327,11 @@ class AddTests(TempCase):
         """Its targets join the saved mod's: no second copy, in Rose or in LTK
         Manager, whether Rose still holds the first or LTK Manager does"""
         source = make_archive(self.root / "Ezreal.fantome", VOICEOVER)
-        first, _manifest, name = self.service.import_mod_file(81, source, [81020])
+        first, name, _ = self.service.import_mod_file(81, source, [81020])
 
-        again, _manifest, again_name = self.service.import_mod_file(
-            81, make_archive(self.root / "Ezreal copy.fantome", VOICEOVER), [81021])
+        again = self.service.import_mod_file(81, make_archive(self.root / "Ezreal copy.fantome", VOICEOVER), [81021])
 
-        self.assertEqual((again, again_name), (first, name))
+        self.assertEqual(again, (first, name, True))
         [entry] = self.entries(self.skins_manifest).values()
         self.assertEqual(entry["targets"], [81020, 81021])
         self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
@@ -341,21 +340,32 @@ class AddTests(TempCase):
         relative = first.relative_to(self.service.mods_root).as_posix()
         self.service.attach_ltk_entry(relative, MOVED_ID)
         self.service.drop_stored_copy(relative)
-        again, _manifest, again_name = self.service.import_mod_file(81, source, [81022])
+        again = self.service.import_mod_file(81, source, [81022])
 
-        self.assertEqual((again, again_name), (first, name))
-        self.assertFalse(again.exists())  # nothing for LTK Manager to check
+        self.assertEqual(again, (first, name, True))
+        self.assertFalse(again.path.exists())
         [entry] = self.entries(self.skins_manifest).values()
         self.assertEqual((entry["ltkId"], entry["targets"]), (MOVED_ID, [81020, 81021, 81022]))
         self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
                          sorted([self.skins_manifest.name, "Ezreal.png"]))
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
+    def test_the_same_file_without_its_info_added_again_is_the_one_saved_already(self):
+        """Rose names the mod in the archive it packs for it ("Rift", then
+        "Rift (2)"): the content differs, the file the user picked does not"""
+        source = make_archive(self.root / "Rift.zip", {"WAD/Map11.wad.client": b"map"})
+        stored, name, _ = self.service.import_category_mod_file("maps", source)
+
+        self.assertEqual(self.service.import_category_mod_file("maps", source), (stored, name, True))
+
+        self.assertEqual(list(self.entries(self.maps_manifest)), [name])
+        self.assertEqual(sorted(p.name for p in self.maps.iterdir()), sorted([self.maps_manifest.name, stored.name]))
+
     def test_the_same_category_mod_added_again_writes_nothing(self):
-        stored, name = self.add_map()
+        stored, name, _ = self.add_map()
         before = self.maps_manifest.read_bytes()
 
-        self.assertEqual(self.add_map("Rift copy"), (stored, name))
+        self.assertEqual(self.add_map("Rift copy"), (stored, name, True))
 
         self.assertEqual(self.maps_manifest.read_bytes(), before)
         self.assertEqual(sorted(p.name for p in self.maps.iterdir()),
@@ -370,7 +380,7 @@ class ManifestListingTests(TempCase):
         super().setUp()
         self.service = ModStorageService(self.root / "mods")
         self.ezreal = self.service.get_champion_dir(81)
-        self.pending, _manifest, self.pending_name = self.service.import_mod_file(
+        self.pending, self.pending_name, _ = self.service.import_mod_file(
             81, make_archive(self.root / "Pending Ezreal.fantome", VOICEOVER), [81020])
         self.skins_manifest = self.ezreal / ModStorageService.TARGET_METADATA
         add_entries(self.skins_manifest, {

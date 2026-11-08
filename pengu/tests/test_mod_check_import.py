@@ -28,11 +28,11 @@ class ModCheckOnImportTests(unittest.TestCase):
         self.addCleanup(temp_dir.cleanup)
         root = Path(temp_dir.name)
         self.storage = ModStorageService(root / "mods")
-        source = root / "gojo-ezreal-v1.0.0.fantome"
+        self.source = source = root / "gojo-ezreal-v1.0.0.fantome"
         with zipfile.ZipFile(source, "w") as archive:
             archive.writestr("META/info.json", '{"Name": "Gojo Ezreal"}')
             archive.writestr("WAD/Ezreal.wad.client", b"skin")
-        self.stored, _manifest, name = self.storage.import_mod_file(81, source, [81020])
+        self.stored, name, _ = self.storage.import_mod_file(81, source, [81020])
         self.relative_path = self.stored.relative_to(self.storage.mods_root).as_posix()
         self.imported = [{"fileName": source.name, "path": str(self.stored), "relativePath": self.relative_path,
                           "modName": name}]
@@ -137,6 +137,23 @@ class ModCheckOnImportTests(unittest.TestCase):
 
         self.assertEqual(kept[0]["health"], verdict)
         self.assertEqual(errors, [])
+
+    def test_the_same_mod_added_again_is_not_checked_again(self):
+        """LTK Manager holds it, its copy still in Rose: importing that copy
+        again would put another entry in the place of the one Rose recorded,
+        and leave that one in LTK Manager for good"""
+        self.storage.attach_ltk_entry(self.relative_path, LTK_ID)
+        instance = self.handler()
+
+        with patch.object(message_handler, "_choose_mod_files", return_value=[self.source]):
+            instance._handle_add_custom_mods_skin_selected({"action": "create", "championId": 81, "skinIds": [81021]})
+
+        self.library.check_mod.assert_not_called()
+        response = instance.sent[-1]
+        self.assertTrue(response["success"])
+        self.assertEqual(response["imported"][0]["relativePath"], self.relative_path)
+        mod = self.saved()
+        self.assertEqual((mod.ltk_id, mod.target_skin_ids), (LTK_ID, (81020, 81021)))
 
     def test_nothing_is_checked_in_champion_select_or_while_injecting(self):
         for phase, injecting in (("ChampSelect", False), ("InProgress", False), ("Lobby", True)):

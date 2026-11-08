@@ -370,7 +370,7 @@ class ModpkgModTests(unittest.TestCase):
 
     def test_imports_into_mod_storage(self):
         storage = ModStorageService(mods_root=self.root / "mods")
-        archive, _manifest, mod_name = storage.import_mod_file(266, self.package, [266001])
+        archive, mod_name, _ = storage.import_mod_file(266, self.package, [266001])
         self.assertEqual(mod_name, "old-aatrox_1.2.0")
         # Stored as the .fantome LTK Manager installs: the package's base layer, unpacked once
         self.assertEqual(archive.name, "old-aatrox_1.2.0.fantome")
@@ -380,7 +380,7 @@ class ModpkgModTests(unittest.TestCase):
         listed = storage.list_mods_for_skin(266001)
         self.assertEqual([entry.mod_name for entry in listed], ["old-aatrox_1.2.0"])
 
-        category_archive, _ = storage.import_category_mod_file("others", self.package)
+        category_archive, *_ = storage.import_category_mod_file("others", self.package)
         with ModFiles(category_archive) as files:
             self.assertTrue(files.is_file("META/info.json"))
 

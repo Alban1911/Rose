@@ -14,6 +14,7 @@ archives once, when Rose starts (convert_folder_mod).
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import os
 import shutil
 import tempfile
@@ -21,7 +22,7 @@ import time
 import uuid
 import zipfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, NamedTuple, Optional
 
 from utils.core.junction import is_junction, safe_remove_entry
 from utils.core.atomic_file import atomic_write
@@ -83,6 +84,16 @@ def _check_packed(archive: Path, expected: dict[str, int], added_metadata: bool)
     if held != expected:
         missing = sorted(set(expected) - set(held))[:3]
         raise OSError(f"the archive does not hold the folder's files as they are (missing: {missing or 'none'})")
+
+
+class AddedMod(NamedTuple):
+    """A mod the user added, as the add left it."""
+
+    path: Path  # its archive while Rose holds it, else its identity (SavedMod.path)
+    name: str
+    # The folder held the same mod already: nothing was added, and LTK
+    # Manager has nothing new to check
+    saved_already: bool = False
 
 
 @dataclass(frozen=True)
@@ -236,17 +247,17 @@ class ModStorageService:
         source_path: str | Path,
         parent_dir: Path,
         targets: tuple[int, ...] = (),
-    ) -> tuple[str, Path]:
+    ) -> AddedMod:
         """Store one user-selected mod archive in *parent_dir* as the .fantome
         LTK Manager installs, its preview image beside it, and register it in
         the folder's manifest with what Rose needs to know about it, read
         once (compute_mod_facts): LTK Manager will hold the mod, and Rose
-        keeps no copy to read it from again. Return its mod name and path.
-        Nothing it wrote stays when a step fails.
+        keeps no copy to read it from again. Nothing it wrote stays when a
+        step fails.
 
-        A mod the folder holds already (the same content, LTK Manager's or
-        still Rose's) is not added twice: *targets* join its own, and its
-        name and path are returned."""
+        A mod the folder holds already (the same file added again, or the
+        same content: LTK Manager's or still Rose's) is not added twice:
+        *targets* join its own, and it is returned, saved_already."""
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
@@ -256,13 +267,17 @@ class ModStorageService:
         if not base_name or base_name in {".", ".."}:
             raise ValueError("The selected mod file has no usable name")
 
+        # What the user picked, before Rose adds anything (the name it stores
+        # an archive without META/info.json under): the same file added again
+        with source.open("rb") as stream:
+            source_hash = hashlib.file_digest(stream, "sha256").hexdigest()
         parent_dir.mkdir(parents=True, exist_ok=True)
         mod_name, target = self._choose_archive_destination(parent_dir, base_name)
         temporary = parent_dir / f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
         try:
             self._write_stored_archive(source, temporary, mod_name)
             facts, full_hash, wad_hashes = compute_mod_facts(temporary)
-            existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash)
+            existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash, source_hash)
             if existing is None:
                 temporary.replace(target)
         finally:
@@ -274,17 +289,18 @@ class ModStorageService:
                     raise ValueError("The mod is saved already, but its targets could not be updated")
                 self._champion_listing_cache.clear()
             log.info(f"[MODS] {source.name} is saved already, as {existing.name}")
-            return existing.name, existing.path(self.mods_root)
+            return AddedMod(existing.path(self.mods_root), existing.name, saved_already=True)
         image = self._write_image_sidecar(target)
         try:
-            saved_manifest.add_saved_mod(self.mods_root, target, facts, full_hash, wad_hashes, targets)
+            saved_manifest.add_saved_mod(self.mods_root, target, facts, full_hash, wad_hashes, targets,
+                                         source_hash=source_hash)
         except Exception:
             for written in (target, image):
                 if written is not None:
                     safe_remove_entry(written)
             raise
         self._champion_listing_cache.clear()
-        return mod_name, target
+        return AddedMod(target, mod_name)
 
     def _write_stored_archive(self, source: Path, dest: Path, mod_name: str) -> None:
         """Write at *dest* the .fantome stored for the mod archive *source*.
@@ -666,7 +682,7 @@ class ModStorageService:
         champion_id: int | str,
         source_path: str | Path,
         skin_ids: object,
-    ) -> tuple[Path, Path, str]:
+    ) -> AddedMod:
         """Add one user-selected mod archive to its champion's folder,
         targeting *skin_ids* (_add_archive)."""
         champion_id_int = self._to_int(champion_id)
@@ -675,9 +691,7 @@ class ModStorageService:
         targets = normalize_target_ids(skin_ids)
         if not targets:
             raise ValueError("At least one target skin ID is required")
-        champion_dir = self.get_champion_dir(champion_id_int)
-        mod_name, target = self._add_archive(source_path, champion_dir, targets)
-        return target, champion_dir / self.TARGET_METADATA, mod_name
+        return self._add_archive(source_path, self.get_champion_dir(champion_id_int), targets)
 
     @staticmethod
     def _is_unsafe_mod_identity(value: object) -> bool:
@@ -797,12 +811,11 @@ class ModStorageService:
         self,
         category: str,
         source_path: str | Path,
-    ) -> tuple[Path, str]:
+    ) -> AddedMod:
         """Add one user-selected mod archive to a category's folder (_add_archive)."""
         if category not in self.MOD_CATEGORIES:
             raise ValueError(f"Unsupported mod category: {category}")
-        mod_name, target = self._add_archive(source_path, self.mods_root / category)
-        return target, mod_name
+        return self._add_archive(source_path, self.mods_root / category)
 
     def list_mods_for_skin(self, skin_id: int | str) -> List[SkinModEntry]:
         """Return mods for a skin, including champion-level target metadata."""
