@@ -38,25 +38,28 @@ class ArgumentTests(unittest.TestCase):
 
 
 class StartTests(unittest.TestCase):
-    def test_rose_syncs_the_saved_mods_after_converting_the_stored_folders(self):
+    def test_rose_syncs_the_saved_mods_alone_and_after_converting_the_stored_folders(self):
+        """The unpacked .modpkgs a closed Rose left go once no other Rose
+        runs, before the sync can unpack one again"""
         class Started(Exception):
             """Stops the start once its mods steps are done"""
 
         steps = MagicMock()
         steps.core.side_effect = Started
-        with patch.object(rose_main, "check_single_instance"), \
+        with patch.object(rose_main, "check_single_instance", steps.alone), \
                 patch.object(rose_main, "_update_registry_version"), \
                 patch.object(rose_main.pengu_loader, "cleanup_if_dirty"), \
                 patch.object(rose_main, "setup_logging_and_cleanup"), \
                 patch.object(rose_main, "initialize_tray_manager", return_value=None), \
                 patch.object(rose_main, "AppStatus"), \
+                patch.object(rose_main, "remove_unpacked_leftovers", steps.sweep), \
                 patch.object(rose_main, "convert_stored_mods", steps.convert), \
                 patch.object(rose_main, "start_saved_mods_sync", steps.sync), \
                 patch.object(rose_main, "initialize_core_components", steps.core):
             with self.assertRaises(Started):
                 rose_main.run_league_unlock(args=SimpleNamespace())
 
-        self.assertEqual([call[0] for call in steps.mock_calls], ["convert", "sync", "core"])
+        self.assertEqual([call[0] for call in steps.mock_calls], ["alone", "sweep", "convert", "sync", "core"])
         steps.sync.assert_called_once_with(only_if_changed=False)
 
 

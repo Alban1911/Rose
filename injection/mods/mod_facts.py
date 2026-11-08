@@ -37,6 +37,7 @@ _PARTY_HASH = re.compile(r"[0-9a-f]{32}")
 # injection folder (the desktop user's, on the drive of Rose's data), but not
 # in its ltf_staging, which every LTK session clears as it starts
 _FACTS_SCRATCH = "mod_facts"
+_UNPACKED_PREFIX = "facts-"
 
 
 # --------------------------------------------------------------------------------------
@@ -172,13 +173,27 @@ def compute_mod_facts(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
 
 @contextmanager
 def _unpacked_modpkg(package: Path) -> Iterator[Path]:
-    scratch = get_injection_dir() / _FACTS_SCRATCH / f"facts-{uuid.uuid4().hex}"
+    scratch = get_injection_dir() / _FACTS_SCRATCH / f"{_UNPACKED_PREFIX}{uuid.uuid4().hex}"
     scratch.mkdir(parents=True)
     try:
         extract_modpkg(package, scratch)
         yield scratch
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def remove_unpacked_leftovers() -> None:
+    """Remove the .modpkg copies reads left unpacked: Rose closed while a
+    sync read one on its daemon thread leaves the whole mod there, gigabytes
+    for a voiceover pack. Only for Rose's start, before anything reads a mod:
+    no other Rose runs then and the launcher's migration has finished."""
+    try:
+        leftovers = [entry for entry in (get_injection_dir() / _FACTS_SCRATCH).iterdir()
+                     if entry.name.startswith(_UNPACKED_PREFIX)]
+    except OSError:
+        return
+    for entry in leftovers:
+        shutil.rmtree(entry, ignore_errors=True)
 
 
 def _facts_of(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:

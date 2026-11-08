@@ -4,6 +4,7 @@ once LTK Manager holds the mod, Rose has no file left to read them from."""
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -147,6 +148,19 @@ class ComputeFactsTests(unittest.TestCase):
         self.assertEqual(facts.party_hash, party_hash)
         self.assertEqual(facts.champion_aliases, ("aatrox",))
         self.assertEqual(list((injection / "mod_facts").iterdir()), [])  # unpacked, then removed
+
+    def test_rose_s_start_removes_the_modpkgs_a_closed_rose_left_unpacked(self):
+        injection = self.root / "injection"
+        leftover = injection / "mod_facts" / "facts-0123abcd"
+        (leftover / "WAD").mkdir(parents=True)
+        (leftover / "WAD" / "Aatrox.wad.client").write_bytes(b"gigabytes")
+        (injection / "mod_facts" / "facts-4567ef01").mkdir()
+
+        with patch.object(mod_facts, "get_injection_dir", return_value=injection):
+            mod_facts.remove_unpacked_leftovers()
+            self.assertEqual(list((injection / "mod_facts").iterdir()), [])
+            shutil.rmtree(injection)
+            mod_facts.remove_unpacked_leftovers()  # none to remove
 
     def test_a_mod_it_cannot_read_has_no_facts(self):
         broken = self.root / "Broken.fantome"

@@ -419,6 +419,7 @@ from config import APP_VERSION, MAIN_LOOP_FORCE_QUIT_TIMEOUT_S, get_config_optio
 from injection.config.config_manager import ConfigManager
 from injection.game.game_detector import GameDetector
 from injection.mods.ltk_sync import start_saved_mods_sync
+from injection.mods.mod_facts import remove_unpacked_leftovers
 import time
 
 log = get_logger()
@@ -636,6 +637,8 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     """Run the core Rose application startup and main loop."""
     # Check for single instance before doing anything else
     check_single_instance()
+    # Alone now, and before anything reads a mod: no .modpkg is being unpacked
+    remove_unpacked_leftovers()
 
     # Keep the Windows "Apps & features" version in sync after auto-updates
     _update_registry_version()
