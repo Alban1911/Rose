@@ -182,6 +182,20 @@ class ListingTests(SavedModsTestCase):
         self.assertEqual(mods["Renamed"].key, self.pending_hash)
         self.assertEqual(mods["Renamed"].display_name, "Pending!")
 
+    def test_a_renamed_file_moved_into_ltk_manager_keeps_its_name(self):
+        """Content matching skips an entry LTK Manager holds: attaching must
+        leave the entry naming the renamed file, or its copy is never dropped"""
+        renamed = self.pending_archive.rename(self.annie / "Renamed.fantome")
+        service = ModStorageService(self.mods_root)
+
+        self.assertTrue(service.attach_ltk_entry("skins/1000/Renamed.fantome", NEW_ID))
+        self.assertTrue(service.drop_stored_copy("skins/1000/Renamed.fantome"))
+
+        self.assertFalse(renamed.exists())
+        self.assertEqual(self.entry(self.annie, self.pending_hash)["name"], "Renamed")
+        moved = service.saved_mod("skins/1000/Renamed.fantome")
+        self.assertEqual((moved.ltk_id, moved.stored, moved.display_name), (NEW_ID, None, "Pending!"))
+
     def test_one_mod_per_name_and_the_one_ltk_manager_holds_wins(self):
         self.write_annie_manifest(**{"dup-key": {"name": "Pending Skin", "targets": [1001], "ltkId": NEW_ID}})
 

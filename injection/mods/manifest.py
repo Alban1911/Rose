@@ -564,6 +564,10 @@ def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -
             entry = dict(current) if isinstance(current, dict) else {
                 "name": mod.name, "targets": list(normalize_target_ids(current)),
             }
+            if directory.kind == SKINS and mod.stored is not None and fields.get("ltkId"):
+                # A renamed file was matched by its content, which an entry LTK
+                # Manager holds never is: its name must lead to the file now
+                entry["name"] = mod.name
         else:
             key = mod.name
             if any(str(existing).casefold() == key.casefold() for existing in mods):

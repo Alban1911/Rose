@@ -253,26 +253,36 @@ class LtkLibrary:
         Raises LtkBusy at once while an injection holds LTK Manager: nothing
         here ever waits on a game. *wait* waits for another session's connect
         instead (the uninstall cleanup, with Rose not running).
+
+        The stage lock is held throughout, taken before the connect lock as
+        the injection takes them: an injection installs under it before its
+        session is registered (session_active), and a session starting then
+        would remove the mods it just installed as an earlier session's.
         """
         overlay = self.overlay
-        if not overlay._connect_lock.acquire(blocking=wait):
-            raise LtkBusy("LTK Manager is busy with another session")
+        if not overlay._stage_lock.acquire(blocking=wait):
+            raise LtkBusy("LTK Manager is in use for a game")
         try:
-            with overlay._session_lock:
-                busy = overlay._early_session is not None or overlay._staging_open
-            process_manager = overlay.process_manager
-            if busy or (process_manager is not None and process_manager.session_active()):
-                raise LtkBusy("LTK Manager is in use for a game")
-            session = overlay._start_ltf_session(report=False)
-            if session is None:
-                raise LtkUnavailable(overlay.last_failure_reason or "LTK Manager could not be started")
+            if not overlay._connect_lock.acquire(blocking=wait):
+                raise LtkBusy("LTK Manager is busy with another session")
             try:
-                yield LibrarySession(overlay, session)
+                with overlay._session_lock:
+                    busy = overlay._early_session is not None or overlay._staging_open
+                process_manager = overlay.process_manager
+                if busy or (process_manager is not None and process_manager.session_active()):
+                    raise LtkBusy("LTK Manager is in use for a game")
+                session = overlay._start_ltf_session(report=False)
+                if session is None:
+                    raise LtkUnavailable(overlay.last_failure_reason or "LTK Manager could not be started")
+                try:
+                    yield LibrarySession(overlay, session)
+                finally:
+                    # Removes what was imported and not kept, closes LTK Manager if Rose started it
+                    overlay._end_session(session)
             finally:
-                # Removes what was imported and not kept, closes LTK Manager if Rose started it
-                overlay._end_session(session)
+                overlay._connect_lock.release()
         finally:
-            overlay._connect_lock.release()
+            overlay._stage_lock.release()
 
 
 class LibrarySession:

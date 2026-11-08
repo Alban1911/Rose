@@ -263,6 +263,22 @@ class LibrarySessionTests(LtfSessionTestCase):
                 self.fail("no session during a game")
         self.assertEqual(FakeBridge.created, [])
 
+    def test_busy_while_an_injection_installs_before_its_session_is_registered(self):
+        """mk_run_overlay installs under the stage lock, its connect done and
+        its stopper not registered yet: a session's start-up cleanup would
+        take the mods it just installed for an earlier session's leftovers"""
+        installed = "0f0f0f0f-0000-4000-8000-000000000000"
+        FakeBridge.initial_library = [{"id": installed, "name": "1001-EternalAspect", "enabled": True}]
+        self.state_path.write_text(json.dumps({"installed": {installed: "1001-EternalAspect"}}), encoding="utf-8")
+        self.assertTrue(self.overlay._stage_lock.acquire(blocking=False))
+        self.addCleanup(self.overlay._stage_lock.release)
+
+        with self.assertRaises(LtkBusy):
+            with self.library.session():
+                self.fail("no session while an injection installs")
+        self.assertEqual(FakeBridge.created, [])
+        self.assertEqual(list(self.state()["installed"]), [installed])
+
     def test_busy_at_once_while_another_session_connects(self):
         self.assertTrue(self.overlay._connect_lock.acquire(blocking=False))
         self.addCleanup(self.overlay._connect_lock.release)
@@ -272,11 +288,15 @@ class LibrarySessionTests(LtfSessionTestCase):
                 self.fail("no session while another connects")
 
     def test_waiting_for_another_connect_when_asked(self):
+        self.overlay._stage_lock.acquire()
         self.overlay._connect_lock.acquire()
-        threading.Timer(0.05, self.overlay._connect_lock.release).start()
+        threading.Timer(0.05, self.overlay._stage_lock.release).start()
+        threading.Timer(0.1, self.overlay._connect_lock.release).start()
 
         with self.library.session(wait=True) as session:
             self.assertEqual(session.library(), {})
+        self.assertTrue(self.overlay._stage_lock.acquire(blocking=False))
+        self.overlay._stage_lock.release()
 
     def test_unavailable_without_rose_s_bridge_files(self):
         (self.tools / "ltk_launcher.exe").unlink()
@@ -319,8 +339,9 @@ class LibrarySessionTests(LtfSessionTestCase):
                 raise RuntimeError("the caller failed")
 
         self.assertEqual(self.bridge.library_entries, [])
-        self.assertTrue(self.overlay._connect_lock.acquire(blocking=False))
-        self.overlay._connect_lock.release()
+        for lock in (self.overlay._stage_lock, self.overlay._connect_lock):
+            self.assertTrue(lock.acquire(blocking=False))
+            lock.release()
 
 
 if __name__ == "__main__":
