@@ -87,6 +87,13 @@ def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
     return content_hash, legacy_hash
 
 
+def _stored_path(path: Path) -> Path:
+    """*path*, or the .fantome a mod saved as a folder by an older Rose was
+    packed into (the pick still names the folder)."""
+    archive = path.with_name(path.name + ".fantome")
+    return archive if not path.exists() and archive.is_file() else path
+
+
 def saved_mod_hashes(relative_path: str) -> Tuple[Optional[str], Optional[str]]:
     """(content hash, legacy hash) our pick of a saved mod shares with the
     party. A mod LTK Manager holds is injected from its library entry: its
@@ -100,7 +107,7 @@ def saved_mod_hashes(relative_path: str) -> Tuple[Optional[str], Optional[str]]:
     mods_root = get_mods_root()
     saved = find_saved_mod(mods_root, relative_path, match_content=False)
     if saved is None:
-        return mod_hashes(mods_root / relative_path)
+        return mod_hashes(_stored_path(mods_root / relative_path))
     if not saved.available:
         return None, None
     if saved.ltk_id:

@@ -218,6 +218,15 @@ class CustomModsTests(unittest.TestCase):
         read_whole_mod.assert_not_called()
         self.assertEqual([poll["custom_mod_content_hash"] for poll in polls], [custom_mods.mod_hashes(archive)[0]] * 3)
 
+    def test_a_renamed_pending_pick_saved_as_its_folder_shares_its_archive(self):
+        archive = self.mods_root / "skins" / "103000" / "Renamed Ahri.fantome"
+        self._make_archive(archive)
+        self.save_mod("Original Ahri", folderHash=compute_mod_facts(archive)[1])
+
+        state = self.our_pick("skins/103000/Renamed Ahri")
+
+        self.assertEqual(state["custom_mod_content_hash"], custom_mods.mod_hashes(archive)[0])
+
     def test_a_change_to_the_picked_archive_is_shared_at_the_next_poll(self):
         archive = self.mods_root / "skins" / "103000" / "Ahri.fantome"
         self._make_archive(archive)
