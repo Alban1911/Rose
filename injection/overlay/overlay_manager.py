@@ -49,6 +49,7 @@ except ImportError:
     psutil = None
 
 from injection.game.reconnect import kill_game, reconnect_to_game
+from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger, log_event
 from utils.core.issue_reporter import report_issue
 from utils.core.junction import link_file, safe_remove_entry
@@ -619,17 +620,20 @@ class OverlayManager:
             } if isinstance(switched, dict) else {},
         }
 
-    def _update_state(self, change: Callable[[dict], None]) -> None:
-        """Apply *change* to the state file (read, change, write)."""
+    def _update_state(self, change: Callable[[dict], None]) -> bool:
+        """Apply *change* to the state file (read, change, write). False when
+        it could not be written: the file then still holds what it held (a
+        truncated one would lose the user's mods to turn back on)."""
         with _STATE_FILE_LOCK:
             state = self._read_state()
             change(state)
             try:
-                self._installed_state_path.write_text(
-                    json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
+                with atomic_write(self._installed_state_path) as handle:
+                    handle.write(json.dumps(state, ensure_ascii=False, indent=2))
             except OSError as e:
                 log.debug(f"[INJECT] Could not write the LTF session state: {e}")
+                return False
+        return True
 
     def _track_installed(self, session: dict, mod_id: str, folder: str, fingerprint: Optional[str] = None) -> None:
         session["installed"][mod_id] = folder

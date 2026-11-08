@@ -1,3 +1,5 @@
+import errno
+import io
 import json
 import tempfile
 import threading
@@ -15,6 +17,35 @@ from injection.overlay.overlay_manager import OverlayManager, ltk_failure_cause
 from injection.overlay.process_manager import ProcessManager
 from injection.tools.bridge import BridgeCommandError, BridgeUnavailable
 from injection.tools.tools_manager import ToolsManager
+
+
+class FullDiskFile:
+    """A file opened for writing on a full disk: every write fails."""
+
+    def __init__(self, handle):
+        self.handle = handle
+
+    def write(self, data):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.handle.close()
+
+    def __getattr__(self, name):
+        return getattr(self.handle, name)
+
+
+_real_open = io.open
+
+
+def full_disk_open(file, mode="r", *args, **kwargs):
+    """io.open on a full disk (patch io.open with it): opening for writing
+    works, and truncates, but no write does."""
+    handle = _real_open(file, mode, *args, **kwargs)
+    return FullDiskFile(handle) if "w" in mode else handle
 
 
 def status(running=True, phase="patching", **extra):
@@ -1195,6 +1226,52 @@ class SavedLtkModTests(LtfSessionTestCase):
         self.assertEqual([call for call in self.bridge.calls if call[0] == "uninstall"], [("uninstall", self.OLD_ID)])
         self.assertFalse(queue.exists())
         self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
+
+    def test_a_discard_while_staging_reads_the_library_leaves_it_off(self):
+        """The discard's cleanup ran before the switch-on: nothing would switch it off"""
+        self.overlay.open_staging()
+        self.overlay.start_patcher_early()
+        reading, resume = threading.Event(), threading.Event()
+        read = FakeBridge.library
+
+        def paused_read(bridge_self):
+            entries = read(bridge_self)
+            if threading.current_thread().name == "Stager":
+                reading.set()
+                resume.wait(2)
+            return entries
+
+        staged = []
+        stager = threading.Thread(
+            target=lambda: staged.append(self.overlay.stage_mods(self.stage_dir, [ltk_ref(self.VO_ID)])),
+            name="Stager",
+        )
+        with patch.object(FakeBridge, "library", paused_read):
+            stager.start()
+            self.assertTrue(reading.wait(2))
+            self.overlay.discard_early_patcher()
+            resume.set()
+            stager.join(2)
+
+        self.assertEqual(staged, [False])
+        self.assertNotIn(True, self.toggles(self.VO_ID))
+        self.assertFalse(self.enabled(self.VO_ID))
+
+    def test_one_the_state_file_cannot_record_is_left_off_and_the_record_kept(self):
+        """The state file holds the user's mods to turn back on: a write on a
+        full disk must not empty it, nor switch on a mod a crash would leave on"""
+        FakeBridge.initial_library.append(self.entry("user-map", "Map", enabled=True))
+        self.overlay.open_staging()
+        skin = self.make_mod(where=self.stage_dir)
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin]))
+        recorded = self.state()
+        self.assertEqual(recorded["disabled"], ["user-map"])
+
+        with patch("io.open", full_disk_open):
+            self.overlay.stage_mods(self.stage_dir, [skin, ltk_ref(self.VO_ID)])
+
+        self.assertNotIn(True, self.toggles(self.VO_ID))
+        self.assertEqual(self.state(), recorded)
 
 
 class EarlySessionTests(LtfSessionTestCase):

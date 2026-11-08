@@ -50,9 +50,13 @@ class SavedModSwitches:
     def __init__(self, overlay) -> None:
         self._overlay = overlay
 
-    def _record(self, session: dict, ltk_id: str, name: str) -> None:
+    def _record(self, session: dict, ltk_id: str, name: str) -> bool:
+        """Journal the entry as switched on, before it is: False when the
+        journal could not be written (a crash would then leave it on for good)."""
+        if not self._overlay._update_state(lambda state: state["switched"].__setitem__(ltk_id, name)):
+            return False
         session["switched"][ltk_id] = name
-        self._overlay._update_state(lambda state: state["switched"].__setitem__(ltk_id, name))
+        return True
 
     def _forget(self, ltk_ids: Iterable[str]) -> None:
         ltk_ids = set(ltk_ids)
@@ -129,7 +133,12 @@ class SavedModSwitches:
         """Switch the entries *on* on for the session and *off* off, keeping
         *library* (the read the install shares) as LTK Manager now has it.
         Raises BridgeUnavailable or BridgeCommandError: a mod left off is
-        missing from the overlay, one left on applies with it."""
+        missing from the overlay, one left on applies with it.
+
+        Each switch-on holds the session's lock, which _end_session takes to
+        end it: a session that ended (a discard while this read the library)
+        switches nothing on, and one ending after sees the entry to switch off.
+        """
         entries = {str(entry.get("id")): entry for entry in library or () if entry.get("id")}
         for ltk_id in off:
             self._switch_off(session, ltk_id)
@@ -137,8 +146,15 @@ class SavedModSwitches:
                 entries[ltk_id]["enabled"] = False
         for ltk_id in on:
             name = self._overlay._entry_name(entries[ltk_id]) if ltk_id in entries else ltk_id
-            self._record(session, ltk_id, name)
-            session["bridge"].toggle(ltk_id, True)
+            with session["lock"]:
+                if session["ended"]:
+                    log.debug(f"[INJECT] The session ended: {name} stays off")
+                    return
+                if not self._record(session, ltk_id, name):
+                    log.warning(f"[INJECT] Could not record {name} in Rose's LTF session state - left off: "
+                                "a crash would leave it on in LTK Manager")
+                    continue
+                session["bridge"].toggle(ltk_id, True)
             if ltk_id in entries:
                 entries[ltk_id]["enabled"] = True
             log.info(f"[INJECT] Switched on {name} in LTK Manager (a saved mod)")
