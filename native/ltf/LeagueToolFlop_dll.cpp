@@ -722,6 +722,48 @@ static mj::JVal CmdLibraryCall(const char* command, const std::string& modId) {
     return r;
 }
 
+// Rose switches a game's mods in an LTK Manager profile of its own, so the
+// user's profile stays as they left it, and files the mods it added in a
+// folder named "Rose". Each command is one of LTK Manager's, with the string
+// arguments it takes
+struct OrganizeCommand { const char* cmd; const char* tauri; std::vector<const char*> args; };
+static const OrganizeCommand kOrganizeCommands[] = {
+    { "list_profiles",  "plugin:library|list_mod_profiles",      {} },
+    { "active_profile", "plugin:library|get_active_mod_profile", {} },
+    { "create_profile", "plugin:library|create_mod_profile",     { "name" } },
+    { "switch_profile", "plugin:library|switch_mod_profile",     { "profileId" } },
+    { "delete_profile", "plugin:library|delete_mod_profile",     { "profileId" } },
+    { "list_folders",   "plugin:library|get_folders",            {} },
+    { "create_folder",  "plugin:library|create_folder",          { "name" } },
+    { "move_to_folder", "plugin:library|move_mod_to_folder",     { "modId", "folderId" } },
+    { "delete_folder",  "plugin:library|delete_folder",          { "folderId" } },
+};
+
+static const OrganizeCommand* FindOrganizeCommand(const std::string& cmd) {
+    for (const auto& command : kOrganizeCommands)
+        if (cmd == command.cmd) return &command;
+    return nullptr;
+}
+
+static mj::JVal CmdOrganize(const OrganizeCommand& command, const mj::JVal& req) {
+    mj::JVal args = mj::JVal::obj_();
+    for (const char* name : command.args) {
+        auto* value = req.get(name);
+        std::string text = value ? value->asStr() : "";
+        if (text.empty()) {
+            mj::JVal r = mj::JVal::obj_();
+            r.set("ok", mj::JVal::boo(false)); r.set("error", mj::JVal::str(std::string("missing '") + name + "'"));
+            return r;
+        }
+        args.set(name, mj::JVal::str(text));
+    }
+    mj::JVal resp = TauriInvoke(command.tauri, args);
+    mj::JVal r = mj::JVal::obj_();
+    r.set("ok", resp.get("ok") ? *resp.get("ok") : mj::JVal::boo(true));
+    r.set("response", resp);
+    return r;
+}
+
 // LTK Manager checks every mod new to its library ("Automatically check mods",
 // autoHealthCheckEnabled), and Rose installs the picked skin anew for each
 // game: a check every game, minutes long on a hard drive, while the game loads
@@ -1376,6 +1418,7 @@ static std::string HandleCommand(const std::string& line) {
     if (c == "stop_patcher")   return CmdStopPatcher().dump();
     if (c == "patcher_status") return CmdPatcherStatus().dump();
     if (c == "kill")           return CmdKill().dump();
+    if (const OrganizeCommand* organize = FindOrganizeCommand(c)) return CmdOrganize(*organize, req).dump();
 
     mj::JVal r = mj::JVal::obj_();
     r.set("ok", mj::JVal::boo(false)); r.set("error", mj::JVal::str("unknown: " + c));

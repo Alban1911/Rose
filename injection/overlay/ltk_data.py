@@ -108,10 +108,9 @@ def _plain_name(value: str) -> bool:
     return bool(value) and value not in {".", ".."} and not any(c in value for c in "/\\:")
 
 
-def read_library_index() -> Optional[Dict[str, IndexEntry]]:
-    """LTK Manager's library by entry id, read from its index without it
-    running. None when the index is absent or cannot be read (LTK Manager
-    writing it, another layout): never read that as "every mod is gone"."""
+def _read_index_document() -> Optional[dict]:
+    """LTK Manager's library index as it is on disk, None when it is absent
+    or cannot be read (LTK Manager writing it, another layout)."""
     path = library_index_path()
     if path is None:
         return None
@@ -124,6 +123,27 @@ def read_library_index() -> Optional[Dict[str, IndexEntry]]:
         return None
     if not isinstance(document, dict) or document.get("version") != LIBRARY_INDEX_VERSION:
         return None
+    return document
+
+
+def lists_profile_or_folder(name: str) -> bool:
+    """Whether LTK Manager's index lists a profile or a folder named *name*
+    (True when it cannot be read: it may)."""
+    document = _read_index_document()
+    if document is None:
+        return True
+    listed = [*(document.get("profiles") or []), *(document.get("folders") or [])]
+    return any(isinstance(item, dict) and item.get("name") == name for item in listed)
+
+
+def read_library_index() -> Optional[Dict[str, IndexEntry]]:
+    """LTK Manager's library by entry id, read from its index without it
+    running. None when the index is absent or cannot be read (LTK Manager
+    writing it, another layout): never read that as "every mod is gone"."""
+    document = _read_index_document()
+    if document is None:
+        return None
+    path = library_index_path()
     mods = document.get("mods")
     if not isinstance(mods, list):
         return None

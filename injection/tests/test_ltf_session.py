@@ -84,11 +84,23 @@ class FakeBridge:
     mod_storage = None
     health_answers = []  # verdicts check_mod_health returns, the last one repeats
     repair_files = None  # {path in archive: bytes} repair_mod writes into the entry's archive
+    # LTK Manager's profiles: an entry's "enabled" is the active profile's,
+    # and each other profile keeps its own (enabled_by_profile)
+    initial_profiles = None
+    initial_active_profile = None
+    initial_folders = None
+    profile_switch_fails = False
 
     def __init__(self, port=None, pid=None):
         self.port = port
         self.pid = pid
         self.library_entries = [dict(entry) for entry in FakeBridge.initial_library]
+        for entry in self.library_entries:
+            entry.setdefault("folderId", "root")
+        self.profile_list = [dict(p) for p in FakeBridge.initial_profiles or [{"id": "default-id", "name": "Default"}]]
+        self.active_profile_id = FakeBridge.initial_active_profile or self.profile_list[0]["id"]
+        self.enabled_by_profile = {}
+        self.folder_list = [dict(f) for f in FakeBridge.initial_folders or [{"id": "root", "name": ""}]]
         self.calls = []
         self.is_alive = True
         self.library_fails = False
@@ -107,6 +119,10 @@ class FakeBridge:
         cls.mod_storage = None
         cls.health_answers = []
         cls.repair_files = None
+        cls.initial_profiles = None
+        cls.initial_active_profile = None
+        cls.initial_folders = None
+        cls.profile_switch_fails = False
 
     @classmethod
     def wait_for_bridge(cls, timeout=30.0, expected_pid=None, cancelled=None):
@@ -144,6 +160,7 @@ class FakeBridge:
             "name": Path(file_name).stem,
             "displayName": name or Path(file_name).stem,
             "enabled": True,
+            "folderId": "root",
         }
         if FakeBridge.mod_storage is not None:
             mod_dir = FakeBridge.mod_storage / f"mod-{mod_id[:8]}"
@@ -223,6 +240,73 @@ class FakeBridge:
         self.is_alive = False
         return {"ok": True}
 
+    def profiles(self):
+        self.calls.append(("profiles",))
+        return [dict(profile) for profile in self.profile_list]
+
+    def active_profile(self):
+        self.calls.append(("active_profile",))
+        return dict(next(p for p in self.profile_list if p["id"] == self.active_profile_id))
+
+    def create_profile(self, name):
+        self.calls.append(("create_profile", name))
+        profile = {"id": f"{name.lower()}-id", "name": name}
+        self.profile_list.append(profile)
+        return dict(profile)
+
+    def switch_profile(self, profile_id):
+        self.calls.append(("switch_profile", profile_id))
+        if FakeBridge.profile_switch_fails or all(p["id"] != profile_id for p in self.profile_list):
+            raise BridgeCommandError(f"switch_profile failed: Profile {profile_id} not found")
+        self.enabled_by_profile[self.active_profile_id] = {e["id"] for e in self.library_entries if e.get("enabled")}
+        enabled = self.enabled_by_profile.get(profile_id, set())
+        for entry in self.library_entries:
+            entry["enabled"] = entry["id"] in enabled
+        self.active_profile_id = profile_id
+
+    def delete_profile(self, profile_id):
+        self.calls.append(("delete_profile", profile_id))
+        if profile_id == self.active_profile_id:
+            raise BridgeCommandError("Cannot delete active profile")
+        self.profile_list = [p for p in self.profile_list if p["id"] != profile_id]
+
+    def enabled_in(self, profile_name):
+        """The entries the profile named *profile_name* enables now."""
+        profile_id = next(p["id"] for p in self.profile_list if p["name"] == profile_name)
+        if profile_id == self.active_profile_id:
+            return {e["id"] for e in self.library_entries if e.get("enabled")}
+        return set(self.enabled_by_profile.get(profile_id, set()))
+
+    def folders(self):
+        self.calls.append(("folders",))
+        return [dict(folder, modIds=[e["id"] for e in self.library_entries if e.get("folderId") == folder["id"]])
+                for folder in self.folder_list]
+
+    def create_folder(self, name):
+        self.calls.append(("create_folder", name))
+        folder = {"id": f"{name.lower()}-folder", "name": name}
+        self.folder_list.append(folder)
+        return dict(folder, modIds=[])
+
+    def move_to_folder(self, mod_id, folder_id):
+        self.calls.append(("move_to_folder", mod_id, folder_id))
+        entry = next((e for e in self.library_entries if e["id"] == mod_id), None)
+        if entry is None or entry.get("folderId") == folder_id:
+            raise BridgeCommandError("move_to_folder failed: not found or already in the target folder")
+        entry["folderId"] = folder_id
+
+    def delete_folder(self, folder_id):
+        self.calls.append(("delete_folder", folder_id))
+        for entry in self.library_entries:
+            if entry.get("folderId") == folder_id:
+                entry["folderId"] = "root"
+        self.folder_list = [f for f in self.folder_list if f["id"] != folder_id]
+
+    def in_folder(self, folder_name):
+        """The entries the folder named *folder_name* holds."""
+        folder = next((f for f in self.folder_list if f["name"] == folder_name), None)
+        return {e["id"] for e in self.library_entries if folder is not None and e.get("folderId") == folder["id"]}
+
     def command_names(self):
         return [call[0] for call in self.calls]
 
@@ -282,10 +366,18 @@ class LtfSessionTestCase(unittest.TestCase):
         self.isolate_from_this_pc()
 
     def isolate_from_this_pc(self):
-        """Never this PC's saved mods, LTK Manager log, LTF logs, registry or
-        Rose's diagnostics file: the test's folders instead."""
+        """Never this PC's saved mods, LTK Manager data and log, LTF logs,
+        registry or Rose's diagnostics file: the test's folders instead."""
         self.host.saved_mods_root = self.root / "saved-mods"
+        self.ltk_data = self.root / "ltk-data"
+        self.ltk_data.mkdir(exist_ok=True)
+        (self.ltk_data / "library.json").write_text(json.dumps({
+            "version": 2, "mods": [], "activeProfileId": "default-id",
+            "profiles": [{"id": "default-id", "name": "Default", "enabledMods": []}],
+            "folders": [{"id": "root", "name": "", "modIds": []}], "folderOrder": ["root"],
+        }), encoding="utf-8")
         for patcher in (
+            patch.object(ltk_data, "ltk_data_dir", return_value=self.ltk_data),
             patch.object(ltk_data.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
             patch.object(ltf_session, "ltk_logs_dir", lambda: self.root / "logs" / "ltk"),
             patch("utils.system.windows_account.check_ltk_settings", return_value=False),
@@ -323,6 +415,14 @@ class LtfSessionTestCase(unittest.TestCase):
 
     def state(self):
         return json.loads(self.state_path.read_text(encoding="utf-8"))
+
+    def crashed_in_roses_profile(self, **state):
+        """LTK Manager as a Rose that crashed in a game left it: Rose's
+        profile active (what initial_library enables is on there), and the
+        journal recording the user's profile to switch back to."""
+        FakeBridge.initial_profiles = [{"id": "default-id", "name": "Default"}, {"id": "rose-id", "name": "Rose"}]
+        FakeBridge.initial_active_profile = "rose-id"
+        self.state_path.write_text(json.dumps({"users_profile": "default-id", **state}), encoding="utf-8")
 
     def reported_codes(self):
         return [call.args[0] for call in self.report_issue.call_args_list]
@@ -479,12 +579,12 @@ class InjectionSessionTests(LtfSessionTestCase):
 
         self.overlay.mk_run_overlay(mods, stop_callback=lambda: True)
 
-        # One read for both imports and for turning the user's mod off
+        # One read for both imports and for turning the other mods off
         self.assertEqual(self.bridge.library_reads, 1)
         self.assertEqual(self.bridge.command_names().count("import"), 2)
-        self.assertIn(("toggle", "user-mod", False), self.bridge.calls)
+        self.assertNotIn(("toggle", "user-mod", False), self.bridge.calls)
         self.assertEqual(self.bridge.library_entries,
-                         [{"id": "user-mod", "name": "Map", "displayName": "Map", "enabled": True}])
+                         [{"id": "user-mod", "name": "Map", "displayName": "Map", "enabled": True, "folderId": "root"}])
 
     def test_an_import_answered_with_a_disabled_entry_is_toggled_on(self):
         FakeBridge.full_install_answer = True
@@ -855,28 +955,35 @@ class LibraryOwnershipTests(LtfSessionTestCase):
         self.assertNotIn("import", self.bridge.command_names())
         self.assertNotIn(("uninstall", "user-mod"), self.bridge.calls)
 
-    def test_the_users_enabled_mods_are_off_during_the_game_and_back_on_after(self):
+    def test_the_game_runs_in_roses_profile_and_the_users_profile_is_never_changed(self):
         FakeBridge.initial_library = [dict(self.user_mod, id="user-map", name="Map", displayName="Map")]
         mod = self.make_mod()
         during = {}
 
         def stop():
-            during.setdefault("enabled", {e["id"]: e["enabled"] for e in self.bridge.library_entries})
+            during.setdefault("rose", self.bridge.enabled_in("Rose"))
+            during.setdefault("user", self.bridge.enabled_in("Default"))
             return True
 
         self.overlay.mk_run_overlay([mod], stop_callback=stop)
 
-        self.assertFalse(during["enabled"]["user-map"])
-        self.assertEqual(self.bridge.library_entries, [dict(self.user_mod, id="user-map", name="Map", displayName="Map")])
-        self.assertEqual(self.state()["disabled"], [])
+        self.assertEqual(len(during["rose"]), 1)
+        self.assertNotIn("user-map", during["rose"])
+        self.assertEqual(during["user"], {"user-map"})
+        self.assertNotIn("toggle", [call[0] for call in self.bridge.calls if call[1:2] == ("user-map",)])
+        self.assertEqual(self.bridge.active_profile_id, "default-id")
+        self.assertEqual(self.bridge.enabled_in("Default"), {"user-map"})
+        self.assertIsNone(self.state()["users_profile"])
 
-    def test_a_crash_with_user_mods_off_turns_them_back_on_next_session(self):
+    def test_a_crash_with_user_mods_off_turns_them_back_on_in_their_profile(self):
         FakeBridge.initial_library = [dict(self.user_mod, enabled=False)]
         self.state_path.write_text(json.dumps({"installed": {}, "disabled": ["user-mod"]}), encoding="utf-8")
 
         self.overlay.start_patcher_early()
 
         self.assertIn(("toggle", "user-mod", True), self.bridge.calls)
+        self.assertIn("user-mod", self.bridge.enabled_in("Default"))
+        self.assertNotIn("user-mod", self.bridge.enabled_in("Rose"))
         self.assertEqual(self.state()["disabled"], [])
 
     def test_an_import_that_fails_but_installs_is_still_removed(self):
@@ -1036,18 +1143,23 @@ class KeptModsTests(LtfSessionTestCase):
         self.assertEqual(list(self.state()["kept"]), [kept_id], "kept again after the game")
         self.assertEqual(self.state()["disabled"], [], "never taken for one of the user's mods")
 
-    def test_a_kept_mod_not_selected_stays_off_and_is_not_turned_on_after(self):
+    def test_a_kept_mod_not_selected_stays_off_in_the_game_and_the_users_choice_stays(self):
         voiceover, skin = self.saved_mod(), self.make_mod()
         self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
         kept_id = next(iter(self.state()["kept"]))
         self.next_game(skin)
         turned_on_in_ltk_manager(FakeBridge.initial_library)
+        during = {}
 
-        self.overlay.mk_run_overlay([skin], stop_callback=lambda: True)
+        def stop():
+            during.setdefault("rose", self.bridge.enabled_in("Rose"))
+            return True
 
-        self.assertIn(("toggle", kept_id, False), self.bridge.calls)
+        self.overlay.mk_run_overlay([skin], stop_callback=stop)
+
+        self.assertNotIn(kept_id, during["rose"])
         self.assertNotIn(("toggle", kept_id, True), self.bridge.calls)
-        self.assertEqual(self.state()["disabled"], [])
+        self.assertIn(kept_id, self.bridge.enabled_in("Default"), "the user turned it on in their own profile")
         self.assertEqual(list(self.state()["kept"]), [kept_id])
 
     def test_a_kept_mod_removed_from_ltk_manager_is_installed_anew(self):
@@ -1114,12 +1226,12 @@ class KeptModsTests(LtfSessionTestCase):
         FakeBridge.initial_library = [{"id": "kept-id", "name": "VO", "enabled": True}]
         source = self.saved / "VO"
         source.mkdir(parents=True)
-        self.state_path.write_text(json.dumps({"kept": {"kept-id": {
-            "folder": "VO", "fingerprint": "abc", "source": str(source)}}}), encoding="utf-8")
+        self.crashed_in_roses_profile(kept={"kept-id": {"folder": "VO", "fingerprint": "abc", "source": str(source)}})
 
         self.overlay.start_patcher_early()
 
         self.assertIn(("toggle", "kept-id", False), self.bridge.calls)
+        self.assertNotIn("switch_profile", self.bridge.command_names(), "Rose's profile is the active one")
         self.assertNotIn(("uninstall", "kept-id"), self.bridge.calls)
         self.assertEqual(list(self.state()["kept"]), ["kept-id"])
 
@@ -1305,20 +1417,29 @@ class SavedLtkModTests(LtfSessionTestCase):
 
     def test_a_crash_leaves_it_on_and_the_next_session_switches_it_off(self):
         FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
-        self.state_path.write_text(json.dumps({"switched": {self.VO_ID: "VO Korean"}}), encoding="utf-8")
+        self.crashed_in_roses_profile(switched={self.VO_ID: "VO Korean"})
 
         self.overlay.start_patcher_early()
 
         self.assertEqual(self.toggles(self.VO_ID), [False])
         self.assertEqual(self.state()["switched"], {})
 
-    def test_one_found_on_is_switched_off_when_a_session_starts(self):
+    def test_one_found_on_in_roses_profile_is_switched_off_when_a_session_starts(self):
         FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+        self.crashed_in_roses_profile()
 
         self.overlay.start_patcher_early()
 
         self.assertEqual(self.toggles(self.VO_ID), [False])
-        self.assertFalse(self.state_path.exists(), "not the user's, to turn back on")
+
+    def test_one_the_user_turned_on_in_their_profile_stays_on_there(self):
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+
+        self.overlay.start_patcher_early()
+        self.overlay.discard_early_patcher()
+
+        self.assertEqual(self.toggles(self.VO_ID), [])
+        self.assertEqual(self.bridge.enabled_in("Default"), {self.VO_ID})
 
     def test_one_turned_on_before_the_injection_is_not_taken_for_the_users(self):
         self.overlay.start_patcher_early()
@@ -1425,14 +1546,14 @@ class SavedLtkModTests(LtfSessionTestCase):
         self.assertFalse(self.enabled(self.VO_ID))
 
     def test_one_the_state_file_cannot_record_is_left_off_and_the_record_kept(self):
-        """The state file holds the user's mods to turn back on: a write on a
-        full disk must not empty it, nor switch on a mod a crash would leave on"""
-        FakeBridge.initial_library.append(self.entry("user-map", "Map", enabled=True))
+        """The state file holds the user's profile to switch back to: a write
+        on a full disk must not empty it, nor switch on a mod a crash would
+        leave on"""
         self.overlay.open_staging()
         skin = self.make_mod(where=self.stage_dir)
         self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin]))
         recorded = self.state()
-        self.assertEqual(recorded["disabled"], ["user-map"])
+        self.assertEqual(recorded["users_profile"], "default-id")
 
         with patch("io.open", full_disk_open):
             self.overlay.stage_mods(self.stage_dir, [skin, ltk_ref(self.VO_ID)])

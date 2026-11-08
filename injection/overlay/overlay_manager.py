@@ -749,13 +749,13 @@ class OverlayManager:
         return library
 
     def _disable_other_mods(self, session: dict) -> None:
-        """Turn off the user's own enabled mods for this session.
+        """Turn off every other enabled mod of Rose's profile for this session.
 
-        LTK Manager's patcher applies every enabled mod, and the overlay must
-        hold Rose's alone (as mod-tools' did). Each one is recorded before it
-        is turned off, so a crash still turns it back on next session. Rose's
-        own (a kept copy, a saved mod not picked for this game) are turned
-        off, and never turned back on as the user's.
+        LTK Manager's patcher applies the enabled mods of the active profile,
+        Rose's (LtfHost._ready_library), and the overlay must hold this
+        game's alone: not a kept copy, a saved mod not picked for this game,
+        or a mod enabled in Rose's profile by hand. The user's own profile is
+        never changed.
         """
         ltf = session["ltf"]
         bridge = ltf.bridge
@@ -766,21 +766,13 @@ class OverlayManager:
         except (BridgeUnavailable, BridgeCommandError) as e:
             log.warning(f"[INJECT] Could not read LTK Manager's library - its other enabled mods may apply too: {e}")
             return
-        rose_entries = set(self.host.journal.kept()) | ltf.saved_mod_ids
         for entry in library:
             mod_id = str(entry.get("id") or "")
             if not mod_id or mod_id in ltf.imports or mod_id in ltf.switched_on or not entry.get("enabled"):
                 continue
-            if mod_id in rose_entries:
-                try:
-                    bridge.toggle(mod_id, False)
-                except (BridgeUnavailable, BridgeCommandError) as e:
-                    log.warning(f"[INJECT] Could not turn off {entry_name(entry)} - it may apply too: {e}")
-                continue
-            self.host.track_disabled(ltf, mod_id)
             try:
                 bridge.toggle(mod_id, False)
-                log.info(f"[INJECT] Turned off {entry_name(entry)} in LTK Manager for this game")
+                log.info(f"[INJECT] Turned off {entry_name(entry)} in Rose's LTK Manager profile for this game")
             except (BridgeUnavailable, BridgeCommandError) as e:
                 log.warning(f"[INJECT] Could not turn off {entry_name(entry)} - it may apply too: {e}")
         self._disable_broken_entries(session, library)

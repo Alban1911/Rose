@@ -33,7 +33,8 @@ from ..tools.bridge import (
 from ..tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
 from .ltf_journal import KeptRecord, LibraryId, LibraryNames, LtfJournal
 from .ltf_report import cdp_unreachable, report_ltf_failure
-from .ltk_data import LtkLogTail, entry_name
+from .ltk_data import LtkLogTail
+from .ltk_rose import RoseFolder, RoseProfile
 from .ltk_switches import SavedModSwitches
 from .process_manager import LTK_MANAGER_PROCESSES
 
@@ -234,11 +235,11 @@ class LtfSession:
     bridge: Any
     rose_started_manager: bool
     imports: Dict[LibraryId, TrackedImport] = field(default_factory=dict)
-    user_mods_turned_off: List[LibraryId] = field(default_factory=list)
     switched_on: LibraryNames = field(default_factory=dict)
     switch_on_unconfirmed: Set[LibraryId] = field(default_factory=set)
     saved_mod_ids: Set[LibraryId] = field(default_factory=set)
     start_log_tail: Optional[LtkLogTail] = None
+    rose_folder_id: Optional[str] = None
     lock: threading.Lock = field(default_factory=threading.Lock)
     ended: bool = False
 
@@ -272,6 +273,8 @@ class LtfHost:
         self.logged_manager_parent: Optional[str] = None
         self.journal = LtfJournal(injection_dir / "ltf_installed.json")
         self.switches = SavedModSwitches(self)
+        self.profile = RoseProfile(self)
+        self.folder = RoseFolder()
 
     def busy(self) -> bool:
         """Whether an injection holds LTK Manager (champion select, a game)."""
@@ -354,23 +357,32 @@ class LtfHost:
             saved_mod_ids=manifest_ltk_ids(self.saved_mods_dir()),
             start_log_tail=LtkLogTail(LtkLogTail.log_dir()),
         )
-        self._ready_library(session)
+        try:
+            self._ready_library(session)
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            self._session_failed(f"LTK Manager could not switch to Rose's profile ({e})", report)
+            self.end(session)
+            return None
         shutil.rmtree(self.staging_root(), ignore_errors=True)
         return session
 
     def _ready_library(self, session: LtfSession) -> None:
         """Ready LTK Manager's library before the session's first install (an
         install is what sets the automatic mod check off): the check turned
-        off, the built-in mods checked, an earlier session's leftovers undone."""
+        off, the built-in mods checked, Rose's profile active, an earlier
+        session's leftovers undone, and the mods Rose added in its folder.
+        Raises when Rose's profile may not be active."""
         self._turn_off_health_check(session.bridge)
         self._check_ltk_builtins()
+        self.profile.enter(session.bridge)
         self._cleanup_stale_installs(session)
+        self.folder.file_all(session, session.saved_mod_ids | set(self.journal.kept()))
 
     def end(self, session: LtfSession, ending: Optional[Callable[[], None]] = None) -> None:
         """Stop the patcher, remove Rose's mods (the user's saved mods stay,
         turned off, for the next game: _park; those LTK Manager holds are
-        switched off), turn the user's back on, and close LTK Manager if Rose
-        started it (a running one is the user's). *ending* runs first, once
+        switched off), switch back to the user's profile, and close LTK
+        Manager if Rose started it (a running one is the user's). *ending* runs first, once
         the session is marked ended: what its user undoes before (a game held
         frozen).
 
@@ -407,14 +419,8 @@ class LtfHost:
             except (BridgeUnavailable, BridgeCommandError) as e:
                 log.debug(f"[INJECT] Could not remove {tracked.source_folder} from LTK Manager: {e}")
         self.switches.switch_off_all(session)
-        restored = []
-        for mod_id in session.user_mods_turned_off:
-            try:
-                bridge.toggle(mod_id, True)
-                restored.append(mod_id)
-            except (BridgeUnavailable, BridgeCommandError) as e:
-                log.debug(f"[INJECT] Could not turn {mod_id} back on in LTK Manager: {e}")
-        self.journal.untrack(removed, restored)
+        self.journal.untrack(removed)
+        self.profile.leave(bridge)
 
         if session.rose_started_manager:
             bridge.kill()
@@ -452,8 +458,8 @@ class LtfHost:
 
     def keep(self, session: LtfSession, ltk_id: str) -> None:
         """Hand the entry to a saved mod for good: neither the session's end
-        nor the next start removes it. Turned off; raises when it could not
-        be (it is kept all the same)."""
+        nor the next start removes it. Filed in Rose's folder and turned off;
+        raises when it could not be turned off (it is kept all the same)."""
         ltk_id = str(ltk_id)
         session.imports.pop(ltk_id, None)
 
@@ -462,6 +468,7 @@ class LtfHost:
             state["kept"].pop(ltk_id, None)
 
         self.journal.update(release)
+        self.folder.file(session, ltk_id)
         session.bridge.toggle(ltk_id, False)
 
     def uninstall(self, session: LtfSession, ltk_id: str) -> None:
@@ -469,16 +476,6 @@ class LtfHost:
         session.bridge.uninstall(ltk_id)
         if session.imports.pop(ltk_id, None) is not None:
             self.journal.untrack(removed=[ltk_id])
-
-    def track_disabled(self, session: LtfSession, mod_id: str) -> None:
-        """Record a user's mod turned off for the session, before it is."""
-        session.user_mods_turned_off.append(mod_id)
-
-        def add(state):
-            if mod_id not in state["disabled"]:
-                state["disabled"].append(mod_id)
-
-        self.journal.update(add)
 
     def _track(self, session: LtfSession, mod_id: str, folder: str,
                fingerprint: Optional[str] = None) -> TrackedImport:
@@ -685,16 +682,16 @@ class LtfHost:
 
     def _cleanup_stale_installs(self, session: LtfSession) -> None:
         """Undo what an earlier session left in LTK Manager (Rose crashed or
-        was closed before its cleanup ran): remove its mods, turn the user's
-        back on, switch off the saved mods it switched on. What cannot be
+        was closed before its cleanup ran), in Rose's profile: remove its
+        mods, switch off the saved mods it switched on. What cannot be
         undone now stays recorded for the next try. Kept saved mods stay,
         turned off, unless their saved mod is gone. An entry a saved mod's
         manifest names (session.saved_mod_ids) is the user's mod: never removed
         as a leftover, only switched off (SavedModSwitches)."""
         bridge, saved_mod_ids = session.bridge, session.saved_mod_ids
         state = self.journal.read()
-        installed, disabled, kept = state["installed"], state["disabled"], state["kept"]
-        if not installed and not disabled and not kept and not state["switched"] and not saved_mod_ids:
+        installed, kept = state["installed"], state["kept"]
+        if not installed and not kept and not state["switched"] and not saved_mod_ids:
             return
         try:
             library = {str(entry.get("id")): entry for entry in bridge.library() if entry.get("id")}
@@ -708,7 +705,7 @@ class LtfHost:
         enabled = [mod_id for mod_id in kept
                    if mod_id not in forgotten and mod_id not in orphaned and library[mod_id].get("enabled")]
         leftovers = self.switches.leftovers(library, state["switched"], saved_mod_ids)
-        if installed or disabled or orphaned or enabled or leftovers:
+        if installed or orphaned or enabled or leftovers:
             try:
                 bridge.stop_patcher()
             except (BridgeUnavailable, BridgeCommandError):
@@ -729,7 +726,7 @@ class LtfHost:
             self.journal.forget_kept(forgotten)
         self.switches.undo(bridge, leftovers)
 
-        removed, restored = [], []
+        removed = []
         for mod_id, folder in installed.items():
             gone_or_now_a_saved_mod = mod_id not in library or mod_id in saved_mod_ids
             if gone_or_now_a_saved_mod:
@@ -741,18 +738,7 @@ class LtfHost:
                 log.debug(f"[INJECT] Removed {folder} left behind by an earlier session")
             except (BridgeUnavailable, BridgeCommandError) as e:
                 log.debug(f"[INJECT] Could not remove the leftover {folder} ({mod_id}): {e}")
-        for mod_id in disabled:
-            entry = library.get(mod_id)
-            if entry is None or entry.get("enabled"):
-                restored.append(mod_id)
-                continue
-            try:
-                bridge.toggle(mod_id, True)
-                restored.append(mod_id)
-                log.debug(f"[INJECT] Turned {entry_name(entry)} back on (an earlier session turned it off)")
-            except (BridgeUnavailable, BridgeCommandError) as e:
-                log.debug(f"[INJECT] Could not turn {mod_id} back on: {e}")
-        self.journal.untrack(removed, restored)
+        self.journal.untrack(removed)
 
     @staticmethod
     def _process_created(pid: Optional[int]) -> Optional[float]:

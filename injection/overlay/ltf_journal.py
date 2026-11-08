@@ -24,7 +24,7 @@ class KeptRecord(TypedDict):
 
 
 _SHARED_STATE_FILE_LOCK = threading.Lock()
-_LAYOUT_KEYS = ("installed", "disabled", "manager", "kept", "switched")
+_LAYOUT_KEYS = ("installed", "disabled", "manager", "kept", "switched", "users_profile")
 
 
 def _upgrade_first_layout(document: dict) -> dict:
@@ -52,6 +52,7 @@ class LtfJournal:
         manager = document.get("manager")
         kept = document.get("kept")
         switched = document.get("switched")
+        users_profile = document.get("users_profile")
         kept_for_next_game: Dict[LibraryId, KeptRecord] = {
             str(mod_id): record for mod_id, record in kept.items()
             if isinstance(record, dict) and record.get("fingerprint") and record.get("source")
@@ -65,6 +66,8 @@ class LtfJournal:
             "manager": manager if isinstance(manager, dict) else None,
             "kept": kept_for_next_game,
             "switched": switched_on,
+            # The user's LTK Manager profile while a session has Rose's active
+            "users_profile": users_profile if isinstance(users_profile, str) and users_profile else None,
         }
 
     def update(self, change: Callable[[dict], None]) -> bool:

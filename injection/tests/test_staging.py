@@ -202,16 +202,19 @@ class OverlayStagingTests(LtfSessionTestCase):
         self.assertEqual(self.bridge.command_names().count("import"), 1)
         self.assertNotIn("start_patcher", self.bridge.command_names())
 
-    def test_the_users_mods_are_off_while_staged_and_back_on_after_a_discard(self):
+    def test_the_staging_runs_in_roses_profile_and_a_discard_switches_back(self):
         FakeBridge.initial_library = [{"id": "user-mod", "name": "Map", "displayName": "Map", "enabled": True}]
         self.stage()
-        self.assertFalse(next(e for e in self.bridge.library_entries if e["id"] == "user-mod")["enabled"])
+        self.assertEqual(self.bridge.active_profile_id, "rose-id")
+        self.assertNotIn("user-mod", self.bridge.enabled_in("Rose"))
 
         self.overlay.discard_early_patcher()
 
-        self.assertEqual(self.bridge.library_entries, [{"id": "user-mod", "name": "Map", "displayName": "Map", "enabled": True}])
+        self.assertEqual(self.bridge.active_profile_id, "default-id")
+        self.assertEqual(self.bridge.library_entries,
+                         [{"id": "user-mod", "name": "Map", "displayName": "Map", "enabled": True, "folderId": "root"}])
         self.assertEqual(self.state()["installed"], {})
-        self.assertEqual(self.state()["disabled"], [])
+        self.assertIsNone(self.state()["users_profile"])
 
     def test_a_failed_staging_reports_nothing(self):
         mod = self.make_mod(where=self.stage_dir)
