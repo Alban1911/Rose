@@ -32,3 +32,19 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertRegex(body, r'(?s)if .*?then\s+begin\s+RegDeleteKeyIncludingSubkeys\(HKLM, LegacyUninstallKey\)')
         self.assertIn("ExpandConstant('{app}')", body)
         self.assertEqual(self.script.count('_CleanupLegacyUninstallEntry();'), 3)
+
+    def test_roses_ltk_mods_are_removed_before_its_files_unless_the_data_is_kept(self):
+        """[UninstallRun]'s Check: is evaluated at install time, before the
+        user answers the keep-data checkbox: the cleanup runs from [Code]"""
+        match = re.search(r'(?s)procedure CurUninstallStepChanged\(.*?\nend;', self.script)
+        self.assertIsNotNone(match)
+        step = re.search(r'(?s)if CurUninstallStep = usUninstall then\s+begin(.*?)\n  end;', match.group(0))
+        self.assertIsNotNone(step, 'the cleanup runs under usUninstall, before the files are deleted')
+        self.assertRegex(
+            step.group(1),
+            r"(?s)if not _KeepUserData then\s+Exec\(ExpandConstant\('\{app\}\\\{#MyAppExeName\}'\), "
+            r"'--remove-ltk-mods', '', SW_HIDE, ewWaitUntilTerminated, ResultCode\);",
+        )
+        self.assertEqual(self.script.count('--remove-ltk-mods'), 1)
+        uninstall_run = re.search(r'(?s)\n\[UninstallRun\](.*?)\n\[', self.script)
+        self.assertNotIn('remove-ltk-mods', uninstall_run.group(1))

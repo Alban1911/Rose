@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""The saved mods' manifests, kept in line with LTK Manager's library.
+
+A saved mod lives in LTK Manager's library (injection.mods.manifest), which
+the user can change while Rose is not looking: delete an entry, update or
+repair a mod. The sync reads LTK Manager's own index, with no LTK Manager
+running, and for each entry a saved mod's manifest names:
+
+- gone from the index: the mod is marked missing (listed, so the user adds
+  it again or deletes it, and never picked); listed again: it is not any more;
+- its archive changed since Rose read the mod's facts (another size or date
+  than the manifest's ltkStamp; no stamp at all once LTK Manager repaired the
+  mod as it was added): the facts are read again from LTK Manager's archive;
+- listed, while Rose still holds a copy (a move that stopped before the copy
+  went): the copy is deleted.
+
+It runs at Rose's start, and at each champion select once LTK Manager's index
+changed since the last sync. An index it cannot read (none yet, LTK Manager
+writing it) changes nothing: it is never read as "every mod is gone". Saved
+mods found switched on are switched off at a session's start instead, which
+has a bridge (injection.overlay.ltk_switches).
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+import zipfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List, Optional
+
+from utils.core.atomic_file import atomic_write
+from utils.core.logging import get_logger
+from utils.core.paths import get_state_dir
+from utils.threading.thread_manager import create_daemon_thread
+
+from ..overlay.ltk_library import IndexEntry, library_index_mtime, read_library_index
+from .manifest import SavedMod, update_saved_mod
+from .migration import delete_copy
+from .mod_facts import compute_mod_facts, stamp_of
+from .storage import ModStorageService
+
+log = get_logger()
+
+# In Rose's state folder: {"indexMtime": the modified time of LTK Manager's
+# index the last sync read}
+SYNC_STATE = "ltk_sync.json"
+
+# A sync started while one runs (Rose's start, then a champion select) would
+# only do its work again
+_SYNC_LOCK = threading.Lock()
+
+
+@dataclass
+class SyncReport:
+    """What a sync changed, by the mods' names."""
+
+    missing: List[str] = field(default_factory=list)  # gone from LTK Manager's library
+    found: List[str] = field(default_factory=list)  # listed there again
+    refreshed: List[str] = field(default_factory=list)  # facts read again from LTK Manager's archive
+    copies_deleted: List[str] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        """Whether the sync changed anything."""
+        return bool(self.missing or self.found or self.refreshed or self.copies_deleted)
+
+
+def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
+                    only_if_changed: bool) -> Optional[SyncReport]:
+    """Bring every saved mod's manifest in line with LTK Manager's index.
+    *only_if_changed* skips it while the index is the one the last sync read.
+
+    The manifests are read before the index: a mod added meanwhile is in LTK
+    Manager's index before its manifest names it, so it is never taken for
+    one LTK Manager lost. None when the sync did not run: another one is
+    running, the index did not change, or it cannot be read.
+    """
+    if not _SYNC_LOCK.acquire(blocking=False):
+        log.debug("[MODS] A sync with LTK Manager's library is running already")
+        return None
+    try:
+        mtime = library_index_mtime()
+        if only_if_changed and mtime is not None and mtime == _synced_mtime():
+            log.debug("[MODS] LTK Manager's library did not change since the last sync")
+            return None
+        storage = storage or ModStorageService()
+        held = [mod for mod in storage.saved_mods() if mod.ltk_id]
+        index = read_library_index()
+        if index is None:
+            log.debug("[MODS] LTK Manager's library index cannot be read now: the saved mods are left as they are")
+            return None
+        report = SyncReport()
+        for mod in held:
+            _sync_mod(storage, mod, index.get(mod.ltk_id), report)
+        if mtime is not None:
+            _save_synced_mtime(mtime)
+        if report:
+            log.info(f"[MODS] Synced the saved mods with LTK Manager's library: {len(report.missing)} missing, "
+                     f"{len(report.found)} found again, {len(report.refreshed)} changed by LTK Manager, "
+                     f"{len(report.copies_deleted)} copies deleted")
+        return report
+    finally:
+        _SYNC_LOCK.release()
+
+
+def start_saved_mods_sync(*, only_if_changed: bool) -> threading.Thread:
+    """Run sync_saved_mods on a daemon thread: neither Rose's start nor a
+    champion select waits for it (the facts of a voiceover pack LTK Manager
+    repaired take seconds to read again)."""
+    def run() -> None:
+        try:
+            sync_saved_mods(only_if_changed=only_if_changed)
+        except Exception as e:  # noqa: BLE001 - the manifests stay as they were, the next sync tries again
+            log.warning(f"[MODS] Could not sync the saved mods with LTK Manager's library: {e}", exc_info=True)
+
+    thread = create_daemon_thread(run, "LtkLibrarySync")
+    thread.start()
+    return thread
+
+
+def _sync_mod(storage: ModStorageService, mod: SavedMod, entry: Optional[IndexEntry], report: SyncReport) -> None:
+    """Bring one saved mod LTK Manager holds in line with its index *entry*
+    (None: gone), in one manifest write, then delete Rose's leftover copy of
+    a listed one."""
+    fields: dict = {}
+    if (entry is None) != mod.missing:
+        fields["missing"] = True if entry is None else None
+    if entry is not None:
+        fields.update(_changed_facts(mod, entry))
+    if fields and not update_saved_mod(storage.mods_root, mod.relative_path, **fields):
+        return
+    if "missing" in fields:
+        if entry is None:
+            report.missing.append(mod.name)
+            log.info(f"[MODS] {mod.name} is no longer in LTK Manager's library: shown as missing until it is "
+                     "added again")
+        else:
+            report.found.append(mod.name)
+            log.info(f"[MODS] {mod.name} is in LTK Manager's library again")
+    if "ltkStamp" in fields:
+        report.refreshed.append(mod.name)
+        log.info(f"[MODS] LTK Manager changed {mod.name}: read what Rose needs to know about it again")
+    if entry is not None and mod.stored is not None and delete_copy(storage, mod):
+        report.copies_deleted.append(mod.name)
+
+
+def _changed_facts(mod: SavedMod, entry: IndexEntry) -> dict:
+    """The facts of *mod* read again from LTK Manager's archive, with its
+    stamp, as manifest fields: {} while the archive is the one they were read
+    from (or there is no archive to read). One that cannot be read now is
+    left for the next sync, its stamp not recorded."""
+    stamp = stamp_of(entry.archive) if entry.archive is not None else None
+    if stamp is None or (mod.facts is not None and stamp == mod.metadata.get("ltkStamp")):
+        return {}
+    try:
+        facts = compute_mod_facts(entry.archive)[0]
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        log.warning(f"[MODS] Could not read {mod.name} in LTK Manager's library ({entry.archive}): {e}")
+        return {}
+    return {**facts.to_manifest(), "ltkStamp": stamp}
+
+
+def _state_path() -> Path:
+    return get_state_dir() / SYNC_STATE
+
+
+def _synced_mtime() -> Optional[float]:
+    try:
+        document = json.loads(_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = document.get("indexMtime") if isinstance(document, dict) else None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _save_synced_mtime(mtime: float) -> None:
+    try:
+        with atomic_write(_state_path(), "w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"indexMtime": mtime}))
+    except OSError as e:
+        log.debug(f"[MODS] Could not record the sync with LTK Manager's library: {e}")

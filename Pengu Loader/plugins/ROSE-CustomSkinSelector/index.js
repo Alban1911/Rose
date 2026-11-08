@@ -161,6 +161,15 @@
     return mod?.modName || fallback;
   }
 
+  // A saved mod LTK Manager lost (missing) is shown greyed, so the user adds it again, and is never picked
+  function renderMissing(button, mod) {
+    if (!mod?.missing) return false;
+    button.title = `${button.title} - ${t("Missing - add it again")}`;
+    button.style.opacity = "0.4";
+    button.style.cursor = "default";
+    return true;
+  }
+
   function isModAvailableForSkin(mod, skinId = getCurrentSkinContext().skinId) {
     if (!mod || mod._none) return false;
     const requestedSkinId = Number(skinId);
@@ -685,7 +694,7 @@
       };
 
       wheelButton.addEventListener("mouseenter", () => {
-        setPreviewImage(thumbnailUrl || "", mod._none ? getCurrentSkinContext().skinName : (visibleModName(mod) || getCurrentSkinContext().skinName));
+        setPreviewImage(thumbnailUrl || "", mod._none ? getCurrentSkinContext().skinName : wheelButton.title);
       });
 
       wheelButton.addEventListener("mouseleave", () => {
@@ -695,8 +704,10 @@
         setPreviewImage(au, al);
       });
 
-      wheelButton.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); applySelection(); });
-      contents.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); applySelection(); });
+      if (!renderMissing(wheelButton, mod)) {
+        wheelButton.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); applySelection(); });
+        contents.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); applySelection(); });
+      }
 
       wheelButton.appendChild(contents);
       emberView.appendChild(wheelButton);
@@ -882,7 +893,7 @@
     }
 
     if (!selectedModId && !pendingSelectionRequest && detail.historicMod) {
-      const match = modsForCurrentSkin.find(m => String(m?.relativePath || "").replace(/\\/g, "/") === String(detail.historicMod).replace(/\\/g, "/"));
+      const match = modsForCurrentSkin.find(m => !m?.missing && String(m?.relativePath || "").replace(/\\/g, "/") === String(detail.historicMod).replace(/\\/g, "/"));
       if (match) { sendSelect(normalizeModId(match), match); }
     }
 

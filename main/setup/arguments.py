@@ -65,6 +65,9 @@ def setup_arguments() -> argparse.Namespace:
     ap.add_argument("--test-download-fail", action="store_true", default=False,
                    help="Force skin download to fail (for testing error handling)")
 
+    # Rose's uninstaller: remove the mods Rose added to LTK Manager's library, then exit
+    ap.add_argument("--remove-ltk-mods", action="store_true", default=False, help=argparse.SUPPRESS)
+
     # Log management arguments (none - retention managed by age in utils.logging)
 
     return ap.parse_args()

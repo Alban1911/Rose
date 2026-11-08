@@ -4211,6 +4211,15 @@
     nameEl.style.whiteSpace = "nowrap";
     infoWrapper.appendChild(nameEl);
 
+    // LTK Manager lost it: listed so the user adds it again or deletes it, with no image to change
+    if (mod.missing) {
+      nameEl.style.opacity = "0.6";
+      const missingEl = document.createElement("div");
+      missingEl.textContent = t("Missing - add it again");
+      missingEl.style.cssText = "color:#a09b8c;font-size:11px;font-style:italic;flex:0 0 auto;";
+      infoWrapper.appendChild(missingEl);
+    }
+
     row.appendChild(infoWrapper);
 
     const actions = document.createElement("div");
@@ -4231,7 +4240,7 @@
       actions.appendChild(renameButton);
     }
 
-    if (onImage && mod.imageEditable) {
+    if (onImage && mod.imageEditable && !mod.missing) {
       const imageButton = document.createElement("button");
       imageButton.type = "button";
       imageButton.className = "mod-rename-button";
@@ -4518,6 +4527,7 @@
           displayName: mod.displayName,
           thumbnailUrl: mod.thumbnailUrl,
           imageEditable: mod.imageEditable,
+          missing: mod.missing,
           selected: selection.has(key),
         },
         (deleteButton, row) => {
@@ -4686,7 +4696,7 @@
       const key = mod.name;
       renderModRow(
         listContainer,
-        { name: mod.name, displayName: mod.displayName, selected: selection.has(key) },
+        { name: mod.name, displayName: mod.displayName, missing: mod.missing, selected: selection.has(key) },
         (deleteButton) => {
           deleteButton.disabled = true;
           deleteButton.textContent = t("Deleting...");

@@ -33,6 +33,7 @@ from utils.core.logging import get_logger
 from utils.core.modpkg import MODPKG_SUFFIX
 
 from ..mods.fingerprint import mod_fingerprint
+from ..mods.manifest import manifest_ltk_ids
 from ..mods.mod_facts import stamp_of
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
 from .overlay_manager import (
@@ -62,6 +63,7 @@ __all__ = [
     "ltk_data_dir",
     "mod_storage_root",
     "read_library_index",
+    "remove_rose_mods",
     "stored_archive",
 ]
 
@@ -515,3 +517,42 @@ class LibrarySession:
             log.warning(f"[MODCHECK] {display_name} will not work in game: {problem['title']} - "
                         f"{problem['description']}")
         return result
+
+
+def remove_rose_mods(overlay) -> int:
+    """Remove from LTK Manager's library every entry Rose added there, for
+    Rose's uninstaller when the user does not keep Rose's data (main's
+    --remove-ltk-mods): only that data names them, so nothing would remove
+    them after. These are the saved mods' entries (the missing ones and those
+    queued for removal too), the copies games kept and the installs a Rose
+    that crashed left. The session's start-up cleanup removes those installs
+    and turns the user's own mods a game turned off back on, but leaves every
+    entry a manifest names: those are removed here.
+
+    Returns 0 when done (LTK Manager is not even started when Rose added
+    nothing and turned nothing off), 1 when LTK Manager could not be reached
+    or an entry could not be removed.
+    """
+    state = overlay._read_state()
+    ids = manifest_ltk_ids(overlay._saved_mods_dir()) | set(state["kept"]) | set(state["installed"])
+    if not ids and not state["disabled"]:
+        log.info("[MODS] Rose added nothing to LTK Manager's library")
+        return 0
+    removed, failed = [], []
+    try:
+        with LtkLibrary(overlay).session(wait=True) as session:
+            for ltk_id in sorted(ids & set(session.library())):
+                try:
+                    session.uninstall(ltk_id)
+                except BridgeCommandError as e:
+                    log.warning(f"[MODS] Could not remove {ltk_id} from LTK Manager's library: {e}")
+                    failed.append(ltk_id)
+                    continue
+                removed.append(ltk_id)
+            if removed:
+                overlay._forget_kept(removed)
+    except (LtkBusy, LtkUnavailable, BridgeUnavailable, BridgeCommandError) as e:
+        log.warning(f"[MODS] Could not remove Rose's mods from LTK Manager's library: {e}")
+        return 1
+    log.info(f"[MODS] Removed {len(removed)} mod(s) Rose added from LTK Manager's library")
+    return 1 if failed else 0

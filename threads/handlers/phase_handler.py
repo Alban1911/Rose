@@ -58,6 +58,10 @@ class PhaseHandler:
                         self.swiftplay_handler._injection_triggered = True
         
         elif phase == "ChampSelect":
+            # Champion select lists the saved mods: those LTK Manager lost since must show as missing
+            from injection.mods.ltk_sync import start_saved_mods_sync
+            start_saved_mods_sync(only_if_changed=True)
+
             # Swiftplay/Quickplay queue ID fallback - handles race condition where game_mode_detector
             # hasn't set is_swiftplay_mode yet when we enter ChampSelect
             if not self.state.is_swiftplay_mode and self.state.current_queue_id in SWIFTPLAY_QUEUE_IDS:

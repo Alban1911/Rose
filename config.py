@@ -290,6 +290,9 @@ INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
 # Main loop watchdog timeouts (seconds)
 MAIN_LOOP_STALL_THRESHOLD_S = 5.0       # Threshold for detecting main loop stalls
 MAIN_LOOP_FORCE_QUIT_TIMEOUT_S = 2.0    # Timeout before forcing quit when stop flag is set
+# Rose run by its uninstaller to remove its mods from LTK Manager (--remove-ltk-mods)
+# ends itself after this: the uninstaller waits for it
+REMOVE_LTK_MODS_TIMEOUT_S = 120
 CHROMA_PANEL_PROCESSING_THRESHOLD_S = 1.0  # Warning threshold for chroma panel processing
 
 # Process priority settings

@@ -503,5 +503,81 @@ class ModCheckTests(LtfSessionTestCase):
         self.assertEqual((FakeBridge.created, self.recorded), ([], []))
 
 
+class RemoveRoseModsTests(LtfSessionTestCase):
+    """Rose's uninstaller, the user's data not kept: every entry Rose added to
+    LTK Manager's library goes, as nothing would name it after"""
+
+    QUEUED = "0f0f0f0f-0000-4000-8000-000000000001"
+    KEPT = "0f0f0f0f-0000-4000-8000-000000000002"
+    INSTALLED = "0f0f0f0f-0000-4000-8000-000000000003"
+    USERS = "0f0f0f0f-0000-4000-8000-000000000004"
+    USERS_OFF = "0f0f0f0f-0000-4000-8000-000000000005"
+
+    def setUp(self):
+        super().setUp()
+        self.mods_root = self.overlay.saved_mods_root
+        manifest = self.mods_root / "voiceover" / "rose_category_mods.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps({"version": 1, "mods": {
+            "VO Korean": {"name": "VO Korean", "path": "VO Korean", "ltkId": VO_ID},
+            "Lost": {"name": "Lost", "path": "Lost", "ltkId": AATROX_ID, "missing": True},
+        }}), encoding="utf-8")
+        (self.mods_root / "ltk_removals.json").write_text(json.dumps({"ids": [self.QUEUED]}), encoding="utf-8")
+        source = self.mods_root / "maps" / "Rift.fantome"
+        source.parent.mkdir()
+        source.write_bytes(b"PK")
+
+    def library(self, *entries):
+        FakeBridge.initial_library = [{"id": mod_id, "name": mod_id[-4:], "enabled": enabled}
+                                      for mod_id, enabled in entries]
+
+    def remove(self):
+        return ltk_library.remove_rose_mods(self.overlay)
+
+    def test_every_entry_rose_added_goes_and_the_users_are_turned_back_on(self):
+        self.library((VO_ID, True), (self.QUEUED, False), (self.KEPT, False), (self.INSTALLED, True),
+                     (self.USERS, True), (self.USERS_OFF, False))
+        self.state_path.write_text(json.dumps({
+            "installed": {self.INSTALLED: "1001-EternalAspect"},
+            "disabled": [self.USERS_OFF],
+            "kept": {self.KEPT: {"folder": "Rift", "fingerprint": "f" * 64,
+                                 "source": str(self.mods_root / "maps" / "Rift.fantome")}},
+        }), encoding="utf-8")
+
+        self.assertEqual(self.remove(), 0)
+
+        self.assertEqual(sorted((e["id"], e["enabled"]) for e in self.bridge.library_entries),
+                         [(self.USERS, True), (self.USERS_OFF, True)])
+        self.assertEqual((self.state()["installed"], self.state()["kept"], self.state()["disabled"]), ({}, {}, []))
+
+    def test_an_entry_a_manifest_names_is_removed_though_a_game_left_it_installed(self):
+        self.library((VO_ID, False))
+        self.state_path.write_text(json.dumps({"installed": {VO_ID: "VO Korean"}}), encoding="utf-8")
+
+        self.assertEqual(self.remove(), 0)
+
+        self.assertEqual(self.bridge.library_entries, [])
+
+    def test_nothing_rose_added_starts_no_ltk_manager(self):
+        (self.mods_root / "voiceover" / "rose_category_mods.json").unlink()
+        (self.mods_root / "ltk_removals.json").unlink()
+
+        self.assertEqual(self.remove(), 0)
+
+        self.assertEqual(FakeBridge.created, [])
+
+    def test_without_ltk_manager_it_fails_and_the_uninstall_goes_on(self):
+        with patch.object(ToolsManager, "detect_ltk_manager", return_value=None):
+            self.assertEqual(self.remove(), 1)
+
+        self.assertEqual(FakeBridge.created, [])
+
+    def test_an_entry_ltk_manager_would_not_remove_fails_it(self):
+        self.library((VO_ID, False))
+
+        with patch.object(FakeBridge, "uninstall", side_effect=BridgeCommandError("busy")):
+            self.assertEqual(self.remove(), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

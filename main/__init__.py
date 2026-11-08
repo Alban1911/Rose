@@ -418,6 +418,7 @@ from utils.threading.thread_manager import create_daemon_thread
 from config import APP_VERSION, MAIN_LOOP_FORCE_QUIT_TIMEOUT_S, get_config_option, set_config_option
 from injection.config.config_manager import ConfigManager
 from injection.game.game_detector import GameDetector
+from injection.mods.ltk_sync import start_saved_mods_sync
 import time
 
 log = get_logger()
@@ -665,6 +666,9 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     # or mod list may touch a folder while it is converted
     convert_stored_mods(tray_manager)
 
+    # LTK Manager may have lost or changed a saved mod while Rose was closed
+    start_saved_mods_sync(only_if_changed=False)
+
     # Initialize core components
     lcu, skin_scraper, state, injection_manager = initialize_core_components(args, injection_threshold)
     
@@ -796,9 +800,37 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
         perform_cleanup(state, thread_manager, tray_manager, injection_manager)
 
 
+def _remove_ltk_mods() -> int:
+    """Remove from LTK Manager's library the mods Rose added there
+    (ltk_library.remove_rose_mods): Rose's uninstaller runs Rose with
+    --remove-ltk-mods when the user does not keep Rose's data. It checked
+    that Rose is closed and waits for this, hidden: no single-instance check,
+    no launcher, no dialog, and a watchdog ends it should LTK Manager hang."""
+    import os
+    import threading
+
+    from config import REMOVE_LTK_MODS_TIMEOUT_S
+    from injection.overlay.ltk_library import remove_rose_mods
+    from injection.overlay.overlay_manager import OverlayManager
+    from utils.core.logging import setup_logging
+    from utils.core.paths import get_injection_dir, get_tools_dir
+
+    setup_logging('customer')
+    watchdog = threading.Timer(REMOVE_LTK_MODS_TIMEOUT_S, os._exit, args=(1,))
+    watchdog.daemon = True
+    watchdog.start()
+    try:
+        return remove_rose_mods(OverlayManager(get_tools_dir(), get_injection_dir() / "mods", None))
+    except Exception as e:  # noqa: BLE001 - the uninstall goes on, with no dialog of Rose's
+        log.error(f"[MODS] Could not remove Rose's mods from LTK Manager's library: {e}", exc_info=True)
+        return 1
+
+
 def main() -> None:
     """Program entry point that prepares and launches Rose."""
     args = setup_arguments()
+    if args.remove_ltk_mods:
+        sys.exit(_remove_ltk_mods())
     # Update before checking the DLL: a Rose that refuses to start still
     # receives the version that fixes its check
     if sys.platform == "win32":
