@@ -5663,9 +5663,11 @@
       const currentHtml = current.length
         ? current.map((e, idx) => itemHtml(e, idx, false)).join("")
         : `<div style="opacity:0.85; margin-bottom:8px;">${escapeHtml(t("No errors in this session."))}</div>`;
+      // Stays open across the refreshes while the user reads it
+      const earlierOpen = !!body.querySelector("#rose-diagnostics-earlier")?.open;
       const earlierHtml = earlier.length
         ? `
-          <details style="margin-top:6px; opacity:0.6;">
+          <details id="rose-diagnostics-earlier" style="margin-top:6px; opacity:0.6;"${earlierOpen ? " open" : ""}>
             <summary style="cursor:pointer; margin-bottom:6px;">${escapeHtml(
               t("Earlier sessions ({count}), not from this run of Rose", { count: earlier.length })
             )}</summary>
