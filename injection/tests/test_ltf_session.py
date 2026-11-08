@@ -895,12 +895,12 @@ class StaleCleanupTests(LtfSessionTestCase):
 
 
 class KeptModsTests(LtfSessionTestCase):
-    """The user's saved mods stay in LTK Manager, turned off, between games (#486)"""
+    """The user's saved category mods stay in LTK Manager, turned off, between games (#486)"""
 
     def setUp(self):
         super().setUp()
-        self.saved = self.root / "saved"
-        self.host.saved_mods_root = self.saved
+        self.saved = self.root / "saved" / "voiceover"
+        self.host.saved_mods_root = self.saved.parent
         self.archive_by_link_name: dict = {}
 
     def saved_mod(self, name="VO Korean", display="VO Korean", wad=b"voiceover", folder=False):
@@ -954,6 +954,18 @@ class KeptModsTests(LtfSessionTestCase):
         self.assertEqual(list(kept), [left[0]["id"]])
         self.assertEqual(kept[left[0]["id"]]["folder"], voiceover)
         self.assertEqual(self.state()["installed"], {})
+
+    def test_a_saved_custom_skin_is_removed_after_the_game_as_rose_s_skins_are(self):
+        custom = self.root / "saved" / "skins" / "777000" / "Custom Yone.fantome"
+        self.write_archive(custom, "Custom Yone", "Custom Yone", b"custom skin")
+        skin = self.link("Custom Yone", custom)
+        voiceover = self.saved_mod()
+
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+
+        self.assertEqual([entry["displayName"] for entry in self.bridge.library_entries], ["VO Korean"])
+        self.assertEqual([record["folder"] for record in self.state()["kept"].values()], [voiceover])
+        self.assertTrue(custom.exists())
 
     def test_a_saved_folder_never_converted_to_an_archive_is_kept_too(self):
         voiceover = self.saved_mod(folder=True)

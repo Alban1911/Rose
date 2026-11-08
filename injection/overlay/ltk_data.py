@@ -172,14 +172,6 @@ def entry_name(entry: Mapping) -> str:
     return str(entry.get("displayName") or entry.get("name") or entry.get("id"))
 
 
-def stored_archive(ltk_id: str) -> Optional[Path]:
-    """LTK Manager's archive of the entry *ltk_id*, if it is there."""
-    index = read_library_index()
-    entry = index.get(ltk_id) if index else None
-    archive = entry.archive if entry is not None else None
-    return archive if archive is not None and archive.is_file() else None
-
-
 class LtkLogTail:
     """What LTK Manager writes to its own log from the moment this was made.
 

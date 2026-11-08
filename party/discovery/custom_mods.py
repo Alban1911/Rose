@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from injection.mods.mod_facts import _archive_content_hash, _folder_content_hash, _hash_stream
-from injection.mods.manifest import SKINS, find_saved_mod, iter_saved_mods
+from injection.mods.manifest import find_saved_mod
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
@@ -87,24 +87,15 @@ def _stored_path(path: Path) -> Path:
 
 
 def saved_mod_hashes(relative_path: str) -> Tuple[Optional[str], Optional[str]]:
-    """(content hash, legacy hash) our pick of a saved mod shares with the
-    party. A mod LTK Manager holds is injected from its library entry: its
-    manifest's partyHash is the content hash, and there is no whole-file hash
-    for older Roses. A pending mod's copy is hashed (mod_hashes, cached by the
-    file). Nothing for a mod we cannot inject ourselves.
+    """(content hash, legacy hash) our pick of a custom skin shares with the
+    party: those of its file in Rose (mod_hashes, cached by the file).
 
     Party mode asks every second: the mod is found without matching a renamed
     file to its entry by content, which reads the whole mod (a renamed file
     is hashed as itself)."""
     mods_root = get_mods_root()
     saved = find_saved_mod(mods_root, relative_path, match_content=False)
-    if saved is None:
-        return mod_hashes(_stored_path(mods_root / relative_path))
-    if not saved.available:
-        return None, None
-    if saved.ltk_id:
-        return (saved.facts.party_hash if saved.facts else None), None
-    return mod_hashes(saved.rose_copy)
+    return mod_hashes(saved.rose_copy if saved is not None else _stored_path(mods_root / relative_path))
 
 
 def _champion_mod_entries(champion_id: int):
@@ -131,10 +122,7 @@ def find_local_mod(
     content_hash: Optional[str] = None,
     legacy_hash: Optional[str] = None,
 ) -> Optional[str]:
-    """Find our copy of a friend's custom mod: first by the partyHash our
-    saved mods' manifests keep (one LTK Manager holds has no file in Rose to
-    hash), then by hashing the files Rose still holds, as friends on older
-    Roses may send only an archive's whole-file hash.
+    """Find our copy of a friend's custom mod.
 
     Returns:
         Path relative to the mods root, or None if we don't have it.
@@ -144,10 +132,6 @@ def find_local_mod(
 
     mods_root = get_mods_root()
     try:
-        if content_hash:
-            for saved in iter_saved_mods(mods_root, SKINS, champion_id=int(champion_id)):
-                if saved.available and saved.facts and saved.facts.party_hash == content_hash:
-                    return saved.identity
         for entry in _champion_mod_entries(int(champion_id)):
             entry_content, entry_legacy = mod_hashes(entry)
             if (content_hash and entry_content == content_hash) or (

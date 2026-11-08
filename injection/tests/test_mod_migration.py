@@ -118,21 +118,17 @@ class MoveTests(MigrationTestCase):
 
         report = self.migrate()
 
-        self.assertEqual(sorted(report.moved), ["Leona", "VO Korean"])
+        self.assertEqual(report.moved, ["VO Korean"], "a custom skin stays Rose's")
         self.assertEqual((report.failed, report.skipped_reason), ([], None))
-        for relative_path, archive in (("voiceover/VO Korean.fantome", voiceover),
-                                       ("skins/89000/Leona.fantome", leona)):
-            with self.subTest(relative_path):
-                mod = self.entry(relative_path)
-                self.assertFalse(archive.exists())
-                self.assertIsNone(mod.rose_copy)
-                entry = self.ltk_entry(mod.ltk_id)
-                self.assertFalse(entry["enabled"])
-                self.assertEqual(mod.metadata["ltkStamp"],
-                                 stamp_of(FakeBridge.mod_storage / f"mod-{mod.ltk_id[:8]}.fantome"))
-                self.assertIsInstance(mod.metadata["updatedAt"], float)
-        self.assertEqual(self.entry("voiceover/VO Korean.fantome").facts, expected_facts)
-        self.assertEqual(self.entry("skins/89000/Leona.fantome").target_skin_ids, (89001,))
+        mod = self.entry("voiceover/VO Korean.fantome")
+        self.assertFalse(voiceover.exists())
+        self.assertIsNone(mod.rose_copy)
+        self.assertFalse(self.ltk_entry(mod.ltk_id)["enabled"])
+        self.assertEqual(mod.metadata["ltkStamp"], stamp_of(FakeBridge.mod_storage / f"mod-{mod.ltk_id[:8]}.fantome"))
+        self.assertIsInstance(mod.metadata["updatedAt"], float)
+        self.assertEqual(mod.facts, expected_facts)
+        skin = self.entry("skins/89000/Leona.fantome")
+        self.assertEqual((skin.ltk_id, skin.rose_copy, skin.target_skin_ids), (None, leona, (89001,)))
         self.assertEqual(voiceover.with_suffix(".png").read_bytes(), PNG)
         self.assertEqual(voiceover.with_suffix(".txt").read_text(encoding="utf-8"), "VO Korean's description")
         self.assertNotIn("uninstall", self.bridge.command_names())
@@ -258,20 +254,22 @@ class WhatIsMovedTests(MigrationTestCase):
         self.assertIsNotNone(self.entry("maps/Rift.fantome").ltk_id)
         self.assertEqual(mod_historic.get_historic_mod("map"), "maps/Rift.fantome")
 
-    def test_a_file_nobody_registered_gets_its_manifest_entry(self):
-        """A mod an older Rose kept in a per-skin folder, listed by the folder's skin alone"""
-        archive = make_archive(self.mods_root / "skins" / "89001" / "Leona.fantome", LEONA)
+    def test_custom_skins_are_never_moved(self):
+        """Not a registered one, nor one an older Rose kept in a per-skin folder"""
+        registered = make_archive(self.mods_root / "skins" / "89000" / "Leona.fantome", LEONA)
+        add_entries(self.mods_root / "skins" / "89000" / ModStorageService.TARGET_METADATA,
+                    {"Leona": {"name": "Leona", "targets": [89001]}}, championId=89, targets=[])
+        per_skin = make_archive(self.mods_root / "skins" / "89001" / "Old Leona.fantome", LEONA)
 
+        self.assertFalse(needs_migration(self.mods_root))
         report = self.migrate()
 
-        self.assertEqual(report.moved, ["Leona"])
-        self.assertFalse(archive.exists())
-        manifest = json.loads((archive.parent / ModStorageService.TARGET_METADATA).read_text(encoding="utf-8"))
-        self.assertEqual((manifest["version"], manifest["championId"], manifest["targets"]), (1, 89, [89001]))
-        self.assertEqual(list(manifest["mods"]), ["Leona"])
-        self.assertEqual(manifest["mods"]["Leona"]["targets"], [89001])
-        (listed,) = self.storage.list_mods_for_skin(89001)
-        self.assertEqual((listed.mod_name, listed.source.ltk_id), ("Leona", manifest["mods"]["Leona"]["ltkId"]))
+        self.assertEqual(report, MigrationReport())
+        self.assertEqual(FakeBridge.created, [], "LTK Manager not even started")
+        self.assertTrue(registered.exists() and per_skin.exists())
+        self.assertFalse((per_skin.parent / ModStorageService.TARGET_METADATA).exists())
+        self.assertEqual(sorted(listed.mod_name for listed in self.storage.list_mods_for_skin(89001)),
+                         ["Leona", "Old Leona"])
 
     def test_a_zip_points_the_saved_selections_at_its_new_identity(self):
         archive = self.category_mod("Rift", category="maps", suffix=".zip")
@@ -367,7 +365,7 @@ class WhatIsMovedTests(MigrationTestCase):
         self.assertIn("import", self.bridge.command_names())
 
     def test_a_resumed_run_deletes_the_copy_left_of_a_moved_mod(self):
-        facts = ModFacts("0123456789abcdef0123456789abcdef", (), True)
+        facts = ModFacts(ships_language_table=True)
         archive = self.category_mod("VO Korean", ltkId=MOVED_ID, **facts.to_manifest())
         mod_historic.write_historic_mod("voiceover", ["voiceover/VO Korean.fantome"])
         FakeBridge.initial_library = [{"id": MOVED_ID, "name": "VO Korean", "enabled": False}]

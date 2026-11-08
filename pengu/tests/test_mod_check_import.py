@@ -1,4 +1,3 @@
-
 import json
 import tempfile
 import unittest
@@ -16,23 +15,32 @@ SKINHACK = {"rule": "bin/skinhack", "title": "Skinhack",
 LTK_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 
 
-class ModCheckOnImportTests(unittest.TestCase):
-    """A real mods folder holds the added mod; LTK Manager's library is faked
-    at LtkLibrary.check_mod"""
+def make_archive(path, wad_name, data):
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("META/info.json", json.dumps({"Name": path.stem}))
+        archive.writestr(f"WAD/{wad_name}", data)
+    return path
+
+
+class ModCheckCase(unittest.TestCase):
+    """A real mods folder holds the added mods, a voiceover pack and a custom
+    skin; LTK Manager's library is faked at LtkLibrary.check_mod"""
 
     def setUp(self):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         root = Path(temp_dir.name)
         self.storage = ModStorageService(root / "mods")
-        self.source = source = root / "gojo-ezreal-v1.0.0.fantome"
-        with zipfile.ZipFile(source, "w") as archive:
-            archive.writestr("META/info.json", '{"Name": "Gojo Ezreal"}')
-            archive.writestr("WAD/Ezreal.wad.client", b"skin")
-        self.stored, name, _ = self.storage.import_mod_file(81, source, [81020])
+        self.source = make_archive(root / "vo-korean-v2.fantome", "Ahri.ko_KR.wad.client", b"voice")
+        self.stored, name, _ = self.storage.import_category_mod_file("voiceover", self.source)
         self.relative_path = self.stored.relative_to(self.storage.mods_root).as_posix()
-        self.imported = [{"fileName": source.name, "path": str(self.stored), "relativePath": self.relative_path,
+        self.imported = [{"fileName": self.source.name, "path": str(self.stored), "relativePath": self.relative_path,
                           "modName": name}]
+        self.skin_source = make_archive(root / "gojo-ezreal-v1.0.0.fantome", "Ezreal.wad.client", b"skin")
+        self.skin, skin_name, _ = self.storage.import_mod_file(81, self.skin_source, [81020])
+        self.skin_path = self.skin.relative_to(self.storage.mods_root).as_posix()
+        self.skin_imported = [{"fileName": self.skin_source.name, "path": str(self.skin),
+                               "relativePath": self.skin_path, "modName": skin_name}]
         library_class = patch.object(message_handler, "LtkLibrary")
         self.library_class = library_class.start()
         self.library = self.library_class.return_value
@@ -49,6 +57,13 @@ class ModCheckOnImportTests(unittest.TestCase):
         instance._send_response = lambda message: instance.sent.append(json.loads(message))
         return instance
 
+    def saved(self, relative_path=None):
+        return self.storage.saved_mod(relative_path or self.relative_path)
+
+
+class ModCheckOnImportTests(ModCheckCase):
+    """A category's mod moves into LTK Manager's library as it is checked"""
+
     def ltk_keeps_it(self, verdict, stamp=(10, 20)):
         """LTK Manager keeps the mod: the check records its entry, then answers"""
         def check(mod, display_name, on_kept):
@@ -56,9 +71,6 @@ class ModCheckOnImportTests(unittest.TestCase):
             self.assertTrue(Path(mod).exists(), "still Rose's while it is recorded")
             return dict(verdict, ltkId=LTK_ID)
         self.library.check_mod.side_effect = check
-
-    def saved(self):
-        return self.storage.saved_mod(self.relative_path)
 
     def test_a_kept_mod_names_its_entry_and_rose_deletes_its_copy(self):
         verdict = {"health": "healthy", "repaired": 0, "problems": []}
@@ -103,22 +115,6 @@ class ModCheckOnImportTests(unittest.TestCase):
         self.assertEqual(kept[0]["health"]["health"], "healthy")
         self.assertTrue(self.saved().pending)
 
-    def test_a_skinhack_is_removed_and_reported_as_a_failed_import(self):
-        """The Ezreal custom skin LTK Manager turned off in game"""
-        self.library.check_mod.return_value = {"health": "repairable", "repaired": 3224, "problems": [SKINHACK]}
-        errors = []
-
-        kept = self.handler()._check_imported_mods(
-            self.imported, errors, lambda item: self.storage.delete_champion_mod(81, mod_name=item["modName"]))
-
-        self.assertEqual(kept, [])
-        self.assertIsNone(self.saved())
-        self.assertFalse(self.stored.exists())
-        self.assertEqual(ltk_removals(self.storage.mods_root), [], "nothing of it was kept in LTK Manager")
-        self.assertEqual(errors[0]["code"], "ltk_skinhack")
-        self.assertEqual(errors[0]["fileName"], "gojo-ezreal-v1.0.0.fantome")
-        self.assertIn("skinhack", errors[0]["error"])
-
     def test_another_problem_ltk_manager_cannot_repair_is_reported_with_its_reason(self):
         problem = {"rule": "audio/bank-id", "title": "Bank", "description": "An audio bank the game will not load"}
         self.library.check_mod.return_value = {"health": "unrepairable", "repaired": 0, "problems": [problem]}
@@ -146,14 +142,13 @@ class ModCheckOnImportTests(unittest.TestCase):
         instance = self.handler()
 
         with patch.object(message_handler, "_choose_mod_files", return_value=[self.source]):
-            instance._handle_add_custom_mods_skin_selected({"action": "create", "championId": 81, "skinIds": [81021]})
+            instance._handle_add_custom_mods_category_selected({"category": "voiceover"})
 
         self.library.check_mod.assert_not_called()
         response = instance.sent[-1]
         self.assertTrue(response["success"])
         self.assertEqual(response["imported"][0]["relativePath"], self.relative_path)
-        mod = self.saved()
-        self.assertEqual((mod.ltk_id, mod.target_skin_ids), (LTK_ID, (81020, 81021)))
+        self.assertEqual(self.saved().ltk_id, LTK_ID)
 
     def test_nothing_is_checked_in_champion_select_or_while_injecting(self):
         for phase, injecting in (("ChampSelect", False), ("InProgress", False), ("Lobby", True)):
@@ -165,6 +160,53 @@ class ModCheckOnImportTests(unittest.TestCase):
             self.assertEqual(len(kept), 1)
             self.assertEqual(instance.sent, [])
         self.assertTrue(self.saved().pending)
+
+
+class SkinCheckOnImportTests(ModCheckCase):
+    """A custom skin is checked and repaired as it is added, and stays Rose's:
+    imported for each game, as Rose's own skins are"""
+
+    def test_a_custom_skin_is_checked_and_never_kept_in_ltk_manager(self):
+        verdict = {"health": "repairable", "repaired": 3, "problems": []}
+        self.library.check_mod.return_value = verdict
+
+        kept = self.handler()._check_imported_mods(self.skin_imported, [], MagicMock())
+
+        path, display_name, on_kept = self.library.check_mod.call_args.args
+        self.assertEqual((Path(path), on_kept), (self.skin, None), "LTK Manager's repair comes back into its file")
+        self.assertEqual(kept[0]["health"], verdict)
+        skin = self.saved(self.skin_path)
+        self.assertEqual((skin.ltk_id, skin.rose_copy, skin.pending), (None, self.skin, False))
+        self.assertNotIn("ltkId", skin.metadata)
+        self.assertTrue(self.skin.exists())
+
+    def test_a_skinhack_is_removed_and_reported_as_a_failed_import(self):
+        """The Ezreal custom skin LTK Manager turned off in game"""
+        self.library.check_mod.return_value = {"health": "repairable", "repaired": 3224, "problems": [SKINHACK]}
+        errors = []
+
+        kept = self.handler()._check_imported_mods(
+            self.skin_imported, errors, lambda item: self.storage.delete_champion_mod(81, mod_name=item["modName"]))
+
+        self.assertEqual(kept, [])
+        self.assertIsNone(self.saved(self.skin_path))
+        self.assertFalse(self.skin.exists())
+        self.assertEqual(ltk_removals(self.storage.mods_root), [], "nothing of it was kept in LTK Manager")
+        self.assertEqual(errors[0]["code"], "ltk_skinhack")
+        self.assertEqual(errors[0]["fileName"], "gojo-ezreal-v1.0.0.fantome")
+        self.assertIn("skinhack", errors[0]["error"])
+
+    def test_the_same_skin_added_again_is_not_checked_again(self):
+        instance = self.handler()
+
+        with patch.object(message_handler, "_choose_mod_files", return_value=[self.skin_source]):
+            instance._handle_add_custom_mods_skin_selected({"action": "create", "championId": 81, "skinIds": [81021]})
+
+        self.library.check_mod.assert_not_called()
+        response = instance.sent[-1]
+        self.assertTrue(response["success"])
+        self.assertEqual(response["imported"][0]["relativePath"], self.skin_path)
+        self.assertEqual(self.saved(self.skin_path).target_skin_ids, (81020, 81021))
 
 
 if __name__ == "__main__":

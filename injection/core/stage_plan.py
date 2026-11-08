@@ -4,19 +4,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Iterable, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from utils.core.junction import is_junction
 from utils.core.logging import get_logger
 
-from ..loadingname.loading_name import LtkSkin
 from ..loadingname.loading_name import build as build_loading_name
 from ..mods.mod_facts import ModFacts
 from ..mods.mod_manager import ModManager
 from ..mods.mod_source import LtkEntry, ModSource
-from ..overlay.ltk_data import stored_archive
 
 log = get_logger()
 
@@ -150,23 +147,17 @@ def prepare_plan(injector, plan: StagePlan, target_dir: Path) -> Optional[List[s
 
 def loading_name_mods(
     mods_dir: Path, skin: str, names: Sequence[str], sources: Iterable[ModSource]
-) -> Tuple[Union[Path, LtkSkin], List[Union[Path, ModFacts]]]:
+) -> Tuple[Path, List[Union[Path, ModFacts]]]:
     """What the loading screen name (loading_name.build) reads of an
     injection's skin and of its other mods, by their names in its list: the
-    files Rose put into *mods_dir*, and for a saved mod LTK Manager holds
-    (among *sources*), the facts its manifest keeps and, for the skin, LTK
-    Manager's archive."""
+    files Rose put into *mods_dir* (the skin's always), and for a saved mod
+    LTK Manager holds (among *sources*), the facts its manifest keeps."""
     entries = {source.name: source for source in sources if isinstance(source, LtkEntry)}
-
-    def facts_of(name: str) -> ModFacts:
-        return entries[name].facts or ModFacts.unknown()
-
-    if skin in entries:
-        skin_source = LtkSkin(facts_of(skin).champion_aliases, partial(stored_archive, entries[skin].ltk_id))
-    else:
-        skin_source = Path(mods_dir) / skin
-    others = [facts_of(name) if name in entries else Path(mods_dir) / name for name in names if name != skin]
-    return skin_source, others
+    others = [
+        (entries[name].facts or ModFacts.unknown()) if name in entries else Path(mods_dir) / name
+        for name in names if name != skin
+    ]
+    return Path(mods_dir) / skin, others
 
 
 def _prepare_carrier(injector, step: CarrierStep, target_dir: Path) -> Optional[str]:

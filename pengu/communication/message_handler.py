@@ -1261,10 +1261,7 @@ class MessageHandler:
         return str(name) if name else None
 
     def _champion_mod_payload(self, entry) -> dict:
-        """A saved skin mod (SkinModEntry) as the plugins list it. ltkId,
-        missing (LTK Manager lost it: listed so it can be deleted, never
-        selected) and pending (Rose still holds its file) say where it is
-        (its source's plugin_fields)."""
+        """A saved skin mod (SkinModEntry) as the plugins list it."""
         try:
             relative_path = entry.path.relative_to(self.mod_storage.mods_root)
         except Exception:
@@ -1290,7 +1287,6 @@ class MessageHandler:
             "thumbnailRelativePath": thumbnail_relative_path,
             "thumbnailUrl": thumbnail_url,
             "imageEditable": _image_editable(entry.path),
-            **entry.source.plugin_fields(),
         }
 
     def _handle_request_manage_champion_mods(self, payload: dict) -> None:
@@ -2820,15 +2816,18 @@ class MessageHandler:
     _MOD_CHECK_BUSY_PHASES = frozenset({"ChampSelect", "FINALIZATION", "GameStart", "InProgress", "Reconnect"})
 
     def _check_imported_mods(self, imported: list[dict], errors: list[dict], remove) -> list[dict]:
-        """Move each just-imported mod into LTK Manager's library, which
-        checks and repairs it (LtkLibrary.check_mod), and return the mods
-        added; Rose's copy of one LTK Manager kept is deleted. One LTK Manager
-        will still turn off in game (a skinhack, a problem it cannot repair)
-        is not added: *remove* deletes it again, and it joins *errors* with
-        the reason. A checked mod gets the verdict as "health"; one saved
-        already (the same mod added again) is not checked. Skipped during
-        champion select and games, where LTK Manager is the game's: the mod
-        stays in Rose, pending."""
+        """Have LTK Manager check and repair each just-imported mod
+        (LtkLibrary.check_mod), and return the mods added. A pending one (a
+        category's) moves into LTK Manager's library as it is checked, and
+        Rose's copy of one LTK Manager kept is deleted; any other (a custom
+        skin) stays Rose's, LTK Manager's repair written into its file, and
+        leaves LTK Manager again. One LTK Manager will still turn off in game
+        (a skinhack, a problem it cannot repair) is not added: *remove*
+        deletes it again, and it joins *errors* with the reason. A checked
+        mod gets the verdict as "health"; one saved already (the same mod
+        added again) is not checked. Skipped during champion select and
+        games, where LTK Manager is the game's: the mod stays in Rose as it
+        was added."""
         injection_manager = getattr(self, "injection_manager", None)
         injector = getattr(injection_manager, "injector", None)
         overlay = getattr(injector, "overlay_manager", None)
@@ -2845,10 +2844,11 @@ class MessageHandler:
             if item.get("savedAlready"):
                 kept.append(item)
                 continue
+            saved = self.mod_storage.saved_mod(item["relativePath"])
+            on_kept = partial(self.mod_storage.attach_ltk_entry, item["relativePath"]) if saved and saved.pending else None
             try:
                 result = library.check_mod(
-                    Path(item["path"]), item.get("modName") or Path(item["path"]).name,
-                    partial(self.mod_storage.attach_ltk_entry, item["relativePath"]),
+                    Path(item["path"]), item.get("modName") or Path(item["path"]).name, on_kept,
                 )
             except Exception as e:  # noqa: BLE001 - a check must never fail the import
                 log.warning(f"[MODCHECK] Could not check {item.get('modName')}: {e}")

@@ -303,7 +303,7 @@ class InjectionTrigger:
                 target_skin_id = next(iter(sorted(target_skin_ids)), int(champion_id) * 1000)
             source = saved.source
             if not source.available:
-                warning(f"[HISTORIC] Saved custom mod is missing from LTK Manager: {historic_custom_mod_path}")
+                warning(f"[HISTORIC] Saved custom mod file not found (mod may have been deleted): {historic_custom_mod_path}")
                 return None
             return {
                 "skin_id": int(target_skin_id),
@@ -1502,7 +1502,7 @@ class InjectionTrigger:
                 try:
                     custom_folder = custom_source.put(injector.mods_dir)
                     if custom_folder is None:
-                        log.error(f"[INJECT] Custom mod not available (deleted, or missing from LTK Manager): {mod_path}")
+                        log.error(f"[INJECT] Custom mod not available (deleted): {mod_path}")
                         return
                     injected_sources.append(custom_source)
                     mod_folder_names.append(custom_folder)

@@ -77,26 +77,15 @@ class ComputeFactsTests(unittest.TestCase):
         self.assertEqual(archive_hash, folder_hash)
         self.assertEqual(archive_wads, folder_wads)
 
-    def test_the_party_hash_is_party_modes_content_hash(self):
-        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN_WITH_KOREAN_WAD)
-        folder = make_folder(self.root / "Shockblade Zed", SKIN_WITH_KOREAN_WAD)
-
-        facts, _, _ = compute_mod_facts(archive)
-
-        self.assertIsNotNone(facts.party_hash)
-        self.assertEqual(facts.party_hash, custom_mods.mod_hashes(archive)[0])
-        self.assertEqual(facts.party_hash, custom_mods.mod_hashes(folder)[0])
-
     def test_the_full_hash_is_the_manifests_folder_hash(self):
         archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN_WITH_KOREAN_WAD)
 
-        facts, full_hash, wad_hashes = compute_mod_facts(archive)
+        _facts, full_hash, wad_hashes = compute_mod_facts(archive)
 
         self.assertEqual((full_hash, wad_hashes), manifest_folder_hash(archive))
         self.assertEqual(sorted(wad_hashes), ["WAD/Global.ko_KR.wad.client", "WAD/Zed.wad.client"])
-        self.assertEqual(facts.party_hash, full_hash[:32])
 
-    def test_the_champions_and_the_language_table_are_what_the_loading_name_reads(self):
+    def test_the_language_table_is_what_the_loading_name_reads(self):
         archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN_WITH_KOREAN_WAD)
         plain = make_archive(self.root / "Plain Zed.fantome", {
             "WAD/Global.en_US.wad.client": make_wad(b"font", path_hash=0x1234),
@@ -106,11 +95,9 @@ class ComputeFactsTests(unittest.TestCase):
         facts, _, _ = compute_mod_facts(archive)
         plain_facts, _, _ = compute_mod_facts(plain)
 
-        self.assertEqual(facts.champion_aliases, ("Zed",), "never Global")
         self.assertTrue(facts.ships_language_table)
         self.assertFalse(plain_facts.ships_language_table)
         for mod, found in ((archive, facts), (plain, plain_facts)):
-            self.assertEqual(list(found.champion_aliases), loading_name.champion_aliases(mod))
             self.assertEqual(found.ships_language_table, loading_name.ships_language_table(mod))
 
     def test_a_mod_linked_without_its_extension_is_read_as_an_archive(self):
@@ -119,14 +106,14 @@ class ComputeFactsTests(unittest.TestCase):
 
         facts, _, _ = compute_mod_facts(archive)
 
-        self.assertEqual(facts.champion_aliases, ("Zed",))
+        self.assertTrue(facts.ships_language_table, "its Korean WAD read")
 
-    def test_a_mod_holding_only_its_preview_has_no_party_hash(self):
+    def test_a_mod_holding_only_its_preview_hashes_as_its_manifest_entry(self):
         archive = make_archive(self.root / "Preview.fantome", {"META/image.png": PNG})
 
         facts, full_hash, _ = compute_mod_facts(archive)
 
-        self.assertIsNone(facts.party_hash)
+        self.assertFalse(facts.ships_language_table)
         self.assertIsNone(custom_mods.mod_hashes(archive)[0])
         self.assertEqual(full_hash, manifest_folder_hash(archive)[0])
 
@@ -139,11 +126,10 @@ class ComputeFactsTests(unittest.TestCase):
         injection.mkdir()
 
         with patch.object(mod_facts, "get_injection_dir", return_value=injection):
-            facts, _, _ = compute_mod_facts(package)
+            _facts, full_hash, _ = compute_mod_facts(package)
             party_hash, _ = custom_mods.mod_hashes(package)
 
-        self.assertEqual(facts.party_hash, party_hash)
-        self.assertEqual(facts.champion_aliases, ("aatrox",))
+        self.assertEqual(full_hash[:32], party_hash, "the files it unpacks to, as party mode hashes them")
         self.assertEqual(list((injection / "mod_facts").iterdir()), [], "unpacked, then removed")
 
     def test_rose_s_start_removes_the_modpkgs_a_closed_rose_left_unpacked(self):
@@ -182,7 +168,7 @@ class ModpkgSessionTests(LtfSessionTestCase):
     def test_a_session_starting_while_a_modpkg_is_unpacked_leaves_its_files(self):
         """Each LTK session clears its staging folder as it starts: a sync
         reading a .modpkg LTK Manager holds during champion select read half
-        a mod, then recorded empty aliases and no party hash as its facts"""
+        a mod, then recorded the hashes of half a mod"""
         from utils.tests.test_modpkg import SKIN0, Chunk, build_package
 
         package = self.root / "old-aatrox_1.2.0.modpkg"
@@ -196,39 +182,33 @@ class ModpkgSessionTests(LtfSessionTestCase):
 
         with patch.object(mod_facts, "get_injection_dir", return_value=injection), \
                 patch.object(mod_facts, "extract_modpkg", side_effect=unpacked_as_a_session_starts):
-            facts, _, _ = compute_mod_facts(package)
+            _facts, full_hash, _ = compute_mod_facts(package)
 
         self.assertEqual(len(FakeBridge.created), 1, "a session did start")
-        self.assertEqual(facts.party_hash, custom_mods.mod_hashes(package)[0])
-        self.assertEqual(facts.champion_aliases, ("aatrox",))
+        self.assertEqual(full_hash[:32], custom_mods.mod_hashes(package)[0], "all of it read")
 
 
 class ManifestFactsTests(unittest.TestCase):
-    FACTS = ModFacts("0123456789abcdef0123456789abcdef", ("Zed", "Akali"), True)
+    FACTS = ModFacts(ships_language_table=True)
 
     def test_facts_survive_the_manifest(self):
         stored = json.loads(json.dumps({"name": "Zed", **self.FACTS.to_manifest()}))
 
         self.assertEqual(ModFacts.from_manifest(stored), self.FACTS)
-        self.assertEqual(stored["championAliases"], ["Zed", "Akali"])
-        self.assertEqual(ModFacts.from_manifest(ModFacts(None, (), False).to_manifest()), ModFacts(None, (), False))
+        self.assertEqual(stored["shipsLanguageTable"], True)
+        self.assertEqual(ModFacts.from_manifest(ModFacts(False).to_manifest()), ModFacts(False))
 
     def test_facts_can_go_into_an_injection_plan(self):
         self.assertEqual(len({self.FACTS, ModFacts(**vars(self.FACTS))}), 1)
 
     def test_an_entry_from_an_older_rose_has_no_facts(self):
         good = self.FACTS.to_manifest()
-        without_ships_language_table = {"partyHash": good["partyHash"], "championAliases": ["Zed"]}
         for entry in (
             {},
             None,
             {"name": "Zed", "targets": [238001]},
-            without_ships_language_table,
-            dict(good, partyHash="not a hash"),
-            dict(good, partyHash="0123456789ABCDEF0123456789ABCDEF"),
-            dict(good, championAliases="Zed"),
-            dict(good, championAliases=["Zed", 7]),
             dict(good, shipsLanguageTable="yes"),
+            dict(good, shipsLanguageTable=1),
         ):
             with self.subTest(entry=entry):
                 self.assertIsNone(ModFacts.from_manifest(entry))

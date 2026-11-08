@@ -11,7 +11,6 @@ from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from threads.handlers.injection_trigger import InjectionTrigger
 
-SKIN_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 FONT_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
 
 
@@ -150,73 +149,61 @@ class CustomModBaseSkinTests(CustomModInjectionCase):
         self.trigger._force_base_skin.assert_not_called()
 
 
-class SavedLtkModInjectionTests(CustomModInjectionCase):
-    """A saved mod LTK Manager holds goes into the injection as its LTK
-    reference, with nothing linked into the mods folder"""
+class SavedModInjectionTests(CustomModInjectionCase):
+    """A saved mod LTK Manager holds (a category's) goes into the injection
+    as its LTK reference, with nothing linked into the mods folder; a custom
+    skin is always linked from its file"""
 
-    @staticmethod
-    def selection(name, ltk_id, missing=False, facts=None):
-        return {"mod_name": name, "source": LtkEntry(ltk_id, facts, missing)}
+    def test_a_font_ltk_manager_holds_goes_as_its_reference_beside_the_custom_skin(self):
+        custom = self.root / "Mod"
+        custom.mkdir()
+        font_facts = ModFacts(ships_language_table=True)
+        self.trigger.state.selected_font_mod = {"mod_name": "Font", "source": LtkEntry(FONT_ID, font_facts)}
+        linked = []
 
-    def test_the_custom_mod_and_a_font_go_as_their_references(self):
-        custom = dict(self.selection("Mod", SKIN_ID, facts=ModFacts(None, ("Annie",), False)),
-                      skin_id=103001, champion_id=103)
-        font_facts = ModFacts(None, (), True)
-        self.trigger.state.selected_font_mod = self.selection("Font", FONT_ID, facts=font_facts)
+        def link(source, dest, cache_dir=None):
+            linked.append(Path(source).name)
+            dest.mkdir(parents=True)
 
-        with patch("injection.mods.mod_source.link_or_extract", side_effect=AssertionError("linked")), \
+        with patch("injection.mods.mod_source.link_or_extract", side_effect=link), \
                 patch("threads.handlers.injection_trigger.build_loading_name", return_value=None) as loading_name, \
                 patch("utils.core.mod_historic.write_historic_mod"), \
                 patch("utils.core.historic.write_historic_entry"), \
                 patch("utils.core.historic.write_historic_target"):
-            self.inject(custom)
+            self.inject(self.custom_mod(custom))
 
         names = self.injector.overlay_manager.mk_run_overlay.call_args.args[0]
-        self.assertEqual(names, [ltk_ref(SKIN_ID), ltk_ref(FONT_ID)])
-        self.assertEqual(loading_name.call_args.args[2].aliases, ("Annie",))
+        self.assertEqual(names, ["Mod", ltk_ref(FONT_ID)])
+        self.assertEqual(linked, ["Mod"])
+        self.assertEqual(loading_name.call_args.args[2], self.injector.mods_dir / "Mod")
         self.assertEqual(loading_name.call_args.kwargs["other_mods"], [font_facts])
 
-    def test_a_custom_mod_missing_from_ltk_manager_is_not_injected(self):
-        custom = dict(self.selection("Mod", SKIN_ID, missing=True), skin_id=103001, champion_id=103)
-
-        self.inject(custom)
-
-        self.injector.overlay_manager.mk_run_overlay.assert_not_called()
-
-    def saved_custom_mod(self, historic="skins/103000/Mod.fantome", copy=None, **entry):
-        """The custom mod the last game saved for Ahri (*historic*), as the
-        trigger restores it; *copy* is a file Rose still holds of it"""
+    def saved_custom_mod(self, historic="skins/103000/Mod.fantome", copy="Mod.fantome"):
+        """The custom skin the last game saved for Ahri (*historic*), as the
+        trigger restores it; *copy* is its file in Rose"""
         storage = ModStorageService(self.root / "library")
         manifest = storage.get_champion_dir(103) / ModStorageService.TARGET_METADATA
         manifest.parent.mkdir(parents=True)
         manifest.write_text(json.dumps({"version": 1, "mods": {
-            "Mod": {"name": "Mod", "targets": [103001], "ltkId": SKIN_ID, **entry},
+            "Mod": {"name": "Mod", "targets": [103001]},
         }}), encoding="utf-8")
         if copy:
             (manifest.parent / copy).write_bytes(b"PK\x05\x06" + bytes(18))
         with patch("injection.mods.storage.ModStorageService", return_value=storage), \
                 patch("utils.core.historic.get_historic_skin_for_champion", return_value=f"path:{historic}"), \
                 patch("utils.core.historic.get_historic_target_for_champion", return_value=None):
-            return self.trigger._saved_custom_mod(103001, 103001)
+            return self.trigger._saved_custom_mod(103001, 103001), manifest.parent
 
-    def test_a_saved_custom_mod_ltk_manager_holds_is_restored_as_its_reference(self):
-        facts = ModFacts(None, ("Ahri",), False)
+    def test_a_saved_custom_skin_is_restored_from_its_file(self):
+        selection, folder = self.saved_custom_mod()
 
-        selection = self.saved_custom_mod(**facts.to_manifest())
-
-        self.assertEqual(selection["source"], LtkEntry(SKIN_ID, facts))
+        self.assertEqual(selection["source"], RoseFile(folder / "Mod.fantome", "Mod"))
         self.assertEqual(selection["relative_path"], "skins/103000/Mod.fantome")
 
-    def test_a_saved_custom_mod_still_named_by_the_zip_rose_kept_is_restored(self):
-        """A selection the migration could not rename names the .zip Rose kept of the mod"""
-        selection = self.saved_custom_mod(historic="skins/103000/Mod.zip", copy="Mod.zip")
+    def test_a_saved_custom_skin_whose_file_is_gone_is_not_restored(self):
+        selection, _ = self.saved_custom_mod(copy=None)
 
-        self.assertEqual(selection["source"], LtkEntry(SKIN_ID))
-        self.assertEqual(selection["relative_path"], "skins/103000/Mod.fantome")
-
-    def test_a_saved_custom_mod_ltk_manager_lost_is_not_restored(self):
-        with self.assertLogs(level="WARNING"):
-            self.assertIsNone(self.saved_custom_mod(missing=True))
+        self.assertIsNone(selection)
 
 
 if __name__ == "__main__":

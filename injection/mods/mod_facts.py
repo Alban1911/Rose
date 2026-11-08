@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 import shutil
 import stat
 import struct
@@ -13,7 +12,7 @@ import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Iterator, List, Mapping, Optional
+from typing import Iterator, Mapping, Optional
 
 import xxhash
 
@@ -23,7 +22,6 @@ from utils.core.paths import get_injection_dir
 from .mod_files import ModFiles
 
 PARTY_HASH_LENGTH = 32
-_PARTY_HASH = re.compile(rf"[0-9a-f]{{{PARTY_HASH_LENGTH}}}")
 _FACTS_SCRATCH = "mod_facts"
 _UNPACKED_PREFIX = "facts-"
 TABLE_HASH = xxhash.xxh64_intdigest(b"data/menu/en_us/lol.stringtable")
@@ -103,49 +101,33 @@ def _archive_content_hash(archive_path: Path) -> Optional[str]:
 
 @dataclass(frozen=True)
 class ModFacts:
-    """The answers about a mod that used to need its files.
+    """The answers about a mod that used to need its files: whether it
+    carries its own language table (loading_name.ships_language_table), which
+    a loading screen name built beside it would compete with.
 
     Hashable: an injection plan (injection.core.stage_plan.ModStep) carries
     them, and plans are compared by equality.
     """
 
-    party_hash: Optional[str]
-    champion_aliases: tuple[str, ...]
     ships_language_table: bool
 
     @classmethod
     def unknown(cls) -> "ModFacts":
         """What the loading screen name takes a mod LTK Manager holds for when
-        its manifest lacks the facts: a skin naming no champion (no name is
-        built) and a mod that may carry the text table the name's own would
-        compete with."""
-        return cls(party_hash=None, champion_aliases=(), ships_language_table=True)
+        its manifest lacks the facts: one that may carry the text table the
+        name's own would compete with."""
+        return cls(ships_language_table=True)
 
     def to_manifest(self) -> dict:
-        return {
-            "partyHash": self.party_hash,
-            "championAliases": list(self.champion_aliases),
-            "shipsLanguageTable": self.ships_language_table,
-        }
+        return {"shipsLanguageTable": self.ships_language_table}
 
     @classmethod
     def from_manifest(cls, m: object) -> Optional["ModFacts"]:
-        """The facts of a manifest entry, or None when it does not hold all of
-        them, well typed: an entry written by an older Rose has none, and a
-        reader must then fall back on the mod's files or safe defaults rather
-        than trust half an answer."""
-        if not isinstance(m, Mapping):
-            return None
-        if not all(key in m for key in ("partyHash", "championAliases", "shipsLanguageTable")):
-            return None
-        party_hash, aliases, ships = m["partyHash"], m["championAliases"], m["shipsLanguageTable"]
-        if party_hash is not None and not (isinstance(party_hash, str) and _PARTY_HASH.fullmatch(party_hash)):
-            return None
-        if not isinstance(aliases, (list, tuple)) or not all(isinstance(alias, str) for alias in aliases):
-            return None
-        if not isinstance(ships, bool):
-            return None
-        return cls(party_hash, tuple(aliases), ships)
+        """The facts of a manifest entry, or None when it does not hold them,
+        well typed: an entry written by an older Rose has none, and a reader
+        must then fall back on the mod's files or safe defaults."""
+        ships = m.get("shipsLanguageTable") if isinstance(m, Mapping) else None
+        return cls(ships) if isinstance(ships, bool) else None
 
 
 def compute_mod_facts(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
@@ -203,18 +185,6 @@ def remove_unpacked_leftovers() -> None:
         return
     for entry in leftovers:
         shutil.rmtree(entry, ignore_errors=True)
-
-
-def champion_aliases_of(mod: ModFiles) -> List[str]:
-    """The champions a mod carries wads for, in the order it lists them (Zed.wad.client -> Zed)."""
-    aliases = []
-    for name in mod.children("WAD"):
-        if not name.lower().endswith(".wad.client"):
-            continue
-        alias = name[: -len(".wad.client")].split(".")[0]
-        if alias.lower() != "global" and alias not in aliases:
-            aliases.append(alias)
-    return aliases
 
 
 def _table_hashes(wad_name: str) -> set:
@@ -277,12 +247,8 @@ def _facts_of(mod: Path) -> tuple[ModFacts, str, dict[str, str]]:
             entries.append((relative_path, file_digest))
             if relative_path.casefold().endswith((".wad", ".wad.client")):
                 wad_hashes[relative_path] = file_digest.hex()
-        aliases = tuple(champion_aliases_of(files))
-        ships = ships_language_table_of(files)
-    full_hash = _full_content_digest(entries)
-    preview_only = not entries
-    facts = ModFacts(None if preview_only else full_hash[:PARTY_HASH_LENGTH], aliases, ships)
-    return facts, full_hash, wad_hashes
+        facts = ModFacts(ships_language_table_of(files))
+    return facts, _full_content_digest(entries), wad_hashes
 
 
 def stamp_of(archive: Path) -> Optional[list[int]]:

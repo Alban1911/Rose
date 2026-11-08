@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from injection.classic import is_classic_game_mode
 from injection.mods.manifest import find_saved_mod
-from injection.mods.mod_source import ModSource, RoseFile
+from injection.mods.mod_source import RoseFile
 from state import SharedState
 from utils.core.logging import get_logger
 
@@ -181,9 +181,7 @@ def prepare_peer_skin(
     """Prepare a party member's skin in *mods_dir* (the injector's by default)
 
     The loadout countdown stages it in a folder of its own
-    (injection.core.stage_plan), the same way the injection prepares it. Our
-    copy of a friend's custom mod that LTK Manager holds is named by its LTK
-    reference, with nothing linked: the injection switches it on.
+    (injection.core.stage_plan), the same way the injection prepares it.
 
     Args:
         skin_data: Party member's skin data
@@ -232,18 +230,14 @@ def prepare_peer_skin(
     return name
 
 
-def _local_custom_mod(relative_path: str, folder_name: str) -> Optional[ModSource]:
-    """Our own copy of a friend's custom mod: a saved mod (LTK Manager's
-    entry, or Rose's copy while it is pending), or a file nobody registered,
-    linked as *folder_name* beside our own pick of it. None when it cannot be
-    injected."""
+def _local_custom_mod(relative_path: str, folder_name: str) -> Optional[RoseFile]:
+    """Our own copy of a friend's custom mod: a saved mod's file, or a file
+    nobody registered, linked as *folder_name* beside our own pick of it.
+    None when it is not there."""
     mods_root = get_mods_root()
     saved = find_saved_mod(mods_root, relative_path)
     if saved is not None:
-        if not saved.available:
-            return None
-        source = saved.source
-        return replace(source, linked_name=folder_name) if isinstance(source, RoseFile) else source
+        return replace(saved.source, linked_name=folder_name) if saved.available else None
     local_mod = mods_root / relative_path
     return RoseFile(local_mod, folder_name) if local_mod.exists() else None
 

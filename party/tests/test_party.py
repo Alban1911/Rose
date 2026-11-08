@@ -14,8 +14,7 @@ from party.core.party_manager import PartyManager
 from party.discovery import custom_mods
 from party.discovery.skin_collector import PartySkinData, SkinCollector
 from party.integration.injection_hook import PartyInjectionHook
-from injection.mods.ltk_ref import ltk_ref
-from injection.mods.mod_facts import ModFacts, compute_mod_facts
+from injection.mods.mod_facts import compute_mod_facts
 from injection.mods.mod_files import ModFiles
 from party.protocol.token_codec import PartyToken, create_token
 
@@ -168,42 +167,11 @@ class CustomModsTests(unittest.TestCase):
         payload["mods"][name] = {"name": name, "targets": [103001], **entry}
         manifest.write_text(json.dumps(payload), encoding="utf-8")
 
-    def save_ltk_mod(self, name, party_hash, ltk_id, missing=False):
-        """A saved mod LTK Manager holds: Rose has no file of it, its manifest keeps its hash"""
-        self.save_mod(name, ltkId=ltk_id, missing=missing, **ModFacts(party_hash, ("Ahri",), False).to_manifest())
-
     def our_pick(self, custom_mod_path):
         manager = PartyManager(Mock(), make_state())
         selection = SimpleNamespace(champion_id=103, skin_id=103001, chroma_id=None, custom_mod_path=custom_mod_path)
         manager._skin_collector = Mock(get_my_selection=Mock(return_value=selection))
         return manager._current_skin_state()
-
-    def test_a_mod_ltk_manager_holds_is_matched_by_its_manifest_hash(self):
-        self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
-        self.save_ltk_mod("Lost Ahri", "b" * 32, "d6f841c7-140b-4ac2-a11c-b37e18eb8006", missing=True)
-
-        self.assertEqual(custom_mods.find_local_mod(103, content_hash="a" * 32), "skins/103000/LTK Ahri.fantome")
-        self.assertIsNone(custom_mods.find_local_mod(103, content_hash="b" * 32), "we could not inject it")
-        self.assertIsNone(custom_mods.find_local_mod(11, content_hash="a" * 32))
-
-    def test_our_pick_of_a_mod_ltk_manager_holds_shares_its_manifest_hash(self):
-        self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
-
-        state = self.our_pick("skins/103000/LTK Ahri.fantome")
-
-        self.assertTrue(state["is_custom"])
-        self.assertEqual(state["custom_mod_content_hash"], "a" * 32)
-        self.assertNotIn("custom_mod_hash", state, "no file to take an older Rose's whole-file hash of")
-
-    def test_our_pick_of_a_mod_ltk_manager_holds_shares_its_manifest_hash_not_a_leftover_copys(self):
-        self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
-        copy_a_stopped_move_left = self.mods_root / "skins" / "103000" / "LTK Ahri.fantome"
-        self._make_archive(copy_a_stopped_move_left)
-
-        state = self.our_pick("skins/103000/LTK Ahri.fantome")
-
-        self.assertEqual(state["custom_mod_content_hash"], "a" * 32)
-        self.assertNotIn("custom_mod_hash", state)
 
     def test_polling_a_renamed_pending_pick_never_reads_the_whole_mod_to_match_it(self):
         """Party mode asks every second: matching a renamed file to its entry
@@ -245,23 +213,6 @@ class CustomModsTests(unittest.TestCase):
         self.assertNotEqual(newer_hash, before["custom_mod_content_hash"])
         self.assertEqual(changed["custom_mod_content_hash"], newer_hash)
         self.assertNotIn("custom_mod_content_hash", deleted)
-
-    def test_a_manifest_read_error_shares_nothing_for_that_poll_only(self):
-        self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
-        real_read_text = Path.read_text
-        errors = [PermissionError(13, "The process cannot access the file")]
-
-        def read_text(path, *args, **kwargs):
-            if path.name == "rose_mod_targets.json" and errors:
-                raise errors.pop()
-            return real_read_text(path, *args, **kwargs)
-
-        with patch.object(Path, "read_text", read_text), self.assertLogs(level="WARNING"):
-            failed = self.our_pick("skins/103000/LTK Ahri.fantome")
-        recovered = self.our_pick("skins/103000/LTK Ahri.fantome")
-
-        self.assertNotIn("custom_mod_content_hash", failed)
-        self.assertEqual(recovered["custom_mod_content_hash"], "a" * 32)
 
     def test_our_pick_of_a_pending_mod_shares_the_hashes_of_its_file(self):
         archive = self.mods_root / "skins" / "103000" / "Old Ahri.zip"
@@ -784,31 +735,6 @@ class InjectionHookTests(unittest.TestCase):
 
         self.assertEqual(name, "party_2")
         self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"custom")
-
-    def save_ltk_mod(self, ltk_id, missing=False):
-        """Our copy of Custom Yi, a saved mod LTK Manager holds: Rose has no file of it."""
-        champion = self.root / "mods" / "skins" / "11000"
-        champion.mkdir(parents=True)
-        (champion / "rose_mod_targets.json").write_text(json.dumps({"version": 1, "championId": 11, "mods": {
-            "Custom Yi": {"name": "Custom Yi", "targets": [11002], "ltkId": ltk_id, "missing": missing},
-        }}), encoding="utf-8")
-        return PartySkinData(2, "B", 11, 11002, custom_mod_path="skins/11000/Custom Yi.fantome")
-
-    def test_a_custom_mod_ltk_manager_holds_goes_as_its_reference(self):
-        ltk_id = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
-        skin = self.save_ltk_mod(ltk_id)
-
-        name = PartyInjectionHook(Mock(), make_state())._prepare_single_skin(skin, self.injector())
-
-        self.assertEqual(name, ltk_ref(ltk_id))
-        self.assertEqual(list(self.mods_dir.iterdir()), [])
-
-    def test_a_custom_mod_missing_from_ltk_manager_gives_the_friends_skin(self):
-        skin = self.save_ltk_mod("5e9b2219-f49f-4cf1-bc7e-774fb43e1349", missing=True)
-
-        name = PartyInjectionHook(Mock(), make_state())._prepare_single_skin(skin, self.injector())
-
-        self.assertEqual(self._wad(name), b"skin")
 
     def test_rift_classic_uses_the_classic_skin(self):
         mod = self.root / "mods" / "skins" / "11000" / "Custom Yi"

@@ -5,15 +5,13 @@ import json
 import re
 import struct
 import zipfile
-from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 from utils.core.logging import get_logger
 
-from ..mods.mod_facts import TABLE_HASH, ModFacts, champion_aliases_of, ships_language_table_of
-from ..mods.mod_files import ModFiles, is_mod_archive
+from ..mods.mod_facts import TABLE_HASH, ModFacts, ships_language_table_of
+from ..mods.mod_files import ModFiles
 
 log = get_logger()
 
@@ -127,11 +125,10 @@ FORM_RECORDS = {
 }
 
 
-def _champion_record(game_dir: Path, mod: Optional[ModFiles], alias: str, character: Optional[str] = None,
+def _champion_record(game_dir: Path, mod: ModFiles, alias: str, character: Optional[str] = None,
                      carried_wad: Optional[bytes] = None) -> Optional[bytes]:
     """The bin of one of the champion's characters (the champion's own by default): the skin's copy when it carries
-    one, the game's otherwise (and when the skin's files cannot be read: *mod* None). *carried_wad* is the skin's
-    WAD/<alias>.wad.client when it carries it packed."""
+    one, the game's otherwise. *carried_wad* is the skin's WAD/<alias>.wad.client when it carries it packed."""
     game_path = _record_path(character or alias)
     path_hash = _xxh64(game_path.encode("utf-8"))
     carried = f"WAD/{alias}.wad.client"
@@ -139,7 +136,7 @@ def _champion_record(game_dir: Path, mod: Optional[ModFiles], alias: str, charac
         found = _entry_of(carried_wad, f"{alias}.wad.client", path_hash)
         if found:
             return found
-    elif mod is not None and mod.is_dir(carried):
+    elif mod.is_dir(carried):
         for loose in (f"{carried}/{game_path}", f"{carried}/{path_hash:016x}.bin"):
             if mod.is_file(loose):
                 return mod.read(loose)
@@ -346,10 +343,21 @@ def champion_aliases(mod_path: Path) -> List[str]:
     (Zed.wad.client -> Zed)."""
     try:
         with ModFiles(Path(mod_path)) as mod:
-            return champion_aliases_of(mod)
+            return _champion_aliases(mod)
     except (OSError, zipfile.BadZipFile) as e:
         log.debug(f"[LOADNAME] could not read {Path(mod_path).name}: {e}")
         return []
+
+
+def _champion_aliases(mod: ModFiles) -> List[str]:
+    aliases = []
+    for name in mod.children("WAD"):
+        if not name.lower().endswith(".wad.client"):
+            continue
+        alias = name[: -len(".wad.client")].split(".")[0]
+        if alias.lower() != "global" and alias not in aliases:
+            aliases.append(alias)
+    return aliases
 
 
 def parse_skin_id(skin_name: str, champion_id: Optional[int] = None) -> int:
@@ -406,41 +414,18 @@ def _uses_string_overrides(game_dir: Path) -> Optional[bool]:
     return True if locale == "en_us" else None
 
 
-@dataclass(frozen=True)
-class LtkSkin:
-    """A skin LTK Manager holds (a saved mod the user added): Rose has no copy of its files.
-
-    Its champions come from its manifest; *archive* finds LTK Manager's own copy of it, opened only for the
-    champion's record (the name over the head), and None when it cannot be found.
-    """
-
-    aliases: Tuple[str, ...]
-    archive: Callable[[], Optional[Path]]
-
-
-@contextmanager
-def _record_source(found: Optional[Path]) -> Iterator[Optional[ModFiles]]:
-    """The skin's files, to read the champion's record from; None when *found* is no folder or ZIP archive (an
-    LTK Manager archive that is gone, or a .modpkg it keeps): the game's own record is used then."""
-    if found is None or not (found.is_dir() or is_mod_archive(found)):
-        yield None
-        return
-    with ModFiles(found) as mod:
-        yield mod
-
-
-def _carried_wad(mod: Optional[ModFiles], alias: str) -> Optional[bytes]:
+def _carried_wad(mod: ModFiles, alias: str) -> Optional[bytes]:
     """The champion's wad the skin carries, read once for all its forms: in
     an archive it may have to be inflated."""
     carried = f"WAD/{alias}.wad.client"
-    return mod.read(carried) if mod is not None and mod.is_file(carried) else None
+    return mod.read(carried) if mod.is_file(carried) else None
 
 
-def _keep_champion_name_in_chat(game_dir: Path, skin_files: Optional[Path], alias: str, target: Path) -> int:
+def _keep_champion_name_in_chat(game_dir: Path, skin: Path, alias: str, target: Path) -> int:
     """Write the champion's records, its forms' too (FORM_RECORDS), pointed
     at a key of the mod's own: the chat and the name over the head keep the
     champion's name. Returns how many were written."""
-    with _record_source(skin_files) as mod:
+    with ModFiles(Path(skin)) as mod:
         carried_wad = _carried_wad(mod, alias)
         records = [
             (character, _champion_record(game_dir, mod, alias, character, carried_wad))
@@ -458,14 +443,14 @@ def _keep_champion_name_in_chat(game_dir: Path, skin_files: Optional[Path], alia
     return repointed
 
 
-def build(game_dir: Path, mods_dir: Path, mod_folder: Union[Path, LtkSkin], skin_id: int,
+def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
           other_mods: Sequence[Union[Path, ModFacts]] = ()) -> Optional[str]:
     """Writes the mod and returns its folder name, or None when there is nothing to show.
 
     skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id. *mod_folder* is
-    the skin, a folder or an archive, or a skin LTK Manager holds (LtkSkin); *other_mods* are the other mods installed
-    with it, folders or archives, or the facts of one LTK Manager holds: when one carries its own language table, the
-    mod's own table would compete with it, and nothing is built (see ships_language_table).
+    the skin, a folder or an archive; *other_mods* are the other mods installed with it, folders or archives, or the
+    facts of one LTK Manager holds: when one carries its own language table, the mod's own table would compete with
+    it, and nothing is built (see ships_language_table).
 
     The texts reach the game as string overrides in META/info.json on an en_US client, as the mod's own table
     otherwise (see _uses_string_overrides). The champion's record is only pointed at a key of the mod's own when
@@ -474,10 +459,7 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Union[Path, LtkSkin], skin
     try:
         if not skin_id or skin_id % 1000 == 0:
             return None
-        if isinstance(mod_folder, LtkSkin):
-            aliases, skin_files = list(mod_folder.aliases), mod_folder.archive
-        else:
-            aliases, skin_files = champion_aliases(mod_folder), (lambda: Path(mod_folder))
+        aliases = champion_aliases(mod_folder)
         if not aliases:
             log.debug("[LOADNAME] the skin carries no champion wad, skipped")
             return None
@@ -517,7 +499,7 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Union[Path, LtkSkin], skin
                 (target / "META").mkdir(parents=True, exist_ok=True)
                 texts = {f"{RECORD_KEY}{alias}": name}
 
-                repointed = _keep_champion_name_in_chat(game_dir, skin_files(), alias, target)
+                repointed = _keep_champion_name_in_chat(game_dir, mod_folder, alias, target)
                 if repointed:
                     texts[f"{RECORD_KEY_OWN}{alias}"] = champion_name
                 else:

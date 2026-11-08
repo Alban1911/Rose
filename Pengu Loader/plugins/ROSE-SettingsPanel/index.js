@@ -4239,7 +4239,7 @@
       actions.appendChild(renameButton);
     }
 
-    if (onImage && mod.imageEditable && !mod.missing) {
+    if (onImage && mod.imageEditable) {
       const imageButton = document.createElement("button");
       imageButton.type = "button";
       imageButton.className = "mod-rename-button";
@@ -4526,7 +4526,6 @@
           displayName: mod.displayName,
           thumbnailUrl: mod.thumbnailUrl,
           imageEditable: mod.imageEditable,
-          missing: mod.missing,
           selected: selection.has(key),
         },
         (deleteButton, row) => {

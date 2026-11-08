@@ -21,7 +21,6 @@ from injection.overlay.ltk_data import (
     entry_archive,
     library_index_mtime,
     read_library_index,
-    stored_archive,
 )
 from injection.overlay.ltk_library import LibrarySession, LtkBusy, LtkLibrary, LtkUnavailable
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
@@ -106,16 +105,6 @@ class OfflineIndexTests(unittest.TestCase):
         os.utime(self.data / "library.json", (1_700_000_000, 1_700_000_000))
 
         self.assertEqual(library_index_mtime(), 1_700_000_000)
-
-    def test_the_stored_archive_only_when_it_is_there(self):
-        self.assertIsNone(stored_archive(VO_ID))
-
-        self.storage.mkdir()
-        (self.storage / "vo-korean.fantome").write_bytes(b"PK\x05\x06" + bytes(18))
-
-        self.assertEqual(stored_archive(VO_ID), self.storage / "vo-korean.fantome")
-        self.assertIsNone(stored_archive(LOOSE_ID))
-        self.assertIsNone(stored_archive("0f0f0f0f-0000-4000-8000-000000000000"))
 
     def test_an_entrys_archive_sits_beside_its_folder(self):
         mod_dir = str(self.storage / "vo-korean")
@@ -357,9 +346,9 @@ class LibrarySessionTests(LtfSessionTestCase):
 
 
 class ModCheckTests(LtfSessionTestCase):
-    """A mod the user adds moves into LTK Manager's library: LTK Manager
-    checks it, repairs what it can in its own copy, and keeps it, turned off,
-    unless the game would still reject it"""
+    """A category's mod the user adds moves into LTK Manager's library: LTK
+    Manager checks it, repairs what it can in its own copy, and keeps it,
+    turned off, unless the game would still reject it"""
 
     SKINHACK = {
         "rule": "bin/skinhack", "title": "Another skin's model",
@@ -372,7 +361,7 @@ class ModCheckTests(LtfSessionTestCase):
     def setUp(self):
         super().setUp()
         FakeBridge.mod_storage = self.root / "ltk-mods"
-        self.stored = self.root / "saved-mods" / "skins" / "89000" / "Leona.fantome"
+        self.stored = self.root / "saved-mods" / "loading_screen" / "Leona.fantome"
         self.stored.parent.mkdir(parents=True)
         with zipfile.ZipFile(self.stored, "w") as packed:
             packed.writestr("META/info.json", '{"Name": "Eternal Aspect Leona"}')
@@ -510,6 +499,77 @@ class ModCheckTests(LtfSessionTestCase):
         self.assertIsNone(self.check())
 
         self.assertEqual((FakeBridge.created, self.recorded), ([], []))
+
+
+class SkinCheckTests(LtfSessionTestCase):
+    """A custom skin the user adds stays Rose's: LTK Manager checks it,
+    repairs what it can, the repair is written into Rose's file, and the
+    entry leaves LTK Manager again with the session"""
+
+    REPAIRABLE = ModCheckTests.REPAIRABLE
+    HEALTHY = ModCheckTests.HEALTHY
+
+    def setUp(self):
+        super().setUp()
+        FakeBridge.mod_storage = self.root / "ltk-mods"
+        self.stored = self.root / "saved-mods" / "skins" / "89000" / "Leona.fantome"
+        self.stored.parent.mkdir(parents=True)
+        with zipfile.ZipFile(self.stored, "w") as packed:
+            packed.writestr("META/info.json", '{"Name": "Eternal Aspect Leona"}')
+            packed.writestr("WAD/Leona.wad.client", b"wad")
+        self.before = self.stored.read_bytes()
+        self.library = LtkLibrary(self.host, self.game)
+
+    def check(self):
+        return self.library.check_mod(self.stored, "Eternal Aspect Leona")
+
+    def assert_left_ltk_manager(self):
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertEqual(self.bridge.command_names().count("uninstall"), 1)
+        self.assertEqual(self.state()["installed"], {})
+        self.assertEqual(self.state()["kept"], {}, "never parked for a game either")
+
+    def test_a_healthy_skin_is_checked_and_leaves_ltk_manager_again(self):
+        FakeBridge.health_answers = [self.HEALTHY]
+
+        result = self.check()
+
+        self.assertEqual(result, {"health": "healthy", "repaired": 0, "problems": []})
+        self.assert_left_ltk_manager()
+        self.assertEqual(self.stored.read_bytes(), self.before)
+
+    def test_ltk_managers_repair_is_written_into_roses_skin(self):
+        FakeBridge.health_answers = [self.REPAIRABLE, self.HEALTHY]
+        FakeBridge.repair_files = {"META/info.json": "{}", "WAD/Leona.wad.client": b"fixed"}
+
+        result = self.check()
+
+        self.assertEqual(result, {"health": "repairable", "repaired": 2, "problems": []})
+        with zipfile.ZipFile(self.stored) as repaired:
+            self.assertEqual(repaired.read("WAD/Leona.wad.client"), b"fixed")
+        self.assertEqual([p.name for p in self.stored.parent.iterdir()], ["Leona.fantome"], "nothing left beside it")
+        self.assert_left_ltk_manager()
+
+    def test_a_repair_rose_cannot_find_leaves_its_skin_as_it_was(self):
+        FakeBridge.health_answers = [self.REPAIRABLE, self.HEALTHY]
+        FakeBridge.repair_files = {"META/info.json": "{}", "WAD/Leona.wad.client": b"fixed"}
+
+        with patch.object(LibrarySession, "confirm", return_value=None):
+            result = self.check()
+
+        self.assertEqual(result["repaired"], 0, "no repair of Rose's skin")
+        self.assertEqual(self.stored.read_bytes(), self.before)
+        self.assert_left_ltk_manager()
+
+    def test_a_skin_the_game_will_reject_is_reported_and_leaves_ltk_manager(self):
+        FakeBridge.health_answers = [{"health": "unrepairable", "fixable": 0, "counts": {"errors": 1},
+                                      "rules": [ModCheckTests.SKINHACK]}]
+
+        result = self.check()
+
+        self.assertEqual([problem["rule"] for problem in result["problems"]], ["bin/skinhack"])
+        self.assertNotIn("ltkId", result)
+        self.assert_left_ltk_manager()
 
 
 class RemoveRoseModsTests(LtfSessionTestCase):

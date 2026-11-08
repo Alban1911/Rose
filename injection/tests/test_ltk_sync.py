@@ -22,7 +22,7 @@ MAP = {
     "META/info.json": json.dumps({"Name": "Summoner's Rift"}),
     "WAD/Map11.wad.client": b"map" * 50,
 }
-STALE = ModFacts("0123456789abcdef0123456789abcdef", ("Ezreal",), False)
+STALE = ModFacts(ships_language_table=True)
 INDEX_TIME = 1_700_000_000
 NEVER_SYNCED = None
 
@@ -217,6 +217,22 @@ class LtkSyncTests(unittest.TestCase):
                 mod = self.saved("VO Korean")
                 self.assertEqual((mod.ltk_id, mod.missing, mod.facts), (NEW_ID, False, STALE))
                 self.assertNotIn("ltkStamp", mod.metadata)
+
+    def test_a_custom_skin_is_none_of_the_syncs_business(self):
+        """A custom skin never lives in LTK Manager's library: an ltkId its
+        entry holds is never marked missing, nor its file deleted"""
+        champion = self.mods_root / "skins" / "81000"
+        skin = make_archive(champion / "Ezreal.fantome", VOICEOVER)
+        add_entries(champion / ModStorageService.TARGET_METADATA,
+                    {"Ezreal": {"name": "Ezreal", "targets": [81020], "ltkId": NEW_ID}})
+        self.write_index((NEW_ID, "ezreal"))
+
+        report = self.sync()
+
+        self.assertIsNotNone(report)
+        self.assertFalse(report)
+        self.assertTrue(skin.exists())
+        self.assertNotIn("missing", self.storage.saved_mod("skins/81000/Ezreal.fantome").metadata)
 
     def test_a_sync_already_running_is_not_started_again(self):
         self.save("VO Korean", VO_ID, **STALE.to_manifest())

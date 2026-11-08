@@ -26,7 +26,7 @@ MOVED_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 LOST_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
 VOICE_ID = "799b6c82-8324-4394-a0cf-ddebcd16eba7"
 OLD_ID = "1beee5a2-6fe1-49e1-ba94-9d601ead2a0f"
-FACTS = ModFacts("0123456789abcdef0123456789abcdef", ("Ezreal",), False)
+FACTS = ModFacts(ships_language_table=False)
 
 
 def make_archive(path, files):
@@ -225,9 +225,10 @@ class StorageTests(TempCase):
 
 class AddTests(TempCase):
     """An added mod is registered with what Rose needs to know about it, read
-    once: LTK Manager will hold it, and Rose keeps no copy to read it from.
-    Its name is its own in its folder, against the mods LTK Manager holds
-    (or lost) too; a mod the folder holds already is not added twice"""
+    once: a category's mod moves into LTK Manager, and Rose keeps no copy to
+    read it from. Its name is its own in its folder, against the mods LTK
+    Manager holds (or lost) too; a mod the folder holds already is not added
+    twice"""
 
     def setUp(self):
         super().setUp()
@@ -285,21 +286,19 @@ class AddTests(TempCase):
     def test_a_mod_added_again_after_ltk_manager_lost_it_is_another_mod(self):
         """The lost one, the same mod, keeps its name and stays listed as
         missing until the user deletes it"""
-        source = make_archive(self.root / "Lost Ezreal.fantome", VOICEOVER)
-        full_hash = compute_mod_facts(source)[1]
-        lost = {"name": "Lost Ezreal", "folderHash": full_hash, "targets": [81020], "ltkId": LOST_ID,
-                "missing": True, "displayName": "My Ezreal"}
-        add_entries(self.skins_manifest, {full_hash: lost})
+        source = make_archive(self.root / "Rift.fantome", VOICEOVER)
+        self.lost_map(folderHash=compute_mod_facts(source)[1])
+        lost = self.entries(self.maps_manifest)["Rift"]
 
-        stored, name, _ = self.service.import_mod_file(81, source, [81021])
+        stored, name, _ = self.service.import_category_mod_file("maps", source)
 
-        self.assertEqual((name, stored.name), ("Lost Ezreal (2)", "Lost Ezreal (2).fantome"))
-        mods = self.entries(self.skins_manifest)
-        self.assertEqual(mods[full_hash], lost)
-        self.assertEqual((mods[name]["folderHash"], mods[name]["targets"]), (full_hash, [81021]))
-        listed = {mod.mod_name: mod for mod in self.service.list_mods_for_champion(81)}
-        self.assertEqual((listed["Lost Ezreal"].source, listed["Lost Ezreal"].display_name),
-                         (LtkEntry(LOST_ID, None, gone_at_last_sync=True), "My Ezreal"))
+        self.assertEqual((name, stored.name), ("Rift (2)", "Rift (2).fantome"))
+        mods = self.entries(self.maps_manifest)
+        self.assertEqual(mods["Rift"], lost)
+        self.assertEqual(mods[name]["folderHash"], lost["folderHash"])
+        listed = {mod.name: mod for mod in self.service.saved_mods("maps")}
+        self.assertEqual((listed["Rift"].source, listed["Rift"].display_name),
+                         (LtkEntry(LOST_ID, None, gone_at_last_sync=True), "My Rift"))
         self.assertEqual(listed[name].source, RoseFile.at(stored))
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
@@ -325,8 +324,7 @@ class AddTests(TempCase):
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
     def test_the_same_skin_added_again_is_the_one_saved_already(self):
-        """Its targets join the saved mod's: no second copy, in Rose or in LTK
-        Manager, whether Rose still holds the first or LTK Manager does"""
+        """Its targets join the saved mod's: no second copy"""
         source = make_archive(self.root / "Ezreal.fantome", VOICEOVER)
         first, name, _ = self.service.import_mod_file(81, source, [81020])
 
@@ -338,17 +336,21 @@ class AddTests(TempCase):
         self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
                          sorted([self.skins_manifest.name, "Ezreal.fantome", "Ezreal.png"]))
 
+    def test_the_same_category_mod_added_again_is_the_one_ltk_manager_holds(self):
+        """No second copy, in Rose or in LTK Manager"""
+        first, name, _ = self.add_map()
         relative = first.relative_to(self.service.mods_root).as_posix()
         self.service.attach_ltk_entry(relative, MOVED_ID)
         self.service.drop_stored_copy(relative)
-        again = self.service.import_mod_file(81, source, [81022])
+
+        again = self.add_map("Rift copy")
 
         self.assertEqual(again, (first, name, True))
         self.assertFalse(again.identity_path.exists())
-        [entry] = self.entries(self.skins_manifest).values()
-        self.assertEqual((entry["ltkId"], entry["targets"]), (MOVED_ID, [81020, 81021, 81022]))
-        self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
-                         sorted([self.skins_manifest.name, "Ezreal.png"]))
+        [entry] = self.entries(self.maps_manifest).values()
+        self.assertEqual(entry["ltkId"], MOVED_ID)
+        self.assertEqual(sorted(p.name for p in self.maps.iterdir()),
+                         sorted([self.maps_manifest.name, "Rift.png"]))
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
     def test_the_same_file_without_its_info_added_again_is_the_one_saved_already(self):
@@ -381,16 +383,10 @@ class ManifestListingTests(TempCase):
         super().setUp()
         self.service = ModStorageService(self.root / "mods")
         self.ezreal = self.service.get_champion_dir(81)
-        self.pending, self.pending_name, _ = self.service.import_mod_file(
-            81, make_archive(self.root / "Pending Ezreal.fantome", VOICEOVER), [81020])
+        self.skin, self.skin_name, _ = self.service.import_mod_file(
+            81, make_archive(self.root / "Arcane Ezreal.fantome", VOICEOVER), [81020])
+        self.skin_identity = self.skin.relative_to(self.service.mods_root).as_posix()
         self.skins_manifest = self.ezreal / ModStorageService.TARGET_METADATA
-        add_entries(self.skins_manifest, {
-            "Moved Ezreal": {"name": "Moved Ezreal", "targets": [81020], "ltkId": MOVED_ID, "updatedAt": 1234.5,
-                             "displayName": "Moved!", **FACTS.to_manifest()},
-            "Lost Ezreal": {"name": "Lost Ezreal", "targets": [81020], "ltkId": LOST_ID, "missing": True},
-        })
-        (self.ezreal / "Moved Ezreal.png").write_bytes(PNG)
-        (self.ezreal / "Moved Ezreal.txt").write_text("Moved to LTK Manager", encoding="utf-8")
         self.voiceover = self.service.mods_root / "voiceover"
         add_entries(self.voiceover / ModStorageService.CATEGORY_METADATA, {
             "VO Korean": {"name": "VO Korean", "path": "VO Korean", "ltkId": VOICE_ID, **FACTS.to_manifest()},
@@ -403,31 +399,25 @@ class ManifestListingTests(TempCase):
     def champion_mods(self):
         return {entry.mod_name: entry for entry in self.service.list_mods_for_champion(81)}
 
-    def pending_hash(self):
-        return next(key for key, entry in self.manifest_mods().items() if entry["name"] == self.pending_name)
+    def skin_hash(self):
+        return next(key for key, entry in self.manifest_mods().items() if entry["name"] == self.skin_name)
 
-    def test_a_mod_ltk_manager_holds_is_listed_without_a_file(self):
-        moved = self.champion_mods()["Moved Ezreal"]
+    def test_a_custom_skin_is_listed_by_its_file(self):
+        skin = self.champion_mods()[self.skin_name]
 
-        self.assertEqual(moved.path, self.ezreal / "Moved Ezreal.fantome", "the identity selections keep")
-        self.assertFalse(moved.path.exists())
-        self.assertEqual(moved.source, LtkEntry(MOVED_ID, FACTS, gone_at_last_sync=False))
-        self.assertEqual(moved.description, "Moved to LTK Manager")
-        self.assertEqual(moved.display_name, "Moved!")
-        self.assertEqual(moved.updated_at, 1234.5)
-        self.assertEqual((moved.skin_id, moved.target_skin_ids), (81000, (81020,)))
-
-    def test_a_pending_mod_is_listed_by_its_file_as_before(self):
-        pending = self.champion_mods()[self.pending_name]
-
-        self.assertEqual((pending.path, pending.source), (self.pending, RoseFile(self.pending, self.pending_name)))
-        self.assertEqual(pending.updated_at, self.pending.stat().st_mtime)
+        self.assertEqual((skin.path, skin.source), (self.skin, RoseFile(self.skin, self.skin_name)))
+        self.assertEqual(skin.updated_at, self.skin.stat().st_mtime)
+        self.assertEqual((skin.skin_id, skin.target_skin_ids), (81000, (81020,)))
 
     def test_a_mod_ltk_manager_lost_is_listed_as_missing(self):
-        lost = self.champion_mods()["Lost Ezreal"]
+        add_entries(self.voiceover / ModStorageService.CATEGORY_METADATA, {
+            "Lost VO": {"name": "Lost VO", "path": "Lost VO", "ltkId": LOST_ID, "missing": True},
+        })
 
-        self.assertEqual(lost.source, LtkEntry(LOST_ID, None, gone_at_last_sync=True))
-        self.assertFalse(lost.source.available)
+        lost = {mod["name"]: mod for mod in self.service.list_mods_for_category("voiceover")}["Lost VO"]
+
+        self.assertEqual((lost["ltkId"], lost["missing"], lost["pending"]), (LOST_ID, True, False))
+        self.assertFalse(self.service.saved_mod("voiceover/Lost VO").source.available)
 
     def test_a_file_nobody_registered_is_listed_with_the_folders_targets(self):
         make_archive(self.ezreal / "Dropped.fantome", VOICEOVER)
@@ -454,28 +444,21 @@ class ManifestListingTests(TempCase):
         self.assertEqual(listed["VO Pending"]["facts"],
                          compute_mod_facts(self.root / "VO Pending.fantome")[0].to_manifest())
 
-    def test_deleting_a_mod_ltk_manager_holds_queues_its_removal(self):
-        self.assertTrue(self.service.delete_champion_mod(81, relative_path="skins/81000/Moved Ezreal.fantome"))
-
-        self.assertNotIn("Moved Ezreal", self.manifest_mods())
-        self.assertNotIn("Moved Ezreal", self.champion_mods())
-        self.assertFalse((self.ezreal / "Moved Ezreal.png").exists())
-        self.assertFalse((self.ezreal / "Moved Ezreal.txt").exists())
-        self.assertEqual(ltk_removals(self.service.mods_root), [MOVED_ID], "gone from LTK Manager at the next game")
-        self.assertTrue(self.pending.exists())
-
     def test_deleting_takes_out_every_entry_under_the_mods_name(self):
-        add_entries(self.skins_manifest, {"older-key": {"name": "Moved Ezreal", "targets": [81020], "ltkId": OLD_ID}})
+        voice_manifest = self.voiceover / ModStorageService.CATEGORY_METADATA
+        add_entries(voice_manifest, {"older-key": {"name": "VO Korean", "path": "VO Korean", "ltkId": OLD_ID}})
 
-        self.assertTrue(self.service.delete_champion_mod(81, mod_name="Moved Ezreal"))
+        self.assertTrue(self.service.delete_category_mod("voiceover", "VO Korean"))
 
-        self.assertEqual(sorted(self.manifest_mods()), sorted(["Lost Ezreal", self.pending_hash()]))
-        self.assertEqual(sorted(ltk_removals(self.service.mods_root)), sorted([MOVED_ID, OLD_ID]))
+        self.assertEqual(json.loads(voice_manifest.read_text(encoding="utf-8"))["mods"], {})
+        self.assertEqual(sorted(ltk_removals(self.service.mods_root)), sorted([VOICE_ID, OLD_ID]))
 
-    def test_deleting_a_pending_mod_queues_nothing(self):
-        self.assertTrue(self.service.delete_champion_mod(81, mod_name=self.pending_name))
+    def test_deleting_a_custom_skin_takes_its_file_and_queues_nothing(self):
+        self.assertTrue(self.service.delete_champion_mod(81, mod_name=self.skin_name))
 
-        self.assertFalse(self.pending.exists())
+        self.assertFalse(self.skin.exists())
+        self.assertFalse(self.skin.with_suffix(".png").exists())
+        self.assertEqual(self.manifest_mods(), {})
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
     def test_deleting_a_folder_mod_leaves_a_mod_folder_named_like_its_description(self):
@@ -496,43 +479,37 @@ class ManifestListingTests(TempCase):
         self.assertEqual(ltk_removals(self.service.mods_root), [VOICE_ID])
 
     def test_another_champions_mod_or_an_unknown_one_is_not_deleted(self):
-        self.assertFalse(self.service.delete_champion_mod(82, relative_path="skins/81000/Moved Ezreal.fantome"))
+        self.assertFalse(self.service.delete_champion_mod(82, relative_path=self.skin_identity))
         self.assertFalse(self.service.delete_champion_mod(81, mod_name="Never Added"))
-        self.assertFalse(self.service.delete_category_mod("voiceover", "../skins/81000/Moved Ezreal"))
+        self.assertFalse(self.service.delete_category_mod("voiceover", f"../skins/81000/{self.skin_name}"))
 
-        self.assertIn("Moved Ezreal", self.manifest_mods())
+        self.assertTrue(self.skin.exists())
+        self.assertEqual([entry["name"] for entry in self.manifest_mods().values()], [self.skin_name])
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
-    def test_a_mod_ltk_manager_holds_is_renamed_by_its_identity_and_keeps_its_entry(self):
-        self.assertEqual(self.service.set_champion_mod_display_name(
-            81, " Shiny ", relative_path="skins/81000/Moved Ezreal.fantome"), "Shiny")
+    def test_a_mod_is_renamed_by_its_identity_and_keeps_its_entry(self):
+        self.assertEqual(self.service.set_champion_mod_display_name(81, " Shiny ", relative_path=self.skin_identity),
+                         "Shiny")
         self.assertEqual(self.service.set_category_mod_display_name("voiceover", "VO Korean", "Korean"), "Korean")
 
-        moved = self.manifest_mods()["Moved Ezreal"]
-        self.assertEqual((moved["displayName"], moved["ltkId"], moved["updatedAt"]), ("Shiny", MOVED_ID, 1234.5))
-        self.assertEqual(self.champion_mods()["Moved Ezreal"].display_name, "Shiny")
+        skin = self.manifest_mods()[self.skin_hash()]
+        self.assertEqual((skin["displayName"], skin["folderHash"]), ("Shiny", self.skin_hash()))
+        self.assertEqual(self.champion_mods()[self.skin_name].display_name, "Shiny")
         voice = json.loads((self.voiceover / ModStorageService.CATEGORY_METADATA).read_text(encoding="utf-8"))
         self.assertEqual((voice["mods"]["VO Korean"]["displayName"], voice["mods"]["VO Korean"]["ltkId"]),
                          ("Korean", VOICE_ID))
         with self.assertRaises(ValueError):
-            self.service.set_champion_mod_display_name(82, "Not mine", relative_path="skins/81000/Moved Ezreal.fantome")
+            self.service.set_champion_mod_display_name(82, "Not mine", relative_path=self.skin_identity)
 
-    def test_retargeting_a_mod_ltk_manager_holds_keeps_its_entry(self):
-        self.service.set_champion_target_ids(81, [81022, 81021], mod_name="Moved Ezreal")
+    def test_retargeting_a_custom_skin_keeps_its_entry(self):
+        self.service.set_champion_mod_display_name(81, "Arcane!", relative_path=self.skin_identity)
 
-        moved = self.manifest_mods()["Moved Ezreal"]
-        self.assertEqual((moved["targets"], moved["ltkId"], moved["displayName"]), ([81021, 81022], MOVED_ID, "Moved!"))
-        self.assertEqual(self.champion_mods()["Moved Ezreal"].target_skin_ids, (81021, 81022))
+        self.service.set_champion_target_ids(81, [81022, 81021], mod_name=self.skin_name)
 
-    def test_the_image_of_a_mod_ltk_manager_holds_is_set_beside_its_manifest(self):
-        (self.ezreal / "Moved Ezreal.webp").write_bytes(b"older preview")
-
-        image = self.service.set_champion_mod_image(81, "skins/81000/Moved Ezreal.fantome", PNG + b"new")
-
-        self.assertEqual(image, self.ezreal / "Moved Ezreal.png")
-        self.assertEqual(image.read_bytes(), PNG + b"new")
-        self.assertFalse((self.ezreal / "Moved Ezreal.webp").exists())
-        self.assertFalse((self.ezreal / "Moved Ezreal.fantome").exists())
+        skin = self.manifest_mods()[self.skin_hash()]
+        self.assertEqual((skin["targets"], skin["folderHash"], skin["displayName"]),
+                         ([81021, 81022], self.skin_hash(), "Arcane!"))
+        self.assertEqual(self.champion_mods()[self.skin_name].target_skin_ids, (81021, 81022))
 
 
 class ConversionTests(TempCase):

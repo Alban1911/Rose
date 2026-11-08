@@ -13,7 +13,7 @@ from utils.core.logging import get_logger
 from utils.threading.thread_manager import create_daemon_thread
 
 from ..overlay.ltk_data import IndexEntry, library_index_mtime, read_library_index
-from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, find_saved_mod, update_saved_mod
+from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, find_saved_mod, ltk_library_mods, update_saved_mod
 from .migration import delete_copy
 from .mod_facts import compute_mod_facts, stamp_of
 from .storage import ModStorageService
@@ -59,7 +59,7 @@ def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
             log.debug("[MODS] LTK Manager's library did not change since the last sync")
             return None
         storage = storage or ModStorageService()
-        held = [mod for mod in storage.saved_mods() if mod.ltk_id]
+        held = [mod for mod in ltk_library_mods(storage.mods_root) if mod.ltk_id]
         index = read_library_index()
         if index is None:
             log.debug("[MODS] LTK Manager's library index cannot be read now: the saved mods are left as they are")

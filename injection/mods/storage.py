@@ -230,9 +230,9 @@ class ModStorageService:
         """Store one user-selected mod archive in *parent_dir* as the .fantome
         LTK Manager installs, its preview image beside it, and register it in
         the folder's manifest with what Rose needs to know about it, read
-        once (compute_mod_facts): LTK Manager will hold the mod, and Rose
-        keeps no copy to read it from again. Nothing it wrote stays when a
-        step fails.
+        once (compute_mod_facts): a category's mod moves into LTK Manager,
+        and Rose keeps no copy to read it from again. Nothing it wrote stays
+        when a step fails.
 
         A mod the folder holds already (the same file added again, or the
         same content: LTK Manager's or still Rose's) is not added twice:
@@ -724,10 +724,9 @@ class ModStorageService:
         image_data: bytes | Path,
     ) -> Path:
         """Atomically add or replace a skin mod's preview image where the
-        listing reads it (SavedMod.image_paths): a pending mod stored as a
-        folder holds it (META/image.png), any other has it beside the
-        manifest under its name, as its archive (LTK Manager's, or Rose's
-        while it is pending) stays as LTK Manager installs it."""
+        listing reads it (SavedMod.image_paths): a mod stored as a folder
+        holds it (META/image.png), an archive has it beside the manifest
+        under its name, as the archive stays as LTK Manager installs it."""
         champion_id_int = self._to_int(champion_id)
         if champion_id_int is None or champion_id_int <= 0:
             raise ValueError(f"Invalid champion ID: {champion_id}")
@@ -816,8 +815,7 @@ class ModStorageService:
     def list_mods_for_champion(self, champion_id: int | str) -> List[SkinModEntry]:
         """The skin mods saved for a champion (its folder, and the per-skin
         folders of older Roses), as their manifests list them: no mod file is
-        opened, so a mod LTK Manager holds is listed like one Rose holds.
-        Kept a moment: hovering skins lists them again and again."""
+        opened. Kept a moment: hovering skins lists them again and again."""
         champion_id_int = self._to_int(champion_id)
         if champion_id_int is None or champion_id_int <= 0:
             return []

@@ -33,7 +33,7 @@ from ..overlay.ltk_library import (
     MissingComponent,
 )
 from .conversion import convert_folder_mods, rename_saved_paths
-from .manifest import ARCHIVE_SUFFIX, SavedMod, iter_saved_mods
+from .manifest import ARCHIVE_SUFFIX, SavedMod, ltk_library_mods
 from .mod_facts import compute_mod_facts, stamp_of
 from .storage import ModStorageService
 
@@ -121,14 +121,16 @@ class _File:
 
 
 def needs_migration(mods_root: Path) -> bool:
-    """Whether a saved mod still has its copy in Rose: one to move into LTK
-    Manager (pending), or a moved one whose copy a stopped run left. Reads
-    the manifests and lists the mods folders, and starts no LTK Manager."""
-    return any(mod.rose_copy is not None for mod in iter_saved_mods(mods_root))
+    """Whether a saved mod that lives in LTK Manager's library still has its
+    copy in Rose: one to move there (pending), or a moved one whose copy a
+    stopped run left. Reads the manifests and lists the mods folders (a
+    custom skin's not: it stays Rose's), and starts no LTK Manager."""
+    return any(mod.rose_copy is not None for mod in ltk_library_mods(mods_root))
 
 
 def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: MigrationUi) -> MigrationReport:
-    """Move every saved mod Rose still holds into LTK Manager's library.
+    """Move every saved mod Rose still holds of those that live in LTK
+    Manager's library (manifest.lives_in_ltk) into it.
 
     Nothing happens when none is left. Otherwise, with no other Rose running
     or moving them: the mods stored as folders are packed, the injection's
@@ -215,7 +217,7 @@ class _Migration:
         entry LTK Manager no longer lists is moved again: it is the mod's
         only copy now."""
         moves, leftovers = [], []
-        for mod in iter_saved_mods(self.storage.mods_root):
+        for mod in ltk_library_mods(self.storage.mods_root):
             if mod.rose_copy is None:
                 continue
             if mod.ltk_id is not None and mod.ltk_id in library:

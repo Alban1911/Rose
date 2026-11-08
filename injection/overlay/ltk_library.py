@@ -14,8 +14,9 @@ from utils.core.logging import get_logger
 from utils.core.modpkg import MODPKG_SUFFIX
 
 from ..mods.fingerprint import mod_fingerprint
-from ..mods.manifest import manifest_ltk_ids
+from ..mods.manifest import ARCHIVE_SUFFIX, manifest_ltk_ids
 from ..mods.mod_facts import stamp_of
+from ..mods.storage import ModStorageService
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
 from .ltf_session import (
     ALREADY_OPEN_REASON,
@@ -128,38 +129,50 @@ class LtkLibrary:
         finally:
             host.library_change_lock.release()
 
-    def check_mod(self, mod: Path, display_name: str, on_kept: Callable[..., bool]) -> Optional[dict]:
-        """Move a mod the user adds into LTK Manager's library: import it,
-        have LTK Manager check it and repair what it can, and keep it there,
-        turned off, unless the game would still reject it.
+    def check_mod(self, mod: Path, display_name: str,
+                  on_kept: Optional[Callable[..., bool]] = None) -> Optional[dict]:
+        """Have LTK Manager check a mod the user adds and repair what it can:
+        import it, check it, and with *on_kept* keep it there, turned off,
+        unless the game would still reject it.
 
         LTK Manager's Problems rules find what makes the game drop or reject a
         mod (an audio bank of an old version, a bin type a patch changed,
         another skin's model...): run as the mod is added, the user learns
         then, not in a game, that LTK Manager would turn it off, and a
-        repairable mod is repaired once, in LTK Manager's copy. A rejected mod
-        is removed again.
+        repairable mod is repaired once. A rejected mod is removed again.
 
-        *on_kept(ltk_id, stamp=...)* records the entry in the mod's manifest
-        before the entry is kept, and returns whether it did: once kept,
-        nothing removes the entry, and one no manifest named would stay in LTK
-        Manager for good. *stamp* is LTK Manager's archive as it was when Rose
-        read the mod's facts from its own copy; None when LTK Manager repaired
-        its copy since, so the next sync reads them again from it.
+        A mod that moves into LTK Manager's library (a category's) is repaired
+        in LTK Manager's copy. *on_kept(ltk_id, stamp=...)* records the entry
+        in the mod's manifest before the entry is kept, and returns whether it
+        did: once kept, nothing removes the entry, and one no manifest named
+        would stay in LTK Manager for good. *stamp* is LTK Manager's archive
+        as it was when Rose read the mod's facts from its own copy; None when
+        LTK Manager repaired its copy since, so the next sync reads them again
+        from it.
+
+        Without *on_kept*, the mod stays Rose's (a custom skin): LTK Manager's
+        repair is written back into *mod*, and its entry is removed as the
+        session ends, as a game's mods are.
 
         None when it did not run: no game folder yet, no file at *mod*, an
-        injection's session
-        holds LTK Manager (champion select, a game), LTK Manager is missing or
-        failed; the mod then stays pending in Rose. Otherwise {"health": LTK's
-        word before any repair, "repaired": fixes applied, "problems":
-        [{"rule", "title", "description"}] that make the game reject the mod,
-        and "ltkId" once the entry is kept}.
+        injection's session holds LTK Manager (champion select, a game), LTK
+        Manager is missing or failed; the mod then stays in Rose as it was
+        added. Otherwise {"health": LTK's word before any repair, "repaired":
+        fixes applied (written back into *mod* when it stays Rose's),
+        "problems": [{"rule", "title", "description"}] that make the game
+        reject the mod, and "ltkId" once the entry is kept}.
         """
         if self.game_dir is None or not Path(mod).exists():
             return None
         try:
             with self.session() as session:
-                return self._check_and_keep(session, Path(mod), display_name, on_kept)
+                ltk_id = str(session.import_archive(Path(mod), display_name).get("id"))
+                result = session.check_and_repair(ltk_id, display_name)
+                if on_kept is None:
+                    if result["repaired"] and not session.take_repaired_archive(ltk_id, Path(mod)):
+                        result["repaired"] = 0
+                    return result
+                return self._keep_checked(session, ltk_id, display_name, on_kept, result)
         except LtkBusy:
             log.debug(f"[MODCHECK] LTK Manager is in use for a game - not checking {display_name}")
         except LtkUnavailable as e:
@@ -169,10 +182,8 @@ class LtkLibrary:
         return None
 
     @staticmethod
-    def _check_and_keep(session: "LibrarySession", mod: Path, display_name: str,
-                        on_kept: Callable[..., bool]) -> dict:
-        ltk_id = str(session.import_archive(mod, display_name).get("id"))
-        result = session.check_and_repair(ltk_id, display_name)
+    def _keep_checked(session: "LibrarySession", ltk_id: str, display_name: str,
+                      on_kept: Callable[..., bool], result: dict) -> dict:
         if result["problems"]:
             return result
         entry = session.confirm(ltk_id)
@@ -267,8 +278,8 @@ class LibrarySession:
     def check_and_repair(self, ltk_id: str, display_name: str) -> dict:
         """LTK Manager's verdict on an entry, after it repaired what it can.
 
-        LTK Manager repairs its own copy; nothing is written back into Rose,
-        which keeps none. Returns {"health": LTK's word before any repair,
+        LTK Manager repairs its own copy (take_repaired_archive brings it into
+        Rose's). Returns {"health": LTK's word before any repair,
         "repaired": fixes applied, "problems": [{"rule", "title",
         "description"}] that still make the game reject the mod}.
         """
@@ -297,6 +308,32 @@ class LibrarySession:
             log.warning(f"[MODCHECK] {display_name} will not work in game: {problem['title']} - "
                         f"{problem['description']}")
         return result
+
+
+    def take_repaired_archive(self, ltk_id: str, stored: Path) -> bool:
+        """Replace Rose's archive of a mod it keeps (*stored*) with LTK
+        Manager's repaired copy of entry *ltk_id*, copied beside it under an
+        import's temporary name first: no listing takes it for a mod, and the
+        next start removes a copy that stopped
+        (ModStorageService._recover_conversions). False, logged, when LTK
+        Manager's copy cannot be found or is not a .fantome, which Rose stores."""
+        entry = self.confirm(ltk_id)
+        repaired = entry_archive(entry) if entry is not None else None
+        if repaired is None or not repaired.is_file():
+            log.warning(f"[MODCHECK] LTK Manager repaired {stored.name}, but its archive could not be found")
+            return False
+        if repaired.suffix.lower() != ARCHIVE_SUFFIX:
+            log.warning(f"[MODCHECK] LTK Manager repaired {stored.name} into a {repaired.suffix}: kept Rose's archive")
+            return False
+        temporary = stored.with_name(f"{ModStorageService.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp")
+        try:
+            shutil.copyfile(repaired, temporary)
+            temporary.replace(stored)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        log.info(f"[MODCHECK] Wrote LTK Manager's repair into Rose's {stored.name}")
+        return True
 
 
 def remove_rose_mods(host: LtfHost) -> int:

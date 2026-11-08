@@ -293,8 +293,8 @@
     return cleanModName(wanted) || wanted;
   }
 
-  // A saved mod LTK Manager lost (missing) is listed greyed, so the user adds it
-  // again or deletes it, and is never picked: no click, never auto-selected
+  // A category's mod LTK Manager lost (missing) is listed greyed, so the user
+  // adds it again or deletes it, and is never picked: no click, never auto-selected
   function bindPick(listItem, nameRow, mod, pick) {
     if (!mod?.missing) {
       listItem.addEventListener("click", pick);
@@ -1557,7 +1557,7 @@
       if (isSelected) {
         listItem.classList.add("selected-row");
       }
-      bindPick(listItem, modNameRow, mod, () => {
+      listItem.addEventListener("click", () => {
         handleModSelect(modId, listItem, mod);
       });
 

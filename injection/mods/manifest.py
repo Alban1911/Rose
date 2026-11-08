@@ -37,6 +37,16 @@ PENDING_REMOVALS = "pendingRemovals"
 _METADATA_NAMES = {TARGET_METADATA, LEGACY_TARGET_METADATA, CATEGORY_METADATA}
 
 
+def lives_in_ltk(kind: str) -> bool:
+    """Whether a saved mod of *kind* lives in LTK Manager's library once it is
+    added: a category's mod (a map, a font, a voiceover pack...) does, and
+    Rose keeps only its manifest entry. A custom skin never does: Rose keeps
+    its file, imports it for each game and removes it after, as it does its
+    own skins. Everything else follows from SavedMod.source, a custom skin's
+    always Rose's file."""
+    return kind in MOD_CATEGORIES
+
+
 class UnreadableManifest(ValueError):
     """A mods manifest exists but cannot be read: rewriting it would drop the
     mods it lists, so it is left as it is."""
@@ -66,22 +76,23 @@ class SavedMod:
 
     @property
     def pending(self) -> bool:
-        """Still Rose's to move into LTK Manager."""
-        return self.ltk_id is None and self.rose_copy is not None
+        """Still Rose's to move into LTK Manager (lives_in_ltk)."""
+        return lives_in_ltk(self.kind) and self.ltk_id is None and self.rose_copy is not None
 
     @property
     def available(self) -> bool:
-        """Whether it can be injected: in LTK Manager's library, or pending."""
-        return bool(self.ltk_id and not self.missing) or self.pending
+        """Whether it can be injected: in LTK Manager's library, or its file in Rose."""
+        return not self.missing if self.ltk_id else self.rose_copy is not None
 
     @property
     def own_folder(self) -> Optional[Path]:
-        """Rose's copy when it is a pending mod's folder, which holds the
-        mod's preview image and description itself (META/image.png,
-        description.txt). None for any other mod: those sit beside the
-        manifest under its name, one LTK Manager holds included even while a
-        folder copy of it is left, as that copy is about to go."""
-        return self.rose_copy if self.pending and self.rose_copy.is_dir() else None
+        """Rose's copy when it is the folder of a mod LTK Manager does not
+        hold, which holds the mod's preview image and description itself
+        (META/image.png, description.txt). None for any other mod: those sit
+        beside the manifest under its name, one LTK Manager holds included
+        even while a folder copy of it is left, as that copy is about to go."""
+        copy = self.rose_copy
+        return copy if self.ltk_id is None and copy is not None and copy.is_dir() else None
 
     def image_paths(self) -> tuple[Path, Path]:
         """Where its preview image is, the PNG first (.fantome mods ship a
@@ -95,8 +106,9 @@ class SavedMod:
     @property
     def source(self) -> ModSource:
         """Where an injection takes it from: LTK Manager's entry, else Rose's
-        copy, linked under its own name. One with neither, which no listing
-        yields, is taken from the file its identity names."""
+        copy, linked under its own name (a custom skin's always:
+        lives_in_ltk). One with neither, which no listing yields, is taken
+        from the file its identity names."""
         if self.ltk_id:
             return LtkEntry(self.ltk_id, self.facts, self.missing)
         return RoseFile.at(self.rose_copy or self.manifest_dir / PurePosixPath(self.identity).name)
@@ -276,7 +288,7 @@ def _entries(directory: _Directory, payload: Optional[dict]) -> List[_Entry]:
         targets = normalize_target_ids(value) if directory.kind == SKINS else ()
         if not name or name in {".", ".."} or "/" in name or "\\" in name:
             continue
-        ltk_id = metadata.get("ltkId")
+        ltk_id = metadata.get("ltkId") if lives_in_ltk(directory.kind) else None
         entries.append(_Entry(key, name, metadata, targets, ltk_id if is_ltk_id(ltk_id) else None))
     return _one_entry_per_name(entries)
 
@@ -426,9 +438,8 @@ def _match_renamed(unmatched: List[tuple[Path, bool]], entries: List[_Entry],
                    copy_by_key: Dict[str, tuple[Path, bool]]) -> None:
     """Match the renamed mods among *unmatched* to their entries by content,
     as the listing always matched them, moving each match into
-    *copy_by_key*. Never an entry LTK Manager holds: a listing of moved mods
-    hashes nothing."""
-    unclaimed = [entry for entry in entries if entry.key not in copy_by_key and entry.ltk_id is None]
+    *copy_by_key*."""
+    unclaimed = [entry for entry in entries if entry.key not in copy_by_key]
     for candidate, is_dir in list(unmatched):
         if not unclaimed:
             break
@@ -539,15 +550,27 @@ def find_saved_mod(mods_root: Path, relative_path: object, *, match_content: boo
     return found[1] if found else None
 
 
+def _ltk_directories(mods_root: Path) -> List[_Directory]:
+    """The folders of the mods that live in LTK Manager's library
+    (lives_in_ltk): a custom skin's are never read for LTK Manager."""
+    return [directory for directory in _directories(Path(mods_root)) if lives_in_ltk(directory.kind)]
+
+
+def ltk_library_mods(mods_root: Path) -> List[SavedMod]:
+    """The saved mods that live in LTK Manager's library, whether it holds
+    them or Rose still does."""
+    return [mod for directory in _ltk_directories(mods_root) for mod in _directory_mods(directory)]
+
+
 def pending_mods(mods_root: Path) -> List[SavedMod]:
     """The saved mods Rose still has to move into LTK Manager."""
-    return [mod for mod in iter_saved_mods(mods_root) if mod.pending]
+    return [mod for mod in ltk_library_mods(mods_root) if mod.pending]
 
 
 def leftover_copies(mods_root: Path) -> List[SavedMod]:
     """Saved mods LTK Manager holds whose copy is still in Rose (a move that
     stopped between the manifest write and the deletion)."""
-    return [mod for mod in iter_saved_mods(mods_root) if mod.ltk_id and mod.rose_copy is not None]
+    return [mod for mod in ltk_library_mods(mods_root) if mod.ltk_id and mod.rose_copy is not None]
 
 
 def same_content(mods_root: Path, directory: Path, full_hash: str,
@@ -590,7 +613,7 @@ def _manifest_ids(mods_root: Path) -> tuple[set[str], List[str]]:
     too; those their pendingRemovals list, in order)."""
     named: set[str] = set()
     removals: List[str] = []
-    for directory in _directories(Path(mods_root)):
+    for directory in _ltk_directories(mods_root):
         payload = _read_directory_manifest(directory)
         named |= _ltk_ids_in(payload)
         removals.extend(_pending_removals(payload))
@@ -668,7 +691,7 @@ def _drop_entries(payload: dict, mods: dict, keys: Iterable[str]) -> None:
 
 
 def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -> bool:
-    """Merge *fields* (manifest keys: ltkId=..., partyHash=...) into a saved
+    """Merge *fields* (manifest keys: ltkId=..., missing=...) into a saved
     mod's manifest entry; a None value removes the key. A file nobody
     registered gets its entry, under its name, with its default targets
     written out. False when the mod is not listed, or its manifest cannot be
@@ -690,8 +713,6 @@ def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -
                 entry = dict(current) if isinstance(current, dict) else {
                     "name": mod.name, "targets": list(normalize_target_ids(current)),
                 }
-                if _matched_by_content_into_ltk(directory, mod, fields):
-                    entry["name"] = mod.name
             else:
                 key = mod.name
                 if any(str(existing).casefold() == key.casefold() for existing in mods):
@@ -710,13 +731,6 @@ def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -
         except UnreadableManifest:
             log.warning(f"[MODS] The manifest of {mod.name} could not be read, so it was left unchanged")
             return False
-
-
-def _matched_by_content_into_ltk(directory: _Directory, mod: SavedMod, fields: Mapping) -> bool:
-    """Whether a skin mod whose file may have been renamed gets its LTK
-    Manager entry: a renamed file was matched by its content, which an entry
-    LTK Manager holds never is, so the entry's name must lead to the file."""
-    return directory.kind == SKINS and mod.rose_copy is not None and bool(fields.get("ltkId"))
 
 
 def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
@@ -759,7 +773,7 @@ def forget_ltk_removals(mods_root: Path, ids: Iterable[str]) -> None:
         _set_pending_removals(payload, [mod_id for mod_id in pending if mod_id not in done])
         return True
 
-    for directory in _directories(Path(mods_root)) if done else ():
+    for directory in _ltk_directories(mods_root) if done else ():
         try:
             _change_manifest(directory, forget)
         except UnreadableManifest as e:
@@ -777,8 +791,8 @@ def add_saved_mod(mods_root: Path, archive: Path, facts: ModFacts, full_hash: st
     content), its date (the listing keeps it once the archive is in LTK
     Manager), and in a champion's folder its targets and its WADs' hashes.
 
-    A champion's mod is keyed by its content hash, or by its name while a
-    mod LTK Manager lost holds that key. An entry left under its name by a
+    A champion's mod is keyed by its content hash, or by its name while an
+    entry whose file is gone holds that key. An entry left under its name by a
     mod whose file is gone is dropped. Raises UnreadableManifest, or
     ValueError when *archive* is not in a saved mods folder."""
     mods_root = Path(mods_root)

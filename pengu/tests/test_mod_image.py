@@ -16,7 +16,6 @@ from pengu.communication.message_handler import (
     _mod_thumbnail_details,
 )
 
-LTK_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 OLD_PNG = b"\x89PNG\r\n\x1a\nold"
 NEW_PNG = b"\x89PNG\r\n\x1a\nnew"
 
@@ -148,16 +147,9 @@ class SavedModImageTests(unittest.TestCase):
         (entry,) = self.storage.list_mods_for_champion(1)
         return self.handler._champion_mod_payload(entry)["thumbnailRelativePath"]
 
-    def test_a_mod_ltk_manager_holds_shows_the_image_beside_its_manifest(self):
-        self.save(ltkId=LTK_ID)
-        (self.champion / "Example.png").write_bytes(OLD_PNG)
-
-        self.assertEqual(self.thumbnail(), "skins/1000/Example.png")
-
-    def test_a_new_image_shows_for_a_mod_ltk_manager_holds_whose_folder_copy_is_left(self):
-        """The folder copy is a leftover about to go: its META is not where the image is"""
-        self.save(ltkId=LTK_ID)
-        self.folder_copy()
+    def test_a_skin_archive_shows_the_new_image_beside_it(self):
+        self.save()
+        (self.champion / "Example.fantome").write_bytes(b"PK\x05\x06" + bytes(18))
         (self.champion / "Example.png").write_bytes(OLD_PNG)
 
         written = self.storage.set_champion_mod_image(1, "skins/1000/Example.fantome", NEW_PNG)
@@ -166,7 +158,7 @@ class SavedModImageTests(unittest.TestCase):
         self.assertEqual(written.read_bytes(), NEW_PNG)
         self.assertEqual(self.thumbnail(), "skins/1000/Example.png")
 
-    def test_a_pending_folder_mod_keeps_its_image_in_its_meta(self):
+    def test_a_skin_stored_as_a_folder_keeps_its_image_in_its_meta(self):
         self.save()
         meta_image = self.folder_copy()
 

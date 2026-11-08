@@ -22,7 +22,7 @@ from utils.core.junction import link_file
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from ..mods.fantome import fantome_display_name, write_fantome_zip
-from ..mods.manifest import manifest_ltk_ids
+from ..mods.manifest import lives_in_ltk, manifest_ltk_ids
 from ..tools.bridge import (
     BridgeCommandError,
     BridgeUnavailable,
@@ -192,6 +192,14 @@ def _resendable_as_bytes(error: Exception, archive: Path) -> bool:
 def _same_content_kept(kept: Dict[LibraryId, KeptRecord], mod_id: str, fingerprint: str) -> bool:
     """Whether another kept entry than *mod_id* holds the same content already."""
     return any(record["fingerprint"] == fingerprint for other, record in kept.items() if other != mod_id)
+
+
+def _same_file(candidate: Path, linked: os.stat_result) -> bool:
+    try:
+        stat = candidate.stat()
+    except OSError:
+        return False
+    return stat.st_size == linked.st_size and os.path.samestat(stat, linked)
 
 
 def _cdp_not_up_yet(error: Exception) -> bool:
@@ -549,24 +557,21 @@ class LtfHost:
 
     def _keep_source(self, mod: Path) -> Optional[str]:
         """Where *mod* in the injection's mods folder really is, when it is
-        one of the user's saved mods (a junction to a saved folder, or a hard
-        link to a saved archive); None for a skin, a generated mod, a party skin."""
+        one of the user's saved mods LTK Manager may keep (a junction to a
+        saved folder, or a hard link to a saved archive, of a mod that lives
+        in LTK Manager's library: manifest.lives_in_ltk); None for a custom
+        skin, Rose's skins, a generated mod, a party skin."""
         try:
             root = self.saved_mods_dir().resolve()
             source = Path(mod).resolve()
-            if source.is_relative_to(root):
+            if not source.is_relative_to(root):
+                # A hard link does not resolve: find the saved archive that is the same file
+                linked = source.stat()
+                if not source.is_file() or linked.st_nlink < 2:
+                    return None
+                source = next((candidate for candidate in root.rglob("*") if _same_file(candidate, linked)), None)
+            if source is not None and lives_in_ltk(source.relative_to(root).parts[0]):
                 return str(source)
-            # A hard link does not resolve: find the saved archive that is the same file
-            linked = source.stat()
-            if not source.is_file() or linked.st_nlink < 2:
-                return None
-            for candidate in root.rglob("*"):
-                try:
-                    stat = candidate.stat()
-                except OSError:
-                    continue
-                if stat.st_size == linked.st_size and os.path.samestat(stat, linked):
-                    return str(candidate)
         except (OSError, ValueError):
             return None
         return None

@@ -7,17 +7,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from injection.mods.ltk_ref import ltk_ref
 from injection.mods.mod_facts import ModFacts
 from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from pengu.communication.message_handler import MessageHandler
 
-MOVED_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 LOST_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
 NIGHT_ID = "799b6c82-8324-4394-a0cf-ddebcd16eba7"
 VOICE_ID = "1beee5a2-6fe1-49e1-ba94-9d601ead2a0f"
-FACTS = ModFacts("0123456789abcdef0123456789abcdef", ("Ezreal",), False)
+FACTS = ModFacts(ships_language_table=False)
 MISSING = "This mod is missing from LTK Manager - add it again"
 
 
@@ -27,8 +25,9 @@ def write_manifest(path, **mods):
 
 
 class SavedLtkModSelectionTests(unittest.TestCase):
-    """Ezreal has a skin mod LTK Manager holds and one it lost; the maps one of
-    each and a pending one; the voiceovers one LTK Manager holds"""
+    """Ezreal has a custom skin, which is Rose's file; the maps one LTK
+    Manager holds, one it lost and a pending one; the voiceovers one LTK
+    Manager holds"""
 
     def setUp(self):
         temp_dir = tempfile.TemporaryDirectory()
@@ -36,9 +35,11 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         root = Path(temp_dir.name)
         self.storage = ModStorageService(root / "mods")
         write_manifest(self.storage.get_champion_dir(81) / ModStorageService.TARGET_METADATA, **{
-            "Moved Ezreal": {"name": "Moved Ezreal", "targets": [81020], "ltkId": MOVED_ID, **FACTS.to_manifest()},
-            "Lost Ezreal": {"name": "Lost Ezreal", "targets": [81020], "ltkId": LOST_ID, "missing": True},
+            "Arcane Ezreal": {"name": "Arcane Ezreal", "targets": [81020]},
         })
+        self.skin = self.storage.get_champion_dir(81) / "Arcane Ezreal.fantome"
+        with zipfile.ZipFile(self.skin, "w") as archive:
+            archive.writestr("WAD/Ezreal.wad.client", b"skin")
         maps = self.storage.mods_root / "maps"
         write_manifest(maps / ModStorageService.CATEGORY_METADATA, **{
             "Night": {"name": "Night", "path": "Night", "ltkId": NIGHT_ID, **FACTS.to_manifest()},
@@ -89,34 +90,14 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         })
         return self.sent[-1]
 
-    def test_a_skin_mod_ltk_manager_holds_is_selected_as_its_reference(self):
-        result = self.select_skin("Moved Ezreal")
+    def test_a_custom_skin_is_linked_from_its_file(self):
+        result = self.select_skin("Arcane Ezreal")
 
         self.assertTrue(result["success"])
         selected = self.handler.shared_state.selected_custom_mod
-        self.assertEqual(selected["source"], LtkEntry(MOVED_ID, FACTS, gone_at_last_sync=False))
-        self.assertEqual(selected["relative_path"], "skins/81000/Moved Ezreal.fantome")
-        self.assertEqual(self.linked, [])
-        self.assertEqual(list(self.mods_dir.iterdir()), [])
-
-    def test_a_skin_mod_ltk_manager_lost_is_refused(self):
-        with self.assertLogs(level="WARNING"):
-            result = self.select_skin("Lost Ezreal")
-
-        self.assertFalse(result["success"])
-        self.assertEqual(result["error"], MISSING)
-        self.assertIsNone(self.handler.shared_state.selected_custom_mod)
-        self.assertFalse(self.injector._clean_mods_dir.called, "the mods already picked stay")
-
-    def test_dismissing_a_skin_mod_ltk_manager_holds_leaves_the_mods_folder_alone(self):
-        self.handler.shared_state.selected_custom_mod = {"champion_id": 81, "source": LtkEntry(MOVED_ID)}
-        named_like_it = self.mods_dir / ltk_ref(MOVED_ID)
-        named_like_it.write_bytes(b"not the mod")
-
-        self.handler._handle_dismiss_custom_mod({})
-
-        self.assertIsNone(self.handler.shared_state.selected_custom_mod)
-        self.assertTrue(named_like_it.exists())
+        self.assertEqual(selected["source"], RoseFile(self.skin, "Arcane Ezreal"))
+        self.assertEqual(selected["relative_path"], "skins/81000/Arcane Ezreal.fantome")
+        self.assertEqual(self.linked, ["Arcane Ezreal.fantome"])
 
     def test_a_map_ltk_manager_holds_is_selected_as_its_reference(self):
         self.handler.handle_message(json.dumps({
@@ -161,10 +142,9 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         self.handler._handle_request_skin_mods({"championId": 81, "skinId": 81020})
         self.handler._handle_request_maps({})
 
-        skins = {mod["modName"]: mod for mod in self.sent[0]["mods"]}
-        self.assertEqual((skins["Moved Ezreal"]["ltkId"], skins["Moved Ezreal"]["missing"]), (MOVED_ID, False))
-        self.assertFalse(skins["Moved Ezreal"]["pending"])
-        self.assertTrue(skins["Lost Ezreal"]["missing"])
+        (skin,) = self.sent[0]["mods"]
+        self.assertEqual(skin["modName"], "Arcane Ezreal")
+        self.assertFalse({"ltkId", "missing", "pending"} & set(skin), "a custom skin is always Rose's file")
         maps = {mod["name"]: mod for mod in self.sent[1]["maps"]}
         self.assertEqual((maps["Lost"]["missing"], maps["Rift"]["pending"]), (True, True))
         self.assertEqual(maps["Night"]["ltkId"], NIGHT_ID)
