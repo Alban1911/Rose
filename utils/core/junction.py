@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Junction Utilities for Windows
-Provides directory junctions to avoid copying large mods on every injection.
-Falls back to shutil.copytree when junctions are unavailable.
+Provides directory junctions and file hard links to avoid copying large mods
+on every injection. Falls back to copying when neither is available.
 """
 
 import os
@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, Union
 
 from utils.core.logging import get_logger
+from utils.core.modpkg import MODPKG_SUFFIX
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES, extract_mod_archive
 
 log = get_logger()
@@ -80,6 +81,24 @@ def create_junction(source: Path, link: Path) -> bool:
         except Exception as copy_exc:
             log.error(f"[JUNCTION] Fallback copytree also failed: {copy_exc}")
         return False
+
+
+def link_file(source: Path, link: Path) -> bool:
+    """Make *link* a hard link to the file *source*, or a copy of it.
+
+    A hard link takes no time and no space, whatever the file's size: an
+    archive goes to LTK Manager as it is stored. Rose's data folder is on one
+    drive, so a copy only happens on a file system without hard links.
+    Returns True for a link. Nothing may write into *link*: it is *source*.
+    """
+    source, link = Path(source), Path(link)
+    try:
+        os.link(source, link)
+        return True
+    except OSError as exc:
+        log.debug(f"[JUNCTION] Could not hard link {source.name} ({exc}), copying it")
+    shutil.copyfile(source, link)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +202,9 @@ def link_or_extract(
 
     * **Directory source**: create a junction from *dest* -> *source* (zero
       copy).  Falls back to ``shutil.copytree``.
-    * **ZIP / fantome / modpkg source**: extract once into *cache_dir*, then junction
+    * **ZIP / fantome source**: *dest* becomes a hard link to the archive,
+      which LTK Manager installs as it is (see injection.mods.mod_files).
+    * **modpkg source**: extract once into *cache_dir*, then junction
       *dest* -> cached directory.  Subsequent calls are instant.
     * **Other file**: plain ``shutil.copy2`` into *dest*.
     """
@@ -193,7 +214,10 @@ def link_or_extract(
     if source.is_dir():
         create_junction(source, dest)
 
-    elif source.is_file() and source.suffix.lower() in MOD_ARCHIVE_SUFFIXES:
+    elif source.is_file() and source.suffix.lower() in MOD_ARCHIVE_SUFFIXES and source.suffix.lower() != MODPKG_SUFFIX:
+        link_file(source, dest)
+
+    elif source.is_file() and source.suffix.lower() == MODPKG_SUFFIX:
         folder_name = source.stem
         cached = _get_or_extract_to_cache(source, folder_name, cache_dir)
         create_junction(cached, dest)

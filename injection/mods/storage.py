@@ -3,6 +3,12 @@
 """
 Mod storage service
 Handles mods organized by category: skins, maps, fonts, announcers, others
+
+A mod is stored as the .fantome LTK Manager installs, as it is: a .fantome or
+.zip is kept as it came, a .modpkg is converted once. Its preview image and
+description sit beside it under its name (<name>.png / <name>.webp,
+<name>.txt). Mods stored as folders by an earlier Rose are packed into
+archives once, when Rose starts (convert_folder_mod).
 """
 
 from __future__ import annotations
@@ -10,25 +16,66 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import threading
 import time
+import uuid
+import zipfile
 from pathlib import Path
 from typing import List, Optional
 
-from utils.core.junction import safe_remove_entry
+from utils.core.junction import is_junction, safe_remove_entry
 from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
+from utils.core.modpkg import MODPKG_SUFFIX
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import (
     MOD_ARCHIVE_SUFFIXES,
+    check_mod_archive,
     extract_mod_archive,
-    list_mod_archive,
 )
 from utils.core.utilities import get_champion_id_from_skin_id
 
+from .fantome import is_packed_wad, write_fantome_zip
+from .mod_files import ModFiles
+
 log = get_logger()
+
+_INFO_KEY = "meta/info.json"
+_PREVIEW_IMAGES = (("META/image.png", ".png"), ("META/image.webp", ".webp"))
+
+def _folder_file_sizes(folder: Path) -> dict[str, int]:
+    """{relative path: size} of every file under *folder*.
+
+    Raises OSError for anything it cannot read: Path.rglob skips a folder it
+    may not list, and a mod folder an earlier Rose created can be readable
+    by its own account only (tempfile.mkdtemp's owner-only access).
+    """
+    def fail(error: OSError) -> None:
+        raise error
+
+    sizes = {}
+    for root, _dirs, names in os.walk(folder, onerror=fail):
+        for name in names:
+            path = Path(root) / name
+            sizes[path.relative_to(folder).as_posix()] = path.stat().st_size
+    return sizes
+
+
+def _check_packed(archive: Path, expected: dict[str, int], added_metadata: bool) -> None:
+    """Raise unless *archive* holds exactly the files *expected* lists, at
+    their sizes: the folder is removed once its archive replaces it."""
+    with zipfile.ZipFile(archive) as packed:
+        held = {info.filename: info.file_size for info in packed.infolist() if not info.is_dir()}
+    if added_metadata:
+        held.pop("metadata.json", None)
+        expected = {name: size for name, size in expected.items() if name != "metadata.json"}
+    if held != expected:
+        missing = sorted(set(expected) - set(held))[:3]
+        raise OSError(f"the archive does not hold the folder's files as they are (missing: {missing or 'none'})")
+
 
 # Unreadable manifests already reported, so repeated listings do not flood the log
 _reported_manifests: set[str] = set()
@@ -56,11 +103,19 @@ class ModStorageService:
     # MAX_PATH is 260 including the terminating null character, so keep the
     # visible path at 259 characters or fewer for legacy Windows APIs.
     MAX_WINDOWS_PATH_LENGTH = 259
-    # Keep temporary extraction paths short on Windows.  The archive's
-    # display name is retained for the final directory, but including it in
-    # the temporary directory name can push deeply nested WAD paths over the
-    # legacy MAX_PATH limit before the import is renamed into place.
+    # A stored mod's name is also its file name in the injection and LTK
+    # Manager's staging folders, which sit about as deep as the mods storage
+    MAX_MOD_NAME_LENGTH = 120
+    # Keep temporary paths short on Windows: a .modpkg (or an archive without
+    # META/info.json) is unpacked there before it is packed into a .fantome.
     IMPORT_TEMP_PREFIX = ".rose-import-"
+    # A folder being packed into an archive (convert_folder_mod)
+    CONVERT_TEMP_PREFIX = ".rose-convert-"
+    # How Rose stores a mod: the archive LTK Manager installs
+    ARCHIVE_SUFFIX = ".fantome"
+    # Beside a stored archive, under its name
+    IMAGE_SIDECAR_SUFFIXES = (".png", ".webp")
+    DESCRIPTION_SIDECAR_SUFFIX = ".txt"
     MAX_MOD_IMAGE_BYTES = 5 * 1024 * 1024
     TARGET_METADATA = "rose_mod_targets.json"
     LEGACY_TARGET_METADATA = "rose_wad_targets.json"
@@ -113,29 +168,21 @@ class ModStorageService:
     def _choose_archive_destination(
         cls,
         parent_dir: Path,
-        source: Path,
         base_name: str,
     ) -> tuple[str, Path]:
-        """Choose a unique archive folder name that fits Windows paths.
+        """Choose a unique mod name for an archive stored in *parent_dir* and
+        return it with the archive's path (<parent_dir>/<name>.fantome).
 
-        Archive members can contain deeply nested WAD asset paths.  Because
-        the archive name becomes the destination folder name, a long name can
-        make an otherwise valid asset exceed Windows' traditional 260-character
-        path limit.  Truncate only as much as needed, then account for the
-        normal `` (2)`` collision suffixes.
+        A long name is truncated only as much as Windows' traditional
+        260-character path limit needs, then the normal `` (2)`` collision
+        suffixes are added. A mod stored as a folder takes its name too.
         """
-        member_lengths = [
-            len(member.replace("/", "\\")) for member in list_mod_archive(source)
-        ]
-
-        longest_member_length = max(member_lengths, default=0)
-        fixed_path_length = len(str(parent_dir)) + 2 + longest_member_length
-        max_name_length = cls.MAX_WINDOWS_PATH_LENGTH - fixed_path_length
+        max_name_length = min(
+            cls.MAX_MOD_NAME_LENGTH,
+            cls.MAX_WINDOWS_PATH_LENGTH - len(str(parent_dir)) - 1 - len(cls.ARCHIVE_SUFFIX),
+        )
         if max_name_length < 1:
-            raise ValueError(
-                "The selected mod archive contains an asset path that is too "
-                "long for Windows even without a mod folder name"
-            )
+            raise ValueError("The mods folder's path is too long for Windows")
 
         original_name = base_name
         suffix_number = 1
@@ -144,7 +191,7 @@ class ModStorageService:
             available_name_length = max_name_length - len(suffix)
             if available_name_length < 1:
                 raise ValueError(
-                    "Unable to create a unique Windows-safe folder name for "
+                    "Unable to create a unique Windows-safe name for "
                     "the selected mod"
                 )
 
@@ -154,18 +201,216 @@ class ModStorageService:
                     "The selected mod archive has no usable Windows-safe name"
                 )
             mod_name = f"{candidate_base}{suffix}"
-            target_dir = parent_dir / mod_name
-            if not target_dir.exists() and not target_dir.is_symlink():
+            archive = parent_dir / f"{mod_name}{cls.ARCHIVE_SUFFIX}"
+            if not any(
+                path.exists() or path.is_symlink()
+                for path in (archive, parent_dir / mod_name)
+            ):
                 if mod_name != original_name:
                     log.warning(
-                        "[MODS] Shortened mod name for Windows path limit: "
-                        "'%s' -> '%s' (longest asset path: %d characters)",
+                        "[MODS] Shortened mod name for Windows path limit: '%s' -> '%s'",
                         original_name,
                         mod_name,
-                        len(str(target_dir)) + 1 + longest_member_length,
                     )
-                return mod_name, target_dir
+                return mod_name, archive
             suffix_number += 1
+
+    # -- stored archives -----------------------------------------------------
+    def _store_archive(self, source: Path, parent_dir: Path, base_name: str) -> tuple[str, Path]:
+        """Store the mod archive *source* in *parent_dir* as the .fantome LTK
+        Manager installs; return its mod name and path."""
+        mod_name, target = self._choose_archive_destination(parent_dir, base_name)
+        temporary = parent_dir / f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
+        try:
+            self._write_stored_archive(source, temporary, mod_name)
+            temporary.replace(target)
+        except Exception:
+            safe_remove_entry(temporary)
+            raise
+        self._write_image_sidecar(target)
+        return mod_name, target
+
+    def _write_stored_archive(self, source: Path, dest: Path, mod_name: str) -> None:
+        """Write at *dest* the .fantome stored for the mod archive *source*.
+
+        A .fantome or .zip that names its mod (META/info.json) is copied as
+        it is, after the checks an extraction makes. A .modpkg, or an archive
+        without META/info.json, is unpacked and packed into a .fantome, as an
+        injection did before Rose kept archives. So is an archive holding a
+        packed WAD deflated: LTK Manager stores its packed WADs, and rewrote
+        a deflated one whole at every install (ltk_fantome's normalize), here
+        once.
+        """
+        if source.suffix.lower() == MODPKG_SUFFIX:
+            self._repack(source, dest, mod_name, metadata=False)
+            return
+        names = check_mod_archive(source)
+        if not names:
+            raise ValueError("The selected mod archive contains no files")
+        has_info = any(name.replace("\\", "/").lstrip("/").casefold() == _INFO_KEY for name in names)
+        with zipfile.ZipFile(source) as archive:
+            deflated_wads = [
+                info.filename for info in archive.infolist()
+                if is_packed_wad(info.filename) and info.compress_type != zipfile.ZIP_STORED
+            ]
+        if has_info and not deflated_wads:
+            shutil.copyfile(source, dest)
+            return
+        if deflated_wads:
+            log.info(f"[MODS] Storing the {len(deflated_wads)} packed WAD(s) of {source.name} uncompressed, "
+                     "as LTK Manager keeps them")
+        self._repack(source, dest, mod_name, metadata=not has_info)
+
+    def _repack(self, source: Path, dest: Path, mod_name: str, metadata: bool) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix=self.IMPORT_TEMP_PREFIX, dir=str(dest.parent), ignore_cleanup_errors=True,
+        ) as unpacked:
+            unpacked_dir = Path(unpacked)
+            extract_mod_archive(source, unpacked_dir)
+            if not any(unpacked_dir.iterdir()):
+                raise ValueError("The selected mod archive contains no files")
+            write_fantome_zip(unpacked_dir, dest, metadata=metadata, name=mod_name)
+
+    # Larger previews are not copied out of an archive (a broken or odd mod)
+    MAX_SIDECAR_IMAGE_BYTES = 32 * 1024 * 1024
+
+    def _write_image_sidecar(self, archive: Path) -> None:
+        """Copy the archive's preview image beside it, for the mods UI."""
+        try:
+            with ModFiles(archive) as files:
+                for member, suffix in _PREVIEW_IMAGES:
+                    if not files.is_file(member):
+                        continue
+                    data = files.read(member)
+                    if 0 < len(data) <= self.MAX_SIDECAR_IMAGE_BYTES:
+                        with atomic_write(archive.with_suffix(suffix), "wb", durable=False) as handle:
+                            handle.write(data)
+                    return
+        except (OSError, zipfile.BadZipFile) as exc:
+            log.debug(f"[MODS] No preview image for {archive.name}: {exc}")
+
+    @classmethod
+    def sidecar_paths(cls, stored: Path) -> list[Path]:
+        """The files beside a stored archive that belong to it (preview image,
+        description); none for a folder, which holds its own."""
+        if stored.is_dir():
+            return []
+        return [
+            stored.with_suffix(suffix)
+            for suffix in (*cls.IMAGE_SIDECAR_SUFFIXES, cls.DESCRIPTION_SIDECAR_SUFFIX)
+        ]
+
+    @classmethod
+    def _remove_stored_mod(cls, stored: Path) -> None:
+        """Delete a stored mod, folder or archive, with what sits beside it."""
+        sidecars = cls.sidecar_paths(stored)
+        safe_remove_entry(stored)
+        for sidecar in sidecars:
+            safe_remove_entry(sidecar)
+
+    # -- mods stored as folders ------------------------------------------------
+    def folder_mods(self) -> List[Path]:
+        """The mods stored as folders, before Rose kept archives."""
+        parents = []
+        try:
+            parents.extend(child for child in self.skins_dir.iterdir() if child.is_dir())
+        except OSError:
+            pass
+        parents.extend(self.mods_root / category for category in self.MOD_CATEGORIES)
+        folders = []
+        for parent in parents:
+            self._recover_conversions(parent)
+            try:
+                entries = sorted(parent.iterdir(), key=lambda p: p.name.lower())
+            except OSError:
+                continue
+            folders.extend(
+                entry for entry in entries
+                if not entry.name.startswith(".") and entry.is_dir() and not is_junction(entry)
+            )
+        return folders
+
+    def _recover_conversions(self, parent: Path) -> None:
+        """Finish or undo a conversion Rose was stopped in the middle of, and
+        remove the archive an import stopped in the middle of was writing
+        (Rose starts before any import)."""
+        try:
+            leftovers = [
+                entry for entry in parent.iterdir()
+                if entry.name.startswith((self.CONVERT_TEMP_PREFIX, self.IMPORT_TEMP_PREFIX))
+            ]
+        except OSError:
+            return
+        for entry in leftovers:
+            if entry.name.endswith(".tmp") and entry.is_file():
+                safe_remove_entry(entry)
+            elif entry.name.startswith(self.IMPORT_TEMP_PREFIX):
+                continue  # a folder repair's copy (OverlayManager._take_repaired_archive)
+            elif entry.name.endswith(".old") and entry.is_dir():
+                name = entry.name[len(self.CONVERT_TEMP_PREFIX):-len(".old")]
+                original = parent / name
+                if (parent / f"{name}{self.ARCHIVE_SUFFIX}").is_file():
+                    safe_remove_entry(entry)  # the archive replaced it
+                elif not original.exists():
+                    try:
+                        entry.rename(original)  # stopped before the archive was in place
+                    except OSError as exc:
+                        log.warning(f"[MODS] Could not restore the mod folder {name}: {exc}")
+
+    def convert_folder_mod(self, folder: Path) -> Optional[Path]:
+        """Pack a mod stored as a folder into the archive Rose stores now, and
+        return it (None when an archive already has its name).
+
+        The archive holds the folder's files as they are (the same content
+        hash for a friend's copy, see party.discovery.custom_mods); its
+        preview image and description are copied beside it. The folder is
+        renamed out of the way before the archive takes its place, so a Rose
+        stopped in the middle finds one or the other (_recover_conversions).
+        """
+        archive = folder.with_name(f"{folder.name}{self.ARCHIVE_SUFFIX}")
+        if archive.exists():
+            log.warning(f"[MODS] {folder.name} stays a folder: {archive.name} already exists")
+            return None
+        # Raises for a folder Rose cannot read: never taken for an empty one
+        expected = _folder_file_sizes(folder)
+        if not expected:
+            log.info(f"[MODS] {folder.name} holds no files: left as it is")
+            return None
+        temporary = folder.with_name(f"{self.CONVERT_TEMP_PREFIX}{folder.name}.tmp")
+        previous = folder.with_name(f"{self.CONVERT_TEMP_PREFIX}{folder.name}.old")
+        has_info = "meta/info.json" in {relative.casefold() for relative in expected}
+        try:
+            write_fantome_zip(folder, temporary, metadata=not has_info)
+            _check_packed(temporary, expected, added_metadata=not has_info)
+        except Exception:
+            safe_remove_entry(temporary)
+            raise
+        sidecars = []
+        try:
+            for member, suffix in _PREVIEW_IMAGES:
+                image = folder.joinpath(*member.split("/"))
+                if image.is_file():
+                    sidecars.append(archive.with_suffix(suffix))
+                    shutil.copyfile(image, sidecars[-1])
+                    break
+            description = folder / "description.txt"
+            if description.is_file():
+                sidecars.append(archive.with_suffix(self.DESCRIPTION_SIDECAR_SUFFIX))
+                shutil.copyfile(description, sidecars[-1])
+            folder.rename(previous)
+        except OSError:
+            for path in (temporary, *sidecars):
+                safe_remove_entry(path)
+            raise
+        try:
+            temporary.replace(archive)
+        except OSError:
+            previous.rename(folder)
+            for path in (temporary, *sidecars):
+                safe_remove_entry(path)
+            raise
+        safe_remove_entry(previous)
+        return archive
 
     def _ensure_mods_root_layout(self) -> None:
         """
@@ -290,35 +535,33 @@ class ModStorageService:
 
     @staticmethod
     def _hash_mod_folder(mod_path: Path) -> tuple[str, dict[str, str]]:
-        """Return a rename-stable folder hash and hashes for contained WADs."""
+        """Return a rename-stable hash of a mod (folder or archive: the same
+        for an archive and the folder it unpacks to) and hashes for its WADs."""
         folder_hash = hashlib.sha256()
         wad_hashes: dict[str, str] = {}
         try:
-            files = sorted(
-                (path for path in mod_path.rglob("*") if path.is_file()),
-                key=lambda path: path.relative_to(mod_path).as_posix().casefold(),
-            )
-        except OSError:
-            files = []
+            files = ModFiles(mod_path)
+        except (OSError, zipfile.BadZipFile):
+            return folder_hash.hexdigest(), wad_hashes
 
-        for file_path in files:
-            relative_path = file_path.relative_to(mod_path).as_posix()
-            if relative_path.casefold() == "meta/image.png":
-                continue
-            try:
-                file_hash = hashlib.sha256()
-                with file_path.open("rb") as stream:
-                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                        file_hash.update(chunk)
-                file_digest = file_hash.digest()
-                folder_hash.update(relative_path.encode("utf-8"))
-                folder_hash.update(b"\0")
-                folder_hash.update(file_digest)
-                folder_hash.update(b"\0")
-                if relative_path.casefold().endswith((".wad", ".wad.client")):
-                    wad_hashes[relative_path] = file_hash.hexdigest()
-            except (OSError, ValueError):
-                continue
+        with files:
+            for relative_path in sorted(files.files_under(), key=str.casefold):
+                if relative_path.casefold() == "meta/image.png":
+                    continue
+                try:
+                    file_hash = hashlib.sha256()
+                    with files.open(relative_path) as stream:
+                        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                            file_hash.update(chunk)
+                    file_digest = file_hash.digest()
+                    folder_hash.update(relative_path.encode("utf-8"))
+                    folder_hash.update(b"\0")
+                    folder_hash.update(file_digest)
+                    folder_hash.update(b"\0")
+                    if relative_path.casefold().endswith((".wad", ".wad.client")):
+                        wad_hashes[relative_path] = file_hash.hexdigest()
+                except (OSError, ValueError, zipfile.BadZipFile):
+                    continue
         return folder_hash.hexdigest(), wad_hashes
 
     def _resolve_mod_metadata(
@@ -589,7 +832,8 @@ class ModStorageService:
         source_path: str | Path,
         skin_ids: object,
     ) -> tuple[Path, Path, str]:
-        """Extract one user-selected mod archive into its champion folder."""
+        """Store one user-selected mod archive in its champion folder, as the
+        .fantome LTK Manager installs (_store_archive)."""
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
@@ -606,37 +850,28 @@ class ModStorageService:
         if not base_name or base_name in {".", ".."}:
             raise ValueError("The selected mod file has no usable name")
 
-        mod_name, target_dir = self._choose_archive_destination(
-            champion_dir,
-            source,
-            base_name,
-        )
-
-        temporary_dir = Path(
-            tempfile.mkdtemp(
-                prefix=self.IMPORT_TEMP_PREFIX,
-                dir=str(champion_dir),
-            )
-        )
-        target_created = False
+        mod_name, target = self._store_archive(source, champion_dir, base_name)
         try:
-            extract_mod_archive(source, temporary_dir)
-            if not any(temporary_dir.iterdir()):
-                raise ValueError("The selected mod archive contains no files")
-            temporary_dir.replace(target_dir)
-            target_created = True
             manifest_path = self.set_champion_target_ids(
                 champion_id_int,
                 skin_ids,
                 mod_name=mod_name,
-                mod_path=target_dir,
+                mod_path=target,
             )
-            return target_dir, manifest_path, mod_name
+            return target, manifest_path, mod_name
         except Exception:
-            safe_remove_entry(temporary_dir)
-            if target_created:
-                safe_remove_entry(target_dir)
+            self._remove_stored_mod(target)
             raise
+
+    def _resolve_stored_mod(self, base_dir: Path, relative_path: str) -> Optional[Path]:
+        """A stored mod by its relative path without the extension: its folder,
+        else its archive (<relative_path>.fantome)."""
+        target = self._resolve_mod_path(base_dir, relative_path)
+        if target is not None and not target.exists():
+            archive = self._resolve_mod_path(base_dir, f"{relative_path}{self.ARCHIVE_SUFFIX}")
+            if archive is not None and archive.exists():
+                return archive
+        return target
 
     def _resolve_mod_path(self, base_dir: Path, relative_path: object) -> Optional[Path]:
         """Resolve a user-supplied relative path, guarding against traversal."""
@@ -704,14 +939,14 @@ class ModStorageService:
                 except ValueError:
                     champion_relative = None
                 if champion_relative:
-                    target = self._resolve_mod_path(champion_dir, f"{champion_relative}/{mod_name}")
+                    target = self._resolve_stored_mod(champion_dir, f"{champion_relative}/{mod_name}")
             if not self._is_direct_mod_entry(champion_dir, target) or not target.exists():
                 return False
             if target.name in {self.TARGET_METADATA, self.LEGACY_TARGET_METADATA}:
                 raise ValueError("Refusing to delete mod metadata file")
 
-            resolved_mod_name = mod_name or target.stem
-            safe_remove_entry(target)
+            resolved_mod_name = mod_name or (target.stem if target.is_file() else target.name)
+            self._remove_stored_mod(target)
 
             default_targets, mod_targets = self._load_target_manifest(champion_id_int)
             removed = False
@@ -772,7 +1007,7 @@ class ModStorageService:
             target = self._resolve_mod_path(self.skins_dir, relative_path)
             if (
                 target is None
-                or not target.is_dir()
+                or not (target.is_dir() or (target.is_file() and target.suffix.lower() in MOD_ARCHIVE_SUFFIXES))
                 or target.parent.parent.resolve() != self.skins_dir.resolve()
                 or target.name in {
                     self.TARGET_METADATA,
@@ -787,6 +1022,15 @@ class ModStorageService:
                 and get_champion_id_from_skin_id(stored_skin_id) != champion_id_int
             ):
                 raise ValueError("Skin mod does not belong to the selected champion")
+
+            if target.is_file():
+                # Beside the archive, which stays as LTK Manager installs it
+                image_path = target.with_suffix(".png")
+                with atomic_write(image_path, "wb", durable=False) as handle:
+                    handle.write(image_data)
+                safe_remove_entry(target.with_suffix(".webp"))
+                self._champion_listing_cache.pop(champion_id_int, None)
+                return image_path
 
             meta_dir = target / "META"
             meta_dir.mkdir(exist_ok=True)
@@ -811,18 +1055,22 @@ class ModStorageService:
 
         with self._storage_lock:
             category_dir = self.mods_root / category
-            resolved = self._resolve_mod_path(category_dir, f"{category}/{mod_name}")
+            resolved = self._resolve_stored_mod(category_dir, f"{category}/{mod_name}")
             if not self._is_direct_mod_entry(category_dir, resolved) or not resolved.exists():
                 return False
             if resolved.name == self.CATEGORY_METADATA:
                 raise ValueError("Refusing to delete mod metadata file")
 
-            safe_remove_entry(resolved)
+            # The manifest knows an archive by its name without the extension
+            registered_name = resolved.stem if resolved.is_file() else resolved.name
+            self._remove_stored_mod(resolved)
 
             manifest_path = category_dir / self.CATEGORY_METADATA
             payload = self._load_manifest(manifest_path) or {}
             raw_mods = payload.get("mods")
             mods = dict(raw_mods) if isinstance(raw_mods, dict) else {}
+            if mod_name not in mods:
+                mod_name = registered_name
             if mod_name in mods:
                 mods.pop(mod_name, None)
                 payload.update({
@@ -862,7 +1110,8 @@ class ModStorageService:
         category: str,
         source_path: str | Path,
     ) -> tuple[Path, str]:
-        """Extract one user-selected archive into a registered category folder."""
+        """Store one user-selected archive in a registered category folder, as
+        the .fantome LTK Manager installs (_store_archive)."""
         if category not in self.MOD_CATEGORIES:
             raise ValueError(f"Unsupported mod category: {category}")
 
@@ -878,26 +1127,8 @@ class ModStorageService:
         if not base_name or base_name in {".", ".."}:
             raise ValueError("The selected mod archive has no usable name")
 
-        mod_name, target_dir = self._choose_archive_destination(
-            category_dir,
-            source,
-            base_name,
-        )
-
-        temporary_dir = Path(
-            tempfile.mkdtemp(
-                prefix=self.IMPORT_TEMP_PREFIX,
-                dir=str(category_dir),
-            )
-        )
-        target_created = False
+        mod_name, target = self._store_archive(source, category_dir, base_name)
         try:
-            extract_mod_archive(source, temporary_dir)
-            if not any(temporary_dir.iterdir()):
-                raise ValueError("The selected mod archive contains no files")
-            temporary_dir.replace(target_dir)
-            target_created = True
-
             manifest_path = category_dir / self.CATEGORY_METADATA
             payload = self._load_manifest(manifest_path)
             if payload is None:
@@ -917,11 +1148,9 @@ class ModStorageService:
                 encoding="utf-8",
             )
             temporary_manifest.replace(manifest_path)
-            return target_dir, mod_name
+            return target, mod_name
         except Exception:
-            safe_remove_entry(temporary_dir)
-            if target_created:
-                safe_remove_entry(target_dir)
+            self._remove_stored_mod(target)
             raise
 
     def _list_mods_in_directory(
@@ -1088,9 +1317,12 @@ class ModStorageService:
         display_names = self._load_category_display_names(category)
         entries = []
         for candidate in sorted(category_dir.iterdir(), key=lambda p: p.name.lower()):
-            if not candidate.is_dir() or candidate.name == self.CATEGORY_METADATA:
+            if candidate.is_dir():
+                mod_name = candidate.name
+            elif candidate.is_file() and candidate.suffix.lower() in MOD_ARCHIVE_SUFFIXES:
+                mod_name = candidate.stem
+            else:
                 continue
-            mod_name = candidate.name
             if mod_name.casefold() not in registered_mods:
                 continue
 

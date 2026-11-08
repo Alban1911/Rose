@@ -28,6 +28,7 @@ from injection.overlay.overlay_manager import ltk_failure_cause
 from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_dir, open_folder_in_explorer
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
+from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
 from utils.core.utilities import get_base_skin_id_for_chroma
 from ui.handlers.randomization_handler import cancel_random_mode_for_selection
 from utils.system.admin_utils import (
@@ -83,12 +84,22 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
 
 
 def _mod_thumbnail(mod_folder: Path) -> Optional[Path]:
-    """Return a mod folder's preview image (.fantome mods ship a PNG, .modpkg a WebP)."""
-    for name in ("image.png", "image.webp"):
-        thumbnail_path = mod_folder / "META" / name
+    """Return a stored mod's preview image (.fantome mods ship a PNG, .modpkg a
+    WebP): in a folder's META, beside an archive under its name."""
+    if mod_folder.is_file():
+        candidates = [mod_folder.with_suffix(suffix) for suffix in (".png", ".webp")]
+    else:
+        candidates = [mod_folder / "META" / name for name in ("image.png", "image.webp")]
+    for thumbnail_path in candidates:
         if thumbnail_path.is_file():
             return thumbnail_path
     return None
+
+
+def _image_editable(mod_path: Path) -> bool:
+    """A stored folder holds its image (META/image.png); an archive has it
+    beside it, under its name (ModStorageService.set_champion_mod_image)."""
+    return mod_path.is_dir() or mod_path.suffix.lower() in MOD_ARCHIVE_SUFFIXES
 
 
 def _mod_thumbnail_details(
@@ -1166,12 +1177,11 @@ class MessageHandler:
             thumbnail_relative_path = None
             thumbnail_url = None
             try:
-                if entry.path.is_dir():
-                    thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
-                        entry.path,
-                        self.mod_storage.mods_root,
-                        self.port,
-                    )
+                thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
+                    entry.path,
+                    self.mod_storage.mods_root,
+                    self.port,
+                )
             except Exception as e:
                 log.debug('[SkinMonitor] Could not build mod thumbnail URL: %s', e)
 
@@ -1187,7 +1197,7 @@ class MessageHandler:
                     "relativePath": str(relative_path).replace("\\", "/"),
                     "thumbnailRelativePath": thumbnail_relative_path,
                     "thumbnailUrl": thumbnail_url,
-                    "imageEditable": entry.path.is_dir(),
+                    "imageEditable": _image_editable(entry.path),
                 }
             )
 
@@ -1263,12 +1273,11 @@ class MessageHandler:
             thumbnail_relative_path = None
             thumbnail_url = None
             try:
-                if entry.path.is_dir():
-                    thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
-                        entry.path,
-                        self.mod_storage.mods_root,
-                        self.port,
-                    )
+                thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
+                    entry.path,
+                    self.mod_storage.mods_root,
+                    self.port,
+                )
             except Exception as e:
                 log.debug(f"[SkinMonitor] No thumbnail for mod {entry.path}: {e}")
             mods_payload.append(
@@ -1282,7 +1291,7 @@ class MessageHandler:
                     "relativePath": str(relative_path).replace("\\", "/"),
                     "thumbnailRelativePath": thumbnail_relative_path,
                     "thumbnailUrl": thumbnail_url,
-                    "imageEditable": entry.path.is_dir(),
+                    "imageEditable": _image_editable(entry.path),
                 }
             )
         return mods_payload
@@ -2104,9 +2113,11 @@ class MessageHandler:
         if not category or not mod_name:
             return
         target = f"{category}/{mod_name}".replace("\\", "/")
+        # An archive mod is selected by its path, extension included
+        targets = {target, f"{target}.fantome"}
 
         def _same_path(value: object) -> bool:
-            return bool(value) and str(value).replace("\\", "/") == target
+            return bool(value) and str(value).replace("\\", "/") in targets
 
         single_attr = {
             "maps": ("selected_map_mod", "map"),

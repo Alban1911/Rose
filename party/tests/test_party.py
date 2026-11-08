@@ -13,6 +13,7 @@ from party.core.party_manager import PartyManager
 from party.discovery import custom_mods
 from party.discovery.skin_collector import PartySkinData, SkinCollector
 from party.integration.injection_hook import PartyInjectionHook
+from injection.mods.mod_files import ModFiles
 from party.protocol.token_codec import PartyToken, create_token
 
 
@@ -630,6 +631,10 @@ class InjectionHookTests(unittest.TestCase):
             return None if chroma_id else self.skin_zip
         return SimpleNamespace(mods_dir=self.mods_dir, _resolve_zip=Mock(side_effect=resolve_zip))
 
+    def _wad(self, name):
+        with ModFiles(self.mods_dir / name) as mod:
+            return mod.read("WAD/MasterYi.wad.client")
+
     def test_skin_is_linked_under_a_party_folder(self):
         hook = PartyInjectionHook(Mock(), make_state())
         skin = PartySkinData(summoner_id=2, summoner_name="B", champion_id=11, skin_id=11002, chroma_id=11005)
@@ -637,8 +642,8 @@ class InjectionHookTests(unittest.TestCase):
         name = hook._prepare_single_skin(skin, self.injector())
 
         self.assertEqual(name, "party_2")
-        # Missing chroma: the base skin is used
-        self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"skin")
+        # Missing chroma: the base skin is used, its archive linked as it is
+        self.assertEqual(self._wad(name), b"skin")
 
     def test_custom_mod_folder_is_used(self):
         mod = self.root / "mods" / "skins" / "11000" / "Custom Yi"
@@ -662,7 +667,7 @@ class InjectionHookTests(unittest.TestCase):
         name = hook._prepare_single_skin(skin, injector, classic=True)
 
         # Custom mods target the regular characters, which Classic doesn't load
-        self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"skin")
+        self.assertEqual(self._wad(name), b"skin")
         self.assertTrue(injector._resolve_zip.call_args.kwargs["classic"])
 
 

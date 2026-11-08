@@ -22,7 +22,8 @@ Security Notes:
     - subprocess calls use only internal paths (tools_dir, mods_dir) and the
       LTK Manager path from config/known install locations
     - Commands only execute ltk_launcher.exe from the verified tools directory
-    - Mod names are folder names Rose itself extracted into mods_dir
+    - Mod names are the entries Rose itself put into mods_dir (folders, and
+      archives linked under the mod's name)
 """
 
 import json
@@ -49,7 +50,7 @@ except ImportError:
 from injection.game.reconnect import kill_game, reconnect_to_game
 from utils.core.logging import get_logger, log_event
 from utils.core.issue_reporter import report_issue
-from utils.core.junction import safe_remove_entry
+from utils.core.junction import link_file, safe_remove_entry
 from utils.core.safe_extract import extract_mod_archive
 from ..tools.bridge import (
     BridgeCommandError,
@@ -60,6 +61,7 @@ from ..tools.bridge import (
 from ..tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
 from ..mods.fantome import fantome_display_name, write_fantome_zip
 from ..mods.fingerprint import mod_fingerprint
+from ..mods.mod_files import is_mod_archive
 from .process_manager import LTK_MANAGER_PROCESSES
 from config import (
     GAME_EXECUTABLE_NAMES,
@@ -88,6 +90,17 @@ RESTART_WINDOW_DEFAULT_S = 60.0
 RESTART_WINDOW_MIN_S = 1.0
 RESTART_WINDOW_MAX_S = 180.0
 RESTART_SKIPPED_MESSAGE = "Rose did not restart the game for the LTK patcher"
+
+
+def _archive_for_ltk(mod: Path, dest: Path) -> Path:
+    """Put at *dest* the .fantome LTK Manager installs for the mod at *mod*:
+    an archive goes as it is (a hard link, however large), a folder is packed."""
+    if mod.is_file():
+        link_file(mod, dest)
+        log.debug(f"[INJECT] {mod.name} goes to LTK Manager as it is")
+    else:
+        write_fantome_zip(mod, dest)
+    return dest
 
 
 def _answer_value(response: dict) -> dict:
@@ -896,7 +909,8 @@ class OverlayManager:
         staging = self._staging_root() / f"check-{uuid.uuid4().hex}"
         staging.mkdir(parents=True, exist_ok=True)
         try:
-            archive = write_fantome_zip(folder, staging / f"{folder.name}.fantome")
+            name = folder.stem if folder.is_file() else folder.name
+            archive = _archive_for_ltk(folder, staging / f"{name}.fantome")
             entry = self._import_archive(session, archive, folder, display_name)
             bridge = session["bridge"]
             mod_id = str(entry.get("id"))
@@ -932,8 +946,9 @@ class OverlayManager:
             shutil.rmtree(staging, ignore_errors=True)
 
     def _take_repaired_archive(self, bridge, entry: dict, folder: Path, staging: Path) -> bool:
-        """Replace *folder* with the archive LTK Manager repaired in place
-        (an archive-storage mod keeps its archive beside its folder)."""
+        """Replace the stored mod *folder* (an archive, or a folder) with the
+        archive LTK Manager repaired in place (an archive-storage mod keeps
+        its archive beside its folder)."""
         mod_id = str(entry.get("id"))
         if not entry.get("modDir"):
             entry = next((e for e in bridge.library() if str(e.get("id")) == mod_id), entry)
@@ -946,6 +961,8 @@ class OverlayManager:
         if not source.is_file():
             log.warning(f"[MODCHECK] LTK Manager repaired {folder.name}, but {source} is missing")
             return False
+        if folder.is_file():
+            return self._replace_stored_archive(folder, source, suffix)
         copied = staging / f"repaired{suffix}"
         shutil.copyfile(source, copied)
         replacement = Path(tempfile.mkdtemp(prefix=".rose-import-", dir=str(folder.parent)))
@@ -965,6 +982,23 @@ class OverlayManager:
             safe_remove_entry(replacement)
             raise
         safe_remove_entry(previous)
+        return True
+
+    @staticmethod
+    def _replace_stored_archive(archive: Path, repaired: Path, suffix: str) -> bool:
+        """Replace a stored .fantome with LTK Manager's repaired copy of it."""
+        if suffix != ".fantome":
+            log.warning(f"[MODCHECK] LTK Manager repaired {archive.name} into a {suffix}: kept the stored archive")
+            return False
+        # Not a .fantome until it is in place: a stopped copy is never listed
+        # as a mod, and the next start removes it (ModStorageService)
+        temporary = archive.with_name(f".rose-import-{uuid.uuid4().hex}.tmp")
+        try:
+            shutil.copyfile(repaired, temporary)
+            temporary.replace(archive)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
         return True
 
     @staticmethod
@@ -1422,8 +1456,8 @@ class OverlayManager:
         wanted = []
         for name in mod_names:
             folder = folder_dir / name
-            if not folder.is_dir():
-                log.error(f"[INJECT] Mod folder not found: {folder}")
+            if not folder.is_dir() and not is_mod_archive(folder):
+                log.error(f"[INJECT] Mod not found: {folder}")
                 continue
             try:
                 wanted.append((name, folder, mod_fingerprint(folder)))
@@ -1481,8 +1515,7 @@ class OverlayManager:
                     archive = (archives or {}).get(name)
                     if archive is None or not Path(archive).is_file():
                         staging.mkdir(parents=True, exist_ok=True)
-                        archive = staging / f"{name}.fantome"
-                        write_fantome_zip(folder, archive)
+                        archive = _archive_for_ltk(folder, staging / f"{name}.fantome")
                     before_ids = {str(e.get("id")) for e in library if e.get("id")}
                     entry = self._import_archive(session, Path(archive), folder, display_name, fingerprint,
                                                  before_ids=before_ids)
@@ -1519,13 +1552,16 @@ class OverlayManager:
         lands next to its folder (<folder_dir>/<name>.fantome); a folder that
         cannot be packed is left out and packed by the install instead. So is
         a mod an earlier pick already staged (a saved map or voiceover mod,
-        the same for every skin): the install keeps it as it is.
+        the same for every skin): the install keeps it as it is. A mod that
+        is an archive already needs no packing.
         """
         staged = self._staged_fingerprints()
         archives: Dict[str, Path] = {}
         for name in mod_names:
             folder = Path(folder_dir) / name
             archive = Path(folder_dir) / f"{name}.fantome"
+            if folder.is_file():
+                continue
             try:
                 if staged and mod_fingerprint(folder) in staged:
                     continue

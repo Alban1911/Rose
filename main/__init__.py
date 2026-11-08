@@ -425,7 +425,7 @@ setup_signal_handlers()
 
 # Now import everything else
 from .setup.arguments import setup_arguments
-from .setup.initialization import setup_logging_and_cleanup, initialize_tray_manager
+from .setup.initialization import convert_stored_mods, setup_logging_and_cleanup, initialize_tray_manager
 from .core.lockfile import check_single_instance
 from .core.initialization import initialize_core_components
 from .core.threads import initialize_threads
@@ -682,7 +682,12 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     
     # Check initial status (will show locked until all components are ready)
     app_status.update_status(force=True)
-    
+
+    # Mods an earlier Rose stored as folders become the archives LTK Manager
+    # installs as they are. Before anything else starts: no injection, import
+    # or mod list may touch a folder while it is converted
+    convert_stored_mods(tray_manager)
+
     # Initialize core components
     lcu, skin_scraper, state, injection_manager = initialize_core_components(args, injection_threshold)
     

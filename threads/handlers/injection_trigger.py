@@ -1504,12 +1504,12 @@ class InjectionTrigger:
                     if force_champion_id:
                         self._force_base_skin(force_champion_id * 1000)
 
-                    base_mod_folder = injector._extract_zip_to_mod(zp)
+                    base_mod_folder = injector._link_archive(zp)
                     if not base_mod_folder or not (
                         base_mod_folder.exists() or is_junction(base_mod_folder)
                     ):
                         log.error(
-                            "[INJECT] Required skin carrier archive could not be extracted: %s",
+                            "[INJECT] Required skin carrier archive could not be linked: %s",
                             base_skin_name,
                         )
                         return
@@ -1518,11 +1518,11 @@ class InjectionTrigger:
                     mod_folder_names.append(carrier_mod_folder_name)
                     mod_names_list.append(f"Skin Carrier ({base_skin_name})")
                     log.info(
-                        "[INJECT] Skin carrier archive extracted: %s",
+                        "[INJECT] Skin carrier archive linked: %s",
                         carrier_mod_folder_name,
                     )
                 except Exception as e:
-                    log.error(f"[INJECT] Error extracting skin carrier archive: {e}")
+                    log.error(f"[INJECT] Error linking skin carrier archive: {e}")
                     import traceback
                     log.debug(f"[INJECT] Traceback: {traceback.format_exc()}")
                     return

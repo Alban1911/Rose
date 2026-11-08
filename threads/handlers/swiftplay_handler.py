@@ -586,10 +586,10 @@ class SwiftplayHandler:
                             log.warning(f"[phase] Skin ZIP not found: {injection_name}")
                             continue
 
-                        mod_folder = self.injection_manager.injector._extract_zip_to_mod(zip_path)
+                        mod_folder = self.injection_manager.injector._link_archive(zip_path)
                         if mod_folder:
                             extracted_mods.append(mod_folder.name)
-                            log.info(f"[phase] Extracted {injection_name} to mods directory")
+                            log.info(f"[phase] Linked {injection_name} into the mods directory")
                     except Exception as e:
                         log.error(f"[phase] Error extracting skin {skin_id}: {e}")
                         import traceback

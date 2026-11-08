@@ -4,9 +4,11 @@ import threading
 import time
 import unittest
 import uuid
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from injection.mods.mod_files import ModFiles
 from injection.overlay import overlay_manager
 from injection.overlay.overlay_manager import OverlayManager, ltk_failure_cause
 from injection.overlay.process_manager import ProcessManager
@@ -289,6 +291,40 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertEqual(self.reported_codes(), [])
         self.assertEqual(self.state()["installed"], {})
         self.assertIn("import_duration", self.overlay.last_injection_timing)
+
+    def make_archive_mod(self, name="1001-EternalAspect", display="Eternal Aspect Leona", wad=b"wad"):
+        """A mod as Rose links an archive into the mods folder: named without an extension"""
+        with zipfile.ZipFile(self.mods / name, "w") as packed:
+            packed.writestr("META/info.json", json.dumps({"Name": display}))
+            packed.writestr("WAD/Aatrox.wad.client", wad)
+        return name
+
+    def test_an_archive_goes_to_ltk_manager_as_it_is(self):
+        mod = self.make_archive_mod()
+        stored = (self.mods / mod).read_bytes()
+        imported = []
+        install = FakeBridge.import_fantome
+
+        def import_fantome(bridge_self, path, name=None):
+            imported.append((Path(path).name, Path(path).read_bytes(), name))
+            return install(bridge_self, path, name)
+
+        with patch.object(FakeBridge, "import_fantome", import_fantome),                 patch.object(overlay_manager, "write_fantome_zip", side_effect=AssertionError("packed again")):
+            result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        self.assertEqual(result, 0)
+        # Named so LTK Manager reads it as a .fantome, the archive's own bytes
+        self.assertEqual(imported, [(f"{mod}.fantome", stored, "Eternal Aspect Leona")])
+        self.assertEqual(self.reported_codes(), [])
+
+    def test_an_archive_and_a_folder_install_side_by_side(self):
+        archive = self.make_archive_mod("VO Korean", display="VO Korean")
+        folder = self.make_mod("ROSE-LoadingName", display="Loading screen name")
+
+        self.assertEqual(self.overlay.mk_run_overlay([archive, folder], stop_callback=lambda: True), 0)
+
+        imported = [Path(call[1]).name for call in self.bridge.calls if call[0] == "import"]
+        self.assertEqual(imported, ["VO Korean.fantome", "ROSE-LoadingName.fantome"])
 
     def test_the_archive_is_staged_where_ltk_manager_can_read_it(self):
         mod = self.make_mod()
@@ -1296,6 +1332,30 @@ class ModCheckTests(LtfSessionTestCase):
         self.assertEqual((self.folder / "WAD" / "Aatrox.wad.client").read_bytes(), b"fixed")
         self.assertEqual([p.name for p in self.mods.iterdir()], [self.folder.name])  # nothing left behind
         self.assertIn("uninstall", self.bridge.command_names())
+
+    def test_a_stored_archive_is_checked_as_it_is_and_replaced_by_its_repair(self):
+        FakeBridge.health_answers = [
+            {"health": "repairable", "fixable": 2, "counts": {"errors": 2}},
+            {"health": "healthy", "fixable": 0, "counts": {}},
+        ]
+        FakeBridge.repair_files = {"META/info.json": '{"Name": "Eternal Aspect Leona"}',
+                                   "WAD/Aatrox.wad.client": b"fixed"}
+        stored = self.root / "mods" / "skins" / "89000" / "Leona.fantome"
+        stored.parent.mkdir(parents=True)
+        with zipfile.ZipFile(stored, "w") as packed:
+            packed.writestr("META/info.json", '{"Name": "Eternal Aspect Leona"}')
+            packed.writestr("WAD/Aatrox.wad.client", b"wad")
+        stored.with_suffix(".png").write_bytes(b"preview")
+
+        with patch.object(overlay_manager, "write_fantome_zip", side_effect=AssertionError("packed again")):
+            result = self.overlay.check_mod(stored, "Eternal Aspect Leona")
+
+        self.assertEqual(result, {"health": "repairable", "repaired": 2, "problems": []})
+        imported = [Path(call[1]).name for call in self.bridge.calls if call[0] == "import"]
+        self.assertEqual(imported, ["Leona.fantome"])
+        with ModFiles(stored) as files:
+            self.assertEqual(files.read("WAD/Aatrox.wad.client"), b"fixed")
+        self.assertEqual(sorted(p.name for p in stored.parent.iterdir()), ["Leona.fantome", "Leona.png"])
 
     def test_a_fix_one_pass_leaves_for_the_next_is_applied(self):
         """The Nasus mod: its type fixes rewrote skin0.bin, so the same pass

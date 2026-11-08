@@ -2,6 +2,7 @@ import json
 import struct
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from injection.loadingname import loading_name
@@ -302,6 +303,44 @@ class LoadingNameTests(unittest.TestCase):
         shadow = (mods / name / 'RAW' / 'data' / 'characters' / 'zedshadow' / 'zedshadow.bin').read_bytes()
         self.assertEqual(shadow, b'	' + struct.pack('<H', len(key)) + b'rose_character_displayname_Zed')
         self.assertTrue((mods / name / 'RAW' / 'data' / 'characters' / 'zed' / 'zed.bin').exists())
+
+    def _archive(self, path, files, compression=zipfile.ZIP_STORED):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(path, 'w', compression) as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        return path
+
+    def test_a_skin_archive_is_read_without_unpacking_it(self):
+        # Rose links a skin's .fantome into the mods folder as it is, named without an extension
+        game, mods, _ = self._game_with_zed_record('fr_FR')
+        key = b'game_character_displayname_Zed'
+        skins_record = b'skin:' + struct.pack('<H', len(key)) + key
+        skin = self._archive(mods / 'Shockblade Zed', {
+            'META/info.json': '{}',
+            'wad/zed.WAD.client': make_wad(skins_record, loading_name._xxh64(b'data/characters/zed/zed.bin')),
+        }, zipfile.ZIP_DEFLATED)
+
+        self.assertEqual(loading_name.champion_aliases(skin), ['zed'])
+        name = loading_name.build(game, mods, mods / 'Shockblade Zed', 238001)
+
+        written = (mods / name / 'RAW' / 'data' / 'characters' / 'zed' / 'zed.bin').read_bytes()
+        self.assertEqual(written, b'skin:' + struct.pack('<H', len(key)) + b'rose_character_displayname_Zed')
+
+    def test_an_archive_that_carries_the_language_table_counts(self):
+        game, mods, mod = self._zed_game()
+        packed = self._archive(self.root / 'mods' / 'Font', {
+            'WAD/Global.en_US.wad.client': make_wad(b'RSTtable'),
+        })
+        raw = self._archive(self.root / 'mods' / 'Raw', {'RAW/DATA/Menu/en_US/lol.stringtable': b'RST'})
+        other = self._archive(self.root / 'mods' / 'Announcer', {
+            'WAD/Global.en_US.wad.client': make_wad(b'font', path_hash=0x1234),
+        }, zipfile.ZIP_DEFLATED)
+
+        self.assertTrue(loading_name.ships_language_table(packed))
+        self.assertTrue(loading_name.ships_language_table(raw))
+        self.assertFalse(loading_name.ships_language_table(other))
+        self.assertIsNone(loading_name.build(game, mods, mod, 238001, other_mods=[packed]))
 
     def test_the_chat_keeps_the_champions_name(self):
         game = self.root / 'game'

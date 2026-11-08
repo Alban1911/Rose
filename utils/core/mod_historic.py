@@ -243,6 +243,33 @@ def _write_historic_mod_locked(mod_type: str, relative_path: Union[str, List[str
         log.warning(f"[HISTORIC] Could not save {mod_type} mod history: {e}")
 
 
+def rename_mod_paths(renamed: Dict[str, str]) -> int:
+    """Point the saved mods at their new paths ({old relative path: new},
+    compared as Windows compares paths). Returns how many changed."""
+    wanted = {old.replace("\\", "/").casefold(): new for old, new in renamed.items()}
+    if not wanted:
+        return 0
+
+    def rename(path: str) -> str:
+        return wanted.get(str(path).replace("\\", "/").casefold(), path)
+
+    with _write_lock:
+        m = load_mod_historic()
+        changed = 0
+        for key, value in list(m.items()):
+            new_value = [rename(item) for item in value] if isinstance(value, list) else rename(value)
+            if new_value != value:
+                m[key] = new_value
+                changed += 1
+        if changed:
+            try:
+                _write_json(_mod_historic_file_path(), m)
+            except Exception as e:
+                log.warning(f"[HISTORIC] Could not save the renamed mods: {e}")
+                return 0
+    return changed
+
+
 def clear_historic_mod(mod_type: str) -> None:
     """Clear the historic entry for a specific mod type.
     

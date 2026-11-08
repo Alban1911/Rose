@@ -422,6 +422,14 @@ class TrayManager:
         except Exception as e:
             log.error(f"Failed to update tray icon: {e}")
     
+    def set_title(self, title: str):
+        """Set the text shown when hovering the tray icon"""
+        try:
+            if self.icon:
+                self.icon.title = title
+        except Exception as e:
+            log.debug(f"Failed to update tray title: {e}")
+
     def set_downloading(self, is_downloading: bool):
         """
         Update the tray icon to show downloading status (legacy method for compatibility)

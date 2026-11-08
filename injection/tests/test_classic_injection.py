@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from injection import classic
 from injection.core import injector as injector_module
 from injection.core.injector import SkinInjector
+from injection.mods.fantome import read_info
 from injection.mods.mod_manager import ModManager
 from injection.mods.zip_resolver import ZipResolver
 
@@ -70,8 +71,8 @@ class ClassicInjectionTests(unittest.TestCase):
 
     def _injected(self):
         mods = self.run_overlay.call_args.args[0]
-        info = self.injector.mod_manager.mods_dir / mods[0] / 'META' / 'info.json'
-        return mods, json.loads(info.read_text())['Library']
+        # The skin archive is linked into the mods folder as it is, not extracted
+        return mods, read_info(self.injector.mod_manager.mods_dir / mods[0])['Library']
 
     def test_classic_game_injects_the_stored_classic_skin(self):
         self.assertTrue(self.injector.inject_skin(

@@ -9,6 +9,7 @@ from unittest.mock import patch
 import xxhash
 import zstandard
 
+from injection.mods.mod_files import ModFiles
 from injection.mods.storage import ModStorageService
 from party.discovery import custom_mods
 from utils.core.junction import link_or_extract
@@ -369,14 +370,19 @@ class ModpkgModTests(unittest.TestCase):
 
     def test_imports_into_mod_storage(self):
         storage = ModStorageService(mods_root=self.root / "mods")
-        mod_folder, _manifest, mod_name = storage.import_mod_file(266, self.package, [266001])
+        archive, _manifest, mod_name = storage.import_mod_file(266, self.package, [266001])
         self.assertEqual(mod_name, "old-aatrox_1.2.0")
-        self.assertTrue((mod_folder / "WAD" / "aatrox.wad.client" / f"{SKIN0_HASH:016x}.bin").is_file())
+        # Stored as the .fantome LTK Manager installs: the package's base layer, unpacked once
+        self.assertEqual(archive.name, "old-aatrox_1.2.0.fantome")
+        with ModFiles(archive) as files:
+            self.assertEqual(files.read(f"WAD/aatrox.wad.client/{SKIN0_HASH:016x}.bin"), b"skin" * 1000)
+        self.assertEqual(archive.with_suffix(".webp").read_bytes(), b"RIFF-webp")
         listed = storage.list_mods_for_skin(266001)
         self.assertEqual([entry.mod_name for entry in listed], ["old-aatrox_1.2.0"])
 
-        category_folder, _ = storage.import_category_mod_file("others", self.package)
-        self.assertTrue((category_folder / "META" / "info.json").is_file())
+        category_archive, _ = storage.import_category_mod_file("others", self.package)
+        with ModFiles(category_archive) as files:
+            self.assertTrue(files.is_file("META/info.json"))
 
     def test_a_package_dropped_in_storage_is_listed(self):
         storage = ModStorageService(mods_root=self.root / "mods")

@@ -164,7 +164,7 @@ def prepare_plan(injector, plan: StagePlan, target_dir: Path) -> Optional[List[s
 
 
 def _prepare_carrier(injector, step: CarrierStep, target_dir: Path) -> Optional[str]:
-    """Extract the carrier skin archive (InjectionTrigger._run_custom_mod_injection)."""
+    """Link the carrier skin archive (InjectionTrigger._run_custom_mod_injection)."""
     zp = injector._resolve_zip(
         step.skin_name, skin_name=step.skin_name, champion_name=step.champion_name,
         champion_id=step.champion_id,
@@ -172,7 +172,7 @@ def _prepare_carrier(injector, step: CarrierStep, target_dir: Path) -> Optional[
     if not zp or not Path(zp).exists():
         log.debug(f"[STAGE] Skin carrier archive not found: {step.skin_name}")
         return None
-    folder = ModManager(target_dir).extract_zip_to_mod(Path(zp))
+    folder = ModManager(target_dir).link_archive(Path(zp))
     if not folder or not (folder.exists() or is_junction(folder)):
         return None
     return folder.name

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from utils.core.logging import get_logger
-from utils.core.modpkg import MODPKG_SUFFIX, ModPackage, extract_modpkg
+from utils.core.modpkg import MODPKG_SUFFIX, extract_modpkg
 
 log = get_logger()
 
@@ -181,13 +181,16 @@ def safe_extract(zip_path: Union[str, Path], member: str, dest_dir: Union[str, P
     return target_path
 
 
-def list_mod_archive(archive_path: Union[str, Path]) -> List[str]:
-    """Relative paths of the files extracting a mod archive creates."""
-    archive_path = Path(archive_path)
-    if archive_path.suffix.lower() == MODPKG_SUFFIX:
-        with ModPackage.open(archive_path) as package:
-            return package.file_paths()
-    with zipfile.ZipFile(archive_path, 'r') as zf:
+def check_mod_archive(zip_path: Union[str, Path]) -> List[str]:
+    """Refuse a .zip/.fantome extracting would refuse (a path leaving the
+    mod's folder, an absurd size) without extracting it, and return the
+    names of the files it holds.
+
+    Raises UnsafePathError (ArchiveTooLargeError), zipfile.BadZipFile.
+    """
+    zip_path = Path(zip_path)
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        _validate_members(zf, (zip_path.parent / zip_path.stem).resolve())
         return [info.filename for info in zf.infolist() if not info.is_dir()]
 
 

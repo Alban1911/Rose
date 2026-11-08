@@ -69,7 +69,7 @@ class ChampionModImageHandlerTests(unittest.TestCase):
         self.assertTrue(self.sent[-1]["cancelled"])
         self.handler.mod_storage.set_champion_mod_image.assert_not_called()
 
-    def test_manage_rows_mark_only_folders_as_image_editable(self):
+    def test_manage_rows_mark_folders_and_archives_as_image_editable(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             mod_folder = root / "skins" / "1000" / "folder"
@@ -103,7 +103,7 @@ class ChampionModImageHandlerTests(unittest.TestCase):
             payload = handler._serialize_manage_champion_mods(entries)
 
         self.assertTrue(payload[0]["imageEditable"])
-        self.assertFalse(payload[1]["imageEditable"])
+        self.assertTrue(payload[1]["imageEditable"])
 
 
 class ModThumbnailCacheTests(unittest.TestCase):

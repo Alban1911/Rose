@@ -99,13 +99,14 @@ class CustomModBaseSkinTests(CustomModInjectionCase):
         archive.write_bytes(b"skin")
         self.injector._resolve_zip.return_value = archive
 
-        def extract(zp):
-            self.events.append("extract carrier")
-            folder = self.root / "mods" / "103001"
-            folder.mkdir(parents=True, exist_ok=True)
-            return folder
+        def link_archive(zp):
+            self.events.append("link carrier")
+            linked = self.root / "mods" / "103001"
+            linked.parent.mkdir(parents=True, exist_ok=True)
+            linked.write_bytes(Path(zp).read_bytes())
+            return linked
 
-        self.injector._extract_zip_to_mod.side_effect = extract
+        self.injector._link_archive.side_effect = link_archive
         self.trigger._force_base_skin.side_effect = lambda skin_id: self.events.append(f"force {skin_id}")
         self.trigger.state.selected_font_mod = {
             "mod_name": "Font", "mod_folder_name": "Font", "mod_path": str(self.root / "Font"),
@@ -123,7 +124,7 @@ class CustomModBaseSkinTests(CustomModInjectionCase):
             self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103},
                         base_skin_name="skin_103001")
 
-        self.assertEqual(self.events, ["force 103000", "extract carrier", "link Font"])
+        self.assertEqual(self.events, ["force 103000", "link carrier", "link Font"])
         self.injector.overlay_manager.mk_run_overlay.assert_called_once()
 
     def test_a_missing_carrier_forces_nothing(self):

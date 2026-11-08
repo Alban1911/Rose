@@ -16,6 +16,9 @@ The mod is a loose file, RAW/DATA/Menu/en_US/lol.stringtable (the folder is en_U
 in the name of the game's wad, not in the path inside it). The mod folder goes into the .fantome as it is, so the
 table is read under that path from the language the client runs the game in.
 
+The skin and the other mods it reads are folders or archives (injection.mods.mod_files): Rose installs a stored
+archive as it is, without unpacking it.
+
 The champion's text is also what the chat ("Player (Champion): ...") and the name over the champion's head print, and
 those should keep the champion's name. They read the key the champion's own record names
 ("Characters/<Champion>/CharacterRecords/Root", field name), while the loading screen builds its key from the champion's
@@ -26,10 +29,13 @@ holds the champion's name: RAW/data/characters/<champion>/<champion>.bin.
 import json
 import re
 import struct
-from pathlib import Path
+import zipfile
+from pathlib import Path, PurePosixPath
 from typing import List, Optional, Sequence, Tuple
 
 from utils.core.logging import get_logger
+
+from ..mods.mod_files import ModFiles
 
 log = get_logger()
 
@@ -83,9 +89,13 @@ def _language_wad(game_dir: Path) -> Optional[Path]:
 
 def _read_entry(wad: Path, path_hash: int) -> Optional[bytes]:
     """One entry of a wad, decompressed."""
-    data = wad.read_bytes()
+    return _entry_of(wad.read_bytes(), wad.name, path_hash)
+
+
+def _entry_of(data: bytes, wad_name: str, path_hash: int) -> Optional[bytes]:
+    """One entry of the wad *data*, decompressed."""
     if len(data) < 272 or data[:2] != b"RW" or data[2] != 3:
-        log.warning(f"[LOADNAME] {wad.name}: not a wad v3")
+        log.warning(f"[LOADNAME] {wad_name}: not a wad v3")
         return None
     count = struct.unpack_from("<I", data, 268)[0]
     for i in range(count):
@@ -98,7 +108,7 @@ def _read_entry(wad: Path, path_hash: int) -> Optional[bytes]:
             return data[offset:offset + size]
         if kind in (3, 4):
             return _unzstd(data[offset:offset + packed], size, single_frame=kind == 3)
-        log.warning(f"[LOADNAME] {wad.name}: entry {path_hash:016x} is stored as type {kind}")
+        log.warning(f"[LOADNAME] {wad_name}: entry {path_hash:016x} is stored as type {kind}")
         return None
     return None
 
@@ -140,20 +150,21 @@ FORM_RECORDS = {
 }
 
 
-def _champion_record(game_dir: Path, mod_folder: Path, alias: str, character: Optional[str] = None) -> Optional[bytes]:
+def _champion_record(game_dir: Path, mod: ModFiles, alias: str, character: Optional[str] = None,
+                     carried_wad: Optional[bytes] = None) -> Optional[bytes]:
     """The bin of one of the champion's characters (the champion's own by default): the skin's copy when it carries
-    one, the game's otherwise."""
+    one, the game's otherwise. *carried_wad* is the skin's WAD/<alias>.wad.client when it carries it packed."""
     game_path = _record_path(character or alias)
     path_hash = _xxh64(game_path.encode("utf-8"))
-    carried = Path(mod_folder) / "WAD" / f"{alias}.wad.client"
-    if carried.is_file():
-        found = _read_entry(carried, path_hash)
+    carried = f"WAD/{alias}.wad.client"
+    if carried_wad is not None:
+        found = _entry_of(carried_wad, f"{alias}.wad.client", path_hash)
         if found:
             return found
-    elif carried.is_dir():
-        for loose in (carried / game_path, carried / f"{path_hash:016x}.bin"):
-            if loose.is_file():
-                return loose.read_bytes()
+    elif mod.is_dir(carried):
+        for loose in (f"{carried}/{game_path}", f"{carried}/{path_hash:016x}.bin"):
+            if mod.is_file(loose):
+                return mod.read(loose)
     installed = Path(game_dir) / "DATA" / "FINAL" / "Champions" / f"{alias}.wad.client"
     return _read_entry(installed, path_hash) if installed.is_file() else None
 
@@ -168,47 +179,55 @@ def _table_hashes(wad_name: str) -> set:
     return hashes
 
 
-def _wad_holds(wad: Path, hashes: set) -> Optional[bool]:
-    """Whether a packed wad has an entry for one of these path hashes, or None when it can't be read."""
+def _wad_holds(mod: ModFiles, wad: str, hashes: set) -> Optional[bool]:
+    """Whether the mod's packed wad (its relative path) has an entry for one of these path hashes, or None when it
+    can't be read."""
     try:
-        with open(wad, "rb") as handle:
+        with mod.open(wad) as handle:
             header = handle.read(272)
             if len(header) < 272 or header[:2] != b"RW" or header[2] != 3:
                 return None
             count = struct.unpack_from("<I", header, 268)[0]
             toc = handle.read(count * 32)
-    except OSError:
+    except (OSError, zipfile.BadZipFile):
         return None
     if len(toc) < count * 32:
         return None
     return any(struct.unpack_from("<Q", toc, i * 32)[0] in hashes for i in range(count))
 
 
-def ships_language_table(mod_folder: Path) -> bool:
-    """Whether a mod carries its own lol.stringtable (a whole Global.<language>.wad.client, as some font mods are).
+def ships_language_table(mod_path: Path) -> bool:
+    """Whether a mod (folder or archive) carries its own lol.stringtable (a whole Global.<language>.wad.client, as
+    some font mods are).
 
     LTK Manager keeps the table of one mod only, by priority. When that mod's wins, the champion's record that this
     mod points at its own key still applies, and the name over the champion's head and the chat print that key
     instead of the champion's name (#420).
     """
-    folder = Path(mod_folder)
-    raw = folder / "RAW"
-    if raw.is_dir() and any(path.name.lower() == "lol.stringtable" for path in raw.rglob("*")):
-        return True
-    wad_dir = folder / "WAD"
-    if not wad_dir.is_dir():
+    try:
+        with ModFiles(Path(mod_path)) as mod:
+            return _ships_language_table(mod)
+    except (OSError, zipfile.BadZipFile) as e:
+        log.debug(f"[LOADNAME] could not read {Path(mod_path).name}: {e}")
         return False
-    for wad in wad_dir.iterdir():
-        name = wad.name.lower()
-        if not (name.startswith("global") and name.endswith(".wad.client")):
+
+
+def _ships_language_table(mod: ModFiles) -> bool:
+    if any(PurePosixPath(path).name.lower() == "lol.stringtable" for path in mod.files_under("RAW")):
+        return True
+    for name in mod.children("WAD"):
+        lowered = name.lower()
+        if not (lowered.startswith("global") and lowered.endswith(".wad.client")):
             continue
-        hashes = _table_hashes(wad.name)
-        if wad.is_dir():
+        hashes = _table_hashes(name)
+        wad = f"WAD/{name}"
+        if mod.is_dir(wad):
             names = {f"{h:016x}" for h in hashes}
-            for path in wad.rglob("*"):
-                if path.name.lower() == "lol.stringtable" or path.name.lower().split(".")[0] in names:
+            for path in mod.files_under(wad):
+                file_name = PurePosixPath(path).name.lower()
+                if file_name == "lol.stringtable" or file_name.split(".")[0] in names:
                     return True
-        elif _wad_holds(wad, hashes) is not False:
+        elif _wad_holds(mod, wad, hashes) is not False:
             return True  # holds it, or a packed language wad that can't be read: most likely a whole copy
     return False
 
@@ -391,14 +410,20 @@ def _xxh64(data: bytes) -> int:
 # what the injector calls
 # --------------------------------------------------------------------------------------
 
-def champion_aliases(mod_folder: Path) -> List[str]:
-    """The champions a mod carries files for, from the names of its wads (Zed.wad.client -> Zed)."""
-    wad_dir = Path(mod_folder) / "WAD"
-    if not wad_dir.is_dir():
+def champion_aliases(mod_path: Path) -> List[str]:
+    """The champions a mod (folder or archive) carries files for, from the names of its wads
+    (Zed.wad.client -> Zed)."""
+    try:
+        with ModFiles(Path(mod_path)) as mod:
+            return _champion_aliases(mod)
+    except (OSError, zipfile.BadZipFile) as e:
+        log.debug(f"[LOADNAME] could not read {Path(mod_path).name}: {e}")
         return []
+
+
+def _champion_aliases(mod: ModFiles) -> List[str]:
     aliases = []
-    for wad in wad_dir.iterdir():
-        name = wad.name
+    for name in mod.children("WAD"):
         if not name.lower().endswith(".wad.client"):
             continue
         alias = name[: -len(".wad.client")].split(".")[0]
@@ -465,8 +490,9 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
           other_mods: Sequence[Path] = ()) -> Optional[str]:
     """Writes the mod and returns its folder name, or None when there is nothing to show.
 
-    skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id. *other_mods* are
-    the folders of the other mods installed with it: when one carries its own language table, the mod's own table
+    skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id. *mod_folder* is
+    the skin, a folder or an archive; *other_mods* are the other mods installed with it, folders or archives: when one
+    carries its own language table, the mod's own table
     would compete with it, and nothing is built (see ships_language_table).
 
     The texts reach the game as string overrides in META/info.json on an en_US client, as the mod's own table
@@ -515,8 +541,15 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
                 # the chat and the name over the head keep the champion's name (see the module's note), in its forms
                 # too (FORM_RECORDS)
                 repointed = 0
-                for character in (alias.lower(),) + FORM_RECORDS.get(alias.lower(), ()):
-                    record = _champion_record(game_dir, mod_folder, alias, character)
+                with ModFiles(Path(mod_folder)) as mod:
+                    carried = f"WAD/{alias}.wad.client"
+                    # read once for all the forms: in an archive it may have to be inflated
+                    carried_wad = mod.read(carried) if mod.is_file(carried) else None
+                    records = [
+                        (character, _champion_record(game_dir, mod, alias, character, carried_wad))
+                        for character in (alias.lower(),) + FORM_RECORDS.get(alias.lower(), ())
+                    ]
+                for character, record in records:
                     own_record = _with_own_record_key(record, alias) if record else None
                     if not own_record:
                         continue

@@ -133,9 +133,9 @@ class SkinInjector:
         """Clean the overlay directory to prevent file lock issues"""
         self.mod_manager.clean_overlay_dir()
     
-    def _extract_zip_to_mod(self, zp: Path) -> Path:
-        """Extract ZIP to mod directory"""
-        return self.mod_manager.extract_zip_to_mod(zp)
+    def _link_archive(self, zp: Path) -> Path:
+        """Put a skin archive into the mod directory (ModManager.link_archive)"""
+        return self.mod_manager.link_archive(zp)
     
     def _mk_run_overlay(self, mod_names: List[str], timeout: int = 120, stop_callback=None) -> int:
         """Create and run overlay"""
@@ -161,7 +161,7 @@ class SkinInjector:
         classic: bool = False,
         report: bool = True,
     ) -> Optional[List[str]]:
-        """Extract the skin (and its loading screen name mod) into *target_dir*.
+        """Put the skin (and its loading screen name mod) into *target_dir*.
 
         Returns the mod folder names, or None when the skin is not on this PC
         (report=False keeps that out of Troubleshooting: the staging during the
@@ -201,7 +201,7 @@ class SkinInjector:
 
         log.debug(f"[INJECT] Using skin file: {zp}")
         mod_manager = self.mod_manager if Path(target_dir) == self.mods_dir else ModManager(Path(target_dir))
-        mod_folder = mod_manager.extract_zip_to_mod(zp)
+        mod_folder = mod_manager.link_archive(zp)
         mod_names = [mod_folder.name]
 
         # An injected skin runs as the champion's default one, so the loading screen prints the champion's name. This
@@ -240,7 +240,7 @@ class SkinInjector:
         injection_start_time = time.time()
 
 
-        # Clean mods and overlay directories, then extract new skin
+        # Clean mods and overlay directories, then link the new skin
         clean_start = time.time()
         self._clean_mods_dir()
         self._clean_overlay_dir()
@@ -255,7 +255,7 @@ class SkinInjector:
         if prepared is None:
             return False
         extract_duration = time.time() - extract_start
-        log.debug(f"[INJECT] ZIP extraction took {extract_duration:.2f}s")
+        log.debug(f"[INJECT] Preparing the skin took {extract_duration:.2f}s")
 
         # Create list of mods to inject (our skin + optional party/extra mods)
         mod_names = list(prepared)
@@ -342,17 +342,17 @@ class SkinInjector:
             
             log.debug(f"[INJECT] Using skin file: {zp}")
             
-            # Clean and extract
+            # Clean and link
             injection_start_time = time.time()
             self._clean_mods_dir()
             clean_duration = time.time() - injection_start_time
-            
+
             extract_start_time = time.time()
-            mod_folder = self._extract_zip_to_mod(zp)
+            mod_folder = self._link_archive(zp)
             extract_duration = time.time() - extract_start_time
-            
+
             if not mod_folder:
-                log.error(f"[INJECT] Failed to extract skin: {skin_name}")
+                log.error(f"[INJECT] Failed to link skin: {skin_name}")
                 return False
             
             # Run the install only (no patcher)
@@ -363,7 +363,7 @@ class SkinInjector:
             total_duration = time.time() - injection_start_time
             
             if result == 0:
-                log.info(f"[INJECT] Test injection completed in {total_duration:.2f}s (clean: {clean_duration:.2f}s, extract: {extract_duration:.2f}s, import: {import_duration:.2f}s)")
+                log.info(f"[INJECT] Test injection completed in {total_duration:.2f}s (clean: {clean_duration:.2f}s, link: {extract_duration:.2f}s, import: {import_duration:.2f}s)")
                 return True
             else:
                 log.error(f"[INJECT] Test injection failed with code: {result}")

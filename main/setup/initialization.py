@@ -62,6 +62,28 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
         })
 
 
+def convert_stored_mods(tray_manager: Optional[TrayManager]) -> None:
+    """Pack the mods an earlier Rose stored as folders into the archives LTK
+    Manager installs (injection.mods.conversion), before anything else runs:
+    no injection may read a folder while it is converted. Rose starts anyway
+    when it fails: a folder left as it is still works."""
+    from injection.mods.conversion import convert_folder_mods
+
+    def progress(index: int, total: int, name: str) -> None:
+        if tray_manager:
+            tray_manager.set_title(f"Rose - preparing mods ({index}/{total}): {name}"[:127])
+
+    try:
+        converted = convert_folder_mods(progress=progress)
+        if converted:
+            log_success(log, f"Packed {converted} stored mod(s) into archives", "")
+    except Exception as e:  # noqa: BLE001 - Rose must start
+        log.warning(f"[MODS] Could not convert the mods stored as folders: {e}")
+    finally:
+        if tray_manager:
+            tray_manager.set_title("Rose")
+
+
 def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
     """Initialize the system tray manager"""
     try:

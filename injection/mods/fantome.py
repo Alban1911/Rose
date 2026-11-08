@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Build a .fantome archive from an extracted mod folder.
+"""Build a .fantome archive from a mod folder.
 
-Rose extracts mods into folders (``META/info.json`` + ``WAD/...`` + ``RAW/...``)
-and hands them to LTK Manager's library as a ``.fantome`` archive, so an
-injection repacks the folder as one and sends it over the bridge (see
-injection/tools/bridge.py).
+Rose hands mods to LTK Manager's library as ``.fantome`` archives (see
+injection/tools/bridge.py). Most are archives already and go as they are
+(injection.mods.mod_files); a folder (``META/info.json`` + ``WAD/...`` +
+``RAW/...``) is packed into one: the mods Rose writes itself, and the mods
+stored before Rose kept archives, packed once when Rose starts
+(injection.mods.storage).
 
 The archive is the folder itself: ``WAD/`` and ``RAW/`` paths carry over
 untouched, ``META/info.json`` keeps the name/author/version, and a
@@ -23,6 +25,8 @@ from pathlib import Path
 from typing import Optional
 
 from utils.core.logging import get_logger
+
+from .mod_files import ModFiles
 
 log = get_logger()
 
@@ -43,25 +47,33 @@ _COMPRESS_LEVEL = 1
 _PACKED_WAD = re.compile(r"^(?:WAD|WAD_[A-Za-z0-9_-]+)/[^/]+\.wad(?:\.client|\.mobile)?$", re.IGNORECASE)
 
 
+def is_packed_wad(relative: str) -> bool:
+    """Whether the archive entry *relative* is a packed WAD (a .wad.client
+    directly under WAD/ or WAD_<layer>/), which a .fantome holds stored."""
+    return bool(_PACKED_WAD.match(relative.replace("\\", "/")))
+
+
 def _compression_for(relative: str) -> int:
     """How an entry is compressed: stored for a packed WAD, deflated otherwise."""
     return zipfile.ZIP_STORED if _PACKED_WAD.match(relative) else _COMPRESSION
 
 
-def read_info(mod_folder: Path) -> dict:
-    """The mod's META/info.json ({} when missing or unreadable)."""
+def read_info(mod: Path) -> dict:
+    """The META/info.json of a mod folder or archive ({} when missing or unreadable)."""
     try:
-        document = json.loads((mod_folder / _INFO_PATH).read_text(encoding="utf-8"))
+        with ModFiles(mod) as files:
+            document = json.loads(files.read(_INFO_PATH.as_posix()).decode("utf-8-sig"))
         return document if isinstance(document, dict) else {}
-    except (OSError, ValueError):
+    except (OSError, ValueError, zipfile.BadZipFile):
         return {}
 
 
-def fantome_metadata(mod_folder: Path) -> dict:
+def fantome_metadata(mod_folder: Path, name: Optional[str] = None) -> dict:
     """The LeagueToolkit metadata.json for *mod_folder*.
 
     Prefers an existing one (the folder came from a .fantome that had it),
-    otherwise derives it from META/info.json, otherwise from the folder name.
+    otherwise derives it from META/info.json, otherwise from *name* (the
+    folder name by default).
     """
     existing = mod_folder / _METADATA_PATH
     try:
@@ -72,7 +84,7 @@ def fantome_metadata(mod_folder: Path) -> dict:
         pass
 
     info = read_info(mod_folder)
-    name = str(info.get("Name") or "").strip() or mod_folder.name
+    name = str(info.get("Name") or "").strip() or name or mod_folder.name
     metadata = {"name": name}
     author = str(info.get("Author") or "").strip()
     if author:
@@ -86,8 +98,14 @@ def fantome_metadata(mod_folder: Path) -> dict:
     return metadata
 
 
-def write_fantome_zip(mod_folder: Path, dest: Path) -> Path:
-    """Pack *mod_folder* into the .fantome archive *dest* and return it."""
+def write_fantome_zip(mod_folder: Path, dest: Path, metadata: bool = True, name: Optional[str] = None) -> Path:
+    """Pack *mod_folder* into the .fantome archive *dest* and return it.
+
+    metadata=False packs the folder's files and nothing else: the archive
+    then holds what the folder did, the same content hash for a friend's
+    copy (party.discovery.custom_mods). *name* is the mod's name when its
+    META/info.json has none (the folder name by default).
+    """
     if not mod_folder.is_dir():
         raise FileNotFoundError(f"mod folder not found: {mod_folder}")
 
@@ -96,17 +114,18 @@ def write_fantome_zip(mod_folder: Path, dest: Path) -> Path:
             if not path.is_file():
                 continue
             relative = path.relative_to(mod_folder).as_posix()
-            if relative == _METADATA_PATH.as_posix():
+            if metadata and relative == _METADATA_PATH.as_posix():
                 continue  # replaced by the normalized copy below
             archive.write(path, relative, compress_type=_compression_for(relative))
-        archive.writestr(
-            _METADATA_PATH.as_posix(),
-            json.dumps(fantome_metadata(mod_folder), ensure_ascii=False, indent=2),
-        )
+        if metadata:
+            archive.writestr(
+                _METADATA_PATH.as_posix(),
+                json.dumps(fantome_metadata(mod_folder, name), ensure_ascii=False, indent=2),
+            )
     log.debug(f"[FANTOME] Packed {mod_folder.name} -> {dest.name}")
     return dest
 
 
-def fantome_display_name(mod_folder: Path) -> Optional[str]:
-    """The name the mod shows up under in LTK Manager's library."""
-    return str(read_info(mod_folder).get("Name") or "").strip() or mod_folder.name
+def fantome_display_name(mod: Path) -> Optional[str]:
+    """The name a mod folder or archive shows up under in LTK Manager's library."""
+    return str(read_info(mod).get("Name") or "").strip() or mod.name
