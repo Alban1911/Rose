@@ -1,0 +1,187 @@
+"""A saved mod's facts are read once from its files and kept in its manifest:
+once LTK Manager holds the mod, Rose has no file left to read them from."""
+
+import json
+import os
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+from unittest.mock import patch
+
+from injection.loadingname import loading_name
+from injection.mods import mod_facts
+from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
+from injection.mods.storage import ModStorageService
+from party.discovery import custom_mods
+from test.test_loading_name import make_wad
+
+PNG = b"\x89PNG\r\n\x1a\npreview"
+KO_TABLE = loading_name._xxh64(b"data/menu/ko_kr/lol.stringtable")
+
+# The champion's wad and a whole Korean language wad, as some skins carry
+# (entries in name order: a folder lists them so too)
+SKIN = {
+    "META/image.png": PNG,
+    "META/info.json": json.dumps({"Name": "Shockblade Zed"}),
+    "WAD/Global.ko_KR.wad.client": make_wad(b"RST", path_hash=KO_TABLE),
+    "WAD/Zed.wad.client": make_wad(b"zed", path_hash=0x1234),
+}
+
+
+def make_archive(path, files):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, data in files.items():
+            archive.writestr(name, data)
+    return path
+
+
+def make_folder(path, files):
+    for name, data in files.items():
+        target = path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data if isinstance(data, bytes) else data.encode("utf-8"))
+    return path
+
+
+class ComputeFactsTests(unittest.TestCase):
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+
+    def test_an_archive_and_its_folder_have_the_same_facts(self):
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
+        folder = make_folder(self.root / "Shockblade Zed", SKIN)
+
+        archive_facts, archive_hash, archive_wads = compute_mod_facts(archive)
+        folder_facts, folder_hash, folder_wads = compute_mod_facts(folder)
+
+        self.assertEqual(archive_facts, folder_facts)
+        self.assertEqual(archive_hash, folder_hash)
+        self.assertEqual(archive_wads, folder_wads)
+
+    def test_the_party_hash_is_party_modes_content_hash(self):
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
+        folder = make_folder(self.root / "Shockblade Zed", SKIN)
+
+        facts, _, _ = compute_mod_facts(archive)
+
+        self.assertIsNotNone(facts.party_hash)
+        self.assertEqual(facts.party_hash, custom_mods.mod_hashes(archive)[0])
+        self.assertEqual(facts.party_hash, custom_mods.mod_hashes(folder)[0])
+
+    def test_the_full_hash_is_the_manifests_folder_hash(self):
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
+
+        facts, full_hash, wad_hashes = compute_mod_facts(archive)
+
+        self.assertEqual((full_hash, wad_hashes), ModStorageService._hash_mod_folder(archive))
+        self.assertEqual(sorted(wad_hashes), ["WAD/Global.ko_KR.wad.client", "WAD/Zed.wad.client"])
+        self.assertEqual(facts.party_hash, full_hash[:32])
+
+    def test_the_champions_and_the_language_table_are_what_the_loading_name_reads(self):
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
+        plain = make_archive(self.root / "Plain Zed.fantome", {
+            "WAD/Global.en_US.wad.client": make_wad(b"font", path_hash=0x1234),
+            "WAD/Zed.wad.client": b"zed",
+        })
+
+        facts, _, _ = compute_mod_facts(archive)
+        plain_facts, _, _ = compute_mod_facts(plain)
+
+        self.assertEqual(facts.champion_aliases, ("Zed",))  # never Global
+        self.assertTrue(facts.ships_language_table)
+        self.assertFalse(plain_facts.ships_language_table)
+        for mod, found in ((archive, facts), (plain, plain_facts)):
+            self.assertEqual(list(found.champion_aliases), loading_name.champion_aliases(mod))
+            self.assertEqual(found.ships_language_table, loading_name.ships_language_table(mod))
+
+    def test_a_mod_linked_without_its_extension_is_read_as_an_archive(self):
+        archive = make_archive(self.root / "Shockblade Zed", SKIN)  # as in the injection's mods folder
+
+        facts, _, _ = compute_mod_facts(archive)
+
+        self.assertEqual(facts.champion_aliases, ("Zed",))
+
+    def test_a_mod_holding_only_its_preview_has_no_party_hash(self):
+        archive = make_archive(self.root / "Preview.fantome", {"META/image.png": PNG})
+
+        facts, full_hash, _ = compute_mod_facts(archive)
+
+        self.assertIsNone(facts.party_hash)
+        self.assertIsNone(custom_mods.mod_hashes(archive)[0])
+        self.assertEqual(full_hash, ModStorageService._hash_mod_folder(archive)[0])
+
+    def test_a_modpkg_is_read_through_its_unpacked_files(self):
+        from utils.tests.test_modpkg import SKIN0, Chunk, build_package
+
+        package = self.root / "old-aatrox_1.2.0.modpkg"
+        package.write_bytes(build_package([Chunk(SKIN0, b"skin" * 100)]))
+        injection = self.root / "injection"
+        injection.mkdir()
+
+        with patch.object(mod_facts, "get_injection_dir", return_value=injection):
+            facts, _, _ = compute_mod_facts(package)
+            party_hash, _ = custom_mods.mod_hashes(package)
+
+        self.assertEqual(facts.party_hash, party_hash)
+        self.assertEqual(facts.champion_aliases, ("aatrox",))
+        self.assertEqual(list((injection / "ltf_staging").iterdir()), [])  # unpacked, then removed
+
+    def test_a_mod_it_cannot_read_has_no_facts(self):
+        broken = self.root / "Broken.fantome"
+        broken.write_bytes(b"not a zip")
+
+        with self.assertRaises(OSError):
+            compute_mod_facts(self.root / "Gone.fantome")
+        with self.assertRaises(zipfile.BadZipFile):
+            compute_mod_facts(broken)
+
+    def test_the_stamp_is_the_size_and_time_of_the_archive(self):
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
+        os.utime(archive, ns=(1_000_000_000, 2_000_000_000))
+
+        self.assertEqual(stamp_of(archive), [archive.stat().st_size, 2_000_000_000])
+        self.assertIsNone(stamp_of(self.root / "Gone.fantome"))
+        self.assertIsNone(stamp_of(self.root))  # a folder is no archive
+
+
+class ManifestFactsTests(unittest.TestCase):
+    FACTS = ModFacts("0123456789abcdef0123456789abcdef", ("Zed", "Akali"), True)
+
+    def test_facts_survive_the_manifest(self):
+        stored = json.loads(json.dumps({"name": "Zed", **self.FACTS.to_manifest()}))
+
+        self.assertEqual(ModFacts.from_manifest(stored), self.FACTS)
+        self.assertEqual(stored["championAliases"], ["Zed", "Akali"])
+        self.assertEqual(ModFacts.from_manifest(ModFacts(None, (), False).to_manifest()), ModFacts(None, (), False))
+
+    def test_facts_can_go_into_an_injection_plan(self):
+        self.assertEqual(len({self.FACTS, ModFacts(**vars(self.FACTS))}), 1)
+
+    def test_an_entry_from_an_older_rose_has_no_facts(self):
+        good = self.FACTS.to_manifest()
+        for entry in (
+            {},
+            None,
+            {"name": "Zed", "targets": [238001]},
+            {"partyHash": good["partyHash"], "championAliases": ["Zed"]},  # one missing
+            dict(good, partyHash="not a hash"),
+            dict(good, partyHash="0123456789ABCDEF0123456789ABCDEF"),
+            dict(good, championAliases="Zed"),
+            dict(good, championAliases=["Zed", 7]),
+            dict(good, shipsLanguageTable="yes"),
+        ):
+            with self.subTest(entry=entry):
+                self.assertIsNone(ModFacts.from_manifest(entry))
+
+    def test_party_mode_hashes_with_the_same_functions(self):
+        for name in ("_content_digest", "_hash_stream", "_is_preview_image",
+                     "_folder_content_hash", "_archive_content_hash"):
+            self.assertIs(getattr(custom_mods, name), getattr(mod_facts, name))
+
+
+if __name__ == "__main__":
+    unittest.main()

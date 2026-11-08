@@ -6,14 +6,21 @@ Identifies custom skin mods by content so party members can use their own
 copy of a friend's mod. Mod files never leave the PC; only hashes are shared.
 """
 
-import hashlib
 import threading
 import zipfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+# The content hash is also a saved mod's partyHash, computed once when it is
+# added (injection.mods.mod_facts): one algorithm for both
+from injection.mods.mod_facts import (  # noqa: F401 - _content_digest, _is_preview_image re-exported
+    _archive_content_hash,
+    _content_digest,
+    _folder_content_hash,
+    _hash_stream,
+    _is_preview_image,
+)
 from utils.core.logging import get_logger
-from utils.core.modpkg import MODPKG_SUFFIX, ModPackage
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
 
@@ -29,63 +36,6 @@ _cache_lock = threading.Lock()
 
 def get_mods_root() -> Path:
     return get_user_data_dir() / "mods"
-
-
-def _content_digest(entries) -> str:
-    """Hash (relative path, file digest) pairs the same way for folders and archives."""
-    digest = hashlib.sha256()
-    for relative_path, file_digest in sorted(entries, key=lambda e: e[0].casefold()):
-        digest.update(relative_path.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(file_digest)
-        digest.update(b"\0")
-    return digest.hexdigest()[:32]
-
-
-def _hash_stream(stream) -> bytes:
-    digest = hashlib.sha256()
-    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-        digest.update(chunk)
-    return digest.digest()
-
-
-def _is_preview_image(relative_path: str) -> bool:
-    return relative_path.replace("\\", "/").casefold() == "meta/image.png"
-
-
-def _folder_content_hash(folder: Path) -> Optional[str]:
-    entries = []
-    for file_path in folder.rglob("*"):
-        if not file_path.is_file():
-            continue
-        relative_path = file_path.relative_to(folder).as_posix()
-        if _is_preview_image(relative_path):
-            continue
-        with file_path.open("rb") as stream:
-            entries.append((relative_path, _hash_stream(stream)))
-    return _content_digest(entries) if entries else None
-
-
-def _archive_content_hash(archive_path: Path) -> Optional[str]:
-    entries = []
-    if archive_path.suffix.lower() == MODPKG_SUFFIX:
-        # Hash the files the package unpacks to, as the imported folder holds them
-        with ModPackage.open(archive_path) as package:
-            for relative_path, content in package.iter_files():
-                if _is_preview_image(relative_path):
-                    continue
-                entries.append((relative_path, hashlib.sha256(content).digest()))
-        return _content_digest(entries) if entries else None
-    with zipfile.ZipFile(archive_path, "r") as archive:
-        for info in archive.infolist():
-            if info.is_dir():
-                continue
-            relative_path = info.filename.replace("\\", "/").lstrip("/")
-            if _is_preview_image(relative_path):
-                continue
-            with archive.open(info) as stream:
-                entries.append((relative_path, _hash_stream(stream)))
-    return _content_digest(entries) if entries else None
 
 
 def _legacy_archive_hash(archive_path: Path) -> str:

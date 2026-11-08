@@ -320,6 +320,9 @@ LTK_PATCHER_ERROR_LINE = re.compile(
 # The longest LTK Manager error kept for a report
 LTK_ERROR_MAX_CHARS = 300
 ALREADY_OPEN_REASON = "LTK Manager is already open without Rose's bridge"
+# Why a session could not start for want of a component (last_failure_reason)
+LTF_MISSING_REASON = "Rose's LTF bridge files are missing"
+LTK_MANAGER_MISSING_REASON = "LTK Manager is not installed"
 # The bridge drives LTK Manager through the remote debugging port (CDP) of its
 # WebView2 window; when that port never answers, every command fails with this
 CDP_FAILURE_MARKER = "cdp unavailable"
@@ -460,19 +463,11 @@ class LtkLogTail:
     def log_dir() -> Optional[Path]:
         """LTK Manager's log folder: in the roaming app data of the desktop
         user it runs as (an elevated Rose may run as another account)."""
-        import os
+        # Imported here: ltk_library builds on this module
+        from .ltk_library import ltk_data_candidates
 
-        candidates = []
-        try:
-            from utils.core.paths import get_user_data_dir
-
-            candidates.append(get_user_data_dir().parent.parent / "Roaming" / "dev.leaguetoolkit.manager" / "logs")
-        except Exception:
-            pass
-        roaming = os.environ.get("APPDATA")
-        if roaming:
-            candidates.append(Path(roaming) / "dev.leaguetoolkit.manager" / "logs")
-        for candidate in candidates:
+        for data_dir in ltk_data_candidates():
+            candidate = data_dir / "logs"
             if candidate.is_dir():
                 return candidate
         return None
@@ -559,6 +554,9 @@ class OverlayManager:
         # Staging is open from the countdown's start until the injection or a
         # discard: a late stage must not touch the injection's session
         self._staging_open = False
+        # Why the last _start_ltf_session returned None (read under
+        # _connect_lock): LtkLibrary tells the saved mods' callers
+        self.last_failure_reason: Optional[str] = None
         # The parent ltk_launcher.exe last gave the LTK Manager it started, as
         # its log names it ("explorer.exe" when the patcher's check accepts it)
         self._launcher_parent: Optional[str] = None
@@ -937,10 +935,12 @@ class OverlayManager:
         would use this session reports it itself). *cancelled* ends the wait
         for a starting LTK Manager early.
         """
+        self.last_failure_reason = None
         tools_manager = ToolsManager(self.tools_dir)
 
         launcher = tools_manager.detect_ltf_launcher()
         if launcher is None:
+            self.last_failure_reason = LTF_MISSING_REASON
             log.error(f"[INJECT] Missing LTF bridge in {self.tools_dir}: {LTF_LAUNCHER} + {LTF_BRIDGE_DLL}")
             if report:
                 report_issue(
@@ -955,6 +955,7 @@ class OverlayManager:
 
         manager = tools_manager.detect_ltk_manager()
         if manager is None:
+            self.last_failure_reason = LTK_MANAGER_MISSING_REASON
             log.error("[INJECT] LTK Manager is not installed")
             if report:
                 report_issue(
@@ -1070,15 +1071,17 @@ class OverlayManager:
         """Replace the stored mod *folder* (an archive, or a folder) with the
         archive LTK Manager repaired in place (an archive-storage mod keeps
         its archive beside its folder)."""
+        # Imported here: ltk_library builds on this module
+        from .ltk_library import entry_archive
+
         mod_id = str(entry.get("id"))
         if not entry.get("modDir"):
             entry = next((e for e in bridge.library() if str(e.get("id")) == mod_id), entry)
-        mod_dir = entry.get("modDir")
-        if not mod_dir or entry.get("storage") not in (None, "archive"):
+        source = entry_archive(entry)
+        if source is None:
             log.warning(f"[MODCHECK] LTK Manager repaired {folder.name}, but its archive could not be found")
             return False
-        suffix = ".modpkg" if entry.get("format") == "modpkg" else ".fantome"
-        source = Path(mod_dir).with_name(Path(mod_dir).name + suffix)
+        suffix = source.suffix
         if not source.is_file():
             log.warning(f"[MODCHECK] LTK Manager repaired {folder.name}, but {source} is missing")
             return False
@@ -1212,6 +1215,12 @@ class OverlayManager:
                 parent = found.group(1).strip()
         self._launcher_parent = parent
 
+    def _session_failed(self, reason: str, report: bool) -> None:
+        """Keep why the session could not start (last_failure_reason), and
+        report it as before."""
+        self.last_failure_reason = reason
+        self._report_ltf_failure(reason, report)
+
     def _connect_bridge(self, launcher: Path, manager: Path, report: bool,
                         cancelled: Optional[Callable[[], bool]] = None):
         """The bridge and whether Rose started LTK Manager for it."""
@@ -1233,7 +1242,7 @@ class OverlayManager:
         self._close_stale_rose_manager()
         if self._ltk_manager_running():
             log.warning("[INJECT] LTK Manager is already open without Rose's bridge - leaving it alone")
-            self._report_ltf_failure(ALREADY_OPEN_REASON, report)
+            self._session_failed(ALREADY_OPEN_REASON, report)
             return None, False
 
         log.info(f"[INJECT] Starting LTK Manager through {launcher.name}")
@@ -1258,15 +1267,15 @@ class OverlayManager:
             )
         except Exception as e:
             self._log_launcher_run(launcher_logs)
-            self._report_ltf_failure(f"could not start the LTF launcher ({e})", report)
+            self._session_failed(f"could not start the LTF launcher ({e})", report)
             return None, False
         self._log_launcher_run(launcher_logs)
         if result.returncode == LAUNCHER_EXIT_ALREADY_RUNNING:
             log.warning("[INJECT] LTK Manager opened before the launcher could start it - leaving it alone")
-            self._report_ltf_failure(ALREADY_OPEN_REASON, report)
+            self._session_failed(ALREADY_OPEN_REASON, report)
             return None, False
         if result.returncode != 0:
-            self._report_ltf_failure(
+            self._session_failed(
                 f"could not start the LTF launcher (exit code {result.returncode})", report
             )
             return None, False
@@ -1278,10 +1287,12 @@ class OverlayManager:
                 timeout=BRIDGE_START_TIMEOUT_S, expected_pid=pid, cancelled=cancelled
             )
         except BridgeUnavailable as e:
+            reason = f"the LTF bridge is unreachable ({e})"
             if cancelled is not None and cancelled():
+                self.last_failure_reason = reason
                 log.debug("[INJECT] Stopped waiting for the LTF bridge: the session is no longer wanted")
             else:
-                self._report_ltf_failure(f"the LTF bridge is unreachable ({e})", report)
+                self._session_failed(reason, report)
             # Started hidden by Rose: it would linger out of sight
             self._terminate_manager(pid)
             return None, False

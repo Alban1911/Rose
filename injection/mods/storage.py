@@ -19,7 +19,6 @@ import json
 import os
 import shutil
 import tempfile
-import threading
 import time
 import uuid
 import zipfile
@@ -38,7 +37,13 @@ from utils.core.safe_extract import (
 )
 from utils.core.utilities import get_champion_id_from_skin_id
 
+from . import manifest as saved_manifest
 from .fantome import is_packed_wad, write_fantome_zip
+from .ltk_ref import is_ltk_id
+# Shared with the manifest writers: one lock, one report per unreadable manifest
+from .manifest import _STORAGE_LOCK, _reported_manifests
+from .manifest import SavedMod
+from .mod_facts import ModFacts
 from .mod_files import ModFiles
 
 log = get_logger()
@@ -75,11 +80,6 @@ def _check_packed(archive: Path, expected: dict[str, int], added_metadata: bool)
     if held != expected:
         missing = sorted(set(expected) - set(held))[:3]
         raise OSError(f"the archive does not hold the folder's files as they are (missing: {missing or 'none'})")
-
-
-# Unreadable manifests already reported, so repeated listings do not flood the log
-_reported_manifests: set[str] = set()
-_STORAGE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -307,6 +307,94 @@ class ModStorageService:
         safe_remove_entry(stored)
         for sidecar in sidecars:
             safe_remove_entry(sidecar)
+
+    # -- saved mods, by their manifest entries (injection.mods.manifest) -------
+    def saved_mods(self, kind: Optional[str] = None) -> List[SavedMod]:
+        """Every saved mod (of *kind*: "skins" or a category), whether LTK
+        Manager holds it or Rose still does."""
+        return saved_manifest.iter_saved_mods(self.mods_root, kind)
+
+    def saved_mod(self, relative_path: str) -> Optional[SavedMod]:
+        """The saved mod known as *relative_path* (manifest.find_saved_mod)."""
+        return saved_manifest.find_saved_mod(self.mods_root, relative_path)
+
+    def pending_mods(self) -> List[SavedMod]:
+        """The saved mods Rose still has to move into LTK Manager."""
+        return saved_manifest.pending_mods(self.mods_root)
+
+    def ltk_ids(self) -> set[str]:
+        """Every LTK Manager entry Rose added for a saved mod (manifest.manifest_ltk_ids)."""
+        return saved_manifest.manifest_ltk_ids(self.mods_root)
+
+    def attach_ltk_entry(
+        self,
+        relative_path: str,
+        ltk_id: str,
+        facts: Optional[ModFacts] = None,
+        stamp: Optional[list] = None,
+    ) -> bool:
+        """Record that LTK Manager holds a saved mod as its entry *ltk_id*.
+
+        *facts* replace the entry's (None keeps those it has); *stamp* is LTK
+        Manager's archive they were read from (None: the next sync reads them
+        again from it). The mod's date is taken from Rose's copy now: once the
+        copy is gone the listing has no file to read it from. False when the
+        mod is not listed or its manifest cannot be read.
+        """
+        if not is_ltk_id(ltk_id):
+            raise ValueError(f"Not an LTK Manager library id: {ltk_id!r}")
+        fields: dict = {"ltkId": ltk_id, "missing": None, "ltkStamp": list(stamp) if stamp else None}
+        if facts is not None:
+            fields.update(facts.to_manifest())
+        with self._storage_lock:
+            mod = self.saved_mod(relative_path)
+            if mod is not None and mod.stored is not None and "updatedAt" not in mod.metadata:
+                try:
+                    fields["updatedAt"] = mod.stored.stat().st_mtime
+                except OSError:
+                    pass
+            attached = saved_manifest.update_saved_mod(self.mods_root, relative_path, **fields)
+            self._champion_listing_cache.clear()
+        return attached
+
+    def drop_stored_copy(self, relative_path: str) -> bool:
+        """Delete Rose's copy (archive or folder) of a saved mod LTK Manager
+        holds now. Its preview image and description stay beside the manifest,
+        under its name (a folder's own are copied out first). False when the
+        mod has no ltkId or no copy, or the copy could not be deleted."""
+        with self._storage_lock:
+            mod = self.saved_mod(relative_path)
+            if mod is None or not mod.ltk_id or mod.stored is None:
+                return False
+            stored = mod.stored
+            if stored.is_dir() and not is_junction(stored):
+                try:
+                    self._keep_folder_sidecars(mod)
+                except OSError as exc:
+                    log.warning(f"[MODS] Kept {stored.name}: its image or description could not be copied ({exc})")
+                    return False
+            safe_remove_entry(stored)
+            self._champion_listing_cache.clear()
+            if stored.exists() or stored.is_symlink():
+                log.warning(f"[MODS] Could not delete Rose's copy of {mod.name}: it is in use")
+                return False
+        log.info(f"[MODS] Deleted Rose's copy of {mod.name}: LTK Manager holds it")
+        return True
+
+    def _keep_folder_sidecars(self, mod: SavedMod) -> None:
+        """Copy a mod folder's preview image and description beside it, as an
+        archive keeps them: the folder is about to go."""
+        folder = mod.stored
+        if not any(mod.sidecar(suffix).exists() for suffix in self.IMAGE_SIDECAR_SUFFIXES):
+            for member, suffix in _PREVIEW_IMAGES:
+                image = folder.joinpath(*member.split("/"))
+                if image.is_file():
+                    shutil.copyfile(image, mod.sidecar(suffix))
+                    break
+        description = folder / "description.txt"
+        sidecar = mod.sidecar(self.DESCRIPTION_SIDECAR_SUFFIX)
+        if description.is_file() and not sidecar.exists():
+            shutil.copyfile(description, sidecar)
 
     # -- mods stored as folders ------------------------------------------------
     def folder_mods(self) -> List[Path]:

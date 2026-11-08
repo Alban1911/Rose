@@ -1,0 +1,327 @@
+"""LTK Manager's library holds the user's saved mods: read offline from its
+own index, and changed through Rose's bridge outside any game."""
+
+import json
+import os
+import tempfile
+import threading
+import unittest
+import zipfile
+from pathlib import Path
+from unittest.mock import patch
+
+from injection.overlay import ltk_library, overlay_manager
+from injection.overlay.ltk_library import (
+    IndexEntry,
+    LtkBusy,
+    LtkLibrary,
+    LtkUnavailable,
+    entry_archive,
+    library_index_mtime,
+    read_library_index,
+    stored_archive,
+)
+from injection.overlay.overlay_manager import (
+    ALREADY_OPEN_REASON,
+    LTF_MISSING_REASON,
+    LTK_MANAGER_MISSING_REASON,
+    LtkLogTail,
+    OverlayManager,
+)
+from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
+from injection.tools.tools_manager import ToolsManager
+
+VO_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
+AATROX_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
+LOOSE_ID = "799b6c82-8324-4394-a0cf-ddebcd16eba7"
+
+# library.json as LTK Manager 1.33 writes it: entries carry no enabled flag,
+# the active profile lists the enabled ones
+LIBRARY = {
+    "version": 2,
+    "mods": [
+        {"id": VO_ID, "installedAt": "2026-11-01T10:00:00Z", "format": "fantome", "storage": "archive",
+         "slug": "vo-korean", "harvest": {}, "sourceSha256": "ab" * 32},
+        {"id": AATROX_ID, "format": "modpkg", "storage": "archive", "slug": "old-aatrox"},
+        {"id": LOOSE_ID, "format": "fantome", "storage": "folder", "slug": "loose"},
+        {"format": "fantome", "slug": "no-id"},
+    ],
+    "profiles": [
+        {"id": "default", "name": "Default", "slug": "default", "enabledMods": [VO_ID], "modOrder": [VO_ID]},
+        {"id": "other", "name": "Other", "slug": "other", "enabledMods": [AATROX_ID], "modOrder": [AATROX_ID]},
+    ],
+    "activeProfileId": "default",
+    "folders": [],
+    "folderOrder": [],
+}
+
+
+class OfflineIndexTests(unittest.TestCase):
+    """Never this PC's LTK Manager: its data folder is a temporary one"""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+        self.data = self.root / "Roaming" / "dev.leaguetoolkit.manager"
+        self.data.mkdir(parents=True)
+        self.storage = self.root / "LTK mods"
+        self.write("settings.json", {"modStoragePath": str(self.storage), "leaguePath": None})
+        self.write("library.json", LIBRARY)
+        patcher = patch.object(ltk_library, "ltk_data_dir", return_value=self.data)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def write(self, name, payload):
+        (self.data / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_each_entry_is_listed_with_its_archive_and_whether_the_active_profile_enables_it(self):
+        index = read_library_index()
+
+        self.assertEqual(sorted(index), sorted([VO_ID, AATROX_ID, LOOSE_ID]))
+        self.assertEqual(index[VO_ID], IndexEntry(VO_ID, "vo-korean", "fantome", "archive", True,
+                                                  self.storage / "vo-korean.fantome"))
+        self.assertEqual(index[AATROX_ID].archive, self.storage / "old-aatrox.modpkg")
+        self.assertFalse(index[AATROX_ID].enabled)  # enabled in another profile only
+        self.assertIsNone(index[LOOSE_ID].archive)  # kept as a folder
+
+    def test_without_a_storage_path_the_archives_are_in_ltk_managers_data_folder(self):
+        self.write("settings.json", {"modStoragePath": None})
+
+        self.assertEqual(read_library_index()[VO_ID].archive, self.data / "mods" / "vo-korean.fantome")
+        (self.data / "settings.json").write_text("{", encoding="utf-8")
+        self.assertEqual(read_library_index()[VO_ID].archive, self.data / "mods" / "vo-korean.fantome")
+
+    def test_an_index_it_cannot_read_is_none_never_empty(self):
+        text = json.dumps(LIBRARY)
+        for content in (text[: len(text) // 2], "garbage", json.dumps(dict(LIBRARY, version=3)),
+                        json.dumps({"version": 2, "mods": {}}), json.dumps([LIBRARY])):
+            with self.subTest(content=content[:30]):
+                (self.data / "library.json").write_text(content, encoding="utf-8")
+                self.assertIsNone(read_library_index())
+        (self.data / "library.json").unlink()
+        self.assertIsNone(read_library_index())
+        self.assertIsNone(library_index_mtime())
+        with patch.object(ltk_library, "ltk_data_dir", return_value=None):
+            self.assertIsNone(read_library_index())
+
+    def test_the_index_time_tells_when_the_library_changed(self):
+        os.utime(self.data / "library.json", (1_700_000_000, 1_700_000_000))
+
+        self.assertEqual(library_index_mtime(), 1_700_000_000)
+
+    def test_the_stored_archive_only_when_it_is_there(self):
+        self.assertIsNone(stored_archive(VO_ID))
+
+        self.storage.mkdir()
+        (self.storage / "vo-korean.fantome").write_bytes(b"PK\x05\x06" + bytes(18))
+
+        self.assertEqual(stored_archive(VO_ID), self.storage / "vo-korean.fantome")
+        self.assertIsNone(stored_archive(LOOSE_ID))
+        self.assertIsNone(stored_archive("0f0f0f0f-0000-4000-8000-000000000000"))
+
+    def test_an_entrys_archive_sits_beside_its_folder(self):
+        mod_dir = str(self.storage / "vo-korean")
+
+        self.assertEqual(entry_archive({"modDir": mod_dir, "storage": "archive", "format": "fantome"}),
+                         self.storage / "vo-korean.fantome")
+        self.assertEqual(entry_archive({"modDir": mod_dir, "format": "modpkg"}), self.storage / "vo-korean.modpkg")
+        self.assertIsNone(entry_archive({"modDir": mod_dir, "storage": "folder"}))
+        self.assertIsNone(entry_archive({"id": VO_ID, "storage": "archive"}))
+
+
+class DataFolderTests(unittest.TestCase):
+    """LTK Manager's data folder is the desktop user's, even when an elevated
+    Rose runs as another account"""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+        self.desktop = self.root / "desk" / "AppData" / "Roaming" / "dev.leaguetoolkit.manager"
+        self.admin = self.root / "admin" / "AppData" / "Roaming" / "dev.leaguetoolkit.manager"
+        for patcher in (
+            patch("utils.core.paths.get_user_data_dir", return_value=self.root / "desk" / "AppData" / "Local" / "Rose"),
+            patch.dict(os.environ, {"APPDATA": str(self.admin.parent)}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_the_desktop_users_folder_comes_first(self):
+        self.assertIsNone(ltk_library.ltk_data_dir())
+
+        self.admin.mkdir(parents=True)
+        self.assertEqual(ltk_library.ltk_data_dir(), self.admin)
+
+        self.desktop.mkdir(parents=True)
+        self.assertEqual(ltk_library.ltk_data_dir(), self.desktop)
+        self.assertEqual(ltk_library.library_index_path(), self.desktop / "library.json")
+
+    def test_ltk_managers_logs_are_found_as_before(self):
+        self.desktop.mkdir(parents=True)  # never logged there
+        (self.admin / "logs").mkdir(parents=True)
+
+        self.assertEqual(LtkLogTail.log_dir(), self.admin / "logs")
+        (self.desktop / "logs").mkdir()
+        self.assertEqual(LtkLogTail.log_dir(), self.desktop / "logs")
+
+
+class LibrarySessionTests(LtfSessionTestCase):
+    def setUp(self):
+        super().setUp()
+        FakeBridge.mod_storage = self.root / "ltk-mods"
+        self.overlay.saved_mods_root = self.root / "saved"
+        self.archive = self.root / "saved" / "voiceover" / "VO Korean.fantome"
+        self.archive.parent.mkdir(parents=True)
+        with zipfile.ZipFile(self.archive, "w") as packed:
+            packed.writestr("META/info.json", '{"Name": "VO Korean"}')
+            packed.writestr("WAD/Ahri.ko_KR.wad.client", b"voice")
+        self.library = LtkLibrary(self.overlay)
+
+    def test_a_kept_entry_stays_turned_off_and_is_rose_s_no_more(self):
+        with self.library.session() as session:
+            entry = session.import_archive(self.archive, "VO Korean")
+            mod_id = str(entry["id"])
+            self.assertEqual(list(self.state()["installed"]), [mod_id])  # a crash here removes it
+            session.keep(mod_id)
+
+        self.assertEqual([(e["id"], e["enabled"]) for e in self.bridge.library_entries], [(mod_id, False)])
+        self.assertNotIn(("uninstall", mod_id), self.bridge.calls)
+        self.assertEqual(self.state()["installed"], {})
+        self.assertEqual(self.state()["kept"], {})  # a saved mod, not a kept copy
+
+    def test_an_entry_not_kept_is_removed_at_the_end(self):
+        with self.library.session() as session:
+            mod_id = str(session.import_archive(self.archive, "VO Korean")["id"])
+
+        self.assertIn(("uninstall", mod_id), self.bridge.calls)
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_the_archive_goes_to_ltk_manager_as_it_is(self):
+        with patch.object(overlay_manager, "write_fantome_zip", side_effect=AssertionError("packed again")):
+            with self.library.session() as session:
+                session.import_archive(self.archive, "VO Korean")
+
+        imported = [call for call in self.bridge.calls if call[0] == "import"]
+        self.assertEqual([(Path(call[1]).name, call[2]) for call in imported], [("VO Korean.fantome", "VO Korean")])
+        self.assertTrue(self.archive.exists())
+        self.assertEqual(list((self.root / "injection" / "ltf_staging").iterdir()), [])
+
+    def test_an_imported_entrys_archive_is_found(self):
+        with self.library.session() as session:
+            mod_id = str(session.import_archive(self.archive, "VO Korean")["id"])
+            listed = session.confirm(mod_id)
+            unknown = session.confirm("0f0f0f0f-0000-4000-8000-000000000000")
+            session.keep(mod_id)
+
+        self.assertEqual(entry_archive(listed), FakeBridge.mod_storage / f"mod-{mod_id[:8]}.fantome")
+        self.assertIsNone(unknown)
+
+    def test_switching_and_removing_an_entry(self):
+        FakeBridge.initial_library = [{"id": VO_ID, "name": "VO", "enabled": False}]
+
+        with self.library.session() as session:
+            session.switch(VO_ID, True)
+            self.assertTrue(session.library()[VO_ID]["enabled"])
+            session.uninstall(VO_ID)
+
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertEqual(self.bridge.command_names().count("uninstall"), 1)
+
+    def test_a_repair_stays_in_ltk_manager(self):
+        FakeBridge.health_answers = [
+            {"health": "repairable", "fixable": 2, "counts": {"errors": 2}},
+            {"health": "healthy", "fixable": 0, "counts": {}},
+        ]
+        FakeBridge.repair_files = {"META/info.json": "{}", "WAD/Ahri.ko_KR.wad.client": b"fixed"}
+        before = self.archive.read_bytes()
+
+        with self.library.session() as session:
+            mod_id = str(session.import_archive(self.archive, "VO Korean")["id"])
+            result = session.check_and_repair(mod_id, "VO Korean")
+            session.keep(mod_id)
+
+        self.assertEqual(result, {"health": "repairable", "repaired": 2, "problems": []})
+        self.assertEqual(self.archive.read_bytes(), before)  # nothing written back into Rose
+        with zipfile.ZipFile(FakeBridge.mod_storage / f"mod-{mod_id[:8]}.fantome") as repaired:
+            self.assertEqual(repaired.read("WAD/Ahri.ko_KR.wad.client"), b"fixed")
+
+    def test_busy_while_champion_select_stages(self):
+        self.overlay._staging_open = True
+
+        with self.assertRaises(LtkBusy):
+            with self.library.session():
+                self.fail("no session while staging")
+        self.assertEqual(FakeBridge.created, [])
+
+    def test_busy_while_a_game_holds_ltk_manager(self):
+        self.process_manager.set_session_stopper(lambda: None)
+
+        with self.assertRaises(LtkBusy):
+            with self.library.session():
+                self.fail("no session during a game")
+        self.assertEqual(FakeBridge.created, [])
+
+    def test_busy_at_once_while_another_session_connects(self):
+        self.assertTrue(self.overlay._connect_lock.acquire(blocking=False))
+        self.addCleanup(self.overlay._connect_lock.release)
+
+        with self.assertRaises(LtkBusy):
+            with self.library.session():
+                self.fail("no session while another connects")
+
+    def test_waiting_for_another_connect_when_asked(self):
+        self.overlay._connect_lock.acquire()
+        threading.Timer(0.05, self.overlay._connect_lock.release).start()
+
+        with self.library.session(wait=True) as session:
+            self.assertEqual(session.library(), {})
+
+    def test_unavailable_without_rose_s_bridge_files(self):
+        (self.tools / "ltk_launcher.exe").unlink()
+
+        with self.assertRaises(LtkUnavailable) as raised:
+            with self.library.session():
+                self.fail("no session without the bridge")
+        self.assertEqual(str(raised.exception), LTF_MISSING_REASON)
+        self.report_issue.assert_not_called()  # the caller says so, not Troubleshooting
+
+    def test_unavailable_without_ltk_manager(self):
+        with patch.object(ToolsManager, "detect_ltk_manager", return_value=None):
+            with self.assertRaises(LtkUnavailable) as raised:
+                with self.library.session():
+                    self.fail("no session without LTK Manager")
+        self.assertEqual(str(raised.exception), LTK_MANAGER_MISSING_REASON)
+
+    def test_unavailable_while_the_user_has_ltk_manager_open(self):
+        with patch.object(overlay_manager, "find_bridge", return_value=None), \
+                patch.object(OverlayManager, "_ltk_manager_running", return_value=True):
+            with self.assertRaises(LtkUnavailable) as raised:
+                with self.library.session():
+                    self.fail("no session beside the user's LTK Manager")
+        self.assertEqual(str(raised.exception), ALREADY_OPEN_REASON)
+        self.report_issue.assert_not_called()
+
+    def test_an_ltk_manager_rose_started_is_closed_after(self):
+        find_bridge, run = self.launched(pid=4242)
+        with find_bridge, run:
+            with self.library.session() as session:
+                session.library()
+
+        self.assertIn("kill", self.bridge.command_names())
+        self.assertIn(4242, self.terminated)
+
+    def test_a_failure_inside_still_ends_the_session(self):
+        with self.assertRaises(RuntimeError):
+            with self.library.session() as session:
+                session.import_archive(self.archive, "VO Korean")
+                raise RuntimeError("the caller failed")
+
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertTrue(self.overlay._connect_lock.acquire(blocking=False))
+        self.overlay._connect_lock.release()
+
+
+if __name__ == "__main__":
+    unittest.main()
