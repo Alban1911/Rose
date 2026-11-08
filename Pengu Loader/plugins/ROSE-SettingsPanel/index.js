@@ -5057,14 +5057,7 @@
     const card = overlay.querySelector(".rose-mod-import-card");
     const lines = [
       ...errors.map((item) => ({ className: "is-error", text: importErrorText(item, several) })),
-      ...imported
-        .filter((item) => item && item.health && item.health.repaired > 0)
-        .map((item) => ({
-          className: "is-repaired",
-          text: several
-            ? t("LTK Manager repaired {name}.", { name: item.modName || item.fileName || "" })
-            : t("LTK Manager repaired this mod."),
-        })),
+      ...ltkCheckRepairedLines(imported, several),
     ];
     if (lines.length) {
       overlay.classList.add("has-notes");
@@ -5094,6 +5087,17 @@
 
   // A failed import's line: LTK Manager's refusals (_rejected_import in message_handler.py) in the
   // user's language, any other failure with Rose's error text
+  function ltkCheckRepairedLines(imported, several) {
+    return imported
+      .filter((item) => item && item.health && item.health.repaired > 0)
+      .map((item) => ({
+        className: "is-repaired",
+        text: several
+          ? t("LTK Manager repaired {name}.", { name: item.modName || item.fileName || "" })
+          : t("LTK Manager repaired this mod."),
+      }));
+  }
+
   function importErrorText(item, several) {
     const name = item.fileName || "";
     if (item.code === "ltk_skinhack") {

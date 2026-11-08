@@ -29,7 +29,7 @@ BACKUP_QUESTION = (
     "Yes: copy them to a \"Rose mods backup\" folder on your desktop, then move them.\n"
     "No: move them without a backup."
 )
-STEP_TEXT = {
+STEP_TEXT_BY_STEP_VALUE = {
     "convert": "Packing your mods ({index}/{total}): {name}",
     "connect": "Opening LTK Manager to move your mods…",
     "backup": "Backing up your mods to your desktop…",
@@ -46,7 +46,7 @@ class _DialogUi:
 
     def progress(self, step: Step, index: int = 0, total: int = 0, name: str = "",
                  done_bytes: int = 0, total_bytes: int = 0) -> None:
-        detail = STEP_TEXT[step.value].format(index=index, total=total, name=name)
+        detail = STEP_TEXT_BY_STEP_VALUE[step.value].format(index=index, total=total, name=name)
         if detail != self._detail:
             self._detail = detail
             self._dialog.set_detail(detail)

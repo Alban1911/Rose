@@ -21,6 +21,8 @@ from ..discovery.skin_collector import PartySkinData
 
 log = get_logger()
 
+PARTY_FOLDER_PREFIX = "party_"
+
 
 class PartyInjectionHook:
     """Hooks into the injection flow to add party member skins"""
@@ -193,7 +195,7 @@ def prepare_peer_skin(
         Mod folder name or None if preparation failed
     """
     mods_dir = Path(mods_dir) if mods_dir is not None else injector.mods_dir
-    mod_folder_name = f"party_{skin_data.summoner_id}"
+    mod_folder_name = f"{PARTY_FOLDER_PREFIX}{skin_data.summoner_id}"
     mod = None
     label = skin_data.custom_mod_path
 

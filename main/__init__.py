@@ -632,12 +632,24 @@ def _schedule_restart() -> bool:
         log.error(f"Failed to schedule restart: {e}")
         return False
 
+def _remove_unpacked_mods_while_alone() -> None:
+    """Remove the .modpkg copies earlier reads left unpacked: Rose runs alone
+    now and nothing has read a mod yet, so none is being unpacked."""
+    remove_unpacked_leftovers()
+
+
+def _sync_mods_changed_while_closed() -> None:
+    """Sync the saved mods with LTK Manager's library, which may have lost or
+    changed one while Rose was closed."""
+    start_saved_mods_sync(only_if_changed=False)
+
+
 def run_league_unlock(args: Optional[argparse.Namespace] = None,
                       injection_threshold: Optional[float] = None) -> None:
     """Run the core Rose application startup and main loop."""
     # Check for single instance before doing anything else
     check_single_instance()
-    remove_unpacked_leftovers()
+    _remove_unpacked_mods_while_alone()
 
     # Keep the Windows "Apps & features" version in sync after auto-updates
     _update_registry_version()
@@ -668,7 +680,7 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
     # or mod list may touch a folder while it is converted
     convert_stored_mods(tray_manager)
 
-    start_saved_mods_sync(only_if_changed=False)
+    _sync_mods_changed_while_closed()
 
     # Initialize core components
     lcu, skin_scraper, state, injection_manager = initialize_core_components(args, injection_threshold)
@@ -810,14 +822,14 @@ def _remove_ltk_mods() -> int:
     import os
     import threading
 
-    from config import REMOVE_LTK_MODS_TIMEOUT_S
+    from config import UNINSTALL_CLEANUP_DEADLINE_S
     from injection.overlay.ltf_session import LtfHost
     from injection.overlay.ltk_library import remove_rose_mods
     from utils.core.logging import setup_logging
     from utils.core.paths import get_injection_dir, get_tools_dir
 
     setup_logging('customer')
-    watchdog = threading.Timer(REMOVE_LTK_MODS_TIMEOUT_S, os._exit, args=(1,))
+    watchdog = threading.Timer(UNINSTALL_CLEANUP_DEADLINE_S, os._exit, args=(1,))
     watchdog.daemon = True
     watchdog.start()
     try:
@@ -830,7 +842,7 @@ def _remove_ltk_mods() -> int:
 def main() -> None:
     """Program entry point that prepares and launches Rose."""
     args = setup_arguments()
-    if args.remove_ltk_mods:
+    if args.uninstaller_removes_ltk_mods:
         sys.exit(_remove_ltk_mods())
     # Update before checking the DLL: a Rose that refuses to start still
     # receives the version that fixes its check

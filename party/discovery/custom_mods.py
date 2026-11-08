@@ -11,13 +11,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from injection.mods.mod_facts import (
-    _archive_content_hash,
-    _content_digest,
-    _folder_content_hash,
-    _hash_stream,
-    _is_preview_image,
-)
+from injection.mods.mod_facts import _archive_content_hash, _folder_content_hash, _hash_stream
 from injection.mods.manifest import SKINS, find_saved_mod, iter_saved_mods
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir

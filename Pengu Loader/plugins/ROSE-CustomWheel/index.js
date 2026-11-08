@@ -307,9 +307,28 @@
     nameRow.appendChild(note);
   }
 
-  function historicEntry(list, path, idOf = (mod) => mod?.id) {
-    const wanted = String(path || "").replace(/\\/g, "/");
-    return (list || []).find((mod) => !mod?.missing && String(idOf(mod) || "").replace(/\\/g, "/") === wanted);
+  function historicEntry(list, relativePath, relativePathOf = (mod) => mod?.id) {
+    const wanted = String(relativePath || "").replace(/\\/g, "/");
+    return (list || []).find((mod) => !mod?.missing && String(relativePathOf(mod) || "").replace(/\\/g, "/") === wanted);
+  }
+
+  function historicModToAutoSelect(mods, historicMod, liveSkinId) {
+    if (!historicMod || selectedModId || pendingSelectionRequest) {
+      return null;
+    }
+    const historicModEntry = historicEntry(mods, historicMod, (mod) => mod.relativePath);
+    if (!historicModEntry) {
+      return null;
+    }
+    const modTargetSkinId = historicModEntry.skinId ? Number(historicModEntry.skinId) : null;
+    // Only auto-select if the user is CURRENTLY on the mod's target skin
+    if (modTargetSkinId && (
+      modTargetSkinId === liveSkinId ||
+      historicModEntry.availableForRequestedSkin === true
+    )) {
+      return historicModEntry.relativePath || historicModEntry.modName || `mod-${Date.now()}-${Math.random()}`;
+    }
+    return null;
   }
 
   function getTabLabel(tabId) {
@@ -2521,25 +2540,8 @@
       }
     }
 
-    const historicMod = detail.historicMod;
-    let didAutoSelect = false;
-    let historicSelectionId = null;
-    if (historicMod && !selectedModId && !pendingSelectionRequest) {
-      const historicModEntry = historicEntry(mods, historicMod, (mod) => mod.relativePath);
-
-      if (historicModEntry) {
-        const modTargetSkinId = historicModEntry.skinId ? Number(historicModEntry.skinId) : null;
-        // Only auto-select if the user is CURRENTLY on the mod's target skin
-        if (modTargetSkinId && (
-          modTargetSkinId === liveSkinId ||
-          historicModEntry.availableForRequestedSkin === true
-        )) {
-          const modId = historicModEntry.relativePath || historicModEntry.modName || `mod-${Date.now()}-${Math.random()}`;
-          historicSelectionId = modId;
-          didAutoSelect = true;
-        }
-      }
-    }
+    const historicSelectionId = historicModToAutoSelect(mods, detail.historicMod, liveSkinId);
+    const didAutoSelect = historicSelectionId !== null;
 
     // Emit to backend immediately when historic auto-select fires, regardless
     // of whether the panel is open.  The backend needs this to broadcast the
@@ -2765,21 +2767,25 @@
     updateOtherCategoryEntries("others", othersList);
 
     if (historicMods.length > 0 && selectedIds.length > 0) {
-      for (const historicPath of historicMods) {
-        const historicOther = historicEntry(othersList, historicPath);
-        if (historicOther) {
-          const otherId = historicOther.id || historicOther.name || `other-${Date.now()}-${Math.random()}`;
-          const li = OTHER_CATEGORY_TABS.map((t) => panel?.[`_${t.id}List`])
-            .filter(Boolean)
-            .map((listEl) =>
-              listEl.querySelector(`[data-other-id="${otherId}"]`)
-            )
-            .find(Boolean);
-          if (li) {
-            li.classList.add("selected-row");
-          }
-          if (bridge) bridge.send({ type: "select-other", category: "others", otherId, otherData: historicOther, action: "select" });
+      emitHistoricSelections(othersList, historicMods);
+    }
+  }
+
+  function emitHistoricSelections(othersList, historicMods) {
+    for (const historicPath of historicMods) {
+      const historicOther = historicEntry(othersList, historicPath);
+      if (historicOther) {
+        const otherId = historicOther.id || historicOther.name || `other-${Date.now()}-${Math.random()}`;
+        const li = OTHER_CATEGORY_TABS.map((t) => panel?.[`_${t.id}List`])
+          .filter(Boolean)
+          .map((listEl) =>
+            listEl.querySelector(`[data-other-id="${otherId}"]`)
+          )
+          .find(Boolean);
+        if (li) {
+          li.classList.add("selected-row");
         }
+        if (bridge) bridge.send({ type: "select-other", category: "others", otherId, otherData: historicOther, action: "select" });
       }
     }
   }

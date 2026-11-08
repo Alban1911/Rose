@@ -42,6 +42,13 @@ class PhaseHandler:
         self.skin_scraper = skin_scraper
         self.swiftplay_handler = swiftplay_handler
     
+    @staticmethod
+    def _sync_saved_mods_for_listing() -> None:
+        """Champion select lists the saved mods: sync them, so those LTK
+        Manager lost since show as missing."""
+        from injection.mods.ltk_sync import start_saved_mods_sync
+        start_saved_mods_sync(only_if_changed=True)
+
     def handle_phase_change(self, phase: str, previous_phase: str):
         from threads.handlers.champ_select_reset import note_phase_for_reset
         note_phase_for_reset(self.state, phase)
@@ -56,8 +63,7 @@ class PhaseHandler:
                         self.swiftplay_handler._injection_triggered = True
         
         elif phase == "ChampSelect":
-            from injection.mods.ltk_sync import start_saved_mods_sync
-            start_saved_mods_sync(only_if_changed=True)
+            self._sync_saved_mods_for_listing()
 
             # Swiftplay/Quickplay queue ID fallback - handles race condition where game_mode_detector
             # hasn't set is_swiftplay_mode yet when we enter ChampSelect

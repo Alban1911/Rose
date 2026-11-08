@@ -144,7 +144,7 @@ def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: Migr
     if not needs_migration(storage.mods_root):
         return report
     try:
-        with _alone():
+        with _launcher_migration_mutex():
             convert_folder_mods(storage, progress=lambda index, total, name: ui.progress(
                 Step.CONVERT, index, total, name))
             _empty_injection_folders(library.host.injection_dir)
@@ -330,10 +330,11 @@ class _Migration:
 
 
 @contextmanager
-def _alone() -> Iterator[None]:
-    """Hold the migration's mutex while it runs. Raises MigrationStopped
-    while another Rose runs (the launcher runs before Rose's single-instance
-    check) or moves the mods."""
+def _launcher_migration_mutex() -> Iterator[None]:
+    """Hold the migration's mutex while it runs, in Rose's launcher, before
+    Rose takes its single-instance mutex: a Rose starting meanwhile must not
+    run beside it. Raises MigrationStopped while another Rose runs (the
+    launcher runs before Rose's single-instance check) or moves the mods."""
     if sys.platform != "win32":
         yield
         return

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import main as rose_main
-from config import REMOVE_LTK_MODS_TIMEOUT_S
+from config import UNINSTALL_CLEANUP_DEADLINE_S
 from main.setup.arguments import setup_arguments
 
 
@@ -20,8 +20,8 @@ def parse(*argv):
 
 class ArgumentTests(unittest.TestCase):
     def test_the_flag_is_read_and_off_by_default(self):
-        self.assertTrue(parse("--remove-ltk-mods").remove_ltk_mods)
-        self.assertFalse(parse().remove_ltk_mods)
+        self.assertTrue(parse("--remove-ltk-mods").uninstaller_removes_ltk_mods)
+        self.assertFalse(parse().uninstaller_removes_ltk_mods)
 
     def test_the_flag_is_not_in_the_help(self):
         shown = io.StringIO()
@@ -91,7 +91,7 @@ class RemoveLtkModsTests(unittest.TestCase):
         host = self.remove.call_args.args[0]
         self.assertEqual((host.tools_dir, host.injection_dir), (self.tools, self.injection))
         self.logging.assert_called_once_with("customer")
-        self.watchdog.assert_called_once_with(REMOVE_LTK_MODS_TIMEOUT_S, os._exit, args=(1,))
+        self.watchdog.assert_called_once_with(UNINSTALL_CLEANUP_DEADLINE_S, os._exit, args=(1,))
         self.assertTrue(self.watchdog.return_value.daemon)
         self.watchdog.return_value.start.assert_called_once_with()
 

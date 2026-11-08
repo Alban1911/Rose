@@ -20,7 +20,7 @@ import time
 from datetime import datetime
 from functools import partial
 from pathlib import Path, PureWindowsPath
-from typing import NamedTuple, Optional, Sequence
+from typing import NamedTuple, Optional, Sequence, TypedDict
 from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
@@ -115,6 +115,17 @@ def _unavailable(source: ModSource) -> Optional[str]:
     if isinstance(source, LtkEntry):
         return "This mod is missing from LTK Manager - add it again"
     return "The mod files are missing"
+
+
+class ListedMod(TypedDict, total=False):
+    """A mod as the plugins' listings hold it, sent back with a selection:
+    its id is its relative path (its identity), path where it is."""
+
+    id: str
+    name: str
+    path: str
+    updatedAt: float
+    description: str
 
 
 class _OneModCategory(NamedTuple):
@@ -2489,7 +2500,7 @@ class MessageHandler:
                     log.debug(f"[MOD_HISTORIC] Failed to clear historic {kind} mod: {e}")
             return
 
-        data = payload.get(pick.data_key) or {}
+        data: ListedMod = payload.get(pick.data_key) or {}
         try:
             selection = self._prepare_saved_mod(data.get("id") or data.get("name") or mod_id, (pick.category,), kind)
         except Exception as e:
@@ -2508,7 +2519,7 @@ class MessageHandler:
 
         other_id = payload.get("otherId")
         # The category's "None" entry deselects each mod with otherData null
-        other_data = payload.get("otherData") or {}
+        other_data: ListedMod = payload.get("otherData") or {}
         action = payload.get("action", "select")  # "select" or "deselect"
 
         # Initialize selected_other_mods as list if it doesn't exist
@@ -2777,15 +2788,20 @@ class MessageHandler:
                 return
             
             log.info(f"[MOD_HISTORIC] Restoring historic {mod_type} mod: {selected_mod_dict.get('name', historic_path)}")
-            mod_id = selected_mod_dict.get("id") or selected_mod_dict.get("name")
-            pick = _ONE_MOD_CATEGORIES.get(mod_type)
-            if pick is not None:
-                self._handle_select_one_mod(mod_type, {pick.id_key: mod_id, pick.data_key: selected_mod_dict})
-            elif mod_type == "other":
-                self._handle_select_other({"otherId": mod_id, "otherData": selected_mod_dict})
+            self._select_as_the_plugin_would(mod_type, selected_mod_dict)
         except Exception as e:
             log.debug(f"[MOD_HISTORIC] Failed to auto-select historic {mod_type} mod: {e}")
     
+    def _select_as_the_plugin_would(self, mod_type: str, listed: ListedMod) -> None:
+        """Select a listed mod through the plugin's own selection messages: a
+        mod that cannot be injected (missing from LTK Manager) is refused there."""
+        mod_id = listed.get("id") or listed.get("name")
+        pick = _ONE_MOD_CATEGORIES.get(mod_type)
+        if pick is not None:
+            self._handle_select_one_mod(mod_type, {pick.id_key: mod_id, pick.data_key: listed})
+        elif mod_type == "other":
+            self._handle_select_other({"otherId": mod_id, "otherData": listed})
+
     def _send_response(self, message: str) -> None:
         """Send response message to clients"""
         try:

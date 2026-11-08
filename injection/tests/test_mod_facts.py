@@ -231,8 +231,7 @@ class ManifestFactsTests(unittest.TestCase):
                 self.assertIsNone(ModFacts.from_manifest(entry))
 
     def test_party_mode_hashes_with_the_same_functions(self):
-        for name in ("_content_digest", "_hash_stream", "_is_preview_image",
-                     "_folder_content_hash", "_archive_content_hash"):
+        for name in ("_hash_stream", "_folder_content_hash", "_archive_content_hash"):
             self.assertIs(getattr(custom_mods, name), getattr(mod_facts, name))
 
 
