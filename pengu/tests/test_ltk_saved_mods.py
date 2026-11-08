@@ -9,9 +9,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from injection.core.mod_source import saved_selection
 from injection.mods.ltk_ref import ltk_ref
 from injection.mods.mod_facts import ModFacts
+from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from pengu.communication.message_handler import MessageHandler
 
@@ -69,8 +69,8 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         self.handler._send_response = lambda message: self.sent.append(json.loads(message))
         self.linked = []
         for target, kwargs in (
-            ("injection.core.mod_source.link_or_extract", {"side_effect": self.link}),
-            ("injection.core.mod_source.get_injection_dir", {"return_value": root / "injection"}),
+            ("injection.mods.mod_source.link_or_extract", {"side_effect": self.link}),
+            ("injection.mods.mod_source.get_injection_dir", {"return_value": root / "injection"}),
             ("utils.core.mod_historic.write_historic_mod", {}),
             ("utils.core.mod_historic.clear_historic_mod", {}),
             ("utils.core.mod_historic.get_historic_mod", {"return_value": None}),
@@ -96,9 +96,7 @@ class SavedLtkModSelectionTests(unittest.TestCase):
 
         self.assertTrue(result["success"])
         selected = self.handler.shared_state.selected_custom_mod
-        self.assertEqual(selected["mod_folder_name"], ltk_ref(MOVED_ID))
-        self.assertEqual((selected["ltk_id"], selected["missing"]), (MOVED_ID, False))
-        self.assertEqual(selected["facts"], FACTS.to_manifest())
+        self.assertEqual(selected["source"], LtkEntry(MOVED_ID, FACTS, missing=False))
         self.assertEqual(selected["relative_path"], "skins/81000/Moved Ezreal.fantome")
         self.assertEqual(self.linked, [])
         self.assertEqual(list(self.mods_dir.iterdir()), [])
@@ -113,8 +111,7 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         self.injector._clean_mods_dir.assert_not_called()  # the mods already picked stay
 
     def test_dismissing_a_skin_mod_ltk_manager_holds_leaves_the_mods_folder_alone(self):
-        path = self.storage.get_champion_dir(81) / "Moved Ezreal.fantome"
-        self.handler.shared_state.selected_custom_mod = {"champion_id": 81, **saved_selection(path, MOVED_ID)}
+        self.handler.shared_state.selected_custom_mod = {"champion_id": 81, "source": LtkEntry(MOVED_ID)}
         named_like_it = self.mods_dir / ltk_ref(MOVED_ID)
         named_like_it.write_bytes(b"not the mod")
 
@@ -129,8 +126,7 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         }))
 
         selected = self.handler.shared_state.selected_map_mod
-        self.assertEqual(selected["mod_folder_name"], ltk_ref(NIGHT_ID))
-        self.assertEqual(selected["facts"], FACTS.to_manifest())
+        self.assertEqual(selected["source"], LtkEntry(NIGHT_ID, FACTS))
         self.assertEqual((selected["mod_name"], selected["relative_path"]), ("Night", "maps/Night.fantome"))
         self.assertEqual(self.linked, [])
 
@@ -138,7 +134,7 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         self.handler.handle_message(json.dumps({"type": "select-map", "mapId": "Rift", "mapData": {"name": "Rift"}}))
 
         selected = self.handler.shared_state.selected_map_mod
-        self.assertEqual((selected["mod_folder_name"], selected["ltk_id"]), ("Rift", None))
+        self.assertEqual(selected["source"], RoseFile(self.storage.mods_root / "maps" / "Rift.fantome", "Rift"))
         self.assertEqual(self.linked, ["Rift.fantome"])
 
     def test_a_map_ltk_manager_lost_is_refused(self):
@@ -159,8 +155,8 @@ class SavedLtkModSelectionTests(unittest.TestCase):
     def test_another_mod_ltk_manager_holds_is_selected_as_its_reference(self):
         self.handler._handle_select_other({"otherId": "voiceover/VO.fantome", "otherData": {"id": "voiceover/VO.fantome"}})
 
-        self.assertEqual([mod["mod_folder_name"] for mod in self.handler.shared_state.selected_other_mods],
-                         [ltk_ref(VOICE_ID)])
+        self.assertEqual([mod["source"] for mod in self.handler.shared_state.selected_other_mods],
+                         [LtkEntry(VOICE_ID)])
         self.assertEqual(self.linked, [])
 
     def test_the_lists_say_where_each_mod_is(self):

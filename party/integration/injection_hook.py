@@ -5,12 +5,13 @@ Party Injection Hook
 Integrates party mode skin collection with injection flow
 """
 
+from dataclasses import replace
 from pathlib import Path
 from typing import List, Optional
 
 from injection.classic import is_classic_game_mode
-from injection.core.mod_source import ModSource
 from injection.mods.manifest import find_saved_mod
+from injection.mods.mod_source import ModSource, RoseFile
 from state import SharedState
 from utils.core.logging import get_logger
 
@@ -195,6 +196,7 @@ def prepare_peer_skin(
     # Prefixed so it never collides with our own mod folder
     mod_folder_name = f"party_{skin_data.summoner_id}"
     mod = None
+    label = skin_data.custom_mod_path
 
     if skin_data.custom_mod_path and classic:
         # Custom mods target the regular characters, which Classic doesn't load
@@ -218,7 +220,7 @@ def prepare_peer_skin(
         skin_zip = _resolve_skin_zip(skin_data, injector, classic)
         if skin_zip is None:
             return None
-        mod = ModSource(mod_folder_name, str(skin_zip))
+        mod, label = RoseFile(skin_zip, mod_folder_name), skin_zip.name
 
     # Cached extraction: the same skin is instant in later games
     name = mod.put(mods_dir)
@@ -226,24 +228,24 @@ def prepare_peer_skin(
         log.warning(f"[PARTY_INJECT] Mod folder missing after extraction: {mods_dir / mod_folder_name}")
         return None
 
-    log.info(
-        f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s skin: {Path(mod.source).name}"
-    )
+    log.info(f"[PARTY_INJECT] Prepared {skin_data.summoner_name}'s skin: {label}")
     return name
 
 
 def _local_custom_mod(relative_path: str, folder_name: str) -> Optional[ModSource]:
     """Our own copy of a friend's custom mod: a saved mod (LTK Manager's
-    entry, or Rose's copy while it is pending), or a file nobody registered.
-    None when it cannot be injected."""
+    entry, or Rose's copy while it is pending), or a file nobody registered,
+    linked as *folder_name* beside our own pick of it. None when it cannot be
+    injected."""
     mods_root = get_mods_root()
     saved = find_saved_mod(mods_root, relative_path)
     if saved is not None:
         if not saved.available:
             return None
-        return ModSource(folder_name, str(saved.stored or saved.path(mods_root)), saved.ltk_id, saved.facts)
+        source = saved.source
+        return replace(source, name=folder_name) if isinstance(source, RoseFile) else source
     local_mod = mods_root / relative_path
-    return ModSource(folder_name, str(local_mod)) if local_mod.exists() else None
+    return RoseFile(local_mod, folder_name) if local_mod.exists() else None
 
 
 def _resolve_skin_zip(skin_data: PartySkinData, injector, classic: bool = False) -> Optional[Path]:

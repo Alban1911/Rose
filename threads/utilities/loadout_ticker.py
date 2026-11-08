@@ -105,7 +105,7 @@ class LoadoutTicker(threading.Thread):
         the saved ones), or None."""
         if not isinstance(mod, dict):
             return None
-        return (mod.get("mod_path"), mod.get("mod_folder_name"), mod.get("skin_id"))
+        return (mod.get("source"), mod.get("skin_id"))
 
     def _party_key(self) -> tuple:
         """Friends' skins, looked at every PARTY_POLL_S."""

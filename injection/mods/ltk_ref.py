@@ -3,10 +3,10 @@
 """A saved mod LTK Manager holds, named where a mod's folder name goes.
 
 The injection passes its mods around as names in the injection's mods folder
-(mk_run_overlay, stage_mods, prepare_plan, the selections' mod_folder_name).
-A mod the user added lives in LTK Manager's library only, with no file there:
-it travels in those same lists as a reference to its library entry, and the
-code that turns a name into a path asks ltk_id_of first.
+(mk_run_overlay, stage_mods, prepare_plan). A mod the user added lives in LTK
+Manager's library only, with no file there: it travels in those same lists as
+a reference to its library entry (its source's name: injection.mods.mod_source),
+and the code that turns a name into a path asks ltk_id_of first.
 
 The token holds no ':': on Windows, Path(x) / "ltk:..." reads it as a drive
 and drops x.

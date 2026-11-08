@@ -19,27 +19,35 @@ builds it from the selection (InjectionTrigger.staging_plan), one path each:
 - friends' skins alone (InjectionManager.inject_party_skins_only)
 
 A saved mod LTK Manager holds is planned as its LTK reference: nothing is
-linked for it, and the injection switches its entry on (injection.core.mod_source).
+linked for it, and the injection switches its entry on (injection.mods.mod_source).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from typing import List, NamedTuple, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from utils.core.junction import is_junction
 from utils.core.logging import get_logger
 
+from ..loadingname.loading_name import LtkSkin
 from ..loadingname.loading_name import build as build_loading_name
+from ..mods.mod_facts import ModFacts
 from ..mods.mod_manager import ModManager
-from .mod_source import ModSource, loading_name_mods
+from ..mods.mod_source import LtkEntry, ModSource
+from ..overlay.ltk_library import stored_archive
 
 log = get_logger()
 
 # The label of a plan that only holds friends' skins: what
 # InjectionManager.inject_party_skins_only passes to cancel_staging(keep=...)
 PARTY_SKINS_LABEL = "party skins"
+# What the loading screen name takes a mod LTK Manager holds for when its
+# manifest lacks the facts: a skin naming no champion (no name is built) and
+# a mod that may carry the text table the name's own would compete with
+_UNKNOWN_FACTS = ModFacts(party_hash=None, champion_aliases=(), ships_language_table=True)
 
 
 @dataclass(frozen=True)
@@ -60,8 +68,9 @@ class CarrierStep:
 
 
 @dataclass(frozen=True)
-class ModStep(ModSource):
+class ModStep:
     """A saved mod: the custom skin mod, a map, font, announcer or other mod."""
+    source: ModSource
     # The custom skin mod: without it the injection installs nothing
     required: bool = False
 
@@ -140,7 +149,7 @@ def prepare_plan(injector, plan: StagePlan, target_dir: Path) -> Optional[List[s
             carrier_folder = folder
             names.append(folder)
         elif isinstance(step, ModStep):
-            folder = step.put(target_dir)
+            folder = step.source.put(target_dir)
             if folder is None:
                 log.debug(f"[STAGE] Mod not available: {step.source}")
                 if step.required:
@@ -152,7 +161,7 @@ def prepare_plan(injector, plan: StagePlan, target_dir: Path) -> Optional[List[s
         elif isinstance(step, LoadingNameStep):
             skin_folder = custom_folder or carrier_folder
             if skin_folder:
-                mods = [mod for mod in plan.steps if isinstance(mod, ModStep)]
+                mods = [mod.source for mod in plan.steps if isinstance(mod, ModStep)]
                 skin, others = loading_name_mods(target_dir, skin_folder, names, mods)
                 loading_name = build_loading_name(injector.game_dir, target_dir, skin, step.skin_id, other_mods=others)
                 if loading_name:
@@ -162,6 +171,27 @@ def prepare_plan(injector, plan: StagePlan, target_dir: Path) -> Optional[List[s
             if folder:
                 names.append(folder)
     return names or None
+
+
+def loading_name_mods(
+    mods_dir: Path, skin: str, names: Sequence[str], sources: Iterable[ModSource]
+) -> Tuple[Union[Path, LtkSkin], List[Union[Path, ModFacts]]]:
+    """What the loading screen name (loading_name.build) reads of an
+    injection's skin and of its other mods, by their names in its list: the
+    files Rose put into *mods_dir*, and for a saved mod LTK Manager holds
+    (among *sources*), the facts its manifest keeps and, for the skin, LTK
+    Manager's archive."""
+    entries = {source.name: source for source in sources if isinstance(source, LtkEntry)}
+
+    def facts_of(name: str) -> ModFacts:
+        return entries[name].facts or _UNKNOWN_FACTS
+
+    if skin in entries:
+        skin_source = LtkSkin(facts_of(skin).champion_aliases, partial(stored_archive, entries[skin].ltk_id))
+    else:
+        skin_source = Path(mods_dir) / skin
+    others = [facts_of(name) if name in entries else Path(mods_dir) / name for name in names if name != skin]
+    return skin_source, others
 
 
 def _prepare_carrier(injector, step: CarrierStep, target_dir: Path) -> Optional[str]:

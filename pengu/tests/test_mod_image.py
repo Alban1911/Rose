@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
+from injection.mods.mod_source import RoseFile
 from injection.mods.storage import ModStorageService, SkinModEntry
 from pengu.communication.message_handler import (
     MessageHandler,
@@ -85,7 +86,7 @@ class ChampionModImageHandlerTests(unittest.TestCase):
             handler.mod_storage = SimpleNamespace(mods_root=root)
             handler.port = 50000
             entries = [
-                SkinModEntry(1, 1000, name, path, 0, "", (1001,), stored=path)
+                SkinModEntry(1, 1000, name, path, 0, "", (1001,), source=RoseFile.at(path))
                 for name, path in (("folder", mod_folder), ("archive", archive))
             ]
 

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from state import SharedState
 from threads.handlers.injection_trigger import InjectionTrigger
+from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from utils.core import mod_historic
 
@@ -49,7 +50,7 @@ class CategoryModHistoricTests(unittest.TestCase):
             ('utils.core.mod_historic.write_historic_mod', {}),
             ('utils.core.historic.write_historic_entry', {}),
             ('utils.core.historic.write_historic_target', {}),
-            ('injection.core.mod_source.get_injection_dir', {'return_value': self.root / 'injection'}),
+            ('injection.mods.mod_source.get_injection_dir', {'return_value': self.root / 'injection'}),
         ):
             patcher = patch(target, **kwargs)
             patcher.start()
@@ -59,7 +60,7 @@ class CategoryModHistoricTests(unittest.TestCase):
         dest.mkdir(parents=True, exist_ok=True)
 
     def test_saved_category_mod_reaches_overlay_without_opening_selector(self):
-        with patch('injection.core.mod_source.link_or_extract', side_effect=self.link):
+        with patch('injection.mods.mod_source.link_or_extract', side_effect=self.link):
             self.trigger.trigger_injection('skin_1000', ticker_id=1)
         self.assertTrue(self.state.selected_other_mods, 'saved category selection was not restored')
         self.assertEqual(self.state.selected_other_mods[0]['relative_path'], 'vfx/Saved VFX')
@@ -71,7 +72,7 @@ class CategoryModHistoricTests(unittest.TestCase):
         """Before #379 each category write also listed its paths under "others"."""
         legacy = {'vfx': ['vfx/Saved VFX'], 'others': ['vfx/Saved VFX']}
         with patch('utils.core.mod_historic.load_mod_historic', return_value=legacy), \
-                patch('injection.core.mod_source.link_or_extract', side_effect=self.link):
+                patch('injection.mods.mod_source.link_or_extract', side_effect=self.link):
             self.trigger.trigger_injection('skin_1000', ticker_id=1)
         self.assertEqual([m['relative_path'] for m in self.state.selected_other_mods], ['vfx/Saved VFX'])
         names = self.manager.injector.overlay_manager.mk_run_overlay.call_args.args[0]
@@ -86,10 +87,9 @@ class CategoryModHistoricTests(unittest.TestCase):
         current = self.storage.mods_root / 'vfx' / 'Current VFX'
         current.mkdir()
         self.state.selected_other_mods = [{
-            'mod_name': 'Current VFX', 'mod_folder_name': 'Current VFX',
-            'mod_path': str(current), 'relative_path': 'vfx/Current VFX',
+            'mod_name': 'Current VFX', 'relative_path': 'vfx/Current VFX', 'source': RoseFile.at(current),
         }]
-        with patch('injection.core.mod_source.link_or_extract', side_effect=self.link):
+        with patch('injection.mods.mod_source.link_or_extract', side_effect=self.link):
             self.trigger.trigger_injection('skin_1000', ticker_id=1)
         names = self.manager.injector.overlay_manager.mk_run_overlay.call_args.args[0]
         self.assertIn('Current VFX', names)
@@ -113,8 +113,8 @@ class CategoryHistoricRoundtripTests(unittest.TestCase):
             ('utils.core.mod_historic._mod_historic_file_path', {'return_value': self.history}),
             ('injection.mods.storage.ModStorageService', {'return_value': self.storage}),
             ('utils.core.historic.get_historic_skin_for_champion', {'return_value': None}),
-            ('injection.core.mod_source.get_injection_dir', {'return_value': self.root / 'injection'}),
-            ('injection.core.mod_source.link_or_extract', {'side_effect': self.link}),
+            ('injection.mods.mod_source.get_injection_dir', {'return_value': self.root / 'injection'}),
+            ('injection.mods.mod_source.link_or_extract', {'side_effect': self.link}),
         ):
             patcher = patch(target, **kwargs)
             patcher.start()
@@ -178,7 +178,7 @@ class CategoryHistoricRoundtripTests(unittest.TestCase):
 
         selected = self.trigger._find_saved_mod(self.storage, 'maps', 'maps/Rift.zip')
 
-        self.assertEqual((selected['ltk_id'], selected['relative_path']), (LTK_ID, 'maps/Rift.fantome'))
+        self.assertEqual((selected['source'], selected['relative_path']), (LtkEntry(LTK_ID), 'maps/Rift.fantome'))
         self.assertIsNone(self.trigger._find_saved_mod(self.storage, 'fonts', 'maps/Rift.zip'))
 
     def test_the_cleanup_after_a_game_keeps_a_saved_mod_ltk_manager_holds(self):

@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import threading
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Callable, Iterable, List, Mapping, Optional
 
@@ -42,8 +42,9 @@ from utils.core.logging import get_logger
 from utils.core.modpkg import MODPKG_SUFFIX
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
 
-from .ltk_ref import is_ltk_id, ltk_ref
+from .ltk_ref import is_ltk_id
 from .mod_facts import ModFacts, compute_mod_facts
+from .mod_source import LtkEntry, ModSource, RoseFile
 
 log = get_logger()
 
@@ -122,15 +123,13 @@ class SavedMod:
         return self.sidecar(".png"), self.sidecar(".webp")
 
     @property
-    def injection_name(self) -> str:
-        """Its name in the injection's mods folder: the LTK reference for a
-        mod LTK Manager holds, else the stored folder's name or the archive's
-        without its extension, as it is linked there."""
+    def source(self) -> ModSource:
+        """Where an injection takes it from: LTK Manager's entry, else Rose's
+        copy, linked under its own name. One with neither, which no listing
+        yields, is taken from the file its identity names."""
         if self.ltk_id:
-            return ltk_ref(self.ltk_id)
-        if self.stored is None:
-            return self.name
-        return self.stored.name if self.stored.is_dir() else self.stored.stem
+            return LtkEntry(self.ltk_id, self.facts, self.missing)
+        return RoseFile.at(self.stored or self.directory / PurePosixPath(self.relative_path).name)
 
     @property
     def storage_id(self) -> Optional[int]:
@@ -840,24 +839,3 @@ def _write_manifest(directory: _Directory, payload: dict, mods: dict) -> None:
         payload["category"] = directory.kind
     payload["mods"] = dict(sorted(mods.items()))
     _write_json(directory.manifest, payload)
-
-
-# --------------------------------------------------------------------------------------
-# selections
-# --------------------------------------------------------------------------------------
-
-def selection_available(sel: Mapping) -> bool:
-    """Whether a selected saved mod can still be injected: one LTK Manager
-    holds unless a sync found it gone, a pending one while its file exists.
-    Takes the selection dicts as they were before LTK Manager held mods too."""
-    if not isinstance(sel, Mapping):
-        return False
-    if sel.get("ltk_id"):
-        return not sel.get("missing")
-    mod_path = sel.get("mod_path")
-    if not mod_path:
-        return False
-    try:
-        return Path(mod_path).exists()
-    except (OSError, TypeError, ValueError):
-        return False

@@ -16,6 +16,7 @@ from injection.mods.manifest import ltk_removals
 from injection.mods.mod_facts import ModFacts, compute_mod_facts
 from injection.mods.mod_files import ModFiles, is_mod_archive
 from injection.mods.mod_manager import ModManager
+from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from utils.core import historic, mod_historic
 from utils.core.junction import link_or_extract
@@ -298,8 +299,9 @@ class AddTests(TempCase):
         self.assertEqual(mods[full_hash], lost)
         self.assertEqual((mods[name]["folderHash"], mods[name]["targets"]), (full_hash, [81021]))
         listed = {mod.mod_name: mod for mod in self.service.list_mods_for_champion(81)}
-        self.assertEqual((listed["Lost Ezreal"].missing, listed["Lost Ezreal"].display_name), (True, "My Ezreal"))
-        self.assertTrue(listed[name].pending)
+        self.assertEqual((listed["Lost Ezreal"].source, listed["Lost Ezreal"].display_name),
+                         (LtkEntry(LOST_ID, None, missing=True), "My Ezreal"))
+        self.assertEqual(listed[name].source, RoseFile.at(stored))
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
     def test_a_rejected_add_leaves_the_lost_mod_of_its_name_as_it_was(self):
@@ -410,8 +412,7 @@ class ManifestListingTests(TempCase):
 
         self.assertEqual(moved.path, self.ezreal / "Moved Ezreal.fantome")  # the identity selections keep
         self.assertFalse(moved.path.exists())
-        self.assertEqual((moved.ltk_id, moved.missing, moved.pending, moved.stored), (MOVED_ID, False, False, None))
-        self.assertEqual(moved.facts, FACTS)
+        self.assertEqual(moved.source, LtkEntry(MOVED_ID, FACTS, missing=False))
         self.assertEqual(moved.description, "Moved to LTK Manager")
         self.assertEqual(moved.display_name, "Moved!")
         self.assertEqual(moved.updated_at, 1234.5)
@@ -420,16 +421,14 @@ class ManifestListingTests(TempCase):
     def test_a_pending_mod_is_listed_by_its_file_as_before(self):
         pending = self.champion_mods()[self.pending_name]
 
-        self.assertEqual((pending.path, pending.stored), (self.pending, self.pending))
-        self.assertTrue(pending.pending)
-        self.assertIsNone(pending.ltk_id)
+        self.assertEqual((pending.path, pending.source), (self.pending, RoseFile(self.pending, self.pending_name)))
         self.assertEqual(pending.updated_at, self.pending.stat().st_mtime)
 
     def test_a_mod_ltk_manager_lost_is_listed_as_missing(self):
         lost = self.champion_mods()["Lost Ezreal"]
 
-        self.assertTrue(lost.missing)
-        self.assertFalse(lost.pending)
+        self.assertEqual(lost.source, LtkEntry(LOST_ID, None, missing=True))
+        self.assertFalse(lost.source.available)
 
     def test_a_file_nobody_registered_is_listed_with_the_folders_targets(self):
         make_archive(self.ezreal / "Dropped.fantome", VOICEOVER)
@@ -440,7 +439,7 @@ class ManifestListingTests(TempCase):
 
         dropped = self.champion_mods()["Dropped"]
         self.assertEqual(dropped.target_skin_ids, (81020,))
-        self.assertTrue(dropped.pending)
+        self.assertEqual(dropped.source, RoseFile(self.ezreal / "Dropped.fantome", "Dropped"))
 
     def test_a_categorys_listing_says_where_each_mod_is(self):
         self.service.import_category_mod_file("voiceover", make_archive(self.root / "VO Pending.fantome", VOICEOVER))

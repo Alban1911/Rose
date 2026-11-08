@@ -24,8 +24,7 @@ from typing import NamedTuple, Optional, Sequence
 from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
-from injection.core.mod_source import ModSource, saved_selection
-from injection.mods.manifest import selection_available
+from injection.mods.mod_source import LtkEntry, ModSource
 from injection.mods.storage import ModStorageService
 from injection.overlay.ltk_library import LtkLibrary
 from injection.overlay.overlay_manager import ltk_failure_cause
@@ -108,12 +107,12 @@ def _mod_thumbnail_details(
     return relative_path, f"http://127.0.0.1:{port}/mod-asset/{quoted_path}?v={version}"
 
 
-def _unavailable(selection: dict) -> Optional[str]:
-    """Why a picked saved mod (saved_selection's keys) cannot be injected, as
-    the user is told; None when it can."""
-    if selection_available(selection):
+def _unavailable(source: ModSource) -> Optional[str]:
+    """Why a picked saved mod cannot be injected from *source*, as the user
+    is told; None when it can."""
+    if source.available:
         return None
-    if selection.get("ltk_id"):
+    if isinstance(source, LtkEntry):
         return "This mod is missing from LTK Manager - add it again"
     return "The mod files are missing"
 
@@ -1253,7 +1252,8 @@ class MessageHandler:
     def _champion_mod_payload(self, entry) -> dict:
         """A saved skin mod (SkinModEntry) as the plugins list it. ltkId,
         missing (LTK Manager lost it: listed so it can be deleted, never
-        selected) and pending (Rose still holds its file) say where it is."""
+        selected) and pending (Rose still holds its file) say where it is
+        (its source's plugin_fields)."""
         try:
             relative_path = entry.path.relative_to(self.mod_storage.mods_root)
         except Exception:
@@ -1279,9 +1279,7 @@ class MessageHandler:
             "thumbnailRelativePath": thumbnail_relative_path,
             "thumbnailUrl": thumbnail_url,
             "imageEditable": _image_editable(entry.path),
-            "ltkId": entry.ltk_id,
-            "missing": entry.missing,
-            "pending": entry.pending,
+            **entry.source.plugin_fields(),
         }
 
     def _handle_request_manage_champion_mods(self, payload: dict) -> None:
@@ -1777,10 +1775,8 @@ class MessageHandler:
                 )
                 return
 
-            selection = saved_selection(
-                selected_mod.path, selected_mod.ltk_id, selected_mod.missing, selected_mod.facts
-            )
-            error = _unavailable(selection)
+            source = selected_mod.source
+            error = _unavailable(source)
             if error:
                 log.warning(f"[SkinMonitor] Cannot select {selected_mod.mod_name}: {error}")
                 self._send_custom_mod_selection_result(
@@ -1814,7 +1810,7 @@ class MessageHandler:
             else:
                 log.info("[SkinMonitor] Other mods selected - keeping existing mods and adding skin mod")
             
-            prepared = ModSource.of(selection).put(injector.mods_dir)
+            prepared = source.put(injector.mods_dir)
             if prepared is None:
                 raise RuntimeError("The mod could not be linked or extracted into the injection folder")
             log.info(f"[SkinMonitor] Prepared mod for the injection: {prepared}")
@@ -1828,7 +1824,7 @@ class MessageHandler:
                 "mod_name": selected_mod.mod_name,
                 "display_name": selected_mod.display_name,
                 "relative_path": str(selected_mod.path.relative_to(self.mod_storage.mods_root)).replace("\\", "/"),
-                **selection,
+                "source": source,
             }
             
             # Disable HistoricMode if active (custom mod takes priority)
@@ -1918,10 +1914,10 @@ class MessageHandler:
 
     def _take_back_custom_mod(self, tag: str) -> None:
         """Take the selected custom mod back out of the injection's mods
-        folder (ModSource.take_back), so it does not keep injecting once
+        folder (its source's take_back), so it does not keep injecting once
         unpicked. Best effort: a failure is only logged under *tag*."""
         try:
-            mod = ModSource.of(self.shared_state.selected_custom_mod)
+            mod = self.shared_state.selected_custom_mod.get("source")
             injector = getattr(self.injection_manager, "injector", None)
             if mod is not None and injector is not None:
                 mod.take_back(injector.mods_dir)
@@ -2445,11 +2441,10 @@ class MessageHandler:
 
     def _prepare_saved_mod(self, identifier: object, categories: Sequence[str], label: str) -> Optional[dict]:
         """Ready the saved mod a plugin picked in one of *categories* for the
-        injection (ModSource.put: an entry LTK Manager holds needs nothing,
+        injection (its source's put: an entry LTK Manager holds needs nothing,
         Rose's copy is linked in) and return its selection: mod_name,
-        relative_path and saved_selection's keys. None, logged, when it
-        cannot be injected. *identifier* is the mod's identity or, in a single
-        category, its name."""
+        relative_path and source. None, logged, when it cannot be injected.
+        *identifier* is the mod's identity or, in a single category, its name."""
         relative_path = str(identifier or "").replace("\\", "/").strip("/")
         if not _is_safe_relative_path(relative_path):
             log.warning(f"[SkinMonitor] Blocked unsafe {label} mod path: {identifier}")
@@ -2464,19 +2459,15 @@ class MessageHandler:
         if not injector:
             log.warning(f"[SkinMonitor] Cannot prepare the {label} mod - injector not available")
             return None
-        selection = {
-            "mod_name": mod.name,
-            "relative_path": mod.relative_path,
-            **saved_selection(mod.path(self.mod_storage.mods_root), mod.ltk_id, mod.missing, mod.facts),
-        }
-        error = _unavailable(selection)
-        if error is None and ModSource.of(selection).put(injector.mods_dir) is None:
+        source = mod.source
+        error = _unavailable(source)
+        if error is None and source.put(injector.mods_dir) is None:
             error = "The mod could not be linked into the injection folder"
         if error:
             log.warning(f"[SkinMonitor] Cannot select the {label} mod {mod.name}: {error}")
             return None
         log.info(f"[SkinMonitor] {label.capitalize()} mod ready for injection alongside the skin: {mod.name}")
-        return selection
+        return {"mod_name": mod.name, "relative_path": mod.relative_path, "source": source}
 
     def _handle_select_one_mod(self, kind: str, payload: dict) -> None:
         """Select the map, font or announcer mod (*kind*) for the injection,

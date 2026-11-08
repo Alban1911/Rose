@@ -19,10 +19,10 @@ from injection.mods.manifest import (
     ltk_removals,
     manifest_ltk_ids,
     pending_mods,
-    selection_available,
     update_saved_mod,
 )
 from injection.mods.mod_facts import ModFacts, compute_mod_facts
+from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 
 MOVED_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
@@ -106,7 +106,7 @@ class ListingTests(SavedModsTestCase):
         self.assertEqual(pending.key, self.pending_hash)
         self.assertEqual(pending.display_name, "Pending!")
         self.assertEqual(pending.target_skin_ids, (1001,))
-        self.assertEqual(pending.injection_name, "Pending Skin")
+        self.assertEqual(pending.source, RoseFile(self.pending_archive, "Pending Skin"))
         self.assertIsNone(pending.facts)  # added by an older Rose
 
         moved = mods["Moved Skin"]
@@ -115,12 +115,13 @@ class ListingTests(SavedModsTestCase):
         self.assertFalse(moved.pending)
         self.assertTrue(moved.available)
         self.assertEqual(moved.facts, FACTS)
-        self.assertEqual(moved.injection_name, f"ltk~{MOVED_ID}")
+        self.assertEqual(moved.source, LtkEntry(MOVED_ID, FACTS, missing=False))
         self.assertEqual(moved.updated_at, 1234.5)  # no file to read it from
 
         gone = mods["Gone Skin"]
         self.assertTrue(gone.missing)
         self.assertFalse(gone.available)
+        self.assertEqual(gone.source, LtkEntry(GONE_ID, None, missing=True))
 
     def test_the_identity_is_the_archive_path_unless_a_folder_is_stored(self):
         mods = self.annie_mods()
@@ -130,7 +131,7 @@ class ListingTests(SavedModsTestCase):
         self.assertEqual(mods["Moved Skin"].path(self.mods_root), self.annie / "Moved Skin.fantome")
         self.assertFalse(mods["Moved Skin"].path(self.mods_root).exists())
         self.assertEqual(mods["Old Folder"].relative_path, "skins/1000/Old Folder")
-        self.assertEqual(mods["Old Folder"].injection_name, "Old Folder")
+        self.assertEqual(mods["Old Folder"].source, RoseFile(self.annie / "Old Folder", "Old Folder"))
 
     def test_images_and_descriptions_sit_beside_the_manifest_under_the_mods_name(self):
         moved = self.annie_mods()["Moved Skin"]
@@ -360,21 +361,21 @@ class RemovalTests(SavedModsTestCase):
             MOVED_ID, GONE_ID, NIGHT_ID, NEW_ID, "0f0f0f0f-0000-4000-8000-000000000000"})
 
 
-class SelectionTests(unittest.TestCase):
-    def test_old_style_selections_are_judged_by_their_file(self):
+class SourceTests(unittest.TestCase):
+    def test_a_file_is_available_while_it_is_there(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             existing = Path(temp_dir) / "Rift.fantome"
             existing.write_bytes(b"map")
 
-            self.assertTrue(selection_available({"mod_path": str(existing), "mod_folder_name": "Rift"}))
-            self.assertFalse(selection_available({"mod_path": str(Path(temp_dir) / "Gone.fantome")}))
-            self.assertFalse(selection_available({"mod_path": ""}))
-            self.assertFalse(selection_available(None))
+            self.assertTrue(RoseFile.at(existing).available)
+            self.assertEqual(RoseFile.at(existing).name, "Rift")
+            self.assertFalse(RoseFile.at(Path(temp_dir) / "Gone.fantome").available)
 
-    def test_ltk_selections_are_judged_by_the_last_sync(self):
-        self.assertTrue(selection_available({"ltk_id": MOVED_ID, "missing": False, "mod_path": "nowhere"}))
-        self.assertTrue(selection_available({"ltk_id": MOVED_ID, "mod_path": "nowhere"}))
-        self.assertFalse(selection_available({"ltk_id": GONE_ID, "missing": True}))
+    def test_an_ltk_entry_is_available_until_a_sync_finds_it_gone(self):
+        self.assertTrue(LtkEntry(MOVED_ID).available)
+        self.assertEqual(LtkEntry(MOVED_ID).put(Path("nowhere")), f"ltk~{MOVED_ID}")
+        self.assertFalse(LtkEntry(GONE_ID, missing=True).available)
+        self.assertIsNone(LtkEntry(GONE_ID, missing=True).put(Path("nowhere")))
 
 
 class StorageDelegationTests(SavedModsTestCase):

@@ -15,7 +15,6 @@ from unittest.mock import patch
 
 from injection.mods import conversion, migration, mod_facts
 from injection.mods.fingerprint import mod_fingerprint
-from injection.mods.ltk_ref import ltk_ref
 from injection.mods.manifest import iter_saved_mods
 from injection.mods.migration import MigrationReport, Step, migrate_saved_mods, needs_migration, size_text
 from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
@@ -277,7 +276,7 @@ class WhatIsMovedTests(MigrationTestCase):
         self.assertEqual(list(manifest["mods"]), ["Leona"])
         self.assertEqual(manifest["mods"]["Leona"]["targets"], [89001])
         (listed,) = self.storage.list_mods_for_skin(89001)
-        self.assertEqual((listed.mod_name, listed.ltk_id), ("Leona", manifest["mods"]["Leona"]["ltkId"]))
+        self.assertEqual((listed.mod_name, listed.source.ltk_id), ("Leona", manifest["mods"]["Leona"]["ltkId"]))
 
     def test_a_zip_points_the_saved_selections_at_its_new_identity(self):
         archive = self.category_mod("Rift", category="maps", suffix=".zip")
@@ -305,7 +304,7 @@ class WhatIsMovedTests(MigrationTestCase):
         ltk_id = self.entry("maps/Rift.zip").ltk_id  # the old path still names it
         selection = InjectionTrigger._find_saved_mod(self.storage, "maps", "maps/Rift.fantome")
         self.assertIsNotNone(selection)
-        self.assertEqual((selection["ltk_id"], selection["mod_folder_name"]), (ltk_id, ltk_ref(ltk_id)))
+        self.assertEqual(selection["source"].ltk_id, ltk_id)
         self.assertEqual([mod["id"] for mod in self.storage.list_mods_for_category("maps")], ["maps/Rift.fantome"])
 
         FakeBridge.initial_library = self.bridge.library_entries

@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from injection.core import manager as manager_module
-from injection.core import mod_source as mod_source_module
 from injection.core import stage_plan as stage_plan_module
 from injection.core.manager import InjectionManager
 from injection.core.stage_plan import (
@@ -22,10 +21,12 @@ from injection.core.stage_plan import (
     prepare_plan,
     skin_plan,
 )
+from injection.mods import mod_source as mod_source_module
 from injection.mods.fingerprint import mod_fingerprint
 from injection.mods.ltk_ref import ltk_ref
 from injection.mods.manifest import SavedMod
 from injection.mods.mod_facts import ModFacts
+from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.overlay import overlay_manager
 from injection.overlay.overlay_manager import LtkLogTail
 from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase, status
@@ -586,7 +587,8 @@ class StageWorkerTests(unittest.TestCase):
         self.assertEqual(self.staged, ["skin_1003"])
 
     def test_a_plan_with_mods_is_staged_whole(self):
-        plan = StagePlan("skin_1001", (CarrierStep("skin_1001", "Leona", 1), ModStep("Rift", "C:/mods/maps/Rift")))
+        rift = ModStep(RoseFile(Path("C:/mods/maps/Rift"), "Rift"))
+        plan = StagePlan("skin_1001", (CarrierStep("skin_1001", "Leona", 1), rift))
         with patch.object(manager_module, "prepare_plan", return_value=["1001", "Rift"]) as prepare:
             self.manager.stage_plan(plan)
             self.assertTrue(self.done.wait(2))
@@ -852,7 +854,7 @@ class StagingPlanTests(unittest.TestCase):
             patch("utils.core.historic.get_historic_skin_for_champion", return_value=None),
             patch("utils.core.mod_historic.load_mod_historic", side_effect=lambda: dict(self.saved)),
             patch("injection.mods.storage.ModStorageService", side_effect=lambda: self.storage),
-            patch("injection.core.mod_source.get_injection_dir", return_value=self.mods_root / "injection"),
+            patch("injection.mods.mod_source.get_injection_dir", return_value=self.mods_root / "injection"),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -872,8 +874,7 @@ class StagingPlanTests(unittest.TestCase):
             "skin_id": 1001,
             "champion_id": 1,
             "mod_name": "My mod",
-            "mod_path": str(self.mods_root / "skins" / "1000" / "My mod.fantome"),
-            "mod_folder_name": "My mod",
+            "source": RoseFile(self.mods_root / "skins" / "1000" / "My mod.fantome", "My mod"),
             **extra,
         }
 
@@ -897,7 +898,7 @@ class StagingPlanTests(unittest.TestCase):
 
         self.assertEqual(plan, StagePlan("skin_1001", (
             CarrierStep("skin_1001", "Leona", 1),
-            ModStep("My mod", self.state.selected_custom_mod["mod_path"], required=True),
+            ModStep(self.state.selected_custom_mod["source"], required=True),
             LoadingNameStep(1001),
         )))
 
@@ -908,21 +909,17 @@ class StagingPlanTests(unittest.TestCase):
         plan = self.trigger.staging_plan("skin_1001", "Leona")
 
         self.assertEqual(plan.steps, (
-            ModStep("My mod", self.state.selected_custom_mod["mod_path"], required=True),
+            ModStep(self.state.selected_custom_mod["source"], required=True),
             LoadingNameStep(1001),
         ))
 
     def test_a_custom_mod_ltk_manager_holds_is_staged_as_its_reference(self):
         facts = ModFacts(None, ("Leona",), False)
-        self.state.selected_custom_mod = self.custom_mod(
-            mod_folder_name=ltk_ref(SKIN_ID), ltk_id=SKIN_ID, missing=False, facts=facts.to_manifest(),
-        )
+        self.state.selected_custom_mod = self.custom_mod(source=LtkEntry(SKIN_ID, facts))
 
         plan = self.trigger.staging_plan("skin_1001", "Leona")
 
-        self.assertEqual(plan.steps[1], ModStep(
-            ltk_ref(SKIN_ID), self.state.selected_custom_mod["mod_path"], SKIN_ID, facts, required=True,
-        ))
+        self.assertEqual(plan.steps[1], ModStep(LtkEntry(SKIN_ID, facts), required=True))
 
     def test_a_saved_map_mod_ltk_manager_holds_is_staged_without_its_file(self):
         self.storage.entries.append({"id": "maps/Rift.fantome", "name": "Rift", "path": "maps/Rift.fantome",
@@ -931,7 +928,7 @@ class StagingPlanTests(unittest.TestCase):
 
         plan = self.trigger.staging_plan("skin_1001", "Leona")
 
-        self.assertEqual(plan.steps[1], ModStep(ltk_ref(SKIN_ID), str(self.mods_root / "maps" / "Rift.fantome"), SKIN_ID))
+        self.assertEqual(plan.steps[1], ModStep(LtkEntry(SKIN_ID)))
 
     def test_a_saved_mod_missing_from_ltk_manager_is_left_out(self):
         self.storage.entries.append({"id": "maps/Rift.fantome", "name": "Rift", "path": "maps/Rift.fantome",
@@ -940,11 +937,6 @@ class StagingPlanTests(unittest.TestCase):
 
         self.assertEqual(self.trigger.staging_plan("skin_1001", "Leona"), skin_plan("skin_1001", "Leona", 1, False))
 
-    def test_a_custom_mod_the_injection_cannot_extract_is_not_staged(self):
-        self.state.selected_custom_mod = self.custom_mod(mod_path=None)
-
-        self.assertIsNone(self.trigger.staging_plan("skin_1001", "Leona"))
-
     def test_a_saved_map_mod_is_staged_with_the_skin_as_carrier(self):
         path = self.save_map()
 
@@ -952,18 +944,19 @@ class StagingPlanTests(unittest.TestCase):
 
         self.assertEqual(plan, StagePlan("skin_1001", (
             CarrierStep("skin_1001", "Leona", 1),
-            ModStep("Rift", str(path)),
+            ModStep(RoseFile(path, "Rift")),
             LoadingNameStep(1001),
         )))
         self.assertIsNone(self.state.selected_map_mod)  # staging selects nothing
 
     def test_a_selected_map_mod_on_the_default_skin_is_staged_alone(self):
         self.state.last_hovered_skin_id = 1000
-        self.state.selected_map_mod = {"mod_name": "Rift", "mod_path": "C:/mods/maps/Rift", "mod_folder_name": "Rift"}
+        rift = RoseFile(Path("C:/mods/maps/Rift"), "Rift")
+        self.state.selected_map_mod = {"mod_name": "Rift", "source": rift}
 
         plan = self.trigger.staging_plan("skin_1000", "Leona")
 
-        self.assertEqual(plan.steps, (ModStep("Rift", "C:/mods/maps/Rift"), LoadingNameStep(1000)))
+        self.assertEqual(plan.steps, (ModStep(rift), LoadingNameStep(1000)))
 
     def test_a_saved_mod_whose_file_is_gone_is_left_out(self):
         self.save_map(exists=False)
@@ -991,10 +984,10 @@ class StagingPlanTests(unittest.TestCase):
         self.trigger._inject_custom_mod = MagicMock()
         plan = self.trigger.staging_plan("skin_1001", "Leona")
 
-        with patch("injection.core.mod_source.link_or_extract"):
+        with patch("injection.mods.mod_source.link_or_extract"):
             self.trigger.trigger_injection("skin_1001", ticker_id=1, cname="Leona")
 
-        self.assertEqual(self.state.selected_map_mod["mod_path"], str(path))
+        self.assertEqual(self.state.selected_map_mod["source"], RoseFile(path, "Rift"))
         _, kwargs = self.trigger._inject_custom_mod.call_args
         self.assertEqual(kwargs["base_skin_name"], "skin_1001")
         self.trigger.injection_manager.cancel_staging.assert_called_with(keep=plan.label)
@@ -1045,9 +1038,9 @@ class PreparePlanTests(unittest.TestCase):
         rift = self.mod_folder("Rift", b"rift")
         plan = StagePlan("skin_1001", (
             CarrierStep("skin_1001", "Leona", 1),
-            ModStep("My mod", str(custom), required=True),
-            ModStep("Gone", str(self.root / "mods" / "Gone.fantome")),
-            ModStep("Rift", str(rift)),
+            ModStep(RoseFile(custom, "My mod"), required=True),
+            ModStep(RoseFile(self.root / "mods" / "Gone.fantome", "Gone")),
+            ModStep(RoseFile(rift, "Rift")),
             LoadingNameStep(1001),
         ))
 
@@ -1077,15 +1070,15 @@ class PreparePlanTests(unittest.TestCase):
         skin_facts, font_facts = ModFacts(None, ("Leona",), False), ModFacts(None, (), True)
         plan = StagePlan("skin_1001", (
             CarrierStep("skin_1001", "Leona", 1),
-            ModStep(ltk_ref(SKIN_ID), str(self.root / "mods" / "My mod.fantome"), SKIN_ID, skin_facts, required=True),
-            ModStep(ltk_ref(FONT_ID), str(self.root / "mods" / "Font.fantome"), FONT_ID, font_facts),
+            ModStep(LtkEntry(SKIN_ID, skin_facts), required=True),
+            ModStep(LtkEntry(FONT_ID, font_facts)),
             LoadingNameStep(1001),
         ))
         ltk_archive = self.root / "ltk" / "my-mod.fantome"
 
         with patch.object(stage_plan_module, "build_loading_name", return_value=None) as loading_name, \
                 patch.object(mod_source_module, "link_or_extract", side_effect=AssertionError("linked")), \
-                patch.object(mod_source_module, "stored_archive", return_value=ltk_archive) as stored:
+                patch.object(stage_plan_module, "stored_archive", return_value=ltk_archive) as stored:
             names = prepare_plan(self.injector, plan, self.target)
 
             self.assertEqual(names, ["1001", ltk_ref(SKIN_ID), ltk_ref(FONT_ID)])
@@ -1096,9 +1089,10 @@ class PreparePlanTests(unittest.TestCase):
             self.assertEqual(loading_name.call_args.kwargs["other_mods"], [self.target / "1001", font_facts])
 
     def test_nothing_is_staged_without_the_custom_mod_or_the_carrier(self):
-        missing_mod = StagePlan("skin_1001", (ModStep("My mod", str(self.root / "gone"), required=True),))
+        missing_mod = StagePlan("skin_1001", (ModStep(RoseFile(self.root / "gone", "My mod"), required=True),))
         self.injector._resolve_zip.return_value = None
-        missing_carrier = StagePlan("skin_1001", (CarrierStep("skin_1001", "Leona", 1), ModStep("Rift", str(self.mod_folder("Rift")))))
+        missing_carrier = StagePlan("skin_1001", (CarrierStep("skin_1001", "Leona", 1),
+                                                  ModStep(RoseFile(self.mod_folder("Rift"), "Rift"))))
 
         self.assertIsNone(prepare_plan(self.injector, missing_mod, self.target))
         self.assertIsNone(prepare_plan(self.injector, missing_carrier, self.target))

@@ -5,9 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from injection.core.mod_source import saved_selection
 from injection.mods.ltk_ref import ltk_ref
 from injection.mods.mod_facts import ModFacts
+from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from threads.handlers.injection_trigger import InjectionTrigger
 
@@ -42,15 +42,14 @@ class CustomModInjectionCase(unittest.TestCase):
         )
         self.trigger = InjectionTrigger(lcu=MagicMock(), state=state, injection_manager=self.manager)
         self.trigger._force_base_skin = MagicMock()
-        cache = patch("injection.core.mod_source.get_injection_dir", return_value=self.root / "injection")
+        cache = patch("injection.mods.mod_source.get_injection_dir", return_value=self.root / "injection")
         cache.start()
         self.addCleanup(cache.stop)
 
     def custom_mod(self, mod_path):
         return {
             "mod_name": "Mod",
-            "mod_folder_name": "Mod",
-            "mod_path": str(mod_path),
+            "source": RoseFile(mod_path, "Mod"),
             "skin_id": 103001,
             "champion_id": 103,
         }
@@ -75,13 +74,13 @@ class CustomModInjectionStagingTests(CustomModInjectionCase):
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
     def test_nothing_to_inject_ends_the_staging(self):
-        self.inject({"mod_folder_name": None, "mod_path": None, "skin_id": 103001})
+        self.inject({"skin_id": 103001})
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
     def test_an_error_ends_the_staging(self):
         mod_source = self.root / "Mod"
         mod_source.mkdir()
-        with patch("injection.core.mod_source.link_or_extract", side_effect=OSError("locked")):
+        with patch("injection.mods.mod_source.link_or_extract", side_effect=OSError("locked")):
             self.inject(self.custom_mod(mod_source))
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
@@ -92,7 +91,7 @@ class CustomModInjectionStagingTests(CustomModInjectionCase):
         def link(source, dest, cache_dir=None):
             dest.mkdir(parents=True)
 
-        with patch("injection.core.mod_source.link_or_extract", side_effect=link), \
+        with patch("injection.mods.mod_source.link_or_extract", side_effect=link), \
                 patch("utils.core.mod_historic.write_historic_mod"), \
                 patch("utils.core.historic.write_historic_entry"), \
                 patch("utils.core.historic.write_historic_target"):
@@ -120,9 +119,7 @@ class CustomModBaseSkinTests(CustomModInjectionCase):
 
         self.injector._link_archive.side_effect = link_archive
         self.trigger._force_base_skin.side_effect = lambda skin_id: self.events.append(f"force {skin_id}")
-        self.trigger.state.selected_font_mod = {
-            "mod_name": "Font", "mod_folder_name": "Font", "mod_path": str(self.root / "Font"),
-        }
+        self.trigger.state.selected_font_mod = {"mod_name": "Font", "source": RoseFile(self.root / "Font", "Font")}
         (self.root / "Font").mkdir()
 
     def link(self, source, dest, cache_dir=None):
@@ -130,10 +127,10 @@ class CustomModBaseSkinTests(CustomModInjectionCase):
         dest.mkdir(parents=True, exist_ok=True)
 
     def test_the_default_skin_is_forced_before_any_mod_is_extracted(self):
-        with patch("injection.core.mod_source.link_or_extract", side_effect=self.link), \
+        with patch("injection.mods.mod_source.link_or_extract", side_effect=self.link), \
                 patch("utils.core.mod_historic.write_historic_mod"), \
                 patch("utils.core.historic.write_historic_entry"):
-            self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103},
+            self.inject({"skin_id": 103001, "champion_id": 103},
                         base_skin_name="skin_103001")
 
         self.assertEqual(self.events, ["force 103000", "link carrier", "link Font"])
@@ -141,15 +138,15 @@ class CustomModBaseSkinTests(CustomModInjectionCase):
 
     def test_a_missing_carrier_forces_nothing(self):
         self.injector._resolve_zip.return_value = None
-        self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103},
+        self.inject({"skin_id": 103001, "champion_id": 103},
                     base_skin_name="skin_103001")
 
         self.trigger._force_base_skin.assert_not_called()
 
     def test_an_owned_skin_is_not_forced(self):
-        with patch("injection.core.mod_source.link_or_extract", side_effect=self.link), \
+        with patch("injection.mods.mod_source.link_or_extract", side_effect=self.link), \
                 patch("utils.core.mod_historic.write_historic_mod"):
-            self.inject({"mod_folder_name": None, "skin_id": 103001, "champion_id": 103})
+            self.inject({"skin_id": 103001, "champion_id": 103})
 
         self.trigger._force_base_skin.assert_not_called()
 
@@ -158,9 +155,9 @@ class SavedLtkModInjectionTests(CustomModInjectionCase):
     """A saved mod LTK Manager holds goes into the injection as its LTK
     reference, with nothing linked into the mods folder"""
 
-    def selection(self, name, ltk_id, missing=False, facts=None):
-        path = self.root / "library" / f"{name}.fantome"  # Rose's copy is gone
-        return {"mod_name": name, **saved_selection(path, ltk_id, missing, facts)}
+    @staticmethod
+    def selection(name, ltk_id, missing=False, facts=None):
+        return {"mod_name": name, "source": LtkEntry(ltk_id, facts, missing)}
 
     def test_the_custom_mod_and_a_font_go_as_their_references(self):
         custom = dict(self.selection("Mod", SKIN_ID, facts=ModFacts(None, ("Annie",), False)),
@@ -168,7 +165,7 @@ class SavedLtkModInjectionTests(CustomModInjectionCase):
         font_facts = ModFacts(None, (), True)
         self.trigger.state.selected_font_mod = self.selection("Font", FONT_ID, facts=font_facts)
 
-        with patch("injection.core.mod_source.link_or_extract", side_effect=AssertionError("linked")), \
+        with patch("injection.mods.mod_source.link_or_extract", side_effect=AssertionError("linked")), \
                 patch("threads.handlers.injection_trigger.build_loading_name", return_value=None) as loading_name, \
                 patch("utils.core.mod_historic.write_historic_mod"), \
                 patch("utils.core.historic.write_historic_entry"), \
@@ -208,15 +205,14 @@ class SavedLtkModInjectionTests(CustomModInjectionCase):
 
         selection = self.saved_custom_mod(**facts.to_manifest())
 
-        self.assertEqual(selection["mod_folder_name"], ltk_ref(SKIN_ID))
-        self.assertEqual((selection["ltk_id"], selection["facts"]), (SKIN_ID, facts.to_manifest()))
+        self.assertEqual(selection["source"], LtkEntry(SKIN_ID, facts))
         self.assertEqual(selection["relative_path"], "skins/103000/Mod.fantome")
 
     def test_a_saved_custom_mod_still_named_by_the_zip_rose_kept_is_restored(self):
         """A selection the migration could not rename names the .zip Rose kept of the mod"""
         selection = self.saved_custom_mod(historic="skins/103000/Mod.zip", copy="Mod.zip")
 
-        self.assertEqual((selection["ltk_id"], selection["mod_folder_name"]), (SKIN_ID, ltk_ref(SKIN_ID)))
+        self.assertEqual(selection["source"], LtkEntry(SKIN_ID))
         self.assertEqual(selection["relative_path"], "skins/103000/Mod.fantome")
 
     def test_a_saved_custom_mod_ltk_manager_lost_is_not_restored(self):

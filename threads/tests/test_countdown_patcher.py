@@ -1,8 +1,10 @@
 import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from injection.mods.mod_source import RoseFile
 from state import SharedState
 from threads.handlers.injection_trigger import InjectionTrigger
 from threads.utilities import loadout_ticker
@@ -95,7 +97,7 @@ class CountdownPatcherTests(unittest.TestCase):
         self.state.skin_write_ms = 300
 
         def select_a_map(*_):
-            self.state.selected_map_mod = {"mod_path": "C:/mods/maps/Rift.fantome", "mod_folder_name": "Rift"}
+            self.state.selected_map_mod = {"source": RoseFile(Path("C:/mods/maps/Rift.fantome"), "Rift")}
             return "plan"
 
         self.ticker.injection_trigger.staging_plan.side_effect = select_a_map

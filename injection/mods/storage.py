@@ -44,6 +44,7 @@ from .manifest import _STORAGE_LOCK
 from .manifest import SavedMod, normalize_target_ids
 from .mod_facts import ModFacts, compute_mod_facts
 from .mod_files import ModFiles
+from .mod_source import ModSource
 
 log = get_logger()
 
@@ -108,16 +109,8 @@ class SkinModEntry:
     description: Optional[str] = None
     target_skin_ids: tuple[int, ...] = ()
     display_name: Optional[str] = None
-    ltk_id: Optional[str] = None
-    missing: bool = False  # the last sync found LTK Manager's entry gone
-    stored: Optional[Path] = None  # Rose's copy, if there is one
-    facts: Optional[ModFacts] = None
+    source: Optional[ModSource] = None  # where an injection takes it from (SavedMod.source)
     image_files: tuple[Path, ...] = ()  # where its preview image is (SavedMod.image_paths)
-
-    @property
-    def pending(self) -> bool:
-        """Still Rose's to move into LTK Manager (SavedMod.pending)."""
-        return self.ltk_id is None and self.stored is not None
 
 
 class ModStorageService:
@@ -858,10 +851,7 @@ class ModStorageService:
                 description=self._read_mod_description(mod),
                 target_skin_ids=mod.target_skin_ids,
                 display_name=mod.display_name,
-                ltk_id=mod.ltk_id,
-                missing=mod.missing,
-                stored=mod.stored,
-                facts=mod.facts,
+                source=mod.source,
                 image_files=mod.image_paths(),
             )
             for mod in saved_manifest.iter_saved_mods(self.mods_root, self.CATEGORY_SKINS, champion_id=champion_id_int)
@@ -881,10 +871,9 @@ class ModStorageService:
     def list_mods_for_category(self, category: str) -> List[dict]:
         """The mods saved in a category, as its manifest lists them (no mod
         file is opened): id and path (the mod's identity), name, displayName,
-        updatedAt, description, and where the mod is: ltkId, missing (LTK
-        Manager lost it: listed so it can be deleted, never selected),
-        pending (Rose still holds it) and facts (ModFacts.to_manifest(), None
-        when unknown)."""
+        updatedAt, description, where the mod is (its source's plugin_fields:
+        ltkId, missing, pending) and facts (ModFacts.to_manifest(), None when
+        unknown)."""
         if category not in self.MOD_CATEGORIES:
             return []
         with self._storage_lock:
@@ -896,9 +885,7 @@ class ModStorageService:
                     "path": mod.relative_path,
                     "updatedAt": mod.updated_at,
                     "description": self._read_mod_description(mod),
-                    "ltkId": mod.ltk_id,
-                    "missing": mod.missing,
-                    "pending": mod.pending,
+                    **mod.source.plugin_fields(),
                     "facts": mod.facts.to_manifest() if mod.facts else None,
                 }
                 for mod in saved_manifest.iter_saved_mods(self.mods_root, category)
