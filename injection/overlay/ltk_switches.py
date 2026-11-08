@@ -105,7 +105,8 @@ class SavedModSwitches:
     def changes(session: LtfSession, ltk_ids: List[str]) -> Tuple[List[str], List[str]]:
         """(the entries to switch on, those to switch off) for the session's
         saved mods to be exactly *ltk_ids*."""
-        on = [ltk_id for ltk_id in ltk_ids if ltk_id not in session.switched_on]
+        on = [ltk_id for ltk_id in ltk_ids
+              if ltk_id not in session.switched_on or ltk_id in session.switch_on_unconfirmed]
         off = [ltk_id for ltk_id in session.switched_on if ltk_id not in ltk_ids]
         return on, off
 
@@ -130,9 +131,10 @@ class SavedModSwitches:
         Each switch-on holds the session's lock, which LtfHost.end takes to
         end it: a session that ended (a discard while this read the library)
         switches nothing on, and one ending after sees the entry to switch off.
-        One that fails to switch on is not counted as on, so the next install
-        of the session switches it on again; its journal record stays, so a
-        next session's start switches it off had LTK Manager applied it anyway.
+        One whose switch-on failed may still have been applied by LTK Manager:
+        it stays among the session's switched-on entries, so deselecting it or
+        ending the session switches it off, and is marked unconfirmed, so the
+        next install of the session switches it on again.
         """
         entries = {str(entry.get("id")): entry for entry in library or () if entry.get("id")}
         for ltk_id in off:
@@ -152,8 +154,9 @@ class SavedModSwitches:
                 try:
                     session.bridge.toggle(ltk_id, True)
                 except (BridgeUnavailable, BridgeCommandError):
-                    session.switched_on.pop(ltk_id, None)
+                    session.switch_on_unconfirmed.add(ltk_id)
                     raise
+                session.switch_on_unconfirmed.discard(ltk_id)
             if ltk_id in entries:
                 entries[ltk_id]["enabled"] = True
             log.info(f"[INJECT] Switched on {name} in LTK Manager (a saved mod)")
@@ -172,5 +175,6 @@ class SavedModSwitches:
         name = session.switched_on.get(ltk_id, ltk_id)
         session.bridge.toggle(ltk_id, False)
         session.switched_on.pop(ltk_id, None)
+        session.switch_on_unconfirmed.discard(ltk_id)
         self._forget([ltk_id])
         log.debug(f"[INJECT] Switched off {name} in LTK Manager")

@@ -223,6 +223,7 @@ class LtfSession:
     imports: Dict[LibraryId, TrackedImport] = field(default_factory=dict)
     user_mods_turned_off: List[LibraryId] = field(default_factory=list)
     switched_on: LibraryNames = field(default_factory=dict)
+    switch_on_unconfirmed: Set[LibraryId] = field(default_factory=set)
     saved_mod_ids: Set[LibraryId] = field(default_factory=set)
     start_log_tail: Optional[LtkLogTail] = None
     lock: threading.Lock = field(default_factory=threading.Lock)
