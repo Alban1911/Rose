@@ -6,7 +6,7 @@ import configparser
 
 from config import read_config_file
 from subclient import frontend
-from subclient.__main__ import disable_analytics
+from subclient.__main__ import claim_profile, disable_analytics, rose_environment
 from subclient.tests.test_wad import build_wad
 
 PLUGINS = [
@@ -63,6 +63,13 @@ class FrontendTests(unittest.TestCase):
         self.assertRegex(html, r"<script src='/fe/plugin-runner/rcp-fe-plugin-runner\.js\?t=\d+'></script></body></html>$")
         self.assertNotIn('"</script>"', html)
 
+    def test_an_unreadable_wad_only_hides_its_own_files(self):
+        (self.league / "Plugins" / "rcp-fe-lol-champ-select" / "assets.wad").write_bytes(b"RW\x02" + bytes(300))
+        self.assertIsNone(self.assets.read("lol-champ-select", "sounds/click.ogg"))
+        self.assertEqual(self.assets.read("common-libs", "rcp-fe-common-libs.js"), b"libs")
+        frontend.build_bootstrap(self.frontend, self.assets, title="t", websocket_url="ws://127.0.0.1:1/",
+                                 rose_plugins=[], config={})
+
     def test_disabled_plugins_are_not_loaded(self):
         plugins = self.league / "plugins"
         for name, entry in (("ROSE-UI", "index.js"), ("ROSE-Jade", "index.js_")):
@@ -81,6 +88,21 @@ class ProfileTests(unittest.TestCase):
             read_config_file(config, path)
             self.assertEqual(config.get("General", "analytics_enabled"), "false")
             self.assertEqual(config.get("General", "clientPath"), "C:\\League")
+
+    def test_one_launcher_per_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = claim_profile(Path(tmp))
+            self.assertIsNotNone(first)
+            self.assertIsNone(claim_profile(Path(tmp)))
+            first.close()
+            again = claim_profile(Path(tmp))
+            self.assertIsNotNone(again)
+            again.close()
+
+    def test_rose_logs_in_utf8(self):
+        env = rose_environment(Path("data"), Path("lockfile"))
+        self.assertEqual(env["PYTHONIOENCODING"], "utf-8")
+        self.assertEqual(env["ROSE_SUBCLIENT"], "1")
 
 
 if __name__ == "__main__":

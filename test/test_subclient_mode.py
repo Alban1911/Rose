@@ -1,7 +1,9 @@
 """A sub-client's Rose (python -m subclient) keeps off what belongs to the real client."""
 
 import os
+import socket
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -22,9 +24,13 @@ import main as rose_main
 import utils.integration.pengu_loader as pengu_loader
 from injection.core import manager as injection_manager
 from injection.game import game_monitor
+from config import SINGLE_INSTANCE_MUTEX_NAME
 from lcu.core import lockfile
 from lcu.core.lcu_connection import LCUConnection
 from main.core import lockfile as single_instance
+from pengu.communication.message_handler import MessageHandler
+from pengu.core import skin_monitor
+from pengu.core.websocket_server import WebSocketServer
 
 
 class SubclientModeTests(unittest.TestCase):
@@ -48,6 +54,35 @@ class SubclientModeTests(unittest.TestCase):
             names.add(single_instance.single_instance_mutex_name())
         self.assertEqual(len(names), 3)
 
+    def test_other_roses_keep_the_one_mutex(self):
+        for data_dir in ('', str(self.dir / 'a')):
+            with patch.dict(os.environ, {'ROSE_SUBCLIENT': '', 'ROSE_DATA_DIR': data_dir}):
+                self.assertEqual(single_instance.single_instance_mutex_name(), SINGLE_INSTANCE_MUTEX_NAME)
+
+    def test_bridge_stays_off_the_ports_the_real_clients_plugins_search(self):
+        searched = range(skin_monitor.BRIDGE_FIRST_PORT, skin_monitor.BRIDGE_FIRST_PORT + skin_monitor.BRIDGE_PORT_COUNT)
+        self.assertNotIn(skin_monitor.pick_bridge_port(), searched)
+        with patch.dict(os.environ, {'ROSE_SUBCLIENT': ''}):
+            self.assertIn(skin_monitor.pick_bridge_port(), searched)
+
+    def test_bridge_announces_only_a_listening_port(self):
+        with socket.socket() as taken, socket.socket() as probe:
+            taken.bind(('127.0.0.1', 0))
+            taken.listen()
+            probe.bind(('127.0.0.1', 0))
+            free = probe.getsockname()[1]
+            probe.close()
+            for port, expected in ((taken.getsockname()[1], []), (free, [True])):
+                announced = []
+                server = WebSocketServer(port=port, on_listening=lambda: announced.append(True))
+                thread = threading.Thread(target=server.run, daemon=True)
+                thread.start()
+                while thread.is_alive() and not server.ready_event.wait(0.05):
+                    pass
+                server.stop()
+                thread.join(5)
+                self.assertEqual(announced, expected)
+
     def test_never_looks_for_the_real_client(self):
         with patch.object(lockfile.psutil, 'process_iter') as scan:
             self.assertIsNone(lockfile.find_lockfile())
@@ -62,12 +97,30 @@ class SubclientModeTests(unittest.TestCase):
         self.assertEqual(connection.websocket_credentials(), (5555, 'key', 'http'))
 
     def test_leaves_the_pengu_hook_alone(self):
-        with patch.object(pengu_loader, '_run_cli_result') as cli, \
+        state = self.dir / 'state'
+        with patch.object(pengu_loader, '_SESSION_FILE', state / 'pengu_session.json'), \
+                patch.object(pengu_loader, '_ACTIVE_FLAG', state / 'pengu_active.flag'), \
+                patch.object(pengu_loader, '_CONFIG_FILE', self.dir / 'config.ini'), \
+                patch.object(pengu_loader, '_run_cli_result') as cli, \
                 patch.object(pengu_loader, 'restart_client') as restart:
             self.assertTrue(pengu_loader.activate_on_start('C:/League'))
             pengu_loader.ensure_active_for_client()
         cli.assert_not_called()
         restart.assert_not_called()
+        self.assertFalse(state.exists())
+
+    def test_never_opens_pengu_loader(self):
+        handler = MessageHandler.__new__(MessageHandler)
+        exe = self.dir / 'Pengu Loader.exe'
+        exe.write_bytes(b'')
+        with patch.object(pengu_loader, 'PENGU_EXE', exe), patch('subprocess.Popen') as popen:
+            handler._handle_open_pengu_loader_ui({})
+        popen.assert_not_called()
+
+    def test_never_relaunches_itself(self):
+        with patch('subprocess.Popen') as popen:
+            self.assertFalse(rose_main._schedule_restart())
+        popen.assert_not_called()
 
     def test_never_starts_injection(self):
         manager = injection_manager.InjectionManager.__new__(injection_manager.InjectionManager)

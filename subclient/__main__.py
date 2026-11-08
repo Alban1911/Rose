@@ -8,6 +8,7 @@ lockfile through which its Rose reaches the sub-client.
 import argparse
 import asyncio
 import configparser
+import ctypes
 import logging
 import os
 import secrets
@@ -19,6 +20,7 @@ import webbrowser
 from pathlib import Path
 from typing import List, Optional
 
+import aiohttp
 from aiohttp import web
 
 from .server import LcuEndpoint, SubclientServer
@@ -28,6 +30,9 @@ log = logging.getLogger("subclient")
 REPO = Path(__file__).resolve().parent.parent
 _ROSE_START_TIMEOUT_S = 120.0
 _ENDPOINT_CACHE_S = 2.0
+_KILL_ON_JOB_CLOSE = 0x2000
+_JOB_EXTENDED_LIMITS = 9
+_PROCESS_SET_QUOTA_AND_TERMINATE = 0x0101
 _LINKED_READ_ONLY_LIBRARIES = ("skins", "classic")
 _COPIED_LIBRARIES = ("resources",)
 
@@ -37,6 +42,7 @@ class RealClient:
 
     def __init__(self, lockfile: Optional[str]):
         self._lockfile = lockfile
+        self._found: Optional[str] = None
         self._cached: Optional[LcuEndpoint] = None
         self._checked = -_ENDPOINT_CACHE_S
         self._lock = asyncio.Lock()
@@ -50,9 +56,68 @@ class RealClient:
 
     def _discover(self) -> Optional[LcuEndpoint]:
         from lcu.core.lockfile import find_lockfile, find_process_credentials, parse_lockfile
-        path = find_lockfile(self._lockfile)
-        data = (parse_lockfile(path) if path else None) or find_process_credentials()
+        # Searching can mean a process scan, so the lockfile once found is just re-read
+        data = parse_lockfile(self._found) if self._found else None
+        if data is None:
+            self._found = find_lockfile(self._lockfile)
+            data = (parse_lockfile(self._found) if self._found else None) or find_process_credentials()
         return LcuEndpoint(data.pid, data.port, data.password) if data else None
+
+
+class _BasicLimits(ctypes.Structure):
+    _fields_ = [("per_process_time", ctypes.c_int64), ("per_job_time", ctypes.c_int64),
+                ("flags", ctypes.c_uint32), ("min_working_set", ctypes.c_size_t),
+                ("max_working_set", ctypes.c_size_t), ("process_limit", ctypes.c_uint32),
+                ("affinity", ctypes.c_size_t), ("priority", ctypes.c_uint32), ("scheduling", ctypes.c_uint32)]
+
+
+class _ExtendedLimits(ctypes.Structure):
+    _fields_ = [("basic", _BasicLimits), ("io", ctypes.c_uint64 * 6), ("process_memory", ctypes.c_size_t),
+                ("job_memory", ctypes.c_size_t), ("peak_process_memory", ctypes.c_size_t),
+                ("peak_job_memory", ctypes.c_size_t)]
+
+
+class ChildJob:
+    """Ends the processes added to it when this launcher ends, even when it's killed."""
+
+    def __init__(self):
+        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True) if sys.platform == "win32" else None
+        self._job = None
+        if self._kernel32 is None:
+            return
+        k = self._kernel32
+        k.CreateJobObjectW.restype = ctypes.c_void_p
+        k.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        k.OpenProcess.restype = ctypes.c_void_p
+        k.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        k.CloseHandle.argtypes = [ctypes.c_void_p]
+        job = k.CreateJobObjectW(None, None)
+        limits = _ExtendedLimits()
+        limits.basic.flags = _KILL_ON_JOB_CLOSE
+        if job and k.SetInformationJobObject(job, _JOB_EXTENDED_LIMITS, ctypes.byref(limits), ctypes.sizeof(limits)):
+            self._job = job
+
+    def add(self, process: subprocess.Popen) -> None:
+        if self._job is None:
+            return
+        handle = self._kernel32.OpenProcess(_PROCESS_SET_QUOTA_AND_TERMINATE, False, process.pid)
+        if not handle or not self._kernel32.AssignProcessToJobObject(self._job, handle):
+            log.warning("PID %s won't be stopped if this launcher is killed", process.pid)
+        if handle:
+            self._kernel32.CloseHandle(handle)
+
+
+def claim_profile(profile: Path):
+    """Lock the profile for this launcher: an open file, or None if another launcher holds it."""
+    import msvcrt
+    handle = open(profile / "launcher.lock", "a+b")
+    try:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        handle.close()
+        return None
+    return handle
 
 
 def find_league_dir(explicit: Optional[str], lockfile: Optional[str]) -> Optional[Path]:
@@ -116,7 +181,9 @@ def browser_command(browser: str, profile: Path, url: str, headless: bool, devto
 
 def rose_environment(data_dir: Path, lockfile: Path) -> dict:
     env = dict(os.environ)
-    env.update({"ROSE_SUBCLIENT": "1", "ROSE_DATA_DIR": str(data_dir), "LCU_LOCKFILE": str(lockfile)})
+    env.update({"ROSE_SUBCLIENT": "1", "ROSE_DATA_DIR": str(data_dir), "LCU_LOCKFILE": str(lockfile),
+                # Its console goes to a file, which would otherwise drop every line with a ✓ or a non-Latin name
+                "PYTHONIOENCODING": "utf-8"})
     return env
 
 
@@ -145,7 +212,15 @@ async def run(args: argparse.Namespace) -> int:
     profile = Path(args.profile).resolve() if args.profile else REPO / ".rose-dev"
     data_dir = profile / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
+    claim = claim_profile(profile)
+    if claim is None:
+        log.error("A sub-client already runs from %s: stop it first", profile)
+        return 1
+    with claim:
+        return await _serve(args, profile, data_dir)
 
+
+async def _serve(args: argparse.Namespace, profile: Path, data_dir: Path) -> int:
     client = RealClient(args.lockfile)
     real = await client.endpoint()
     if real is None:
@@ -168,9 +243,15 @@ async def run(args: argparse.Namespace) -> int:
                              plugins_dir=REPO / "Pengu Loader" / "plugins",
                              bridge_port_file=bridge_port_file, token=token, title=title)
     runner = web.AppRunner(server.make_app(), access_log=None)
+    try:
+        await runner.setup()
+    except (RuntimeError, ValueError, aiohttp.ClientError) as e:
+        log.error("Could not read the League client's plugins: %s", e)
+        await runner.cleanup()
+        return 1
+    jobs = ChildJob()
     rose = browser = None
     rose_log = None
-    await runner.setup()
     try:
         site = web.TCPSite(runner, "127.0.0.1", args.port)
         await site.start()
@@ -182,6 +263,7 @@ async def run(args: argparse.Namespace) -> int:
         if not args.no_rose:
             rose_log = open(profile / "rose-console.log", "w", encoding="utf-8")
             rose = start_rose(data_dir, lockfile, bridge_port_file, rose_log)
+            jobs.add(rose)
             log.info("Started Rose (PID %s), data in %s", rose.pid, data_dir)
             if not await _wait_for_bridge(bridge_port_file, rose):
                 log.error("Rose did not start its bridge; see %s and %s", profile / "rose-console.log", data_dir / "logs")
@@ -193,6 +275,7 @@ async def run(args: argparse.Namespace) -> int:
             path = find_browser(args.browser)
             if path:
                 browser = subprocess.Popen(browser_command(path, profile / "browser", url, args.headless, args.devtools_port))
+                jobs.add(browser)
             else:
                 log.warning("No Chrome or Edge found, opening the default browser (shares its profile)")
                 webbrowser.open(url)

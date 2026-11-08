@@ -29,6 +29,7 @@ from utils.core.paths import get_user_data_dir, get_asset_path, get_injection_di
 from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
 from utils.core.junction import is_junction, safe_remove_entry, link_or_extract
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
+from utils.core.subclient import is_subclient
 from utils.core.utilities import get_base_skin_id_for_chroma
 from ui.handlers.randomization_handler import cancel_random_mode_for_selection
 from utils.system.admin_utils import (
@@ -2988,6 +2989,10 @@ class MessageHandler:
     
     def _handle_open_pengu_loader_ui(self, payload: dict) -> None:
         """Handle open Pengu Loader UI request"""
+        if is_subclient():
+            # Its window can switch the machine-wide Pengu hook to this worktree
+            log.info("[SkinMonitor] A sub-client's Rose doesn't open Pengu Loader")
+            return
         try:
             from utils.integration.pengu_loader import PENGU_DIR, PENGU_EXE
             

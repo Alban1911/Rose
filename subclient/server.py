@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import hmac
 import json
 import logging
@@ -15,7 +16,6 @@ from . import frontend
 
 log = logging.getLogger("subclient")
 
-COOKIE = "rose_subclient"
 _READ_METHODS = frozenset({"GET", "HEAD"})
 _QUIET_WRITES = ("/telemetry/", "/tracing/")
 # WAMP 1 messages a viewer may send: PREFIX, SUBSCRIBE, UNSUBSCRIBE
@@ -54,16 +54,21 @@ def is_read_request(method: str) -> bool:
     return method.upper() in _READ_METHODS
 
 
+def _same(given: str, expected: str) -> bool:
+    return hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+
+
 def screen_wamp(message: str) -> Tuple[bool, Optional[str]]:
-    """For a WAMP message from the UI or Rose: (send it to the real client?, reply instead)."""
+    """For a WAMP message from the UI or Rose: (send to the real client?, the message to send or reply)."""
     try:
         data = json.loads(message)
     except ValueError:
         return False, None
-    if not isinstance(data, list) or not data:
+    if not isinstance(data, list) or not data or type(data[0]) is not int:
         return False, None
     if data[0] in _WAMP_ALLOWED:
-        return True, None
+        # What was screened is what the real client gets
+        return True, json.dumps(data)
     if data[0] == _WAMP_CALL and len(data) >= 2:
         return False, json.dumps([_WAMP_CALLERROR, data[1], "rose-subclient:read-only", _READ_ONLY])
     return False, None
@@ -82,6 +87,8 @@ class SubclientServer:
         self._plugins_dir = Path(plugins_dir).resolve()
         self._bridge_port_file = Path(bridge_port_file)
         self._token = token
+        # Cookies ignore ports, so each sub-client's cookie has its own name
+        self.cookie = "rose_subclient_" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
         self._title = title
         self._session: Optional[aiohttp.ClientSession] = None
         self._frontend = []
@@ -128,23 +135,27 @@ class SubclientServer:
             return json.loads(await r.read())
 
     def _is_authorized(self, request: web.Request) -> bool:
-        cookie = request.cookies.get(COOKIE, "")
-        if cookie and hmac.compare_digest(cookie, self._token):
+        cookie = request.cookies.get(self.cookie, "")
+        if cookie and _same(cookie, self._token):
             return True
         expected = "Basic " + base64.b64encode(f"riot:{self._token}".encode("utf-8")).decode("ascii")
-        return hmac.compare_digest(request.headers.get("Authorization", ""), expected)
+        return _same(request.headers.get("Authorization", ""), expected)
 
     @web.middleware
     async def _authorize(self, request: web.Request, handler):
         key = request.query.get("key")
         if key is not None and request.path in ("/bootstrap.html", "/index.html"):
-            if not hmac.compare_digest(key, self._token):
+            if not _same(key, self._token):
                 return web.Response(status=401, text="Wrong sub-client key")
             response = web.Response(status=302, headers={"Location": "/bootstrap.html"})
-            response.set_cookie(COOKIE, self._token, httponly=True, samesite="Strict", path="/")
+            response.set_cookie(self.cookie, self._token, httponly=True, samesite="Strict", path="/")
             return response
         if not self._is_authorized(request):
             return web.Response(status=401, text="Open the sub-client from the URL python -m subclient printed")
+        # Pages on other local ports share the cookie, and WebSockets skip CORS
+        origin = request.headers.get("Origin")
+        if origin and origin != f"http://{request.host}" and request.headers.get("Upgrade", "").lower() == "websocket":
+            return web.Response(status=403, text="Wrong origin")
         return await handler(request)
 
     def _bridge_port(self) -> Optional[int]:
@@ -195,6 +206,7 @@ class SubclientServer:
                                       "message": "The League client is not running"}, status=503)
         headers = {name: request.headers[name] for name in _REQUEST_HEADERS if name in request.headers}
         headers["Authorization"] = endpoint.authorization
+        response = None
         try:
             async with self._session.request(request.method, endpoint.base + request.rel_url.raw_path_qs,
                                              headers=headers, allow_redirects=False) as upstream:
@@ -207,6 +219,12 @@ class SubclientServer:
                 await response.write_eof()
                 return response
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            if response is not None and response.prepared:
+                # The status is already sent, so a cut connection is the only honest answer
+                log.debug("LCU request %s broke off: %s", request.path, e)
+                if request.transport is not None:
+                    request.transport.close()
+                return response
             log.debug("LCU request %s failed: %s", request.path, e)
             return web.json_response({"errorCode": "RPC_ERROR", "httpStatus": 502,
                                       "message": f"The League client did not answer: {e}"}, status=502)
@@ -217,8 +235,9 @@ class SubclientServer:
             return web.Response(status=503, text="The League client is not running")
         client = web.WebSocketResponse(protocols=("wamp",), max_msg_size=0)
         await client.prepare(request)
-        connector = aiohttp.TCPConnector(ssl=False, force_close=True)
-        async with aiohttp.ClientSession(connector=connector) as session:
+        session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False, force_close=True))
+        upstream = relay = None
+        try:
             try:
                 upstream = await session.ws_connect(
                     endpoint.ws_url,
@@ -228,20 +247,30 @@ class SubclientServer:
                 log.debug("LCU WebSocket failed: %s", e)
                 await client.close(code=1011, message=b"The League client did not answer")
                 return client
-            async with upstream:
-                relay = asyncio.create_task(self._relay_events(upstream, client))
-                try:
-                    async for message in client:
-                        if message.type != aiohttp.WSMsgType.TEXT:
-                            continue
-                        forward, reply = screen_wamp(message.data)
-                        if forward:
-                            await upstream.send_str(message.data)
-                        elif reply:
-                            await client.send_str(reply)
-                finally:
-                    relay.cancel()
+            relay = asyncio.create_task(self._relay_events(upstream, client))
+            async for message in client:
+                if message.type != aiohttp.WSMsgType.TEXT:
+                    continue
+                forward, text = screen_wamp(message.data)
+                if forward:
+                    await upstream.send_str(text)
+                elif text:
+                    await client.send_str(text)
+        finally:
+            # A UI that hangs up cancels this handler, and the real client's socket must close anyway
+            await asyncio.shield(self._hang_up(session, upstream, relay))
         return client
+
+    @staticmethod
+    async def _hang_up(session: aiohttp.ClientSession, upstream, relay: Optional[asyncio.Task]) -> None:
+        if relay is not None:
+            relay.cancel()
+            await asyncio.wait([relay])
+            if not relay.cancelled() and relay.exception():
+                log.debug("LCU event relay failed: %s", relay.exception())
+        if upstream is not None:
+            await upstream.close()
+        await session.close()
 
     @staticmethod
     async def _relay_events(upstream, client: web.WebSocketResponse) -> None:

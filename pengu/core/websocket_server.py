@@ -39,6 +39,7 @@ class WebSocketServer:
         port: Optional[int] = None,
         message_handler: Optional[Callable[[str], None]] = None,
         http_handler: Optional[Callable[[str, dict], Optional[tuple]]] = None,
+        on_listening: Optional[Callable[[], None]] = None,
     ):
         """Initialize WebSocket server
         
@@ -47,11 +48,13 @@ class WebSocketServer:
             port: Server port (will find free port if None)
             message_handler: Callback for handling WebSocket messages
             http_handler: Callback for handling HTTP requests
+            on_listening: Called once the port is bound
         """
         self.host = host
         self.port = port or 50000  # Default port if not specified (high port range like LCU)
         self.message_handler = message_handler
         self.http_handler = http_handler
+        self.on_listening = on_listening
         
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._server = None
@@ -103,6 +106,8 @@ class WebSocketServer:
                 self.host,
                 self.port,
             )
+            if self.on_listening:
+                self.on_listening()
             self.ready_event.set()
             self._last_beat = time.monotonic()
             self._heartbeat_task = self._loop.create_task(self._heartbeat())

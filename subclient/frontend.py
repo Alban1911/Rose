@@ -1,9 +1,12 @@
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from .wad import WadArchive
+from .wad import WadArchive, WadError
+
+log = logging.getLogger("subclient")
 
 RUNNER = "rcp-fe-plugin-runner"
 
@@ -86,6 +89,7 @@ class FrontendAssets:
             ]
             for p in frontend
         }
+        self._unreadable = set()
         self._folders = ["global/default"]
         if locale:
             self._folders += [f"global/{locale.lower()}", locale.lower()]
@@ -95,12 +99,17 @@ class FrontendAssets:
         if full is None or not relative or ".." in relative.split("/"):
             return None
         for wad in self._wads.get(full, []):
-            if not wad.path.is_file():
+            if not wad.path.is_file() or wad.path in self._unreadable:
                 continue
             for folder in self._folders:
                 path = f"plugins/{full}/{folder}/{relative}"
-                if wad.contains(path):
-                    return wad, path
+                try:
+                    if wad.contains(path):
+                        return wad, path
+                except (OSError, WadError) as e:
+                    log.warning("Skipping %s: %s", wad.path, e)
+                    self._unreadable.add(wad.path)
+                    break
         return None
 
     def has(self, short_name: str, relative: str) -> bool:

@@ -615,6 +615,10 @@ def _schedule_restart() -> bool:
     import subprocess
     import tempfile
 
+    if is_subclient():
+        log.info("A sub-client's Rose doesn't restart itself: run python -m subclient again")
+        return False
+
     try:
         pid = os.getpid()
         if getattr(sys, 'frozen', False):

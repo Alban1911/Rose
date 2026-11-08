@@ -14,6 +14,7 @@ from pathlib import Path
 
 from utils.core.logging import get_logger
 from utils.core.paths import data_dir_override, get_state_dir
+from utils.core.subclient import is_subclient
 from config import SINGLE_INSTANCE_MUTEX_NAME, LOCK_FILE_NAME
 
 from .state import get_app_state
@@ -164,9 +165,9 @@ def create_lock_file() -> bool:
 
 
 def single_instance_mutex_name() -> str:
-    """One mutex per data folder: Roses with their own folders run side by side."""
+    """Sub-clients' Roses have one mutex per data folder, so they run side by side."""
     override = data_dir_override()
-    if override is None:
+    if override is None or not is_subclient():
         return SINGLE_INSTANCE_MUTEX_NAME
     digest = hashlib.sha256(os.path.normcase(str(override)).encode("utf-8")).hexdigest()[:16]
     return f"{SINGLE_INSTANCE_MUTEX_NAME}-{digest}"

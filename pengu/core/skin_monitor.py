@@ -15,6 +15,7 @@ import logging
 import threading
 from typing import Optional
 
+from utils.core.subclient import is_subclient
 from utils.core.utilities import find_free_port, write_bridge_port, delete_bridge_port_file
 
 from .websocket_server import WebSocketServer
@@ -35,6 +36,17 @@ logging.getLogger("websockets.protocol").setLevel(logging.WARNING)
 # the same ones (DISCOVERY_*_PORT in ROSE-SkinMonitor and ROSE-PartyMode)
 BRIDGE_FIRST_PORT = 50000
 BRIDGE_PORT_COUNT = 100
+# A sub-client's Rose stays out of that range, so the real client's plugins never find it
+SUBCLIENT_BRIDGE_FIRST_PORT = BRIDGE_FIRST_PORT + BRIDGE_PORT_COUNT
+
+
+def pick_bridge_port() -> int:
+    first = SUBCLIENT_BRIDGE_FIRST_PORT if is_subclient() else BRIDGE_FIRST_PORT
+    port = find_free_port(start_port=first, max_attempts=BRIDGE_PORT_COUNT)
+    if port is None:
+        log.error("[SkinMonitor] Failed to find a free port, using default %s", first)
+        return first
+    return port
 
 
 class PenguSkinMonitorThread(threading.Thread):
@@ -59,19 +71,7 @@ class PenguSkinMonitorThread(threading.Thread):
         self.injection_manager = injection_manager
         self.host = host
         
-        # Find free port if not specified (use high port range like LCU)
-        if port is None:
-            free_port = find_free_port(start_port=BRIDGE_FIRST_PORT, max_attempts=BRIDGE_PORT_COUNT)
-            if free_port is None:
-                log.error("[SkinMonitor] Failed to find a free port, using default 50000")
-                self.port = 50000
-            else:
-                self.port = free_port
-        else:
-            self.port = port
-        
-        # Write port to file for plugin discovery
-        write_bridge_port(self.port)
+        self.port = pick_bridge_port() if port is None else port
 
         # Initialize modules
         self.skin_mapping = SkinMapping(shared_state)
@@ -88,6 +88,8 @@ class PenguSkinMonitorThread(threading.Thread):
             port=self.port,
             message_handler=self._handle_message,
             http_handler=self.http_handler.handle_request,
+            # Plugins find the port through this file, so it names only a port that is listening
+            on_listening=lambda: write_bridge_port(self.port),
         )
         
         # Initialize broadcaster
