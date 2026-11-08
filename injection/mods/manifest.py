@@ -355,7 +355,7 @@ def _updated_at(metadata: Mapping) -> float:
     return 0.0
 
 
-def _directory_mods(directory: _Directory) -> List[SavedMod]:
+def _directory_mods(directory: _Directory, match_content: bool = True) -> List[SavedMod]:
     payload = _read_directory_manifest(directory) or {}
     entries = _entries(directory, payload)
     default_targets: tuple[int, ...] = ()
@@ -376,7 +376,7 @@ def _directory_mods(directory: _Directory) -> List[SavedMod]:
         else:
             unmatched.append((candidate, is_dir))
 
-    if directory.kind == SKINS and unmatched:
+    if directory.kind == SKINS and unmatched and match_content:
         # A renamed mod, as the listing always matched it: never an entry LTK
         # Manager holds, so a listing of moved mods hashes nothing
         unclaimed = [entry for entry in entries if id(entry) not in stored and entry.ltk_id is None]
@@ -477,7 +477,8 @@ def _directory_of(mods_root: Path, parts: List[str]) -> Optional[_Directory]:
     return None
 
 
-def _find(mods_root: Path, relative_path: object) -> Optional[tuple[_Directory, SavedMod]]:
+def _find(mods_root: Path, relative_path: object,
+          match_content: bool = True) -> Optional[tuple[_Directory, SavedMod]]:
     wanted = _relative_identity(mods_root, relative_path)
     if wanted is None:
         return None
@@ -485,7 +486,7 @@ def _find(mods_root: Path, relative_path: object) -> Optional[tuple[_Directory, 
     if directory is None:
         return None
     folded = wanted.casefold()
-    mods = _directory_mods(directory)
+    mods = _directory_mods(directory, match_content)
     for mod in mods:
         if mod.relative_path.casefold() == folded:
             return directory, mod
@@ -498,12 +499,16 @@ def _find(mods_root: Path, relative_path: object) -> Optional[tuple[_Directory, 
     return None
 
 
-def find_saved_mod(mods_root: Path, relative_path: object) -> Optional[SavedMod]:
+def find_saved_mod(mods_root: Path, relative_path: object, *, match_content: bool = True) -> Optional[SavedMod]:
     """The saved mod known as *relative_path*, compared as Windows compares
     paths: its identity, or the other name it has had (the folder it was
     stored as before archives, <dir>/<name>; the archive it became,
-    <dir>/<name>.fantome), as selections saved by older Roses hold them."""
-    found = _find(Path(mods_root), relative_path)
+    <dir>/<name>.fantome), as selections saved by older Roses hold them.
+
+    *match_content* False never matches a renamed file to its entry by its
+    content, which reads the whole mod: such a file is then a file nobody
+    registered (listed only with its folder's default targets)."""
+    found = _find(Path(mods_root), relative_path, match_content)
     return found[1] if found else None
 
 

@@ -205,20 +205,53 @@ class CustomModsTests(unittest.TestCase):
         self.assertEqual(state["custom_mod_content_hash"], "a" * 32)
         self.assertNotIn("custom_mod_hash", state)
 
-    def test_a_renamed_pending_pick_is_matched_to_its_entry_once_until_it_changes(self):
+    def test_polling_a_renamed_pending_pick_never_reads_the_whole_mod_to_match_it(self):
+        """Party mode asks every second: matching a renamed file to its entry
+        by content would read all of it (3.5 GB for a voiceover pack)"""
         archive = self.mods_root / "skins" / "103000" / "Renamed Ahri.zip"
         self._make_archive(archive)
         self.save_mod("Original Ahri", folderHash=compute_mod_facts(archive)[1])
 
         with patch("injection.mods.manifest.compute_mod_facts", wraps=compute_mod_facts) as read_whole_mod:
             polls = [self.our_pick("skins/103000/Renamed Ahri.zip") for _ in range(3)]
-            self.assertEqual(read_whole_mod.call_count, 1)
 
-            os.utime(archive, ns=(2_000_000_000, 2_000_000_000))
-            self.our_pick("skins/103000/Renamed Ahri.zip")
-            self.assertEqual(read_whole_mod.call_count, 2)
+        read_whole_mod.assert_not_called()
+        self.assertEqual([poll["custom_mod_content_hash"] for poll in polls], [custom_mods.mod_hashes(archive)[0]] * 3)
 
-        self.assertEqual(polls[-1]["custom_mod_content_hash"], custom_mods.mod_hashes(archive)[0])
+    def test_a_change_to_the_picked_archive_is_shared_at_the_next_poll(self):
+        archive = self.mods_root / "skins" / "103000" / "Ahri.fantome"
+        self._make_archive(archive)
+        self.save_mod("Ahri")
+        before = self.our_pick("skins/103000/Ahri")  # the pick an older Rose saved: the folder it was
+
+        with zipfile.ZipFile(archive, "w") as packed:
+            packed.writestr("WAD/Ahri.wad.client", b"the mod's newer version")
+        os.utime(archive, ns=(2_000_000_000, 2_000_000_000))
+        changed = self.our_pick("skins/103000/Ahri")
+        newer_hash = custom_mods._archive_content_hash(archive)
+        archive.unlink()
+        deleted = self.our_pick("skins/103000/Ahri")
+
+        self.assertNotEqual(newer_hash, before["custom_mod_content_hash"])
+        self.assertEqual(changed["custom_mod_content_hash"], newer_hash)
+        self.assertNotIn("custom_mod_content_hash", deleted)
+
+    def test_a_manifest_read_error_shares_nothing_for_that_poll_only(self):
+        self.save_ltk_mod("LTK Ahri", "a" * 32, "5e9b2219-f49f-4cf1-bc7e-774fb43e1349")
+        real_read_text = Path.read_text
+        errors = [PermissionError(13, "The process cannot access the file")]
+
+        def read_text(path, *args, **kwargs):
+            if path.name == "rose_mod_targets.json" and errors:
+                raise errors.pop()
+            return real_read_text(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", read_text), self.assertLogs(level="WARNING"):
+            failed = self.our_pick("skins/103000/LTK Ahri.fantome")
+        recovered = self.our_pick("skins/103000/LTK Ahri.fantome")
+
+        self.assertNotIn("custom_mod_content_hash", failed)
+        self.assertEqual(recovered["custom_mod_content_hash"], "a" * 32)
 
     def test_our_pick_of_a_pending_mod_shares_the_hashes_of_its_file(self):
         archive = self.mods_root / "skins" / "103000" / "Old Ahri.zip"
