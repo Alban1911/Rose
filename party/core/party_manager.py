@@ -24,7 +24,7 @@ from utils.core.logging import get_logger
 from ..network.ws_relay import PartyRelay, compute_room_key
 from ..protocol.token_codec import PartyToken, create_token
 from ..protocol.message_types import SkinSelection
-from ..discovery.custom_mods import get_mods_root, mod_hashes
+from ..discovery.custom_mods import get_mods_root, shared_hashes
 from ..discovery.lobby_matcher import LobbyMatcher
 from ..discovery.skin_collector import SkinCollector, PartySkinData
 from .party_state import PartyState
@@ -609,7 +609,7 @@ class PartyManager:
 
         # For custom mods, share content hashes instead of the files
         if selection.custom_mod_path:
-            content_hash, legacy_hash = mod_hashes(get_mods_root() / selection.custom_mod_path)
+            content_hash, legacy_hash = shared_hashes(get_mods_root() / selection.custom_mod_path)
             if content_hash:
                 skin_state["is_custom"] = True
                 skin_state["custom_mod_content_hash"] = content_hash

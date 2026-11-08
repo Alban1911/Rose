@@ -108,6 +108,8 @@
   "Checking with LTK Manager...": "Wird mit LTK Manager geprüft...",
   "LTK Manager repaired this mod.": "LTK Manager hat diesen Mod repariert.",
   "LTK Manager repaired {name}.": "LTK Manager hat {name} repariert.",
+  "Rose adjusted this mod so LTK Manager won't treat it as a skinhack.": "Rose hat diesen Mod angepasst, damit LTK Manager ihn nicht als Skinhack einstuft.",
+  "Rose adjusted {name} so LTK Manager won't treat it as a skinhack.": "Rose hat {name} angepasst, damit LTK Manager ihn nicht als Skinhack einstuft.",
   "LTK Manager considers this mod a skinhack, so it won't be playable.": "LTK Manager stuft diesen Mod als Skinhack ein, er ist daher nicht spielbar.",
   "LTK Manager considers {name} a skinhack, so it won't be playable.": "LTK Manager stuft {name} als Skinhack ein, er ist daher nicht spielbar.",
   "LTK Manager found problems it can't repair in this mod, so it won't be playable. {reason}": "LTK Manager hat in diesem Mod Probleme gefunden, die er nicht reparieren kann, er ist daher nicht spielbar. {reason}",

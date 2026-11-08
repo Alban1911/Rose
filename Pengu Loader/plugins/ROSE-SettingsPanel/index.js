@@ -5057,6 +5057,15 @@
             ? t("LTK Manager repaired {name}.", { name: item.modName || item.fileName || "" })
             : t("LTK Manager repaired this mod."),
         })),
+      // A skin Rose wrote again so LTK Manager does not take it for a skinhack (_fix_base_skin in message_handler.py)
+      ...imported
+        .filter((item) => item && item.baseSkin)
+        .map((item) => ({
+          className: "is-repaired",
+          text: several
+            ? t("Rose adjusted {name} so LTK Manager won't treat it as a skinhack.", { name: item.modName || item.fileName || "" })
+            : t("Rose adjusted this mod so LTK Manager won't treat it as a skinhack."),
+        })),
     ];
     if (lines.length) {
       overlay.classList.add("has-notes");

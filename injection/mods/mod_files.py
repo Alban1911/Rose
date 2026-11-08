@@ -130,3 +130,38 @@ class ModFiles:
     def read(self, relative: str) -> bytes:
         with self.open(relative) as stream:
             return stream.read()
+
+    def member(self, relative: str) -> Optional[zipfile.ZipInfo]:
+        """The archive's entry for a file (None for a folder mod, or no such file)."""
+        if self._archive is None:
+            return None
+        name = self._entries.get(_key(relative))
+        return self._archive.getinfo(name) if name is not None else None
+
+    def size(self, relative: str) -> int:
+        info = self.member(relative)
+        if info is not None:
+            return info.file_size
+        if self._archive is not None:
+            raise FileNotFoundError(f"{relative} is not in {self.mod.name}")
+        return (self.mod / relative).stat().st_size
+
+    def span(self, relative: str) -> Optional[tuple]:
+        """(file, offset, size) where a file's bytes are on disk, to read them
+        in place: a folder's file, or an archive's file stored uncompressed.
+        None for a compressed or encrypted one, which only open() reads."""
+        if self._archive is None:
+            path = self.mod / relative
+            return path, 0, path.stat().st_size
+        info = self.member(relative)
+        if info is None:
+            raise FileNotFoundError(f"{relative} is not in {self.mod.name}")
+        if info.compress_type != zipfile.ZIP_STORED or info.flag_bits & 0x1:
+            return None
+        with open(self.mod, "rb") as handle:
+            handle.seek(info.header_offset)
+            header = handle.read(30)
+        if len(header) != 30 or header[:4] != b"PK\x03\x04":
+            raise zipfile.BadZipFile(f"{relative}: bad local file header in {self.mod.name}")
+        name_length, extra_length = int.from_bytes(header[26:28], "little"), int.from_bytes(header[28:30], "little")
+        return self.mod, info.header_offset + 30 + name_length + extra_length, info.file_size

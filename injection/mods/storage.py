@@ -120,6 +120,9 @@ class ModStorageService:
     TARGET_METADATA = "rose_mod_targets.json"
     LEGACY_TARGET_METADATA = "rose_wad_targets.json"
     CATEGORY_METADATA = "rose_category_mods.json"
+    # In a mod's manifest entry: what party mode shares for the mod as it was
+    # before Rose rewrote it (remember_source_hashes)
+    SOURCE_HASHES = "sourceHashes"
 
     CATEGORY_SKINS = "skins"
     CATEGORY_MAPS = "maps"
@@ -653,6 +656,7 @@ class ModStorageService:
             if mod_path is not None:
                 folder_hash, wad_hashes = self._hash_mod_folder(Path(mod_path))
                 existing_display_name = None
+                source_hashes = None
                 for key, metadata in list(mod_targets.items()):
                     if key == folder_hash or (
                         isinstance(metadata, dict)
@@ -660,6 +664,7 @@ class ModStorageService:
                     ):
                         if isinstance(metadata, dict):
                             existing_display_name = self._extract_display_name(metadata)
+                            source_hashes = metadata.get(self.SOURCE_HASHES) or source_hashes
                         mod_targets.pop(key, None)
                 entry = {
                     "name": str(mod_name),
@@ -669,6 +674,8 @@ class ModStorageService:
                 }
                 if existing_display_name:
                     entry["displayName"] = existing_display_name
+                if isinstance(source_hashes, dict):
+                    entry[self.SOURCE_HASHES] = source_hashes
                 mod_targets[folder_hash] = entry
             else:
                 mod_targets[str(mod_name)] = {
@@ -858,10 +865,107 @@ class ModStorageService:
                 mod_name=mod_name,
                 mod_path=target,
             )
-            return target, manifest_path, mod_name
         except Exception:
             self._remove_stored_mod(target)
             raise
+        # The base-skin fix and LTK Manager's repair may rewrite it next
+        self.remember_source_hashes(target)
+        return target, manifest_path, mod_name
+
+    # -- a stored mod Rose rewrote ---------------------------------------------
+    @classmethod
+    def _stored_mod_name(cls, mod_path: Path) -> str:
+        return mod_path.stem if mod_path.is_file() else mod_path.name
+
+    @classmethod
+    def manifest_entry(cls, mod_path: Path) -> Optional[dict]:
+        """A stored skin mod's entry in its folder's manifest (None when it has none)."""
+        mod_path = Path(mod_path)
+        payload = cls._load_manifest(mod_path.parent / cls.TARGET_METADATA)
+        mods = payload.get("mods") if isinstance(payload, dict) else None
+        if not isinstance(mods, dict):
+            return None
+        key = cls._entry_key(mods, cls._stored_mod_name(mod_path))
+        return mods[key] if key is not None and isinstance(mods[key], dict) else None
+
+    @staticmethod
+    def _entry_key(mods: dict, name: str) -> Optional[str]:
+        for key, metadata in mods.items():
+            if key == name or (isinstance(metadata, dict) and str(metadata.get("name") or "") == name):
+                return key
+        return None
+
+    def _edit_manifest_entry(self, mod_path: Path, edit) -> None:
+        """Apply *edit(entry, key)* to a stored skin mod's manifest entry; it
+        returns the entry's key from now on (None: nothing to write)."""
+        manifest_path = mod_path.parent / self.TARGET_METADATA
+        with self._storage_lock:
+            payload = self._load_manifest(manifest_path)
+            mods = payload.get("mods") if isinstance(payload, dict) else None
+            if not isinstance(mods, dict):
+                return
+            key = self._entry_key(mods, self._stored_mod_name(mod_path))
+            if key is None or not isinstance(mods[key], dict):
+                return
+            entry = dict(mods[key])
+            new_key = edit(entry, key)
+            if new_key is None:
+                return
+            mods.pop(key)
+            mods[new_key] = entry
+            payload["mods"] = dict(sorted(mods.items()))
+            temporary_path = manifest_path.with_name(f".{manifest_path.name}.tmp")
+            temporary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary_path.replace(manifest_path)
+            storage_id = self._to_int(mod_path.parent.name)
+            if storage_id is not None:
+                self._champion_listing_cache.pop(storage_id // 1000, None)
+
+    def remember_source_hashes(self, mod_path: Path) -> None:
+        """Keep in a stored skin mod's manifest entry the hashes party mode
+        shares for it (party.discovery.custom_mods.mod_hashes), as it is now:
+        called before Rose first rewrites the mod, so a friend's copy of the
+        mod as it came still matches. Kept once recorded."""
+        mod_path = Path(mod_path)
+        try:
+            entry = self.manifest_entry(mod_path)
+            if entry is None or isinstance(entry.get(self.SOURCE_HASHES), dict):
+                return
+            from party.discovery.custom_mods import mod_hashes
+
+            content, legacy = mod_hashes(mod_path)
+            if not content:
+                return
+            hashes = {"content": content, **({"legacy": legacy} if legacy else {})}
+
+            def edit(found: dict, key: str) -> Optional[str]:
+                if isinstance(found.get(self.SOURCE_HASHES), dict):
+                    return None
+                found[self.SOURCE_HASHES] = hashes
+                return key
+
+            self._edit_manifest_entry(mod_path, edit)
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            log.warning(f"[MODS] Could not record the hashes of {mod_path.name}: {exc}")
+
+    def refresh_mod_hashes(self, mod_path: Path) -> None:
+        """Re-record a stored skin mod's content hashes in its manifest entry
+        after Rose rewrote it: a renamed mod is found by them (_resolve_mod_metadata)."""
+        mod_path = Path(mod_path)
+        try:
+            if self.manifest_entry(mod_path) is None:
+                return
+            folder_hash, wad_hashes = self._hash_mod_folder(mod_path)
+
+            def edit(found: dict, key: str) -> Optional[str]:
+                old_hash = found.get("folderHash")
+                found["folderHash"] = folder_hash
+                found["wadHashes"] = wad_hashes
+                return folder_hash if key == old_hash else key
+
+            self._edit_manifest_entry(mod_path, edit)
+        except (OSError, ValueError) as exc:
+            log.warning(f"[MODS] Could not update the hashes of {mod_path.name}: {exc}")
 
     def _resolve_stored_mod(self, base_dir: Path, relative_path: str) -> Optional[Path]:
         """A stored mod by its relative path without the extension: its folder,

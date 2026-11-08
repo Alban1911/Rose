@@ -108,6 +108,8 @@
   "Checking with LTK Manager...": "กำลังตรวจสอบด้วย LTK Manager...",
   "LTK Manager repaired this mod.": "LTK Manager ซ่อมม็อดนี้แล้ว",
   "LTK Manager repaired {name}.": "LTK Manager ซ่อม {name} แล้ว",
+  "Rose adjusted this mod so LTK Manager won't treat it as a skinhack.": "Rose ปรับม็อดนี้เพื่อไม่ให้ LTK Manager ถือว่าเป็น skinhack",
+  "Rose adjusted {name} so LTK Manager won't treat it as a skinhack.": "Rose ปรับ {name} เพื่อไม่ให้ LTK Manager ถือว่าเป็น skinhack",
   "LTK Manager considers this mod a skinhack, so it won't be playable.": "LTK Manager ถือว่าม็อดนี้เป็น skinhack จึงเล่นไม่ได้",
   "LTK Manager considers {name} a skinhack, so it won't be playable.": "LTK Manager ถือว่า {name} เป็น skinhack จึงเล่นไม่ได้",
   "LTK Manager found problems it can't repair in this mod, so it won't be playable. {reason}": "LTK Manager พบปัญหาในม็อดนี้ที่ซ่อมไม่ได้ จึงเล่นไม่ได้ {reason}",

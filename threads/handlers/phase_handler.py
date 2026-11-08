@@ -48,6 +48,12 @@ class PhaseHandler:
         from threads.handlers.champ_select_reset import note_phase_for_reset
         note_phase_for_reset(self.state, phase)
         log.info(f"[phase] Phase transition: {previous_phase} → {phase} (swiftplay={self.state.is_swiftplay_mode}, extracted={len(self.state.swiftplay_extracted_mods)}, queue={self.state.current_queue_id})")
+        try:
+            # The stored skins not yet matched to the base skin of this patch are, while the client is idle
+            from injection.baseskin.library import on_phase as fix_stored_skins_when_idle
+            fix_stored_skins_when_idle(phase, self.injection_manager, self.state)
+        except Exception as e:  # noqa: BLE001 - phase handling goes on
+            log.warning(f"[phase] Could not start checking the stored skins against the base skin: {e}")
         if phase == "Matchmaking":
             if self.state.is_swiftplay_mode:
                 log.info("[phase] Matchmaking phase detected in Swiftplay mode - triggering injection")

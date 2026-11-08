@@ -136,6 +136,28 @@ def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
     return content_hash, legacy_hash
 
 
+def _recorded_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
+    """(content, legacy) hashes of a stored mod as it was before Rose rewrote it
+    (the base-skin fix, LTK Manager's repair: ModStorageService.remember_source_hashes)."""
+    from injection.mods.storage import ModStorageService
+
+    entry = ModStorageService.manifest_entry(mod_path)
+    hashes = entry.get(ModStorageService.SOURCE_HASHES) if entry else None
+    if not isinstance(hashes, dict):
+        return None, None
+    return hashes.get("content") or None, hashes.get("legacy") or None
+
+
+def shared_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
+    """The (content, legacy) hashes to share for a custom mod: those of the mod
+    as it was added, which a friend's copy has whatever Rose since rewrote in
+    either (its version, the game's patch), else mod_hashes."""
+    content_hash, legacy_hash = _recorded_hashes(mod_path)
+    if content_hash:
+        return content_hash, legacy_hash
+    return mod_hashes(mod_path)
+
+
 def _champion_mod_entries(champion_id: int):
     """Custom mods stored for a champion (champion folder and legacy per-skin folders)."""
     skins_dir = get_mods_root() / "skins"
@@ -172,8 +194,9 @@ def find_local_mod(
     try:
         for entry in _champion_mod_entries(int(champion_id)):
             entry_content, entry_legacy = mod_hashes(entry)
-            if (content_hash and entry_content == content_hash) or (
-                legacy_hash and entry_legacy == legacy_hash
+            source_content, source_legacy = _recorded_hashes(entry)
+            if (content_hash and content_hash in (entry_content, source_content)) or (
+                legacy_hash and legacy_hash in (entry_legacy, source_legacy)
             ):
                 return entry.relative_to(mods_root).as_posix()
     except OSError as e:
