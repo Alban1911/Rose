@@ -194,15 +194,17 @@ class SkinCheckOnImportTests(ModCheckCase):
 
     def test_the_manifest_follows_the_repair_written_into_a_custom_skin(self):
         """LTK Manager's repair rewrote Rose's file: the manifest finds it by its new hashes"""
-        def repair_into_roses_file(mod, display_name, on_kept):
+        def repair_into_roses_file(mod, display_name, on_kept=None):
             with zipfile.ZipFile(mod, "w") as archive:
                 archive.writestr("WAD/Ezreal.wad.client", b"repaired skin")
             return {"health": "repairable", "repaired": 1, "problems": []}
         self.library.check_mod.side_effect = repair_into_roses_file
+        added_hash = compute_mod_facts(self.skin)[1]
 
         self.handler()._check_imported_mods(self.skin_imported, [], MagicMock())
 
         repaired_hash = compute_mod_facts(self.skin)[1]
+        self.assertNotEqual(repaired_hash, added_hash, "the repair was written into Rose's file")
         self.assertEqual(self.saved(self.skin_path).metadata["folderHash"], repaired_hash)
         self.assertIsNotNone(self.storage.saved_mod(self.skin_path).metadata.get("sourceHashes"),
                              "what party mode shares, as the skin was added")
