@@ -11,12 +11,17 @@ PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 
 class ChampionModImageTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name).resolve()
+        self.root = self.resolved_temp_dir()
         self.service = ModStorageService(self.root / "mods")
         self.mod_folder = self.add_folder_mod(1, "Example")
         self.relative_path = self.mod_folder.relative_to(self.service.mods_root).as_posix()
+
+    def resolved_temp_dir(self) -> Path:
+        """A temporary folder, resolved as storage resolves its paths: the
+        paths the test compares are then written the same way."""
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        return Path(temporary.name).resolve()
 
     def add_folder_mod(self, champion_id, name):
         """A mod an older Rose stored as a folder, registered in its champion's manifest"""

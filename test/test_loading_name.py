@@ -347,20 +347,23 @@ class LoadingNameTests(unittest.TestCase):
         game, mods, _ = self._game_with_zed_record('fr_FR')
         key = b'game_character_displayname_Zed'
         skins_record = b'skin:' + struct.pack('<H', len(key)) + key
-        archive = self._archive(self.root / 'ltk' / 'shockblade-zed.fantome', {
+        ltk_managers_copy = self._archive(self.root / 'ltk' / 'shockblade-zed.fantome', {
             'META/info.json': '{}',
             'WAD/Zed.wad.client': make_wad(skins_record, loading_name._xxh64(b'data/characters/zed/zed.bin')),
         })
+        champions_from_its_manifest = ('Zed',)
         opened = []
-        skin = loading_name.LtkSkin(('Zed',), lambda: opened.append(archive) or archive)
+        skin = loading_name.LtkSkin(
+            champions_from_its_manifest, lambda: opened.append(ltk_managers_copy) or ltk_managers_copy
+        )
 
-        self.assertIsNone(loading_name.build(game, mods, skin, 238002))
+        self.assertIsNone(loading_name.build(game, mods, skin, 238002), "no name to show: the archive is not looked for")
         self.assertEqual(opened, [])
         name = loading_name.build(game, mods, skin, 238001)
 
         written = (mods / name / 'RAW' / 'data' / 'characters' / 'zed' / 'zed.bin').read_bytes()
         self.assertEqual(written, b'skin:' + struct.pack('<H', len(key)) + b'rose_character_displayname_Zed')
-        self.assertEqual(opened, [archive])
+        self.assertEqual(opened, [ltk_managers_copy])
 
     def test_without_ltk_managers_archive_the_games_record_is_used(self):
         game, mods, _ = self._game_with_zed_record('fr_FR')

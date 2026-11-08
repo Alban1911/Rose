@@ -73,7 +73,7 @@ class RemoveLtkModsTests(unittest.TestCase):
         remove.assert_called_once_with()
         launcher.run_launcher.assert_not_called()
         dll_check.assert_not_called()
-        start.assert_not_called()
+        self.assertFalse(start.called, "nor its single-instance check")
 
     def removing(self, **remove):
         """_remove_ltk_mods with Rose's paths and logging patched out"""

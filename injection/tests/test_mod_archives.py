@@ -409,7 +409,7 @@ class ManifestListingTests(TempCase):
     def test_a_mod_ltk_manager_holds_is_listed_without_a_file(self):
         moved = self.champion_mods()["Moved Ezreal"]
 
-        self.assertEqual(moved.path, self.ezreal / "Moved Ezreal.fantome")
+        self.assertEqual(moved.path, self.ezreal / "Moved Ezreal.fantome", "the identity selections keep")
         self.assertFalse(moved.path.exists())
         self.assertEqual(moved.source, LtkEntry(MOVED_ID, FACTS, gone_at_last_sync=False))
         self.assertEqual(moved.description, "Moved to LTK Manager")
@@ -461,7 +461,7 @@ class ManifestListingTests(TempCase):
         self.assertNotIn("Moved Ezreal", self.champion_mods())
         self.assertFalse((self.ezreal / "Moved Ezreal.png").exists())
         self.assertFalse((self.ezreal / "Moved Ezreal.txt").exists())
-        self.assertEqual(ltk_removals(self.service.mods_root), [MOVED_ID])
+        self.assertEqual(ltk_removals(self.service.mods_root), [MOVED_ID], "gone from LTK Manager at the next game")
         self.assertTrue(self.pending.exists())
 
     def test_deleting_takes_out_every_entry_under_the_mods_name(self):

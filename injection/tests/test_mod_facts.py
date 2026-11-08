@@ -19,7 +19,7 @@ from test.test_loading_name import make_wad
 PNG = b"\x89PNG\r\n\x1a\npreview"
 KO_TABLE = loading_name._xxh64(b"data/menu/ko_kr/lol.stringtable")
 
-SKIN = {
+SKIN_WITH_KOREAN_WAD = {
     "META/image.png": PNG,
     "META/info.json": json.dumps({"Name": "Shockblade Zed"}),
     "WAD/Global.ko_KR.wad.client": make_wad(b"RST", path_hash=KO_TABLE),
@@ -67,8 +67,8 @@ class ComputeFactsTests(unittest.TestCase):
         self.root = Path(temp_dir.name)
 
     def test_an_archive_and_its_folder_have_the_same_facts(self):
-        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
-        folder = make_folder(self.root / "Shockblade Zed", SKIN)
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN_WITH_KOREAN_WAD)
+        folder = make_folder(self.root / "Shockblade Zed", SKIN_WITH_KOREAN_WAD)
 
         archive_facts, archive_hash, archive_wads = compute_mod_facts(archive)
         folder_facts, folder_hash, folder_wads = compute_mod_facts(folder)
@@ -78,8 +78,8 @@ class ComputeFactsTests(unittest.TestCase):
         self.assertEqual(archive_wads, folder_wads)
 
     def test_the_party_hash_is_party_modes_content_hash(self):
-        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
-        folder = make_folder(self.root / "Shockblade Zed", SKIN)
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN_WITH_KOREAN_WAD)
+        folder = make_folder(self.root / "Shockblade Zed", SKIN_WITH_KOREAN_WAD)
 
         facts, _, _ = compute_mod_facts(archive)
 
@@ -88,7 +88,7 @@ class ComputeFactsTests(unittest.TestCase):
         self.assertEqual(facts.party_hash, custom_mods.mod_hashes(folder)[0])
 
     def test_the_full_hash_is_the_manifests_folder_hash(self):
-        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN_WITH_KOREAN_WAD)
 
         facts, full_hash, wad_hashes = compute_mod_facts(archive)
 
@@ -97,7 +97,7 @@ class ComputeFactsTests(unittest.TestCase):
         self.assertEqual(facts.party_hash, full_hash[:32])
 
     def test_the_champions_and_the_language_table_are_what_the_loading_name_reads(self):
-        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN_WITH_KOREAN_WAD)
         plain = make_archive(self.root / "Plain Zed.fantome", {
             "WAD/Global.en_US.wad.client": make_wad(b"font", path_hash=0x1234),
             "WAD/Zed.wad.client": b"zed",
@@ -106,7 +106,7 @@ class ComputeFactsTests(unittest.TestCase):
         facts, _, _ = compute_mod_facts(archive)
         plain_facts, _, _ = compute_mod_facts(plain)
 
-        self.assertEqual(facts.champion_aliases, ("Zed",))
+        self.assertEqual(facts.champion_aliases, ("Zed",), "never Global")
         self.assertTrue(facts.ships_language_table)
         self.assertFalse(plain_facts.ships_language_table)
         for mod, found in ((archive, facts), (plain, plain_facts)):
@@ -114,7 +114,8 @@ class ComputeFactsTests(unittest.TestCase):
             self.assertEqual(found.ships_language_table, loading_name.ships_language_table(mod))
 
     def test_a_mod_linked_without_its_extension_is_read_as_an_archive(self):
-        archive = make_archive(self.root / "Shockblade Zed", SKIN)
+        linked_as_in_the_mods_folder = self.root / "Shockblade Zed"
+        archive = make_archive(linked_as_in_the_mods_folder, SKIN_WITH_KOREAN_WAD)
 
         facts, _, _ = compute_mod_facts(archive)
 
@@ -143,7 +144,7 @@ class ComputeFactsTests(unittest.TestCase):
 
         self.assertEqual(facts.party_hash, party_hash)
         self.assertEqual(facts.champion_aliases, ("aatrox",))
-        self.assertEqual(list((injection / "mod_facts").iterdir()), [])
+        self.assertEqual(list((injection / "mod_facts").iterdir()), [], "unpacked, then removed")
 
     def test_rose_s_start_removes_the_modpkgs_a_closed_rose_left_unpacked(self):
         injection = self.root / "injection"
@@ -156,7 +157,8 @@ class ComputeFactsTests(unittest.TestCase):
             mod_facts.remove_unpacked_leftovers()
             self.assertEqual(list((injection / "mod_facts").iterdir()), [])
             shutil.rmtree(injection)
-            mod_facts.remove_unpacked_leftovers()
+            with self.subTest("none to remove"):
+                mod_facts.remove_unpacked_leftovers()
 
     def test_a_mod_it_cannot_read_has_no_facts(self):
         broken = self.root / "Broken.fantome"
@@ -168,12 +170,12 @@ class ComputeFactsTests(unittest.TestCase):
             compute_mod_facts(broken)
 
     def test_the_stamp_is_the_size_and_time_of_the_archive(self):
-        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN)
+        archive = make_archive(self.root / "Shockblade Zed.fantome", SKIN_WITH_KOREAN_WAD)
         os.utime(archive, ns=(1_000_000_000, 2_000_000_000))
 
         self.assertEqual(stamp_of(archive), [archive.stat().st_size, 2_000_000_000])
         self.assertIsNone(stamp_of(self.root / "Gone.fantome"))
-        self.assertIsNone(stamp_of(self.root))
+        self.assertIsNone(stamp_of(self.root), "a folder is no archive")
 
 
 class ModpkgSessionTests(LtfSessionTestCase):
@@ -196,7 +198,7 @@ class ModpkgSessionTests(LtfSessionTestCase):
                 patch.object(mod_facts, "extract_modpkg", side_effect=unpacked_as_a_session_starts):
             facts, _, _ = compute_mod_facts(package)
 
-        self.assertEqual(len(FakeBridge.created), 1)
+        self.assertEqual(len(FakeBridge.created), 1, "a session did start")
         self.assertEqual(facts.party_hash, custom_mods.mod_hashes(package)[0])
         self.assertEqual(facts.champion_aliases, ("aatrox",))
 
@@ -216,11 +218,12 @@ class ManifestFactsTests(unittest.TestCase):
 
     def test_an_entry_from_an_older_rose_has_no_facts(self):
         good = self.FACTS.to_manifest()
+        without_ships_language_table = {"partyHash": good["partyHash"], "championAliases": ["Zed"]}
         for entry in (
             {},
             None,
             {"name": "Zed", "targets": [238001]},
-            {"partyHash": good["partyHash"], "championAliases": ["Zed"]},
+            without_ships_language_table,
             dict(good, partyHash="not a hash"),
             dict(good, partyHash="0123456789ABCDEF0123456789ABCDEF"),
             dict(good, championAliases="Zed"),

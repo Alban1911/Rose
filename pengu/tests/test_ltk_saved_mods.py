@@ -106,7 +106,7 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["error"], MISSING)
         self.assertIsNone(self.handler.shared_state.selected_custom_mod)
-        self.injector._clean_mods_dir.assert_not_called()
+        self.assertFalse(self.injector._clean_mods_dir.called, "the mods already picked stay")
 
     def test_dismissing_a_skin_mod_ltk_manager_holds_leaves_the_mods_folder_alone(self):
         self.handler.shared_state.selected_custom_mod = {"champion_id": 81, "source": LtkEntry(MOVED_ID)}

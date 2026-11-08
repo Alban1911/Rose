@@ -26,12 +26,15 @@ class PatcherReconnectTests(unittest.TestCase):
         observed = []
         session = {'ltf': LtfSession(None, rose_started_manager=False), 'error': None, 'done': False}
 
+        def stop_the_loop_the_game_never_ended():
+            session['ltf'].ended = True
+
         def tick(_):
             observed.append(state.phase)
             try:
                 state.phase = next(remaining)
             except StopIteration:
-                session['ltf'].ended = True
+                stop_the_loop_the_game_never_ended()
 
         callback = make_game_ended_callback(state, clock=clock) if clock else make_game_ended_callback(state)
         with patch.object(overlay_manager.time, 'sleep', side_effect=tick), \

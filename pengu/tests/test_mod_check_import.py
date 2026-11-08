@@ -53,7 +53,7 @@ class ModCheckOnImportTests(unittest.TestCase):
         """LTK Manager keeps the mod: the check records its entry, then answers"""
         def check(mod, display_name, on_kept):
             self.assertTrue(on_kept(LTK_ID, stamp=list(stamp) if stamp else None))
-            self.assertTrue(Path(mod).exists())
+            self.assertTrue(Path(mod).exists(), "still Rose's while it is recorded")
             return dict(verdict, ltkId=LTK_ID)
         self.library.check_mod.side_effect = check
 
@@ -73,7 +73,7 @@ class ModCheckOnImportTests(unittest.TestCase):
         mod = self.saved()
         self.assertEqual((mod.ltk_id, mod.rose_copy, mod.pending), (LTK_ID, None, False))
         self.assertEqual(mod.metadata["ltkStamp"], [10, 20])
-        self.assertIsNotNone(mod.facts)
+        self.assertIsNotNone(mod.facts, "read at import, kept")
         self.assertFalse(self.stored.exists())
         self.assertEqual(instance.sent, [{"type": "mod-import-checking", "fileCount": 1}])
 
@@ -83,7 +83,7 @@ class ModCheckOnImportTests(unittest.TestCase):
         kept = self.handler()._check_imported_mods(self.imported, [], MagicMock())
 
         self.assertEqual(kept[0]["health"]["repaired"], 4300)
-        self.assertNotIn("ltkStamp", self.saved().metadata)
+        self.assertNotIn("ltkStamp", self.saved().metadata, "the next sync reads LTK Manager's copy")
         self.assertFalse(self.stored.exists())
 
     def test_a_check_that_did_not_run_leaves_the_mod_pending(self):
@@ -114,7 +114,7 @@ class ModCheckOnImportTests(unittest.TestCase):
         self.assertEqual(kept, [])
         self.assertIsNone(self.saved())
         self.assertFalse(self.stored.exists())
-        self.assertEqual(ltk_removals(self.storage.mods_root), [])
+        self.assertEqual(ltk_removals(self.storage.mods_root), [], "nothing of it was kept in LTK Manager")
         self.assertEqual(errors[0]["code"], "ltk_skinhack")
         self.assertEqual(errors[0]["fileName"], "gojo-ezreal-v1.0.0.fantome")
         self.assertIn("skinhack", errors[0]["error"])

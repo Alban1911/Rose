@@ -46,7 +46,7 @@ class DesktopDirTests(unittest.TestCase):
 
     def test_windows_says_where_the_desktop_is(self):
         self.assertEqual(get_desktop_user_desktop_dir(), ONEDRIVE_DESKTOP)
-        self.assertEqual(self.asked, [(FOLDERID_DESKTOP, None)])
+        self.assertEqual(self.asked, [(FOLDERID_DESKTOP, None)], "this account's")
         self.assertEqual(self.opened, [])
 
     def test_an_elevated_rose_running_as_another_account_asks_for_the_desktop_users(self):
